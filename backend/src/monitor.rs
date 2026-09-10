@@ -5106,152 +5106,310 @@ async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {
     Ok(())
 }
 
+/// Shortest spacing between two stored samples of the same queue metric, so a tag whose
+/// value moves on every monitor round still writes at most one row per interval.
+const QUEUE_METRIC_MIN_INTERVAL_SECS: f64 = 25.0;
+/// A backlogged tag whose value has not moved is re-sampled only this often. The queue metrics
+/// drawer (`QueueMetricsDrawerInner.svelte`, which must be changed with it) treats a series
+/// silent for longer as drained. That is how a tag whose drop to zero was never recorded
+/// (no server was up when it drained) stops being drawn as backlogged. A longer heartbeat
+/// writes fewer rows but keeps such a stale line up for longer.
+const QUEUE_METRIC_HEARTBEAT_SECS: f64 = 5.0 * 60.0;
+/// How far back the last-sample lookup reaches. Must exceed the heartbeat, so a tag that is
+/// still believed backlogged is always found and can be given its closing zero.
+const QUEUE_METRIC_LOOKBACK_SECS: f64 = 2.0 * QUEUE_METRIC_HEARTBEAT_SECS;
+/// Queue delay climbs on its own for as long as a tag stays backlogged, so an exact-value
+/// comparison would never dedup it. Only a move the chart would actually render is stored.
+const QUEUE_DELAY_TOLERANCE: f64 = 0.1;
+
+const QUEUE_COUNT_PREFIX: &str = "queue_count_";
+const QUEUE_DELAY_PREFIX: &str = "queue_delay_";
+
+/// Append the queue metrics the drawer at `GET /workers/queue_metrics` charts, skipping any
+/// sample that repeats what is already stored.
+///
+/// Only tags with a backlog appear in `queue_stats`, and an arbitrary `?tag=` nobody serves
+/// stays backlogged forever, so writing every round would repeat the same pair of rows for
+/// the whole 14-day retention. Each metric is written when its value moves, once per
+/// heartbeat while it holds, and once more (as a zero) when the tag drains. Gaps therefore
+/// mean "unchanged since the last row", which is what the chart interpolates.
+async fn save_queue_metrics(
+    db: &Pool<Postgres>,
+    queue_stats: &std::collections::HashMap<String, windmill_common::queue::QueueStat>,
+) {
+    let sampled_ids = queue_stats
+        .keys()
+        .flat_map(|tag| {
+            [
+                format!("{QUEUE_COUNT_PREFIX}{tag}"),
+                format!("{QUEUE_DELAY_PREFIX}{tag}"),
+            ]
+        })
+        .collect::<Vec<_>>();
+
+    // Last stored sample of every metric that either has a backlog now or was written
+    // recently enough to still be believed backlogged. Bounding the lookup by the window keeps
+    // it cheap at any `metrics` size; a per-id `ORDER BY created_at DESC LIMIT 1` does not,
+    // since the planner may serve it from `metrics_sort_idx` and walk the whole table.
+    let last_samples = match sqlx::query!(
+        "SELECT COALESCE(c.id, r.id) AS \"id!\", r.value AS \"value?\",
+            EXTRACT(EPOCH FROM now() - r.created_at)::double precision AS \"age?\"
+        FROM unnest($1::text[]) AS c(id)
+        FULL JOIN (
+            SELECT DISTINCT ON (id) id, value, created_at
+            FROM metrics
+            WHERE id LIKE 'queue_%' AND created_at > now() - make_interval(secs => $2)
+            ORDER BY id, created_at DESC
+        ) r ON r.id = c.id",
+        &sampled_ids[..],
+        QUEUE_METRIC_LOOKBACK_SECS,
+    )
+    .fetch_all(db)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::error!("Failed to read last queue metrics samples: {e:#}");
+            return;
+        }
+    };
+
+    let mut ids = vec![];
+    let mut values = vec![];
+    for row in last_samples {
+        let Some((prefix, tag)) = [QUEUE_COUNT_PREFIX, QUEUE_DELAY_PREFIX]
+            .into_iter()
+            .find_map(|p| row.id.strip_prefix(p).map(|tag| (p, tag)))
+        else {
+            continue;
+        };
+        // A stored value that is not a number cannot be compared, so the next reading is kept.
+        let last = row.value.as_ref().and_then(|v| v.as_f64()).zip(row.age);
+        let stat = queue_stats.get(tag);
+        let current = stat.map(|stat| {
+            if prefix == QUEUE_COUNT_PREFIX {
+                stat.count as f64
+            } else {
+                stat.delay
+            }
+        });
+
+        if should_store(prefix, last, current) {
+            values.push(match (stat, prefix) {
+                (None, _) => serde_json::json!(0),
+                (Some(stat), QUEUE_COUNT_PREFIX) => serde_json::json!(stat.count),
+                (Some(stat), _) => serde_json::json!(stat.delay),
+            });
+            ids.push(row.id);
+        }
+    }
+
+    if ids.is_empty() {
+        return;
+    }
+    if let Err(e) = sqlx::query!(
+        "INSERT INTO metrics (id, value) SELECT * FROM unnest($1::text[], $2::jsonb[])",
+        &ids[..],
+        &values[..],
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Failed to save queue metrics: {e:#}");
+    }
+}
+
+/// Whether a reading deserves a row of its own, given the last one stored for that metric:
+/// its value and how many seconds ago it was written. `current` is `None` once the tag has
+/// no backlog left.
+fn should_store(prefix: &str, last: Option<(f64, f64)>, current: Option<f64>) -> bool {
+    let Some((last_value, age)) = last else {
+        // Nothing comparable within the lookback window: a tag that just backed up needs a
+        // first sample, one that was already gone needs nothing.
+        return current.is_some();
+    };
+    let Some(current) = current else {
+        // The tag drained. One zero pins where the line drops; after that the metric matches
+        // and goes quiet, then falls out of the lookback window entirely.
+        return last_value != 0.0;
+    };
+    if age >= QUEUE_METRIC_HEARTBEAT_SECS {
+        return true;
+    }
+    age >= QUEUE_METRIC_MIN_INTERVAL_SECS
+        && if prefix == QUEUE_COUNT_PREFIX {
+            last_value != current
+        } else {
+            (current - last_value).abs() > last_value.abs() * QUEUE_DELAY_TOLERANCE
+        }
+}
+
+#[cfg(test)]
+mod queue_metric_sampling {
+    use super::*;
+
+    const RECENT: f64 = QUEUE_METRIC_MIN_INTERVAL_SECS + 1.0;
+
+    #[test]
+    fn a_holding_backlog_writes_only_on_the_heartbeat() {
+        let held = Some((3.0, RECENT));
+        assert!(!should_store(QUEUE_COUNT_PREFIX, held, Some(3.0)));
+        assert!(should_store(
+            QUEUE_COUNT_PREFIX,
+            Some((3.0, QUEUE_METRIC_HEARTBEAT_SECS)),
+            Some(3.0)
+        ));
+        // Delay climbs on its own, so only a move past the tolerance counts as a change.
+        assert!(!should_store(
+            QUEUE_DELAY_PREFIX,
+            Some((100.0, RECENT)),
+            Some(105.0)
+        ));
+        assert!(should_store(
+            QUEUE_DELAY_PREFIX,
+            Some((100.0, RECENT)),
+            Some(120.0)
+        ));
+    }
+
+    #[test]
+    fn a_drained_tag_writes_one_zero_then_stops() {
+        assert!(should_store(QUEUE_COUNT_PREFIX, Some((3.0, RECENT)), None));
+        assert!(!should_store(QUEUE_COUNT_PREFIX, Some((0.0, RECENT)), None));
+        // Including once the heartbeat is due: a tag that is gone stays silent.
+        assert!(!should_store(
+            QUEUE_COUNT_PREFIX,
+            Some((0.0, QUEUE_METRIC_LOOKBACK_SECS)),
+            None
+        ));
+        assert!(!should_store(QUEUE_COUNT_PREFIX, None, None));
+    }
+
+    #[test]
+    fn a_change_waits_for_the_minimum_interval() {
+        assert!(!should_store(
+            QUEUE_COUNT_PREFIX,
+            Some((3.0, 1.0)),
+            Some(9.0)
+        ));
+        assert!(should_store(
+            QUEUE_COUNT_PREFIX,
+            Some((3.0, RECENT)),
+            Some(9.0)
+        ));
+        // A tag that has just backed up is recorded at once.
+        assert!(should_store(QUEUE_COUNT_PREFIX, None, Some(9.0)));
+    }
+}
+
 pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
-    let last_check = sqlx::query_scalar!(
-            "SELECT created_at FROM metrics WHERE id LIKE 'queue_count_%' ORDER BY created_at DESC LIMIT 1"
-        )
-        .fetch_optional(db)
-        .await
-        .unwrap_or(Some(chrono::Utc::now()));
-
     let metrics_enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
-    let save_metrics = last_check
-        .map(|last_check| chrono::Utc::now() - last_check > chrono::Duration::seconds(25))
-        .unwrap_or(true);
 
-    if metrics_enabled || save_metrics || OTEL_METRICS_ENABLED.load(Ordering::Relaxed) {
-        let queue_counts = windmill_common::queue::get_queue_counts(db).await;
+    let queue_stats = windmill_common::queue::get_queue_stats(db).await;
+
+    #[cfg(feature = "prometheus")]
+    if metrics_enabled {
+        for q in QUEUE_COUNT_TAGS.read().await.iter() {
+            if queue_stats.get(q).is_none() {
+                (*QUEUE_COUNT).with_label_values(&[q]).set(0);
+            }
+        }
+    }
+
+    let otel_enabled = OTEL_METRICS_ENABLED.load(Ordering::Relaxed);
+
+    if otel_enabled {
+        for q in OTEL_QUEUE_COUNT_TAGS.read().await.iter() {
+            if queue_stats.get(q).is_none() {
+                otel_set_queue_count(q, 0);
+            }
+        }
+    }
+
+    #[allow(unused_mut)]
+    let mut tags_to_watch = vec![];
+    #[allow(unused_mut)]
+    let mut otel_tags_to_watch = vec![];
+    for (tag, stat) in queue_stats.iter() {
+        let count = stat.count;
 
         #[cfg(feature = "prometheus")]
         if metrics_enabled {
-            for q in QUEUE_COUNT_TAGS.read().await.iter() {
-                if queue_counts.get(q).is_none() {
-                    (*QUEUE_COUNT).with_label_values(&[q]).set(0);
-                }
-            }
+            let metric = (*QUEUE_COUNT).with_label_values(&[tag]);
+            metric.set(count as i64);
+            tags_to_watch.push(tag.to_string());
         }
-
-        let otel_enabled = OTEL_METRICS_ENABLED.load(Ordering::Relaxed);
 
         if otel_enabled {
-            for q in OTEL_QUEUE_COUNT_TAGS.read().await.iter() {
-                if queue_counts.get(q).is_none() {
-                    otel_set_queue_count(q, 0);
-                }
-            }
+            otel_tags_to_watch.push(tag.to_string());
         }
+        otel_set_queue_count(tag, count as i64);
+    }
 
-        #[allow(unused_mut)]
-        let mut tags_to_watch = vec![];
-        #[allow(unused_mut)]
-        let mut otel_tags_to_watch = vec![];
-        for q in queue_counts {
-            let count = q.1;
-            let tag = q.0;
+    save_queue_metrics(db, &queue_stats).await;
 
-            #[cfg(feature = "prometheus")]
-            if metrics_enabled {
-                let metric = (*QUEUE_COUNT).with_label_values(&[&tag]);
-                metric.set(count as i64);
-                tags_to_watch.push(tag.to_string());
-            }
+    if metrics_enabled {
+        let mut w = QUEUE_COUNT_TAGS.write().await;
+        *w = tags_to_watch;
+    }
+    if otel_enabled {
+        let mut w = OTEL_QUEUE_COUNT_TAGS.write().await;
+        *w = otel_tags_to_watch;
+    }
 
-            if otel_enabled {
-                otel_tags_to_watch.push(tag.to_string());
-            }
-            otel_set_queue_count(&tag, count as i64);
+    // Single DB query for running counts, shared by Prometheus and OTel
+    let otel_running = otel_enabled;
+    #[cfg(feature = "prometheus")]
+    let need_running_counts = metrics_enabled || otel_running;
+    #[cfg(not(feature = "prometheus"))]
+    let need_running_counts = otel_running;
 
-            // save queue_count and delay metrics per tag
-            if save_metrics {
-                sqlx::query!(
-                    "INSERT INTO metrics (id, value) VALUES ($1, $2)",
-                    format!("queue_count_{}", tag),
-                    serde_json::json!(count)
-                )
-                .execute(db)
-                .await
-                .ok();
-                if count > 0 {
-                    sqlx::query!(
-                        "INSERT INTO metrics (id, value)
-                        VALUES ($1, to_jsonb((
-                            SELECT EXTRACT(EPOCH FROM now() - scheduled_for)
-                            FROM v2_job_queue
-                            WHERE tag = $2 AND running = false AND scheduled_for <= now() - ('3 seconds')::interval
-                            ORDER BY priority DESC NULLS LAST, scheduled_for LIMIT 1
-                        )))",
-                        format!("queue_delay_{}", tag),
-                        tag
-                    )
-                    .execute(db)
-                    .await
-                    .ok();
-                }
-            }
-        }
-        if metrics_enabled {
-            let mut w = QUEUE_COUNT_TAGS.write().await;
-            *w = tags_to_watch;
-        }
-        if otel_enabled {
-            let mut w = OTEL_QUEUE_COUNT_TAGS.write().await;
-            *w = otel_tags_to_watch;
-        }
+    if need_running_counts {
+        let queue_running_counts = windmill_common::queue::get_queue_running_counts(db).await;
 
-        // Single DB query for running counts, shared by Prometheus and OTel
-        let otel_running = otel_enabled;
         #[cfg(feature = "prometheus")]
-        let need_running_counts = metrics_enabled || otel_running;
-        #[cfg(not(feature = "prometheus"))]
-        let need_running_counts = otel_running;
+        if metrics_enabled {
+            for q in QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
+                if queue_running_counts.get(q).is_none() {
+                    (*QUEUE_RUNNING_COUNT).with_label_values(&[q]).set(0);
+                }
+            }
+        }
 
-        if need_running_counts {
-            let queue_running_counts = windmill_common::queue::get_queue_running_counts(db).await;
+        if otel_running {
+            for q in OTEL_QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
+                if queue_running_counts.get(q).is_none() {
+                    otel_set_queue_running_count(q, 0);
+                }
+            }
+        }
 
+        #[allow(unused_mut, unused_variables)]
+        let mut running_tags_to_watch: Vec<String> = vec![];
+        #[allow(unused_mut, unused_variables)]
+        let mut otel_running_tags_to_watch: Vec<String> = vec![];
+        for (tag, count) in &queue_running_counts {
             #[cfg(feature = "prometheus")]
             if metrics_enabled {
-                for q in QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
-                    if queue_running_counts.get(q).is_none() {
-                        (*QUEUE_RUNNING_COUNT).with_label_values(&[q]).set(0);
-                    }
-                }
+                let metric = (*QUEUE_RUNNING_COUNT).with_label_values(&[tag]);
+                metric.set(*count as i64);
+                running_tags_to_watch.push(tag.to_string());
             }
 
             if otel_running {
-                for q in OTEL_QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
-                    if queue_running_counts.get(q).is_none() {
-                        otel_set_queue_running_count(q, 0);
-                    }
-                }
+                otel_set_queue_running_count(tag, *count as i64);
+                otel_running_tags_to_watch.push(tag.to_string());
             }
+        }
 
-            #[allow(unused_mut, unused_variables)]
-            let mut running_tags_to_watch: Vec<String> = vec![];
-            #[allow(unused_mut, unused_variables)]
-            let mut otel_running_tags_to_watch: Vec<String> = vec![];
-            for (tag, count) in &queue_running_counts {
-                #[cfg(feature = "prometheus")]
-                if metrics_enabled {
-                    let metric = (*QUEUE_RUNNING_COUNT).with_label_values(&[tag]);
-                    metric.set(*count as i64);
-                    running_tags_to_watch.push(tag.to_string());
-                }
-
-                if otel_running {
-                    otel_set_queue_running_count(tag, *count as i64);
-                    otel_running_tags_to_watch.push(tag.to_string());
-                }
-            }
-
-            #[cfg(feature = "prometheus")]
-            if metrics_enabled {
-                let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
-                *w = running_tags_to_watch;
-            }
-            if otel_running {
-                let mut w = OTEL_QUEUE_RUNNING_COUNT_TAGS.write().await;
-                *w = otel_running_tags_to_watch;
-            }
+        #[cfg(feature = "prometheus")]
+        if metrics_enabled {
+            let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
+            *w = running_tags_to_watch;
+        }
+        if otel_running {
+            let mut w = OTEL_QUEUE_RUNNING_COUNT_TAGS.write().await;
+            *w = otel_running_tags_to_watch;
         }
     }
 

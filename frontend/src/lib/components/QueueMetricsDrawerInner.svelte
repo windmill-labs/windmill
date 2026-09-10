@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import 'chartjs-adapter-date-fns'
 	import { Line } from '$lib/components/chartjs-wrappers/chartJs'
@@ -73,51 +73,62 @@
 
 	let noMetrics = $state(false)
 
-	function fillData(
+	// The sampler only records a queue metric when its value moves, plus a heartbeat while a
+	// tag stays backlogged and a closing zero once it drains, so a gap means "unchanged" and
+	// the lines are drawn stepped. A series that went quiet for longer than the heartbeat
+	// allows never got its closing zero (no server was up when the tag drained), so it reads
+	// as zero from that point on. Must match QUEUE_METRIC_HEARTBEAT_SECS in backend/src/monitor.rs.
+	const HEARTBEAT_MS = 5 * 60 * 1000
+	const STALE_AFTER_MS = 2 * HEARTBEAT_MS
+
+	function toPoints(
 		data: {
 			created_at: string
 			value: number
 		}[],
-		zero = 0
-	) {
-		// fill holes with 0
-		const sorted: typeof data = []
-		for (const el of [
-			...data,
-			{
-				created_at: new Date().toISOString(),
-				value: zero
+		tolerance: number
+	): Point[] {
+		const points: Point[] = []
+		let lastSampleTs: number | undefined
+		let lastValue: number | undefined
+
+		function push(x: number, y: number) {
+			points.push({ x, y })
+			lastValue = y
+		}
+		function bridge(until: number) {
+			if (lastSampleTs != undefined && until - lastSampleTs > STALE_AFTER_MS && lastValue !== 0) {
+				push(lastSampleTs + STALE_AFTER_MS, 0)
 			}
-		]) {
-			const last =
-				sorted.length > 0 ? new Date(sorted[sorted.length - 1].created_at).getTime() : undefined
-			const currentTs = new Date(el.created_at).getTime()
-			if (last && currentTs - last > 1000 * 60 * 2) {
-				const numElements = Math.floor((currentTs - last) / (1000 * 30))
-				for (let i = 1; i < numElements; i++) {
-					sorted.push({
-						created_at: new Date(last + i * (1000 * 30)).toISOString(),
-						value: zero
-					})
-				}
-			}
-			sorted.push(el)
 		}
 
-		// remove high frequency data points for similar values
-		const light: typeof sorted = []
-		for (const el of sorted) {
-			const last = light.length > 0 ? light[light.length - 1] : undefined
+		for (const el of data) {
+			const ts = new Date(el.created_at).getTime()
+			bridge(ts)
+			// Keep only points that move the line: a heartbeat repeats the value in force, which
+			// stepped drawing renders identically.
 			if (
-				!last ||
-				Math.abs((el.value - last.value) / last.value) > 0.1 ||
-				new Date(el.created_at).getTime() - new Date(last.created_at).getTime() > 1000 * 60 * 15
+				lastValue == undefined ||
+				Math.abs(el.value - lastValue) > Math.abs(lastValue) * tolerance
 			) {
-				light.push(el)
+				push(ts, el.value)
 			}
+			lastSampleTs = ts
 		}
 
-		return light
+		if (lastSampleTs != undefined) {
+			const now = Date.now()
+			bridge(now)
+			// Carry the value in force to the right edge of the chart.
+			push(now, lastValue!)
+		}
+		return points
+	}
+
+	// Delay is drawn on a log scale, which cannot plot 0, so a drained tag is pinned to 1 and
+	// the tooltip reads it back as 0.
+	function asLogSafe(points: Point[]): Point[] {
+		return points.map((p) => ({ x: p.x, y: p.y === 0 ? 1 : p.y }))
 	}
 
 	async function loadMetrics() {
@@ -145,7 +156,8 @@
 						label: m.id.slice(12),
 						backgroundColor: bgColor,
 						borderColor: color,
-						data: fillData(m.values).map((v) => ({ x: v.created_at as any, y: v.value }))
+						stepped: 'after' as const,
+						data: toPoints(m.values, 0)
 					}
 				})
 		}
@@ -159,22 +171,18 @@
 						label: m.id.slice(12),
 						borderColor: color,
 						backgroundColor: bgColor,
-						data: fillData(m.values, 1).map((v) => ({
-							x: v.created_at as any,
-							y: v.value
-						}))
+						stepped: 'after' as const,
+						// Delay climbs on its own while a tag stays backlogged; the sampler stores a
+						// new row only once it has moved by 10%, so hold the chart to the same step.
+						data: asLogSafe(toPoints(m.values, 0.1))
 					}
 				})
 		}
 
-		minDate = new Date(
-			Math.min(
-				...countData.datasets
-					.map((x) => x.data[0].x)
-					.filter((x) => x != null)
-					.map((d) => new Date(d).getTime())
-			)
-		)
+		const firstTs = [...countData.datasets, ...delayData.datasets]
+			.map((d) => d.data[0]?.x)
+			.filter((x) => x != undefined)
+		minDate = firstTs.length > 0 ? new Date(Math.min(...firstTs)) : new Date()
 
 		loading = false
 	}
@@ -185,10 +193,10 @@
 
 	run(() => {
 		ChartJS.defaults.color = darkMode ? '#ccc' : '#666'
-	});
+	})
 	run(() => {
 		ChartJS.defaults.borderColor = darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
-	});
+	})
 </script>
 
 <DarkModeObserver bind:darkMode />
