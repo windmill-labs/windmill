@@ -1398,7 +1398,7 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 /**
  * Recursively normalizes JSON Schema quirks that specific providers reject.
  */
-function normalizeToolParameterSchema(schema: Record<string, any> | undefined): void {
+export function normalizeToolParameterSchema(schema: Record<string, any> | undefined): void {
 	if (!schema || typeof schema !== 'object') {
 		return
 	}

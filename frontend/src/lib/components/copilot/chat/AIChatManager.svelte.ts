@@ -4170,6 +4170,11 @@ export class AIChatManager {
 		this.#syncMessageFiles()
 		this.syncArtifactsSession()
 		this.planMode.resetRound()
+		// Remote MCP tools are registered by a search in the conversation being left.
+		// Carrying them forward would put their schemas in the next conversation's tool
+		// list — the cost the search indirection exists to avoid — and offer the model a
+		// remote tool nobody there asked for.
+		forgetLoadedMcpTools()
 		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
 
@@ -4221,6 +4226,7 @@ export class AIChatManager {
 			this.#automaticScroll = true
 			this.syncArtifactsSession()
 			this.planMode.resetRound()
+			forgetLoadedMcpTools()
 			this.onChatRotated?.(id)
 		}
 	}

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { ResourceService, type GetMcpToolsResponse } from '$lib/gen'
-import { createToolDef, type Tool } from '../shared'
+import { createToolDef, normalizeToolParameterSchema, type Tool } from '../shared'
 import { enabledMcpPaths } from '$lib/components/mcp/enabledServers'
 
 /**
@@ -78,9 +78,11 @@ export function clearMcpToolsCache() {
 }
 
 /**
- * Remote tools promoted to first-class chat tools for this session, keyed
- * `${server}::${tool}`. `chatLoop` re-reads its tool list on every iteration, so
- * one registered while a call is running is callable on the next one.
+ * Remote tools promoted to first-class chat tools for the current conversation,
+ * keyed `${server}::${tool}`. `chatLoop` re-reads its tool list on every iteration,
+ * so one registered while a call is running is callable on the next one, and the
+ * whole set is dropped when the conversation rotates — a tool the model was never
+ * told about in a fresh chat should not be in its list, nor its schema in the bill.
  *
  * A registered tool is a frozen copy of an input schema *and* of `readOnlyHint`,
  * which is the thing `TOOLS_CACHE_TTL_MS` exists to bound — so these are dropped
@@ -530,7 +532,12 @@ function safeInputSchema(schema: unknown): Record<string, unknown> {
 				)
 			]
 		: []
-	return { ...rest, type: 'object', properties, required }
+	const safe = { ...rest, type: 'object', properties, required }
+	// The same pass `createToolDef` runs on every other tool, so a remote schema is not
+	// the one that reaches a provider unnormalized. It recurses, which this does not:
+	// Windmill's own MCP server emits `format: ""` on untyped fields.
+	normalizeToolParameterSchema(safe)
+	return safe
 }
 
 function evictLoadedTools() {

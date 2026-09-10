@@ -11,7 +11,20 @@ vi.mock('../shared', () => ({
 	createToolDef: (_schema: unknown, name: string, description: string) => ({
 		type: 'function',
 		function: { name, description, parameters: {} }
-	})
+	}),
+	// Mirrors the real normalizer closely enough to keep assertions about what
+	// reaches a provider honest: it strips empty/null `format`, recursively.
+	normalizeToolParameterSchema: function strip(schema: any): void {
+		if (!schema || typeof schema !== 'object') return
+		if (schema.format === null || schema.format === '') delete schema.format
+		for (const child of Object.values(schema.properties ?? {})) strip(child)
+		if (Array.isArray(schema.items)) schema.items.forEach(strip)
+		else strip(schema.items)
+		for (const kw of ['allOf', 'anyOf', 'oneOf']) {
+			if (Array.isArray(schema[kw])) schema[kw].forEach(strip)
+		}
+		if (typeof schema.additionalProperties === 'object') strip(schema.additionalProperties)
+	}
 }))
 
 vi.mock('$lib/gen', () => ({
@@ -194,7 +207,9 @@ describe('loaded remote tools', () => {
 				inputSchema: {
 					$schema: 'https://json-schema.org/draft/2020-12/schema',
 					type: 'string',
-					properties: { a: { type: 'string' } },
+					// `format: ''` is what Windmill's own MCP server emits for an untyped
+					// field, and only the recursive normalizer removes it.
+					properties: { a: { type: 'string', format: '' } },
 					required: ['a', 'a', 'ghost']
 				}
 			} as any
@@ -204,6 +219,7 @@ describe('loaded remote tools', () => {
 		expect(params.type).toBe('object')
 		expect(params.required).toEqual(['a'])
 		expect(params.$schema).toBeUndefined()
+		expect(params.properties.a.format).toBeUndefined()
 	})
 
 	it('falls back to an empty object schema when the remote sends no usable one', () => {
