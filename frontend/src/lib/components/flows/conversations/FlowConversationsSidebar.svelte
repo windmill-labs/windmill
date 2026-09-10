@@ -83,6 +83,11 @@
 		all: 'All'
 	}
 
+	/** A turn is running and this is not the chat it is running in. */
+	function rowLocked(conversation: ConversationWithDraft): boolean {
+		return manager.isTurnInFlight && manager.selectedConversationId !== conversation.id
+	}
+
 	function getConversationTitle(conversation: FlowConversation): string {
 		return conversation.title || `Conversation ${conversation.created_at.slice(0, 10)}`
 	}
@@ -122,7 +127,10 @@
 					variant="subtle"
 					startIcon={{ icon: Plus, classes: 'ml-[2px]' }}
 					onClick={() => manager.createConversation({ clearMessages: true })}
-					title="Start new conversation"
+					disabled={manager.isTurnInFlight}
+					title={manager.isTurnInFlight
+						? 'Wait for the current answer to start a new chat'
+						: 'Start new conversation'}
 					iconOnly={!manager.isSidebarExpanded}
 					wrapperClasses={manager.isSidebarExpanded ? 'grow min-w-0' : ''}
 					btnClasses={'w-full justify-start transition-all duration-150 whitespace-nowrap'}
@@ -245,6 +253,10 @@
 								variant="subtle"
 								onClick={() => manager.selectConversation(conversation.id, conversation.isDraft)}
 								selected={manager.selectedConversationId === conversation.id}
+								disabled={rowLocked(conversation)}
+								title={rowLocked(conversation)
+									? 'Wait for the current answer to switch conversation'
+									: undefined}
 								btnClasses="transition-all duration-150 group"
 							>
 								{#if conversation.is_test}
@@ -255,17 +267,22 @@
 								<span class="flex-1 text-left truncate">
 									{getConversationTitle(conversation)}
 								</span>
-								<!-- svelte-ignore a11y_click_events_have_key_events -->
-								<!-- svelte-ignore a11y_no_static_element_interactions -->
-								<div
-									class={twMerge(
-										'ml-2 transition-all duration-100 opacity-0 group-hover:opacity-100',
-										manager.deletingConversationId === conversation.id ? 'opacity-100' : ''
-									)}
-									onclick={(e) => e.stopPropagation()}
-								>
-									<DropdownV2 items={() => rowActions(conversation)} size="xs" />
-								</div>
+								<!-- Hidden while the row is disabled: it sits inside the row's button, and a
+								     disabled button swallows every click in its subtree, so a visible menu
+								     here would be an affordance that does nothing. -->
+								{#if !rowLocked(conversation)}
+									<!-- svelte-ignore a11y_click_events_have_key_events -->
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
+									<div
+										class={twMerge(
+											'ml-2 transition-all duration-100 opacity-0 group-hover:opacity-100',
+											manager.deletingConversationId === conversation.id ? 'opacity-100' : ''
+										)}
+										onclick={(e) => e.stopPropagation()}
+									>
+										<DropdownV2 items={() => rowActions(conversation)} size="xs" />
+									</div>
+								{/if}
 							</Button>
 						{/if}
 					</div>

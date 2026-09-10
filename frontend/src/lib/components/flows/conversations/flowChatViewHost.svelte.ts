@@ -280,6 +280,9 @@ export class FlowChatViewHost implements ChatViewHost {
 			)
 		}
 		const attachments = [...images, ...blobs]
+		// Read before the upload below: the reader can pick another chat while it runs, and
+		// the turn belongs to the one they sent it from.
+		const conversationId = this.#manager.selectedConversationId
 		let sentInputs: MessageInputs | undefined
 		if (target && attachments.length > 0) {
 			this.#uploading = true
@@ -315,7 +318,8 @@ export class FlowChatViewHost implements ChatViewHost {
 					Object.entries(this.#sentInputs).filter(([id]) => live.has(id))
 				)
 				this.#sentInputs = { ...kept, [rowId]: sentInputs }
-			}
+			},
+			conversationId
 		)
 		return true
 	}

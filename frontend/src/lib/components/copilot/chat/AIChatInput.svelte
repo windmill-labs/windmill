@@ -237,7 +237,11 @@
 			pendingFiles +
 			draft.blobs.length +
 			pendingBlobs
-		return Math.min(laneRemaining, Math.max(0, turnCap - staged))
+		// A queue counts too: what is held mid-run merges into one turn on flush, so a
+		// second file accepted now would be dropped there instead of refused here.
+		const queued =
+			chatHost.queuedImages.length + chatHost.queuedFiles.length + chatHost.queuedBlobs.length
+		return Math.min(laneRemaining, Math.max(0, turnCap - staged - queued))
 	}
 
 	/** What to say when the host's own limit is the one that bit. */

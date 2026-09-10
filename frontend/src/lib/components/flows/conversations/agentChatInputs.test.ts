@@ -1,6 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { agentModelGap, parseProviderTransform, resolveAgentModelWiring } from './agentChatInputs'
+import {
+	agentModelGap,
+	parseProviderTransform,
+	resolveAgentChatInputs,
+	resolveAgentModelWiring
+} from './agentChatInputs'
 import type { FlowModule } from '$lib/gen'
+
+/** An agent step with the given input transforms, as the editor stores them. */
+function agentWith(input_transforms: Record<string, any>): FlowModule {
+	return {
+		id: 'a',
+		value: { type: 'aiagent', tools: [], input_transforms }
+	} as unknown as FlowModule
+}
 
 function agent(expr: string): FlowModule {
 	return {
@@ -89,6 +102,34 @@ describe('parseProviderTransform', () => {
 	})
 })
 
+describe('resolveAgentChatInputs', () => {
+	const schema = { properties: { files: { type: 'array' } }, required: [] }
+	const reader = (name: string) =>
+		agentWith({ user_attachments: { type: 'javascript', expr: `flow_input.${name}` } })
+	// Every agent step carries a placeholder transform for each key of AI_AGENT_SCHEMA
+	// (loadSchemaFromModule writes them back onto the module), so an agent that reads
+	// nothing must not be mistaken for one reading a different input.
+	const seeded = () => agentWith({ user_attachments: { type: 'static', value: undefined } })
+
+	it('promotes the input one agent reads', () => {
+		expect(resolveAgentChatInputs([reader('files')], schema).map((i) => i.name)).toEqual(['files'])
+	})
+
+	it('still promotes it when another agent leaves the field unwired', () => {
+		expect(resolveAgentChatInputs([reader('files'), seeded()], schema).map((i) => i.name)).toEqual([
+			'files'
+		])
+	})
+
+	it('promotes nothing when two agents read different inputs', () => {
+		const twoInputs = {
+			properties: { files: { type: 'array' }, docs: { type: 'array' } },
+			required: []
+		}
+		expect(resolveAgentChatInputs([reader('files'), reader('docs')], twoInputs)).toEqual([])
+	})
+})
+
 describe('resolveAgentModelWiring', () => {
 	const fixedResource = `"kind": "anthropic", "resource": "$res:u/admin/claude"`
 
@@ -132,7 +173,12 @@ describe('resolveAgentModelWiring', () => {
 				}
 			}
 		]
-		expect(resolveAgentModelWiring([parent])).toEqual({ whole: 'model', fields: {}, fixed: {} })
+		expect(resolveAgentModelWiring([parent])).toEqual({
+			whole: 'model',
+			fields: {},
+			fixed: {},
+			someAgentCannotRun: false
+		})
 	})
 
 	// The control writes one flow input; an agent that fixes the field instead never reads
@@ -144,7 +190,6 @@ describe('resolveAgentModelWiring', () => {
 		])
 		expect(wiring?.fields.model).toBeUndefined()
 		expect(wiring?.fixed.model).toBeUndefined()
-		expect(wiring?.undecided).toContain('model')
 	})
 
 	// Disagreeing about the model is not the same as having no model: the flow runs, on a
@@ -161,6 +206,29 @@ describe('resolveAgentModelWiring', () => {
 		expect(
 			agentModelGap(resolveAgentModelWiring([agent(`({ "kind": "openai", "model": "" })`)]))
 		).toBe('Pick a provider and model on the AI agent step to use this chat.')
+	})
+
+	// An expression the parser cannot account for could supply anything, so the agents it
+	// belongs to cannot be spoken for either.
+	it("offers nothing when one agent's provider cannot be read", () => {
+		expect(
+			resolveAgentModelWiring([
+				agent(`({ ${fixedResource}, model: flow_input.model })`),
+				agent(`({ ...base, model: flow_input.model })`)
+			])
+		).toBeUndefined()
+	})
+
+	// Disagreement is not the same as absence, but an agent with an empty model still
+	// cannot run, however well its neighbour is configured.
+	it('keeps warning when one agent has no model and another does', () => {
+		const wiring = resolveAgentModelWiring([
+			agent(`({ ${fixedResource}, "model": "claude-sonnet-5" })`),
+			agent(`({ ${fixedResource}, "model": "" })`)
+		])
+		expect(agentModelGap(wiring)).toBe(
+			'Pick a provider and model on the AI agent step to use this chat.'
+		)
 	})
 
 	it('refuses a flow mixing whole-object and field-by-field wiring', () => {

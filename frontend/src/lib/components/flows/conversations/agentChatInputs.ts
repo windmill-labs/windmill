@@ -107,12 +107,11 @@ export type AgentModelWiring = {
 	fields: Partial<Record<ProviderField, string>>
 	fixed: Partial<Record<ProviderField, any>>
 	/**
-	 * Fields the agents supply differently from one another — one reading an input where
-	 * another writes a literal, or two literals that disagree. Neither editable nor known,
-	 * and told apart from a field nobody supplies at all: a control offered here would
-	 * govern one agent while the rest ran on something else.
+	 * One of the agents names no resource or no model of its own and no flow input feeds
+	 * it, so that agent's run fails whatever the others do. Held apart from the fields,
+	 * which describe what the composer may offer.
 	 */
-	undecided?: ProviderField[]
+	someAgentCannotRun?: boolean
 }
 
 /** The flow input behind `flow_input.x`, `flow_input?.x` or `flow_input['x']`. */
@@ -200,6 +199,13 @@ type FieldSupply =
 	| { kind: 'fixed'; value: any }
 	| { kind: 'absent' }
 
+/** Whether one agent supplies a field with nothing usable: no input, and no literal. */
+function agentFieldEmpty(wiring: AgentModelWiring, field: ProviderField): boolean {
+	if (wiring.fields[field] !== undefined) return false
+	const value = wiring.fixed[field]
+	return value === undefined || value === ''
+}
+
 function fieldSupply(wiring: AgentModelWiring, field: ProviderField): FieldSupply {
 	const name = wiring.fields[field]
 	if (name !== undefined) return { kind: 'wired', name }
@@ -219,35 +225,44 @@ function fieldSupply(wiring: AgentModelWiring, field: ProviderField): FieldSuppl
 export function resolveAgentModelWiring(
 	modules: FlowModule[] | undefined
 ): AgentModelWiring | undefined {
-	const wirings = agentSteps(modules)
-		.map((agent) => parseProviderTransform((agent.value as any).input_transforms?.['provider']))
-		.filter((wiring): wiring is AgentModelWiring => wiring !== undefined)
-	if (wirings.length === 0) return undefined
-	if (wirings.length === 1) return wirings[0]
+	const agents = agentSteps(modules)
+	const parsed = agents.map((agent) =>
+		parseProviderTransform((agent.value as any).input_transforms?.['provider'])
+	)
+	if (parsed.length === 0) return undefined
+	// An agent whose provider cannot be read is an agent the composer cannot speak for:
+	// dropping it would let the rest declare a control that governs only some of them.
+	if (parsed.some((wiring) => wiring === undefined)) return undefined
+	const wirings = parsed as AgentModelWiring[]
+	// Whether any single agent has nothing to call, which stays true however the others
+	// are wired — the gap message is about that agent, not about their agreement.
+	const someAgentCannotRun = wirings.some(
+		(wiring) =>
+			!wiring.whole && (agentFieldEmpty(wiring, 'resource') || agentFieldEmpty(wiring, 'model'))
+	)
+	if (wirings.length === 1) return { ...wirings[0], someAgentCannotRun }
 
 	const wholes = new Set(wirings.map((w) => w.whole))
 	if (wholes.size === 1 && !wholes.has(undefined)) {
-		return { whole: [...wholes][0], fields: {}, fixed: {} }
+		return { whole: [...wholes][0], fields: {}, fixed: {}, someAgentCannotRun }
 	}
 	if (wirings.some((w) => w.whole !== undefined)) return undefined
 
 	const fields: AgentModelWiring['fields'] = {}
 	const fixed: AgentModelWiring['fixed'] = {}
-	const undecided: ProviderField[] = []
 	for (const field of PROVIDER_FIELDS) {
 		// Every agent has to supply the field the same way for the composer to speak for
 		// them all. One wired name among agents that otherwise fix it is not agreement:
 		// the control would move that one agent and leave the others where they are.
 		const supplies = new Set(wirings.map((w) => JSON.stringify(fieldSupply(w, field))))
-		if (supplies.size > 1) {
-			undecided.push(field)
-			continue
-		}
+		// Disagreement leaves the field neither editable nor known: a control offered here
+		// would govern one agent while the rest ran on something else.
+		if (supplies.size > 1) continue
 		const supply: FieldSupply = JSON.parse([...supplies][0])
 		if (supply.kind === 'wired') fields[field] = supply.name
 		else if (supply.kind === 'fixed') fixed[field] = supply.value
 	}
-	return { fields, fixed, undecided }
+	return { fields, fixed, someAgentCannotRun }
 }
 
 /**
@@ -261,15 +276,10 @@ export function resolveAgentModelWiring(
 export function agentModelGap(wiring: AgentModelWiring | undefined): string | undefined {
 	// No agent, several of them, or an expression we cannot read: not ours to judge.
 	if (!wiring || wiring.whole) return undefined
-	// Agents that disagree about what to call are not agents with nothing to call: the flow
-	// may well run, on a different model per agent, and this message would be false.
-	if (wiring.undecided?.some((field) => field === 'resource' || field === 'model')) {
-		return undefined
-	}
-	const missing = (field: ProviderField) =>
-		wiring.fields[field] === undefined &&
-		(wiring.fixed[field] === undefined || wiring.fixed[field] === '')
-	return missing('resource') || missing('model')
+	// Asked of each agent rather than of what they agree on: agents that merely disagree
+	// about the model all have one, and the message would be false — while an agent with
+	// an empty model still cannot run, however well the others are configured.
+	return wiring.someAgentCannotRun
 		? 'Pick a provider and model on the AI agent step to use this chat.'
 		: undefined
 }
@@ -300,16 +310,37 @@ export function resolveAgentChatInputs(
 		? additionalInputsSchema.required
 		: []
 
-	const keyOf = new Map<string, AgentChatInputKey>()
+	// One input per key, and only when every agent reading that key reads the same one:
+	// the composer writes a single flow input, so promoting one of two would feed one
+	// agent and leave the other with nothing — while hiding both from the modal, where
+	// the reader could at least have filled them in.
+	const namesPerKey = new Map<AgentChatInputKey, Set<string | undefined>>()
 	for (const module of agentSteps(modules)) {
 		const transforms = (module.value as any).input_transforms ?? {}
 		for (const key of AGENT_CHAT_INPUT_KEYS) {
-			const name = flowInputRef(transforms[key])
-			// A name the schema doesn't declare has no field to promote, and `user_message`
-			// is already the composer itself.
-			if (!name || !(name in properties) || keyOf.has(name)) continue
-			keyOf.set(name, key)
+			const transform = transforms[key]
+			// An agent that feeds the key from anything but a flow input — a literal, another
+			// step's result, or the empty placeholder every agent step carries for the keys of
+			// AI_AGENT_SCHEMA — is not reading an input, so it has no say in which one the
+			// composer drives.
+			if (transform?.type !== 'javascript' || !transform.expr.includes('flow_input')) continue
+			const name = flowInputRef(transform)
+			// A name the schema doesn't declare has no field to promote, and one expression
+			// reading two inputs names none: either way this agent reads something the
+			// composer cannot drive, which is what disagreement means here.
+			const usable = name && name in properties ? name : undefined
+			const names = namesPerKey.get(key) ?? new Set<string | undefined>()
+			names.add(usable)
+			namesPerKey.set(key, names)
 		}
+	}
+
+	const keyOf = new Map<string, AgentChatInputKey>()
+	for (const [key, names] of namesPerKey) {
+		if (names.size !== 1) continue
+		const name = [...names][0]
+		if (name === undefined || keyOf.has(name)) continue
+		keyOf.set(name, key)
 	}
 
 	return [...keyOf.entries()]

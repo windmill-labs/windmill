@@ -331,6 +331,13 @@ export class FlowChatManager {
 		await this.#writeConversationTitle(conversationId, trimmed)
 	}
 
+	/** No job came of the send, so nothing is in flight and nothing is waiting on one. */
+	#turnFailedToStart() {
+		this.isLoading = false
+		this.isWaitingForResponse = false
+		this.isDispatchingTurn = false
+	}
+
 	/** A turn is being dispatched or is running: nothing may move the conversation under it. */
 	get isTurnInFlight(): boolean {
 		return this.isLoading || this.isWaitingForResponse || this.isDispatchingTurn
@@ -588,7 +595,16 @@ export class FlowChatManager {
 	 * An empty message is allowed here: a turn can carry attachments alone, and only the
 	 * caller knows whether it does.
 	 */
-	async sendMessage(additionalInputs?: Record<string, any>, onUserRow?: (rowId: string) => void) {
+	async sendMessage(
+		additionalInputs?: Record<string, any>,
+		onUserRow?: (rowId: string) => void,
+		/**
+		 * The conversation the turn was started in. Passed by a caller that had to await
+		 * something first — an attachment upload — since the reader can select another
+		 * conversation while it runs, and the turn belongs to the one they sent it from.
+		 */
+		pinnedConversationId?: string
+	) {
 		if (this.isLoading) return
 
 		const isNewConversation = this.messages.length === 0
@@ -597,8 +613,8 @@ export class FlowChatManager {
 		this.stopPolling()
 
 		// Generate a new conversation ID if we don't have one
-		let currentConversationId = this.selectedConversationId
-		if (!this.selectedConversationId) {
+		let currentConversationId = pinnedConversationId ?? this.selectedConversationId
+		if (!currentConversationId) {
 			const newConversationId = await this.createConversation({ clearMessages: false })
 			currentConversationId = newConversationId
 		}
@@ -649,6 +665,10 @@ export class FlowChatManager {
 		} catch (error) {
 			console.error('Error running flow:', error)
 			sendUserToast('Failed to run flow: ' + error, true)
+			// A turn that never started leaves nothing to wait for. Said here as well as in
+			// the finally because the streaming path keeps `isLoading` for its own stream,
+			// and without this the composer and the sidebar stay locked until a reload.
+			this.#turnFailedToStart()
 		} finally {
 			if (!this.#useStreaming) {
 				this.isLoading = false
@@ -692,6 +712,7 @@ export class FlowChatManager {
 			const jobId = await this.#onRunFlow?.(messageContent, currentConversationId, additionalInputs)
 			if (!jobId) {
 				console.error('No jobId returned from onRunFlow')
+				this.#turnFailedToStart()
 				return
 			}
 
@@ -829,6 +850,7 @@ export class FlowChatManager {
 		const jobId = await this.#onRunFlow?.(messageContent, currentConversationId, additionalInputs)
 		if (!jobId) {
 			console.error('No jobId returned from onRunFlow')
+			this.#turnFailedToStart()
 			return
 		}
 
