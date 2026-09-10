@@ -92,8 +92,7 @@
 		type GetSettingsResponse,
 		type TestDataTableConnectionResponse
 	} from '$lib/gen'
-	// `superadmin` gates the commented-out roles section at the bottom; restore it there.
-	import { workspaceStore } from '$lib/stores'
+	import { superadmin, workspaceStore } from '$lib/stores'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { resource } from 'runed'
@@ -101,10 +100,8 @@
 	import { Popover } from '../meltComponents'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import DataTableMigrationsButton from './DataTableMigrationsButton.svelte'
-	// Both components are complete and reviewed; their call sites in this file are commented
-	// out until the ACL editor lands. Uncomment these with them.
-	// import DataTablePermissionsButton from './DataTablePermissionsButton.svelte'
-	// import DataTableRolesSection from './DataTableRolesSection.svelte'
+	import DataTablePermissionsButton from './DataTablePermissionsButton.svelte'
+	import DataTableRolesSection from './DataTableRolesSection.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { clone } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
@@ -472,21 +469,11 @@
 							datatable={dataTable.name}
 							disabled={!!dirtyMap[dataTable.name]}
 						/>
-						<!-- Data table roles: not mounted yet. The enforcement ships first and this
-						drawer is what turns it on, so leaving it reachable would expose a half of the
-						feature whose other half (the ACL editor, which grants the privileges a role
-						actually needs) does not exist yet.
-
-						DataTablePermissionsButton.svelte is complete and reviewed — reuse it rather
-						than rewriting it, and uncomment this together with the roles section at the
-						bottom of this file and the two imports at the top.
-
 						<DataTablePermissionsButton
 							workspace={$workspaceStore ?? ''}
 							datatable={dataTable.name}
 							disabled={!!dirtyMap[dataTable.name]}
 						/>
-						-->
 						<Button
 							size="xs"
 							color="light"
@@ -613,19 +600,11 @@
 	{/if}
 {/if}
 
-<!-- The instance role catalog, superadmin-only. Not mounted for the same reason as the
-permissions drawer above: creating roles is only useful once there is a way to grant them
-privileges, which arrives with the ACL editor.
-
-DataTableRolesSection.svelte is complete and reviewed — reuse it rather than rewriting it,
-and uncomment this together with the permissions button above and the two imports at the top.
-
 {#if $superadmin && !isCloudHosted()}
 	<div class="mt-8">
 		<DataTableRolesSection />
 	</div>
 {/if}
--->
 
 <SettingsFooter
 	class="mt-8"

@@ -11,10 +11,13 @@
 		GroupService,
 		UserService,
 		WorkspaceService,
+		type AclTarget,
 		type DatatablePermissions,
 		type InstanceDatatableRole
 	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import AclTargetPicker from '../datatableAcl/AclTargetPicker.svelte'
+	import PgAclEditor from '../datatableAcl/PgAclEditor.svelte'
 
 	const ADMIN_ROLE = 'admin'
 
@@ -49,11 +52,24 @@
 	const availableRoles: InstanceDatatableRole[] = $derived(info?.available_roles ?? [])
 	const unusedRoles = $derived(availableRoles.filter((r) => !rows.some((row) => row.id === r.id)))
 
+	let aclSchema = $state<string | undefined>(undefined)
+	let aclTable = $state<string | undefined>(undefined)
+	const aclTarget: AclTarget = $derived(
+		aclSchema
+			? aclTable
+				? { kind: 'table', schema: aclSchema, table: aclTable }
+				: { kind: 'schema', schema: aclSchema }
+			: { kind: 'database' }
+	)
+
 	async function load() {
 		loading = true
 		loadError = undefined
 		try {
-			const res = await WorkspaceService.getDatatablePermissions({ workspace, datatableName: datatable })
+			const res = await WorkspaceService.getDatatablePermissions({
+				workspace,
+				datatableName: datatable
+			})
 			info = res
 			permissioned = res.permissioned
 			defaultRole = res.default_role
@@ -124,6 +140,8 @@
 	}
 
 	export function open() {
+		aclSchema = undefined
+		aclTable = undefined
 		drawer?.openDrawer()
 		load()
 	}
@@ -143,7 +161,7 @@
 	<DrawerContent
 		title="Roles for {datatable}"
 		on:close={() => drawer?.closeDrawer()}
-		tooltip="A data table role is a Postgres login. A job that names one connects as it, and Postgres decides what it may touch — grant privileges with SQL. Roles are defined for the whole instance; here you say who may use each one on this data table."
+		tooltip="A data table role is a Postgres login. A job that names one connects as it, and Postgres decides what it may touch — grant it privileges under Access. Roles are defined for the whole instance; here you say who may use each one on this data table."
 	>
 		{#if loading}
 			<p class="text-sm text-secondary">Loading…</p>
@@ -173,7 +191,7 @@
 						These data tables point at the same database with their own entry, so what you set here
 						does not reach them:
 						<ul class="mt-1 list-disc list-inside font-mono">
-							{#each info.ungoverned_reachers as reacher}
+							{#each info.ungoverned_reachers as reacher (`${reacher.workspace_id}/${reacher.datatable}`)}
 								<li>{reacher.workspace_id} / {reacher.datatable}</li>
 							{/each}
 						</ul>
@@ -269,6 +287,27 @@
 						<Button unifiedSize="sm" variant="accent" loading={saving} on:click={save}>
 							Save roles
 						</Button>
+					</div>
+				{/if}
+
+				{#if info?.supported}
+					<div class="flex flex-col gap-3 border-t pt-4">
+						<div class="flex flex-col gap-0.5">
+							<span class="text-sm font-semibold text-emphasis">Access</span>
+							<span class="text-xs text-secondary">
+								What each role may do in Postgres, on the database, a schema or a table. Every
+								change shows the SQL it runs before running it.
+							</span>
+						</div>
+						<AclTargetPicker
+							{workspace}
+							{datatable}
+							bind:schema={aclSchema}
+							bind:table={aclTable}
+						/>
+						{#key JSON.stringify(aclTarget)}
+							<PgAclEditor {workspace} {datatable} target={aclTarget} />
+						{/key}
 					</div>
 				{/if}
 			</div>

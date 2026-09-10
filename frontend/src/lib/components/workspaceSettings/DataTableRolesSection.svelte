@@ -87,9 +87,9 @@
 		<h3 class="font-semibold text-sm">Instance roles</h3>
 		<Tooltip>
 			A data table role is a real Postgres login on this instance, shared by every instance
-			database. A job that names one connects as it, and Postgres decides what it may touch — grant
-			it privileges with SQL. Which people may use a role on a given data table is set per data
-			table, in its roles drawer.
+			database. A job that names one connects as it, and Postgres decides what it may touch. Which
+			people may use a role on a given data table, and what it may do there, is set per data table,
+			in its roles drawer.
 		</Tooltip>
 	</div>
 
