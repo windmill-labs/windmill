@@ -162,6 +162,12 @@
 			selectionManager.selectId(id, { openPanel: true })
 		},
 
+		getFlowPaths: () => {
+			// `path` is the storage key, `draft_path` the name a staged rename typed.
+			const v = flowStore.val as { path?: string; draft_path?: string }
+			return [v.path, v.draft_path].filter((p): p is string => !!p)
+		},
+
 		testFlow: async (args, conversationId) => {
 			// Set preview args if provided
 			if (args) {

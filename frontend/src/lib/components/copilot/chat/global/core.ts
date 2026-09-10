@@ -4367,7 +4367,7 @@ type WriteDraftCtx = {
 export type SessionToolHelpers = { sessionId?: string }
 
 export type GlobalToolHelpers = SessionToolHelpers & {
-	testActiveFlow?: (args?: Record<string, any>) => Promise<string | undefined>
+	testActiveFlow?: (path: string, args?: Record<string, any>) => Promise<string | undefined>
 	attachedFiles?: AttachedFilesStore
 	// Read/write the user-level Global instructions. `setUserInstructions` persists the
 	// value and rebuilds the system message so the change applies on the next chat-loop
@@ -4396,7 +4396,10 @@ function operatingWorkspaceFromHelpers(helpers: unknown): string | undefined {
 	return (helpers as GlobalToolHelpers | undefined)?.operatingWorkspace
 }
 
-function activeFlowTestFromCtx(
+// Drive a live editor only for the flow on screen: several can be open at once (session tabs),
+// and a run painted into a background tab is a side effect the user never sees. Undefined
+// sends the caller to a preview run, which reports into the chat alone.
+function liveFlowTestHookFromCtx(
 	ctx: { workspace: string; helpers?: unknown },
 	path: string
 ): GlobalToolHelpers['testActiveFlow'] | undefined {
@@ -5775,12 +5778,12 @@ async function testRunFlowByPath(
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
 	const testArgs = normalizeTestRunArgs(args.args)
-	const testActiveFlow = activeFlowTestFromCtx(ctx, args.path)
+	const testActiveFlow = liveFlowTestHookFromCtx(ctx, args.path)
 
 	if (testActiveFlow) {
 		return executeTestRun({
 			jobStarter: async () => {
-				const jobId = await testActiveFlow(testArgs)
+				const jobId = await testActiveFlow(args.path, testArgs)
 				if (jobId) {
 					return jobId
 				}

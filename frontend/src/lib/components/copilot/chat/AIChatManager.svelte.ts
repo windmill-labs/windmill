@@ -705,7 +705,13 @@ export class AIChatManager {
 	>(undefined)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	scriptEditorGetLintErrors = $state<(() => ScriptLintResult) | undefined>(undefined)
+	/** The editor a FLOW-mode chat belongs to; that mode is the in-editor chat, so exactly one is
+	 * mounted there and this names it. Unset in a session chat, which keeps every open editor tab
+	 * mounted and could only name an arbitrary one — a session resolves an editor by path through
+	 * `flowEditorFor`. */
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
+	/** Every mounted flow editor, in mount order. */
+	#flowEditors = new Set<FlowAIChatHelpers>()
 	appAiChatHelpers = $state<AppAIChatHelpers | undefined>(undefined)
 	/** Datatable creation policy: enabled flag, datatable name, and optional schema */
 	datatableCreationPolicy = $state<{
@@ -2415,7 +2421,8 @@ export class AIChatManager {
 						openArtifact: this.openArtifact
 					}
 				: {}),
-			testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args),
+			testActiveFlow: async (path: string, args?: Record<string, any>) =>
+				this.flowEditorFor(path)?.testFlow(args),
 			getModifiedItems: () => (this.modifiedItems ? [...this.modifiedItems] : undefined),
 			attachedFiles: this.attachedFiles,
 			getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
@@ -4664,7 +4671,11 @@ export class AIChatManager {
 	}
 
 	setFlowHelpers = (flowHelpers: FlowAIChatHelpers) => {
-		this.flowAiChatHelpers = flowHelpers
+		this.#flowEditors.add(flowHelpers)
+		// Only a chat that can reach FLOW mode names an editor (see `flowAiChatHelpers`).
+		if (!this.isSessionChat) {
+			this.flowAiChatHelpers = flowHelpers
+		}
 		untrack(() => {
 			if (this.autoAcceptEditsActive) {
 				this.acceptPendingFlowEdits(flowHelpers)
@@ -4672,8 +4683,15 @@ export class AIChatManager {
 		})
 
 		return () => {
-			this.flowAiChatHelpers = undefined
+			this.#flowEditors.delete(flowHelpers)
+			if (!this.isSessionChat) {
+				this.flowAiChatHelpers = undefined
+			}
 		}
+	}
+
+	private flowEditorFor(path: string): FlowAIChatHelpers | undefined {
+		return [...this.#flowEditors].find((helpers) => helpers.getFlowPaths().includes(path))
 	}
 
 	// Registered by the /pipeline editor while it is mounted. Rebuilds the global

@@ -193,13 +193,16 @@ beforeEach(() => {
 function createFlowHelpers({
 	hasPendingChanges,
 	acceptAllModuleActions,
-	testFlow = vi.fn()
+	testFlow = vi.fn(),
+	flowPaths = ['u/admin/live_flow']
 }: {
 	hasPendingChanges: () => boolean
 	acceptAllModuleActions: () => void
 	testFlow?: FlowAIChatHelpers['testFlow']
+	flowPaths?: string[]
 }): FlowAIChatHelpers {
 	return {
+		getFlowPaths: () => flowPaths,
 		getFlowAndSelectedId: vi.fn(),
 		getRootModules: vi.fn(),
 		inlineScriptSession: { get: vi.fn(), set: vi.fn(), clear: vi.fn() },
@@ -862,10 +865,42 @@ describe('AIChatManager autonomy mode', () => {
 		)
 
 		manager.changeMode(AIMode.GLOBAL)
-		const jobId = await manager.helpers.testActiveFlow({ name: 'Ada' })
+		const jobId = await manager.helpers.testActiveFlow('u/admin/live_flow', { name: 'Ada' })
 
 		expect(jobId).toBe('job-flow-preview')
 		expect(testFlow).toHaveBeenCalledWith({ name: 'Ada' })
+	})
+
+	// Session tabs keep every open flow editor mounted, so the last one to register is
+	// routinely a different flow than the one being tested.
+	it('tests the flow editor open on the path, not the last one registered', async () => {
+		const manager = new AIChatManager()
+		const testTarget = vi.fn(async () => 'job-target-flow')
+		const testOther = vi.fn(async () => 'job-other-flow')
+
+		manager.setFlowHelpers(
+			createFlowHelpers({
+				hasPendingChanges: () => false,
+				acceptAllModuleActions: vi.fn(),
+				testFlow: testTarget,
+				flowPaths: ['u/admin/live_flow']
+			})
+		)
+		manager.setFlowHelpers(
+			createFlowHelpers({
+				hasPendingChanges: () => false,
+				acceptAllModuleActions: vi.fn(),
+				testFlow: testOther,
+				flowPaths: ['u/admin/other_flow']
+			})
+		)
+
+		manager.changeMode(AIMode.GLOBAL)
+		const jobId = await manager.helpers.testActiveFlow('u/admin/live_flow', { name: 'Ada' })
+
+		expect(jobId).toBe('job-target-flow')
+		expect(testTarget).toHaveBeenCalledWith({ name: 'Ada' })
+		expect(testOther).not.toHaveBeenCalled()
 	})
 })
 
