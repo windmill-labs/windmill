@@ -68,8 +68,6 @@ export function clearWorkspaceFromStorage() {
 	sessionStorage.removeItem('workspace')
 }
 
-export const tutorialsToDo = writable<number[]>([])
-export const skippedAll = writable<boolean>(false)
 export const globalEmailInvite = writable<string>('')
 export const awarenessStore = writable<Record<string, string>>(undefined)
 export const enterpriseLicense = writable<string | undefined>(undefined)
@@ -120,6 +118,10 @@ export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)
 export const lspTokenStore = writable<string | undefined>(undefined)
 export const hubBaseUrlStore = writable<string>(DEFAULT_HUB_BASE_URL)
+// Whether the store above is the instance's answer or still the default it was seeded with.
+// It reads as the public hub either way, which is fine for a link and wrong for anything
+// deciding what may be reported about a hub — those must treat unknown as private.
+export const hubBaseUrlKnown = writable<boolean>(false)
 export const wsBaseUrlStore = writable<string | undefined>(undefined)
 export const disableHubStore = writable<boolean>(false)
 // What a superadmin standing in a workspace they are not a member of needs to see it as a
@@ -332,8 +334,6 @@ export const workspaceColor: Readable<string | null | undefined> = derived(
 			})
 	}
 )
-
-export const isCurrentlyInTutorial: StateStore<boolean> = createState({ val: false })
 
 export function getFlatTableNamesFromSchema(dbSchema: DBSchema | undefined): string[] {
 	const schema = dbSchema?.schema ?? {}

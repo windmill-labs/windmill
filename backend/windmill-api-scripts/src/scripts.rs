@@ -1318,6 +1318,47 @@ async fn create_script_internal<'c>(
         }
     }
 
+    // A retired path keeps its versions, and the newest is where a redeploy belongs: hashed
+    // as a first deploy instead, unchanged content lands on the row the path's own first
+    // version already holds. A deleted version still counts — its row keeps the hash it was
+    // deployed under even once the content is wiped, so skipping it is what collides.
+    //
+    // Any parentless deploy, not only an `auto_parent` one: the CLI names no parent for a
+    // path its listing no longer shows, which is where a retried push lands. Gated on
+    // nothing being live there, so a parentless deploy onto a live path still meets the
+    // path conflict the match below raises.
+    let mut parent_adopted_from_retired_path = false;
+    if ns.parent_hash.is_none() && clashing_script.is_none() {
+        // Locked, not merely read: a competing deploy chaining onto this same candidate
+        // takes `FOR UPDATE` on it before inserting, so holding the row is what serializes
+        // the two. Probe first and the child still uncommitted reads as absent.
+        let candidate = sqlx::query_scalar::<_, i64>(
+            "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 \
+             ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+        )
+        .bind(&ns.path)
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        // Adoptable only if nothing already descends from it: a rename leaves its source
+        // path holding a version whose child lives at the destination, and a second child
+        // forks a lineage the guard below requires to be linear. Nothing adoptable means a
+        // fresh lineage, which has no parent to vary its hash and can still collide.
+        ns.parent_hash = match candidate {
+            Some(hash) => sqlx::query_scalar!(
+                "SELECT 1 FROM script WHERE parent_hashes[1] = $1 AND workspace_id = $2",
+                hash,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?
+            .is_none()
+            .then_some(ScriptHash(hash)),
+            None => None,
+        };
+        parent_adopted_from_retired_path = ns.parent_hash.is_some();
+    }
+
     // Must stay below the parent resolution above: an auto_parent deploy hashed before
     // it carries a first deploy's lineage, so redeploying content the path has held
     // before collides with that archived version instead of superseding it. The
@@ -1362,20 +1403,42 @@ async fn create_script_internal<'c>(
                 ));
             };
 
+            // Unscoped, and sound only under the lock above: linearity is a property of the
+            // lineage, not of what this caller may read. A child can sit where they cannot
+            // see it — a folder they renamed it into, or grants an adopting deploy reset —
+            // and asked through `tx` it reads as absent, letting the fork through.
             let clashing_hash_o = sqlx::query_scalar!(
                 "SELECT hash FROM script WHERE parent_hashes[1] = $1 AND workspace_id = $2",
                 p_hash.0,
                 &w_id
             )
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&db)
             .await?;
 
             if let Some(clashing_hash) = clashing_hash_o {
-                return Err(Error::BadRequest(format!(
-                    "A script with hash {} with same parent_hash has been found. However, the \
-                         lineage must be linear: no 2 scripts can have the same parent",
-                    ScriptHash(clashing_hash)
-                )));
+                // Named only when the caller could already read it. The probe above has to be
+                // unscoped to be correct, but a hash alone reads a script's content back
+                // through `raw/h/{hash}`, which authorizes nothing per script — so echoing one
+                // the caller cannot see hands them a way to fetch it.
+                let visible_to_caller = sqlx::query_scalar!(
+                    "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
+                    clashing_hash,
+                    &w_id
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+                .is_some();
+                return Err(Error::BadRequest(if visible_to_caller {
+                    format!(
+                        "A script with hash {} with same parent_hash has been found. However, \
+                         the lineage must be linear: no 2 scripts can have the same parent",
+                        ScriptHash(clashing_hash)
+                    )
+                } else {
+                    "A script with the same parent_hash has been found. However, the lineage \
+                     must be linear: no 2 scripts can have the same parent"
+                        .to_owned()
+                }));
             };
 
             let ScriptWithStarred { script: ps, .. } =
@@ -1438,7 +1501,15 @@ async fn create_script_internal<'c>(
                 }
                 Some(_) | None => Ok(Some(ParentInfo {
                     p_hashes: ph,
-                    perms: ps.extra_perms,
+                    // A version adopted above was taken for its lineage, not its grants: a
+                    // retired path may be reused by a different script, which must not start
+                    // life holding an ACL nobody gave it — including one `delete/h` purged.
+                    // A parent the caller named still carries them, as unarchive expects.
+                    perms: if parent_adopted_from_retired_path {
+                        json!({})
+                    } else {
+                        ps.extra_perms
+                    },
                     p_path: ps.path,
                 })),
             };

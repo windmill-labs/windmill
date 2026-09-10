@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { VariableService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { generateRandomString } from '$lib/utils'
+	import { ephemeralSecretPrefix, mintEphemeralSecret } from './secretArgUtils'
 	import { sendUserToast } from '$lib/toast'
 	import { Button } from './common'
 	import Password from './Password.svelte'
@@ -36,27 +36,16 @@
 
 	let isGenerating = false
 
-	let userPrefix = $derived(
-		'u/' + ($userStore?.username ?? $userStore?.email)?.split('@')[0] + '/secret_arg/'
-	)
+	let username = $derived(($userStore?.username ?? $userStore?.email)?.split('@')[0] ?? '')
+	let userPrefix = $derived(ephemeralSecretPrefix(username))
 	async function generateValue() {
 		if (isGenerating || argReplaced) return
 		isGenerating = true
 		const mintWs = ws!
 		const boundBefore = value
 		try {
-			let npath = userPrefix + generateRandomString(12)
+			let npath = await mintEphemeralSecret(mintWs, username, password)
 			let nvalue = '$var:' + npath
-			await VariableService.createVariable({
-				workspace: mintWs,
-				requestBody: {
-					value: password,
-					is_secret: true,
-					path: npath,
-					description: 'Ephemeral secret variable',
-					expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString()
-				}
-			})
 			// The arg can be replaced the same way while the create is in flight. Nothing ever
 			// referenced the variable just minted, so delete it; it expires on its own if that fails.
 			if (value !== boundBefore) {

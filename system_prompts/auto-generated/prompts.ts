@@ -3565,7 +3565,7 @@ Manage jobs (import/export)
 
 ### lint
 
-Validate Windmill flow, schedule, and trigger YAML files in a directory
+Validate Windmill flow, schedule, and trigger YAML files in a directory, and report script metadata that has no deployable content file
 
 **Arguments:** \`[directory:string]\`
 

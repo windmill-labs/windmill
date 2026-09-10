@@ -1338,6 +1338,16 @@ pub async fn sync_global_settings_declarative(
         }
     }
 
+    let banner_key = crate::global_settings::INSTANCE_BANNER_SETTING;
+    match desired.get(banner_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(banner) => crate::global_settings::validate_instance_banner(banner)
+            // The validator's messages name the offending field and its expected type,
+            // never the submitted value, so they are safe to surface here.
+            .map_err(|e| anyhow::anyhow!("{banner_key}: {e}"))?,
+    }
+
     let diff = diff_global_settings(current, desired, ApplyMode::Replace);
     apply_settings_diff(db, &diff).await?;
 

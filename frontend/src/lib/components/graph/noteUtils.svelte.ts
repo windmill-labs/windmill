@@ -264,7 +264,7 @@ export function computeNoteNodes(
 
 	if (editMode) {
 		if (noteEditorContext?.noteEditor?.isAvailable()) {
-			noteEditorContext.noteEditor.cleanupGroupNotes(nodes, collapsedModuleIds)
+			noteEditorContext.noteEditor.cleanupGroupNotes(nodes)
 		}
 	}
 
