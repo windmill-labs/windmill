@@ -40,6 +40,7 @@ and the actions that create, edit, import and delete them.
 		Trash2,
 		User
 	} from 'lucide-svelte'
+	import { useListHighlight } from '$lib/components/common/listRow/listHighlight.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { forgetSkill, isSkillEnabled, setSkillEnabled } from './skills/enabledSkills'
 	import {
@@ -197,10 +198,29 @@ What the assistant should do when this skill applies.
 				? visibleEntries(tree, (path) => collapsed[path] === true)
 				: skills.map((skill) => ({ kind: 'skill', key: skillKey(skill.path), skill }))
 	)
-	let highlightedKey = $state<string | undefined>(undefined)
-	/** The keyboard is driving. Hover stops lighting rows while it is: two lit rows at
-	 * once leaves no answer to which one Space acts on. */
-	let keyboardActive = $state(false)
+	/** Where each entry sits in the walk, so a row rendered deep in the tree can say
+	 * whether it is the highlighted one. */
+	let entryIndexByKey = $derived(new Map(entries.map((e, i) => [e.key, i])))
+	/** The row the highlight goes back to when the list changes shape under it.
+	 * Folding is the case: it changes the row count without reshuffling what the rows
+	 * mean, and the folder just folded is where someone still is — unlike a search,
+	 * which reranks everything and belongs back at its top hit. */
+	let stickyKey = $state<string | undefined>(undefined)
+	const highlight = useListHighlight({
+		count: () => entries.length,
+		rowId: (index) => entryDomId(entries[index]?.key ?? ''),
+		// Otherwise nothing is lit until a key or the pointer picks a row: this list has
+		// no search ranking one to the top.
+		restingIndex: () => (stickyKey === undefined ? -1 : (entryIndexByKey.get(stickyKey) ?? -1)),
+		onActivate: (index) => {
+			const entry = entries[index]
+			if (entry === undefined) return
+			if (entry.kind === 'skill') openSkill(entry.skill)
+			else fold(entry.key, entry.node.path, !collapsed[entry.node.path])
+		},
+		// No `activateEnterFrom`: Enter is answered by `onListKeydown`, which does not
+		// depend on where focus happens to be.
+	})
 	let parsed = $derived(parseSkillMd(content))
 	// The Path field is what names the skill, and Path validates it. The frontmatter
 	// `name` only seeds that field and is never persisted, so validating it here
@@ -290,7 +310,7 @@ What the assistant should do when this skill applies.
 			closeEditor()
 			return
 		}
-		listKeydown(event)
+		onListKeydown(event)
 	}
 
 	/** DOM id of a row, so the highlight can bring itself into view. */
@@ -298,140 +318,95 @@ What the assistant should do when this skill applies.
 		return `wm-skill-entry-${key}`
 	}
 
-	/** Moving the mouse over the list hands it back to hover: nothing is drawn as
-	 * highlighted any more, and Space and Enter stop acting, since the row they would
-	 * act on is no longer the row the user is looking at.
-	 *
-	 * The highlight moves to the row under the pointer rather than being dropped. It
-	 * is invisible while the mouse leads — drawing and acting both wait on
-	 * `keyboardActive` — and it is where the next arrow press carries on from, which
-	 * is the row the user was last on rather than the top of the list.
-	 *
-	 * Driven by a real movement rather than by `mouseenter`, which the browser also
-	 * fires when rows arrive under a stationary pointer — every scroll the keyboard
-	 * itself causes, and every collapse — and would hand control back to a mouse
-	 * nobody touched. */
-	function releaseKeyboardOnMove(event: MouseEvent) {
-		if (!keyboardActive) return
-		const row = (event.target as HTMLElement | null)?.closest?.('[id^="wm-skill-entry-"]')
-		if (!row) return
-		keyboardActive = false
-		highlightedKey = row.id.replace('wm-skill-entry-', '')
+	/** Fold or unfold, keeping the highlight on the folder rather than losing it to
+	 * the row count changing underneath. */
+	function fold(key: string, path: string, shut: boolean) {
+		stickyKey = key
+		collapsed[path] = shut
 	}
 
-	function setHighlight(key: string | undefined) {
-		highlightedKey = key
-		keyboardActive = true
-		// Taking the highlight means taking the keyboard: a control left focused would
-		// keep Space and Enter (the rule in `listKeydown`) and act while a different row
-		// is the lit one. Focus is left behind by ordinary use — a row's switch holds it
-		// after a plain click, the settings sidebar after the click that opened this
-		// section — so this is the common path, not a corner.
-		// The list itself is the exception: it holds focus so these keys have somewhere
-		// to belong, and blurring it would drop the modal out of the tab order.
-		const focused = document.activeElement
-		if (focused instanceof HTMLElement && focused !== document.body && focused !== listEl) {
-			focused.blur()
-			listEl?.focus({ preventScroll: true })
-		}
-		if (key === undefined) return
-		// After the collapse or the list has re-rendered, or the row scrolled to is the
-		// one that was on screen before the key.
-		tick().then(() =>
-			document.getElementById(entryDomId(key))?.scrollIntoView({ block: 'nearest' })
-		)
-	}
-
-	/** Wraps at both ends, like the chat's other keyboard lists. An unhighlighted list
-	 * starts at the row the direction points at. */
-	function moveHighlight(step: number) {
-		// A row reached with Tab is where the walk carries on from: the focused row is
-		// the one the user is on, whether or not the keyboard drew a highlight there.
-		const focusedRow = (document.activeElement as HTMLElement | null)?.closest?.(
-			'[id^="wm-skill-entry-"]'
-		)
-		const from = focusedRow ? focusedRow.id.replace('wm-skill-entry-', '') : highlightedKey
-		const at = entries.findIndex((e) => e.key === from)
-		if (at < 0) {
-			setHighlight(entries[step > 0 ? 0 : entries.length - 1].key)
+	/** The tree keys this list adds to `useListHighlight`: Left and Right fold a folder
+	 * or step into it, Space flips the switch under the highlight. Up, Down and Enter
+	 * are the composable's, and so is everything about the mouse — a scroll under a
+	 * resting pointer does not move the highlight, only a real movement does.
+	 *
+	 * Answered on the list rather than at `window`, so the keys belong to whatever has
+	 * focus inside it. Keys left unanswered keep their meaning: Left and Right with
+	 * nothing lit still step between this list and the editor, which is `PagedContent`
+	 * reading the same event. */
+	function onListKeydown(event: KeyboardEvent) {
+		if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return
+		const target = event.target as HTMLElement | null
+		// A focused control answers its own activation keys — a row's switch, a folder
+		// header, the buttons above the list. `Toggle` hides a real checkbox behind its
+		// label (frontend/AGENTS.md), and that checkbox holds focus after a plain click.
+		const control = target?.closest?.('button, a, input, select, textarea, [role="button"]') as
+			| HTMLElement
+			| null
+			| undefined
+		if ((event.key === ' ' || event.key === 'Enter') && control) return
+		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+			// Walking away from a fold gives up the row it was holding on to.
+			stickyKey = undefined
+			// Taking the highlight takes the keyboard with it: a control left focused
+			// would keep Space and act on its own row while another one is lit.
+			if (control) {
+				control.blur()
+				listEl?.focus({ preventScroll: true })
+			}
+			highlight.onKeydown(event)
 			return
 		}
-		setHighlight(entries[(at + step + entries.length) % entries.length].key)
-	}
-
-	/** Up and Down walk the list, Left and Right fold a folder, Space flips the switch
-	 * under the highlight and Enter opens the skill.
-	 *
-	 * Keys this leaves alone keep their meaning: Left and Right with a skill (or
-	 * nothing) highlighted still step between this list and the editor, which is
-	 * `PagedContent` reading the same event once we have not answered it. */
-	function listKeydown(event: KeyboardEvent) {
-		if (entries.length === 0) return
-		if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return
-		// What matters is whether the key is meant for something else, not where focus
-		// happens to sit — clicking this section in the settings sidebar leaves that
-		// button focused, and a subtree test would answer the first key and refuse every
-		// one after it. Only a control that reads these keys itself keeps them.
-		// Text entry only. Every `Toggle` in the list hides a real checkbox behind its
-		// label (frontend/AGENTS.md), and that checkbox holds focus after a plain click,
-		// so refusing all `input` would kill the arrows on the most ordinary interaction
-		// there is here.
-		const focused = document.activeElement as HTMLElement | null
-		const typing =
-			'input:not([type="checkbox"]):not([type="radio"]), textarea, select, [contenteditable="true"], [role="listbox"]'
-		if (focused?.closest?.(typing)) return
-		// Space and Enter belong to a focused control — a row's switch, a folder header,
-		// the buttons above the list — since that is where the user is. The list's own
-		// container is not one of those: holding focus there is what lets these keys
-		// reach the lit row. The arrows below take focus off any control, so once they
-		// have moved the highlight these act on it.
-		const activating = event.key === ' ' || event.key === 'Enter'
-		const control = focused?.closest?.('button, a, input, select, textarea, [role="button"]')
-		if (activating && (control || !keyboardActive)) return
-		const current = entries.find((e) => e.key === highlightedKey)
+		const current = entries[highlight.index]
+		if (current === undefined) {
+			highlight.onKeydown(event)
+			return
+		}
 		const answer = () => {
 			event.preventDefault()
 			event.stopPropagation()
 		}
-		if (event.key === 'ArrowDown') {
-			answer()
-			moveHighlight(1)
-		} else if (event.key === 'ArrowUp') {
-			answer()
-			moveHighlight(-1)
-		} else if (event.key === 'ArrowRight' && current?.kind === 'folder') {
-			answer()
-			// Open it, or step into what opening it revealed — the next row down is this
-			// folder's first child.
-			if (collapsed[current.node.path]) collapsed[current.node.path] = false
-			else moveHighlight(1)
-		} else if (event.key === 'ArrowRight' && current?.kind === 'skill') {
-			// Forward from a lit skill is that skill. Left unanswered the key reaches
-			// `PagedContent`, which steps to the editor page — showing whichever skill it
-			// was last parked on, not this one.
-			answer()
-			openSkill(current.skill)
-		} else if (event.key === 'ArrowLeft' && current !== undefined) {
-			if (current.kind === 'folder' && !collapsed[current.node.path]) {
-				answer()
-				collapsed[current.node.path] = true
-			} else if (current.parentKey !== undefined) {
-				answer()
-				setHighlight(current.parentKey)
-			}
-		} else if (event.key === 'Enter' && current !== undefined) {
-			answer()
-			if (current.kind === 'skill') openSkill(current.skill)
-			else collapsed[current.node.path] = !collapsed[current.node.path]
-		} else if (event.key === ' ' && current !== undefined) {
+		if (event.key === ' ') {
 			answer()
 			if (current.kind === 'skill') void toggle(current.skill.path, !current.skill.enabled)
 			else void toggleFolder(current.node, !folderEnabled(current.node))
+		} else if (event.key === 'Enter') {
+			answer()
+			if (current.kind === 'skill') openSkill(current.skill)
+			else fold(current.key, current.node.path, !collapsed[current.node.path])
+		} else if (event.key === 'ArrowRight') {
+			answer()
+			if (current.kind === 'skill') {
+				// Forward from a lit skill is that skill. Left unanswered the key reaches
+				// `PagedContent`, which steps to the editor page — showing whichever skill
+				// it was last parked on, not this one.
+				openSkill(current.skill)
+			} else if (collapsed[current.node.path]) {
+				fold(current.key, current.node.path, false)
+			} else {
+				// Into what opening it revealed: the next row down is its first child.
+				highlight.move(1)
+			}
+		} else if (event.key === 'ArrowLeft') {
+			if (current.kind === 'folder' && !collapsed[current.node.path]) {
+				answer()
+				fold(current.key, current.node.path, true)
+			} else if (current.parentKey !== undefined) {
+				answer()
+				const parent = entries.findIndex((e) => e.key === current.parentKey)
+				if (parent >= 0) highlight.move(parent - highlight.index)
+			}
+		} else {
+			highlight.onKeydown(event)
 		}
 	}
 
 	function closeEditor() {
 		editorOpen = false
+		// The list is what answers the keys, so it takes focus back as the editor gives
+		// way. Left to the effect above, the page transition lands focus somewhere else
+		// afterwards and the arrows do nothing until something is clicked.
+		tick().then(() => listEl?.focus({ preventScroll: true }))
 	}
 
 	/** Left and Right step between the two pages, which is `PagedContent` answering the
@@ -452,9 +427,8 @@ What the assistant should do when this skill applies.
 		untrack(() => {
 			loadSeq++
 			skills = []
-			// Keyed by path, and another workspace's folders and skills are not these.
+			// Keyed by path, and another workspace's folders are not these.
 			collapsed = {}
-			highlightedKey = undefined
 			listNotice = undefined
 			toDelete = undefined
 			pendingImport = undefined
@@ -832,7 +806,7 @@ What the assistant should do when this skill applies.
 	}
 </script>
 
-<svelte:window onkeydown={onKeydown} onmousemove={releaseKeyboardOnMove} />
+<svelte:window onkeydown={onKeydown} />
 
 <!-- The list and the editor are levels of one panel, so moving between them slides
      rather than cuts. Warmed once this panel is the one on screen: the editor page
@@ -857,11 +831,14 @@ What the assistant should do when this skill applies.
 	     scrollbar came and went. Focusable so the keys have somewhere to belong — see
 	     the effect that focuses it. -->
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<div
 		bind:this={listEl}
 		tabindex="-1"
 		class="grow min-h-0 overflow-y-auto pr-2 outline-none"
 		style="scrollbar-gutter: stable;"
+		onpointermove={highlight.pointerMoved}
 	>
 		<Section
 			label="Skills"
@@ -996,7 +973,8 @@ What the assistant should do when this skill applies.
 		{title}
 		{trailing}
 		id={entryDomId(skillKey(skill.path))}
-		highlighted={keyboardActive ? highlightedKey === skillKey(skill.path) : undefined}
+		highlighted={entryIndexByKey.get(skillKey(skill.path)) === highlight.index}
+		onMouseEnter={() => highlight.hovered(entryIndexByKey.get(skillKey(skill.path)) ?? -1)}
 		subtitle={skill.description ? subtitle : undefined}
 		onClick={() => openSkill(skill)}
 	/>
@@ -1012,11 +990,12 @@ What the assistant should do when this skill applies.
 		     switches of the rows under it. -->
 		<div
 			id={entryDomId(folderKey(node.path))}
-			class="w-full flex items-center gap-2 pr-14 rounded-md {keyboardActive
-				? highlightedKey === folderKey(node.path)
-					? 'bg-surface-hover'
-					: ''
-				: 'hover:bg-surface-hover'}"
+			class="w-full flex items-center gap-2 pr-14 rounded-md {entryIndexByKey.get(
+				folderKey(node.path)
+			) === highlight.index
+				? 'bg-surface-hover'
+				: ''}"
+			onmouseenter={() => highlight.hovered(entryIndexByKey.get(folderKey(node.path)) ?? -1)}
 		>
 			<button
 				type="button"

@@ -57,6 +57,9 @@ export function useListHighlight(opts: {
 		get index() {
 			return index
 		},
+		/** Step the highlight, for a list whose own keys move it beyond Up and Down —
+		 * a tree stepping into the children a folder just revealed. */
+		move,
 		/** Wire to each row's `onMouseEnter`. */
 		hovered(i: number) {
 			if (pointerOwns) index = i
