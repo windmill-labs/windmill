@@ -126,9 +126,14 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		let promise = loadJobsIntern(true)
 		if (perPage > 25) {
 			promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
-				sendUserToast('Loading jobs is taking longer than expected...', 'warning', [
-					{ label: 'Stream by batches of 25', callback: () => restreamWithSmallBatches() }
-				])
+				const noStartDate = timeframe?.computeMinMax().minTs == null
+				sendUserToast(
+					(success == 'failure' || success == 'canceled') && noStartDate
+						? `Loading ${success == 'failure' ? 'failed' : 'canceled'} jobs with no start date scans the full job history. Set a time range to speed it up.`
+						: 'Loading jobs is taking longer than expected...',
+					'warning',
+					[{ label: 'Stream by batches of 25', callback: () => restreamWithSmallBatches() }]
+				)
 			})
 		}
 		promise = CancelablePromiseUtils.finallyDo(promise, () => {
@@ -191,21 +196,31 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		loadingExtra = false
 	}
 
+	// Mirrors when list_completed_jobs_query sorts by completed_at. A created_at cursor does not
+	// bound that index scan, so each batch would rescan from the newest job, and skip jobs created
+	// after the cursor but completed before it.
+	function sortsByCompletedAt(minTs: string | null): boolean {
+		return minTs != null || success == 'failure' || success == 'canceled'
+	}
+
 	function loadExtraJobsBatch(batchSize: number): CancelablePromise<void> {
 		if (!jobs || jobs.length === 0) {
 			lastFetchWentToEnd = true
 			return CancelablePromiseUtils.pure<void>(undefined as void)
 		}
 		const lastJob = jobs[jobs.length - 1]
-		const ts = lastJob.created_at
+		const minTs = timeframe?.computeMinMax().minTs ?? null
+		const byCompletedAt = lastJob.type === 'CompletedJob' && sortsByCompletedAt(minTs)
+		const ts = byCompletedAt ? lastJob.completed_at : lastJob.created_at
 		if (!ts) {
 			lastFetchWentToEnd = true
 			return CancelablePromiseUtils.pure<void>(undefined as void)
 		}
 		const cursorTs = new Date(new Date(ts).getTime() - 1).toISOString()
-		const minTs = timeframe?.computeMinMax().minTs ?? null
 		return CancelablePromiseUtils.map(
-			fetchJobs(null, minTs, undefined, cursorTs, batchSize),
+			byCompletedAt
+				? fetchJobs(cursorTs, minTs, undefined, undefined, batchSize)
+				: fetchJobs(null, minTs, undefined, cursorTs, batchSize),
 			(olderJobs) => {
 				jobs = updateWithNewJobs(olderJobs ?? [], jobs ?? [])
 				if (extendedJobs) {
@@ -289,7 +304,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		})
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)
-			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
+			sendUserToast(`Could not load jobs: ${e.body ?? e.message}`, true)
 			console.error(e)
 			return CancelablePromiseUtils.pure<Job[]>([])
 		})
@@ -394,6 +409,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		overrideBatchSize?: number
 	): CancelablePromise<void> {
 		const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
+		listLoadedAt = new Date(Date.now() - 60_000).toISOString()
 		if (shouldGetCount) {
 			getCount()
 		}
@@ -529,6 +545,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	}
 
 	let lastQueueTs: string | undefined = undefined
+	let listLoadedAt: string | null = null
 
 	async function syncer() {
 		if (loadingFetch) {
@@ -575,7 +592,10 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					loading = true
 					let newJobs: Job[]
 					if (concurrencyKey == null || concurrencyKey === '') {
-						newJobs = await fetchJobs(maxTs, minTs ?? completedTs, queueTs)
+						// With no completed job to anchor on, each refresh would repeat the initial
+						// unbounded scan, possibly the one that just timed out. The margin on
+						// listLoadedAt absorbs clock skew between the browser and the database.
+						newJobs = await fetchJobs(maxTs, minTs ?? completedTs ?? listLoadedAt, queueTs)
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
 						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, minTs ?? completedTs)
