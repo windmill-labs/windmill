@@ -111,6 +111,11 @@ test("a file the push never sends is not a change to the app", async () => {
     change("f/test/myapp.raw_app/node_modules/dep/index.js", "added"),
     change("f/test/myapp.raw_app/recordings/r.json", "added"),
     change("f/test/myapp.raw_app/package-lock.json"),
+    change("f/test/myapp.raw_app/wmill.d.ts"),
+    // Only the backend folder's *top level* is a runnable; nothing reads deeper,
+    // so the depth limit is what keeps a `backend/node_modules/` from becoming
+    // the perpetual diff this predicate exists to remove.
+    change("f/test/myapp.raw_app/backend/node_modules/dep/index.js", "added"),
   ]);
   // The three channels a push does send through: bundled file, metadata, runnable.
   const sent = await precheck([change("f/test/myapp.raw_app/index.tsx")]);

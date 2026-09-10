@@ -281,15 +281,11 @@ export async function generatingPolicy(
   }
 }
 
-/** What the regenerated policy starts from: the deployed policy, so a push keeps
- * settings the tracked file doesn't record. A first push has no deployed policy,
- * and then the file is what states one.
- *
- * The run identity comes along only when `claimsOnBehalfOf` says this push is
- * entitled to it — never from the file, and never from a pusher who may not
- * preserve one. The backend rewrites an unclaimed `on_behalf_of` to the pusher,
- * but `wmill` is regularly pointed at older servers, so the only identity that
- * goes on the wire is one this push is allowed to deploy under. */
+/** What the regenerated policy starts from: the deployed one, so a push keeps
+ * settings the tracked file doesn't record; on a first push, whatever the file
+ * states. The run identity rides along only when `claimsOnBehalfOf` — never
+ * from the file, never from a pusher who may not preserve one, since `wmill`
+ * is regularly pointed at servers older than the rewrite that would fix it. */
 export function basePolicy(
   localApp: any,
   deployedPolicy: Policy | undefined,
