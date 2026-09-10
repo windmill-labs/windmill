@@ -911,12 +911,13 @@
 	/>
 {/snippet}
 
-<!-- Pinned above the scrolling nav, in both rails: an account with no credentials of its
-     own needs to see this wherever it is on the page, and however far the rail has
-     scrolled. Only in navigation mode — the session rail has no Home to sit over. -->
+<!-- In the rail's pinned footer, right above the plan usage, in both rails and both modes:
+     an account with no credentials of its own needs to see this wherever it is on the
+     page and however far the nav has scrolled, and the footer is where the rail already
+     keeps what is about the account rather than the workspace. -->
 {#snippet accountSetupBanner(collapsed: boolean)}
 	{#if accountSetup.pending}
-		<div class="px-2 pb-1">
+		<div class="px-2 pt-2">
 			<AccountSetupBanner isCollapsed={collapsed} />
 		</div>
 	{/if}
@@ -1072,7 +1073,6 @@
 										</div>
 										{@render settingsMenu(false)}
 									{:else}
-										{@render accountSetupBanner(false)}
 										<!-- Navigation mode: Home → Settings scroll as ONE block with an
 										     overflow fade hint (same treatment as the desktop rail). -->
 										<SidebarScrollArea color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
@@ -1129,6 +1129,7 @@
 									{/if}
 
 									<div class="w-52">
+										{@render accountSetupBanner(false)}
 										<SidebarUsage isCollapsed={false} />
 									</div>
 
@@ -1204,7 +1205,6 @@
 								</div>
 								{@render settingsMenu(isCollapsed)}
 							{:else}
-								{@render accountSetupBanner(isCollapsed)}
 								<!-- Navigation mode: Home → Settings scroll as ONE block with an
 								     overflow fade hint. The three sections (Home/Runs + Favorites +
 								     Search / workspace items / instance settings) are spaced by the
@@ -1268,6 +1268,7 @@
 							{/if}
 
 							<div class="flex-shrink-0">
+								{@render accountSetupBanner(isCollapsed)}
 								<SidebarUsage {isCollapsed} />
 							</div>
 
