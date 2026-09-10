@@ -48,6 +48,17 @@ pub const VERBOSE_TARGET: &str = "windmill_verbose";
 /// when `OTEL_JOB_LOGS=true`. Stripped before forwarding to the tracing layer.
 pub const OTEL_PREFIX: &str = "OTEL: ";
 
+/// Combines the instance setting's resource attributes with the `OTEL_RESOURCE_ATTRIBUTES` the
+/// process started with, which a deployment sets per pod (e.g. `k8s.pod.uid` from the downward
+/// API). Overwriting it would drop those; the env's pairs go last because the SDK keeps the last
+/// value of a duplicate key, so the pod's own value wins.
+pub fn merge_otel_resource_attributes(from_setting: &str, from_env: Option<&str>) -> String {
+    match from_env.map(str::trim).filter(|v| !v.is_empty()) {
+        Some(from_env) => format!("{from_setting},{from_env}"),
+        None => from_setting.to_string(),
+    }
+}
+
 /// Creates a Targets filter that optionally filters out verbose logs when quiet mode is enabled.
 fn create_targets_filter(default_env_filter: LevelFilter) -> Targets {
     let targets =

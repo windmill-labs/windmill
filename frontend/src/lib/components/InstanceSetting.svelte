@@ -694,6 +694,26 @@
 									<option value="http/protobuf">http/protobuf</option>
 								</select>
 							</div>
+							<div class="flex flex-col gap-1">
+								<label
+									for="OTEL_RESOURCE_ATTRIBUTES"
+									class="block text-xs font-semibold text-emphasis">Resource attributes</label
+								>
+								<TextInput
+									inputProps={{
+										type: 'text',
+										placeholder: 'team=platform,region=eu-west-1',
+										id: 'OTEL_RESOURCE_ATTRIBUTES',
+										disabled: !$enterpriseLicense
+									}}
+									bind:value={$values[setting.key].otel_resource_attributes}
+								/>
+								<span class="text-2xs font-normal text-secondary">
+									Added to everything Windmill exports, alongside the OTEL_RESOURCE_ATTRIBUTES env
+									var, which wins on a shared key. Windmill's own service.name, service.version,
+									host.name and deployment.environment take precedence over both.
+								</span>
+							</div>
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'otel_tracing_proxy'}

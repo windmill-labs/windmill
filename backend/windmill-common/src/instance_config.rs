@@ -631,6 +631,8 @@ pub struct OtelSettings {
     pub otel_exporter_otlp_protocol: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub otel_exporter_otlp_compression: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub otel_resource_attributes: Option<String>,
 }
 
 /// Per-language HTTP request tracing proxy configuration.

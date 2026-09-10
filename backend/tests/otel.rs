@@ -745,3 +745,22 @@ fn test_otlp_resource_dedicated_overrides_win() {
         Some(windmill_common::utils::GIT_VERSION)
     );
 }
+
+#[test]
+#[serial_test::serial]
+fn test_otlp_resource_setting_attributes_keep_pod_attributes() {
+    let merged = windmill_common::tracing_init::merge_otel_resource_attributes(
+        "team=platform,region=eu-west-1",
+        Some("k8s.pod.uid=abc-123,region=us-east-1"),
+    );
+    std::env::set_var("OTEL_RESOURCE_ATTRIBUTES", merged);
+    let attrs = resource_attrs();
+    std::env::remove_var("OTEL_RESOURCE_ATTRIBUTES");
+
+    assert_eq!(
+        attrs.get("k8s.pod.uid").map(String::as_str),
+        Some("abc-123")
+    );
+    assert_eq!(attrs.get("team").map(String::as_str), Some("platform"));
+    assert_eq!(attrs.get("region").map(String::as_str), Some("us-east-1"));
+}
