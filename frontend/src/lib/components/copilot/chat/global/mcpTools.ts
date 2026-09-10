@@ -41,8 +41,7 @@ const MAX_TOOL_SCHEMA_CHARS = 8_000
 // And a ceiling on the set, since the per-tool bound alone would allow 25 large ones —
 // far more context than the search indirection exists to save.
 const MAX_LOADED_SCHEMA_CHARS = 40_000
-// Same reasoning for the description, which rides alongside it. Roomier than the
-// search summary's 200: this one is what the model chooses the tool from.
+// Roomier than the search summary's 200: this is what the model chooses the tool from.
 const MAX_TOOL_DESCRIPTION_CHARS = 2_000
 const MAX_RESULT_CHARS = 20_000
 // A server writes its own error text, and every enabled server can contribute
@@ -109,15 +108,11 @@ export function clearMcpToolsCache() {
  */
 type OwnerRegistry = {
 	tools: Map<string, Tool<{}>>
-	/**
-	 * Recency for eviction, kept beside the map rather than as its order. The emitted
+	/** Recency for eviction, kept beside the map rather than as its order: the emitted
 	 * tool list carries Anthropic's `cache_control` breakpoint on its last entry, so
-	 * reordering it on every call would invalidate the cached prefix — system prompt,
-	 * skills and transcript — for the rest of the turn.
-	 */
+	 * reordering it would invalidate the cached prefix for the rest of the turn. */
 	lastUsed: Map<string, number>
-	/** The server revision each entry's frozen schema came from, so a connection edited
-	 * elsewhere can be told apart from the same path still pointing at the same server. */
+	/** The server revision each entry was frozen at (see `loadedMcpServers`). */
 	editedAt: Map<string, string | undefined>
 	counter: number
 }
@@ -179,10 +174,10 @@ export function loadedMcpTools(owner: string): Tool<{}>[] {
 }
 
 /**
- * The servers that currently have a tool registered, each with the revision its schemas
- * were frozen from, for reconciling against the live list. The revision matters as much
- * as the path: a registered call bypasses the listing cache, so a connection edited
- * elsewhere would otherwise keep running against the schema it had before the edit.
+ * The servers holding a registered tool, with the revision each was frozen at, for the
+ * reconcile in `refreshMcpServers`. The revision matters as much as the path: a
+ * registered call bypasses the listing cache, so a connection edited elsewhere would
+ * keep running against the schema it had before the edit.
  */
 export function loadedMcpServers(owner: string): { path: string; editedAt?: string }[] {
 	const registry = registries.get(owner)
@@ -224,6 +219,7 @@ export function forgetLoadedMcpTools(owner: string, serverPath?: string) {
 		if (key.startsWith(prefix)) {
 			registry.tools.delete(key)
 			registry.lastUsed.delete(key)
+			registry.editedAt.delete(key)
 		}
 	}
 	if (registry.tools.size === 0) registries.delete(owner)
@@ -731,9 +727,6 @@ export function registerMcpTools(
 				type: 'function',
 				function: {
 					name,
-					// Bounded like the schema above and like every other payload the server
-					// controls: this rides in the request on every iteration, for up to
-					// MAX_LOADED_TOOLS tools, and servers do ship multi-KB descriptions.
 					description: `${truncate(tool.description ?? tool.name, MAX_TOOL_DESCRIPTION_CHARS)}\n(MCP server ${server.path})`,
 					parameters
 				}
@@ -854,7 +847,7 @@ export function createMcpTools(owner: string, servers: McpServer[]): Tool<{}>[] 
 				}
 				const result = boundedSearch({
 					matches: top.map((s) => summarizeTool(s.server, s.tool, callNames.get(s.tool))),
-					hint: 'Each match is now a tool of its own, named by `call`. Call that tool directly with its own arguments — it carries the real schema. `call_mcp_read_tool` / `call_mcp_write_tool` are only for a tool that has no `call`.',
+					hint: 'Call each `call` name directly; use the wrappers only for a match without one.',
 					...(scored.length > top.length
 						? {
 								note: `${scored.length - top.length} more match(es) — refine the query to see them.`

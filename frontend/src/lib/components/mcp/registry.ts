@@ -68,7 +68,8 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		icon: LinearIcon,
 		url: 'https://mcp.linear.app/mcp',
 		auth: 'dcr',
-		tokenHint: 'Use a Linear API key. The Read permission is enough for the read tools.',
+		tokenHint:
+			'Use a Linear API key. The Read permission is enough for the read tools.',
 		docsUrl: 'https://linear.app/docs/mcp'
 	},
 	{

@@ -264,11 +264,8 @@ pub fn make_schema_compatible(schema: &mut Value) {
         obj.insert("type".to_string(), Value::String("string".to_string()));
     }
 
-    // 2c. `required` is `uniqueItems` at every subschema, not just the root, so a
-    // repeat nested inside a property makes a strict validator reject the whole tool
-    // just as a root-level one does -- and the tool then vanishes from the client's
-    // list rather than failing loudly. `transform_property_keys` covers only the root,
-    // where it also has to follow key renames.
+    // 2c. See the `required` bullet above. `transform_property_keys` covers only the
+    // root, where it also has to follow key renames.
     if let Some(Value::Array(required)) = obj.get_mut("required") {
         let mut seen = HashSet::new();
         required.retain(|name| match name.as_str() {
@@ -892,9 +889,9 @@ mod tests {
     #[test]
     fn enriched_resource_stays_a_string_through_make_schema_compatible() {
         // A resource param is stored with the resource's own object shape. Enrichment
-        // retypes it to the `$res:` string, and the leftover `properties` used to make
-        // `make_schema_compatible` retype it back to "object" with nothing in it --
-        // the model then sent `{}` instead of a resource path.
+        // retypes it to the `$res:` string, and must clear that shape: a node with
+        // `properties` is retyped back to "object" below, which reads to the model as
+        // an empty object rather than a resource path.
         let (cache, types) = aws_resources();
         let mut node = json!({
             "type": "object",
