@@ -575,6 +575,10 @@ export type ToolDisplayMessage = {
 	autoCollapseDetails?: boolean
 	isStreamingArguments?: boolean
 	toolName?: string
+	/** Path of the MCP server this call reached, which marks the row with its provider.
+	 * Recorded here rather than looked up from the tool name: the registry of loaded
+	 * remote tools lives only in memory, so a reloaded transcript could not resolve it. */
+	mcpServer?: string
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay

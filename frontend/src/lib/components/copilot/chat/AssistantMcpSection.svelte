@@ -16,10 +16,12 @@ switch that decides whether this chat carries its tools.
 	import { isMcpEnabled, setMcpEnabled } from '$lib/components/mcp/enabledServers'
 	import { loadProviderIcon } from '$lib/components/mcp/providerIcon'
 	import {
+		cachedProviderHost,
 		cachedProviderKey,
 		forgetProviderKey,
 		rememberProviderKey
 	} from '$lib/components/mcp/iconCache'
+	import McpServerIcon from '$lib/components/mcp/McpServerIcon.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import type { Component } from 'svelte'
 	import { ResourceService } from '$lib/gen'
@@ -83,6 +85,7 @@ switch that decides whether this chat carries its tools.
 			editedAt?: string
 			enabled: boolean
 			icon?: Component<any>
+			iconHost?: string
 		}[]
 	>([])
 	let loading = $state(false)
@@ -383,6 +386,7 @@ switch that decides whether this chat carries its tools.
 				const icon = await loadProviderIcon(key)
 				if (seq !== loadSeq) return
 				server.icon = icon
+				server.iconHost = cachedProviderHost(target, server.path, server.editedAt)
 			})
 		)
 	}
@@ -469,12 +473,7 @@ switch that decides whether this chat carries its tools.
 				<div class="flex flex-col gap-0.5">
 					{#each servers as server (server.path)}
 						{#snippet icon()}
-							{#if server.icon}
-								{@const Icon = server.icon}
-								<Icon width="16px" height="16px" />
-							{:else}
-								<Plug size={16} class="text-tertiary" />
-							{/if}
+							<McpServerIcon icon={server.icon} host={server.iconHost} size={16} />
 						{/snippet}
 						{#snippet title()}
 							<span class="truncate leading-5">{server.path}</span>

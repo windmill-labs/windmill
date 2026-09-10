@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Globe } from 'lucide-svelte'
 	import { SvelteSet } from 'svelte/reactivity'
+	import { faviconUrl } from '$lib/utils/faviconUrl'
 	import type { WebSearchSource } from './shared'
 
 	interface Props {
@@ -37,17 +38,6 @@
 	}
 
 	const failedFavicons = new SvelteSet<string>()
-
-	// Favicons come from Google's public favicon service, which discloses each
-	// consulted hostname to a third party from the user's browser — an accepted
-	// tradeoff for now (blocked/air-gapped environments degrade to the Globe
-	// icon via onerror). Hit gstatic directly rather than www.google.com/s2/
-	// favicons: the app is served with COEP require-corp, and the s2 redirect
-	// hop carries no Cross-Origin-Resource-Policy header, so the browser blocks
-	// the image. The gstatic endpoint itself responds with CORP: cross-origin.
-	function faviconUrl(hostname: string): string {
-		return `https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${encodeURIComponent(hostname)}&size=64`
-	}
 </script>
 
 <div class="space-y-2">

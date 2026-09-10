@@ -39,12 +39,30 @@
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
+	import McpServerIcon from '$lib/components/mcp/McpServerIcon.svelte'
+	import { resolveMcpServerMark } from '$lib/components/mcp/serverMark'
+	import { mcpServerForToolName } from './global/mcpTools'
 
 	interface Props {
 		message: ToolDisplayMessage
 	}
 
 	let { message }: Props = $props()
+
+	// A call records its server on the row, which is what survives a reload. The rest
+	// is for rows written before it did: the generic wrappers name their server in the
+	// arguments, and a registered tool is resolved through the in-memory registry.
+	const MCP_CALL_TOOLS = ['call_mcp_read_tool', 'call_mcp_write_tool']
+	const mcpServerPath = $derived.by(() => {
+		if (message.mcpServer) return message.mcpServer
+		const name = message.toolName
+		if (!name) return undefined
+		if (MCP_CALL_TOOLS.includes(name)) {
+			const server = message.parameters?.server
+			return typeof server === 'string' ? server : undefined
+		}
+		return mcpServerForToolName(name)
+	})
 
 	const isPlanReview = $derived(message.toolName === EXIT_PLAN_MODE_TOOL)
 	const isPlanCard = $derived(isPlanCardTool(message.toolName))
@@ -235,6 +253,19 @@
 		{/if}
 	{/snippet}
 
+	<!-- Which system a call reaches is the first thing to know about it, so an MCP
+	     call is marked with its provider before the label. Nothing is drawn until the
+	     mark resolves: a placeholder plug on every row would be noise. -->
+	{#snippet serverMark()}
+		{#if mcpServerPath && aiChatManager.operatingWorkspace}
+			{#await resolveMcpServerMark(aiChatManager.operatingWorkspace, mcpServerPath) then mark}
+				{#if mark.icon || mark.host}
+					<McpServerIcon icon={mark.icon} host={mark.host} size={14} />
+				{/if}
+			{/await}
+		{/if}
+	{/snippet}
+
 	<!-- The shimmer is the only running indicator, so the states have to read off
 	     weight alone: queued calls (waiting their turn behind the executing tool)
 	     are faded, the running one sweeps, a settled one is plain. -->
@@ -251,6 +282,7 @@
 		labelClass={showPreviewChip ? 'truncate' : ''}
 		contentClass="space-y-3"
 		headerRight={showPreviewChip ? previewChip : undefined}
+		headerLeft={mcpServerPath ? serverMark : undefined}
 	>
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
 		{#snippet belowHeader()}

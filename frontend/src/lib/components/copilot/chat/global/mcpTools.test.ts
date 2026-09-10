@@ -27,7 +27,16 @@ vi.mock('$lib/stores', () => ({
 	userStore: { subscribe: (run: (v: unknown) => void) => (run({ ...session }), () => {}) }
 }))
 
-import { clearMcpToolsCache, createMcpTools, loadMcpServers, type McpServer } from './mcpTools'
+import {
+	clearMcpToolsCache,
+	createMcpTools,
+	forgetLoadedMcpTools,
+	loadedMcpServerPaths,
+	loadedMcpTools,
+	loadMcpServers,
+	registerMcpTools,
+	type McpServer
+} from './mcpTools'
 import { setMcpEnabled } from '$lib/components/mcp/enabledServers'
 
 const SERVERS: McpServer[] = [{ path: 'u/hugo/github_mcp' }]
@@ -91,6 +100,98 @@ beforeEach(() => {
 describe('tool registration', () => {
 	it('registers nothing when no MCP server is connected', () => {
 		expect(createMcpTools([])).toEqual([])
+	})
+})
+
+describe('loaded remote tools', () => {
+	const server = SERVERS[0]
+
+	it('registers a remote tool under its own schema and server-scoped name', () => {
+		const [name] = registerMcpTools(server, [TOOLS[0]])
+
+		expect(name).toBe('mcp_u_hugo_github_mcp__get_issue')
+		const tool = loadedMcpTools().find((t) => t.def.function.name === name)
+		expect(tool?.def.function.parameters).toEqual(TOOLS[0].inputSchema)
+	})
+
+	// The wrappers ask for confirmation by which one the model picked; a registered
+	// tool carries its own hint, so the gate is per tool.
+	it('gates a mutating tool and lets a read-only one through', () => {
+		registerMcpTools(server, [TOOLS[0], TOOLS[1], TOOLS[2]])
+		const byName = Object.fromEntries(loadedMcpTools().map((t) => [t.def.function.name, t]))
+
+		expect(byName['mcp_u_hugo_github_mcp__get_issue'].requiresConfirmation).toBeUndefined()
+		expect(byName['mcp_u_hugo_github_mcp__merge_pull_request'].requiresConfirmation).toBe(true)
+		// No annotations at all must not read as read-only.
+		expect(byName['mcp_u_hugo_github_mcp__unannotated_tool'].requiresConfirmation).toBe(true)
+	})
+
+	// A registered tool freezes a copy of `readOnlyHint`, which is what the listing
+	// TTL exists to bound — so it must not outlive the listing it came from.
+	it('drops loaded tools when the listing cache is cleared', () => {
+		registerMcpTools(server, [TOOLS[0]])
+		expect(loadedMcpTools()).toHaveLength(1)
+
+		clearMcpToolsCache()
+
+		expect(loadedMcpTools()).toEqual([])
+	})
+
+	it('drops only the named server when reconciling against the live list', () => {
+		registerMcpTools(server, [TOOLS[0]])
+		registerMcpTools({ path: 'f/team/linear_mcp' }, [TOOLS[0]])
+		expect(loadedMcpServerPaths().sort()).toEqual(['f/team/linear_mcp', 'u/hugo/github_mcp'])
+
+		forgetLoadedMcpTools('f/team/linear_mcp')
+
+		expect(loadedMcpServerPaths()).toEqual(['u/hugo/github_mcp'])
+	})
+
+	// The reported bug: the model saw only parameter names, so it invented values for
+	// constrained arguments (Linear's `orderBy`, whose enum it never saw). Searching
+	// must put the real schema in front of it, not a list of names.
+	it('registers what a search matched, with the remote schema', async () => {
+		setMcpEnabled('test-ws', 'u/hugo/github_mcp', true)
+		const result = await run('search_mcp_tools', { query: 'issue' })
+
+		const match = result.matches.find((m: any) => m.tool === 'get_issue')
+		expect(match.call).toBe('mcp_u_hugo_github_mcp__get_issue')
+		expect(match.params).toBeUndefined()
+
+		const registered = loadedMcpTools().find((t) => t.def.function.name === match.call)
+		expect(registered?.def.function.parameters).toEqual(TOOLS[0].inputSchema)
+	})
+
+	// The row's provider icon is resolved from this, and the registry of loaded tools
+	// lives only in memory — so without it on the message, a reloaded transcript loses
+	// every mark. Recorded before the server is resolved, so an unreachable server
+	// still marks its own failure row.
+	it('records the server on the row, even when it cannot be reached', async () => {
+		getMcpToolsMock.mockRejectedValue(new Error('connection refused'))
+		const callbacks = createToolCallbacks()
+
+		await getTool('call_mcp_read_tool').fn({
+			args: { server: 'u/hugo/github_mcp', tool: 'get_issue', arguments: {} },
+			workspace: 'test-ws',
+			helpers: {},
+			toolCallbacks: callbacks,
+			toolId: 'tool-1'
+		})
+
+		expect(callbacks.setToolStatus).toHaveBeenCalledWith('tool-1', {
+			mcpServer: 'u/hugo/github_mcp'
+		})
+	})
+
+	it('bounds the loaded set, evicting the least recently registered', () => {
+		for (let i = 0; i < 30; i++) {
+			registerMcpTools(server, [{ ...TOOLS[0], name: `tool_${i}` }])
+		}
+		const names = loadedMcpTools().map((t) => t.def.function.name)
+
+		expect(names).toHaveLength(25)
+		expect(names).not.toContain('mcp_u_hugo_github_mcp__tool_0')
+		expect(names).toContain('mcp_u_hugo_github_mcp__tool_29')
 	})
 })
 
@@ -228,15 +329,18 @@ describe('call results', () => {
 })
 
 describe('search_mcp_tools', () => {
-	it('returns compact summaries without the full input schemas', async () => {
+	// The schema reaches the model through the registered tool, not inlined here: the
+	// result stays a summary so a 10-match search does not also dump 10 schemas into
+	// the transcript on top of the tool definitions it just created.
+	it('returns compact summaries that name the registered tool', async () => {
 		const result = await run('search_mcp_tools', { query: 'issue' })
 		expect(result.matches).toEqual([
 			{
 				server: 'u/hugo/github_mcp',
 				tool: 'get_issue',
+				call: 'mcp_u_hugo_github_mcp__get_issue',
 				description: 'Get details of a GitHub issue',
-				mode: 'read',
-				params: ['owner', 'repo']
+				mode: 'read'
 			}
 		])
 	})

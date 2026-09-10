@@ -9,7 +9,10 @@ import { providerKey } from './providerIcon'
  * open. `edited_at` comes back with the list, so a row that has not been edited
  * since it was cached needs no read at all.
  */
-type Entry = { key: string | null; editedAt?: string }
+// `host` backs the favicon fallback for a server Windmill ships no icon for. It is
+// cached alongside the key for the same reason: the url is only in the resource
+// value, which the list endpoint strips.
+type Entry = { key: string | null; editedAt?: string; host?: string }
 
 const STORE_KEY = 'mcp_provider_icons'
 
@@ -33,6 +36,42 @@ export function cachedProviderKey(
 	return entry.editedAt === editedAt ? entry.key : undefined
 }
 
+/**
+ * The stored mark for a path, ignoring `editedAt`. A transcript row marks a call
+ * that already happened, so the provider from before a reconnect is still the one
+ * to draw — and unlike `readOnlyHint`, nothing acts on it.
+ */
+export function cachedProviderMark(
+	workspace: string,
+	path: string
+): { key: string | null; host?: string } | undefined {
+	const entry = read()[workspace]?.[path]
+	return entry ? { key: entry.key, host: entry.host } : undefined
+}
+
+/** The url's host, when it has one worth drawing a favicon for. */
+export function providerHost(url: unknown): string | undefined {
+	if (typeof url !== 'string') return undefined
+	try {
+		const { hostname } = new URL(url)
+		// A loopback, a bare address, or an intranet single-label name has no favicon
+		// to fetch, and asking would disclose it to the favicon service for nothing.
+		if (!hostname.includes('.') || /^[\d.]+$/.test(hostname)) return undefined
+		return hostname
+	} catch {
+		return undefined
+	}
+}
+
+export function cachedProviderHost(
+	workspace: string,
+	path: string,
+	editedAt?: string
+): string | undefined {
+	const entry = read()[workspace]?.[path]
+	return entry?.editedAt === editedAt ? entry?.host : undefined
+}
+
 export function rememberProviderKey(
 	workspace: string,
 	path: string,
@@ -41,7 +80,10 @@ export function rememberProviderKey(
 ): string | null {
 	const key = providerKey(url) ?? null
 	const store = read()
-	store[workspace] = { ...(store[workspace] ?? {}), [path]: { key, editedAt } }
+	store[workspace] = {
+		...(store[workspace] ?? {}),
+		[path]: { key, editedAt, host: providerHost(url) }
+	}
 	try {
 		localStorage.setItem(STORE_KEY, JSON.stringify(store))
 	} catch {}

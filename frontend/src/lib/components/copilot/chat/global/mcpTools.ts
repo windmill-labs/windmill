@@ -4,12 +4,17 @@ import { createToolDef, type Tool } from '../shared'
 import { enabledMcpPaths } from '$lib/components/mcp/enabledServers'
 
 /**
- * Access to the MCP servers the user has connected (resources of type `mcp`)
- * as three static tools — search, read call, write call — instead of one
- * registered tool per remote tool. A server like GitHub's exposes ~90 tools,
- * whose schemas would otherwise be re-sent on every chat iteration; here only
- * matched summaries enter the model's context, and a full input schema only
- * after a call fails.
+ * Access to the MCP servers the user has connected (resources of type `mcp`),
+ * loaded on demand rather than all at once: a server like GitHub's exposes ~90
+ * tools, whose schemas would otherwise sit in the model's context on every
+ * iteration.
+ *
+ * `search_mcp_tools` is the entry point and registers the tools it matched, so
+ * from the next iteration each one is a tool of its own carrying the remote's
+ * real input schema. Only searched-for tools are ever paid for. The read/write
+ * call wrappers remain as a fallback for anything not registered, and take a
+ * free-form argument object — which is what the model has to guess into, and
+ * why the registered tool is preferred wherever there is one.
  */
 
 type McpToolDef = GetMcpToolsResponse[number]
@@ -18,6 +23,11 @@ export type McpServer = { path: string; editedAt?: string }
 
 const MAX_SEARCH_RESULTS = 10
 const MAX_DESCRIPTION_CHARS = 200
+// A registered tool's schema sits in the model's context for the rest of the
+// session, so the set is bounded and the least recently called one is evicted.
+const MAX_LOADED_TOOLS = 25
+// Both providers cap tool names; OpenAI's 64 is the lower of the two.
+const MAX_TOOL_NAME_CHARS = 64
 const MAX_RESULT_CHARS = 20_000
 // A server writes its own error text, and every enabled server can contribute
 // one, so search results are capped the same way call results are.
@@ -64,6 +74,62 @@ async function loadServerTools(
 export function clearMcpToolsCache() {
 	cacheGeneration++
 	toolsCache = {}
+	forgetLoadedMcpTools()
+}
+
+/**
+ * Remote tools promoted to first-class chat tools for this session, keyed
+ * `${server}::${tool}`. `chatLoop` re-reads its tool list on every iteration, so
+ * one registered while a call is running is callable on the next one.
+ *
+ * A registered tool is a frozen copy of an input schema *and* of `readOnlyHint`,
+ * which is the thing `TOOLS_CACHE_TTL_MS` exists to bound — so these are dropped
+ * by the same triggers that drop a listing rather than left to age on a timer.
+ * What keeps that safe in between is the backend, not this map: `executeTool`
+ * asserts `read_only` against the live server, so a stale hint cannot turn into
+ * an unconfirmed write.
+ */
+const loadedTools = new Map<string, Tool<{}>>()
+
+/** Insertion order is call order, so the first entry is the least recently used. */
+function touchLoadedTool(key: string) {
+	const tool = loadedTools.get(key)
+	if (!tool) return
+	loadedTools.delete(key)
+	loadedTools.set(key, tool)
+}
+
+export function loadedMcpTools(): Tool<{}>[] {
+	return [...loadedTools.values()]
+}
+
+/** The servers that currently have a tool registered, for reconciling against the live list. */
+export function loadedMcpServerPaths(): string[] {
+	return [...new Set([...loadedTools.keys()].map((key) => key.slice(0, key.lastIndexOf('::'))))]
+}
+
+/**
+ * The server a chat-facing tool name belongs to, for marking its transcript row with
+ * the provider. Resolved through the registry rather than by parsing the name, which
+ * a long path truncates.
+ */
+export function mcpServerForToolName(toolName: string): string | undefined {
+	for (const [key, tool] of loadedTools) {
+		if (tool.def.function.name === toolName) return key.slice(0, key.lastIndexOf('::'))
+	}
+	return undefined
+}
+
+/** Drop every loaded tool, or only those belonging to one server. */
+export function forgetLoadedMcpTools(serverPath?: string) {
+	if (serverPath === undefined) {
+		loadedTools.clear()
+		return
+	}
+	const prefix = `${serverPath}::`
+	for (const key of [...loadedTools.keys()]) {
+		if (key.startsWith(prefix)) loadedTools.delete(key)
+	}
 }
 
 /**
@@ -78,6 +144,7 @@ function forgetServerTools(workspace: string, path: string) {
 	for (const key of Object.keys(toolsCache)) {
 		if (key.startsWith(prefix)) delete toolsCache[key]
 	}
+	forgetLoadedMcpTools(path)
 }
 
 /**
@@ -149,14 +216,16 @@ function truncate(text: string, max: number): string {
 	return text.length > max ? text.slice(0, max) + '…' : text
 }
 
-function summarizeTool(server: McpServer, tool: McpToolDef) {
+function summarizeTool(server: McpServer, tool: McpToolDef, callName?: string) {
 	const params = schemaPropertyNames(tool.inputSchema)
 	return {
 		server: server.path,
 		tool: tool.name,
+		// Once the tool is registered its real schema is in front of the model, so the
+		// bare parameter names it used to guess from are dropped rather than repeated.
+		...(callName ? { call: callName } : params.length > 0 ? { params } : {}),
 		description: truncate(tool.description ?? '', MAX_DESCRIPTION_CHARS),
-		mode: isReadOnly(tool) ? 'read' : 'write',
-		...(params.length > 0 ? { params } : {})
+		mode: isReadOnly(tool) ? 'read' : 'write'
 	}
 }
 
@@ -341,8 +410,8 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> 
 			callMcpToolSchema,
 			isRead ? 'call_mcp_read_tool' : 'call_mcp_write_tool',
 			isRead
-				? 'Call a read-only tool on a connected MCP server. Use search_mcp_tools first to find the server and tool names; a failed call returns the tool argument schema.'
-				: 'Call a tool that modifies data on a connected MCP server; the user is asked to confirm. Use search_mcp_tools first to find the server and tool names; a failed call returns the tool argument schema.'
+				? 'Fallback for a read-only tool that search_mcp_tools did not give a `call` name for. Prefer that named tool, which carries the real argument schema; a failed call here returns it.'
+				: 'Fallback for a mutating tool that search_mcp_tools did not give a `call` name for; the user is asked to confirm. Prefer that named tool, which carries the real argument schema; a failed call here returns it.'
 		),
 		showDetails: true,
 		...(isRead
@@ -353,6 +422,10 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> 
 				}),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = callMcpToolSchema.parse(args)
+			// Recorded from the arguments, before resolution: resolving needs a live
+			// listing, so a server that cannot be reached would otherwise leave its own
+			// failure row unmarked.
+			toolCallbacks.setToolStatus(toolId, { mcpServer: parsed.server })
 			// Listing is a live call to a third party: a server that has gone away
 			// must fail this tool, not the chat loop around it.
 			let resolved: Awaited<ReturnType<typeof resolveTool>>
@@ -391,6 +464,89 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> 
 	}
 }
 
+function sanitizeToolNamePart(part: string): string {
+	return part.replace(/[^a-zA-Z0-9_-]/g, '_')
+}
+
+/** djb2, so two long names truncated to the same prefix stay distinct. */
+function shortHash(text: string): string {
+	let hash = 5381
+	for (let i = 0; i < text.length; i++) hash = ((hash * 33) ^ text.charCodeAt(i)) >>> 0
+	return hash.toString(36).padStart(7, '0').slice(0, 7)
+}
+
+/**
+ * The chat-facing name. It carries the server so two servers exposing
+ * `list_issues` stay apart, and nothing parses it back: the registry keys on the
+ * pair, so truncation only has to stay unique.
+ */
+function registeredToolName(serverPath: string, toolName: string): string {
+	const full = `mcp_${sanitizeToolNamePart(serverPath)}__${sanitizeToolNamePart(toolName)}`
+	if (full.length <= MAX_TOOL_NAME_CHARS) return full
+	return `${full.slice(0, MAX_TOOL_NAME_CHARS - 8)}_${shortHash(full)}`
+}
+
+function evictLoadedTools() {
+	while (loadedTools.size > MAX_LOADED_TOOLS) {
+		const oldest = loadedTools.keys().next()
+		if (oldest.done) return
+		loadedTools.delete(oldest.value)
+	}
+}
+
+/**
+ * Promote remote tools to first-class chat tools, so the model fills a real input
+ * schema instead of guessing arguments into a free-form object. Returns the names
+ * it registered, in the order given.
+ *
+ * Each tool carries its own `readOnlyHint`, so the confirmation gate is per tool
+ * and the read/write wrappers' "you used the wrong one" failure cannot arise.
+ */
+export function registerMcpTools(server: McpServer, tools: McpToolDef[]): string[] {
+	const names = tools.map((tool) => {
+		const key = `${server.path}::${tool.name}`
+		const name = registeredToolName(server.path, tool.name)
+		const readOnly = isReadOnly(tool)
+		// Re-registering refreshes the schema and counts as a use.
+		loadedTools.delete(key)
+		loadedTools.set(key, {
+			def: {
+				type: 'function',
+				function: {
+					name,
+					description: `${tool.description ?? tool.name}\n(MCP server ${server.path})`,
+					parameters: tool.inputSchema ?? { type: 'object', properties: {} }
+				}
+			},
+			showDetails: true,
+			...(readOnly
+				? {}
+				: {
+						requiresConfirmation: true,
+						confirmationMessage: `Call ${tool.name} on ${server.path}`
+					}),
+			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+				touchLoadedTool(key)
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Calling ${tool.name}...`,
+					mcpServer: server.path
+				})
+				const result = await executeTool(workspace, server, tool, args ?? {}, readOnly)
+				const ok = JSON.parse(result).success === true
+				toolCallbacks.setToolStatus(toolId, {
+					content: ok ? `Called ${tool.name}` : `Call to ${tool.name} failed`,
+					result,
+					...(ok ? {} : { error: `Call to ${tool.name} failed` })
+				})
+				return result
+			}
+		})
+		return name
+	})
+	evictLoadedTools()
+	return names
+}
+
 /**
  * Built per session from the servers the user connected: with none, the tools
  * are not registered at all, so a workspace without an MCP connection pays no
@@ -405,8 +561,12 @@ export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
 			def: createToolDef(
 				searchMcpToolsSchema,
 				'search_mcp_tools',
-				'Search the tools exposed by the MCP servers connected to this workspace (listed in the system prompt). Returns server + tool names to pass to call_mcp_read_tool or call_mcp_write_tool.'
+				"Search the tools exposed by the MCP servers connected to this workspace (listed in the system prompt). Each match becomes a callable tool of its own, named by `call` in the result, carrying that tool's real argument schema — call it directly rather than guessing arguments."
 			),
+			// Openable, so the matches and the `call` names they registered can be read;
+			// collapsed once it succeeded, like a call result, since a ten-match search
+			// would otherwise take over the transcript.
+			showDetails: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				const parsed = searchMcpToolsSchema.parse(args)
 				toolCallbacks.setToolStatus(toolId, { content: 'Searching MCP tools...' })
@@ -443,8 +603,27 @@ export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
 					return result
 				}
 				const top = scored.slice(0, MAX_SEARCH_RESULTS)
+				// Register the matches, so the next iteration puts each one's real input
+				// schema in front of the model instead of leaving it to guess arguments
+				// into `call_mcp_*`'s free-form object. Bounded by MAX_SEARCH_RESULTS, and
+				// paid only after a search actually matched.
+				const callNames = new Map<McpToolDef, string>()
+				const perServerMatches = new Map<string, { server: McpServer; tools: McpToolDef[] }>()
+				for (const match of top) {
+					const entry = perServerMatches.get(match.server.path) ?? {
+						server: match.server,
+						tools: []
+					}
+					entry.tools.push(match.tool)
+					perServerMatches.set(match.server.path, entry)
+				}
+				for (const { server, tools } of perServerMatches.values()) {
+					const registered = registerMcpTools(server, tools)
+					tools.forEach((tool, i) => callNames.set(tool, registered[i]))
+				}
 				const result = boundedSearch({
-					matches: top.map((s) => summarizeTool(s.server, s.tool)),
+					matches: top.map((s) => summarizeTool(s.server, s.tool, callNames.get(s.tool))),
+					hint: 'Each match is now a tool of its own, named by `call`. Call that tool directly with its own arguments — it carries the real schema. `call_mcp_read_tool` / `call_mcp_write_tool` are only for a tool that has no `call`.',
 					...(scored.length > top.length
 						? {
 								note: `${scored.length - top.length} more match(es) — refine the query to see them.`

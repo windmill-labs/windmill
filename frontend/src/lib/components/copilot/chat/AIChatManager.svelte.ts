@@ -134,7 +134,14 @@ import {
 } from './global/core'
 import { formatChatJobCompletion } from './datatableTools'
 import { isGlobalAiEnabled } from './global/gate'
-import { createMcpTools, loadMcpServers, type McpServer } from './global/mcpTools'
+import {
+	createMcpTools,
+	forgetLoadedMcpTools,
+	loadedMcpServerPaths,
+	loadedMcpTools,
+	loadMcpServers,
+	type McpServer
+} from './global/mcpTools'
 import {
 	pipelineTools,
 	getPipelinePromptSection,
@@ -2231,6 +2238,13 @@ export class AIChatManager {
 		// workspace's servers installed would go on advertising its paths against
 		// the workspace switched to.
 		this.mcpServers = workspace === (this.operatingWorkspace ?? '') ? servers : []
+		// A tool registered from a server that has since been turned off, deleted, or
+		// left behind by a workspace switch would still be callable, and would run
+		// against whichever workspace the chat is on now.
+		const live = new Set(this.mcpServers.map((s) => s.path))
+		for (const path of loadedMcpServerPaths()) {
+			if (!live.has(path)) forgetLoadedMcpTools(path)
+		}
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}
@@ -2683,7 +2697,9 @@ export class AIChatManager {
 					return base
 				},
 				get tools() {
-					return [...self.tools, ...self.planMode.tools]
+					// Re-read every iteration by `chatLoop`, so a remote MCP tool registered
+					// during one iteration is callable on the next.
+					return [...self.tools, ...self.planMode.tools, ...loadedMcpTools()]
 				},
 				get helpers() {
 					return self.helpers

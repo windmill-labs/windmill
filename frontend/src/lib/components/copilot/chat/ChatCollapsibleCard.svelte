@@ -15,6 +15,9 @@
 		shimmer?: boolean
 		// Pinned to the right of the header row, outside the toggle button.
 		headerRight?: Snippet
+		// Sits before the label, inside the toggle button, and outside the shimmer:
+		// a mark belongs to the label it names, but must not sweep with it.
+		headerLeft?: Snippet
 		// Always-visible content between the header and the expandable body.
 		belowHeader?: Snippet
 		children?: Snippet
@@ -31,6 +34,7 @@
 		toggleable = true,
 		shimmer = false,
 		headerRight,
+		headerLeft,
 		belowHeader,
 		children,
 		class: className,
@@ -63,6 +67,7 @@
 			disabled={!toggleable}
 			aria-expanded={toggleable ? expanded : undefined}
 		>
+			{@render headerLeft?.()}
 			{#if shimmer}
 				<span class="shimmer inline-flex items-center min-w-0">
 					{@render labelText(false)}
