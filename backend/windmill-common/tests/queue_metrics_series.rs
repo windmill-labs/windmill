@@ -111,3 +111,26 @@ async fn a_climbing_delay_is_drawn_as_the_wait_of_its_head(db: Pool<Postgres>) {
         "{points:?}"
     );
 }
+
+/// A climb that drains inside its slot keeps its top, which no stored value holds: it is reached
+/// at the next sample.
+#[sqlx::test(migrations = "../migrations")]
+async fn a_climb_that_drains_inside_its_slot_keeps_its_top(db: Pool<Postgres>) {
+    let now: f64 = sqlx::query_scalar("SELECT EXTRACT(EPOCH FROM now())::double precision")
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    // All in the 30s slot starting at 600: held at 5s, then climbing from a head queued at 597,
+    // which is still there when the tag drains at 627, 30s into its wait.
+    sample(&db, "queue_delay_t", json!(5), 602.0).await;
+    sample(&db, "queue_delay_t", json!({ "since": now - WINDOW + 597.0 }), 610.0).await;
+    sample(&db, "queue_delay_t", json!(0), 627.0).await;
+
+    let series = read_queue_metrics_series(&db, WINDOW).await.unwrap();
+    let top = series.tags[0]
+        .delay
+        .iter()
+        .map(|(_, value)| *value)
+        .fold(0.0, f64::max);
+    assert!((top - 30.0).abs() < 2.0, "{:?}", series.tags[0].delay);
+}

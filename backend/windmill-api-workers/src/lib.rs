@@ -273,8 +273,8 @@ async fn get_queue_metrics(
 ) -> JsonResult<Vec<QueueMetric>> {
     require_devops_role(&db, &authed).await?;
 
-    // A climbing delay is stored as its head's wait start; this endpoint returns the delay at the
-    // time of each sample, as it always has.
+    // The API declares every `value` a number, so a climbing delay, stored as its head's wait
+    // start, is returned as the delay at the time of its sample.
     let queue_metrics = sqlx::query_as!(
         QueueMetric,
         "WITH queue_metrics as (

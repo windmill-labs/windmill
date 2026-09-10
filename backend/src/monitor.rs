@@ -5172,6 +5172,8 @@ async fn save_queue_metrics(
 
     let mut ids = vec![];
     let mut values = vec![];
+    // The wait start of the head of each held delay, whose value the INSERT computes.
+    let mut held_heads: Vec<Option<f64>> = vec![];
     for row in last_samples {
         let Some((prefix, tag)) = [QUEUE_COUNT_PREFIX, QUEUE_DELAY_PREFIX]
             .into_iter()
@@ -5198,25 +5200,37 @@ async fn save_queue_metrics(
 
         let drawn_now = last.map(|(sample, at, age)| (sample.value_at(at + age), age));
         if should_store(prefix, drawn_now, current) {
-            values.push(match (stat, prefix) {
-                (None, _) => serde_json::json!(0),
-                (Some(stat), QUEUE_COUNT_PREFIX) => serde_json::json!(stat.count),
+            let (value, held_head) = match (stat, prefix) {
+                (None, _) => (serde_json::json!(0), None),
+                (Some(stat), QUEUE_COUNT_PREFIX) => (serde_json::json!(stat.count), None),
                 (Some(stat), _) => {
                     let last_head = last.map(|(sample, at, _)| sample.head_since(at));
-                    delay_sample(last_head, stat).to_json()
+                    match delay_sample(last_head, stat) {
+                        QueueSample::Held(_) => (serde_json::Value::Null, Some(stat.head_since)),
+                        climbing => (climbing.to_json(), None),
+                    }
                 }
-            });
+            };
             ids.push(row.id);
+            values.push(value);
+            held_heads.push(held_head);
         }
     }
 
     if ids.is_empty() {
         return;
     }
+    // A held delay is computed from this statement's `now()`, the row's `created_at` too, so
+    // `created_at - value` is exactly its head's wait start. That is how the next sample tells
+    // whether the same job is still at the head, within `QUEUE_DELAY_SAME_HEAD_SECS`, which the
+    // time between reading the queue and this INSERT could otherwise exceed on a busy database.
     if let Err(e) = sqlx::query!(
-        "INSERT INTO metrics (id, value) SELECT * FROM unnest($1::text[], $2::jsonb[])",
+        "INSERT INTO metrics (id, value)
+        SELECT id, COALESCE(to_jsonb(EXTRACT(EPOCH FROM now())::double precision - held_head), value)
+        FROM unnest($1::text[], $2::jsonb[], $3::double precision[]) AS u(id, value, held_head)",
         &ids[..],
         &values[..],
+        &held_heads[..] as &[Option<f64>],
     )
     .execute(db)
     .await

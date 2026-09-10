@@ -111,30 +111,49 @@ pub async fn read_queue_metrics_series(
     // reads as zero, so nothing older can matter. Arrays compare element by element, so
     // `max(ARRAY[t, v])` is the slot's latest sample, found without sorting every row. `v` is a
     // sample's value when it was written: for a climbing delay, how long its head had waited.
+    //
+    // A climb keeps rising until the next sample, so when that sample lands in the same slot
+    // (the tag drained, or its head moved), the climb's top is higher than any `v`. Looking the
+    // next sample up for the slot's last climb, rather than ordering every row, keeps the pass a
+    // plain aggregate; an earlier climb in the same slot still shows up to its last heartbeat.
     let rows = sqlx::query!(
-        "SELECT id AS \"id!\", slot AS \"slot!\", min(t) AS \"first!\", max(t) AS \"last!\",
-            max(v) AS \"peak!\", (min(ARRAY[t, v]))[2] AS \"first_value!\",
-            (max(ARRAY[t, v]))[2] AS \"last_value!\",
-            (max(ARRAY[t, climbing]))[2] = 1 AS \"last_climbing!\",
-            COALESCE(bool_and(climbing = 1) AND max(since) - min(since) < $4, false) AS \"ramp!\"
-        FROM (
-            SELECT id, t,
-                CASE jsonb_typeof(value)
-                    WHEN 'number' THEN value::double precision
-                    WHEN 'object' THEN t - (value->>'since')::double precision
-                END AS v,
-                (value->>'since')::double precision AS since,
-                (jsonb_typeof(value) = 'object')::int::double precision AS climbing,
-                greatest(floor((t - $1::double precision) / $2::double precision), -1)::int AS slot
+        "WITH slots AS (
+            SELECT id, slot, min(t) AS first, max(t) AS last, max(v) AS peak,
+                (min(ARRAY[t, v]))[2] AS first_value, (max(ARRAY[t, v]))[2] AS last_value,
+                (max(ARRAY[t, climbing]))[2] = 1 AS last_climbing,
+                COALESCE(bool_and(climbing = 1) AND max(since) - min(since) < $4, false) AS ramp,
+                max(ARRAY[t, since]) FILTER (WHERE climbing = 1) AS last_climb
             FROM (
-                SELECT id, value, EXTRACT(EPOCH FROM created_at)::double precision AS t
-                FROM metrics
-                WHERE id LIKE 'queue_%'
-                    AND created_at > to_timestamp($1::double precision - $3::double precision)
-            ) m
-        ) s
-        WHERE v IS NOT NULL
-        GROUP BY id, slot
+                SELECT id, t,
+                    CASE jsonb_typeof(value)
+                        WHEN 'number' THEN value::double precision
+                        WHEN 'object' THEN t - (value->>'since')::double precision
+                    END AS v,
+                    (value->>'since')::double precision AS since,
+                    (jsonb_typeof(value) = 'object')::int::double precision AS climbing,
+                    greatest(floor((t - $1::double precision) / $2::double precision), -1)::int
+                        AS slot
+                FROM (
+                    SELECT id, value, EXTRACT(EPOCH FROM created_at)::double precision AS t
+                    FROM metrics
+                    WHERE id LIKE 'queue_%'
+                        AND created_at > to_timestamp($1::double precision - $3::double precision)
+                ) m
+            ) s
+            WHERE v IS NOT NULL
+            GROUP BY id, slot
+        )
+        SELECT id AS \"id!\", slot AS \"slot!\", first AS \"first!\", last AS \"last!\",
+            greatest(peak, CASE WHEN last_climb[1] < last THEN (
+                SELECT EXTRACT(EPOCH FROM min(n.created_at))::double precision
+                FROM metrics n
+                WHERE n.id = slots.id AND n.id LIKE 'queue_%'
+                    AND n.created_at > to_timestamp(last_climb[1] + 0.001)
+                    AND n.created_at <= to_timestamp(last + 0.001)
+            ) - last_climb[2] END) AS \"peak!\",
+            first_value AS \"first_value!\", last_value AS \"last_value!\",
+            last_climbing AS \"last_climbing!\", ramp AS \"ramp!\"
+        FROM slots
         ORDER BY id, slot",
         from,
         slot_secs,
@@ -200,6 +219,7 @@ pub struct MetricSlot {
     /// When the first and the last sample of the slot were written, in epoch seconds.
     pub first: f64,
     pub last: f64,
+    /// The highest value the series drew over the slot, a climb that ends inside it included.
     pub peak: f64,
     pub first_value: f64,
     /// The value of the last sample, which holds (or climbs, for a climbing delay) until the next.
