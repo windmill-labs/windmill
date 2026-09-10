@@ -1,0 +1,422 @@
+<script lang="ts">
+	import { untrack } from 'svelte'
+	import type { MenubarMenuElements } from '@melt-ui/svelte'
+	import { workspaceMenuHref } from './workspaceMenuHref'
+	import { isOperatorInWorkspace } from './operatorRoutes'
+	import {
+		isPremiumStore,
+		maybePremium,
+		superadmin,
+		userStore,
+		userWorkspaces,
+		workspaceStore,
+		workspaceUsageStore,
+		clearWorkspaceFromStorage,
+		globalForkModal,
+		enterpriseLicense
+	} from '$lib/stores'
+	import { Check, ChevronDown, ChevronRight, Plus, Settings } from 'lucide-svelte'
+	import { forkAccentStyle } from '$lib/utils/forkColor'
+	import { SvelteSet } from 'svelte/reactivity'
+	import { Badge, CopyButton } from '$lib/components/common'
+	import { MenuItem, Tooltip } from '$lib/components/meltComponents'
+	import { EXECUTIONS_HINT } from './executionsHint'
+	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
+	import { fixupUrlAfterWorkspaceSwitch } from './workspaceSwitchUrl'
+	import { goto } from '$lib/navigation'
+	import { base } from '$lib/base'
+	import { page } from '$app/state'
+	import { switchWorkspace } from '$lib/storeUtils'
+	import MultiplayerMenu from './MultiplayerMenu.svelte'
+	import { isCloudHosted } from '$lib/cloud'
+	import { workspaceAIClients } from '../copilot/lib'
+	import { twMerge } from 'tailwind-merge'
+	import {
+		ambiguousWorkspaceNames,
+		buildWorkspaceHierarchy,
+		findWorkspaceAncestors,
+		isForkOwner
+	} from '$lib/utils/workspaceHierarchy'
+	import { canCreateFork } from '$lib/utils/editInFork'
+	import { workspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
+	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
+
+	interface Props {
+		// The melt item builder of the menu (or submenu) hosting this list. Melt
+		// uses the same builder for a submenu's rows as for its parent's, so one
+		// body serves both.
+		item: MenubarMenuElements['item']
+		// When used outside of the side bar, where links to workspace settings and such don't make as much sense.
+		strictWorkspaceSelect?: boolean
+		// Set by a picker embedded in a page that drives its own navigation, so switching
+		// workspaces must not navigate away from it. Separate from strictWorkspaceSelect,
+		// which only strips the sidebar-specific rows — the operator submenu sets that one
+		// and still wants the switch to move the page.
+		keepPageOnSwitch?: boolean
+	}
+
+	let { item, strictWorkspaceSelect = false, keepPageOnSwitch = false }: Props = $props()
+
+	async function toggleSwitchWorkspace(id: string) {
+		if ($workspaceStore === id) {
+			return
+		}
+		// Read before switchWorkspace: it swaps the stores this reads out from under us.
+		const landOnHome = landsOnHome(id)
+		workspaceAIClients.init(id)
+		switchWorkspace(id)
+		// The sessions page needs no navigation here: the item's link navigation
+		// (workspaceHref) keeps the route, and the page's family reconcile swaps
+		// out a chat that doesn't belong to the new workspace's family.
+		await fixupUrlAfterWorkspaceSwitch(id, { landOnHome })
+	}
+
+	// Operator page access is granted per workspace, so a switch lands on home rather than
+	// on a page either side may refuse. Both signals are positive: `userStore.operator` is
+	// an explicit flag for the workspace being left, and `isOperatorInWorkspace` only ever
+	// confirms the target (its NULL is ambiguous, so a `false` from it is never taken as
+	// proof of a developer on its own). Leaving one developer workspace for another keeps
+	// the page, as it always has.
+	function landsOnHome(id: string): boolean {
+		if (keepPageOnSwitch) return false
+		if ($userStore?.operator) return true
+		return isOperatorInWorkspace(($userWorkspaces ?? []).find((w) => w.id === id))
+	}
+
+	// Href for the item's navigation (including modifier/middle clicks opening a
+	// new tab): same page, `workspace` param swapped to the clicked id, the open
+	// session kept only within its family. Pure logic lives in workspaceMenuHref
+	// (unit-tested).
+	function workspaceHref(id: string): string {
+		const all = $userWorkspaces ?? []
+		return workspaceMenuHref({
+			pathname: page.url.pathname,
+			searchParams: page.url.searchParams,
+			id,
+			sameFamily: workspaceRootId(id, all) === workspaceRootId($workspaceStore ?? undefined, all),
+			landOnHome: landsOnHome(id)
+		})
+	}
+
+	function onWorkspaceItemClick(e: MouseEvent, workspace: { id: string; disabled?: boolean }) {
+		if (workspace.disabled) {
+			e.preventDefault()
+			return
+		}
+		// Let modifier-keyed clicks fall through so the browser can open in a new tab.
+		if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) {
+			return
+		}
+		e.preventDefault()
+		toggleSwitchWorkspace(workspace.id)
+	}
+
+	// Family-first picker: list the workspace families (roots) with their forks
+	// collapsed behind a per-family chevron, so direct fork navigation stays
+	// available without flattening fork-heavy instances into a long menu. The
+	// scope header's WorkspaceFamilyPicker remains the primary fork surface.
+	//
+	// strictWorkspaceSelect is used where this list has no scope header beside it
+	// (standalone pages such as svix webhook creation, the operator menu), so
+	// there forks must stay directly selectable — list the full hierarchy
+	// unconditionally.
+	const hierarchy = $derived($userWorkspaces ? buildWorkspaceHierarchy($userWorkspaces) : [])
+	const expandedFamilies = new SvelteSet<string>()
+	// Root ids with at least one fork — only they get the expand chevron.
+	// hierarchy is a DFS (parent before child), so a depth>0 row belongs to the
+	// last depth-0 row seen.
+	const familiesWithForks = $derived.by(() => {
+		const withForks = new Set<string>()
+		let rootId: string | undefined
+		for (const h of hierarchy) {
+			if (h.depth === 0) rootId = h.workspace.id
+			else if (rootId) withForks.add(rootId)
+		}
+		return withForks
+	})
+	// Gate for the "Workspace fork" entry pinned below the list (the global fork
+	// modal carries its own base-workspace picker). Hidden on non-premium cloud,
+	// in the admins workspace, or when forking is disabled.
+	const canForkHere = $derived(
+		(!isCloudHosted() || $maybePremium) && $workspaceStore !== 'admins' && canCreateFork($userStore)
+	)
+	const familyWorkspaces = $derived.by(() => {
+		if (strictWorkspaceSelect) return hierarchy
+		let rootId: string | undefined
+		return hierarchy.filter((h) => {
+			if (h.depth === 0) {
+				rootId = h.workspace.id
+				return true
+			}
+			return !!rootId && expandedFamilies.has(rootId)
+		})
+	})
+
+	// ArrowRight/ArrowLeft expand/collapse the keyboard-highlighted family (melt
+	// stamps data-highlighted on the item; the row wrapper carries the workspace
+	// id). Capture phase, so melt's menubar left/right (adjacent-menu switching)
+	// doesn't fire when the keypress means expansion here.
+	function onExpandKeydown(e: KeyboardEvent) {
+		if (strictWorkspaceSelect) return
+		if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+		// Scoped inside a row wrapper: the menubar trigger also carries
+		// data-highlighted while its menu is open.
+		const id = document
+			.querySelector('[data-workspace-id] [data-highlighted]')
+			?.closest('[data-workspace-id]')
+			?.getAttribute('data-workspace-id')
+		if (!id || !familiesWithForks.has(id)) return
+		if (e.key === 'ArrowRight' && !expandedFamilies.has(id)) expandedFamilies.add(id)
+		else if (e.key === 'ArrowLeft' && expandedFamilies.has(id)) expandedFamilies.delete(id)
+		else return
+		e.preventDefault()
+		e.stopPropagation()
+	}
+
+	// The row mechanics below — which family to expand, which collapsed row carries the tick — key on
+	// a depth-0 row of the list, which `buildWorkspaceHierarchy` puts at the highest workspace the
+	// caller can see: parentless, or with a parent absent from their list. `findWorkspaceAncestors`
+	// stops at that same visibility boundary, so it lands on the same row.
+	const lineageRoot = $derived.by(() => {
+		const id = $workspaceStore ?? undefined
+		if (!id) return undefined
+		const ancestors = findWorkspaceAncestors(id, $userWorkspaces ?? [])
+		return ancestors.at(-1) ?? $userWorkspaces?.find((w) => w.id === id)
+	})
+
+	const ambiguousNames = $derived(ambiguousWorkspaceNames($userWorkspaces))
+
+	// Seeded once per instance: opening while a fork is active expands that fork's family,
+	// putting the tick on the active fork's own row instead of on its collapsed root. The
+	// host menu renders this only while open, so in practice each open gets a fresh
+	// instance and therefore a fresh expansion state — except across a close and re-open
+	// inside the menu's 100ms outro, where Svelte resumes the same instance and whatever
+	// was expanded by hand survives.
+	untrack(() => {
+		if (lineageRoot && lineageRoot.id !== $workspaceStore) {
+			expandedFamilies.add(lineageRoot.id)
+		}
+	})
+
+	// The active workspace itself (fork included) — names the settings entry.
+	const activeWorkspace = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
+	const canManageWorkspace = $derived(
+		$userStore?.is_admin || $superadmin || isForkOwner(activeWorkspace, $userStore?.email)
+	)
+
+	// font-normal is explicit: href-less MenuItems render as <button>, which the
+	// global stylesheet makes semibold, unlike the <a> the href entries get.
+	const itemClass =
+		'text-primary font-normal w-full flex flex-row gap-2 px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+</script>
+
+<svelte:window onkeydowncapture={onExpandKeydown} />
+
+<div class="divide-y" role="none">
+	<!-- The list scrolls internally so the sections below (+ Workspace,
+	     Workspace fork, All workspaces) stay visible however long it gets. -->
+	<div class="py-1 overflow-y-auto max-h-[min(50vh,26rem)]">
+		{#each familyWorkspaces as { workspace, depth, isForked, parentName }}
+			{@const isActive = $workspaceStore === workspace.id}
+			{@const forkAccent = isForked ? forkAccentStyle(workspace.color) : undefined}
+			<!-- Selection is a trailing tick (single-choice picker convention). A
+			     collapsed root carries the tick while one of its forks is active —
+			     the fork row is hidden and its family is the only trace of the
+			     selection; expanding moves the tick to the fork itself. -->
+			{@const isSelected =
+				isActive ||
+				(!strictWorkspaceSelect &&
+					depth === 0 &&
+					lineageRoot?.id === workspace.id &&
+					!expandedFamilies.has(workspace.id))}
+			{@const expandable =
+				!strictWorkspaceSelect && depth === 0 && familiesWithForks.has(workspace.id)}
+			<!-- The expand chevron sits OUTSIDE the melt item: melt activates items
+			     via document-level handlers, so a nested button can't stop the row's
+			     navigate-and-close with stopPropagation. As a sibling it toggles the
+			     family without selecting the row or closing the menu. -->
+			<!-- Hover/keyboard-highlight backgrounds live on the wrapper (the
+			     highlight via :has(), since melt puts data-highlighted on the item) so
+			     they span the full row, chevron included; the chevron keeps only its
+			     own hover tint. The active workspace is marked by its row's check
+			     icon, not a background or text accent. -->
+			<div
+				data-workspace-id={workspace.id}
+				class={twMerge(
+					'group flex items-center min-w-0 w-full',
+					workspace.disabled
+						? ''
+						: 'hover:bg-surface-hover [&:has([data-highlighted])]:bg-surface-hover'
+				)}
+			>
+				<MenuItem
+					class={twMerge(
+						'text-xs min-w-0 flex-1 overflow-hidden flex flex-col py-1.5 px-3',
+						workspace.disabled && 'opacity-50 cursor-not-allowed',
+						isActive ? 'cursor-default' : workspace.disabled ? '' : 'cursor-pointer'
+					)}
+					href={workspace.disabled ? undefined : workspaceHref(workspace.id)}
+					onClick={(e) => onWorkspaceItemClick(e, workspace)}
+					{item}
+				>
+					<div class="flex items-center justify-between gap-2 min-w-0 w-full">
+						<div class="flex items-center gap-2 min-w-0" style:padding-left={`${depth * 16}px`}>
+							<WorkspaceIcon
+								workspaceColor={workspace.color}
+								{isForked}
+								isDevWorkspace={workspace.is_dev_workspace}
+								devWorkspaceLabel={workspace.dev_workspace_label}
+								{parentName}
+								padding="p-1"
+							/>
+							<div class="min-w-0 flex-1">
+								<div class="flex items-center gap-1 min-w-0">
+									<div
+										class="truncate text-left text-xs font-normal {forkAccent
+											? 'text-[color:var(--fork-accent-text)] dark:text-[color:var(--fork-accent-text-dark)]'
+											: 'text-primary'}"
+										style={forkAccent}
+										title={workspace.name}
+									>
+										{workspace.name}{workspace.disabled ? ' (user disabled)' : ''}
+									</div>
+									{#if workspace.is_dev_workspace}
+										<Badge
+											color="dark-blue"
+											small
+											class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
+											>{devBadgeText(workspace.dev_workspace_label)}</Badge
+										>
+									{/if}
+								</div>
+								{#if ambiguousNames.has(workspace.name)}
+									<div class="truncate text-left text-2xs text-tertiary" title={workspace.id}>
+										{workspace.id}
+									</div>
+								{/if}
+							</div>
+						</div>
+						{#if isSelected}
+							<Check size={14} class="shrink-0 ml-2 text-accent" />
+						{/if}
+					</div>
+				</MenuItem>
+				<!-- Hover-revealed like the fork picker's rows; a flex sibling of the melt
+				     item (nested buttons are invalid HTML) that always occupies its slot so
+				     nothing shifts on hover. -->
+				<div
+					class="shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+				>
+					<CopyButton value={workspace.id} title={`Copy id: ${workspace.id}`} />
+				</div>
+				{#if expandable}
+					{@const expanded = expandedFamilies.has(workspace.id)}
+					<button
+						type="button"
+						title={expanded ? 'Hide forks' : 'Show forks'}
+						aria-expanded={expanded}
+						class="shrink-0 mr-1 px-2 self-stretch flex items-center rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+						onclick={() => {
+							if (expanded) expandedFamilies.delete(workspace.id)
+							else expandedFamilies.add(workspace.id)
+						}}
+					>
+						{#if expanded}
+							<ChevronDown size={14} />
+						{:else}
+							<ChevronRight size={14} />
+						{/if}
+					</button>
+				{:else}
+					<!-- Reserve the expand-chevron's slot on fork-less rows so the hover copy
+					     button lines up with the forked rows' and never sits flush against the
+					     menu's right edge. Matches the chevron's px-2 (30px) + mr-1. -->
+					<div class="shrink-0 mr-1 w-[30px]" aria-hidden="true"></div>
+				{/if}
+			</div>
+		{/each}
+	</div>
+	{#if (isCloudHosted() || $superadmin || canForkHere) && !strictWorkspaceSelect}
+		<div class="py-1" role="none">
+			{#if isCloudHosted() || $superadmin}
+				<MenuItem href="{base}/user/create_workspace" class={itemClass} {item}>
+					<Plus size={16} />
+					Workspace
+				</MenuItem>
+			{/if}
+			{#if canForkHere}
+				<MenuItem
+					class={itemClass}
+					onClick={() => (globalForkModal.val = { opened: true })}
+					{item}
+				>
+					<Plus size={16} />
+					Workspace fork
+				</MenuItem>
+			{/if}
+		</div>
+	{/if}
+	{#if canManageWorkspace && !strictWorkspaceSelect}
+		<div class="py-1" role="none">
+			<MenuItem
+				href="{base}/workspace_settings?workspace={$workspaceStore}"
+				class={itemClass}
+				{item}
+			>
+				<Settings size={16} />
+				{(activeWorkspace && ambiguousNames.has(activeWorkspace.name)
+					? activeWorkspace.id
+					: activeWorkspace?.name) ?? $workspaceStore} settings
+			</MenuItem>
+		</div>
+	{/if}
+	{#if !strictWorkspaceSelect}
+		<div class="py-1" role="none">
+			<MenuItem
+				href="{base}/user/workspaces"
+				onClick={() => clearWorkspaceFromStorage()}
+				class={itemClass}
+				{item}
+			>
+				All workspaces
+			</MenuItem>
+		</div>
+	{/if}
+</div>
+{#if isCloudHosted() && $isPremiumStore === false && !strictWorkspaceSelect}
+	<div class="py-1" role="none">
+		{#if $workspaceStore != 'demo'}
+			<span class="text-secondary block w-full text-left px-4 py-2 text-xs">
+				{$workspaceUsageStore ?? '—'}/1000 free workspace execs
+				<Tooltip small>
+					{#snippet text()}
+						{EXECUTIONS_HINT}
+					{/snippet}
+				</Tooltip>
+			</span>
+			<div class="w-full bg-gray-200 h-1">
+				<div
+					class="bg-blue-400 h-1"
+					style="width: {Math.min($workspaceUsageStore ?? 0, 1000) / 10}%"
+				></div>
+			</div>
+		{/if}
+		{#if $userStore?.is_admin}
+			<MenuItem
+				class={twMerge(
+					'text-secondary block font-normal w-full text-left px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900',
+					'data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900'
+				)}
+				onClick={() => {
+					goto('/workspace_settings?tab=premium')
+				}}
+				{item}
+			>
+				Upgrade
+			</MenuItem>
+		{/if}
+	</div>
+{/if}
+{#if $enterpriseLicense && !strictWorkspaceSelect}
+	<MultiplayerMenu />
+{/if}

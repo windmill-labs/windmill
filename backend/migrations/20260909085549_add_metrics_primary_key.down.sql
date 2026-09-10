@@ -1,0 +1,1 @@
+ALTER TABLE metrics DROP COLUMN IF EXISTS row_id;
