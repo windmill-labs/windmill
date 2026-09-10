@@ -109,8 +109,9 @@ export function buildSkillTree<T extends Skill>(skills: readonly T[]): SkillTree
 	}
 	const forest = [...roots.values()]
 	forest.forEach(sort)
-	// Your own folder first, then the shared ones alphabetically: `u/<me>` is where
-	// this modal's New skill and folder import write.
+	// Personal scopes before shared folders, alphabetical within each: `u/<me>` is
+	// where this modal's New skill and folder import write, so it is the half of the
+	// list someone is most often here to change.
 	return forest.sort((a, b) => {
 		const scopeRank = (p: string) => (p.startsWith('u/') ? 0 : 1)
 		return scopeRank(a.path) - scopeRank(b.path) || a.path.localeCompare(b.path)

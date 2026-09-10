@@ -298,11 +298,19 @@ What the assistant should do when this skill applies.
 		return `wm-skill-entry-${key}`
 	}
 
-	/** Reaching a row with the mouse hands the list back to hover, highlight and all.
+	/** Moving the mouse over the list hands it back to hover, highlight and all.
 	 * Dropping the key as well as the drawing is the point: a highlight that is no
 	 * longer lit is still a target Space would act on, and the row under the pointer
-	 * is the one the user is looking at. */
-	function releaseKeyboard() {
+	 * is the one the user is looking at.
+	 *
+	 * Driven by a real movement rather than by `mouseenter`, which the browser also
+	 * fires when rows arrive under a stationary pointer — every scroll the keyboard
+	 * itself causes, and every collapse — and would hand control back to a mouse
+	 * nobody touched, restarting the walk at the top of the list. */
+	function releaseKeyboardOnMove(event: MouseEvent) {
+		if (!keyboardActive) return
+		const over = event.target as HTMLElement | null
+		if (!over?.closest?.('[id^="wm-skill-entry-"]')) return
 		keyboardActive = false
 		highlightedKey = undefined
 	}
@@ -496,7 +504,7 @@ What the assistant should do when this skill applies.
 	async function toggle(p: string, enabled: boolean) {
 		if (blockedByPendingFork()) return
 		if (!setSkillEnabled(ws, p, enabled)) {
-			sendUserToast('Could not save the selection for this account.', true)
+			sendUserToast('Could not save this choice for this account.', true)
 			return
 		}
 		const skill = skills.find((s) => s.path === p)
@@ -520,7 +528,7 @@ What the assistant should do when this skill applies.
 		for (const skill of nodeSkills(node)) {
 			if (skill.enabled === enabled) continue
 			if (!setSkillEnabled(ws, skill.path, enabled)) {
-				sendUserToast('Could not save the selection for this account.', true)
+				sendUserToast('Could not save this choice for this account.', true)
 				return
 			}
 			skill.enabled = enabled
@@ -820,7 +828,7 @@ What the assistant should do when this skill applies.
 	}
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={onKeydown} onmousemove={releaseKeyboardOnMove} />
 
 <!-- The list and the editor are levels of one panel, so moving between them slides
      rather than cuts. Warmed once this panel is the one on screen: the editor page
@@ -985,7 +993,6 @@ What the assistant should do when this skill applies.
 		{trailing}
 		id={entryDomId(skillKey(skill.path))}
 		highlighted={keyboardActive ? highlightedKey === skillKey(skill.path) : undefined}
-		onMouseEnter={releaseKeyboard}
 		subtitle={skill.description ? subtitle : undefined}
 		onClick={() => openSkill(skill)}
 	/>
@@ -1011,7 +1018,6 @@ What the assistant should do when this skill applies.
 				type="button"
 				class="grow min-w-0 flex items-center gap-2 px-2 py-2 text-left"
 				aria-expanded={!collapsed[node.path]}
-				onmouseenter={releaseKeyboard}
 				onclick={() => (collapsed[node.path] = !collapsed[node.path])}
 			>
 				{#if collapsed[node.path]}
