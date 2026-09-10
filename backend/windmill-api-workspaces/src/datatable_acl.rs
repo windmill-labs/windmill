@@ -432,6 +432,62 @@ async fn read_owned_objects(
         .collect()
 }
 
+/// What a schema's owner holds on what gets created there later. A change of owner hands the new
+/// owner the same and takes these back: otherwise every former owner keeps reaching whatever the
+/// other roles create there.
+#[derive(Debug, PartialEq)]
+pub(crate) struct FormerOwnerDefaults {
+    pub(crate) pg_role: String,
+    /// (creating role, `TABLES` / `SEQUENCES` / `FUNCTIONS`), one per default privilege it holds.
+    pub(crate) defaults: Vec<(String, &'static str)>,
+}
+
+/// The default privileges schema `schema`'s owner holds there — `None` when it holds none, or is
+/// `new_owner` already.
+async fn read_former_owner_defaults(
+    client: &tokio_postgres::Client,
+    schema: &str,
+    new_owner: &str,
+) -> Result<Option<FormerOwnerDefaults>> {
+    let rows = client
+        .query(
+            "SELECT DISTINCT pg_get_userbyid(n.nspowner), pg_get_userbyid(d.defaclrole),
+                    d.defaclobjtype::text
+             FROM pg_namespace n
+             JOIN pg_default_acl d ON d.defaclnamespace = n.oid
+             CROSS JOIN LATERAL aclexplode(d.defaclacl) a
+             WHERE n.nspname = $1 AND a.grantee = n.nspowner
+               AND d.defaclobjtype IN ('r', 'S', 'f')
+               AND n.nspowner <> (SELECT oid FROM pg_roles WHERE rolname = $2)
+             ORDER BY 2, 3",
+            &[&schema, &new_owner],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to read the default privileges of schema '{schema}': {}",
+                pg_error_message(&e)
+            ))
+        })?;
+    let Some(first) = rows.first() else {
+        return Ok(None);
+    };
+    Ok(Some(FormerOwnerDefaults {
+        pg_role: first.get(0),
+        defaults: rows
+            .iter()
+            .map(|row| {
+                let plural = match row.get::<_, &str>(2) {
+                    "r" => "TABLES",
+                    "S" => "SEQUENCES",
+                    _ => "FUNCTIONS",
+                };
+                (row.get::<_, String>(1), plural)
+            })
+            .collect(),
+    }))
+}
+
 /// The keyword a `REVOKE ... ON` takes for one object, checked rather than interpolated: it lands
 /// in SQL unquoted.
 pub(crate) fn object_keyword(kind: &str) -> Result<&'static str> {
@@ -865,11 +921,12 @@ async fn build_plan(
         .map(|name| pg_role_of(name, catalog))
         .filter(|r| r.as_ref().map_or(true, |r| *r != pg_role))
         .collect::<Result<Vec<_>>>()?;
-    let existing_objects = match (&change, target) {
-        (AclChange::SetOwner { .. }, AclTarget::Schema { schema }) => {
-            read_owned_objects(client, schema).await?
-        }
-        _ => vec![],
+    let (existing_objects, former_owner) = match (&change, target) {
+        (AclChange::SetOwner { .. }, AclTarget::Schema { schema }) => (
+            read_owned_objects(client, schema).await?,
+            read_former_owner_defaults(client, schema, &pg_role).await?,
+        ),
+        _ => (vec![], None),
     };
     if matches!(change, AclChange::SetOwner { .. }) {
         if let Some((object, owner)) = unmanaged_owner(client, target).await? {
@@ -886,6 +943,7 @@ async fn build_plan(
         &pg_role,
         &other_pg_roles,
         &existing_objects,
+        former_owner.as_ref(),
     )?;
     if matches!(change, AclChange::SetOwner { .. }) {
         if let Some(missing) = missing_owner_privilege(client, target, &pg_role).await? {

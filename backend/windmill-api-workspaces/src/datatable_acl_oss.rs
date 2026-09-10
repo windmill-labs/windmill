@@ -22,7 +22,7 @@ pub(crate) fn ensure_acl_planner() -> windmill_common::error::Result<()> {
 
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
 use {
-    crate::datatable_acl::{AclChange, AclPlan, AclTarget, OwnedObject},
+    crate::datatable_acl::{AclChange, AclPlan, AclTarget, FormerOwnerDefaults, OwnedObject},
     windmill_common::error::{Error, Result},
 };
 
@@ -42,6 +42,7 @@ pub(crate) fn plan_statements(
     _pg_role: &str,
     _other_pg_roles: &[String],
     _existing_objects: &[OwnedObject],
+    _former_owner: Option<&FormerOwnerDefaults>,
 ) -> Result<AclPlan> {
     ensure_acl_planner()?;
     Err(Error::internal_err(
