@@ -16888,6 +16888,12 @@ paths:
                     type: string
                     enum: [detailed, minimal]
                     description: how the approval page presents the request
+                  step_summary:
+                    type: string
+                    description: summary of the approval step, for the page title
+                  flow_summary:
+                    type: string
+                    description: summary of the flow or workflow the approval belongs to
                   approvers:
                     type: array
                     items:

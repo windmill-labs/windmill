@@ -170,7 +170,7 @@
 		!approvalInfo && !error
 			? ''
 			: skin === 'minimal'
-				? 'Approval request'
+				? approvalInfo?.step_summary || approvalInfo?.flow_summary || 'Approval request'
 				: `Approval for resuming of ${isWac ? 'workflow' : 'flow'}`
 	)
 	let filteredArgs = $derived.by(() => {

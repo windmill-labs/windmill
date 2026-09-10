@@ -107,7 +107,9 @@ use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
     flow_status::{Approval, ApprovalConditions, FlowStatus, FlowStatusModule},
-    flows::{add_virtual_items_if_necessary, resolve_maybe_value, ApprovalSkin, FlowValue},
+    flows::{
+        add_virtual_items_if_necessary, resolve_maybe_value, ApprovalSkin, FlowModule, FlowValue,
+    },
     jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
     query_builders,
@@ -4828,6 +4830,10 @@ struct ApprovalInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     hide_cancel: Option<bool>,
     skin: ApprovalSkin,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    flow_summary: Option<String>,
     approvers: Vec<Approval>,
     /// Share-read-link token for the flow, minted only for callers allowed to view this
     /// approval. Lets an authenticated workspace-member approver open the run details of
@@ -4881,19 +4887,27 @@ fn can_approve_step(
     }
 }
 
-/// The skin of the latest approval step the run has passed: a step before the current `step`
-/// that ran rather than being skipped. Steps from `step` on don't count, because while an
-/// approval is pending the step after it already holds the `WaitingForEvents` status.
-fn last_reached_approval_skin(flow: &FlowValue, status: &FlowStatus) -> ApprovalSkin {
+/// The latest approval step the run has passed: a step before the current `step` that ran
+/// rather than being skipped. Steps from `step` on don't count, because while an approval is
+/// pending the step after it already holds the `WaitingForEvents` status.
+fn last_reached_approval_step<'a>(
+    flow: &'a FlowValue,
+    status: &FlowStatus,
+) -> Option<&'a FlowModule> {
     flow.modules
         .iter()
         .zip(status.modules.iter())
         .take(usize::try_from(status.step).unwrap_or(0))
         .rev()
         .filter(|(_, m)| matches!(m, FlowStatusModule::Success { skipped: false, .. }))
-        .find_map(|(module, _)| module.suspend.as_ref())
-        .and_then(|suspend| suspend.skin)
-        .unwrap_or_default()
+        .map(|(module, _)| module)
+        .find(|module| module.suspend.is_some())
+}
+
+/// How the approval step presents itself on the approval page.
+struct ApprovalStepView {
+    skin: ApprovalSkin,
+    summary: Option<String>,
 }
 
 async fn get_approval_info(
@@ -4929,16 +4943,22 @@ async fn get_approval_info(
         // status too, so a finished run's page keeps the skin its approval step was given.
         completed_flow_status: Option<serde_json::Value>,
         wac_skin: Option<serde_json::Value>,
+        flow_summary: Option<String>,
     }
     let row = sqlx::query_as::<_, ApprovalJobRow>(
         "SELECT j.id, j.runnable_path as script_path, j.permissioned_as_email as email,
                 s.flow_status, s.workflow_as_code_status,
                 c.flow_status AS completed_flow_status,
                 COALESCE(s.workflow_as_code_status, c.workflow_as_code_status)->'_approval'->'skin'
-                    AS wac_skin
+                    AS wac_skin,
+                NULLIF(COALESCE(f.summary, sc.summary), '') AS flow_summary
          FROM v2_job j
          LEFT JOIN v2_job_status s ON s.id = j.id
          LEFT JOIN v2_job_completed c ON c.id = j.id
+         LEFT JOIN flow f
+             ON j.kind = 'flow' AND f.workspace_id = j.workspace_id AND f.path = j.runnable_path
+         LEFT JOIN script sc
+             ON j.kind = 'script' AND sc.workspace_id = j.workspace_id AND sc.hash = j.runnable_id
          WHERE j.id = $1 AND j.workspace_id = $2",
     )
     .bind(&job_id)
@@ -4950,7 +4970,7 @@ async fn get_approval_info(
     let is_wac = row.workflow_as_code_status.is_some();
 
     // Extract approval info based on WAC vs classic flow
-    let (form_schema, description, default_args, enums, approval_conditions, hide_cancel, skin) =
+    let (form_schema, description, default_args, enums, approval_conditions, hide_cancel, step) =
         if is_wac {
             let approval_meta = row
                 .workflow_as_code_status
@@ -5036,10 +5056,18 @@ async fn get_approval_info(
                 .as_ref()
                 .filter(|_| fs.is_none())
                 .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
-            let skin = raw_flow
+            let step = raw_flow
                 .as_ref()
                 .zip(fs.as_ref().or(completed_fs.as_ref()))
-                .map(|(flow, status)| last_reached_approval_skin(flow, status));
+                .and_then(|(flow, status)| last_reached_approval_step(flow, status))
+                .map(|module| ApprovalStepView {
+                    skin: module
+                        .suspend
+                        .as_ref()
+                        .and_then(|s| s.skin)
+                        .unwrap_or_default(),
+                    summary: module.summary.clone().filter(|s| !s.trim().is_empty()),
+                });
 
             // Fetch description, default_args, and enums from the step's completed job result
             let step_job_id = fs
@@ -5063,13 +5091,14 @@ async fn get_approval_info(
                 (None, None, None)
             };
 
-            (form, desc, default_args, enums, ac, hc, skin)
+            (form, desc, default_args, enums, ac, hc, step)
         };
 
     let skin = match row.wac_skin {
         Some(wac_skin) => serde_json::from_value::<ApprovalSkin>(wac_skin).unwrap_or_default(),
-        None => skin.unwrap_or_default(),
+        None => step.as_ref().map(|s| s.skin).unwrap_or_default(),
     };
+    let step_summary = step.and_then(|s| s.summary);
 
     let user_auth_required = approval_conditions
         .as_ref()
@@ -5101,6 +5130,8 @@ async fn get_approval_info(
             user_auth_required,
             hide_cancel: None,
             skin,
+            step_summary: None,
+            flow_summary: None,
             approvers: vec![],
             view_token: None,
         }));
@@ -5137,6 +5168,8 @@ async fn get_approval_info(
         user_auth_required,
         hide_cancel,
         skin,
+        step_summary,
+        flow_summary: row.flow_summary,
         approvers,
         view_token,
     }))
@@ -11919,14 +11952,14 @@ mod approval_view_gate_tests {
     }
 
     #[test]
-    fn approval_skin_is_the_last_approval_step_passed() {
+    fn approval_step_is_the_last_one_passed() {
         let flow: FlowValue = serde_json::from_value(serde_json::json!({ "modules": [
-            { "id": "a", "value": { "type": "identity" }, "suspend": { "skin": "minimal" } },
+            { "id": "a", "value": { "type": "identity" }, "suspend": {} },
             { "id": "b", "value": { "type": "identity" }, "suspend": {} },
             { "id": "c", "value": { "type": "identity" } }
         ]}))
         .unwrap();
-        let skin_at = |step: i32, types: [(&str, bool); 3]| {
+        let step_at = |step: i32, types: [(&str, bool); 3]| {
             let mut status = FlowStatus::new(&flow);
             status.step = step;
             status.modules = ["a", "b", "c"]
@@ -11940,15 +11973,16 @@ mod approval_view_gate_tests {
                     .unwrap()
                 })
                 .collect();
-            last_reached_approval_skin(&flow, &status)
+            last_reached_approval_step(&flow, &status).map(|module| module.id.clone())
         };
         let waiting = ("WaitingForEvents", false);
         let pending = ("WaitingForPriorSteps", false);
         let ran = ("Success", false);
         let skipped = ("Success", true);
         // Awaiting a's approval: b, itself an approval step, already holds `WaitingForEvents`.
-        assert_eq!(skin_at(1, [ran, waiting, pending]), ApprovalSkin::Minimal);
-        assert_eq!(skin_at(2, [ran, ran, waiting]), ApprovalSkin::Detailed);
-        assert_eq!(skin_at(3, [ran, skipped, ran]), ApprovalSkin::Minimal);
+        assert_eq!(step_at(1, [ran, waiting, pending]).as_deref(), Some("a"));
+        assert_eq!(step_at(2, [ran, ran, waiting]).as_deref(), Some("b"));
+        assert_eq!(step_at(3, [ran, skipped, ran]).as_deref(), Some("a"));
+        assert_eq!(step_at(0, [pending, pending, pending]), None);
     }
 }

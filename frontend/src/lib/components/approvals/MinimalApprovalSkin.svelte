@@ -67,6 +67,15 @@
 					? 'closed'
 					: 'pending'
 	)
+	// The page title leads with the step's summary, falling back to the flow's: name the flow here
+	// unless the title already does, and show the raw path only when the flow has no summary.
+	let context = $derived(
+		approvalInfo.flow_summary
+			? approvalInfo.step_summary
+				? approvalInfo.flow_summary
+				: undefined
+			: job?.script_path
+	)
 	let groupsRequired = $derived(approvalInfo.approval_conditions?.user_groups_required ?? [])
 	let isSelfApprovalRefused = $derived(
 		!!approvalInfo.approval_conditions?.self_approval_disabled &&
@@ -76,18 +85,24 @@
 </script>
 
 <div class="flex flex-col gap-6">
-	<div class="flex flex-col gap-1">
-		<div class="flex flex-row items-start justify-between gap-4">
-			<span class="text-2xs font-mono font-normal text-emphasis break-all">
-				{job?.script_path ?? ''}
-			</span>
-			<Badge color={STATUS_BADGE[status].color}>{STATUS_BADGE[status].label}</Badge>
+	<div class="flex flex-row items-start justify-between gap-4">
+		<div class="flex min-w-0 flex-col gap-1">
+			{#if context}
+				<span
+					class={approvalInfo.flow_summary
+						? 'text-xs font-semibold text-emphasis'
+						: 'text-2xs font-mono font-normal text-emphasis break-all'}
+				>
+					{context}
+				</span>
+			{/if}
+			{#if job}
+				<p class="text-xs font-normal text-secondary">
+					Requested by {job.created_by} · <TimeAgo date={job.created_at ?? ''} noSeconds />
+				</p>
+			{/if}
 		</div>
-		{#if job}
-			<p class="text-xs font-normal text-secondary">
-				Requested by {job.created_by} · <TimeAgo date={job.created_at ?? ''} noSeconds />
-			</p>
-		{/if}
+		<Badge color={STATUS_BADGE[status].color}>{STATUS_BADGE[status].label}</Badge>
 	</div>
 
 	{#if typeof approvalInfo.description === 'string'}
