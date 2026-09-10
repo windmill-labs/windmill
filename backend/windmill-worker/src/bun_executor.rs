@@ -1975,7 +1975,7 @@ async function run() {{
                 return {{ type: "inline_checkpoint", key: dispatch.key, result: dispatch.result ?? null, started_at: dispatch.started_at, duration_ms: dispatch.duration_ms }};
             }}
             if (dispatch.mode === "approval") {{
-                return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form, self_approval_disabled: dispatch.self_approval_disabled, skin: dispatch.skin }};
+                return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form, self_approval_disabled: dispatch.self_approval_disabled, skin: dispatch.skin, description: dispatch.description }};
             }}
             if (dispatch.mode === "sleep") {{
                 return {{ type: "sleep", key: dispatch.key, seconds: dispatch.seconds }};
@@ -3206,7 +3206,7 @@ pub async fn handle_wac_v2_output(
                 job.id, num_steps
             )))
         }
-        WacOutput::Approval { key, timeout, form, self_approval_disabled, skin } => {
+        WacOutput::Approval { key, timeout, form, self_approval_disabled, skin, description } => {
             let db = match conn {
                 Connection::Sql(db) => db,
                 _ => {
@@ -3322,7 +3322,7 @@ pub async fn handle_wac_v2_output(
             };
 
             // Store approval form metadata for the approval page endpoint
-            let approval_meta = serde_json::json!({
+            let mut approval_meta = serde_json::json!({
                 "key": key,
                 "form": form,
                 "timeout": timeout_secs as u32,
@@ -3332,6 +3332,9 @@ pub async fn handle_wac_v2_output(
                 "cancel": cancel_url,
                 "approvalPage": approval_page_url,
             });
+            if let Some(description) = description.filter(|d| !d.is_null()) {
+                approval_meta["description"] = description;
+            }
             sqlx::query(
                 "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
                     COALESCE(workflow_as_code_status, '{}'::jsonb),

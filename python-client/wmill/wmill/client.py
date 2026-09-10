@@ -3086,6 +3086,7 @@ class WorkflowCtx:
         self_approval: bool = True,
         key: str | None = None,
         skin: str | None = None,
+        description: str | dict | None = None,
     ):
         if key is not None:
             _assert_usable_step_key(key, "wait_for_approval key")
@@ -3115,6 +3116,7 @@ class WorkflowCtx:
             "form": form,
             "self_approval_disabled": not self_approval,
             "skin": skin,
+            "description": description,
             "steps": [],
         })
 
@@ -3562,6 +3564,7 @@ async def wait_for_approval(
     self_approval: bool = True,
     key: str | None = None,
     skin: Literal["detailed", "minimal"] | None = None,
+    description: str | dict | None = None,
 ) -> dict:
     """Suspend the workflow and wait for an external approval.
 
@@ -3578,6 +3581,8 @@ async def wait_for_approval(
         key: Optional checkpoint key naming this approval step.
         skin: ``"minimal"`` shows approvers only the request (form and approve/reject)
             instead of the detailed page with the workflow's details.
+        description: Shown to approvers above the form: a string, or a rich value such as
+            ``{"markdown": "..."}``.
 
     Example::
 
@@ -3588,7 +3593,12 @@ async def wait_for_approval(
     ctx: WorkflowCtx | None = _workflow_ctx.get(None)
     if ctx is not None:
         return await ctx._wait_for_approval(
-            timeout=timeout, form=form, self_approval=self_approval, key=key, skin=skin
+            timeout=timeout,
+            form=form,
+            self_approval=self_approval,
+            key=key,
+            skin=skin,
+            description=description,
         )
     raise RuntimeError("wait_for_approval can only be called inside a @workflow")
 
@@ -3659,6 +3669,7 @@ async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
                 "timeout": info.get("timeout"),
                 "form": info.get("form"),
                 "skin": info.get("skin"),
+                "description": info.get("description"),
             }
         if mode == "sleep":
             return {
