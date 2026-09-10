@@ -22,9 +22,10 @@ pub const SUPERADMIN_SYNC_EMAIL: &str = "superadmin_sync@windmill.dev";
 pub const COOKIE_NAME: &str = "token";
 
 /// `password.login_type` of an account created for someone before they have signed in:
-/// no credential of its own (password login, reset and `set_password` all require
-/// `'password'`), reachable only through a superadmin-minted login link until the first
-/// OAuth login proving the same address adopts it and rewrites `login_type`.
+/// no credential of its own (password login and reset require `'password'`), reachable
+/// only through a superadmin-minted login link until either `set_password` turns it into
+/// a password account or the first OAuth login proving the same address adopts it and
+/// rewrites `login_type` to the provider.
 pub const PENDING_OAUTH_LOGIN_TYPE: &str = "pending_oauth";
 
 /// Prefix for user-based permissioned_as values: "u/"

@@ -47,7 +47,18 @@
 			// A POST, so nothing but this click can start the trial; the answer is where to go.
 			const { location, reason } = await UserService.goCloudTrialOffer()
 			logFeatureUsage('cloud_trial_offer', 'go')
-			if (reason) sendUserToast(`The trial could not be started: ${reason}`, true)
+			if (reason) {
+				// A refusal spends the offer; say so here, where the message can be read, and
+				// let the person choose to go to the portal rather than being taken there.
+				trialOffered = false
+				starting = false
+				sendUserToast(
+					`The trial could not be started: ${reason}. The customer portal has the details.`,
+					true,
+					[{ label: 'Open the portal', callback: () => window.location.assign(location) }]
+				)
+				return
+			}
 			window.location.assign(location)
 		} catch (e) {
 			console.error('Could not start the pre-approved trial:', e)

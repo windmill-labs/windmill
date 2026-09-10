@@ -107,8 +107,8 @@
 					{/each}
 				</div>
 				<p class="text-2xs text-secondary">
-					Sign in to the provider as {email}; a different address is refused and you stay
-					signed in here.
+					Sign in to the provider as {email}; a different address is refused and you stay signed in
+					here.
 				</p>
 			</div>
 			{#if passwordAllowed}
@@ -121,25 +121,25 @@
 		{/if}
 
 		{#if passwordAllowed}
-		<div class="flex flex-col gap-2">
-			<span class="text-xs font-semibold text-emphasis">Set a password</span>
-			<div class="flex flex-row gap-2 items-center">
-				<TextInput
-					inputProps={{
-						autocomplete: 'new-password',
-						type: 'password',
-						placeholder: 'At least 8 characters'
-					}}
-					bind:value={password}
-				/>
-				<Button variant="accent" unifiedSize="md" disabled={saving} onClick={setPassword}>
-					Set password
-				</Button>
+			<div class="flex flex-col gap-2">
+				<span class="text-xs font-semibold text-emphasis">Set a password</span>
+				<div class="flex flex-row gap-2 items-center">
+					<TextInput
+						inputProps={{
+							autocomplete: 'new-password',
+							type: 'password',
+							placeholder: 'At least 8 characters'
+						}}
+						bind:value={password}
+					/>
+					<Button variant="accent" unifiedSize="md" disabled={saving} onClick={setPassword}>
+						Set password
+					</Button>
+				</div>
+				<p class="text-2xs text-secondary"
+					>A password account keeps signing in with the password only.</p
+				>
 			</div>
-			<p class="text-2xs text-secondary"
-				>A password account keeps signing in with the password only.</p
-			>
-		</div>
 		{/if}
 	</div>
 </Modal>
