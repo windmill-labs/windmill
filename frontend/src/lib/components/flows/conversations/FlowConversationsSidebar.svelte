@@ -139,7 +139,10 @@
 								unifiedSize="md"
 								variant="subtle"
 								startIcon={{ icon: Filter }}
-								title="Filter conversations · {KIND_LABELS[manager.conversationKind]}"
+								disabled={manager.isTurnInFlight}
+								title={manager.isTurnInFlight
+									? 'Wait for the current answer to change which chats are listed'
+									: `Filter conversations · ${KIND_LABELS[manager.conversationKind]}`}
 								iconOnly
 							/>
 						{/snippet}

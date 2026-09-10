@@ -220,6 +220,41 @@
 			: undefined
 	)
 
+	/**
+	 * Free slots in one attachment lane, against both that lane's own cap and any limit the
+	 * host's consumer imposes on the turn as a whole — a flow input holding a single file
+	 * caps images and blobs together, not one each. In-flight decodes count: two drops that
+	 * both read the staged count before either resolves would claim the same slots twice.
+	 */
+	function attachmentSlots(laneCap: number, laneStaged: number): number {
+		const laneRemaining = laneCap - laneStaged
+		const turnCap = chatHost.maxMessageAttachments
+		if (turnCap === undefined) return laneRemaining
+		const staged =
+			draft.images.length +
+			pendingImages +
+			draft.files.length +
+			pendingFiles +
+			draft.blobs.length +
+			pendingBlobs
+		return Math.min(laneRemaining, Math.max(0, turnCap - staged))
+	}
+
+	/** What to say when the host's own limit is the one that bit. */
+	function turnCapMessage(): string {
+		const turnCap = chatHost.maxMessageAttachments
+		return turnCap === 1
+			? 'This chat sends one attachment per message.'
+			: `This chat sends up to ${turnCap} attachments per message.`
+	}
+
+	/** Why some of what was picked did not fit, naming whichever limit actually bit. */
+	function skippedMessage(laneCap: number, lane: 'images' | 'files', skipped: number): string {
+		return chatHost.maxMessageAttachments !== undefined
+			? `${turnCapMessage()} ${skipped} file(s) were not attached.`
+			: `You can attach up to ${laneCap} ${lane}; ${skipped} were skipped.`
+	}
+
 	// Images being decoded right now. Holds off sending so a message can never go
 	// out without an attachment the user already dropped, and reserves cap slots
 	// against a concurrent drop.
@@ -247,9 +282,14 @@
 		// Count decodes already in flight: two drops that both read the image count
 		// before either resolves would each claim the same free slots and overshoot
 		// the cap.
-		const remaining = MAX_ATTACHED_IMAGES - draft.images.length - pendingImages
+		const remaining = attachmentSlots(MAX_ATTACHED_IMAGES, draft.images.length + pendingImages)
 		if (remaining <= 0) {
-			sendUserToast(`You can attach up to ${MAX_ATTACHED_IMAGES} images.`, true)
+			sendUserToast(
+				chatHost.maxMessageAttachments !== undefined
+					? turnCapMessage()
+					: `You can attach up to ${MAX_ATTACHED_IMAGES} images.`,
+				true
+			)
 			return
 		}
 		const oversized = imageFiles.filter((f) => f.size > MAX_IMAGE_BYTES)
@@ -262,7 +302,7 @@
 		const batch = usable.slice(0, remaining)
 		if (batch.length < usable.length) {
 			sendUserToast(
-				`You can attach up to ${MAX_ATTACHED_IMAGES} images; ${usable.length - batch.length} were skipped.`,
+				skippedMessage(MAX_ATTACHED_IMAGES, 'images', usable.length - batch.length),
 				true
 			)
 		}
@@ -333,9 +373,14 @@
 	export async function addTextFiles(candidates: File[]) {
 		if (!chatHost.supportsMessageAttachments) return
 		if (candidates.length === 0) return
-		const remaining = MAX_ATTACHED_FILES - draft.files.length - pendingFiles
+		const remaining = attachmentSlots(MAX_ATTACHED_FILES, draft.files.length + pendingFiles)
 		if (remaining <= 0) {
-			sendUserToast(`You can attach up to ${MAX_ATTACHED_FILES} files.`, true)
+			sendUserToast(
+				chatHost.maxMessageAttachments !== undefined
+					? turnCapMessage()
+					: `You can attach up to ${MAX_ATTACHED_FILES} files.`,
+				true
+			)
 			return
 		}
 		const oversized = candidates.filter((f) => f.size > MAX_TEXT_FILE_BYTES)
@@ -350,10 +395,7 @@
 		if (usable.length === 0) return
 		let batch = usable.slice(0, remaining)
 		if (batch.length < usable.length) {
-			sendUserToast(
-				`You can attach up to ${MAX_ATTACHED_FILES} files; ${usable.length - batch.length} were skipped.`,
-				true
-			)
+			sendUserToast(skippedMessage(MAX_ATTACHED_FILES, 'files', usable.length - batch.length), true)
 		}
 		// Conversation-level byte budget: transcript + queue + every live
 		// composer's stage (this one and, mid-edit, the other) + this composer's
@@ -442,17 +484,19 @@
 		}
 		const usable = candidates.filter((f) => f.size <= MAX_BLOB_BYTES)
 		if (usable.length === 0) return
-		const remaining = MAX_ATTACHED_BLOBS - draft.blobs.length - pendingBlobs
+		const remaining = attachmentSlots(MAX_ATTACHED_BLOBS, draft.blobs.length + pendingBlobs)
 		if (remaining <= 0) {
-			sendUserToast(`You can attach up to ${MAX_ATTACHED_BLOBS} files.`, true)
+			sendUserToast(
+				chatHost.maxMessageAttachments !== undefined
+					? turnCapMessage()
+					: `You can attach up to ${MAX_ATTACHED_BLOBS} files.`,
+				true
+			)
 			return
 		}
 		const batch = usable.slice(0, remaining)
 		if (batch.length < usable.length) {
-			sendUserToast(
-				`You can attach up to ${MAX_ATTACHED_BLOBS} files; ${usable.length - batch.length} were skipped.`,
-				true
-			)
+			sendUserToast(skippedMessage(MAX_ATTACHED_BLOBS, 'files', usable.length - batch.length), true)
 		}
 		pendingBlobs += batch.length
 		try {
@@ -555,7 +599,8 @@
 		// Attachments still decoding/reading (or mid-drop-routing) count as
 		// occupancy too — they belong to a draft the user started even though
 		// their lane is still empty.
-		if (pendingImages > 0 || pendingFiles > 0 || pendingBlobs > 0 || ingestionHolds > 0) return false
+		if (pendingImages > 0 || pendingFiles > 0 || pendingBlobs > 0 || ingestionHolds > 0)
+			return false
 		if (
 			!draft.replaceIfEmpty({
 				text: value,
@@ -584,7 +629,7 @@
 		// mergedIntoDraft: the restored text landed on top of a draft the user was
 		// already writing — both instructions now share one composer, so the caller
 		// must keep both their contexts rather than replacing one with the other.
-		const { mergedIntoDraft, droppedImages, droppedFiles } = draft.prepend({
+		const { mergedIntoDraft, droppedImages, droppedFiles, droppedBlobs } = draft.prepend({
 			text,
 			images: restoredImages,
 			files: restoredFiles,
@@ -599,6 +644,12 @@
 		if (droppedFiles > 0) {
 			sendUserToast(
 				`You can attach up to ${MAX_ATTACHED_FILES} files; ${droppedFiles} restored file(s) were dropped.`,
+				true
+			)
+		}
+		if (droppedBlobs > 0) {
+			sendUserToast(
+				`You can attach up to ${MAX_ATTACHED_BLOBS} files; ${droppedBlobs} restored file(s) were dropped.`,
 				true
 			)
 		}
@@ -846,6 +897,9 @@
 			// when given no override, and the consume below empties it.
 			const carried = chatHost.mode === AIMode.GLOBAL ? [...selectedContext] : undefined
 			consumeMentionsIfGlobal()
+			// A host that refuses the turn puts the draft back itself (see AIChatManager's
+			// restoreToInput and FlowChatViewHost's upload failure): restoring here too
+			// would double the text and every attachment.
 			chatHost.sendRequest({
 				instructions: sent.text,
 				pastes: sent.pastes,

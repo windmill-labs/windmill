@@ -55,6 +55,12 @@ export class FlowChatManager {
 	conversations = $state<ConversationWithDraft[]>([])
 	deletingConversationId = $state<string | undefined>(undefined)
 	isSidebarExpanded = $state(false)
+	/**
+	 * A turn is on its way but has no job yet — attachments uploading, say. `isLoading`
+	 * only covers the run itself, and the gap between them is long enough to change what
+	 * the send lands in.
+	 */
+	isDispatchingTurn = $state(false)
 	/** The thinking of the turn in flight, until it is attached to the answer it produced. */
 	currentReasoning = $state('')
 	/** The model is reasoning: true from the first thinking token until the answer starts. */
@@ -254,10 +260,33 @@ export class FlowChatManager {
 		await this.selectConversation(latest.id)
 	}
 
-	/** Narrow the list to one kind of chat and reload it. */
+	/**
+	 * Narrow the list to one kind of chat and reload it.
+	 *
+	 * The open conversation goes with it when it is not of the new kind: the composer sends
+	 * into whatever is selected, and a test run appended to a deployed conversation would be
+	 * stored as part of it — `get_or_create_conversation_with_id` keeps the row's own
+	 * `is_test`, so the mixing would be invisible afterwards.
+	 */
 	async setConversationKind(kind: ConversationKind) {
 		if (this.conversationKind === kind) return
+		// A turn in flight writes into the conversation it started in — the stream appends
+		// rows, the poller merges more — so the selection cannot be moved under it. Held
+		// from the moment the composer starts dispatching, since an upload runs before the
+		// job exists and a send landing after the switch would start a fresh conversation.
+		// The control is disabled meanwhile; this is the same rule where it is enforced.
+		if (this.isTurnInFlight) return
 		this.conversationKind = kind
+		const open = this.conversations.find((c) => c.id === this.selectedConversationId)
+		const stillListed =
+			open === undefined ||
+			open.isDraft === true ||
+			kind === 'all' ||
+			(kind === 'test') === (open.is_test === true)
+		if (!stillListed) {
+			this.selectedConversationId = undefined
+			this.clearMessages()
+		}
 		await this.refreshConversations()
 	}
 
@@ -300,6 +329,11 @@ export class FlowChatManager {
 			return
 		}
 		await this.#writeConversationTitle(conversationId, trimmed)
+	}
+
+	/** A turn is being dispatched or is running: nothing may move the conversation under it. */
+	get isTurnInFlight(): boolean {
+		return this.isLoading || this.isWaitingForResponse || this.isDispatchingTurn
 	}
 
 	async refreshConversations() {

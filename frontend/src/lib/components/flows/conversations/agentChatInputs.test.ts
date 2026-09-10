@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { parseProviderTransform, resolveAgentModelWiring } from './agentChatInputs'
+import { agentModelGap, parseProviderTransform, resolveAgentModelWiring } from './agentChatInputs'
 import type { FlowModule } from '$lib/gen'
 
 function agent(expr: string): FlowModule {
 	return {
 		id: 'a',
-		value: { type: 'aiagent', tools: [], input_transforms: { provider: { type: 'javascript', expr } } }
+		value: {
+			type: 'aiagent',
+			tools: [],
+			input_transforms: { provider: { type: 'javascript', expr } }
+		}
 	} as unknown as FlowModule
 }
 
@@ -76,8 +80,8 @@ describe('parseProviderTransform', () => {
 	})
 
 	it.each([
-		["{ ...base, model: flow_input.model }", 'a spread could supply any field'],
-		["{ model: pickModel(flow_input.x) }", 'a call is not classifiable'],
+		['{ ...base, model: flow_input.model }', 'a spread could supply any field'],
+		['{ model: pickModel(flow_input.x) }', 'a call is not classifiable'],
 		['flow_input.model + 1', 'not a bare reference'],
 		['{ model: ', 'unparseable']
 	])('gives up on %s', (expr) => {
@@ -90,8 +94,12 @@ describe('resolveAgentModelWiring', () => {
 
 	it('drives a field every agent reads from the same input', () => {
 		const wiring = resolveAgentModelWiring([
-			agent(`({ ${fixedResource}, "model": "claude-sonnet-5", reasoning_effort: flow_input.thinking })`),
-			agent(`({ ${fixedResource}, "model": "claude-opus-5", reasoning_effort: flow_input.thinking })`)
+			agent(
+				`({ ${fixedResource}, "model": "claude-sonnet-5", reasoning_effort: flow_input.thinking })`
+			),
+			agent(
+				`({ ${fixedResource}, "model": "claude-opus-5", reasoning_effort: flow_input.thinking })`
+			)
 		])
 		expect(wiring?.fields).toEqual({ reasoning_effort: 'thinking' })
 		// The agents run different models, so there is no single one to name.
@@ -109,7 +117,7 @@ describe('resolveAgentModelWiring', () => {
 	// A nested agent is the parent agent's tool, not a step the reader is talking to: the
 	// graph walks it as a child module, and counting it here would defeat the chat's own
 	// model control (this is the shape of the all-tools example flow).
-	it('ignores an agent carried as another agent\'s tool', () => {
+	it("ignores an agent carried as another agent's tool", () => {
 		const parent = agent('flow_input.model')
 		;(parent.value as any).tools = [
 			{
@@ -125,6 +133,34 @@ describe('resolveAgentModelWiring', () => {
 			}
 		]
 		expect(resolveAgentModelWiring([parent])).toEqual({ whole: 'model', fields: {}, fixed: {} })
+	})
+
+	// The control writes one flow input; an agent that fixes the field instead never reads
+	// it, so offering the control would move one agent and leave the other where it was.
+	it('does not offer a field one agent wires and another fixes', () => {
+		const wiring = resolveAgentModelWiring([
+			agent(`({ ${fixedResource}, model: flow_input.model })`),
+			agent(`({ ${fixedResource}, "model": "claude-opus-5" })`)
+		])
+		expect(wiring?.fields.model).toBeUndefined()
+		expect(wiring?.fixed.model).toBeUndefined()
+		expect(wiring?.undecided).toContain('model')
+	})
+
+	// Disagreeing about the model is not the same as having no model: the flow runs, on a
+	// different one per agent, and the composer has nothing to fix.
+	it('says nothing about a model the agents merely disagree about', () => {
+		const wiring = resolveAgentModelWiring([
+			agent(`({ ${fixedResource}, "model": "claude-sonnet-5" })`),
+			agent(`({ ${fixedResource}, "model": "claude-opus-5" })`)
+		])
+		expect(agentModelGap(wiring)).toBeUndefined()
+	})
+
+	it('still reports an agent with nothing to call', () => {
+		expect(
+			agentModelGap(resolveAgentModelWiring([agent(`({ "kind": "openai", "model": "" })`)]))
+		).toBe('Pick a provider and model on the AI agent step to use this chat.')
 	})
 
 	it('refuses a flow mixing whole-object and field-by-field wiring', () => {

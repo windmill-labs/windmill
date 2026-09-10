@@ -655,7 +655,10 @@
 			const memoryIsOff = (transform: InputTransform | undefined) =>
 				transform?.type === 'static' && (transform.value as any)?.kind === 'off'
 
-			if (isUnconfigured(value.input_transforms['memory']) || memoryIsOff(value.input_transforms['memory'])) {
+			if (
+				isUnconfigured(value.input_transforms['memory']) ||
+				memoryIsOff(value.input_transforms['memory'])
+			) {
 				value.input_transforms['memory'] = {
 					type: 'static',
 					value: { kind: 'auto', context_length: 10 }
@@ -732,7 +735,8 @@
 						right: 'Chat Mode',
 						rightTooltip:
 							'Turns this flow\'s page into a chat. Each message runs the flow with the message as its "user_message" input, and is kept as a chat — one conversation per chat, each with its own AI agent memory. Chats started in the editor are marked as tests and stay out of the deployed flow\'s list.',
-						rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/ai_agents#chat-mode'
+						rightDocumentationLink:
+							'https://www.windmill.dev/docs/core_concepts/ai_agents#chat-mode'
 					}}
 				/>
 				{#if flowStore.val.value?.chat_input_enabled}

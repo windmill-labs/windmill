@@ -75,14 +75,23 @@
 	// that follows tells us which provider it speaks.
 	let pendingResourcePath = $state<string | undefined>(undefined)
 
+	// A flow that fixes `kind` but exposes `resource` accepts resources of that kind only:
+	// `setFields` drops a `kind` it cannot write, so any other provider's resource would be
+	// listed, selected, and then run against the kind the flow still fixes.
+	const allowedResourceTypes = $derived.by(() => {
+		const fixedKind = editable('kind') ? undefined : (fieldValue('kind') as string | undefined)
+		return fixedKind && AI_RESOURCE_TYPES.includes(fixedKind) ? [fixedKind] : AI_RESOURCE_TYPES
+	})
+
 	const resources = resource(
-		() => (resourceEditable ? { workspace, version: resourcesVersion } : undefined),
+		() =>
+			resourceEditable ? { workspace, version: resourcesVersion, allowedResourceTypes } : undefined,
 		async (args) => {
 			const ws = args?.workspace
 			if (!ws) return []
 			const rows = await ResourceService.listResource({
 				workspace: ws,
-				resourceType: AI_RESOURCE_TYPES.join(',')
+				resourceType: (args?.allowedResourceTypes ?? AI_RESOURCE_TYPES).join(',')
 			})
 			return rows.map((r) => ({
 				path: r.path,

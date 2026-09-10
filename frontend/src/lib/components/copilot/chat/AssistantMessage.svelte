@@ -31,9 +31,7 @@
 	// the browser — so the footer is absent rather than empty elsewhere.
 	const jobId = $derived(message.role === 'assistant' ? message.jobId : undefined)
 	const createdAt = $derived(message.role === 'assistant' ? message.createdAt : undefined)
-	const runHref = $derived(
-		jobId ? `${base}/run/${jobId}?workspace=${workspace}` : undefined
-	)
+	const runHref = $derived(jobId ? `${base}/run/${jobId}?workspace=${workspace}` : undefined)
 	// Today's answers show the time alone; the day earns its place only on a conversation
 	// read back later. Resolved at render, so a chat left open across midnight keeps
 	// yesterday's format until it is reopened.

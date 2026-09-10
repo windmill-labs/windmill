@@ -126,6 +126,10 @@ export interface ChatViewHost {
 	/** `accept` for the file picker, and the drop filter. A host whose consumer only
 	 * understands some formats narrows it so the rest are refused rather than ignored. */
 	attachmentAccept: string
+	/** How many attachments one turn can carry, when the consumer holds a fixed number —
+	 * a flow input that is a single file, say. Undefined means no limit. Enforced at the
+	 * picker and on drop, so what the composer shows is what the turn actually sends. */
+	maxMessageAttachments?: number
 	/** Take non-image attachments verbatim (`blobs`) instead of decoding them to text.
 	 * True where the bytes are forwarded somewhere — object storage — rather than read
 	 * in the browser. */

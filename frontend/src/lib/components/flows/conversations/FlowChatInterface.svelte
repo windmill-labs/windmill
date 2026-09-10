@@ -8,9 +8,9 @@
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { type DynamicInput } from '$lib/utils'
-	import { CancelError, WorkspaceService, type FlowModule } from '$lib/gen'
+	import { type FlowModule } from '$lib/gen'
+	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { resource } from 'runed'
 	import FlowChatModelSettings from './FlowChatModelSettings.svelte'
 	import {
 		agentModelGap,
@@ -68,27 +68,7 @@
 
 	// Uploading needs the workspace's object storage; without one the `+` stays hidden
 	// rather than failing on drop. Assumed absent until this workspace's answer lands.
-	const settings = resource(
-		() => chatWorkspace,
-		async (ws, _previous, { onCleanup }) => {
-			if (!ws) return undefined
-			const req = WorkspaceService.getPublicSettings({ workspace: ws })
-			onCleanup(() => req.cancel())
-			try {
-				return { ws, settings: await req }
-			} catch (err) {
-				if (!(err instanceof CancelError)) {
-					console.error('Failed to fetch workspace settings:', err)
-				}
-				return undefined
-			}
-		}
-	)
-	const s3StorageConfigured = $derived.by(() => {
-		const loaded = settings.current
-		if (!loaded || loaded.ws !== chatWorkspace) return false
-		return loaded.settings.large_file_storage?.s3_resource_path !== undefined
-	})
+	const workspaceStorage = useWorkspaceStorageConfigured(() => chatWorkspace, false)
 	// The model gets its own button, shaped like the copilot's model settings, driven by
 	// whichever provider fields the flow exposes. Attachments are the paperclip's. Nothing
 	// else is promoted, so every other flow input is asked for in the Configure-inputs modal.
@@ -186,7 +166,7 @@
 		additionalInputs: () => (additionalInputsSchema ? { ...effectiveInputs } : undefined),
 		attachmentsTarget: () => attachmentsTarget,
 		workspace: () => chatWorkspace,
-		canAttach: () => s3StorageConfigured,
+		canAttach: () => workspaceStorage.current,
 		inputsShownInComposer: () => agentModelWiringInputs(modelWiring)
 	})
 	setChatViewHost(chatHost)

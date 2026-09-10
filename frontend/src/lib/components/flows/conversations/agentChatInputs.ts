@@ -77,9 +77,7 @@ const FLOW_INPUT_REF = /flow_input\??\.([A-Za-z_$][\w$]*)/g
  */
 export function flowInputRef(transform: InputTransform | undefined): string | undefined {
 	if (transform?.type !== 'javascript') return undefined
-	const names = new Set(
-		[...transform.expr.matchAll(FLOW_INPUT_REF)].map((match) => match[1])
-	)
+	const names = new Set([...transform.expr.matchAll(FLOW_INPUT_REF)].map((match) => match[1]))
 	return names.size === 1 ? [...names][0] : undefined
 }
 
@@ -108,6 +106,13 @@ export type AgentModelWiring = {
 	whole?: string
 	fields: Partial<Record<ProviderField, string>>
 	fixed: Partial<Record<ProviderField, any>>
+	/**
+	 * Fields the agents supply differently from one another — one reading an input where
+	 * another writes a literal, or two literals that disagree. Neither editable nor known,
+	 * and told apart from a field nobody supplies at all: a control offered here would
+	 * govern one agent while the rest ran on something else.
+	 */
+	undecided?: ProviderField[]
 }
 
 /** The flow input behind `flow_input.x`, `flow_input?.x` or `flow_input['x']`. */
@@ -189,6 +194,20 @@ export function parseProviderTransform(
 	return { fields, fixed }
 }
 
+/** How one agent supplies a provider field: from an input, as a literal, or not at all. */
+type FieldSupply =
+	| { kind: 'wired'; name: string }
+	| { kind: 'fixed'; value: any }
+	| { kind: 'absent' }
+
+function fieldSupply(wiring: AgentModelWiring, field: ProviderField): FieldSupply {
+	const name = wiring.fields[field]
+	if (name !== undefined) return { kind: 'wired', name }
+	const value = wiring.fixed[field]
+	if (value !== undefined) return { kind: 'fixed', value }
+	return { kind: 'absent' }
+}
+
 /**
  * The provider wiring the chat can act on, across every AI agent in the flow.
  *
@@ -214,20 +233,21 @@ export function resolveAgentModelWiring(
 
 	const fields: AgentModelWiring['fields'] = {}
 	const fixed: AgentModelWiring['fixed'] = {}
+	const undecided: ProviderField[] = []
 	for (const field of PROVIDER_FIELDS) {
-		const inputs = new Set(wirings.map((w) => w.fields[field]).filter((n) => n !== undefined))
-		if (inputs.size === 1) {
-			fields[field] = [...inputs][0]
+		// Every agent has to supply the field the same way for the composer to speak for
+		// them all. One wired name among agents that otherwise fix it is not agreement:
+		// the control would move that one agent and leave the others where they are.
+		const supplies = new Set(wirings.map((w) => JSON.stringify(fieldSupply(w, field))))
+		if (supplies.size > 1) {
+			undecided.push(field)
 			continue
 		}
-		// One agent reading it from an input while another fixes it: no single answer.
-		if (inputs.size > 1) continue
-		const literals = new Set(
-			wirings.map((w) => w.fixed[field]).filter((v) => v !== undefined).map((v) => JSON.stringify(v))
-		)
-		if (literals.size === 1) fixed[field] = JSON.parse([...literals][0])
+		const supply: FieldSupply = JSON.parse([...supplies][0])
+		if (supply.kind === 'wired') fields[field] = supply.name
+		else if (supply.kind === 'fixed') fixed[field] = supply.value
 	}
-	return { fields, fixed }
+	return { fields, fixed, undecided }
 }
 
 /**
@@ -241,6 +261,11 @@ export function resolveAgentModelWiring(
 export function agentModelGap(wiring: AgentModelWiring | undefined): string | undefined {
 	// No agent, several of them, or an expression we cannot read: not ours to judge.
 	if (!wiring || wiring.whole) return undefined
+	// Agents that disagree about what to call are not agents with nothing to call: the flow
+	// may well run, on a different model per agent, and this message would be false.
+	if (wiring.undecided?.some((field) => field === 'resource' || field === 'model')) {
+		return undefined
+	}
 	const missing = (field: ProviderField) =>
 		wiring.fields[field] === undefined &&
 		(wiring.fixed[field] === undefined || wiring.fixed[field] === '')

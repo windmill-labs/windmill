@@ -244,29 +244,61 @@ export class FlowChatViewHost implements ChatViewHost {
 	// `manager.isLoading` cannot cover it and the composer would look idle.
 	#uploading = $state(false)
 
+	/** Put a refused turn back in the composer, which took the draft before calling. */
+	#restoreToComposer(options: ChatSendRequestOptions) {
+		this.#aiChatInput?.prependText(
+			options.instructions ?? '',
+			options.images ?? [],
+			[],
+			options.blobs ?? []
+		)
+	}
+
 	sendRequest = async (options: ChatSendRequestOptions = {}) => {
 		const text = options.instructions?.trim() ?? ''
 		const args = { ...(this.#options.additionalInputs?.() ?? {}) }
 		const target = this.#options.attachmentsTarget?.()
-		const attachments = [...(options.images ?? []), ...(options.blobs ?? [])]
+		let images = options.images ?? []
+		let blobs = options.blobs ?? []
 		// The composer refuses an attachment-only send (requiresMessageText), so this is
 		// the same rule at the other end: nothing runs without a message.
 		if (!text) return false
+		// The per-turn cap again, at the place the truncation would happen: the composer
+		// enforces it as files are attached, but a queue built over several turns arrives
+		// here as one send, and a scalar input keeps `uploaded[0]` — uploading the rest
+		// would strand them in storage while the transcript claimed they went.
+		const cap = this.maxMessageAttachments
+		if (cap !== undefined && images.length + blobs.length > cap) {
+			const dropped = images.length + blobs.length - cap
+			images = images.slice(0, cap)
+			blobs = blobs.slice(0, Math.max(0, cap - images.length))
+			sendUserToast(
+				cap === 1
+					? `This chat sends one attachment per message; ${dropped} file(s) were not sent.`
+					: `This chat sends up to ${cap} attachments per message; ${dropped} file(s) were not sent.`,
+				true
+			)
+		}
+		const attachments = [...images, ...blobs]
 		let sentInputs: MessageInputs | undefined
 		if (target && attachments.length > 0) {
 			this.#uploading = true
+			this.#manager.isDispatchingTurn = true
 			try {
 				const uploaded = await this.#uploadAttachments(attachments)
 				args[target.name] = target.multiple ? uploaded : uploaded[0]
-				sentInputs = attachmentsToMessageInputs(options.images ?? [], options.blobs ?? [])
+				sentInputs = attachmentsToMessageInputs(images, blobs)
 			} catch (e) {
 				sendUserToast(
 					`Could not upload the attachments: ${e instanceof Error ? e.message : String(e)}`,
 					true
 				)
+				// The composer already took the draft; without this the turn is simply lost.
+				this.#restoreToComposer(options)
 				return false
 			} finally {
 				this.#uploading = false
+				this.#manager.isDispatchingTurn = false
 			}
 		}
 
@@ -398,6 +430,11 @@ export class FlowChatViewHost implements ChatViewHost {
 	}
 	supportsLinkedFolders = false
 	attachmentsAsBlobs = true
+	// A scalar flow input holds one file; sending more would upload every one and run with
+	// the first, leaving the rest orphaned in storage and the transcript claiming otherwise.
+	get maxMessageAttachments() {
+		return this.#options.attachmentsTarget?.()?.multiple === false ? 1 : undefined
+	}
 	// What an AI agent step accepts (AI_AGENT_SCHEMA.user_attachments).
 	attachmentAccept = 'image/*,application/pdf,.pdf'
 	tools = []
