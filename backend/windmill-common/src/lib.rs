@@ -1425,6 +1425,77 @@ pub fn validate_dbname(dbname: &str) -> error::Result<()> {
     Ok(())
 }
 
+/// Whether `dbname` is a clone's leftover: a `wm_fork_*` database Windmill registered as a data
+/// table database and that no data table or ducklake entry names, in any workspace, archived ones
+/// included. A clone creates its database a request before any entry names it, so a failure in
+/// between leaves exactly this, and its name then blocks every retry.
+pub async fn is_reclaimable_fork_database(db: &DB, dbname: &str) -> error::Result<bool> {
+    if !dbname.starts_with("wm_fork_") {
+        return Ok(false);
+    }
+    Ok(sqlx::query_scalar!(
+        r#"SELECT
+               COALESCE(value->'databases'->$1::text->>'tag' = 'datatable', false)
+               AND NOT EXISTS (
+                   SELECT 1 FROM workspace_settings ws
+                   CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
+                   WHERE dt.value->'database'->>'resource_type' = 'instance'
+                     AND dt.value->'database'->>'resource_path' = $1::text)
+               AND NOT EXISTS (
+                   SELECT 1 FROM workspace_settings ws
+                   CROSS JOIN LATERAL jsonb_each(COALESCE(ws.ducklake->'ducklakes', '{}'::jsonb)) dl
+                   WHERE dl.value->'catalog'->>'resource_type' = 'instance'
+                     AND dl.value->'catalog'->>'resource_path' = $1::text)
+               AS "reclaimable!"
+           FROM global_settings WHERE name = 'custom_instance_pg_databases'"#,
+        dbname
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false))
+}
+
+/// Drop `dbname` if [`is_reclaimable_fork_database`], so a retried clone can recreate it, and
+/// return whether it did. Unlike [`drop_custom_instance_database`] this never terminates
+/// connections: a clone still copying into the database must make the drop fail, not be cut off
+/// mid-copy.
+pub async fn reclaim_orphaned_fork_database(db: &DB, dbname: &str) -> error::Result<bool> {
+    let dbname = dbname.trim();
+    validate_dbname(dbname)?;
+
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+        dbname
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+    if !exists || !is_reclaimable_fork_database(db, dbname).await? {
+        return Ok(false);
+    }
+
+    // SAFETY: `dbname` has been validated via validate_dbname() above.
+    sqlx::query(&format!("DROP DATABASE IF EXISTS \"{}\"", dbname))
+        .execute(db)
+        .await
+        .map_err(|e| {
+            error::Error::BadRequest(format!(
+                "Database '{dbname}' is left over from an earlier clone and could not be \
+                 reclaimed, most often because a clone is still copying into it: {e}"
+            ))
+        })?;
+    // A registered database that no longer exists makes every later per-database pass fail on it.
+    sqlx::query!(
+        r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
+        dbname
+    )
+    .execute(db)
+    .await?;
+
+    tracing::info!("Reclaimed orphaned fork database '{dbname}'");
+    Ok(true)
+}
+
 /// Drop a custom instance database: validate, terminate connections, DROP DATABASE, remove from global_settings.
 pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Result<()> {
     let dbname = dbname.trim();
