@@ -11,9 +11,7 @@ import { providerKey } from './providerIcon'
  */
 type Entry = { key: string | null; editedAt?: string }
 
-// Versioned so a shape change starts entries over rather than reading a stale one,
-// at one resource read each.
-const STORE_KEY = 'mcp_provider_icons_v2'
+const STORE_KEY = 'mcp_provider_icons'
 
 function read(): Record<string, Record<string, Entry>> {
 	try {
@@ -56,10 +54,7 @@ export function rememberProviderKey(
 ): string | null {
 	const key = providerKey(url) ?? null
 	const store = read()
-	store[workspace] = {
-		...(store[workspace] ?? {}),
-		[path]: { key, editedAt }
-	}
+	store[workspace] = { ...(store[workspace] ?? {}), [path]: { key, editedAt } }
 	try {
 		localStorage.setItem(STORE_KEY, JSON.stringify(store))
 	} catch {}

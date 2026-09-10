@@ -328,6 +328,29 @@ describe('loaded remote tools', () => {
 		expect(loadedMcpTools(OWNER).map((t) => t.def.function.name)).toEqual(before)
 	})
 
+	// The per-tool bound alone would allow 25 large schemas in every request, which is
+	// the cost the whole search-then-register indirection exists to avoid.
+	it('bounds the total size of the registered schemas', () => {
+		const big = (name: string) => ({
+			name,
+			description: 'x',
+			inputSchema: {
+				type: 'object',
+				properties: { a: { type: 'string', description: 'x'.repeat(7_000) } }
+			}
+		})
+		for (let i = 0; i < 12; i++) {
+			registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [big(`tool_${i}`)] as any)
+		}
+
+		const total = loadedMcpTools(OWNER).reduce(
+			(n, t) => n + JSON.stringify(t.def.function.parameters).length,
+			0
+		)
+		expect(total).toBeLessThanOrEqual(40_000)
+		expect(loadedMcpTools(OWNER).length).toBeLessThan(12)
+	})
+
 	it('bounds the loaded set, evicting the least recently registered', () => {
 		for (let i = 0; i < 30; i++) {
 			registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [

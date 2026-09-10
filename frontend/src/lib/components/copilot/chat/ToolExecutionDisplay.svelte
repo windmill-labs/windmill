@@ -250,16 +250,13 @@
 		{/if}
 	{/snippet}
 
-	<!-- Which system a call reaches is the first thing to know about it, so an MCP
-	     call is marked before the label — with the icon the server published for that
-	     tool where there is one, and Windmill's icon for the integration otherwise.
-	     Nothing is drawn until a mark resolves: a placeholder plug on every row would
-	     be noise. -->
+	<!-- Which system a call reaches is the first thing to know about it, so an MCP call
+	     is marked before its label. Nothing is drawn until a mark resolves: a
+	     placeholder plug on every row would be noise. -->
 	{#snippet serverMark()}
 		{#if mcpServerPath && aiChatManager.operatingWorkspace}
-			<!-- Both sources are resolved, not just the first: the component falls back to
-			     the shipped icon when a published one fails to render, and gating on the
-			     src would leave a plug where Windmill has an icon for the integration. -->
+			<!-- Both sources are resolved so the component can fall back to the shipped
+			     icon when a published one fails to render. -->
 			{#await resolveMcpServerMark(aiChatManager.operatingWorkspace, mcpServerPath) then mark}
 				{#if message.mcpIconSrc || mark.icon}
 					<McpServerIcon src={message.mcpIconSrc} icon={mark.icon} size={14} />

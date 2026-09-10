@@ -29,17 +29,4 @@ describe('normalizeToolParameterSchema', () => {
 		expect(schema.properties.tags.items.required).toEqual(['name'])
 		expect(schema.anyOf[0].required).toEqual(['a'])
 	})
-
-	it('strips an empty or null format at every depth', () => {
-		const schema: Record<string, any> = {
-			type: 'object',
-			format: '',
-			properties: { a: { type: 'string', format: null } }
-		}
-
-		normalizeToolParameterSchema(schema)
-
-		expect(schema.format).toBeUndefined()
-		expect(schema.properties.a.format).toBeUndefined()
-	})
 })

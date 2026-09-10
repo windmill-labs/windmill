@@ -16,9 +16,8 @@ describe('pickMcpIconSrc', () => {
 		)
 	})
 
-	// An https src would make the browser fetch from a host the server names, which is
-	// the disclosure the favicon lookup was removed for. COEP blocks the response, not
-	// the request, so it does not save us.
+	// An https src would make the browser fetch from a host the server names. COEP
+	// blocks the response, not the request, so it does not prevent the disclosure.
 	it('refuses a fetchable src, whatever the scheme', () => {
 		expect(pickMcpIconSrc([{ src: 'https://example.com/logo.png' }])).toBeUndefined()
 		expect(pickMcpIconSrc([{ src: 'http://example.com/i.png' }])).toBeUndefined()

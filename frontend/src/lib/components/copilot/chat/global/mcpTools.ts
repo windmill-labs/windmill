@@ -17,6 +17,9 @@ import { pickMcpIconSrc } from '$lib/components/mcp/mcpIcon'
  * call wrappers remain as a fallback for anything not registered, and take a
  * free-form argument object — which is what the model has to guess into, and
  * why the registered tool is preferred wherever there is one.
+ *
+ * Registrations do not outlive the page: a reloaded transcript shows the calls it made
+ * but no longer offers those tools, and the model searches again to get them back.
  */
 
 type McpToolDef = GetMcpToolsResponse[number]
@@ -35,6 +38,9 @@ const MAX_TOOL_NAME_CHARS = 64
 // controls. Past this, the tool is left unregistered and the model reaches it through
 // `call_mcp_*` instead — the schema still arrives, but only when a call fails.
 const MAX_TOOL_SCHEMA_CHARS = 8_000
+// And a ceiling on the set, since the per-tool bound alone would allow 25 large ones —
+// far more context than the search indirection exists to save.
+const MAX_LOADED_SCHEMA_CHARS = 40_000
 // Same reasoning for the description, which rides alongside it. Roomier than the
 // search summary's 200: this one is what the model chooses the tool from.
 const MAX_TOOL_DESCRIPTION_CHARS = 2_000
@@ -227,7 +233,7 @@ export function forgetLoadedMcpTools(owner: string, serverPath?: string) {
  * Drop every owner's loaded tools. Used when a server resource itself changed, which
  * makes the frozen copy every chat holds stale at once — not for one chat rotating.
  */
-export function forgetAllLoadedMcpTools() {
+function forgetAllLoadedMcpTools() {
 	allGeneration++
 	registries.clear()
 }
@@ -321,8 +327,8 @@ function summarizeTool(server: McpServer, tool: McpToolDef, callName?: string) {
 	return {
 		server: server.path,
 		tool: tool.name,
-		// Once the tool is registered its real schema is in front of the model, so the
-		// bare parameter names it used to guess from are dropped rather than repeated.
+		// A registered tool puts its real schema in front of the model, so bare parameter
+		// names are only worth sending for one that is not.
 		...(callName ? { call: callName } : params.length > 0 ? { params } : {}),
 		description: truncate(tool.description ?? '', MAX_DESCRIPTION_CHARS),
 		mode: isReadOnly(tool) ? 'read' : 'write'
@@ -619,16 +625,11 @@ function uniqueRegisteredName(
 
 /**
  * A remote server's `inputSchema`, made safe to send as a provider tool definition.
+ * A schema a provider rejects fails the whole completion, not the one tool, and the
+ * tool stays registered — so the chat keeps failing until it is dropped.
  *
- * Until now a remote schema only ever reached the model as tool-result text; a
- * registered tool puts it in the request itself, where a provider rejects the whole
- * completion rather than the one bad tool — and the chat would keep failing, because
- * the tool stays registered. Windmill's own MCP server has shipped both of the shapes
- * guarded here, so "the server is trusted" is not an argument.
- *
- * Deliberately shallow: this is a guard against a request-breaking schema, not a
- * validator. Anything it cannot make sense of collapses to "accepts any object",
- * which costs the model its argument names but keeps the chat alive.
+ * A guard, not a validator: anything it cannot make sense of collapses to "accepts any
+ * object", which costs the model its argument names but keeps the chat alive.
  */
 function safeInputSchema(schema: unknown): Record<string, unknown> {
 	const empty = { type: 'object', properties: {} }
@@ -640,33 +641,38 @@ function safeInputSchema(schema: unknown): Record<string, unknown> {
 		!Array.isArray(rest.properties)
 			? (rest.properties as Record<string, unknown>)
 			: {}
-	// `required` is `uniqueItems`, and must name properties that exist: a strict
-	// validator rejects a repeat, and a name with no property reads as a parameter
-	// the model can never satisfy.
+	// A name with no property reads as a parameter the model can never satisfy.
+	// (`normalizeToolParameterSchema` below is what de-duplicates, at every depth.)
 	const required = Array.isArray(rest.required)
 		? [
 				...new Set(
 					rest.required.filter(
-						(name): name is string => typeof name === 'string' && name in properties
+						(name): name is string => typeof name === 'string' && Object.hasOwn(properties, name)
 					)
 				)
 			]
 		: []
-	// Cloned, not spread: the spread would leave `properties` and any `items`/`allOf`
-	// carried through `rest` pointing at the listing cache's own objects, and the
-	// normalize pass below rewrites nested nodes in place. A registered tool is
-	// supposed to be a frozen copy — sharing that structure makes it one in name only.
+	// Cloned so the normalize pass below, which rewrites nested nodes in place, cannot
+	// reach the listing cache these objects came from.
 	const safe = structuredClone({ ...rest, type: 'object', properties, required })
-	// The same pass `createToolDef` runs on every other tool, so a remote schema is not
-	// the one that reaches a provider unnormalized. It recurses, which this does not:
-	// Windmill's own MCP server emits `format: ""` on untyped fields.
 	normalizeToolParameterSchema(safe)
 	return safe
 }
 
+function registrySchemaChars(registry: OwnerRegistry): number {
+	let total = 0
+	for (const tool of registry.tools.values()) {
+		total += JSON.stringify(tool.def.function.parameters ?? {}).length
+	}
+	return total
+}
+
 function evictLoadedTools(registry: OwnerRegistry) {
 	const { tools: loadedTools, lastUsed } = registry
-	while (loadedTools.size > MAX_LOADED_TOOLS) {
+	while (
+		loadedTools.size > MAX_LOADED_TOOLS ||
+		(loadedTools.size > 1 && registrySchemaChars(registry) > MAX_LOADED_SCHEMA_CHARS)
+	) {
 		let victim: string | undefined
 		let victimRank = Infinity
 		for (const key of loadedTools.keys()) {
@@ -716,9 +722,8 @@ export function registerMcpTools(
 			// than none, since the model cannot tell which half it is missing.
 			return undefined
 		}
-		// Set without deleting first: re-registering refreshes the schema in place,
-		// and Map.set keeps an existing key's position, so the emitted tool list — and
-		// the cache breakpoint on its last entry — does not move.
+		// `Map.set` keeps an existing key's position, so re-registering refreshes the
+		// schema without moving the emitted list (see `lastUsed`).
 		registry.lastUsed.set(key, ++registry.counter)
 		registry.editedAt.set(key, server.editedAt)
 		registry.tools.set(key, {

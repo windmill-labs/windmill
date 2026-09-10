@@ -69,11 +69,7 @@ pub fn transform_hub_path(version_id: u64, summary: &str) -> String {
 /// Returns `(type_str, is_hub, is_hashed)`.
 /// Hashed names use an uppercase first character as the signal.
 pub fn parse_tool_prefix(name: &str) -> Result<(&str, bool, bool), String> {
-    let is_hashed = name
-        .chars()
-        .next()
-        .map(|c| c.is_ascii_uppercase())
-        .unwrap_or(false);
+    let is_hashed = name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false);
     let lower = name.to_ascii_lowercase();
     let (type_str, is_hub) = if lower.starts_with("hs-") {
         ("script", true)
@@ -432,10 +428,7 @@ mod tests {
     #[test]
     fn test_extract_path_prefix_handles_hs_prefix() {
         // Hs- is 3 chars, not 2 — ensure the prefix is stripped correctly
-        let hashed = transform_hub_path(
-            12345,
-            "a]very long hub script summary that exceeds the limit",
-        );
+        let hashed = transform_hub_path(12345, "a]very long hub script summary that exceeds the limit");
         let (_, is_hub, is_hashed) = parse_tool_prefix(&hashed).unwrap();
         assert!(is_hub);
         assert!(is_hashed);
