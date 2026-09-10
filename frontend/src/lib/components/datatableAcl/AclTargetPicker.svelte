@@ -4,6 +4,7 @@
 	let {
 		schemas,
 		tables,
+		schemasLoading = false,
 		schema = $bindable(),
 		table = $bindable()
 	}: {
@@ -11,6 +12,8 @@
 		schemas: string[]
 		/** The picked schema's tables, as the editor last read them. */
 		tables: string[]
+		/** The editor has not read the database yet, so `schemas` is not known to be empty. */
+		schemasLoading?: boolean
 		/** Unset for the database itself. */
 		schema?: string
 		/** Unset for the whole schema. */
@@ -30,6 +33,7 @@
 		}
 		placeholder="The database itself"
 		clearable
+		loading={schemasLoading}
 		size="sm"
 		class="w-56"
 	/>

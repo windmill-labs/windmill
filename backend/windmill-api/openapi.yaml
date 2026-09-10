@@ -32729,7 +32729,9 @@ components:
           type: string
         kind:
           type: string
-          description: TABLE, SEQUENCE or FUNCTION — the keyword a REVOKE on it takes
+          description: >-
+            TABLE, SEQUENCE, FUNCTION or PROCEDURE — what the object is. A revoke turns it into
+            the keyword it takes, ROUTINE for both routine kinds.
         args:
           type: string
           description: identity arguments of a routine, which is what tells two of the same name apart

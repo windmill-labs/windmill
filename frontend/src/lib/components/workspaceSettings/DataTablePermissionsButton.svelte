@@ -63,6 +63,7 @@
 			: { kind: 'database' }
 	)
 	let aclSchemas = $state<string[]>([])
+	let aclSchemasLoaded = $state(false)
 	let aclTables = $state<string[]>([])
 
 	// The editor's read of a database lists its schemas, and of a schema its tables — which is what
@@ -70,8 +71,10 @@
 	// behind is dropped.
 	function onAclLoaded(target: AclTarget, loaded: DatatableAclInfo) {
 		if (JSON.stringify(target) !== JSON.stringify(aclTarget)) return
-		if (target.kind === 'database') aclSchemas = loaded.children
-		else if (target.kind === 'schema') aclTables = loaded.children
+		if (target.kind === 'database') {
+			aclSchemas = loaded.children
+			aclSchemasLoaded = true
+		} else if (target.kind === 'schema') aclTables = loaded.children
 	}
 
 	async function load() {
@@ -155,6 +158,7 @@
 		aclSchema = undefined
 		aclTable = undefined
 		aclSchemas = []
+		aclSchemasLoaded = false
 		aclTables = []
 		drawer?.openDrawer()
 		load()
@@ -315,6 +319,7 @@
 						</div>
 						<AclTargetPicker
 							schemas={aclSchemas}
+							schemasLoading={!aclSchemasLoaded}
 							tables={aclTables}
 							bind:schema={
 								() => aclSchema,

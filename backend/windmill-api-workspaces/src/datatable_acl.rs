@@ -192,7 +192,8 @@ pub struct AclChangeRequest {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct AclObject {
     pub name: String,
-    /// `TABLE`, `SEQUENCE`, ... — what the object is, since the keyword differs.
+    /// `TABLE`, `SEQUENCE`, `FUNCTION` or `PROCEDURE`: what the object is. [`object_keyword`]
+    /// turns it into the keyword a revoke takes.
     pub kind: String,
     /// A routine is identified by its argument types, not by its name: two `f` in one schema are
     /// two objects. Absent for everything else.
@@ -336,39 +337,81 @@ pub(crate) struct OwnedObject {
     /// The keyword `ALTER ... OWNER TO` takes for this kind of object.
     pub(crate) keyword: &'static str,
     /// Identity arguments of a routine, which is what tells two of the same name apart. `None`
-    /// for a relation.
+    /// for everything else.
     pub(crate) args: Option<String>,
 }
 
-fn keyword_of_relkind(relkind: i8) -> Option<&'static str> {
-    match relkind as u8 as char {
-        'r' | 'p' => Some("TABLE"),
-        'v' => Some("VIEW"),
-        'm' => Some("MATERIALIZED VIEW"),
-        'S' => Some("SEQUENCE"),
-        'f' => Some("FOREIGN TABLE"),
-        // Indexes and TOAST tables follow their table; composite types are not reachable through
-        // ALTER TABLE ... OWNER TO.
-        _ => None,
-    }
+/// Everything a schema's change of owner takes along, in schema `$1`, as (name, the keyword its
+/// `ALTER ... OWNER TO` takes, routine arguments, owner oid). The plan, the check of what this
+/// connection may move and the check after the move all read this one list, so what is moved and
+/// what is checked cannot differ.
+///
+/// Left out, because they follow another object: indexes, TOAST tables and a table's row type
+/// (their table); array and multirange types (their element or range type); a routine Postgres
+/// made as part of another object, such as a range type's constructors, which belong to the
+/// bootstrap superuser (that object); and a sequence tied to a column — `serial`, identity,
+/// `OWNED BY` — which follows its table and refuses an `ALTER SEQUENCE ... OWNER` of its own.
+/// `ALTER ROUTINE` covers functions, procedures and aggregates alike.
+macro_rules! schema_owned_objects {
+    () => {
+        "SELECT c.relname::text AS name,
+                CASE c.relkind WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW'
+                               WHEN 'S' THEN 'SEQUENCE' WHEN 'f' THEN 'FOREIGN TABLE'
+                               ELSE 'TABLE' END AS keyword,
+                NULL::text AS args, c.relowner AS owner
+         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = $1 AND c.relkind = ANY(ARRAY['r','p','v','m','S','f']::\"char\"[])
+           AND NOT (c.relkind = 'S' AND EXISTS (
+               SELECT 1 FROM pg_depend d
+               WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
+                 AND d.refclassid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')))
+         UNION ALL
+         SELECT t.typname::text, CASE t.typtype WHEN 'd' THEN 'DOMAIN' ELSE 'TYPE' END, NULL::text,
+                t.typowner
+         FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+         WHERE n.nspname = $1 AND t.typcategory <> 'A' AND t.typtype <> 'm'
+           AND (t.typtype <> 'c'
+                OR (SELECT r.relkind FROM pg_class r WHERE r.oid = t.typrelid) = 'c')
+         UNION ALL
+         SELECT p.proname::text, 'ROUTINE', pg_get_function_identity_arguments(p.oid), p.proowner
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = $1
+           AND NOT EXISTS (
+               SELECT 1 FROM pg_depend d
+               WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'i')"
+    };
+}
+
+/// The keyword [`schema_owned_objects`] names an object by, as the `'static` the planner takes.
+fn owned_keyword(keyword: &str) -> Result<&'static str> {
+    Ok(match keyword {
+        "TABLE" => "TABLE",
+        "VIEW" => "VIEW",
+        "MATERIALIZED VIEW" => "MATERIALIZED VIEW",
+        "SEQUENCE" => "SEQUENCE",
+        "FOREIGN TABLE" => "FOREIGN TABLE",
+        "TYPE" => "TYPE",
+        "DOMAIN" => "DOMAIN",
+        "ROUTINE" => "ROUTINE",
+        other => {
+            return Err(Error::internal_err(format!(
+                "Unexpected kind of object '{other}'"
+            )))
+        }
+    })
 }
 
 async fn read_owned_objects(
     client: &tokio_postgres::Client,
     schema: &str,
 ) -> Result<Vec<OwnedObject>> {
-    // A sequence tied to a column — `serial`, identity, `OWNED BY` — follows its table's owner and
-    // refuses an `ALTER SEQUENCE ... OWNER` of its own, so it is left to the table's statement.
     let rows = client
         .query(
-            "SELECT c.relname, c.relkind
-             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-             WHERE n.nspname = $1 AND c.relkind = ANY(ARRAY['r','p','v','m','S','f']::\"char\"[])
-               AND NOT (c.relkind = 'S' AND EXISTS (
-                   SELECT 1 FROM pg_depend d
-                   WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
-                     AND d.refclassid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')))
-             ORDER BY c.relname",
+            concat!(
+                "SELECT name, keyword, args FROM (",
+                schema_owned_objects!(),
+                ") o ORDER BY name, keyword, args"
+            ),
             &[&schema],
         )
         .await
@@ -378,40 +421,15 @@ async fn read_owned_objects(
                 pg_error_message(&e)
             ))
         })?;
-    let mut objects: Vec<OwnedObject> = rows
-        .into_iter()
-        .filter_map(|row| {
-            keyword_of_relkind(row.get::<_, i8>(1)).map(|keyword| OwnedObject {
+    rows.into_iter()
+        .map(|row| {
+            Ok(OwnedObject {
                 name: row.get(0),
-                keyword,
-                args: None,
+                keyword: owned_keyword(row.get::<_, &str>(1))?,
+                args: row.get(2),
             })
         })
-        .collect();
-    // Routines live in `pg_proc`, not `pg_class`, and would keep the previous owner while the
-    // schema they are in changes hands. `ALTER ROUTINE` covers functions, procedures and
-    // aggregates alike.
-    let routines = client
-        .query(
-            "SELECT p.proname, pg_get_function_identity_arguments(p.oid)
-             FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-             WHERE n.nspname = $1
-             ORDER BY p.proname",
-            &[&schema],
-        )
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!(
-                "Failed to list the routines of schema '{schema}': {}",
-                pg_error_message(&e)
-            ))
-        })?;
-    objects.extend(routines.into_iter().map(|row| OwnedObject {
-        name: row.get(0),
-        keyword: "ROUTINE",
-        args: Some(row.get(1)),
-    }));
-    Ok(objects)
+        .collect()
 }
 
 /// The keyword a `REVOKE ... ON` takes for one object, checked rather than interpolated: it lands
@@ -627,14 +645,16 @@ async fn get_datatable_acl(
 async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Result<Vec<AclGrant>> {
     // `aclexplode` turns an acl array into one row per (grantee, privilege); grantee 0 is PUBLIC,
     // which has no name to resolve. A NULL acl is not "no access" but Postgres's built-in default —
-    // the owner holds everything and, on a routine, PUBLIC may EXECUTE — hence `acldefault`.
+    // the owner holds everything and, on a routine, PUBLIC may EXECUTE — hence `acldefault`. The
+    // owner's own entries are left out: what it holds comes with ownership, which the owner shows,
+    // not with a grant a revoke here could take back.
     let mut rows = match target {
         AclTarget::Database => client
             .query(
                 "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
                         a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text
                  FROM pg_database d, aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a
-                 WHERE d.datname = current_database()",
+                 WHERE d.datname = current_database() AND a.grantee <> d.datdba",
                 &[],
             )
             .await
@@ -645,7 +665,7 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
                     "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
                             a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text
                      FROM pg_namespace n, aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a
-                     WHERE n.nspname = $1",
+                     WHERE n.nspname = $1 AND a.grantee <> n.nspowner",
                     &[schema],
                 )
                 .await
@@ -661,7 +681,9 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
                          JOIN pg_namespace n ON n.oid = c.relnamespace,
                               aclexplode(COALESCE(c.relacl, acldefault(
                                   CASE c.relkind WHEN 'S' THEN 's' ELSE 'r' END::\"char\", c.relowner))) a
-                         WHERE n.nspname = $1",
+                         WHERE n.nspname = $1
+                           AND c.relkind = ANY(ARRAY['r','p','v','m','S','f']::\"char\"[])
+                           AND a.grantee <> c.relowner",
                         &[schema],
                     )
                     .await
@@ -679,7 +701,7 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
                          FROM pg_proc p
                          JOIN pg_namespace n ON n.oid = p.pronamespace,
                               aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
-                         WHERE n.nspname = $1",
+                         WHERE n.nspname = $1 AND a.grantee <> p.proowner",
                         &[schema],
                     )
                     .await
@@ -712,7 +734,7 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
                  JOIN pg_namespace n ON n.oid = c.relnamespace,
                       aclexplode(COALESCE(c.relacl, acldefault(
                           CASE c.relkind WHEN 'S' THEN 's' ELSE 'r' END::\"char\", c.relowner))) a
-                 WHERE n.nspname = $1 AND c.relname = $2",
+                 WHERE n.nspname = $1 AND c.relname = $2 AND a.grantee <> c.relowner",
                 &[schema, table],
             )
             .await
@@ -901,47 +923,52 @@ async fn unmanaged_owner(
     client: &tokio_postgres::Client,
     target: &AclTarget,
 ) -> Result<Option<(String, String)>> {
-    let row = match target {
-        AclTarget::Database => return Ok(None),
+    let read_error = |e: tokio_postgres::Error| {
+        Error::internal_err(format!(
+            "Failed to read who owns what the change moves: {}",
+            pg_error_message(&e)
+        ))
+    };
+    match target {
+        AclTarget::Database => Ok(None),
         AclTarget::Table { schema, table } => {
-            client
+            let row = client
                 .query_opt(
-                    "SELECT n.nspname || '.' || c.relname, pg_get_userbyid(c.relowner)
+                    "SELECT pg_get_userbyid(c.relowner)
                      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                      WHERE n.nspname = $1 AND c.relname = $2 AND NOT pg_has_role(c.relowner, 'USAGE')",
                     &[schema, table],
                 )
                 .await
+                .map_err(read_error)?;
+            Ok(row.map(|row| (format!("{schema}.{table}"), row.get(0))))
         }
         AclTarget::Schema { schema } => {
-            client
+            let row = client
                 .query_opt(
-                    "SELECT label, pg_get_userbyid(owner) FROM (
-                         SELECT 0 AS ord, 'schema ' || n.nspname AS label, n.nspowner AS owner
-                         FROM pg_namespace n WHERE n.nspname = $1
-                         UNION ALL
-                         SELECT 1, n.nspname || '.' || c.relname, c.relowner
-                         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-                         WHERE n.nspname = $1
-                           AND c.relkind = ANY(ARRAY['r','p','v','m','S','f']::\"char\"[])
-                         UNION ALL
-                         SELECT 1, n.nspname || '.' || p.proname || '('
-                                   || pg_get_function_identity_arguments(p.oid) || ')', p.proowner
-                         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-                         WHERE n.nspname = $1
-                     ) o WHERE NOT pg_has_role(owner, 'USAGE') ORDER BY ord, label LIMIT 1",
+                    concat!(
+                        "SELECT ord, name, pg_get_userbyid(owner) FROM (
+                             SELECT 0 AS ord, NULL::text AS name, n.nspowner AS owner
+                             FROM pg_namespace n WHERE n.nspname = $1
+                             UNION ALL
+                             SELECT 1, name || COALESCE('(' || args || ')', ''), owner FROM (",
+                        schema_owned_objects!(),
+                        ") m
+                         ) o WHERE NOT pg_has_role(owner, 'USAGE') ORDER BY ord, name LIMIT 1"
+                    ),
                     &[schema],
                 )
                 .await
+                .map_err(read_error)?;
+            Ok(row.map(|row| {
+                let label = match row.get::<_, Option<String>>(1) {
+                    Some(name) => format!("{schema}.{name}"),
+                    None => format!("schema {schema}"),
+                };
+                (label, row.get(2))
+            }))
         }
     }
-    .map_err(|e| {
-        Error::internal_err(format!(
-            "Failed to read who owns what the change moves: {}",
-            pg_error_message(&e)
-        ))
-    })?;
-    Ok(row.map(|row| (row.get(0), row.get(1))))
 }
 
 async fn plan_datatable_acl(
@@ -1042,19 +1069,12 @@ async fn apply_datatable_acl(
         let new_owner = pg_role_of(role, &catalog)?;
         let straggler = pg_tx
             .query_opt(
-                "SELECT name FROM (
-                     SELECT c.relname::text AS name, c.relowner AS owner
-                     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-                     WHERE n.nspname = $1
-                       AND c.relkind = ANY(ARRAY['r','p','v','m','S','f']::\"char\"[])
-                     UNION ALL
-                     SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')',
-                            p.proowner
-                     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-                     WHERE n.nspname = $1
-                 ) o
-                 WHERE owner <> (SELECT oid FROM pg_roles WHERE rolname = $2)
-                 ORDER BY name LIMIT 1",
+                concat!(
+                    "SELECT name || COALESCE('(' || args || ')', '') FROM (",
+                    schema_owned_objects!(),
+                    ") m WHERE owner <> (SELECT oid FROM pg_roles WHERE rolname = $2)
+                     ORDER BY 1 LIMIT 1"
+                ),
                 &[schema, &new_owner],
             )
             .await
