@@ -35,7 +35,8 @@ import {
 	clearMcpToolsCache,
 	createMcpTools,
 	forgetLoadedMcpTools,
-	loadedMcpServerPaths,
+	loadedMcpServers,
+	mcpRegistryGeneration,
 	loadedMcpTools,
 	loadMcpServers,
 	registerMcpTools,
@@ -113,7 +114,7 @@ describe('loaded remote tools', () => {
 	const server = SERVERS[0]
 
 	it('registers a remote tool under its own schema and server-scoped name', () => {
-		const [name] = registerMcpTools(OWNER, server, [TOOLS[0]])
+		const [name] = registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])
 
 		expect(name).toBe('mcp_u_hugo_github_mcp__get_issue')
 		const tool = loadedMcpTools(OWNER).find((t) => t.def.function.name === name)
@@ -123,7 +124,7 @@ describe('loaded remote tools', () => {
 	// The wrappers ask for confirmation by which one the model picked; a registered
 	// tool carries its own hint, so the gate is per tool.
 	it('gates a mutating tool and lets a read-only one through', () => {
-		registerMcpTools(OWNER, server, [TOOLS[0], TOOLS[1], TOOLS[2]])
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0], TOOLS[1], TOOLS[2]])
 		const byName = Object.fromEntries(loadedMcpTools(OWNER).map((t) => [t.def.function.name, t]))
 
 		expect(byName['mcp_u_hugo_github_mcp__get_issue'].requiresConfirmation).toBeUndefined()
@@ -135,7 +136,7 @@ describe('loaded remote tools', () => {
 	// A registered tool freezes a copy of `readOnlyHint`, which is what the listing
 	// TTL exists to bound — so it must not outlive the listing it came from.
 	it('drops loaded tools when the listing cache is cleared', () => {
-		registerMcpTools(OWNER, server, [TOOLS[0]])
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])
 		expect(loadedMcpTools(OWNER)).toHaveLength(1)
 
 		clearMcpToolsCache()
@@ -144,13 +145,17 @@ describe('loaded remote tools', () => {
 	})
 
 	it('drops only the named server when reconciling against the live list', () => {
-		registerMcpTools(OWNER, server, [TOOLS[0]])
-		registerMcpTools(OWNER, { path: 'f/team/linear_mcp' }, [TOOLS[0]])
-		expect(loadedMcpServerPaths(OWNER).sort()).toEqual(['f/team/linear_mcp', 'u/hugo/github_mcp'])
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), { path: 'f/team/linear_mcp' }, [TOOLS[0]])
+		expect(
+			loadedMcpServers(OWNER)
+				.map((s) => s.path)
+				.sort()
+		).toEqual(['f/team/linear_mcp', 'u/hugo/github_mcp'])
 
 		forgetLoadedMcpTools(OWNER, 'f/team/linear_mcp')
 
-		expect(loadedMcpServerPaths(OWNER)).toEqual(['u/hugo/github_mcp'])
+		expect(loadedMcpServers(OWNER).map((s) => s.path)).toEqual(['u/hugo/github_mcp'])
 	})
 
 	// The reported bug: the model saw only parameter names, so it invented values for
@@ -194,8 +199,8 @@ describe('loaded remote tools', () => {
 	// another's request, and let either one's "New chat" drop the other's.
 	it('scopes registered tools to their owner', () => {
 		const other = 'owner-b'
-		registerMcpTools(OWNER, server, [TOOLS[0]])
-		registerMcpTools(other, server, [TOOLS[1]])
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0]])
+		registerMcpTools(other, mcpRegistryGeneration(other), server, [TOOLS[1]])
 
 		expect(loadedMcpTools(OWNER).map((t) => t.def.function.name)).toEqual([
 			'mcp_u_hugo_github_mcp__get_issue'
@@ -214,7 +219,7 @@ describe('loaded remote tools', () => {
 	// whole completion over one bad tool — and the tool stays registered, so every
 	// later send fails too. These are shapes Windmill's own MCP server has emitted.
 	it('makes a request-breaking remote schema safe before registering it', () => {
-		registerMcpTools(OWNER, server, [
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [
 			{
 				name: 'broken',
 				description: 'x',
@@ -249,12 +254,16 @@ describe('loaded remote tools', () => {
 			}
 		} as any
 
-		expect(registerMcpTools(OWNER, server, [huge])).toEqual([undefined])
+		expect(registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [huge])).toEqual([
+			undefined
+		])
 		expect(loadedMcpTools(OWNER)).toEqual([])
 	})
 
 	it('falls back to an empty object schema when the remote sends no usable one', () => {
-		registerMcpTools(OWNER, server, [{ name: 'nada', description: 'x', inputSchema: null } as any])
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [
+			{ name: 'nada', description: 'x', inputSchema: null } as any
+		])
 
 		expect(loadedMcpTools(OWNER)[0].def.function.parameters).toEqual({
 			type: 'object',
@@ -266,7 +275,7 @@ describe('loaded remote tools', () => {
 	// so calling or re-registering a tool must not move it: a reorder re-processes the
 	// whole cached prefix on the next iteration.
 	it('keeps the emitted tool order stable across calls and re-registration', async () => {
-		registerMcpTools(OWNER, server, [TOOLS[0], TOOLS[1]])
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0], TOOLS[1]])
 		const before = loadedMcpTools(OWNER).map((t) => t.def.function.name)
 
 		// Call the first-registered one, then re-register the pair.
@@ -277,20 +286,84 @@ describe('loaded remote tools', () => {
 			toolCallbacks: createToolCallbacks(),
 			toolId: 'tool-1'
 		})
-		registerMcpTools(OWNER, server, [TOOLS[0], TOOLS[1]])
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [TOOLS[0], TOOLS[1]])
 
 		expect(loadedMcpTools(OWNER).map((t) => t.def.function.name)).toEqual(before)
 	})
 
 	it('bounds the loaded set, evicting the least recently registered', () => {
 		for (let i = 0; i < 30; i++) {
-			registerMcpTools(OWNER, server, [{ ...TOOLS[0], name: `tool_${i}` }])
+			registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [
+				{ ...TOOLS[0], name: `tool_${i}` }
+			])
 		}
 		const names = loadedMcpTools(OWNER).map((t) => t.def.function.name)
 
 		expect(names).toHaveLength(25)
 		expect(names).not.toContain('mcp_u_hugo_github_mcp__tool_0')
 		expect(names).toContain('mcp_u_hugo_github_mcp__tool_29')
+	})
+
+	// Registering has to count as a use. Ranking a fresh registration below every
+	// already-called tool evicted it the moment it arrived, while the search that
+	// asked for it had already advertised its name — unrecoverable by searching again.
+	it('keeps a newly searched tool when every registered tool has been called', async () => {
+		for (let i = 0; i < 25; i++) {
+			registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [
+				{ ...TOOLS[0], name: `tool_${i}` }
+			])
+		}
+		for (const tool of loadedMcpTools(OWNER)) {
+			await tool.fn({
+				args: {},
+				workspace: 'test-ws',
+				helpers: {},
+				toolCallbacks: createToolCallbacks(),
+				toolId: 'tool-1'
+			})
+		}
+
+		const [name] = registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), server, [
+			{ ...TOOLS[0], name: 'fresh' }
+		])
+
+		expect(name).toBe('mcp_u_hugo_github_mcp__fresh')
+		expect(loadedMcpTools(OWNER).map((t) => t.def.function.name)).toContain(name)
+	})
+
+	// Sanitizing maps both `/` and `_` to `_`, so two distinct servers can produce one
+	// name — and the chat dispatches by name, taking the first match, which would run a
+	// call against the wrong server.
+	it('gives colliding server paths distinct callable names', () => {
+		const [first] = registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), { path: 'f/team_a/b' }, [
+			TOOLS[0]
+		])
+		const [second] = registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), { path: 'f/team/a_b' }, [
+			TOOLS[0]
+		])
+
+		expect(first).not.toBe(second)
+		expect(new Set(loadedMcpTools(OWNER).map((t) => t.def.function.name)).size).toBe(2)
+	})
+
+	// A search awaits its listing; the conversation can rotate in the meantime. Results
+	// registered afterwards would land in the conversation that replaced it.
+	it('drops results of a search that finished after the registry was cleared', () => {
+		const generation = mcpRegistryGeneration(OWNER)
+		forgetLoadedMcpTools(OWNER)
+
+		expect(registerMcpTools(OWNER, generation, server, [TOOLS[0]])).toEqual([undefined])
+		expect(loadedMcpTools(OWNER)).toEqual([])
+	})
+
+	// A registered call bypasses the listing cache, so an edit made elsewhere has to
+	// invalidate the frozen schema — the path alone cannot tell the two apart.
+	it('reports the revision each server was registered at', () => {
+		registerMcpTools(OWNER, mcpRegistryGeneration(OWNER), { path: server.path, editedAt: 'v1' }, [
+			TOOLS[0]
+		])
+
+		expect(loadedMcpServers(OWNER)).toEqual([{ path: 'u/hugo/github_mcp', editedAt: 'v1' }])
 	})
 })
 

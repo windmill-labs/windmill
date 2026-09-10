@@ -138,7 +138,7 @@ import { randomUUID } from '$lib/utils/uuid'
 import {
 	createMcpTools,
 	forgetLoadedMcpTools,
-	loadedMcpServerPaths,
+	loadedMcpServers,
 	loadedMcpTools,
 	loadMcpServers,
 	type McpServer
@@ -2251,10 +2251,14 @@ export class AIChatManager {
 		this.mcpServers = workspace === (this.operatingWorkspace ?? '') ? servers : []
 		// A tool registered from a server that has since been turned off, deleted, or
 		// left behind by a workspace switch would still be callable, and would run
-		// against whichever workspace the chat is on now.
-		const live = new Set(this.mcpServers.map((s) => s.path))
-		for (const path of loadedMcpServerPaths(this.mcpOwnerId)) {
-			if (!live.has(path)) forgetLoadedMcpTools(this.mcpOwnerId, path)
+		// against whichever workspace the chat is on now. The revision is checked too:
+		// a registered call bypasses the listing cache, so a connection edited elsewhere
+		// would otherwise keep running against the schema it was frozen with.
+		const live = new Map(this.mcpServers.map((s) => [s.path, s.editedAt]))
+		for (const { path, editedAt } of loadedMcpServers(this.mcpOwnerId)) {
+			if (!live.has(path) || live.get(path) !== editedAt) {
+				forgetLoadedMcpTools(this.mcpOwnerId, path)
+			}
 		}
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
