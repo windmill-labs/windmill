@@ -3,7 +3,7 @@ mod tests {
     use serde_json::json;
     use windmill_parser::{Arg, MainArgSignature, ObjectProperty, ObjectType, Typ};
     use windmill_parser_ts::{
-        parse_deno_signature, parse_expr_for_imports, parse_relative_imports,
+        parse_deno_signature, parse_expr_for_imports, parse_relative_imports, remove_pinned_imports,
     };
 
     #[test]
@@ -30,6 +30,37 @@ mod tests {
         assert_eq!(
             imports,
             ["bar", "bar11", "bar13", "bar14", "bar3", "bar5", "bar6", "bar7", "bar8", "bar9"]
+        );
+    }
+
+    #[test]
+    fn test_remove_pinned_imports_rewrites_only_specifiers() {
+        let code = r#"// héllo
+import a from "pkg@1.2.3";
+import b from "@scope/pkg@^2/sub";
+export * from "other@3";
+import rel from "./helper";
+const c = await import("dyn@4");
+const d = require("req@5");
+// pkg@1.2.3
+export const label = "pkg@1.2.3";
+"#;
+        assert_eq!(
+            remove_pinned_imports(code).unwrap(),
+            r#"// héllo
+import a from "pkg";
+import b from "@scope/pkg/sub";
+export * from "other";
+import rel from "./helper";
+const c = await import("dyn");
+const d = require("req");
+// pkg@1.2.3
+export const label = "pkg@1.2.3";
+"#
+        );
+        assert_eq!(
+            remove_pinned_imports("\u{feff}import a from 'pkg@1';").unwrap(),
+            "\u{feff}import a from 'pkg';"
         );
     }
 

@@ -133,6 +133,17 @@ pub fn parse_expr_for_imports(code: &str, skip_type_only: bool) -> anyhow::Resul
         FileName::Custom("main.d.ts".into()).into(),
         code.to_string(),
     );
+    let expr = parse_module_source(&fm)?;
+
+    let mut visitor = ImportsFinder { imports: HashSet::new(), skip_type_only };
+    visitor.visit_module(&expr);
+
+    let mut imports: Vec<_> = visitor.imports.into_iter().collect();
+    imports.sort();
+    Ok(imports)
+}
+
+fn parse_module_source(fm: &swc_common::SourceFile) -> anyhow::Result<swc_ecma_ast::Module> {
     let mut tss = TsSyntax::default();
     tss.disallow_ambiguous_jsx_like;
     tss.tsx = true;
@@ -141,7 +152,7 @@ pub fn parse_expr_for_imports(code: &str, skip_type_only: bool) -> anyhow::Resul
         Syntax::Typescript(tss),
         // EsVersion defaults to es5
         Default::default(),
-        StringInput::from(&*fm),
+        StringInput::from(fm),
         None,
     );
 
@@ -152,16 +163,9 @@ pub fn parse_expr_for_imports(code: &str, skip_type_only: bool) -> anyhow::Resul
         err_s += &e.into_kind().msg().to_string();
     }
 
-    let expr = parser.parse_module().map_err(|e| {
+    parser.parse_module().map_err(|e| {
         anyhow::anyhow!("Error while parsing code, it is invalid TypeScript: {err_s}, {e:?}")
-    })?;
-
-    let mut visitor = ImportsFinder { imports: HashSet::new(), skip_type_only };
-    visitor.visit_module(&expr);
-
-    let mut imports: Vec<_> = visitor.imports.into_iter().collect();
-    imports.sort();
-    Ok(imports)
+    })
 }
 
 /// Parse TypeScript/JavaScript code and extract relative imports resolved to absolute Windmill paths.
@@ -673,24 +677,92 @@ lazy_static::lazy_static! {
 
 }
 
-pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
-    let mut imports = parse_expr_for_imports(code, false)?;
-    imports.sort_by_key(|f| 0 - (f.len() as i32));
-    let mut content = code.to_string();
-    for import in imports {
-        let to_c = IMPORTS_VERSION.captures(&import);
-        if let Some(to) = to_c.and_then(|x| {
-            x.get(1).map(|y| {
-                format!(
-                    "{}{}",
-                    y.as_str(),
-                    x.get(2).map(|z| z.as_str()).unwrap_or("")
-                )
-            })
-        }) {
-            content = content.replace(&import, &to);
+/// Spans of the string literals naming a loaded module: `import`/`export … from` sources and the
+/// first argument of `import()`, `require()` and bun's bundled `__require()`, the specifiers the
+/// bun lock builder reads versions from.
+struct ImportSpecifierSpans(Vec<Span>);
+
+impl Visit for ImportSpecifierSpans {
+    noop_visit_type!();
+
+    fn visit_import_decl(&mut self, n: &swc_ecma_ast::ImportDecl) {
+        self.0.push(n.src.span);
+    }
+
+    fn visit_export_all(&mut self, n: &swc_ecma_ast::ExportAll) {
+        self.0.push(n.src.span);
+    }
+
+    fn visit_named_export(&mut self, n: &swc_ecma_ast::NamedExport) {
+        if let Some(src) = &n.src {
+            self.0.push(src.span);
         }
     }
+
+    fn visit_call_expr(&mut self, n: &swc_ecma_ast::CallExpr) {
+        let loads_module = match &n.callee {
+            swc_ecma_ast::Callee::Import(_) => true,
+            swc_ecma_ast::Callee::Expr(callee) => matches!(
+                &**callee,
+                Expr::Ident(id) if matches!(id.sym.as_ref(), "require" | "__require")
+            ),
+            swc_ecma_ast::Callee::Super(_) => false,
+        };
+        if let (true, Some(arg)) = (loads_module, n.args.first()) {
+            if let (None, Expr::Lit(Lit::Str(s))) = (arg.spread, &*arg.expr) {
+                self.0.push(s.span);
+            }
+        }
+        n.visit_children_with(self);
+    }
+}
+
+/// Drops the `@version` from every pinned module specifier (`pkg@1.2.3/sub` -> `pkg/sub`),
+/// rewriting only the specifier literals themselves: the same text elsewhere, such as a string
+/// the script returns, is data and stays as written.
+pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
+    let cm: Lrc<SourceMap> = Default::default();
+    let fm = cm.new_source_file(
+        FileName::Custom("main.d.ts".into()).into(),
+        code.to_string(),
+    );
+    let module = parse_module_source(&fm)?;
+    let mut specifiers = ImportSpecifierSpans(vec![]);
+    specifiers.visit_module(&module);
+    specifiers.0.sort_by_key(|s| s.lo);
+
+    // Spans index the parsed source, which the source map stripped of any UTF-8 BOM.
+    let bom = code.len() - fm.src.len();
+    let mut content = String::with_capacity(code.len());
+    let mut copied = 0;
+    for span in specifiers.0 {
+        // The literal's span includes its quotes.
+        let (Some(lo), Some(hi)) = (
+            span.lo
+                .0
+                .checked_sub(fm.start_pos.0)
+                .map(|o| bom + o as usize + 1),
+            span.hi
+                .0
+                .checked_sub(fm.start_pos.0 + 1)
+                .map(|o| bom + o as usize),
+        ) else {
+            continue;
+        };
+        let Some(specifier) = code.get(lo..hi).filter(|_| lo >= copied) else {
+            continue;
+        };
+        let unpinned = IMPORTS_VERSION.captures(specifier).and_then(|x| {
+            x.get(1)
+                .map(|y| format!("{}{}", y.as_str(), x.get(2).map_or("", |z| z.as_str())))
+        });
+        if let Some(unpinned) = unpinned.filter(|u| u != specifier) {
+            content.push_str(&code[copied..lo]);
+            content.push_str(&unpinned);
+            copied = hi;
+        }
+    }
+    content.push_str(&code[copied..]);
     Ok(content)
 }
 
