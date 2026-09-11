@@ -216,6 +216,21 @@ pub struct AclGrant {
     /// objects that do not exist yet.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub future: Option<String>,
+    /// Where the grant comes from, each role once: who granted it, or for a default privilege the
+    /// role whose future objects it covers. A revoke takes it back from every one of them.
+    pub sources: Vec<AclSource>,
+}
+
+/// One role a grant comes from.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct AclSource {
+    /// Under the same names as [`AclGrant::grantee`].
+    pub role: String,
+    /// Whether this data table's connection can take back what `role` gave: on an object only the
+    /// owner's grants when it acts for the owner, or else its own (`grant_source!`); for a default
+    /// privilege, a creating role it acts for. A grant with any source out of reach is not
+    /// revocable from here.
+    pub reachable: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -502,6 +517,226 @@ async fn read_former_owner_defaults(
     }))
 }
 
+/// What the catalog holds that a plan depends on, read before planning so the planner stays pure.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct CatalogFacts {
+    /// Every role that may create objects here, but the one the change is about.
+    pub(crate) other_pg_roles: Vec<String>,
+    /// For a schema's change of owner: what moves along with it.
+    pub(crate) existing_objects: Vec<OwnedObject>,
+    /// For a schema's change of owner: the defaults it takes back from the owner it replaces.
+    pub(crate) former_owner: Option<FormerOwnerDefaults>,
+    /// For a revoke: each grant it takes back.
+    pub(crate) revoked_grants: Vec<RevokedGrant>,
+}
+
+/// A grant a revoke takes back, as the catalog records it: what `source` gave on `object` (the
+/// target itself when `None`), or for a default privilege on what `source` creates later.
+#[derive(Debug, PartialEq)]
+pub(crate) struct RevokedGrant {
+    pub(crate) object: Option<AclObject>,
+    /// The role that made the grant: its grantor, or the creating role of a default privilege.
+    pub(crate) source: String,
+    pub(crate) privileges: Vec<String>,
+}
+
+/// An `aclexplode` row's source and whether this connection can take back what it gave, on an
+/// object owned by `$owner`. A REVOKE speaks for the grantor Postgres picks itself — the owner,
+/// when the connection acts for the owner, and otherwise the connection — and `GRANTED BY` names
+/// nobody else, so a grant any other role made stays whatever the connection runs.
+macro_rules! grant_source {
+    ($owner:literal) => {
+        concat!(
+            "pg_get_userbyid(a.grantor), a.grantor = CASE WHEN pg_has_role(",
+            $owner,
+            ", 'USAGE') THEN ",
+            $owner,
+            " ELSE (SELECT oid FROM pg_roles WHERE rolname = current_user) END"
+        )
+    };
+}
+
+/// What relation `$2` of schema `$1` grants role `$3`, as (source, whether this connection can
+/// take it back, privilege).
+const RELATION_GRANTS: &str = concat!(
+    "SELECT ",
+    grant_source!("c.relowner"),
+    ", a.privilege_type
+     FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace,
+          aclexplode(COALESCE(c.relacl, acldefault(
+              CASE c.relkind WHEN 'S' THEN 's' ELSE 'r' END::\"char\", c.relowner))) a
+     WHERE n.nspname = $1 AND c.relname = $2
+       AND c.relkind = ANY(ARRAY['r','p','v','m','S','f']::\"char\"[])
+       AND a.grantee = (SELECT oid FROM pg_roles WHERE rolname = $3)"
+);
+
+/// The grants a revoke takes back, read from the catalog rather than from the request: one per
+/// object and source that gave `pg_role` any of `privileges`. Refused when a source's grant is out
+/// of this connection's reach (`grant_source!`, or for a default privilege a creating role it does
+/// not act for): the revoke would leave that grant in place.
+async fn read_revoked_grants(
+    client: &tokio_postgres::Client,
+    dbname: &str,
+    target: &AclTarget,
+    scope: GrantScope,
+    objects: &[AclObject],
+    privileges: &[String],
+    pg_role: &str,
+) -> Result<Vec<RevokedGrant>> {
+    let read_error = |e: tokio_postgres::Error| {
+        Error::internal_err(format!(
+            "Failed to read what the revoke takes back: {}",
+            pg_error_message(&e)
+        ))
+    };
+    // (object, how it reads in a refusal, one row per source and privilege)
+    let mut read = Vec::new();
+    match (scope, target) {
+        (scope, AclTarget::Schema { schema }) if scope.is_future() => {
+            let (objtype, plural) = match scope {
+                GrantScope::FutureTables => ("r", "tables"),
+                GrantScope::FutureSequences => ("S", "sequences"),
+                _ => ("f", "functions"),
+            };
+            let rows = client
+                .query(
+                    "SELECT pg_get_userbyid(d.defaclrole), pg_has_role(d.defaclrole, 'USAGE'),
+                            a.privilege_type
+                     FROM pg_default_acl d
+                     JOIN pg_namespace n ON n.oid = d.defaclnamespace,
+                          aclexplode(d.defaclacl) a
+                     WHERE n.nspname = $1 AND d.defaclobjtype::text = $2
+                       AND a.grantee = (SELECT oid FROM pg_roles WHERE rolname = $3)",
+                    &[schema, &objtype, &pg_role],
+                )
+                .await
+                .map_err(read_error)?;
+            read.push((
+                None,
+                format!("{plural} created later in schema {schema}"),
+                rows,
+            ));
+        }
+        (GrantScope::Target, _) if objects.is_empty() => {
+            let rows = match target {
+                AclTarget::Database => {
+                    client
+                        .query(
+                            concat!(
+                                "SELECT ",
+                                grant_source!("d.datdba"),
+                                ", a.privilege_type
+                                 FROM pg_database d,
+                                      aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a
+                                 WHERE d.datname = current_database()
+                                   AND a.grantee = (SELECT oid FROM pg_roles WHERE rolname = $1)"
+                            ),
+                            &[&pg_role],
+                        )
+                        .await
+                }
+                AclTarget::Schema { schema } => {
+                    client
+                        .query(
+                            concat!(
+                                "SELECT ",
+                                grant_source!("n.nspowner"),
+                                ", a.privilege_type
+                                 FROM pg_namespace n,
+                                      aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a
+                                 WHERE n.nspname = $1
+                                   AND a.grantee = (SELECT oid FROM pg_roles WHERE rolname = $2)"
+                            ),
+                            &[schema, &pg_role],
+                        )
+                        .await
+                }
+                AclTarget::Table { schema, table } => {
+                    client
+                        .query(RELATION_GRANTS, &[schema, table, &pg_role])
+                        .await
+                }
+            }
+            .map_err(read_error)?;
+            read.push((None, target.label(dbname), rows));
+        }
+        (GrantScope::Target, AclTarget::Schema { schema }) => {
+            for object in objects {
+                let rows = match object_keyword(&object.kind)? {
+                    "ROUTINE" => {
+                        client
+                            .query(
+                                concat!(
+                                    "SELECT ",
+                                    grant_source!("p.proowner"),
+                                    ", a.privilege_type
+                                 FROM pg_proc p
+                                 JOIN pg_namespace n ON n.oid = p.pronamespace,
+                                      aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
+                                 WHERE n.nspname = $1 AND p.proname = $2
+                                   AND pg_get_function_identity_arguments(p.oid) = $3
+                                   AND a.grantee = (SELECT oid FROM pg_roles WHERE rolname = $4)"
+                                ),
+                                &[
+                                    schema,
+                                    &object.name,
+                                    &object.args.as_deref().unwrap_or(""),
+                                    &pg_role,
+                                ],
+                            )
+                            .await
+                    }
+                    _ => {
+                        client
+                            .query(RELATION_GRANTS, &[schema, &object.name, &pg_role])
+                            .await
+                    }
+                }
+                .map_err(read_error)?;
+                read.push((
+                    Some(object.clone()),
+                    format!("{} {schema}.{}", object.kind.to_lowercase(), object.name),
+                    rows,
+                ));
+            }
+        }
+        // Every other scope and target is the planner's to refuse.
+        _ => {}
+    }
+
+    let wanted: Vec<String> = privileges.iter().map(|p| p.to_uppercase()).collect();
+    let mut revoked = Vec::new();
+    for (object, label, rows) in read {
+        let mut by_source: BTreeMap<String, (bool, Vec<String>)> = BTreeMap::new();
+        for row in rows {
+            let privilege: String = row.get(2);
+            if wanted.contains(&privilege) {
+                by_source
+                    .entry(row.get(0))
+                    .or_insert_with(|| (row.get(1), vec![]))
+                    .1
+                    .push(privilege);
+            }
+        }
+        for (source, (reachable, mut privileges)) in by_source {
+            if !reachable {
+                return Err(Error::BadRequest(format!(
+                    "{} on {label} was granted to {} by {source}, and Postgres takes a grant \
+                     back only through the role that made it, which this data table's \
+                     connection cannot speak for here. Revoke it as {source}.",
+                    privileges.join(", "),
+                    role_name_of(pg_role),
+                )));
+            }
+            privileges.sort();
+            privileges.dedup();
+            revoked.push(RevokedGrant { object: object.clone(), source, privileges });
+        }
+    }
+    Ok(revoked)
+}
+
 /// The keyword a `REVOKE ... ON` takes for one object, checked rather than interpolated: it lands
 /// in SQL unquoted.
 pub(crate) fn object_keyword(kind: &str) -> Result<&'static str> {
@@ -717,14 +952,19 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
     // which has no name to resolve. A NULL acl is not "no access" but Postgres's built-in default —
     // the owner holds everything and, on a routine, PUBLIC may EXECUTE — hence `acldefault`. The
     // owner's own entries are left out: what it holds comes with ownership, which the owner shows,
-    // not with a grant a revoke here could take back.
+    // not with a grant a revoke here could take back. Each row ends with its source — the grantor,
+    // or a default privilege's creating role — and whether this connection can take back what it
+    // gave.
     let mut rows = match target {
         AclTarget::Database => client
             .query(
-                "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
-                        a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text
-                 FROM pg_database d, aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a
-                 WHERE d.datname = current_database() AND a.grantee <> d.datdba",
+                concat!(
+                    "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                            a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text, ",
+                    grant_source!("d.datdba"),
+                    " FROM pg_database d, aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a
+                     WHERE d.datname = current_database() AND a.grantee <> d.datdba"
+                ),
                 &[],
             )
             .await
@@ -732,10 +972,13 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
         AclTarget::Schema { schema } => {
             let mut out = client
                 .query(
-                    "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
-                            a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text
-                     FROM pg_namespace n, aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a
-                     WHERE n.nspname = $1 AND a.grantee <> n.nspowner",
+                    concat!(
+                        "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                                a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text, ",
+                        grant_source!("n.nspowner"),
+                        " FROM pg_namespace n, aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a
+                         WHERE n.nspname = $1 AND a.grantee <> n.nspowner"
+                    ),
                     &[schema],
                 )
                 .await
@@ -743,17 +986,20 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
             out.extend(
                 client
                     .query(
-                        "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
-                                a.privilege_type, c.relname, NULL::text,
-                                CASE c.relkind WHEN 'S' THEN 'SEQUENCE' ELSE 'TABLE' END,
-                                NULL::text
-                         FROM pg_class c
-                         JOIN pg_namespace n ON n.oid = c.relnamespace,
-                              aclexplode(COALESCE(c.relacl, acldefault(
-                                  CASE c.relkind WHEN 'S' THEN 's' ELSE 'r' END::\"char\", c.relowner))) a
-                         WHERE n.nspname = $1
-                           AND c.relkind = ANY(ARRAY['r','p','v','m','S','f']::\"char\"[])
-                           AND a.grantee <> c.relowner",
+                        concat!(
+                            "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                                    a.privilege_type, c.relname, NULL::text,
+                                    CASE c.relkind WHEN 'S' THEN 'SEQUENCE' ELSE 'TABLE' END,
+                                    NULL::text, ",
+                            grant_source!("c.relowner"),
+                            " FROM pg_class c
+                             JOIN pg_namespace n ON n.oid = c.relnamespace,
+                                  aclexplode(COALESCE(c.relacl, acldefault(
+                                      CASE c.relkind WHEN 'S' THEN 's' ELSE 'r' END::\"char\", c.relowner))) a
+                             WHERE n.nspname = $1
+                               AND c.relkind = ANY(ARRAY['r','p','v','m','S','f']::\"char\"[])
+                               AND a.grantee <> c.relowner"
+                        ),
                         &[schema],
                     )
                     .await
@@ -764,14 +1010,17 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
                     .query(
                         // Routines carry their own acl in `pg_proc`; without this a grant made here
                         // would vanish on the next read and could never be revoked back.
-                        "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
-                                a.privilege_type, p.proname, NULL::text,
-                                CASE p.prokind WHEN 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END,
-                                pg_get_function_identity_arguments(p.oid)
-                         FROM pg_proc p
-                         JOIN pg_namespace n ON n.oid = p.pronamespace,
-                              aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
-                         WHERE n.nspname = $1 AND a.grantee <> p.proowner",
+                        concat!(
+                            "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                                    a.privilege_type, p.proname, NULL::text,
+                                    CASE p.prokind WHEN 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END,
+                                    pg_get_function_identity_arguments(p.oid), ",
+                            grant_source!("p.proowner"),
+                            " FROM pg_proc p
+                             JOIN pg_namespace n ON n.oid = p.pronamespace,
+                                  aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
+                             WHERE n.nspname = $1 AND a.grantee <> p.proowner"
+                        ),
                         &[schema],
                     )
                     .await
@@ -783,9 +1032,11 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
                         // `USAGE` on a type is what lets a role use it in a column. Only a type the
                         // schema holds in its own right has an acl: an array, a row type and a
                         // multirange answer to their element, table or range.
-                        "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
-                                a.privilege_type, t.typname, NULL::text, 'TYPE', NULL::text
-                         FROM pg_type t
+                        concat!(
+                            "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                                    a.privilege_type, t.typname, NULL::text, 'TYPE', NULL::text, ",
+                            grant_source!("t.typowner"),
+                            " FROM pg_type t
                          JOIN pg_depend d ON d.classid = 'pg_type'::regclass AND d.objid = t.oid
                           AND d.refclassid = 'pg_namespace'::regclass AND d.deptype = 'n',
                               aclexplode(COALESCE(t.typacl, acldefault('T', t.typowner))) a
@@ -794,7 +1045,8 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
                            AND NOT EXISTS (
                                SELECT 1 FROM pg_depend x
                                WHERE x.classid = 'pg_type'::regclass AND x.objid = t.oid
-                                 AND x.objsubid = 0 AND x.deptype = 'i')",
+                                 AND x.objsubid = 0 AND x.deptype = 'i')"
+                        ),
                         &[schema],
                     )
                     .await
@@ -803,11 +1055,14 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
             out.extend(
                 client
                     .query(
+                        // What a creating role set is taken back `FOR ROLE` that role, which only
+                        // a role acting for it may do.
                         "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
                                 a.privilege_type, NULL::text,
                                 CASE d.defaclobjtype
                                     WHEN 'r' THEN 'TABLES' WHEN 'S' THEN 'SEQUENCES'
-                                    WHEN 'f' THEN 'FUNCTIONS' ELSE 'TYPES' END, NULL::text, NULL::text
+                                    WHEN 'f' THEN 'FUNCTIONS' ELSE 'TYPES' END, NULL::text, NULL::text,
+                                pg_get_userbyid(d.defaclrole), pg_has_role(d.defaclrole, 'USAGE')
                          FROM pg_default_acl d
                          JOIN pg_namespace n ON n.oid = d.defaclnamespace,
                               aclexplode(d.defaclacl) a
@@ -821,28 +1076,32 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
         }
         AclTarget::Table { schema, table } => client
             .query(
-                "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
-                        a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text
-                 FROM pg_class c
-                 JOIN pg_namespace n ON n.oid = c.relnamespace,
-                      aclexplode(COALESCE(c.relacl, acldefault(
-                          CASE c.relkind WHEN 'S' THEN 's' ELSE 'r' END::\"char\", c.relowner))) a
-                 WHERE n.nspname = $1 AND c.relname = $2 AND a.grantee <> c.relowner",
+                concat!(
+                    "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                            a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text, ",
+                    grant_source!("c.relowner"),
+                    " FROM pg_class c
+                     JOIN pg_namespace n ON n.oid = c.relnamespace,
+                          aclexplode(COALESCE(c.relacl, acldefault(
+                              CASE c.relkind WHEN 'S' THEN 's' ELSE 'r' END::\"char\", c.relowner))) a
+                     WHERE n.nspname = $1 AND c.relname = $2 AND a.grantee <> c.relowner"
+                ),
                 &[schema, table],
             )
             .await
             .map_err(grant_read_error)?,
     };
 
-    // One row per privilege — and, for default privileges, one per creating role. Fold them back
-    // into one entry per grantee and object.
+    // One row per privilege and source — and, for default privileges, per creating role. Fold them
+    // back into one entry per grantee and object that keeps every source: a revoke takes the grant
+    // back from each of them.
     let mut folded: BTreeMap<
         (
             String,
             Option<(String, String, Option<String>)>,
             Option<String>,
         ),
-        Vec<String>,
+        (Vec<String>, BTreeMap<String, bool>),
     > = BTreeMap::new();
     for row in rows.drain(..) {
         let grantee: String = row.get(0);
@@ -851,7 +1110,9 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
         let future: Option<String> = row.get(3);
         let object_kind: Option<String> = row.get(4);
         let object_args: Option<String> = row.get(5);
-        folded
+        let source: String = row.get(6);
+        let reachable: bool = row.get(7);
+        let (privileges, sources) = folded
             .entry((
                 role_name_of(&grantee),
                 object.map(|name| {
@@ -863,12 +1124,13 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
                 }),
                 future,
             ))
-            .or_default()
-            .push(privilege);
+            .or_default();
+        privileges.push(privilege);
+        sources.insert(role_name_of(&source), reachable);
     }
     Ok(folded
         .into_iter()
-        .map(|((grantee, object, future), mut privileges)| {
+        .map(|((grantee, object, future), (mut privileges, sources))| {
             privileges.sort();
             privileges.dedup();
             AclGrant {
@@ -876,6 +1138,10 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
                 privileges,
                 object: object.map(|(name, kind, args)| AclObject { name, kind, args }),
                 future,
+                sources: sources
+                    .into_iter()
+                    .map(|(role, reachable)| AclSource { role, reachable })
+                    .collect(),
             }
         })
         .collect())
@@ -942,6 +1208,15 @@ async fn build_plan(
         ),
         _ => (vec![], None),
     };
+    let revoked_grants = match &change {
+        AclChange::Revoke { privileges, scope, objects, .. } => {
+            read_revoked_grants(
+                client, dbname, target, *scope, objects, privileges, &pg_role,
+            )
+            .await?
+        }
+        _ => vec![],
+    };
     if matches!(change, AclChange::SetOwner { .. }) {
         if let Some((object, owner)) = unmanaged_owner(client, target).await? {
             return Err(Error::BadRequest(format!(
@@ -950,15 +1225,9 @@ async fn build_plan(
             )));
         }
     }
-    let mut plan = crate::datatable_acl_oss::plan_statements(
-        target,
-        &change,
-        dbname,
-        &pg_role,
-        &other_pg_roles,
-        &existing_objects,
-        former_owner.as_ref(),
-    )?;
+    let facts = CatalogFacts { other_pg_roles, existing_objects, former_owner, revoked_grants };
+    let mut plan =
+        crate::datatable_acl_oss::plan_statements(target, &change, dbname, &pg_role, &facts)?;
     if matches!(change, AclChange::SetOwner { .. }) {
         if let Some(missing) = missing_owner_privilege(client, target, &pg_role).await? {
             plan.warnings.push(format!(

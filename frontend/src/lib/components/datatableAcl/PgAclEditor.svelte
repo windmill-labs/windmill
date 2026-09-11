@@ -17,7 +17,8 @@
 		grantScopeLabel,
 		groupGrants,
 		revocablePrivileges,
-		revokeScopeOf
+		revokeScopeOf,
+		unreachableSources
 	} from './aclScopes'
 
 	let {
@@ -197,12 +198,23 @@
 						{#each grantRows as grant (grantKey(grant))}
 							{@const revokeScope = revokeScopeOf(grant)}
 							{@const revocable = revocablePrivileges(grant, target)}
+							{@const unreachable = unreachableSources(grant)}
 							<Row>
 								<Cell first>{grant.grantee}</Cell>
 								<Cell wrap
 									><span class="font-mono text-2xs">{grant.privileges.join(', ')}</span></Cell
 								>
-								<Cell>{grantScopeLabel(grant)}</Cell>
+								<Cell>
+									{grantScopeLabel(grant)}
+									{#if unreachable.length > 0}
+										<span
+											class="text-2xs text-secondary"
+											title="Only this role can take the grant back: Postgres revokes a grant through the role that made it"
+										>
+											from {unreachable.join(', ')}
+										</span>
+									{/if}
+								</Cell>
 								<Cell last>
 									<!-- What `admin` holds is what every role here connects through, so it is not
 									this editor's to take away. -->

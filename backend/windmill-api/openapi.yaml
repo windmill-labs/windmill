@@ -32742,7 +32742,7 @@ components:
 
     AclGrant:
       type: object
-      required: [grantee, privileges]
+      required: [grantee, privileges, sources]
       properties:
         grantee:
           type: string
@@ -32755,6 +32755,27 @@ components:
         future:
           type: string
           description: set for a default privilege, naming the kind of object it covers
+        sources:
+          type: array
+          description: >-
+            the roles the grant comes from, each once — who granted it, or for a default privilege
+            the role whose future objects it covers. A revoke takes it back from every one of them.
+          items:
+            $ref: "#/components/schemas/AclSource"
+
+    AclSource:
+      type: object
+      required: [role, reachable]
+      properties:
+        role:
+          type: string
+        reachable:
+          type: boolean
+          description: >-
+            whether the data table's connection can take back what role gave. On an object that is
+            the owner, when the connection acts for the owner, and otherwise the connection itself;
+            for a default privilege, a creating role the connection acts for. A grant with a source
+            out of reach is not revocable from here.
 
     DatatableAclInfo:
       type: object

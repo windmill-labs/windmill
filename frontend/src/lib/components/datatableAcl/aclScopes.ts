@@ -1,4 +1,4 @@
-import type { AclGrant, AclTarget } from '$lib/gen'
+import type { AclGrant, AclSource, AclTarget } from '$lib/gen'
 
 /** The role a data table connects as without roles — `custom_instance_user` in Postgres. */
 export const ADMIN_ROLE = 'admin'
@@ -102,6 +102,8 @@ export type GroupedGrant = {
 	privileges: string[]
 	objects: NonNullable<AclGrant['object']>[]
 	future?: string
+	/** Every role the row's grants come from, each once. */
+	sources: AclSource[]
 }
 
 export function groupGrants(grants: AclGrant[]): GroupedGrant[] {
@@ -118,16 +120,28 @@ export function groupGrants(grants: AclGrant[]): GroupedGrant[] {
 			: undefined
 		if (existing) {
 			existing.objects.push(grant.object!)
+			for (const source of grant.sources) {
+				if (!existing.sources.some((s) => s.role === source.role)) {
+					existing.sources.push(source)
+				}
+			}
 		} else {
 			rows.push({
 				grantee: grant.grantee,
 				privileges: grant.privileges,
 				objects: grant.object ? [grant.object] : [],
-				future: grant.future
+				future: grant.future,
+				sources: [...grant.sources]
 			})
 		}
 	}
 	return rows
+}
+
+/** The roles a row comes from that this data table's connection cannot act for. Only they can take
+ * those grants back, so the editor offers no revoke for the row. */
+export function unreachableSources(grant: GroupedGrant): string[] {
+	return grant.sources.filter((s) => !s.reachable).map((s) => s.role)
 }
 
 /** A row's identity. Two rows may share a grantee and an object name — a table `orders` and a
@@ -141,10 +155,11 @@ export function grantKey(grant: GroupedGrant): string {
 	].join('|')
 }
 
-/** The scope a revoke of this row takes, or `undefined` when the builder cannot express it —
- * Postgres also records privileges on types, present and default, which nothing here grants and
- * the API has no scope for. */
+/** The scope a revoke of this row takes, or `undefined` when there is none here: a source out of
+ * reach, or privileges on types, present and default, which nothing here grants and the API has no
+ * scope for. */
 export function revokeScopeOf(grant: GroupedGrant): AclScope | undefined {
+	if (unreachableSources(grant).length > 0) return undefined
 	if (!grant.future) return grant.objects.some((o) => o.kind === 'TYPE') ? undefined : 'target'
 	const scope = `future_${grant.future.toLowerCase()}`
 	return (['future_tables', 'future_sequences', 'future_functions'] as const).find(
