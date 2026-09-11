@@ -8,7 +8,7 @@
 	import ToolContentDisplay from './copilot/chat/ToolContentDisplay.svelte'
 	import WebSearchSourcesDisplay from './copilot/chat/WebSearchSourcesDisplay.svelte'
 	import GfmMarkdown from './GfmMarkdown.svelte'
-	import { buildAgentActions, type AgentActionEntry } from './agentActions'
+	import { buildAgentTrace, type AgentTraceEntry } from './agentTrace'
 	import type { AgentMessage } from './aiAgentResult'
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 
@@ -19,7 +19,7 @@
 
 	let { messages, workspaceId }: Props = $props()
 
-	const entries = $derived(buildAgentActions(messages))
+	const entries = $derived(buildAgentTrace(messages))
 
 	let expanded = new SvelteSet<number>()
 	// A tool's own job holds what the envelope does not: its logs, how long it
@@ -45,7 +45,7 @@
 		}
 	}
 
-	function toggle(index: number, entry: AgentActionEntry) {
+	function toggle(index: number, entry: AgentTraceEntry) {
 		if (expanded.delete(index)) {
 			return
 		}
@@ -61,7 +61,7 @@
 		return typeof job === 'object' ? job : undefined
 	}
 
-	function toolLabel(entry: Extract<AgentActionEntry, { kind: 'tool' }>): string {
+	function toolLabel(entry: Extract<AgentTraceEntry, { kind: 'tool' }>): string {
 		const job = jobOf(entry.jobId)
 		const duration = job?.['duration_ms']
 		return duration === undefined
