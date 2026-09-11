@@ -7017,7 +7017,8 @@ async fn push_inner<'c, 'd>(
             hm.insert("created_by", user);
         }
         let audit_author = AuditAuthor {
-            email: email.to_string(),
+            // The validated address, matching `v2_job` and `job_perms` above.
+            email: job_authed.email.clone(),
             username: if runs_on_behalf {
                 windmill_common::auth::permissioned_as_to_username(&permissioned_as)
             } else {

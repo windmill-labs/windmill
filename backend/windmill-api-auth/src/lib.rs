@@ -1053,9 +1053,10 @@ pub async fn fetch_api_authed_from_permissioned_as(
     db: &DB,
     username_override: Option<String>,
 ) -> error::Result<ApiAuthed> {
-    // Keyed by the address, so an entry built for a principal's previous holder is only reachable
-    // while a stale cached address is still supplied: up to one notify poll, which is accepted
-    // (see `users::get_email_from_permissioned_as`).
+    // Keyed by the supplied address, so an entry built for a principal's previous holder is reused
+    // while that address is still supplied, until its 120s expiry: a cached dispatch address is
+    // evicted sooner, an app's stored one (a username deleted then reused) may not be. Accepted;
+    // the rebuild after expiry is the current holder's.
     let key = (w_id.to_string(), permissioned_as.clone(), email.clone());
 
     let mut api_authed = match API_AUTHED_CACHE.get(&key) {
