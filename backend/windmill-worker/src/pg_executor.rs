@@ -29,7 +29,7 @@ use windmill_common::worker::{
     to_raw_value, Connection, SqlAnnotations, SqlResultCollectionStrategy, CLOUD_HOSTED,
 };
 use windmill_common::workspaces::{
-    get_datatable_resource_from_db, parse_datatable_ref, DatatableAccess,
+    get_datatable_resource_from_db, parse_datatable_ref, parse_datatable_ref_for, DatatableAccess,
 };
 use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult, DB};
 use windmill_parser::{Arg, Typ};
@@ -683,28 +683,29 @@ pub async fn do_postgresql(
         match pg_args.get("database").cloned() {
             Some(Value::String(db_str)) if db_str.starts_with("datatable://") => {
                 let reference = db_str.trim_start_matches("datatable://");
-                let (db_str, uri_role) = parse_datatable_ref(reference)?;
                 // The annotation wins: a generated query can carry a `?role=` in the reference it
                 // was handed, but only the script's author writes the leading comment block.
                 let annotated = SqlAnnotations::datatable_role(&query)?;
-                let role = annotated.as_deref().or(uri_role);
                 Some(match conn {
                     Connection::Http(client) => {
+                        let (name, uri_role) = parse_datatable_ref(reference)?;
                         get_datatable_resource_from_agent_http(
                             client,
-                            db_str,
+                            name,
                             &job.workspace_id,
-                            role,
+                            annotated.as_deref().or(uri_role),
                             &job.id,
                         )
                         .await?
                     }
                     Connection::Sql(db) => {
+                        let (name, uri_role) =
+                            parse_datatable_ref_for(db, &job.workspace_id, reference).await?;
                         get_datatable_resource_from_db(
                             db,
                             &job.workspace_id,
-                            db_str,
-                            role,
+                            &name,
+                            annotated.as_deref().or(uri_role.as_deref()),
                             DatatableAccess::PermissionedAs {
                                 permissioned_as: &job.permissioned_as,
                                 email: &job.permissioned_as_email,

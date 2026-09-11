@@ -113,6 +113,9 @@ async fn get_ruff_config_unauthed(Extension(db): Extension<DB>) -> error::Result
 pub fn global_service() -> Router {
     #[warn(unused_mut)]
     let r = Router::new()
+        // `/local` is the path in openapi.yaml, so every generated client (getLocal) calls it;
+        // `/envs` stays for callers that found the route in the code.
+        .route("/local", get(get_local_settings))
         .route("/envs", get(get_local_settings))
         .route(
             "/global/{key}",
@@ -147,7 +150,10 @@ pub fn global_service() -> Router {
             "/list_custom_instance_pg_databases",
             post(list_custom_instance_pg_databases),
         )
-        .route("/datatable_roles", get(list_datatable_roles).post(create_datatable_role))
+        .route(
+            "/datatable_roles",
+            get(list_datatable_roles).post(create_datatable_role),
+        )
         .route(
             "/datatable_roles/{id}",
             post(update_datatable_role).delete(delete_datatable_role),
@@ -2648,7 +2654,11 @@ async fn create_datatable_role(
     )
     .await?;
 
-    Ok(Json(DatatableRoleInfo { id, name: req.name, enabled: true }))
+    Ok(Json(DatatableRoleInfo {
+        id,
+        name: req.name,
+        enabled: true,
+    }))
 }
 
 async fn update_datatable_role(
@@ -2711,24 +2721,45 @@ async fn update_datatable_role(
     }))
 }
 
-/// Drop the Postgres role, then forget it, then strip it from every workspace that tenanted it.
+/// Disable the role in its own commit, then drop the Postgres role, then forget it, then strip it
+/// from every workspace that tenanted it.
 ///
-/// Dropping first is what makes the catalog trustworthy: the drop refuses while any instance
-/// database is unreachable, so a failure leaves the entry in place to retry rather than a live
-/// Postgres login nothing names.
+/// Dropping before forgetting is what makes the catalog trustworthy: the drop refuses while any
+/// instance database is unreachable, so a failure leaves the entry in place to retry rather than a
+/// live Postgres login nothing names.
 async fn delete_datatable_role(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(id): Path<String>,
 ) -> JsonResult<()> {
     require_super_admin(&db, &authed).await?;
+    let find = |catalog: &windmill_common::datatable_roles::DatatableRoleCatalog| {
+        catalog
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| error::Error::NotFound(format!("No data table role with id '{id}'")))
+    };
+
     let mut tx = db.begin().await?;
     windmill_common::datatable_roles::lock_role_catalog(&mut tx).await?;
-    let catalog = windmill_common::datatable_roles::read_role_catalog_tx(&mut tx).await?;
-    let role = catalog
-        .get(&id)
-        .cloned()
-        .ok_or_else(|| error::Error::NotFound(format!("No data table role with id '{id}'")))?;
+    let mut role = find(&windmill_common::datatable_roles::read_role_catalog_tx(&mut tx).await?)?;
+    if role.enabled {
+        windmill_common::datatable_roles::set_instance_role_login(&mut tx, &role.name, false)
+            .await?;
+        role.enabled = false;
+        windmill_common::datatable_roles::update_role_catalog_entry(&mut tx, &id, &role).await?;
+    }
+    tx.commit().await?;
+
+    let mut tx = db.begin().await?;
+    windmill_common::datatable_roles::lock_role_catalog(&mut tx).await?;
+    let role = find(&windmill_common::datatable_roles::read_role_catalog_tx(&mut tx).await?)?;
+    if role.enabled {
+        return Err(error::Error::BadRequest(format!(
+            "Data table role '{}' was re-enabled while being deleted",
+            role.name
+        )));
+    }
 
     windmill_common::datatable_roles::drop_instance_role(&db, &mut tx, &role.name).await?;
     windmill_common::datatable_roles::delete_role_catalog_entry(&mut tx, &id).await?;
@@ -2768,7 +2799,9 @@ async fn converge_connect_grants_everywhere(
             windmill_common::datatable_roles::converge_connect_grants_with(db, &dbname, catalog)
                 .await
         {
-            tracing::warn!("Could not converge CONNECT grants on instance database '{dbname}': {e}");
+            tracing::warn!(
+                "Could not converge CONNECT grants on instance database '{dbname}': {e}"
+            );
         }
     }
 }

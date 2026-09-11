@@ -184,7 +184,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28949/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28958/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -1575,8 +1575,9 @@ pub async fn get_datatable_resource_from_db_unchecked(
 /// datatables resolve to the user's own resource unchanged; configuring it for
 /// replication there is the user's responsibility.
 ///
-/// Authorization: a replication connection reads every row whatever the roles grant, so callers
-/// must gate it with [`ensure_datatable_admin_access`] rather than a role check.
+/// Authorization: a replication connection reads every row whatever the roles grant, so no role or
+/// admin check makes it safe. Callers MUST refuse a data table under roles outright — the Postgres
+/// trigger crate's `ensure_not_under_roles` — and turning roles on is refused while one streams.
 pub async fn get_datatable_replication_resource_from_db_unchecked(
     db: &DB,
     w_id: &str,
@@ -1880,8 +1881,9 @@ pub async fn ensure_can_use_datatable_role(
     )))
 }
 
-/// Gate the operations that see the whole database whatever the roles grant: replication streams,
-/// a migration that declares no role, exports, and editing the permissions themselves. Passing
+/// Gate the operations that see the whole database whatever the roles grant: a migration that
+/// declares no role, exports, and editing the permissions themselves. Not replication, which a
+/// data table under roles refuses whoever asks (see `ensure_not_under_roles`). Passing
 /// means the caller could have connected as `admin` anyway.
 pub async fn ensure_datatable_admin_access(
     db: &DB,
@@ -2099,13 +2101,30 @@ pub fn strip_datatable_permissions(
     Some(datatable)
 }
 
-/// The data table a `datatable://` reference names, ignoring its query string. For callers that
-/// only need to find the entry; use [`parse_datatable_ref`] wherever the role is acted on.
-pub fn datatable_ref_name(reference: &str) -> &str {
-    reference
-        .split_once('?')
-        .map(|(name, _)| name)
-        .unwrap_or(reference)
+/// As [`parse_datatable_ref`], except that an entry whose stored name itself contains `?` — which
+/// names could before they were restricted — resolves by that exact name, without a role. It is
+/// looked up first, so `sales?role=x` never reaches a different entry than the one stored so.
+pub async fn parse_datatable_ref_for(
+    db: &DB,
+    w_id: &str,
+    reference: &str,
+) -> Result<(String, Option<String>)> {
+    if reference.contains('?') {
+        let exists = sqlx::query_scalar::<_, Option<bool>>(
+            "SELECT (datatable->'datatables') ? $2 FROM workspace_settings WHERE workspace_id = $1",
+        )
+        .bind(w_id)
+        .bind(reference)
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or(false);
+        if exists {
+            return Ok((reference.to_string(), None));
+        }
+    }
+    let (name, role) = parse_datatable_ref(reference)?;
+    Ok((name.to_string(), role.map(str::to_string)))
 }
 
 /// Split a `datatable://` reference into its name and the role its query string names.
@@ -3382,9 +3401,6 @@ mod tests {
                 "silently ignored: {malformed}"
             );
         }
-
-        // The name-only helper stays lenient — it is used where the role is never acted on.
-        assert_eq!(datatable_ref_name("sales?role="), "sales");
     }
 
     #[test]

@@ -346,6 +346,13 @@ async fn set_datatable_permissions(
         )));
     }
 
+    // Turning roles on is refused while a replication stream reads this data table. One already
+    // under roles cannot have any: the listener refuses to open a stream on it.
+    if req.permissioned && governing.datatable.permissions.is_none() {
+        windmill_common::datatable_roles::lock_datatable_streams(&mut *tx, true).await?;
+        ensure_no_streams_reaching(&db, &governing).await?;
+    }
+
     let permissions = if req.permissioned {
         let catalog = windmill_common::datatable_roles::read_role_catalog_tx(&mut tx).await?;
         let mut roles: BTreeMap<String, DataTableRoleTenants> = BTreeMap::new();
@@ -436,10 +443,6 @@ async fn set_datatable_permissions(
         }
     }
 
-    // A live replication stream holds a connection it opened under the old decision. Bouncing the
-    // rows makes every listener reconnect and re-authorize.
-    restart_streams_reaching(&db, &governing).await?;
-
     windmill_common::feature_usage::log_feature_usage(
         "datatable",
         "roles_toggled",
@@ -453,17 +456,13 @@ async fn set_datatable_permissions(
     })
 }
 
-/// Make every Postgres trigger and capture reading this data table reconnect, so a revoked tenant
-/// stops streaming rather than living on inside an already-open replication connection.
-pub(crate) async fn restart_streams_reaching(
-    db: &DB,
-    governing: &GoverningDatatable,
-) -> Result<()> {
+/// Refuse to put a data table under roles while a Postgres trigger or capture streams it. A
+/// replication stream reads every row whatever the roles grant, so a data table carries one or the
+/// other; the listener side refuses a data table already under roles.
+async fn ensure_no_streams_reaching(db: &DB, governing: &GoverningDatatable) -> Result<()> {
     // Every workspace holding an entry that resolves here, under the name it calls it: the
     // governing one, plus each fork pointing at it. A fork's trigger names its own local entry, so
-    // filtering on the governing workspace alone would leave its stream running on the connection
-    // it already opened under the old decision — which is the one window this function exists to
-    // close.
+    // looking in the governing workspace alone would miss every stream a fork opened.
     let mut reached = vec![(governing.workspace_id.clone(), governing.name.clone())];
     let pointers = sqlx::query!(
         r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "datatable!"
@@ -478,36 +477,45 @@ pub(crate) async fn restart_streams_reaching(
     .await?;
     reached.extend(pointers.into_iter().map(|r| (r.workspace_id, r.datatable)));
 
+    let mut streams = Vec::new();
     for (w_id, name) in reached {
         let reference = format!("datatable://{name}");
-        let prefix = format!("{reference}?%");
-
-        sqlx::query!(
-            "UPDATE postgres_trigger SET server_id = NULL, last_server_ping = NULL
-             WHERE workspace_id = $1
-               AND (postgres_resource_path = $2 OR postgres_resource_path LIKE $3)",
-            &w_id,
-            &reference,
-            &prefix,
-        )
-        .execute(db)
-        .await?;
-
-        // A capture keeps the reference inside its `trigger_config` blob rather than in a column
-        // of its own, and only a postgres capture has one there at all.
-        sqlx::query!(
-            "UPDATE capture_config SET server_id = NULL, last_server_ping = NULL
-             WHERE workspace_id = $1 AND trigger_kind = 'postgres'
-               AND (trigger_config->>'postgres_resource_path' = $2
-                    OR trigger_config->>'postgres_resource_path' LIKE $3)",
-            &w_id,
-            &reference,
-            &prefix,
-        )
-        .execute(db)
-        .await?;
+        let with_query = format!("{reference}?");
+        // A suspended trigger keeps its listener, and a capture streams while its client pings. A
+        // listener also outlives its trigger being disabled, or its capture's client going quiet,
+        // until its next heartbeat notices; one that pinged within the 15 seconds a server holds a
+        // listener for may still be dispatching.
+        streams.extend(
+            sqlx::query_scalar::<_, String>(
+                r#"SELECT workspace_id || '/' || path FROM postgres_trigger
+                   WHERE workspace_id = $1
+                     AND (mode <> 'disabled'::TRIGGER_MODE
+                          OR last_server_ping > now() - interval '15 seconds')
+                     AND (postgres_resource_path = $2 OR starts_with(postgres_resource_path, $3))
+                   UNION ALL
+                   SELECT workspace_id || '/' || path || ' (capture)' FROM capture_config
+                   WHERE workspace_id = $1 AND trigger_kind = 'postgres'
+                     AND (last_client_ping > now() - interval '10 seconds'
+                          OR last_server_ping > now() - interval '15 seconds')
+                     AND (trigger_config->>'postgres_resource_path' = $2
+                          OR starts_with(trigger_config->>'postgres_resource_path', $3))"#,
+            )
+            .bind(&w_id)
+            .bind(&reference)
+            .bind(&with_query)
+            .fetch_all(db)
+            .await?,
+        );
     }
-
+    if !streams.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "Data table '{}' cannot be put under roles while a Postgres trigger or capture streams \
+             it: a replication stream reads every row whatever the roles grant. Disable them, then \
+             allow their listeners up to 15 seconds to stop: {}",
+            governing.name,
+            streams.join(", ")
+        )));
+    }
     Ok(())
 }
 

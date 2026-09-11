@@ -128,6 +128,22 @@ pub async fn lock_role_catalog(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -
     Ok(())
 }
 
+/// A replication stream reads every row whatever a data table's roles grant. Turning roles on looks
+/// for streams holding this exclusive; whatever can start a Postgres trigger or capture streaming
+/// holds it shared on the transaction that commits it. So either the look sees the stream, or the
+/// stream's listener connects after roles are committed and refuses. Held for the transaction.
+pub async fn lock_datatable_streams(conn: &mut sqlx::PgConnection, exclusive: bool) -> Result<()> {
+    let lock = if exclusive {
+        "pg_advisory_xact_lock"
+    } else {
+        "pg_advisory_xact_lock_shared"
+    };
+    sqlx::query(&format!("SELECT {lock}(hashtext('datatable_streams'))"))
+        .execute(conn)
+        .await?;
+    Ok(())
+}
+
 /// Disclosure: returns every role's stored Postgres password in plaintext. Any server path that
 /// has to resolve or name a role may call it — including handlers open to a workspace member, who
 /// need the names — but callers MUST NOT let `pwd` reach a response, a log line, an audit record
@@ -404,7 +420,9 @@ pub async fn rename_instance_role(
 ///
 /// The per-database passes open their own connections and cannot join `tx`; the lock is what keeps
 /// a concurrent mutation out while they run. Only the final `DROP ROLE` is on `tx`, so it commits
-/// or rolls back with the catalog write that forgets the role.
+/// or rolls back with the catalog write that forgets the role. Those passes commit as they go, so
+/// callers MUST have disabled the role in an earlier committed transaction: a failure part-way
+/// then leaves a disabled role to retry, not an enabled one already stripped in some databases.
 pub async fn drop_instance_role(
     db: &DB,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,

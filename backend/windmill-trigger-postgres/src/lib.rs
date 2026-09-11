@@ -11,10 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::RawValue;
 use sqlx::FromRow;
 use windmill_api_auth::ApiAuthed;
-use windmill_common::workspaces::{
-    ensure_datatable_admin_access, get_datatable_replication_resource_from_db_unchecked,
-    DatatableAccess,
-};
+use windmill_common::workspaces::get_datatable_replication_resource_from_db_unchecked;
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
@@ -377,6 +374,32 @@ pub async fn get_raw_postgres_connection(
     Ok(client)
 }
 
+/// A replication stream reads every row of every table whatever the data table's roles grant, so
+/// the two don't mix: a data table under roles takes no triggers or captures, and roles cannot be
+/// turned on while one is enabled on it.
+pub async fn ensure_not_under_roles(
+    db: &DB,
+    w_id: &str,
+    postgres_resource_path: &str,
+) -> Result<()> {
+    let Some(datatable_name) = postgres_resource_path.strip_prefix("datatable://") else {
+        return Ok(());
+    };
+    if windmill_common::workspaces::resolve_governing_datatable(db, w_id, datatable_name)
+        .await?
+        .datatable
+        .permissions
+        .is_some()
+    {
+        return Err(Error::BadRequest(format!(
+            "Data table '{datatable_name}' is under roles, and a Postgres trigger or capture \
+             cannot read one: a replication stream sees every row whatever the roles grant. \
+             Turn its roles off to stream it."
+        )));
+    }
+    Ok(())
+}
+
 pub async fn resolve_postgres_resource(
     authed: &ApiAuthed,
     user_db: Option<UserDB>,
@@ -385,16 +408,7 @@ pub async fn resolve_postgres_resource(
     w_id: &str,
 ) -> Result<Postgres> {
     if let Some(datatable_name) = postgres_resource_path.strip_prefix("datatable://") {
-        // A replication stream reads every row of every table whatever the data table's roles
-        // grant, so it is not something a role can be tenanted into: only someone who could have
-        // connected as `admin` may open one.
-        ensure_datatable_admin_access(
-            db,
-            w_id,
-            datatable_name,
-            &DatatableAccess::Authed(authed.to_authed_ref()),
-        )
-        .await?;
+        ensure_not_under_roles(db, w_id, postgres_resource_path).await?;
         // Trigger connections (publication/slot management + logical replication) run
         // as the dedicated replication user on custom-instance databases.
         let resource_value =
