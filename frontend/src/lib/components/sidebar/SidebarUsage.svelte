@@ -251,13 +251,13 @@
 	<!-- The refusal replaces the button it answers, in the button's own shape: a
 	     collapsed rail gets the icon with the explanation in its tooltip, an expanded one
 	     the sentence and the way to the portal. -->
-	<div class="px-2 pt-2">
-		<Tooltip placement="right" class="w-full">
-			{#snippet text()}
-				The trial could not be started: {trialRefusal?.reason}. The customer portal has the
-				details.
-			{/snippet}
-			{#if isCollapsed}
+	<div class="px-2 pt-2" role="status">
+		{#if isCollapsed}
+			<Tooltip placement="right">
+				{#snippet text()}
+					The trial could not be started: {trialRefusal?.reason}. The customer portal has the
+					details.
+				{/snippet}
 				<Button
 					variant="default"
 					unifiedSize="sm"
@@ -266,20 +266,20 @@
 					onclick={() => window.location.assign(trialRefusal!.location)}
 					aria-label="The trial could not be started; open the customer portal"
 				/>
-			{:else}
-				<p class="mb-1.5 text-2xs text-secondary">
-					The trial could not be started: {trialRefusal.reason}.
-				</p>
-				<Button
-					variant="default"
-					unifiedSize="sm"
-					startIcon={{ icon: AlertTriangle }}
-					onclick={() => window.location.assign(trialRefusal!.location)}
-				>
-					Open the customer portal
-				</Button>
-			{/if}
-		</Tooltip>
+			</Tooltip>
+		{:else}
+			<p class="mb-1.5 text-2xs text-secondary">
+				The trial could not be started: {trialRefusal.reason}.
+			</p>
+			<Button
+				variant="default"
+				unifiedSize="sm"
+				startIcon={{ icon: AlertTriangle }}
+				onclick={() => window.location.assign(trialRefusal!.location)}
+			>
+				Open the customer portal
+			</Button>
+		{/if}
 	</div>
 {/if}
 

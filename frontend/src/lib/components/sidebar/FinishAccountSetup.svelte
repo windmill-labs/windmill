@@ -115,10 +115,16 @@
 							variant="default"
 							unifiedSize="lg"
 							onClick={() => {
-								// Same cookie as the OAuth buttons: the SAML ACS goes through the same
-								// adoption path and refuses a different address the same way.
-								document.cookie = `finish_setup=${encodeURIComponent(email)}; path=/; max-age=600; SameSite=Lax`
-								window.location.assign(saml!)
+								// The IdP posts to the ACS cross-site, where a SameSite cookie is not
+								// sent, so the address rides in the RelayState the ACS lifts out.
+								try {
+									const url = new URL(saml!)
+									url.searchParams.set('RelayState', `/?finish_setup=${encodeURIComponent(email)}`)
+									window.location.assign(url.toString())
+								} catch (e) {
+									console.error('Could not set SAML RelayState', e)
+									sendUserToast('Could not start sign-in, please try again.', true)
+								}
 							}}
 						>
 							Continue with SSO
