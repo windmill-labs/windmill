@@ -185,7 +185,6 @@
 		async load({ workspace, path }) {
 			if (isTemporaryPath(path)) {
 				const opts = newTemplates.get(path)
-				newTemplates.delete(path)
 				if (!opts) throw new Error('No template for this schedule')
 				return { template: await newScheduleCfg(opts) }
 			}
