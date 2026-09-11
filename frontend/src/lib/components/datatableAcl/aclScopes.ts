@@ -121,9 +121,11 @@ export function groupGrants(grants: AclGrant[]): GroupedGrant[] {
 		if (existing) {
 			existing.objects.push(grant.object!)
 			for (const source of grant.sources) {
-				if (!existing.sources.some((s) => s.role === source.role)) {
-					existing.sources.push(source)
-				}
+				const known = existing.sources.find((s) => s.role === source.role)
+				// Whether a role's grant can be taken back depends on the object it is on, so a row
+				// holds a source as reachable only if it is on every object the row folds.
+				if (known) known.reachable &&= source.reachable
+				else existing.sources.push({ ...source })
 			}
 		} else {
 			rows.push({
@@ -131,7 +133,7 @@ export function groupGrants(grants: AclGrant[]): GroupedGrant[] {
 				privileges: grant.privileges,
 				objects: grant.object ? [grant.object] : [],
 				future: grant.future,
-				sources: [...grant.sources]
+				sources: grant.sources.map((s) => ({ ...s }))
 			})
 		}
 	}

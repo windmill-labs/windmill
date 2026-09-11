@@ -1531,15 +1531,64 @@ mod tests {
         }
     }
 
-    /// A kind of object the list misses stays with its old owner while the schema changes hands,
-    /// which only a real catalog shows.
-    #[sqlx::test(migrations = false)]
-    async fn a_schemas_owner_change_takes_every_object_in_it(pool: sqlx::PgPool) {
+    /// A connection to the test's own database, the way the handlers reach a data table's.
+    async fn catalog_client(pool: &sqlx::PgPool) -> tokio_postgres::Client {
         let mut config: tokio_postgres::Config =
             std::env::var("DATABASE_URL").unwrap().parse().unwrap();
         config.dbname(pool.connect_options().get_database().unwrap());
         let (client, connection) = config.connect(tokio_postgres::NoTls).await.unwrap();
         tokio::spawn(connection);
+        client
+    }
+
+    /// What a revoke takes back is read from the catalog, per object and source, and only the
+    /// privileges it asks for: the planner renders exactly this, and refuses an empty read.
+    #[sqlx::test(migrations = false)]
+    async fn a_revoke_reads_back_only_what_it_asks_for(pool: sqlx::PgPool) {
+        let client = catalog_client(&pool).await;
+        // A predefined role, so that nothing is granted outside the test's own database.
+        client
+            .batch_execute(
+                "CREATE SCHEMA granted;
+                 CREATE TABLE granted.g (id int);
+                 GRANT SELECT, INSERT ON granted.g TO pg_read_all_data;",
+            )
+            .await
+            .unwrap();
+        let target = AclTarget::Table { schema: "granted".to_string(), table: "g".to_string() };
+        let revoked = read_revoked_grants(
+            &client,
+            "db",
+            &target,
+            GrantScope::Target,
+            &[],
+            &["select".to_string()],
+            "pg_read_all_data",
+        )
+        .await
+        .unwrap();
+        assert_eq!(revoked.len(), 1, "{revoked:?}");
+        assert_eq!(revoked[0].object, None);
+        assert_eq!(revoked[0].privileges, ["SELECT"]);
+        let held_none = read_revoked_grants(
+            &client,
+            "db",
+            &target,
+            GrantScope::Target,
+            &[],
+            &["update".to_string()],
+            "pg_read_all_data",
+        )
+        .await
+        .unwrap();
+        assert!(held_none.is_empty(), "{held_none:?}");
+    }
+
+    /// A kind of object the list misses stays with its old owner while the schema changes hands,
+    /// which only a real catalog shows.
+    #[sqlx::test(migrations = false)]
+    async fn a_schemas_owner_change_takes_every_object_in_it(pool: sqlx::PgPool) {
+        let client = catalog_client(&pool).await;
         client
             .batch_execute(
                 "CREATE SCHEMA moved;

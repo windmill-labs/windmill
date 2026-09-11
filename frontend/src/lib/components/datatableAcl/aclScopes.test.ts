@@ -121,6 +121,30 @@ describe('revoke of a row', () => {
 		expect(revokeScopeOf({ ...row(), objects: [{ name: 'mood', kind: 'TYPE' }] })).toBeUndefined()
 	})
 
+	// Whether a grant can be taken back depends on its object, so a row folding several objects is
+	// only revocable if each of its grants is.
+	it('offers none for a folded row with a source out of reach on any of its objects', () => {
+		const grants: AclGrant[] = [
+			{
+				grantee: 'analytics',
+				privileges: ['SELECT'],
+				object: table('orders'),
+				sources: from('admin')
+			},
+			{
+				grantee: 'analytics',
+				privileges: ['SELECT'],
+				object: table('salaries'),
+				sources: [{ role: 'admin', reachable: false }]
+			}
+		]
+		const [folded] = groupGrants(grants)
+		expect(folded.objects).toHaveLength(2)
+		expect(revokeScopeOf(folded)).toBeUndefined()
+		// Folding reads the grants, never rewrites them.
+		expect(grants[0].sources[0].reachable).toBe(true)
+	})
+
 	// Postgres takes a grant back only through its source: offering the revoke would promise what
 	// the plan then refuses.
 	it('offers none for a row with a source out of reach', () => {
