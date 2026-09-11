@@ -25,7 +25,8 @@ use windmill_trigger::{Trigger, TriggerCrud, TriggerData};
 
 use super::{
     check_if_valid_publication_for_postgres_version, create_logical_replication_slot,
-    create_pg_publication, drop_publication, generate_random_string, get_default_pg_connection,
+    create_pg_publication, drop_publication, ensure_not_under_roles, generate_random_string,
+    get_default_pg_connection,
     mapper::{Mapper, MappingInfo},
     PostgresConfig, PostgresConfigRequest, PostgresPublicationReplication, PostgresTrigger,
     PublicationData, Relations, Slot, SlotList, TableToTrack, TemplateScript, TestPostgresConfig,
@@ -62,6 +63,15 @@ impl TriggerCrud for PostgresTrigger {
 
     fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject {
         DeployedObject::PostgresTrigger { path, parent_path }
+    }
+
+    async fn validate_config(
+        &self,
+        db: &DB,
+        config: &Self::TriggerConfigRequest,
+        workspace_id: &str,
+    ) -> Result<()> {
+        ensure_not_under_roles(db, workspace_id, &config.postgres_resource_path).await
     }
 
     async fn create_trigger(
