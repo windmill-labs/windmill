@@ -35,7 +35,7 @@
 		// way into the account, so it must survive: report and go home rather than log out.
 		// Read before the backend call, which clears the cookie whether or not it adopts.
 		// SAML's ACS answers a top-level POST from the IdP, so a refusal there arrives here
-		// as a redirect with the flag in the query, the cookie already cleared server-side.
+		// as a redirect with the flag in the query.
 		const finishingSetup =
 			!!getCookie('finish_setup') || page.url.searchParams.get('finish_setup') === '1'
 		function backToSetup(message: string) {

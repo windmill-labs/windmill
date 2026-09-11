@@ -116,7 +116,10 @@
 							unifiedSize="lg"
 							onClick={() => {
 								// The IdP posts to the ACS cross-site, where a SameSite cookie is not
-								// sent, so the address rides in the RelayState the ACS lifts out.
+								// sent, so the address rides in the RelayState the ACS lifts out. The
+								// cookie stays as well: an IdP that drops RelayState but shares the
+								// instance's site still delivers it, and either channel refuses.
+								document.cookie = `finish_setup=${encodeURIComponent(email)}; path=/; max-age=600; SameSite=Lax`
 								try {
 									const url = new URL(saml!)
 									url.searchParams.set('RelayState', `/?finish_setup=${encodeURIComponent(email)}`)

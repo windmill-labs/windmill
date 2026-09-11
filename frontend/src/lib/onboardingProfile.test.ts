@@ -1,8 +1,26 @@
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('./gen', () => ({ UserService: {} }))
+const { getOnboardingProfile } = vi.hoisted(() => ({ getOnboardingProfile: vi.fn() }))
+vi.mock('./gen', () => ({ UserService: { getOnboardingProfile } }))
 
-import { parseOnboardingProfile } from './onboardingProfile'
+import { noteSessionEmail, onboardingProfile, parseOnboardingProfile } from './onboardingProfile'
+
+describe('onboardingProfile', () => {
+	it('serves each session its own profile, never the previous one', async () => {
+		getOnboardingProfile
+			.mockResolvedValueOnce({ profile: { workspace_name: 'Acme' } })
+			.mockResolvedValueOnce({ profile: { workspace_name: 'Globex' } })
+
+		noteSessionEmail('a@example.com')
+		expect((await onboardingProfile())?.workspace_name).toBe('Acme')
+		expect((await onboardingProfile())?.workspace_name).toBe('Acme')
+		expect(getOnboardingProfile).toHaveBeenCalledTimes(1)
+
+		noteSessionEmail('b@example.com')
+		expect((await onboardingProfile())?.workspace_name).toBe('Globex')
+		expect(getOnboardingProfile).toHaveBeenCalledTimes(2)
+	})
+})
 
 describe('parseOnboardingProfile', () => {
 	it('keeps the well-formed keys when another one is malformed', () => {

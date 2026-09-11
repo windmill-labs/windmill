@@ -247,11 +247,12 @@
 	</div>
 {/if}
 
-{#if trialRefusal}
-	<!-- The refusal replaces the button it answers, in the button's own shape: a
-	     collapsed rail gets the icon with the explanation in its tooltip, an expanded one
-	     the sentence and the way to the portal. -->
-	<div class="px-2 pt-2" role="status">
+<!-- The refusal replaces the button it answers, in the button's own shape: a
+     collapsed rail gets the icon with the explanation in its tooltip, an expanded one
+     the sentence and the way to the portal. The status region is always in the tree so
+     assistive technology announces the refusal arriving in it. -->
+<div class="px-2 pt-2" role="status" hidden={!trialRefusal}>
+	{#if trialRefusal}
 		{#if isCollapsed}
 			<Tooltip placement="right">
 				{#snippet text()}
@@ -280,8 +281,8 @@
 				Open the customer portal
 			</Button>
 		{/if}
-	</div>
-{/if}
+	{/if}
+</div>
 
 {#if isCloudHosted() && tightest}
 	<div class="px-2 pt-2 pb-2">
