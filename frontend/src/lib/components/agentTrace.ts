@@ -13,7 +13,9 @@ import type { AgentMessage } from './aiAgentResult'
  */
 export type AgentTraceEntry =
 	| { kind: 'assistant'; content: string; sources?: WebSearchSource[] }
-	| { kind: 'search'; content: string; sources?: WebSearchSource[] }
+	/** A search records only that one happened: the worker writes a constant
+	 *  sentence, and the citations ride on the assistant turn that follows. */
+	| { kind: 'search' }
 	| {
 			kind: 'tool'
 			name: string
@@ -92,11 +94,7 @@ export function buildAgentTrace(messages: AgentMessage[]): AgentTraceEntry[] {
 			continue
 		}
 		if (action?.type === 'web_search') {
-			entries.push({
-				kind: 'search',
-				content: contentText(message.content),
-				sources: sourcesOf(message)
-			})
+			entries.push({ kind: 'search' })
 			continue
 		}
 		// Every message this run produced is tagged, including the agent narrating
