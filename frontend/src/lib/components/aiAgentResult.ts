@@ -44,6 +44,51 @@ function hasRole(message: unknown): boolean {
 }
 
 /**
+ * A job result is whatever its script returned, so a message that passed the
+ * shape check still has arbitrary anything underneath. Everything downstream
+ * reads these as `AgentMessage`, and a value of the wrong type there throws in
+ * the middle of rendering, taking the whole result viewer with it.
+ *
+ * So the coercion happens once, here: past this point the declared type is the
+ * real one, and no reader needs a guard of its own.
+ */
+function toAgentMessage(raw: Record<string, unknown>): AgentMessage {
+	const toolCalls = Array.isArray(raw.tool_calls)
+		? raw.tool_calls.filter(isRecord).map((call) => ({
+				id: typeof call.id === 'string' ? call.id : undefined,
+				type: typeof call.type === 'string' ? call.type : undefined,
+				function: isRecord(call.function)
+					? {
+							name: typeof call.function.name === 'string' ? call.function.name : undefined,
+							arguments:
+								typeof call.function.arguments === 'string' ? call.function.arguments : undefined
+						}
+					: undefined
+			}))
+		: undefined
+	const annotations = Array.isArray(raw.annotations)
+		? raw.annotations.filter((a): a is Record<string, unknown> => isRecord(a) && typeof a.url === 'string')
+		: undefined
+	return {
+		role: raw.role as string,
+		content: raw.content,
+		tool_calls: toolCalls,
+		tool_call_id: typeof raw.tool_call_id === 'string' ? raw.tool_call_id : undefined,
+		// The union is discriminated on `type`; an action without a string one
+		// matches no branch and is treated as untagged.
+		agent_action:
+			isRecord(raw.agent_action) && typeof raw.agent_action.type === 'string'
+				? (raw.agent_action as unknown as AgentAction)
+				: undefined,
+		annotations: annotations as AgentMessage['annotations']
+	}
+}
+
+function toAgentMessages(raw: unknown[]): AgentMessage[] {
+	return raw.map((message) => toAgentMessage(message as Record<string, unknown>))
+}
+
+/**
  * Recognise the envelope by its shape rather than by a marker key the worker
  * would have to add: sniffing works on runs that already completed, and the
  * envelope is also what a nested agent hands back, where an added key would
@@ -79,7 +124,7 @@ export function parseAgentResult(result: unknown): AgentResult | undefined {
 	}
 	return {
 		output: result.output,
-		messages: result.messages as AgentMessage[],
+		messages: toAgentMessages(result.messages),
 		usage: isRecord(result.usage) ? (result.usage as AgentTokenUsage) : undefined,
 		wm_stream: typeof result.wm_stream === 'string' ? result.wm_stream : undefined
 	}
@@ -101,7 +146,7 @@ export function parseAgentErrorMessages(result: unknown): AgentMessage[] | undef
 	if (inner.messages.length === 0 || !inner.messages.every(hasRole)) {
 		return undefined
 	}
-	return inner.messages as AgentMessage[]
+	return toAgentMessages(inner.messages)
 }
 
 export type AgentResultSummary = {
