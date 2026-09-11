@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.805.0
+  version: 1.809.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -362,6 +362,14 @@ components:
             continue_on_disapprove_timeout:
               type: boolean
               description: If true, continue flow on timeout instead of canceling
+            skin:
+              type: string
+              enum: [detailed, minimal]
+              description: >-
+                How the approval request is presented, on the approval page and in Slack/Teams
+                approval messages. 'detailed' (used when unset) shows the flow details
+                (arguments, graph, approvers); 'minimal' shows only the request: the step
+                description, form and approve/reject actions
         priority:
           type: number
           description: Execution priority for this step (higher numbers run first)

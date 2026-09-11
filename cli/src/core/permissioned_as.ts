@@ -3,6 +3,12 @@ import * as log from "./log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { getTypeStrFromPath } from "../types.ts";
+import {
+  extractFolderPath,
+  isAppFolderMetadataFile,
+  isRawAppFolderMetadataFile,
+} from "../utils/resource_folders.ts";
+import { deploysWithRawApp } from "../utils/app_files.ts";
 import { parseSyncBehavior } from "./conf.ts";
 
 export interface PermissionedAsContext {
@@ -89,6 +95,45 @@ function contentHasOnBehalfOf(content: string, typeStr: string): boolean {
   return false;
 }
 
+type AppTypeStr = "app" | "raw_app";
+
+function isAppTypeStr(typeStr: string): typeStr is AppTypeStr {
+  return typeStr === "app" || typeStr === "raw_app";
+}
+
+/** The app folder a file belongs to. `isAppFolderMetadataFile` and its raw twin
+ * match a literal `/`, unlike `extractFolderPath` — so normalize before either,
+ * or a Windows path takes a different branch from the same file on Linux. */
+function appFolderOf(path: string, typeStr: AppTypeStr): string {
+  return extractFolderPath(path, typeStr) ?? path;
+}
+
+function toPosix(path: string): string {
+  return path.replaceAll("\\", "/");
+}
+
+/** App folders whose own metadata file is being added or deleted, which is how a
+ * whole app arrives or goes rather than being redeployed. Neither takes an owner
+ * over: a create has none yet, and a delete leaves none behind. */
+function appsArrivingOrLeaving(changes: Change[]): Set<string> {
+  const folders = new Set<string>();
+  for (const change of changes) {
+    if (change.name === "edited") continue;
+    const path = toPosix(change.path);
+    if (!isAppFolderMetadataFile(path) && !isRawAppFolderMetadataFile(path)) {
+      continue;
+    }
+    let typeStr: string;
+    try {
+      typeStr = getTypeStrFromPath(path);
+    } catch {
+      continue;
+    }
+    if (isAppTypeStr(typeStr)) folders.add(appFolderOf(path, typeStr));
+  }
+  return folders;
+}
+
 export async function preCheckPermissionedAs(
   changes: Change[],
   userEmail: string,
@@ -101,12 +146,34 @@ export async function preCheckPermissionedAs(
   if (userIsAdminOrDeployer) return;
 
   const wouldChangeItems: { path: string; currentOwner: string }[] = [];
+  const addItem = (item: { path: string; currentOwner: string }) => {
+    if (!wouldChangeItems.some((i) => i.path === item.path)) {
+      wouldChangeItems.push(item);
+    }
+  };
+  const arrivingOrLeaving = appsArrivingOrLeaving(changes);
 
   for (const change of changes) {
     let typeStr: string;
     try {
       typeStr = getTypeStrFromPath(change.path);
     } catch {
+      continue;
+    }
+
+    // An app is redeployed whole by any change to any of the files it actually
+    // sends — added, edited or deleted alike — so its policy is rewritten
+    // regardless of what the file holds. Settled here, before the content the
+    // other kinds parse to find their owner, which an app has none of to parse.
+    if (isAppTypeStr(typeStr)) {
+      const path = toPosix(change.path);
+      const folder = appFolderOf(path, typeStr);
+      if (
+        !arrivingOrLeaving.has(folder) &&
+        (typeStr === "app" || deploysWithRawApp(path.slice(folder.length)))
+      ) {
+        addItem({ path: folder, currentOwner: "(app policy owner)" });
+      }
       continue;
     }
 
@@ -130,11 +197,6 @@ export async function preCheckPermissionedAs(
         const label =
           typeStr === "script" ? "(script owner)" : "(flow owner)";
         wouldChangeItems.push({ path: change.path, currentOwner: label });
-      } else if (typeStr === "app") {
-        wouldChangeItems.push({
-          path: change.path,
-          currentOwner: "(app policy owner)",
-        });
       }
       continue;
     }
@@ -176,12 +238,6 @@ export async function preCheckPermissionedAs(
           });
         }
       }
-      continue;
-    } else if (typeStr === "app") {
-      wouldChangeItems.push({
-        path: change.path,
-        currentOwner: "(app policy owner)",
-      });
       continue;
     } else if (typeStr === "schedule") {
       const match = beforeContent.match(

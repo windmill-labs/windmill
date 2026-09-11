@@ -14,6 +14,7 @@
 
 	import { sleep } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
+	import { isCloudHosted } from '$lib/cloud'
 
 	import { createEventDispatcher } from 'svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
@@ -100,7 +101,8 @@
 		otel: {},
 		indexer_settings: {},
 		critical_error_channels: [],
-		github_enterprise_app: {}
+		github_enterprise_app: {},
+		instance_banner: {}
 	}
 
 	function applyFormDefaults(vals: Record<string, any>): void {
@@ -524,6 +526,10 @@
 		for (const category of settingsKeys) {
 			const categorySettings = getSettingsForCategory(category)
 			result[category] = categorySettings.some((s) => {
+				// A field the build never renders must not be able to block Save: off-cloud its
+				// value is unreachable, so an invalid one (from config sync, say) would leave the
+				// category permanently unsaveable with nothing on screen to fix.
+				if (s.cloudonly && !isCloudHosted()) return false
 				if (s.isValid && !s.isValid(currentValues?.[s.key])) return true
 				if (s.validate) {
 					const errors = s.validate(currentValues?.[s.key])
@@ -1061,8 +1067,7 @@
 						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
 						<li
 							>user usage (author count, operator count, the distinct guests of the last 30 days,
-							the seats they add past the free allowance, and the workspaces that allow
-							guests)</li
+							the seats they add past the free allowance, and the workspaces that allow guests)</li
 						>
 						<li>superadmin email addresses</li>
 						<li>development instance status</li>
@@ -1078,8 +1083,11 @@
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
 							membership, the plan tier and quota shown when the execution meter is opened, whether
 							app sandbox isolation is turned on, whether a step's workspace script is edited from
-							the flow editor, and how data tables and their migrations are set up and used, last 30
-							days)</li
+							the flow editor, which skin approval steps are given, how data tables and their
+							migrations are set up and used, how often an empty workspace home is seen, how often
+							the home page’s create menu and hub-project picker are opened and from which entry
+							point, and the name of any public hub project imported from the home page and how far
+							that import got, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table
@@ -1129,8 +1137,7 @@
 						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
 						<li
 							>user usage (author count, operator count, the distinct guests of the last 30 days,
-							the seats they add past the free allowance, and the workspaces that allow
-							guests)</li
+							the seats they add past the free allowance, and the workspaces that allow guests)</li
 						>
 						<li>development instance status</li>
 						<li
@@ -1140,8 +1147,11 @@
 							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
 							membership, the plan tier and quota shown when the execution meter is opened, whether
 							app sandbox isolation is turned on, whether a step's workspace script is edited from
-							the flow editor, and how data tables and their migrations are set up and used, last 30
-							days)</li
+							the flow editor, which skin approval steps are given, how data tables and their
+							migrations are set up and used, how often an empty workspace home is seen, how often
+							the home page’s create menu and hub-project picker are opened and from which entry
+							point, and the name of any public hub project imported from the home page and how far
+							that import got, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table

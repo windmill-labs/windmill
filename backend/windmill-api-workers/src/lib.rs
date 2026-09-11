@@ -19,6 +19,7 @@ use windmill_common::{
     db::UserDB,
     error::JsonResult,
     jobs::{HIDE_WORKERS_FOR_NON_ADMINS, TAGS_ARE_SENSITIVE},
+    queue_metrics::{read_queue_metrics_series, QueueMetricsSeries},
     utils::{paginate, Pagination},
     worker::{ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
     workspaces::workspace_with_fork_ancestors,
@@ -38,6 +39,8 @@ pub fn global_service() -> Router {
         )
         .route("/get_default_tags", get(get_default_tags))
         .route("/queue_metrics", get(get_queue_metrics))
+        .route("/queue_metrics_series", get(get_queue_metrics_series))
+        .route("/queue_status", get(get_queue_status))
         .route("/queue_counts", get(get_queue_counts))
         .route("/queue_running_counts", get(get_queue_running_counts))
         .route(
@@ -270,10 +273,16 @@ async fn get_queue_metrics(
 ) -> JsonResult<Vec<QueueMetric>> {
     require_devops_role(&db, &authed).await?;
 
+    // The API declares every `value` a number, so a climbing delay, stored as its head's wait
+    // start, is returned as the delay at the time of its sample.
     let queue_metrics = sqlx::query_as!(
         QueueMetric,
         "WITH queue_metrics as (
-            SELECT id, value, created_at
+            SELECT id, created_at,
+                CASE WHEN jsonb_typeof(value) = 'object'
+                    THEN to_jsonb(EXTRACT(EPOCH FROM created_at) - (value->>'since')::numeric)
+                    ELSE value
+                END AS value
             FROM metrics
             WHERE id LIKE 'queue_%'
                 AND created_at > now() - interval '14 day'
@@ -287,6 +296,88 @@ async fn get_queue_metrics(
     .await?;
 
     Ok(Json(queue_metrics))
+}
+
+#[derive(Deserialize)]
+struct QueueMetricsSeriesQuery {
+    window_secs: Option<i64>,
+}
+
+const QUEUE_METRICS_DEFAULT_WINDOW_SECS: i64 = 24 * 3600;
+/// Retention of queue metrics, past which there is nothing left to read.
+const QUEUE_METRICS_MAX_WINDOW_SECS: i64 = 14 * 24 * 3600;
+
+async fn get_queue_metrics_series(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<QueueMetricsSeriesQuery>,
+) -> JsonResult<QueueMetricsSeries> {
+    require_devops_role(&db, &authed).await?;
+
+    let window = query
+        .window_secs
+        .unwrap_or(QUEUE_METRICS_DEFAULT_WINDOW_SECS)
+        .clamp(60, QUEUE_METRICS_MAX_WINDOW_SECS);
+    Ok(Json(read_queue_metrics_series(&db, window as f64).await?))
+}
+
+#[derive(Serialize)]
+struct QueueTagStatus {
+    tag: String,
+    /// Jobs due for more than 3 seconds that no worker has picked up.
+    waiting: u32,
+    /// How long the job the next pull would take has been waiting, in seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delay: Option<f64>,
+    running: i64,
+    /// Workers that pinged in the last minute and pull this tag.
+    workers: i64,
+}
+
+/// Every tag with jobs waiting or running, read live from the queue. A backlog on a tag no live
+/// worker pulls waits for one to start: a worker group scaling up from zero, or none at all for a
+/// tag nobody serves.
+async fn get_queue_status(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<QueueTagStatus>> {
+    require_devops_role(&db, &authed).await?;
+
+    let backlog = windmill_common::queue::get_queue_stats(&db).await?;
+    let backlog_tags = backlog.keys().cloned().collect::<Vec<_>>();
+    // A job's tag is resolved before it is queued (per-workspace and dedicated worker tags
+    // included), and the pull matches it exactly against the worker's tags, so containment is
+    // exact here too.
+    let rows = sqlx::query!(
+        "WITH running AS (
+            SELECT tag, count(*) AS n FROM v2_job_queue WHERE running = true GROUP BY tag
+        )
+        SELECT t.tag AS \"tag!\", COALESCE(r.n, 0) AS \"running!\",
+            (SELECT count(*) FROM worker_ping w
+                WHERE w.ping_at > now() - interval '1 minute' AND w.custom_tags @> ARRAY[t.tag]
+            ) AS \"workers!\"
+        FROM (SELECT tag::text FROM running UNION SELECT unnest($1::text[])) t(tag)
+        LEFT JOIN running r ON r.tag = t.tag
+        ORDER BY t.tag",
+        &backlog_tags[..],
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|row| {
+                let stat = backlog.get(&row.tag);
+                QueueTagStatus {
+                    waiting: stat.map_or(0, |s| s.count),
+                    delay: stat.map(|s| s.delay),
+                    running: row.running,
+                    workers: row.workers,
+                    tag: row.tag,
+                }
+            })
+            .collect(),
+    ))
 }
 
 async fn get_queue_counts(

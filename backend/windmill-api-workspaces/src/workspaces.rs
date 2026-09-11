@@ -4691,6 +4691,9 @@ async fn edit_guest_access(
     Json(EditGuestAccess { guest_access_enabled }): Json<EditGuestAccess>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+    if guest_access_enabled {
+        windmill_common::workspaces::require_guest_support()?;
+    }
 
     let mut tx = db.begin().await?;
     sqlx::query!(
@@ -4746,6 +4749,11 @@ async fn edit_guest_jwt_key(
         return Err(Error::BadRequest(
             "Set a PEM public key or a JWKS URL, not both".to_string(),
         ));
+    }
+    // Clearing stays allowed wherever guests are: a key nobody can use is still worth
+    // removing.
+    if public_key.is_some() || jwks_url.is_some() {
+        windmill_common::workspaces::require_guest_support()?;
     }
     if let Some(pem) = public_key.as_deref() {
         windmill_common::guest_jwt::decoding_key_from_pem(pem)?;

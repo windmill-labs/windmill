@@ -37,6 +37,7 @@
 	import ToolMessageActions from './ToolMessageActions.svelte'
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
+	import RunScriptCard from './RunScriptCard.svelte'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 
@@ -117,6 +118,10 @@
 		isActiveUserQuestion(message) ? message.userQuestion : undefined
 	)
 
+	// The run card owns this call from the form to whatever settled it, cancelling included:
+	// the card is the call, and a run the user stopped is not a different kind of thing.
+	const isRunCard = $derived(Boolean(message.runForm))
+
 	// The preview chip sits on the header row (to the right of the tool-call text);
 	// shown once the tool settled, never while loading/erroring/awaiting confirmation.
 	const showPreviewChip = $derived(
@@ -140,6 +145,8 @@
 			<span class="text-2xs text-tertiary truncate">{message.toolName}</span>
 		{/if}
 	</div>
+{:else if isRunCard}
+	<RunScriptCard {message} />
 {:else if planState}
 	<!-- Same lean shape as a tool call below: a header row that collapses into the
 	     transcript, with everything else in one box under it. -->

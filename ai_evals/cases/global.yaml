@@ -1974,6 +1974,78 @@
   judgeChecklist:
     - deletes the deployed script via delete_workspace_item rather than a raw API endpoint
 
+- id: global-test33-run-deployed-script-with-form
+  prompt: |-
+    Run the deployed script `f/evals/global/format_greeting` for me with the name "ada".
+  initial: ai_evals/fixtures/frontend/global/initial/format_greeting_script.json
+  runtime:
+    maxTurns: 8
+    # A session chat is where the run card has a preview pane beside it; run_script
+    # itself is offered in every chat.
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - run_script
+      # A draft may declare different arguments than the deployed version being run, so
+      # the names to prefill have to come from the deployed schema.
+      - read_workspace_item
+    forbiddenToolsUsed:
+      - test_run_script
+      - call_api_endpoint
+      - write_script
+      - deploy_workspace_item
+    # An empty form pushes the work back onto the user, so the prefill is part of
+    # what the tool is for.
+    toolCallArgs:
+      - tool: run_script
+        field: args.name
+        stringIncludesAnyOf:
+          - ada
+  # Running produces no draft, and the judge cannot observe runs; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - runs the deployed script through run_script rather than a preview test run or a raw API endpoint
+    - passes the name "ada" so the confirmation form comes up prefilled
+
+- id: global-test34-run-with-secret-from-variable
+  prompt: |-
+    Run the deployed `f/evals/global/billing_sync` for the account `acme` — use the billing
+    API token we already keep in the workspace.
+  initial: ai_evals/fixtures/frontend/global/initial/billing_sync_with_secret_arg.json
+  runtime:
+    maxTurns: 10
+    # A session chat is where the run card has a preview pane beside it; run_script
+    # itself is offered in every chat.
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - run_script
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+    # A secret argument is filled by naming the variable that holds it: the value stays in
+    # the variable and only its path travels. A literal reaches the job as a reference too,
+    # minted on the way in, but it stays in the tool call the model emitted.
+    toolCallArgs:
+      - tool: run_script
+        field: args.api_token
+        stringIncludesAnyOf:
+          - "$var:f/evals/global/stripe_api_token"
+      - tool: run_script
+        field: args.account
+        stringIncludesAnyOf:
+          - acme
+  # Running produces no draft, and the judge cannot observe runs; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - fills the secret argument with a reference to the existing workspace variable rather than a literal token
+    - passes the account "acme"
+    - does not invent or guess the token's value
+
 - id: global-undo-created-draft
   prompt: |-
     Create a draft Postgres resource at `u/admin/scratch_db` for host db.example.com port 5432, database `orders`, user `app`, and tell me what fields it ended up with.

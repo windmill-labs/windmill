@@ -273,3 +273,19 @@ export function findWorkspaceDescendants(
 	collectDescendants(workspaceId)
 	return descendants
 }
+
+/**
+ * Names shared by more than one workspace. Workspace names carry no uniqueness
+ * constraint, and the pickers label every row by name alone: a prod/staging pair
+ * sharing one name renders as two identical rows. Callers show the (unique) id
+ * alongside the name for these.
+ */
+export function ambiguousWorkspaceNames(workspaces: UserWorkspace[] | undefined): Set<string> {
+	const seen = new Set<string>()
+	const ambiguous = new Set<string>()
+	for (const w of workspaces ?? []) {
+		if (seen.has(w.name)) ambiguous.add(w.name)
+		seen.add(w.name)
+	}
+	return ambiguous
+}
