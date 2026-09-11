@@ -17,15 +17,13 @@
 
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import {
-		Auth0Icon,
-		GithubIcon,
-		GitlabIcon,
-		GoogleIcon,
-		MicrosoftIcon,
-		NextcloudIcon,
-		OktaIcon
-	} from '$lib/components/icons'
+	import Auth0Icon from '$lib/components/icons/Auth0Icon.svelte'
+	import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
+	import GitlabIcon from '$lib/components/icons/GitlabIcon.svelte'
+	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
+	import MicrosoftIcon from '$lib/components/icons/MicrosoftIcon.svelte'
+	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
+	import OktaIcon from '$lib/components/icons/OktaIcon.svelte'
 	import PocketIdIcon from '$lib/components/icons/PocketIdIcon.svelte'
 
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'

@@ -561,14 +561,18 @@ export type RunFormDisplay = {
 	/** What the run is, in the card's own words: a deployed script run, or a preview of the
 	 * draft being written. Only the tense of the row's label turns on it. */
 	kind?: 'run' | 'test'
+	/** What is being run, for the noun the card says it in.
+	 * Absent on cards recorded before flows had a form, which were all scripts. */
+	runnableKind?: 'script' | 'flow'
 	/** Of whatever version is about to run: the deployed script, or the draft a test
 	 * previews. Only the rendered form reads it, so it is dropped once one of the flags
 	 * below unmounts that form: kept, every settled card would carry a copy of the schema
 	 * — password and file defaults included — in history forever. */
 	schema?: Record<string, any>
-	/** The draft a test run previews, for the `dynselect-` helper only — a deployed helper
-	 * would answer for the wrong version. Set on a test run alone, and dropped with the
-	 * schema once the form unmounts, so no settled card carries a copy of the code. */
+	/** The script the `dynselect-` helper runs: the draft a script test run previews, since a
+	 * deployed helper would answer for the wrong version, or the one a flow schema carries on
+	 * itself. Dropped with the schema once the form unmounts, so no settled card keeps a copy
+	 * of the code. */
 	code?: string
 	lang?: ScriptLang
 	/** Prefill only: the card's `parameters` records what the job started with. */
@@ -625,6 +629,11 @@ export type ToolDisplayMessage = {
 	autoCollapseDetails?: boolean
 	isStreamingArguments?: boolean
 	toolName?: string
+	/** What marks this row with its provider. Recorded rather than looked up, because the
+	 * server listing lives only in memory and a reloaded transcript does not have it. The
+	 * workspace rides along: a chat is readable from any workspace, and the same path names
+	 * a different server in each. */
+	mcpServer?: { workspace: string; path: string }
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay

@@ -159,3 +159,58 @@ export function main(name: string) {
     assert_eq!(result, json!("hello world"));
     Ok(())
 }
+
+/// A multi-file script run without a lock is bundled by the lockfile build. A pinned import in
+/// a workspace script it imports must be installed at that version and still resolve at run time.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_module_imports_pinned_workspace_script(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query(
+        "INSERT INTO script (workspace_id, created_by, content, schema, summary, description, path, hash, language, lock)
+         VALUES ('test-workspace', 'test-user', $1, '{}', '', '', 'f/system/pinned_module', 12350, 'bun', '')",
+    )
+    .bind(
+        r#"
+import _ from "lodash@4.17.20";
+export function lodashVersion() { return _.VERSION; }
+"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let mut modules = HashMap::new();
+    modules.insert(
+        "helper.ts".to_string(),
+        ScriptModule {
+            content: "export function label(v: string) { return v; }\n".to_string(),
+            language: ScriptLang::Bun,
+            lock: None,
+        },
+    );
+
+    let job = JobPayload::Code(RawCode {
+        content: r#"
+import { lodashVersion } from "/f/system/pinned_module";
+import { label } from "./helper.ts";
+export function main() { return label(lodashVersion()); }
+"#
+        .to_owned(),
+        path: Some("f/system/my_script".to_string()),
+        language: ScriptLang::Bun,
+        modules: Some(modules),
+        tag: None,
+        ..RawCode::default()
+    });
+
+    let result = RunJob::from(job)
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result, json!("4.17.20"));
+    Ok(())
+}

@@ -2271,7 +2271,11 @@ pub(crate) fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
-        .env("GIT_PATH", GIT_PATH.as_str());
+        .env("GIT_PATH", GIT_PATH.as_str())
+        // dbt reports anonymous usage to dbt Labs from every invocation unless told
+        // not to, and a project's `flags:` block cannot override the variable. Set
+        // before the project's environment so a descriptor can still opt back in.
+        .env("DBT_SEND_ANONYMOUS_USAGE_STATS", "false");
     // Both environments belong to the child. Under a sandbox they reach it through
     // the jail profile instead: set here, they would reach the dynamic loader that
     // execs nsjail itself, so an `LD_PRELOAD` from the project would run as the
