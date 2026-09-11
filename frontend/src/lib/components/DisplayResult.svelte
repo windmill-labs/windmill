@@ -58,7 +58,8 @@
 	import type { MarkupTrust } from './apps/markupTrust'
 	import AgentResultDisplay from './AgentResultDisplay.svelte'
 	import AgentStreamDisplay from './AgentStreamDisplay.svelte'
-	import { isAgentStream, parseAgentResult } from './aiAgentResult'
+	import AgentTranscript from './AgentTranscript.svelte'
+	import { isAgentStream, parseAgentErrorMessages, parseAgentResult } from './aiAgentResult'
 
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
@@ -165,6 +166,8 @@
 	let s3FileDisplayRawMode = $state(false)
 	/** Which half of an agent result is showing; JSON is `forceJson`, as for any kind. */
 	let agentView: 'answer' | 'transcript' = $state('answer')
+	/** The partial conversation a max-iterations failure carries, if this is one. */
+	let agentErrorMessages = $derived(parseAgentErrorMessages(result))
 
 	// Build the image/PDF source URL for an S3 object. When `appPath` is set
 	// (deployed app view) the read is authorized on-behalf of the app author via
@@ -1019,6 +1022,16 @@
 						{/if}
 						{@render children?.()}
 					</div>
+					{#if agentErrorMessages}
+						<!-- A run stopped by max_iterations fails, so the error above is what it
+						     returned. The conversation it got through rides inside that error and
+						     is the whole reason to look at such a run, so it is added under the
+						     error rather than replacing it. -->
+						<div class="flex flex-col gap-1 pt-4 w-full min-w-0">
+							<span class="text-emphasis text-xs font-semibold">Transcript</span>
+							<AgentTranscript messages={agentErrorMessages} {workspaceId} />
+						</div>
+					{/if}
 					{#if !isTest && language === 'bun'}
 						<div class="pt-20"></div>
 						<Alert size="xs" type="info" title="Seeing an odd error?">
