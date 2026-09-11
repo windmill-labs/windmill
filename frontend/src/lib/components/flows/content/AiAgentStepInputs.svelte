@@ -15,10 +15,20 @@
 			openFieldsByStep.delete(oldest)
 		}
 	}
+
+	/**
+	 * The rows this step's form has open, for the run form, which has no add-field control of its
+	 * own and would otherwise not offer a field that was added here and left at its default: to a
+	 * reader of the stored transforms alone, that is indistinguishable from a field nobody touched.
+	 */
+	export function openAgentFields(key: string | undefined): string[] {
+		return (key ? openFieldsByStep.get(key) : undefined) ?? []
+	}
 </script>
 
 <script lang="ts">
 	import type { Schema } from '$lib/common'
+	import { deepEqual } from 'fast-equals'
 	import { type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
@@ -36,7 +46,7 @@
 	import { Plus, X } from 'lucide-svelte'
 	import type { PickableProperties } from '../previousResults'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
-	import type { AgentTool } from '../agentToolUtils'
+	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
 	import {
 		AGENT_FIELDS,
 		AGENT_FIELD_GROUPS,
@@ -152,6 +162,27 @@
 	let fieldAiEnabled = $derived(enableAi && !staticOnly && !noJavascript)
 
 	let schemaProperties = $derived((schema?.properties ?? {}) as Record<string, any>)
+
+	// Offer the agent's own tools as the choices for `enabled_tools`, rather than asking for names
+	// to be typed. Written into the schema because that is where `InputTransformForm` reads a
+	// field's shape from; `flowInfers` hands every step its own copy, so this stays this step's.
+	// A linked step gets the resource's roster here, which is the one it narrows.
+	$effect(() => {
+		// By the name the roster shows, not the summary alone: an MCP entry is added without one and
+		// displays as its resource path, so keying on `summary` would leave a whole server with no
+		// name to pick. `narrow_roster` matches that path for the same reason.
+		const names = tools
+			.map((tool) => toolDisplayName(tool))
+			.filter((name): name is string => !!name)
+		const properties = schemaProperties
+		untrack(() => {
+			const list = properties['enabled_tools']?.oneOf?.find((variant) => variant.title === 'only')
+				?.properties?.tools
+			if (list && !deepEqual(list.items?.enum, names)) {
+				list.items = { ...(list.items ?? { type: 'string' }), enum: names }
+			}
+		})
+	})
 
 	let scopedFields = $derived(
 		AGENT_FIELDS.filter(

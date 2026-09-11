@@ -1068,6 +1068,16 @@ components:
                 Array of file references (images or PDFs) for the AI agent.
                 Format: Array<{ bucket: string, key: string }> - S3 object references
                 Example: [{ bucket: 'my-bucket', key: 'documents/report.pdf' }]
+            enabled_tools:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Which of the tools configured in `tools` the agent may call this run, as a tagged
+                object: { kind: 'all' } carries every one of them, as leaving this unset does, and
+                { kind: 'only', tools: [...] } carries only the ones named — none when that list is
+                empty. Tools are named as the model is shown them, so an MCP tool is
+                `mcp_<server>_<tool>`; naming the MCP server instead enables every tool it exposes.
+                Example: { kind: 'only', tools: ['get_user', 'send_email'] }
             max_completion_tokens:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
@@ -1115,7 +1125,7 @@ components:
             Path of a reusable `ai_agent` resource (hybrid linking). When set, the agent brain
             config (provider/model/system prompt/etc.) and tool set are resolved at runtime from
             that resource; the module's input_transforms then only carry the flow-local inputs
-            (user_message/user_attachments).
+            (user_message/user_attachments/enabled_tools).
         tool_inputs:
           type: object
           description: |

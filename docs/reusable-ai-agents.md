@@ -16,8 +16,11 @@ every workspace via the standard cached-resource-type sync, like other built-in 
 - The brain config and tools are resolved at runtime from the resource
   (`windmill-worker/src/ai_executor.rs`): the brain is interpolated, so a nested provider `$res:`
   credential resolves automatically.
-- The step keeps only the flow-local inputs (`user_message`, `user_attachments`) in its own
-  `input_transforms`; the brain and tools stay in the resource (read-only in the step).
+- The step keeps only the flow-local inputs (`user_message`, `user_attachments`, `enabled_tools`)
+  in its own `input_transforms`; the brain and tools stay in the resource (read-only in the step).
+  `enabled_tools` says which of the roster this step may call, narrowing one use of a shared agent
+  without touching the agent: `{kind: 'all'}` as an absent field does, `{kind: 'only', tools: [...]}`
+  for a list, tagged like `memory` so the form reads it the same way.
 - The agent carries its tools' default input bindings verbatim as authored (static, AI-filled,
   or flow expressions), so saving round-trips losslessly. Each host flow overrides what it
   needs: `tool_inputs` stores per-tool overrides (a diff from the resource tool's own
@@ -45,7 +48,7 @@ A flow does not wait for that deploy to see the draft:
 - Testing the flow, or a single linked step, runs the draft. `runFlowPreview` and `ModuleTest`
   substitute each linked step for the standalone step the draft would run as
   (`linkedAgentDrafts.ts`): `agent` cleared, the draft's brain as static input transforms, the
-  draft's tools on the step, and the step's own `user_message`/`user_attachments` kept on top —
+  draft's tools on the step, and the step's own flow-local inputs kept on top —
   the same overlay order `ai_executor.rs` applies to a linked step. `tool_inputs` is untouched,
   since the worker overlays it in both branches.
 - The step's linked card and the graph's tool nodes show the draft, with a *Draft* badge, so the

@@ -26,6 +26,11 @@ use windmill_queue::{flow_status::get_step_of_flow_status, MiniPulledJob};
 
 use crate::parse_sig_of_lang;
 
+/// What every tool an MCP server exposes is advertised under, ahead of the server and tool names
+/// (`convert_mcp_tools_to_windmill_tools`). Outside the `mcp` gate: a run narrowing its tools reads
+/// it to tell a name that could belong to a server from one that could not.
+pub const MCP_TOOL_NAME_PREFIX: &str = "mcp_";
+
 pub async fn parse_raw_script_schema(
     content: &str,
     language: &ScriptLang,
@@ -377,7 +382,10 @@ fn convert_mcp_tools_to_windmill_tools(
         .iter()
         .map(|mcp_tool| {
             let sanitized_resource_name = sanitize_tool_name_part(resource_name);
-            let tool_name = format!("mcp_{}_{}", sanitized_resource_name, mcp_tool.name);
+            let tool_name = format!(
+                "{}{}_{}",
+                MCP_TOOL_NAME_PREFIX, sanitized_resource_name, mcp_tool.name
+            );
 
             let mut schema_value = serde_json::to_value(&*mcp_tool.input_schema)
                 .context("Failed to convert MCP schema to JSON value")?;

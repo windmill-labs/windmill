@@ -151,6 +151,48 @@ export const AI_AGENT_SCHEMA: Schema = {
 				resourceType: 's3object'
 			}
 		},
+		// Tagged like `memory` so the form reads the same way: the variant says whether a run carries
+		// the whole roster or a list, and an empty list under `only` is a choice rather than a field
+		// nobody filled in. The step's own roster fills the list's `items.enum` in, so the static
+		// editor offers the tools this agent actually has (`AiAgentStepInputs`).
+		// Shown for image output as the roster it narrows is, even though neither is used there.
+		enabled_tools: {
+			type: 'object',
+			description: 'Which of the agent tools a run may call.',
+			oneOf: [
+				{
+					type: 'object',
+					title: 'all',
+					properties: {
+						kind: {
+							type: 'string',
+							enum: ['all'],
+							description: 'Carry every tool the agent has'
+						}
+					}
+				},
+				{
+					type: 'object',
+					title: 'only',
+					properties: {
+						kind: {
+							type: 'string',
+							enum: ['only'],
+							description: 'Carry only the tools listed'
+						},
+						tools: {
+							type: 'array',
+							description:
+								'Tools by the name the model is shown. An MCP server enables every tool it exposes.',
+							items: {
+								type: 'string'
+							}
+						}
+					},
+					required: ['kind']
+				}
+			]
+		},
 		max_completion_tokens: {
 			type: 'number',
 			description: 'The most tokens the answer may use.'
@@ -178,6 +220,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 		'memory',
 		'output_schema',
 		'user_attachments',
+		'enabled_tools',
 		'max_completion_tokens',
 		'temperature',
 		'max_iterations'
@@ -291,7 +334,10 @@ export async function loadSchemaFromModule(
 				}
 				return accu
 			}, {}),
-			schema: AI_AGENT_SCHEMA
+			// A copy per step, never the shared constant: the form writes back into the property it
+			// renders (`InputTransformForm` binds `schema.properties[argName]`), and the tool names
+			// one step offers would otherwise become every step's.
+			schema: structuredClone(AI_AGENT_SCHEMA)
 		}
 	}
 

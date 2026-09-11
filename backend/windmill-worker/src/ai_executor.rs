@@ -4,7 +4,7 @@ use crate::ai::utils::{
     filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
     get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, load_mcp_tools,
     parse_raw_script_schema, update_flow_status_module_with_actions,
-    update_flow_status_module_with_actions_success,
+    update_flow_status_module_with_actions_success, MCP_TOOL_NAME_PREFIX,
 };
 use crate::memory_oss::{read_from_memory, write_to_memory};
 use crate::worker_flow::{get_previous_job_result, get_transform_context};
@@ -12,7 +12,10 @@ use async_recursion::async_recursion;
 use regex::Regex;
 use serde_json::value::RawValue;
 use sha2::Digest;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use uuid::Uuid;
 #[cfg(feature = "bedrock")]
 use windmill_ai::ai_bedrock::check_env_credentials;
@@ -49,7 +52,7 @@ use windmill_common::{
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, Connection},
 };
-use windmill_queue::{cancel_single_job, CanceledBy, MiniPulledJob};
+use windmill_queue::{append_logs, cancel_single_job, CanceledBy, MiniPulledJob};
 
 use crate::{
     ai::stream_event_processor::StreamEventProcessor,
@@ -243,6 +246,106 @@ fn overlay_tool_inputs(
     }
 }
 
+/// The roster a run advertises, given the tool names it enabled, plus the resource paths of the
+/// MCP entries it named outright — those enable every tool of that server, which only
+/// `load_mcp_tools` can enumerate.
+///
+/// `None` advertises the whole roster, which is what every agent written before the field existed
+/// relies on; an empty list advertises nothing.
+///
+/// An MCP entry the run did not name survives only while some enabled name could still turn out to
+/// be one of its tools, i.e. carries the `mcp_` prefix every one of them is advertised under. A
+/// server nothing can match is dropped here rather than after `load_mcp_tools`: resolving one reads
+/// its resource, refreshes its token and opens a client, each of which can fail the whole run — a
+/// run that switched that server off must not be brought down by it.
+fn narrow_roster(
+    tools: Vec<AgentTool>,
+    enabled_tools: Option<&[String]>,
+) -> (Vec<AgentTool>, HashSet<String>) {
+    let Some(enabled) = enabled_tools else {
+        return (tools, HashSet::new());
+    };
+    let names_a_server_tool = enabled.iter().any(|n| n.starts_with(MCP_TOOL_NAME_PREFIX));
+    let mut enabled_mcp_paths = HashSet::new();
+    let tools = tools
+        .into_iter()
+        .filter(|t| {
+            let named = t
+                .summary
+                .as_deref()
+                .is_some_and(|s| enabled.iter().any(|n| n == s));
+            match &t.value {
+                ToolValue::Mcp(mcp) => {
+                    // An MCP entry is added with no summary and the roster displays it by its
+                    // resource path, so that path is the only name the form can offer for it. Match
+                    // it too, or naming one tool would be the sole way to keep a whole server.
+                    let path = mcp.resource_path.trim_start_matches("$res:");
+                    let named = named || enabled.iter().any(|n| n == path);
+                    if named {
+                        enabled_mcp_paths.insert(path.to_string());
+                    }
+                    named || names_a_server_tool
+                }
+                _ => named,
+            }
+        })
+        .collect();
+    (tools, enabled_mcp_paths)
+}
+
+/// Whether a tool an MCP server exposes is advertised: the run named it directly, or named the
+/// server entry it came from.
+///
+/// The two sides of that second test are different types — a roster entry's `resource_path` and the
+/// `McpToolSource` the loader builds — so they are matched on the string both strip to
+/// (`ai/utils.rs`). Getting that wrong advertises nothing and says nothing, which is why it is
+/// pinned by a test rather than left inline.
+fn mcp_tool_enabled(tool: &Tool, enabled: &[String], enabled_mcp_paths: &HashSet<String>) -> bool {
+    let Some(source) = &tool.mcp_source else {
+        // A Windmill tool, already settled by `narrow_roster`.
+        return true;
+    };
+    enabled.iter().any(|n| n == &tool.def.function.name)
+        || enabled_mcp_paths.contains(&source.resource_path)
+}
+
+/// How many unmatched names are worth naming in the log. The list is an input transform, so its
+/// length is the flow author's to choose; the log line exists to point at a typo, and the count
+/// carries the rest.
+const MAX_LOGGED_UNMATCHED_TOOLS: usize = 20;
+
+/// The log line for names in `enabled_tools` that name nothing on the agent, if any. The list can
+/// be computed per run, so a name that has since been renamed away must not fail the step — but it
+/// would otherwise silently narrow the agent, so the run says what it dropped.
+fn unmatched_enabled_tools_message(
+    enabled_tools: &[String],
+    advertised: &[&str],
+) -> Option<String> {
+    let unmatched: Vec<&str> = enabled_tools
+        .iter()
+        .map(|name| name.as_str())
+        .filter(|name| !advertised.contains(name))
+        .collect();
+    if unmatched.is_empty() {
+        return None;
+    }
+    let shown = unmatched
+        .iter()
+        .take(MAX_LOGGED_UNMATCHED_TOOLS)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let rest = unmatched.len().saturating_sub(MAX_LOGGED_UNMATCHED_TOOLS);
+    let suffix = if rest > 0 {
+        format!(" and {rest} more")
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "--- ENABLED TOOLS: {shown}{suffix} named no tool of this agent and had no effect ---\n"
+    ))
+}
+
 pub async fn handle_ai_agent_job(
     // connection
     conn: &Connection,
@@ -378,9 +481,10 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    // A linked step takes its brain and tools from the resource and keeps only the flow-local
-    // inputs (user_message/user_attachments) of its own; both stay rigid, so the one thing it may
-    // bind to this flow is the tools' inputs, overlaid from `tool_inputs` below.
+    // A linked step takes its brain and tools from the resource and keeps only its own flow-local
+    // inputs. The brain and the roster stay rigid; what the step binds to this flow is the message
+    // it asks, which of those tools this use may call, the conversation it is part of, and the
+    // tools' own inputs — the last overlaid from `tool_inputs` below.
     let (args, tools): (AIAgentArgs, Vec<AgentTool>) = if let Some(agent_ref) = agent.as_deref() {
         let agent_path = agent_ref
             .trim_start_matches("$res:")
@@ -434,7 +538,7 @@ pub async fn handle_ai_agent_job(
         // Only after interpolating the resource: these are caller-controlled and already resolved by
         // build_args_map, so passing them through it again would expand contextual values —
         // `$WM_TOKEN` in a user message would reach the model provider.
-        for key in ["user_message", "user_attachments"] {
+        for key in ["user_message", "user_attachments", "enabled_tools"] {
             if let Some(v) = local_args.get(key) {
                 brain.insert(
                     key.to_string(),
@@ -476,6 +580,16 @@ pub async fn handle_ai_agent_job(
     } else {
         tools
     };
+
+    // Narrow the roster to the tools this run enabled, before the loop below pays a script or hub
+    // fetch per tool. Everything downstream works on the names alone: `All` and an absent field
+    // are the same run.
+    let enabled_tools = match args.enabled_tools.as_ref() {
+        Some(EnabledTools::Only { tools }) => Some(tools.as_slice()),
+        Some(EnabledTools::All) | None => None,
+    };
+    let roster_names: Vec<String> = tools.iter().filter_map(|t| t.summary.clone()).collect();
+    let (tools, enabled_mcp_paths) = narrow_roster(tools, enabled_tools);
 
     // Separate Windmill tools from MCP tools, websearch, and extract MCP resource configs
     let mut windmill_modules: Vec<FlowModule> = Vec::new();
@@ -686,6 +800,30 @@ pub async fn handle_ai_agent_job(
     } else {
         HashMap::new()
     };
+
+    if let Some(enabled) = enabled_tools {
+        // The other half of the narrowing above, now that the servers kept by it have answered.
+        tools.retain(|t| mcp_tool_enabled(t, enabled, &enabled_mcp_paths));
+        let mut matchable: Vec<&str> = roster_names.iter().map(|s| s.as_str()).collect();
+        matchable.extend(
+            tools
+                .iter()
+                .filter(|t| t.mcp_source.is_some())
+                .map(|t| t.def.function.name.as_str()),
+        );
+        windmill_common::feature_usage::log_feature_usage(
+            "ai_agent",
+            "dynamic_tools",
+            if tools.is_empty() && !has_websearch {
+                "no_tools"
+            } else {
+                "tools"
+            },
+        );
+        if let Some(message) = unmatched_enabled_tools_message(enabled, &matchable) {
+            append_logs(&job.id, &job.workspace_id, message, conn).await;
+        }
+    }
 
     let mut inner_occupancy_metrics = occupancy_metrics.clone();
 
@@ -1843,6 +1981,136 @@ mod tests {
         );
         // MCP tool: not a FlowModule, left as-is.
         assert!(matches!(&tools[2].value, ToolValue::Mcp(_)));
+    }
+
+    #[test]
+    fn narrow_roster_keeps_named_tools_and_defers_mcp() {
+        fn named(id: &str, summary: &str) -> AgentTool {
+            AgentTool {
+                id: id.to_string(),
+                summary: Some(summary.to_string()),
+                description: None,
+                value: ToolValue::FlowModule(FlowModuleValue::Script {
+                    input_transforms: HashMap::new(),
+                    path: "u/test/tool".to_string(),
+                    hash: None,
+                    tag_override: None,
+                    is_trigger: None,
+                    pass_flow_input_directly: None,
+                }),
+            }
+        }
+        fn mcp(id: &str, summary: &str, path: &str) -> AgentTool {
+            AgentTool {
+                id: id.to_string(),
+                summary: Some(summary.to_string()),
+                description: None,
+                value: ToolValue::Mcp(windmill_common::flows::McpToolValue {
+                    resource_path: path.to_string(),
+                    include_tools: vec![],
+                    exclude_tools: vec![],
+                }),
+            }
+        }
+        let roster = || {
+            vec![
+                named("a", "get_user"),
+                named("b", "send_email"),
+                mcp("c", "github", "$res:u/test/gh"),
+            ]
+        };
+        let names = |tools: &[AgentTool]| -> Vec<String> {
+            tools.iter().filter_map(|t| t.summary.clone()).collect()
+        };
+
+        // No list at all: the whole roster, as every agent written before the field expects.
+        let (all, paths) = narrow_roster(roster(), None);
+        assert_eq!(names(&all), ["get_user", "send_email", "github"]);
+        assert!(paths.is_empty());
+
+        // An empty list is a list: nothing is advertised, and no server is resolved to find that
+        // out — one that is down must not fail a run that switched it off.
+        let (none, paths) = narrow_roster(roster(), Some(&[]));
+        assert!(names(&none).is_empty());
+        assert!(paths.is_empty());
+
+        let enabled = ["get_user".to_string(), "renamed_away".to_string()];
+        let (kept, paths) = narrow_roster(roster(), Some(&enabled));
+        assert_eq!(names(&kept), ["get_user"]);
+        assert!(paths.is_empty());
+        assert_eq!(
+            unmatched_enabled_tools_message(&enabled, &["get_user", "send_email", "github"])
+                .unwrap(),
+            "--- ENABLED TOOLS: renamed_away named no tool of this agent and had no effect ---\n"
+        );
+
+        // Naming the entry enables every tool of that server, keyed by the path load_mcp_tools uses.
+        let (kept, paths) = narrow_roster(roster(), Some(&["github".to_string()]));
+        assert_eq!(names(&kept), ["github"]);
+        assert_eq!(paths.into_iter().collect::<Vec<_>>(), ["u/test/gh"]);
+
+        // A name that could only be one of a server's own tools keeps every server in, since which
+        // one it belongs to is not knowable until they answer.
+        let (kept, paths) = narrow_roster(roster(), Some(&["mcp_github_create_issue".to_string()]));
+        assert_eq!(names(&kept), ["github"]);
+        assert!(paths.is_empty());
+
+        // An MCP entry is added with no summary, and the form offers it by the path the roster
+        // displays it as. Without this the only way to keep such a server would be naming one of
+        // the tools it has not been asked for yet.
+        let unnamed = || {
+            vec![AgentTool {
+                summary: None,
+                ..mcp("c", "github", "$res:u/test/gh")
+            }]
+        };
+        let (kept, paths) = narrow_roster(unnamed(), Some(&["u/test/gh".to_string()]));
+        assert_eq!(kept.len(), 1);
+        assert_eq!(paths.into_iter().collect::<Vec<_>>(), ["u/test/gh"]);
+        let (dropped, paths) = narrow_roster(unnamed(), Some(&["u/test/other".to_string()]));
+        assert!(dropped.is_empty());
+        assert!(paths.is_empty());
+    }
+
+    /// The two sides of the server-entry match are different types, and getting it wrong advertises
+    /// nothing and says nothing.
+    #[test]
+    fn mcp_tools_match_their_own_name_or_their_server_entry() {
+        fn mcp_tool(name: &str, resource_path: &str) -> Tool {
+            Tool {
+                def: ToolDef {
+                    r#type: "function".to_string(),
+                    function: ToolDefFunction {
+                        name: name.to_string(),
+                        description: None,
+                        parameters: to_raw_value(&serde_json::json!({})),
+                    },
+                },
+                module: None,
+                mcp_source: Some(McpToolSource {
+                    name: "github".to_string(),
+                    tool_name: name.to_string(),
+                    resource_path: resource_path.to_string(),
+                }),
+            }
+        }
+        let create = mcp_tool("mcp_github_create_issue", "u/test/gh");
+        let list = mcp_tool("mcp_github_list_issues", "u/test/gh");
+
+        // Named directly: that tool only.
+        let enabled = ["mcp_github_create_issue".to_string()];
+        assert!(mcp_tool_enabled(&create, &enabled, &HashSet::new()));
+        assert!(!mcp_tool_enabled(&list, &enabled, &HashSet::new()));
+
+        // The server entry named instead: everything it exposes, whatever the names turned out to be.
+        let paths = HashSet::from(["u/test/gh".to_string()]);
+        assert!(mcp_tool_enabled(&create, &[], &paths));
+        assert!(mcp_tool_enabled(&list, &[], &paths));
+        assert!(!mcp_tool_enabled(
+            &mcp_tool("mcp_gitlab_list_issues", "u/test/gl"),
+            &[],
+            &paths
+        ));
     }
 
     #[test]

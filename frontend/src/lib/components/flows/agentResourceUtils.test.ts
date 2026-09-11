@@ -143,16 +143,20 @@ describe('nonStaticBrainKeys', () => {
 })
 
 describe('flowLocalInputs', () => {
-	it('keeps only user_message/user_attachments, dropping brain transforms', () => {
+	it('keeps the step’s own inputs, dropping brain transforms', () => {
 		expect(
 			flowLocalInputs({
 				provider: { type: 'static', value: {} },
 				user_message: { type: 'static', value: 'hi' },
-				user_attachments: { type: 'static', value: [] }
+				user_attachments: { type: 'static', value: [] },
+				// The roster it narrows belongs to the agent, but which of it one flow may call does
+				// not: saving this into the resource would impose it on every flow linking the agent.
+				enabled_tools: { type: 'javascript', expr: 'flow_input.tools' }
 			} as any)
 		).toEqual({
 			user_message: { type: 'static', value: 'hi' },
-			user_attachments: { type: 'static', value: [] }
+			user_attachments: { type: 'static', value: [] },
+			enabled_tools: { type: 'javascript', expr: 'flow_input.tools' }
 		})
 	})
 
