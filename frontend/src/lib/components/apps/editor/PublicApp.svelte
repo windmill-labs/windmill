@@ -57,6 +57,10 @@
 	// Use workspace from props or from app.workspace_id (for custom path responses)
 	let effectiveWorkspace = $derived(workspace ?? app?.workspace_id)
 
+	// The setting lives on the app, so the badge waits for it while loading
+	// instead of flashing on an app that hides it.
+	let showLoginStatus = $derived(app ? !app.policy?.hide_login_status : notExists || noPermission)
+
 	// On the public surfaces (untrusted distribution) runnable-authored html/svg needs
 	// the viewer's approval before it renders, unless the app sandbox isolates it. The
 	// in-workspace viewer renders it verbatim. See getAppMarkupTrust.
@@ -117,13 +121,15 @@
 		<div class="flex gap-1 items-center"><User size={14} />{child}</div>
 	{/snippet}
 
-	<div class="z-50 text-2xs text-primary absolute top-3 left-2"
-		>{#if $userStore}
-			{@render userInfo($userStore.username)}
-		{:else if globalUser}
-			{@render userInfo(globalUser.email)}
-		{:else}<UserRoundX size={14} />{/if}
-	</div>
+	{#if showLoginStatus}
+		<div class="z-50 text-2xs text-primary absolute top-3 left-2"
+			>{#if $userStore}
+				{@render userInfo($userStore.username)}
+			{:else if globalUser}
+				{@render userInfo(globalUser.email)}
+			{:else}<UserRoundX size={14} />{/if}
+		</div>
+	{/if}
 {/if}
 
 {#if notExists}
