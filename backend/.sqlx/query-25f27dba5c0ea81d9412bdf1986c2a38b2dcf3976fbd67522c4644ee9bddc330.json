@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE cloud_trial_offer SET consumed_at = now() WHERE email = $1 AND consumed_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "25f27dba5c0ea81d9412bdf1986c2a38b2dcf3976fbd67522c4644ee9bddc330"
+}

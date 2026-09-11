@@ -46,7 +46,7 @@ use tracing::Instrument;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
-use windmill_common::auth::{safe_token_prefix, TOKEN_PREFIX_LEN};
+use windmill_common::auth::{hash_token, safe_token_prefix, TOKEN_PREFIX_LEN};
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::per_minute_counter::PerMinuteCounter;
@@ -140,6 +140,16 @@ pub fn global_service() -> Router {
         )
         .route("/tokens/list", get(list_tokens))
         .route("/tokens/impersonate", post(impersonate))
+        .route("/login_links", post(create_login_link))
+        .route(
+            "/cloud_trial_offer",
+            post(set_cloud_trial_offer).get(get_cloud_trial_offer),
+        )
+        .route("/cloud_trial_offer/go", post(go_cloud_trial_offer))
+        .route(
+            "/onboarding_profile",
+            post(set_onboarding_profile).get(get_onboarding_profile),
+        )
         .route("/usage", get(get_usage))
         .route("/all_runnables", get(get_all_runnables))
         .route("/refresh_token", get(refresh_token))
@@ -158,6 +168,7 @@ pub fn make_unauthed_service() -> Router {
         .route("/logout", post(logout).get(logout))
         .route("/is_first_time_setup", get(is_first_time_setup))
         .route("/request_password_reset", post(request_password_reset))
+        .route("/login_link/{token}", get(consume_login_link))
         .route("/is_smtp_configured", get(is_smtp_configured))
         .route(
             "/is_password_login_disabled",
@@ -255,11 +266,14 @@ pub struct WorkspaceInvite {
 #[derive(Deserialize)]
 pub struct NewUser {
     pub email: String,
-    pub password: String,
+    /// Required when `login_type` is `password` (the default), ignored otherwise.
+    pub password: Option<String>,
     pub super_admin: bool,
     pub name: Option<String>,
     pub company: Option<String>,
     pub skip_email: Option<bool>,
+    /// `password`, `pending_oauth`, or a configured OAuth login client key.
+    pub login_type: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -3159,6 +3173,503 @@ async fn impersonate(
     Ok((StatusCode::CREATED, token))
 }
 
+const LOGIN_LINK_DEFAULT_TTL_S: u32 = 600;
+const LOGIN_LINK_MAX_TTL_S: u32 = 900;
+const LOGIN_LINK_DEFAULT_RD: &str = "/user/workspaces";
+const LOGIN_LINK_EXPIRED_PAGE: &str = "/user/login_link_expired";
+
+#[derive(Deserialize)]
+pub struct NewLoginLink {
+    pub email: String,
+    pub expires_in_s: Option<u32>,
+    pub rd: Option<String>,
+    /// Refuse to mint unless the account still has this login type: a caller re-entering an
+    /// account it created can require `pending_oauth`, so the link stops working once the
+    /// owner has set a password or signed in with a provider.
+    pub require_login_type: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct LoginLink {
+    pub url: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// A post-login destination is only ever a same-origin path: anything else would hand the
+/// fresh session's first navigation to another host. Control characters are refused because
+/// browsers strip tab/newline from a `Location` before parsing it, so `/\t/host` reads as
+/// the protocol-relative `//host`.
+fn same_origin_rd(rd: Option<String>) -> Option<String> {
+    rd.filter(|r| {
+        r.starts_with('/')
+            && !r.starts_with("//")
+            && !r.contains('\\')
+            && !r.chars().any(|c| c.is_ascii_control())
+    })
+}
+
+#[cfg(test)]
+mod same_origin_rd_tests {
+    use super::same_origin_rd;
+
+    fn accepts(rd: &str) -> bool {
+        same_origin_rd(Some(rd.to_string())).is_some()
+    }
+
+    #[test]
+    fn only_plain_same_origin_paths_pass() {
+        assert!(accepts("/"));
+        assert!(accepts("/user/workspaces?rd=%2Fx"));
+        assert!(!accepts("https://evil.example/"));
+        assert!(!accepts("//evil.example/"));
+        assert!(!accepts("/\\evil.example/"));
+        assert!(!accepts("/\t/evil.example/"));
+        assert!(!accepts("/x\r\nSet-Cookie: a=b"));
+        assert!(!accepts("user/workspaces"));
+    }
+}
+
+/// Both provisioning writes reference `password(email)`; a typo'd address from the
+/// provisioning script should read as "no such account", not as a foreign-key error.
+async fn require_account(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, email: &str) -> Result<()> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1)",
+        email
+    )
+    .fetch_one(&mut **tx)
+    .await?
+    .unwrap_or(false);
+    if !exists {
+        return Err(Error::NotFound(format!("no account for {email}")));
+    }
+    Ok(())
+}
+
+fn login_link_redirect(location: String) -> Response {
+    (
+        StatusCode::FOUND,
+        [
+            ("location", location),
+            ("referrer-policy", "no-referrer".to_string()),
+        ],
+    )
+        .into_response()
+}
+
+/// Mint a single-use link that signs `email` in when opened. The row is not a `token`:
+/// it can only ever become a session, and burning it needs no cache invalidation.
+async fn create_login_link(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
+    Json(nl): Json<NewLoginLink>,
+) -> Result<(StatusCode, Json<LoginLink>)> {
+    require_super_admin(&db, &authed).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+
+    let email = nl.email.to_lowercase();
+    let rd = match nl.rd {
+        Some(rd) => Some(same_origin_rd(Some(rd)).ok_or_else(|| {
+            Error::BadRequest("rd must be a same-origin path starting with /".to_string())
+        })?),
+        None => None,
+    };
+    let ttl = nl
+        .expires_in_s
+        .unwrap_or(LOGIN_LINK_DEFAULT_TTL_S)
+        .clamp(1, LOGIN_LINK_MAX_TTL_S);
+
+    let mut tx = db.begin().await?;
+    let target = sqlx::query!(
+        "SELECT super_admin, devops, login_type FROM password WHERE email = $1 AND disabled = false",
+        &email
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(target) = target else {
+        return Err(Error::NotFound(format!("no active account for {email}")));
+    };
+    // A link is a full session for its account; whoever holds the minting credential
+    // must not be able to turn it into an instance-wide role.
+    if target.super_admin || target.devops {
+        return Err(Error::BadRequest(
+            "login links cannot target superadmin or devops accounts".to_string(),
+        ));
+    }
+    if let Some(required) = nl.require_login_type.as_deref() {
+        if target.login_type != required {
+            return Err(Error::Generic(
+                StatusCode::CONFLICT,
+                format!(
+                    "login_type_mismatch: {email} signs in with {}, not {required}",
+                    target.login_type
+                ),
+            ));
+        }
+    }
+
+    let token = rd_string(32);
+    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(ttl as i64);
+    sqlx::query!(
+        "INSERT INTO login_link (token_hash, email, rd, expiration, created_by)
+         VALUES ($1, $2, $3, $4, $5)",
+        hash_token(&token),
+        &email,
+        rd,
+        expires_at,
+        &authed.email,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.login_link.create",
+        ActionKind::Create,
+        "global",
+        Some(&email),
+        Some([("expires_in_s", &ttl.to_string()[..])].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    let url = format!(
+        "{}/api/auth/login_link/{}",
+        (**BASE_URL.load()).clone(),
+        token
+    );
+    Ok((StatusCode::CREATED, Json(LoginLink { url, expires_at })))
+}
+
+#[derive(Deserialize)]
+pub struct CloudTrialOfferUpdate {
+    pub email: String,
+    #[serde(default)]
+    pub consumed: bool,
+}
+
+#[derive(Deserialize)]
+pub struct OnboardingProfileUpdate {
+    pub email: String,
+    pub profile: serde_json::Value,
+}
+
+#[derive(Serialize)]
+pub struct OnboardingProfile {
+    pub profile: Option<serde_json::Value>,
+}
+
+/// Context the invite carried about this account's owner, written at provisioning.
+/// Onboarding tailors itself from it (today: `touch_point` answers the source question
+/// so it is never asked); everything degrades to the plain flow when absent.
+async fn set_onboarding_profile(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
+    Json(body): Json<OnboardingProfileUpdate>,
+) -> Result<String> {
+    if !*CLOUD_HOSTED {
+        return Err(Error::NotFound("cloud only".to_string()));
+    }
+    require_super_admin(&db, &authed).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+    if !body.profile.is_object() {
+        return Err(Error::BadRequest(
+            "profile must be a JSON object".to_string(),
+        ));
+    }
+    let email = body.email.to_lowercase();
+    let mut tx = db.begin().await?;
+    require_account(&mut tx, &email).await?;
+    sqlx::query!(
+        "INSERT INTO cloud_onboarding_profile (email, profile, created_by) VALUES ($1, $2, $3)
+         ON CONFLICT (email) DO UPDATE SET profile = EXCLUDED.profile",
+        &email,
+        body.profile,
+        &authed.email
+    )
+    .execute(&mut *tx)
+    .await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.onboarding_profile.set",
+        ActionKind::Update,
+        "global",
+        Some(&email),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!("onboarding profile for {email} recorded"))
+}
+
+async fn get_onboarding_profile(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<OnboardingProfile> {
+    if !*CLOUD_HOSTED {
+        return Ok(Json(OnboardingProfile { profile: None }));
+    }
+    let profile = sqlx::query_scalar!(
+        "SELECT profile FROM cloud_onboarding_profile WHERE email = $1",
+        &authed.email
+    )
+    .fetch_optional(&db)
+    .await?;
+    Ok(Json(OnboardingProfile { profile }))
+}
+
+#[derive(Serialize)]
+pub struct CloudTrialOffer {
+    pub offered: bool,
+}
+
+/// What the customer portal answers when asked to sign a cloud account in and start its
+/// pre-approved trial.
+pub enum PortalTrialLogin {
+    /// Send the browser here: a short-lived portal login that starts the trial on landing.
+    LoginUrl(String),
+    /// The portal will not start one (a subscription exists, or it knows no offer); the
+    /// offer is spent and the browser goes to the portal home instead.
+    Unavailable { reason: String, portal_url: String },
+}
+
+async fn set_cloud_trial_offer(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
+    Json(body): Json<CloudTrialOfferUpdate>,
+) -> Result<String> {
+    if !*CLOUD_HOSTED {
+        return Err(Error::NotFound("cloud only".to_string()));
+    }
+    require_super_admin(&db, &authed).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+    let email = body.email.to_lowercase();
+    let mut tx = db.begin().await?;
+    require_account(&mut tx, &email).await?;
+    if body.consumed {
+        sqlx::query!(
+            "UPDATE cloud_trial_offer SET consumed_at = now() WHERE email = $1 AND consumed_at IS NULL",
+            &email
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        // A consumed offer stays consumed: a trial or subscription already exists for it.
+        sqlx::query!(
+            "INSERT INTO cloud_trial_offer (email, created_by) VALUES ($1, $2)
+             ON CONFLICT (email) DO NOTHING",
+            &email,
+            &authed.email
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.cloud_trial_offer.set",
+        ActionKind::Update,
+        "global",
+        Some(&email),
+        Some([("consumed", if body.consumed { "true" } else { "false" })].into()),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!(
+        "cloud trial offer for {email} {}",
+        if body.consumed {
+            "consumed"
+        } else {
+            "recorded"
+        }
+    ))
+}
+
+async fn offered(db: &DB, email: &str) -> Result<bool> {
+    Ok(sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM cloud_trial_offer WHERE email = $1 AND consumed_at IS NULL)",
+        email
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false))
+}
+
+async fn get_cloud_trial_offer(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<CloudTrialOffer> {
+    if !*CLOUD_HOSTED {
+        return Ok(Json(CloudTrialOffer { offered: false }));
+    }
+    Ok(Json(CloudTrialOffer {
+        offered: offered(&db, &authed.email).await?,
+    }))
+}
+
+/// Where the browser goes to start the pre-approved trial: a signed-in portal login, or
+/// the portal's front page with the reason it could not start one.
+#[derive(Serialize)]
+pub struct CloudTrialOfferGo {
+    pub location: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// The one click that turns a cloud account's pre-approved offer into a trial: the portal
+/// is asked for a login that starts it, and the browser is handed over. The portal is the
+/// authority on whether the offer still stands; its refusal spends the offer here so the
+/// sidebar stops advertising it.
+async fn go_cloud_trial_offer(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<CloudTrialOfferGo> {
+    // The answer carries a signed-in portal login for this account: a credential for
+    // another system, and asking for it starts the trial. A script running as the offered
+    // user holds their identity through `$WM_TOKEN`, so a job token must not be able to
+    // fetch it and hand it to whoever wrote the script. It is a POST answered as JSON, not
+    // a redirecting GET, so a cross-site top-level navigation cannot start the trial with
+    // the SameSite=Lax session cookie either; the frontend navigates to `location` itself.
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN).".to_string(),
+        ));
+    }
+    if !*CLOUD_HOSTED || !offered(&db, &authed.email).await? {
+        return Err(Error::NotFound(
+            "no pre-approved trial offer for this account".to_string(),
+        ));
+    }
+    let outcome = crate::users_oss::portal_cloud_trial_login(&authed.email).await?;
+    let (location, reason) = match outcome {
+        PortalTrialLogin::LoginUrl(url) => (url, None),
+        PortalTrialLogin::Unavailable { reason, portal_url } => (portal_url, Some(reason)),
+    };
+    let mut tx = db.begin().await?;
+    if reason.is_some() {
+        sqlx::query!(
+            "UPDATE cloud_trial_offer SET consumed_at = now() WHERE email = $1 AND consumed_at IS NULL",
+            &authed.email
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.cloud_trial_offer.go",
+        ActionKind::Execute,
+        "global",
+        Some(&authed.email),
+        Some([("outcome", reason.as_deref().unwrap_or("login"))].into()),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(CloudTrialOfferGo { location, reason }))
+}
+
+#[derive(Deserialize)]
+struct LoginLinkQuery {
+    rd: Option<String>,
+}
+
+async fn consume_login_link(
+    headers: axum::http::HeaderMap,
+    cookies: Cookies,
+    Extension(db): Extension<DB>,
+    Path(token): Path<String>,
+    Query(query): Query<LoginLinkQuery>,
+) -> Result<Response> {
+    let bounce = |reason: &str| {
+        Ok(login_link_redirect(format!(
+            "{LOGIN_LINK_EXPIRED_PAGE}?reason={reason}"
+        )))
+    };
+    if token.len() != 32 {
+        return bounce("invalid");
+    }
+    let t_hash = hash_token(&token);
+    // The account is unknown until the row is read, so only the global and per-IP tiers
+    // apply here; a 32-char random token leaves nothing for the per-account tier to guard.
+    windmill_common::login_rate_limit::check_and_increment_login_attempt(
+        &headers,
+        &t_hash[..TOKEN_PREFIX_LEN],
+    )?;
+
+    let mut tx = db.begin().await?;
+    let link = sqlx::query!(
+        "UPDATE login_link SET consumed_at = now()
+         WHERE token_hash = $1 AND consumed_at IS NULL AND expiration > now()
+         RETURNING email, rd, created_by",
+        &t_hash
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(link) = link else {
+        let used = sqlx::query_scalar!(
+            "SELECT consumed_at IS NOT NULL AS \"used!\" FROM login_link WHERE token_hash = $1",
+            &t_hash
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        return bounce(match used {
+            Some(true) => "used",
+            Some(false) => "expired",
+            None => "invalid",
+        });
+    };
+
+    // Re-checked at open time and locked through session creation: a promotion inside
+    // the link's window must not turn a link minted for an ordinary account into a
+    // privileged session. The bounce drops the transaction, so the link is not spent.
+    let target = sqlx::query!(
+        "SELECT super_admin, devops FROM password WHERE email = $1 AND disabled = false FOR UPDATE",
+        &link.email
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(target) = target else {
+        return bounce("invalid");
+    };
+    if target.super_admin || target.devops {
+        return bounce("invalid");
+    }
+
+    let session = create_session_token(&link.email, false, None, false, &mut tx, cookies).await?;
+    audit_log(
+        &mut *tx,
+        &AuditAuthor {
+            email: link.email.clone(),
+            username: link.email.clone(),
+            username_override: None,
+            token_prefix: Some(safe_token_prefix(&session)),
+        },
+        "users.login",
+        ActionKind::Create,
+        "global",
+        Some(&truncate_token(&session)),
+        Some(
+            [
+                ("method", "login_link"),
+                ("minted_by", link.created_by.as_str()),
+            ]
+            .into(),
+        ),
+    )
+    .await?;
+    tx.commit().await?;
+
+    let rd = link
+        .rd
+        .or_else(|| same_origin_rd(query.rd))
+        .unwrap_or_else(|| LOGIN_LINK_DEFAULT_RD.to_string());
+    Ok(login_link_redirect(rd))
+}
+
 #[derive(Deserialize)]
 pub struct ImpersonateServiceAccountRequest {
     pub username: String,
@@ -3549,10 +4060,61 @@ async fn get_all_runnables(
 #[derive(Deserialize, Debug, Clone)]
 pub struct LoginUserInfo {
     pub email: Option<String>,
+    /// OIDC `email_verified` claim where the provider sends one.
+    #[serde(default, deserialize_with = "deserialize_lenient_bool")]
+    pub email_verified: Option<bool>,
     pub name: Option<String>,
     pub company: Option<String>,
     pub preferred_username: Option<String>,
     pub displayName: Option<String>,
+}
+
+/// Some providers (Cognito among them) send `email_verified` as the strings "true"/"false";
+/// a strict bool would reject their whole userinfo document and break login.
+fn deserialize_lenient_bool<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<bool>, D::Error> {
+    Ok(match Option::<serde_json::Value>::deserialize(d)? {
+        Some(serde_json::Value::Bool(b)) => Some(b),
+        Some(serde_json::Value::String(s)) => match s.trim().to_ascii_lowercase().as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+#[cfg(test)]
+mod login_user_info_tests {
+    use super::LoginUserInfo;
+
+    fn email_verified(json: &str) -> Option<bool> {
+        serde_json::from_str::<LoginUserInfo>(json)
+            .unwrap()
+            .email_verified
+    }
+
+    #[test]
+    fn email_verified_accepts_bool_and_stringified_bool() {
+        assert_eq!(
+            email_verified(r#"{"email":"a@b","email_verified":true}"#),
+            Some(true)
+        );
+        assert_eq!(
+            email_verified(r#"{"email":"a@b","email_verified":"true"}"#),
+            Some(true)
+        );
+        assert_eq!(
+            email_verified(r#"{"email":"a@b","email_verified":"false"}"#),
+            Some(false)
+        );
+        assert_eq!(
+            email_verified(r#"{"email":"a@b","email_verified":"maybe"}"#),
+            None
+        );
+        assert_eq!(email_verified(r#"{"email":"a@b"}"#), None);
+    }
 }
 
 #[derive(Serialize)]

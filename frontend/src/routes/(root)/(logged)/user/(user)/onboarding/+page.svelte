@@ -25,6 +25,7 @@
 		MessageCircleCode
 	} from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { onboardingProfile } from '$lib/onboardingProfile'
 
 	// Define step names as constants for better maintainability
 	const STEP_SOURCE = 'source'
@@ -50,6 +51,22 @@
 	let alreadyPlaced = $state(false)
 	// The survey was skipped, so the last step has nothing to go back to.
 	let skippedSurvey = $state(false)
+
+	// An invited account arrives with its source already known — the invite that brought
+	// them here is how they heard about us — so that question is never asked and its
+	// answer rides along on submit. Resolved before first paint: rendering the source
+	// step and yanking it away a frame later reads as a glitch.
+	let invitedTouchPoint = $state<string | null>(null)
+	let profileReady = $state(false)
+	async function loadInviteProfile() {
+		const profile = await onboardingProfile()
+		if (profile?.touch_point) {
+			invitedTouchPoint = profile.touch_point
+			currentStep = STEP_USE_CASE
+		}
+		profileReady = true
+	}
+	loadInviteProfile()
 
 	async function loadWorkspaceStep() {
 		try {
@@ -145,13 +162,13 @@
 	}
 
 	async function continueToWorkspaces() {
-		if (!selectedSource || isSubmitting) return
+		if ((!selectedSource && !invitedTouchPoint) || isSubmitting) return
 
 		isSubmitting = true
 		try {
 			await UserService.submitOnboardingData({
 				requestBody: {
-					touch_point: selectedSource,
+					touch_point: selectedSource ?? invitedTouchPoint ?? undefined,
 					use_case: useCaseText
 				}
 			})
@@ -175,8 +192,9 @@
 	async function skip() {
 		isSubmitting = true
 		try {
+			// The known source still counts when the rest of the survey is declined.
 			await UserService.submitOnboardingData({
-				requestBody: {}
+				requestBody: invitedTouchPoint ? { touch_point: invitedTouchPoint } : {}
 			})
 		} catch (error) {
 			console.error('Error skipping onboarding:', error)
@@ -195,7 +213,10 @@
 	}
 </script>
 
-{#if currentStep === STEP_SOURCE}
+{#if !profileReady}
+	<!-- One frame at most, while the invite profile resolves which step comes first. -->
+	<div></div>
+{:else if currentStep === STEP_SOURCE}
 	<CenteredModal title="How did you hear about Windmill?">
 		<div class="w-full max-w-lg mx-auto">
 			<div class="grid grid-cols-1 gap-2 mt-6 mb-6">
@@ -271,15 +292,20 @@
 			</div>
 
 			<div class="flex flex-row justify-between items-center pt-4 gap-4">
-				<Button
-					color="light"
-					variant="border"
-					startIcon={{ icon: ArrowLeft }}
-					size="xs"
-					on:click={goToPreviousStep}
-				>
-					Previous
-				</Button>
+				{#if invitedTouchPoint}
+					<!-- The source step was never shown, so there is nothing behind this one. -->
+					<div></div>
+				{:else}
+					<Button
+						color="light"
+						variant="border"
+						startIcon={{ icon: ArrowLeft }}
+						size="xs"
+						on:click={goToPreviousStep}
+					>
+						Previous
+					</Button>
+				{/if}
 				<Button
 					color="blue"
 					variant="contained"
@@ -294,7 +320,9 @@
 
 			<div class="flex justify-center mt-4">
 				<div class="flex items-center gap-2">
-					<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
+					{#if !invitedTouchPoint}
+						<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
+					{/if}
 					<div class="w-2 h-2 rounded-full bg-blue-500"></div>
 					{#if !alreadyPlaced}
 						<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
@@ -330,7 +358,9 @@
 
 			<div class="flex justify-center mt-4">
 				<div class="flex items-center gap-2">
-					<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
+					{#if !invitedTouchPoint}
+						<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
+					{/if}
 					<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
 					<div class="w-2 h-2 rounded-full bg-blue-500"></div>
 				</div>

@@ -17,7 +17,8 @@
 		Newspaper,
 		Crown,
 		Gauge,
-		Trash2
+		Trash2,
+		KeyRound
 	} from 'lucide-svelte'
 	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
@@ -35,6 +36,7 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
+	import { accountSetup } from './accountSetup.svelte'
 	import { EXECUTIONS_HINT } from './executionsHint'
 	import {
 		userWorkspaces,
@@ -207,6 +209,10 @@
 			: [])
 	])
 
+	// An account entered through an invite link that still has no credentials of its own;
+	// the entry (and the sidebar banner it echoes) disappears once it does.
+	let pendingSetup = $derived(accountSetup.pending)
+
 	const items = $derived<Item[]>([
 		{
 			displayName: 'Help',
@@ -226,6 +232,17 @@
 				: ($userStore?.email ?? 'User'),
 			icon: $userStore?.is_admin || $userStore?.non_member ? Crown : User,
 			submenuItems: [
+				...(pendingSetup
+					? [
+							{
+								displayName: 'Finish account setup',
+								icon: KeyRound,
+								// The dropdown closes on this click; the modal opens once it is gone so its own
+								// buttons don't compete with the menu's outside-click handling.
+								action: () => setTimeout(() => (accountSetup.open = true), 50)
+							}
+						]
+					: []),
 				{
 					displayName: 'Account settings',
 					icon: Settings,

@@ -1,8 +1,18 @@
+<script module lang="ts">
+	// A refusal spends the offer for good, and the layout mounts one instance of this
+	// component per breakpoint: kept at module level so crossing it does not lose the
+	// explanation and the way to the portal, which the next instance can never refetch.
+	// The module outlives a same-tab sign-out, so the record names the account it answers
+	// and is shown to that account only.
+	let refusal = $state<{ email: string; reason: string; location: string } | null>(null)
+</script>
+
 <script lang="ts">
 	import { resource } from 'runed'
 	import { goto } from '$lib/navigation'
 	import { isCloudHosted } from '$lib/cloud'
-	import { WorkspaceService } from '$lib/gen'
+	import { AlertTriangle, Sparkles } from 'lucide-svelte'
+	import { UserService, WorkspaceService } from '$lib/gen'
 	import {
 		isPremiumStore,
 		usageStore,
@@ -13,6 +23,7 @@
 	} from '$lib/stores'
 	import { refreshExecutions } from '$lib/usage.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import { sendUserToast } from '$lib/toast'
 	import { scopedValue, tagged } from '$lib/utils/scopedValue'
 	import { Button } from '$lib/components/common'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
@@ -26,6 +37,43 @@
 	let { isCollapsed = false }: Props = $props()
 
 	let open = $state(false)
+
+	// A pre-approved self-hosted Enterprise trial travels with accounts created through an
+	// invite; the offer lives on the account, not the workspace, and never expires. The
+	// click hands the browser to the customer portal already signed in, which starts it.
+	let trialOffered = $state(false)
+	$effect(() => {
+		if (!isCloudHosted()) return
+		UserService.getCloudTrialOffer()
+			.then((r) => (trialOffered = r.offered))
+			.catch(() => (trialOffered = false))
+	})
+	let starting = $state(false)
+	let trialRefusal = $derived(
+		refusal && $userStore?.email && refusal.email === $userStore.email ? refusal : null
+	)
+	async function startPreApprovedTrial() {
+		if (starting) return
+		starting = true
+		try {
+			// A POST, so nothing but this click can start the trial; the answer is where to go.
+			const { location, reason } = await UserService.goCloudTrialOffer()
+			logFeatureUsage('cloud_trial_offer', 'go')
+			if (reason) {
+				// Recorded where the button was, so it stays readable for the rest of the session
+				// without a toast running its timer, and the person chooses whether to go.
+				trialOffered = false
+				refusal = { email: $userStore?.email ?? '', reason, location }
+				starting = false
+				return
+			}
+			window.location.assign(location)
+		} catch (e) {
+			console.error('Could not start the pre-approved trial:', e)
+			sendUserToast('Could not start the trial right now, please try again', true)
+			starting = false
+		}
+	}
 
 	// Seat count for a paid workspace, the basis of its included executions. The server
 	// resolves a fork to the workspace its plan is billed on and counts the seats there,
@@ -177,6 +225,77 @@
 		/>
 	</svg>
 {/snippet}
+
+{#if isCloudHosted() && trialOffered}
+	<div class="px-2 pt-2">
+		<Tooltip placement="right" class="w-full">
+			{#snippet text()}
+				Your 30-day self-hosted Enterprise trial is pre-approved — start it whenever you're ready.
+			{/snippet}
+			{#if isCollapsed}
+				<Button
+					variant="accent-secondary"
+					unifiedSize="sm"
+					iconOnly
+					startIcon={{ icon: Sparkles }}
+					onclick={startPreApprovedTrial}
+					disabled={starting}
+					aria-label="Start your pre-approved Enterprise trial"
+				/>
+			{:else}
+				<Button
+					variant="accent-secondary"
+					unifiedSize="sm"
+					startIcon={{ icon: Sparkles }}
+					onclick={startPreApprovedTrial}
+					disabled={starting}
+				>
+					Start your Enterprise trial
+				</Button>
+			{/if}
+		</Tooltip>
+	</div>
+{/if}
+
+<!-- The refusal replaces the button it answers, in the button's own shape: a
+     collapsed rail gets the icon with the explanation in its tooltip, an expanded one
+     the sentence and the way to the portal. The status region is always present and empty
+     until then, since assistive technology announces what arrives in a live region but not
+     a region that appears already filled; the spacing sits inside so an empty one is 0px. -->
+<div role="status">
+	{#if trialRefusal}
+		<div class="px-2 pt-2">
+			{#if isCollapsed}
+				<Tooltip placement="right">
+					{#snippet text()}
+						The trial could not be started: {trialRefusal?.reason}. The customer portal has the
+						details.
+					{/snippet}
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						iconOnly
+						startIcon={{ icon: AlertTriangle }}
+						onclick={() => window.location.assign(trialRefusal!.location)}
+						aria-label="The trial could not be started; open the customer portal"
+					/>
+				</Tooltip>
+			{:else}
+				<p class="mb-1.5 text-2xs text-secondary">
+					The trial could not be started: {trialRefusal.reason}.
+				</p>
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: AlertTriangle }}
+					onclick={() => window.location.assign(trialRefusal!.location)}
+				>
+					Open the customer portal
+				</Button>
+			{/if}
+		</div>
+	{/if}
+</div>
 
 {#if isCloudHosted() && tightest}
 	<div class="px-2 pt-2 pb-2">
