@@ -78,13 +78,11 @@ function assertAcyclicChunks() {
  *
  * These pages also serve raw apps, which only need a small shell around their bundle's
  * iframe. One static import of AppPreview (or of anything reaching monaco) makes every
- * public app page preload ~650 chunks instead of ~55. PublicApp imports it lazily.
+ * public app page preload ~650 chunks instead of ~55. See loadAppPreview.ts.
  */
 function assertLeanPublicAppRoutes() {
-	const routes = [
-		'/src/routes/public/[workspace]/[...secret]/+page.svelte',
-		'/src/routes/a/[...path]/+page.svelte'
-	]
+	// Route directories, so +page.js counts as well as +page.svelte.
+	const routes = ['/src/routes/public/[workspace]/[...secret]/', '/src/routes/a/[...path]/']
 	const forbidden = [
 		'/src/lib/components/apps/editor/AppPreview.svelte',
 		'/node_modules/monaco-editor/'
@@ -96,15 +94,19 @@ function assertLeanPublicAppRoutes() {
 			if (!chunks.some(([file]) => file.startsWith('_app/immutable/'))) return
 			const idsOf = (c) => c.moduleIds ?? Object.keys(c.modules ?? {})
 			for (const route of routes) {
-				const start = chunks.find(([, c]) => idsOf(c).some((id) => id.endsWith(route)))
-				if (!start) this.error(`No chunk contains ${route}; update assertLeanPublicAppRoutes`)
-				const seen = new Set([start[0]])
-				const queue = [start[0]]
+				const starts = chunks
+					.filter(([, c]) => idsOf(c).some((id) => id.includes(route)))
+					.map(([file]) => file)
+				if (!starts.length)
+					this.error(`No chunk contains ${route}; update assertLeanPublicAppRoutes`)
+				const seen = new Set(starts)
+				const queue = [...starts]
 				while (queue.length) {
 					const chunk = bundle[queue.shift()]
+					if (!chunk) continue
 					const hit = idsOf(chunk).find((id) => forbidden.some((f) => id.includes(f)))
 					if (hit) {
-						this.error(`${route} statically loads ${hit}; import it lazily (see PublicApp.svelte)`)
+						this.error(`${route} statically loads ${hit}; import it lazily (see loadAppPreview.ts)`)
 					}
 					for (const dep of chunk.imports ?? []) {
 						if (seen.has(dep)) continue

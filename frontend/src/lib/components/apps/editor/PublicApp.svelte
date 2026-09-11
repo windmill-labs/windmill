@@ -19,6 +19,7 @@
 	import { UserService, type AppWithLastVersion, type GlobalWhoamiResponse } from '$lib/gen'
 	import { urlParamsToObject } from '$lib/utils'
 	import { goto } from '$app/navigation'
+	import { loadAppPreview } from './loadAppPreview'
 	import RawAppPreview from '$lib/components/raw_apps/RawAppPreview.svelte'
 	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
 	import { twMerge } from 'tailwind-merge'
@@ -188,10 +189,7 @@
 				)}
 				style={app?.value?.['css']?.['app']?.['viewer']?.style}
 			>
-				<!-- Lazy: AppPreview statically reaches every low-code component (and through
-				     them monaco, ag-grid, chart.js, the flow viewer...), which a raw app
-				     never renders. -->
-				{#await import('./AppPreview.svelte')}
+				{#await loadAppPreview()}
 					<Skeleton layout={[[4], 0.5, [50]]} />
 				{:then Module}
 					<Module.default

@@ -33,6 +33,7 @@
 	import Login from '$lib/components/Login.svelte'
 	import { WINDMILL_RESERVED_QUERY_PARAMS } from '$lib/utils'
 	import { EMBED_NAV_CONTEXT_KEY, type EmbedNav } from '../types'
+	import { loadAppPreview } from './loadAppPreview'
 	import RawAppSdkConsent from '$lib/components/raw_apps/RawAppSdkConsent.svelte'
 	import { hasStoredSdkConsent, storeSdkConsent } from '$lib/components/raw_apps/sdkScopes'
 
@@ -421,7 +422,8 @@
 		if (unsandboxed || isRaw) {
 			// Render the app directly on this origin: same-origin when unsandboxed
 			// (the default), or a single opaque bundle iframe when it's a sandboxed
-			// raw app.
+			// raw app. A low-code app's runtime downloads alongside the app payload.
+			if (!isRaw) loadAppPreview().catch(() => {})
 			onViewerReady?.(undefined, requestTokenRefresh)
 		} else {
 			// Sandboxed low-code: hand the scoped token to the opaque viewer iframe.
@@ -530,6 +532,8 @@
 
 	onMount(() => {
 		if (isViewer) {
+			// Only a sandboxed low-code app is ever framed as a viewer.
+			loadAppPreview().catch(() => {})
 			window.addEventListener('message', handleViewerMessage)
 			installHashRelay()
 			// Announce readiness so the embedder sends us the token.
