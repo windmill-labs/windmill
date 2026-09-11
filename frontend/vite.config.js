@@ -79,6 +79,10 @@ const remoteUrl =
 		? `http://localhost:${process.env.BACKEND_PORT}`
 		: 'https://app.windmill.dev/')
 
+// Strip the upstream Domain so cookies are host-only: `Domain=localhost` is rejected
+// when the dev server is reached as 127.0.0.1 or over the network.
+const cookieDomain = ''
+
 // Browsers scope cookies by host, not port, so dev servers sharing a host (one per
 // worktree) would share one `token` and every login would sign the others out. Store the
 // session under a name tied to the backend that issued it, and forward only that one as
@@ -157,13 +161,13 @@ const config = {
 			'^/\\.well-known/.*': {
 				target: remoteUrl,
 				changeOrigin: true,
-				cookieDomainRewrite: 'localhost',
+				cookieDomainRewrite: cookieDomain,
 				configure: isolateAuthCookie
 			},
 			'^/api/w/[^/]+/s3_proxy/.*': {
 				target: remoteUrl,
 				changeOrigin: false, // Important for signature to be correct
-				cookieDomainRewrite: 'localhost',
+				cookieDomainRewrite: cookieDomain,
 				configure: (proxy, options) => {
 					isolateAuthCookie(proxy)
 					proxy.on('proxyReq', (proxyReq, req, res) => {
@@ -177,7 +181,7 @@ const config = {
 			'^/api/.*': {
 				target: remoteUrl,
 				changeOrigin: true,
-				cookieDomainRewrite: 'localhost',
+				cookieDomainRewrite: cookieDomain,
 				configure: isolateAuthCookie
 			},
 			'^/ws/.*': {
