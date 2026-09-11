@@ -316,6 +316,17 @@ async fn update_username_in_workpsace<'c>(
     new_username: &str,
     w_id: &str,
 ) -> error::Result<()> {
+    // ---- data table tenants ----
+    // Tenants name the user, so the rename has to follow here too; a list left naming the old
+    // username silently drops the access instead of moving it.
+    windmill_common::workspaces::rename_datatable_tenant_in_workspace(
+        tx,
+        w_id,
+        &format!("u/{old_username}"),
+        &format!("u/{new_username}"),
+    )
+    .await?;
+
     // ---- instance and workspace users ----
     sqlx::query!(
         "UPDATE usr SET username = $1 WHERE email = $2",

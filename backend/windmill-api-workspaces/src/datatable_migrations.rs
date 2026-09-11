@@ -30,6 +30,7 @@ use windmill_api_auth::{require_super_admin, ApiAuthed};
 use windmill_api_jobs::run_wait_result_internal;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::datatable_roles::ADMIN_DATATABLE_ROLE;
 use windmill_common::db::UserDB;
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
 use windmill_common::jobs::{JobPayload, RawCode};
@@ -38,7 +39,11 @@ use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, Debounci
 use windmill_common::scripts::ScriptLang;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::worker::to_raw_value;
-use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
+use windmill_common::worker::SqlAnnotations;
+use windmill_common::workspaces::{
+    ensure_can_use_datatable_role, ensure_datatable_admin_access,
+    get_datatable_resource_from_db_unchecked, resolve_governing_datatable, DatatableAccess,
+};
 use windmill_common::{PgDatabase, DB};
 use windmill_git_sync::{
     handle_deployment_metadata, handle_deployment_metadata_batch, DeployedObject,
@@ -86,6 +91,42 @@ pub(crate) fn routes() -> Router {
         )
 }
 
+/// Refuse a migration whose role this caller may not use, before a job is pushed or a version
+/// recorded.
+///
+/// A migration that declares `-- role <name>` runs as that role, so the caller has to be one of its
+/// tenants. One that declares none runs as `admin` and reaches every object in the database
+/// whatever the roles grant, so it is for the admins of the workspace that governs the data table
+/// — a fork can run a migration under a role it holds, never a migration under `admin`.
+///
+/// The executor re-checks the role when it resolves the connection, so this is not the boundary. It
+/// is what makes the refusal legible: which migration, and which role.
+async fn ensure_migration_role_allowed(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    authed: &ApiAuthed,
+    sql: &str,
+    timestamp: i64,
+    name: &str,
+) -> Result<()> {
+    let context = format!("Migration {timestamp} ({name})");
+    let access = DatatableAccess::Authed(authed.to_authed_ref());
+    match SqlAnnotations::datatable_role(sql)? {
+        Some(role) => {
+            ensure_can_use_datatable_role(db, w_id, datatable_name, Some(&role), &access, &context)
+                .await
+        }
+        None => ensure_datatable_admin_access(db, w_id, datatable_name, &access)
+            .await
+            .map_err(|e| {
+                Error::NotAuthorized(format!(
+                    "{context} declares no role, so it would run as admin. {e}"
+                ))
+            }),
+    }
+}
+
 #[derive(Serialize)]
 struct AppliedMigration {
     version: i64,
@@ -128,7 +169,14 @@ async fn datatable_database_arg(
     .await?
     .ok_or_else(|| Error::internal_err(format!("datatable {datatable_name} not found")))?;
 
-    Ok(to_raw_value(&format!("datatable://{datatable_name}")))
+    // `?role=admin` rather than a bare reference, so a migration that declares no `-- role` runs
+    // as the connection that owns the schema instead of falling through to the data table's
+    // default role — which is what `ensure_migration_role_allowed` gated it as, and which is the
+    // only role a DDL statement can be expected to succeed under. A migration that does declare a
+    // role overrides this: the annotation wins over the reference.
+    Ok(to_raw_value(&format!(
+        "datatable://{datatable_name}?role={ADMIN_DATATABLE_ROLE}"
+    )))
 }
 
 /// Run a migration's SQL as a normal Windmill `postgresql` job, permissioned as
@@ -384,6 +432,11 @@ async fn run_datatable_migrations(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RunDatatableMigrationsQuery>,
 ) -> JsonResult<RunDatatableMigrationsResult> {
+    // Before the admin connection is opened at all: the bookkeeping below is created and read
+    // through it, so a caller no role covers must be refused here rather than after the fact.
+    crate::datatable_permissions::ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed)
+        .await?;
+
     audit_log(
         &db,
         &authed,
@@ -440,6 +493,16 @@ async fn run_datatable_migrations(
         if applied_versions.contains(&m.timestamp) {
             continue;
         }
+        ensure_migration_role_allowed(
+            &db,
+            &w_id,
+            &datatable_name,
+            &authed,
+            &m.code_up,
+            m.timestamp,
+            &m.name,
+        )
+        .await?;
         run_datatable_migration_job(&db, &user_db, &authed, &w_id, &database_arg, &m.code_up)
             .await
             .map_err(|e| {
@@ -506,6 +569,11 @@ async fn rollback_datatable_migrations(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RollbackDatatableMigrationsQuery>,
 ) -> JsonResult<RollbackDatatableMigrationsResult> {
+    // Before the admin connection is opened at all: the bookkeeping below is created and read
+    // through it, so a caller no role covers must be refused here rather than after the fact.
+    crate::datatable_permissions::ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed)
+        .await?;
+
     audit_log(
         &db,
         &authed,
@@ -587,6 +655,17 @@ async fn rollback_datatable_migrations(
             version, definition.name
         ))
     })?;
+
+    ensure_migration_role_allowed(
+        &db,
+        &w_id,
+        &datatable_name,
+        &authed,
+        &code_down,
+        version,
+        &definition.name,
+    )
+    .await?;
 
     let database_arg = datatable_database_arg(&db, &w_id, &datatable_name).await?;
     run_datatable_migration_job(&db, &user_db, &authed, &w_id, &database_arg, &code_down)
@@ -748,10 +827,15 @@ async fn read_applied_datatable_versions(
 
 /// List a data table's migrations annotated with whether each has been applied.
 async fn datatable_migrations_status(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigrationsStatusResult> {
+    // Reads `_wm_migrations` through the data table's admin connection, so it answers to the same
+    // question as running one: may you reach this data table at all.
+    crate::datatable_permissions::ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed)
+        .await?;
+
     let enabled = datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
     if !enabled {
         return Ok(Json(DatatableMigrationsStatusResult {
@@ -1431,6 +1515,15 @@ async fn generate_initial_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigration> {
+    // Returns a `pg_dump` of the whole schema and writes into the data table's own bookkeeping, so
+    // it answers to the workspace that governs it rather than to whoever is asking.
+    ensure_datatable_admin_access(
+        &db,
+        &w_id,
+        &datatable_name,
+        &DatatableAccess::Authed(authed.to_authed_ref()),
+    )
+    .await?;
     validate_datatable_path_segment(&datatable_name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
 
@@ -1601,9 +1694,21 @@ pub(crate) struct DatatableRename {
     pub(crate) to: String,
 }
 
-async fn resolve_datatable_pg(db: &DB, w_id: &str, datatable: &str) -> Result<PgDatabase> {
+/// The database whose `_wm_migrations` a rename or delete of `datatable` in `w_id` should touch —
+/// `None` when that is somebody else's.
+///
+/// A fork's entry points at the workspace that governs the data table, so renaming or removing it
+/// changes what the fork calls the data table and nothing more. Following the pointer here would
+/// let a fork admin relabel or wipe the *governing* workspace's migration bookkeeping through
+/// their own settings form, and the parent would then re-run every migration from zero.
+async fn resolve_datatable_pg(db: &DB, w_id: &str, datatable: &str) -> Result<Option<PgDatabase>> {
+    let governing = resolve_governing_datatable(db, w_id, datatable).await?;
+    if governing.workspace_id != w_id {
+        return Ok(None);
+    }
     let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable).await?;
     serde_json::from_value(db_resource)
+        .map(Some)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
 }
 
@@ -1621,7 +1726,9 @@ fn ignore_missing_wm_migrations(e: tokio_postgres::Error) -> Result<()> {
 
 /// Drop a data table's rows from its own database's `_wm_migrations`.
 async fn remote_forget_datatable_migrations(db: &DB, w_id: &str, datatable: &str) -> Result<()> {
-    let pg_db = resolve_datatable_pg(db, w_id, datatable).await?;
+    let Some(pg_db) = resolve_datatable_pg(db, w_id, datatable).await? else {
+        return Ok(());
+    };
     let (client, connection) = pg_db.connect(Some(db)).await?;
     tokio::spawn(async move {
         let _ = connection.await;
@@ -1646,7 +1753,9 @@ async fn remote_rename_datatable_migrations(
     from: &str,
     to: &str,
 ) -> Result<()> {
-    let pg_db = resolve_datatable_pg(db, w_id, resolve_by).await?;
+    let Some(pg_db) = resolve_datatable_pg(db, w_id, resolve_by).await? else {
+        return Ok(());
+    };
     let (client, connection) = pg_db.connect(Some(db)).await?;
     tokio::spawn(async move {
         let _ = connection.await;

@@ -223,7 +223,12 @@ def extract_py_functions(content: str) -> list[dict]:
         if args.vararg:
             params.append(f"*{args.vararg.arg}")
 
-        # Handle keyword-only args
+        # Handle keyword-only args. Same bare `*` as `_format_py_params`: without it the rendered
+        # signature reads as all-positional, and code written against this reference passes a
+        # keyword-only argument positionally and gets a TypeError.
+        if args.kwonlyargs and not args.vararg:
+            params.append('*')
+
         for i, arg in enumerate(args.kwonlyargs):
             param_str = arg.arg
             if arg.annotation:
@@ -1265,6 +1270,12 @@ def _format_py_params(node: ast.FunctionDef, skip_self: bool = False) -> str:
         if args.vararg.annotation:
             vararg_str += f": {ast.unparse(args.vararg.annotation)}"
         params.append(vararg_str)
+
+    # A bare `*` before the keyword-only args, when nothing else already introduced them.
+    # Without it the rendered signature reads as all-positional, and a caller written against
+    # these docs passes a keyword-only argument positionally and gets a TypeError.
+    if args.kwonlyargs and not args.vararg:
+        params.append('*')
 
     for i, arg in enumerate(args.kwonlyargs):
         param_str = arg.arg

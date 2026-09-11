@@ -26,9 +26,11 @@ use windmill_common::azure_workload_identity::WORKLOAD_IDENTITY_PASSWORD;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::{
-    to_raw_value, Connection, SqlResultCollectionStrategy, CLOUD_HOSTED,
+    to_raw_value, Connection, SqlAnnotations, SqlResultCollectionStrategy, CLOUD_HOSTED,
 };
-use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
+use windmill_common::workspaces::{
+    get_datatable_resource_from_db, parse_datatable_ref, parse_datatable_ref_for, DatatableAccess,
+};
 use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult, DB};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
@@ -680,15 +682,36 @@ pub async fn do_postgresql(
     } else {
         match pg_args.get("database").cloned() {
             Some(Value::String(db_str)) if db_str.starts_with("datatable://") => {
-                let db_str = db_str.trim_start_matches("datatable://");
+                let reference = db_str.trim_start_matches("datatable://");
+                // The annotation wins: a generated query can carry a `?role=` in the reference it
+                // was handed, but only the script's author writes the leading comment block.
+                let annotated = SqlAnnotations::datatable_role(&query)?;
                 Some(match conn {
                     Connection::Http(client) => {
-                        get_datatable_resource_from_agent_http(client, &db_str, &job.workspace_id)
-                            .await?
+                        let (name, uri_role) = parse_datatable_ref(reference)?;
+                        get_datatable_resource_from_agent_http(
+                            client,
+                            name,
+                            &job.workspace_id,
+                            annotated.as_deref().or(uri_role),
+                            &job.id,
+                        )
+                        .await?
                     }
                     Connection::Sql(db) => {
-                        get_datatable_resource_from_db_unchecked(db, &job.workspace_id, &db_str)
-                            .await?
+                        let (name, uri_role) =
+                            parse_datatable_ref_for(db, &job.workspace_id, reference).await?;
+                        get_datatable_resource_from_db(
+                            db,
+                            &job.workspace_id,
+                            &name,
+                            annotated.as_deref().or(uri_role.as_deref()),
+                            DatatableAccess::PermissionedAs {
+                                permissioned_as: &job.permissioned_as,
+                                email: &job.permissioned_as_email,
+                            },
+                        )
+                        .await?
                     }
                 })
             }

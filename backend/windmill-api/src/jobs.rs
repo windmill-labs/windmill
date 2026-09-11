@@ -8343,8 +8343,9 @@ pub async fn run_wait_result_flow_by_version(
 /// job lives, in particular DuckDB, which runs in-process in the worker.
 ///
 /// What it does permit is any statement against the workspace's data tables, writes and DDL
-/// included: the helper's body is an unrestricted SQL template and data tables carry no
-/// per-user ACL. Narrowing that is a separate decision from this exemption.
+/// included: the helper's body is an unrestricted SQL template. What that reaches is the
+/// operator's own data table role — the preview job is permissioned as them, so the executor
+/// resolves it under their tenancy like any other job.
 ///
 /// The database argument is only half the target: the executor honors a `-- database`
 /// directive in the SQL over it, and `-- s3` redirects the result set, so both are refused.
@@ -8576,7 +8577,7 @@ async fn run_inline_preview_script(
 #[cfg(not(feature = "run_inline"))]
 async fn run_inline_preview_script() -> error::Result<Response> {
     Err(error::Error::InternalErr(
-        "inline preview requires the worker feature".to_string(),
+        "inline preview requires the run_inline feature on the worker".to_string(),
     ))
 }
 

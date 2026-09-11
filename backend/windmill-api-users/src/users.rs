@@ -1689,14 +1689,25 @@ async fn delete_user(
         .await?;
     windmill_common::user_drafts::delete_drafts_of_email(&mut *tx, &email_to_delete).await?;
 
-    let usernames = sqlx::query_scalar!(
-        "DELETE FROM usr WHERE email = $1 RETURNING username",
+    let memberships = sqlx::query!(
+        "DELETE FROM usr WHERE email = $1 RETURNING username, workspace_id",
         &email_to_delete
     )
     .fetch_all(&mut *tx)
     .await?;
 
-    for username in usernames {
+    for row in memberships {
+        let username = row.username;
+        // A tenant list names a principal of its workspace, so the name has to be freed in every
+        // workspace this account belonged to: a later account taking the username would otherwise
+        // inherit the data table access it had.
+        windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+            &mut tx,
+            &row.workspace_id,
+            &format!("u/{username}"),
+        )
+        .await?;
+
         sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
             .execute(&mut *tx)
             .await?;
@@ -2421,6 +2432,15 @@ pub async fn delete_workspace_user_internal(
     tx: &mut Transaction<'_, Postgres>,
     authed: Option<&ApiAuthed>, // None for system operations
 ) -> Result<()> {
+    // Same reasoning as the `extra_perms` sweep below: a freed username must not stay named
+    // anywhere that grants access, tenant lists included.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+        tx,
+        w_id,
+        &format!("u/{username_to_delete}"),
+    )
+    .await?;
+
     // ---- Clean up extra_perms referencing this user ----
     let extra_perms_tables = [
         "script",
@@ -3427,6 +3447,12 @@ async fn leave_workspace(
 ) -> Result<String> {
     forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+        &mut tx,
+        &w_id,
+        &format!("u/{}", authed.username),
+    )
+    .await?;
     sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",
         &w_id,

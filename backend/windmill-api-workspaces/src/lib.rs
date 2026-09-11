@@ -1,4 +1,5 @@
 pub mod datatable_migrations;
+pub mod datatable_permissions;
 pub mod deployment_requests;
 pub mod data_metrics;
 pub mod workspaces;

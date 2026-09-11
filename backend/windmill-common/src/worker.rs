@@ -1082,6 +1082,83 @@ pub struct SqlAnnotations {
     pub raw_output: bool,
 }
 
+impl SqlAnnotations {
+    /// The data table role a query declares as `-- role <name>`, if any. Only meaningful against a
+    /// `datatable://` database that is under roles; absent means the data table's default role.
+    ///
+    /// Hand-written rather than derived because the value matters, not just the presence, and
+    /// because the executor needs it before it knows the connection is a data table at all. Like
+    /// every annotation it lives in the leading comment block.
+    ///
+    /// A leading comment whose first word is `role` is an annotation *attempt*, and a malformed
+    /// one is an error. The alternative — ignoring what does not parse — resolves the query to the
+    /// data table's default role instead, so a typo silently runs it under a login the author did
+    /// not choose, which is the opposite of what naming a role is for. Only callers that already
+    /// know the target is a `datatable://` reference ever run this, so ordinary SQL keeps its
+    /// comments.
+    pub fn datatable_role(code: &str) -> error::Result<Option<String>> {
+        for line in code.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if !line.starts_with("--") {
+                break;
+            }
+            // The keyword may be followed by whitespace, `:` or `=` — `role x`, `role: x`,
+            // `role=x`, `Role = x` all open an attempt, while `rolexyz` does not. Each accepted
+            // separator is one spelling that would otherwise take the `continue` below and run the
+            // query as the data table's default role, which is the silence this exists to remove.
+            let body = line[2..].trim_start();
+            let Some(after) = body
+                .get(..4)
+                .filter(|kw| kw.eq_ignore_ascii_case("role"))
+                .map(|_| &body[4..])
+            else {
+                continue;
+            };
+            if !after.is_empty()
+                && !after.starts_with(char::is_whitespace)
+                && !after.starts_with([':', '='])
+            {
+                continue;
+            }
+
+            // Past this point the line is an attempt to name a role, so a malformed one is an
+            // error rather than a miss. Falling through would run the query as the data table's
+            // default role — quietly, and under a login the author did not choose.
+            let after = after.trim_start();
+            let after = after.strip_prefix([':', '=']).unwrap_or(after);
+            let mut tokens = after.split_whitespace();
+            let role = tokens
+                .next()
+                .map(|role| role.strip_suffix(';').unwrap_or(role));
+            let rest = tokens.next();
+            match (role, rest) {
+                (Some(role), None)
+                    if !role.is_empty()
+                        && role.len() <= 63
+                        && role
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') =>
+                {
+                    return Ok(Some(role.to_string()));
+                }
+                _ => {
+                    return Err(error::Error::BadRequest(format!(
+                        "Malformed data table role annotation: `{line}`. Write it as \
+                         `-- role <name>` on a line of its own, where <name> is letters, digits, \
+                         '_' or '-'. A comment in the leading block that starts with the word \
+                         'role' is read as this annotation; move it below the first statement if \
+                         it is prose."
+                    )));
+                }
+            }
+        }
+        Ok(None)
+    }
+}
+
 #[annotations("#")]
 pub struct BashAnnotations {
     pub docker: bool,
@@ -2652,6 +2729,56 @@ pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn datatable_role_is_read_from_the_leading_comment_block() {
+        let role = |code| SqlAnnotations::datatable_role(code);
+        assert_eq!(
+            role("-- role analytics\nSELECT 1").unwrap(),
+            Some("analytics".to_string())
+        );
+        // Blank lines and other annotations before it are fine.
+        assert_eq!(
+            role("\n-- prepare\n-- role read_only\nSELECT 1").unwrap(),
+            Some("read_only".to_string())
+        );
+        // Past the first statement it is an ordinary comment, not an annotation.
+        assert_eq!(role("SELECT 1;\n-- role analytics").unwrap(), None);
+        assert_eq!(role("SELECT 1").unwrap(), None);
+
+        // Unambiguous intent is honoured: the keyword matches case-insensitively, a trailing
+        // semicolon is a habit carried over from SQL rather than a different role, and the colon
+        // spelling is the one most likely to be typed.
+        for accepted in [
+            "-- Role operator\nSELECT 1",
+            "-- role operator;\nSELECT 1",
+            "-- role: operator\nSELECT 1",
+            "-- role:operator\nSELECT 1",
+            "-- role=operator\nSELECT 1",
+            "-- Role = operator\nSELECT 1",
+        ] {
+            assert_eq!(
+                role(accepted).unwrap(),
+                Some("operator".to_string()),
+                "not honoured: {accepted}"
+            );
+        }
+
+        // Anything else opening with the word is refused rather than resolved to the default role:
+        // the whole point of naming one is to not run as something else.
+        for near_miss in [
+            "-- role operator -- why\nSELECT 1",
+            "-- role an;alytics\nSELECT 1",
+            "-- role\nSELECT 1",
+            "-- role:\nSELECT 1",
+            "-- role based access is handled below\nSELECT 1",
+        ] {
+            assert!(role(near_miss).is_err(), "silently ignored: {near_miss}");
+        }
+
+        // A word that merely starts with the keyword is not an attempt.
+        assert_eq!(role("-- rolebased notes\nSELECT 1").unwrap(), None);
+    }
 
     fn matcher(id: &str) -> WorkspaceMatcher {
         WorkspaceMatcher { id: id.to_string(), include_forks: false }
