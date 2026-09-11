@@ -990,9 +990,25 @@ export function main() { return [ns === isNumber, label, local()]; }"#
     Ok(())
 }
 
-/// Bundling a locked script resolves a pinned dynamic `import()` as written, which fails. Both the
-/// dependency job and a run that finds no cached bundle must still build it, from the version the
-/// lock pins.
+async fn bun_dependency_lock(db: &Pool<Postgres>, port: u16, path: &str, content: &str) -> String {
+    let deps = RunJob::from(JobPayload::RawScriptDependencies {
+        script_path: path.into(),
+        content: content.into(),
+        language: ScriptLang::Bun,
+    })
+    .run_until_complete(db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+    let Some(lock) = deps["lock"].as_str() else {
+        panic!("the dependency job returned no lock: {deps}");
+    };
+    lock.to_string()
+}
+
+/// Bundling a locked script resolves a pinned dynamic `import()` as written. Where that fails, both
+/// the dependency job and a run that finds no cached bundle must still build it, from the version
+/// the lock pins; where bun tolerates the failure, the bundle must stay as written.
 #[sqlx::test(fixtures("base"))]
 async fn test_bun_bundles_pinned_dynamic_import(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -1002,37 +1018,23 @@ async fn test_bun_bundles_pinned_dynamic_import(db: Pool<Postgres>) -> anyhow::R
     // The dependency job saves the script's bundle here; the server binary creates it at startup.
     std::fs::create_dir_all(&*windmill_worker::BUN_BUNDLE_CACHE_DIR)?;
 
+    const PATH: &str = "f/pinned_dynamic_import/main";
     // The nonce keys a bundle no earlier job cached, which would skip the build under test.
     // 4.17.20 is not npm's `latest`, so a bundle that lost the pin cannot match by accident.
-    let content = || {
+    let script = |body: &str| {
         format!(
-            r#"export async function main() {{
-  const m = await import("lodash@4.17.20");
-  return (m.default ?? m).VERSION;
-}}
-// {}"#,
+            "export async function main() {{\n  {body}\n}}\n// {}",
             Uuid::new_v4()
         )
     };
+    let import = r#"const m = await import("lodash@4.17.20"); return (m.default ?? m).VERSION;"#;
 
-    let deps = RunJob::from(JobPayload::RawScriptDependencies {
-        script_path: "f/pinned_dynamic_import/main".into(),
-        content: content(),
-        language: ScriptLang::Bun,
-    })
-    .run_until_complete(&db, false, port)
-    .await
-    .json_result()
-    .unwrap();
-    let Some(lock) = deps["lock"].as_str() else {
-        panic!("the dependency job returned no lock: {deps}");
-    };
-
+    let lock = bun_dependency_lock(&db, port, PATH, &script(import)).await;
     let result = RunJob::from(JobPayload::Code(RawCode {
-        content: content(),
-        path: Some("f/pinned_dynamic_import/main".into()),
+        content: script(import),
+        path: Some(PATH.into()),
         language: ScriptLang::Bun,
-        lock: Some(lock.into()),
+        lock: Some(lock),
         ..RawCode::default()
     }))
     .run_until_complete(&db, false, port)
@@ -1040,6 +1042,20 @@ async fn test_bun_bundles_pinned_dynamic_import(db: Pool<Postgres>) -> anyhow::R
     .json_result()
     .unwrap();
     assert_eq!(result, serde_json::json!("4.17.20"));
+
+    let tolerated = script(&format!("try {{ {import} }} catch {{ return null; }}"));
+    let lock = bun_dependency_lock(&db, port, PATH, &tolerated).await;
+    let (bundle, _) = windmill_worker::compute_bundle_local_and_remote_path(
+        &tolerated,
+        &lock,
+        PATH,
+        Some(&db),
+        "test-workspace",
+        &None,
+        None,
+    )
+    .await;
+    assert!(std::fs::read_to_string(bundle)?.contains("lodash@4.17.20"));
     Ok(())
 }
 

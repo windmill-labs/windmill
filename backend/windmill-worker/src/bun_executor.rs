@@ -1175,7 +1175,14 @@ async fn generate_bun_bundle_unpinning_dynamic_imports(
         occupancy_metrics,
     )
     .await;
-    if !matches!(built, Err(error::Error::ExitStatus(..))) {
+    // Without a job, a failed build comes back as an `ExecutionErr`; with one, that variant is a
+    // cancellation or timeout, which must not be retried.
+    let build_failed = match &built {
+        Err(error::Error::ExitStatus(..)) => true,
+        Err(_) => db.is_none(),
+        Ok(()) => false,
+    };
+    if !build_failed {
         return built;
     }
     let Some(unpinned) = read_file_content(&format!("{job_dir}/main.ts"))
