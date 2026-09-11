@@ -939,6 +939,42 @@ export function main() { return midValue(); }"#,
     Ok(())
 }
 
+/// A version pinned only in an imported script must reach the importer's lock: runs fetch
+/// imported scripts with their pins stripped, so the lock is the only place the pin survives.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_lock_keeps_pin_from_imported_script(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // 6.0.0 is not npm's `latest`, so a lock that lost the pin cannot match by accident.
+    insert_deployed_bun_script(
+        &db,
+        "f/pinned_import/module",
+        41240001,
+        r#"import isNumber from "is-number@6.0.0";
+export function helper(x: unknown) { return isNumber(x); }"#,
+    )
+    .await;
+
+    let result = RunJob::from(JobPayload::RawScriptDependencies {
+        script_path: "f/pinned_import/consumer".into(),
+        content: r#"import { helper } from "/f/pinned_import/module";
+export function main() { return helper(1); }"#
+            .into(),
+        language: ScriptLang::Bun,
+    })
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    let lock = result["lock"].as_str().unwrap();
+    assert!(lock.contains(r#""is-number": "6.0.0""#), "{lock}");
+    assert!(lock.contains("is-number@6.0.0"), "{lock}");
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base", "bun_edge_cases"))]
 async fn test_bun_shared_imports_both_styles(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
