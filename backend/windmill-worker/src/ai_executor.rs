@@ -1482,9 +1482,13 @@ pub async fn run_agent(
                         step_id: Option<&'a str>,
                         result: MaxIterPartialResult<'a>,
                     }
+                    // Through the same wrapper the success envelope uses: `agent_action`
+                    // is `skip_serializing` on `OpenAIMessage`, so serializing these raw
+                    // would drop every tool name and job id and leave the partial run
+                    // unreadable — which is the one thing worth having on this path.
                     #[derive(serde::Serialize)]
                     struct MaxIterPartialResult<'a> {
-                        messages: &'a [OpenAIMessage],
+                        messages: Vec<Message<'a>>,
                     }
                     return Err(Error::ExecutionRawError(
                         serde_json::value::to_raw_value(&MaxIterError {
@@ -1494,7 +1498,15 @@ pub async fn run_agent(
                             ),
                             name: "ExecutionErr",
                             step_id: effective_flow_step_id,
-                            result: MaxIterPartialResult { messages: &messages },
+                            result: MaxIterPartialResult {
+                                messages: messages
+                                    .iter()
+                                    .map(|m| Message {
+                                        message: m,
+                                        agent_action: m.agent_action.as_ref(),
+                                    })
+                                    .collect(),
+                            },
                         })?,
                     ));
                 }

@@ -125,18 +125,16 @@
 	function getStepProgress(job: RootJobData | undefined, totalSteps: number): string {
 		if (!job || totalSteps === 0) return ''
 
-		const stepWord = 'step'
-
 		// If flow is completed, show total steps
 		if (job.type === 'CompletedJob') {
-			return ` (${totalSteps} ${stepWord}${totalSteps === 1 ? '' : 's'})`
+			return ` (${totalSteps} step${totalSteps === 1 ? '' : 's'})`
 		}
 
 		// If flow is running, use flow_status.step if available (like JobStatus.svelte)
 		if (job.type === 'QueuedJob') {
 			if (job.flow_status?.step !== undefined) {
 				const currentStep = (job.flow_status.step ?? 0) + 1
-				return ` (${stepWord} ${currentStep} of ${totalSteps})`
+				return ` (step ${currentStep} of ${totalSteps})`
 			}
 
 			return ''

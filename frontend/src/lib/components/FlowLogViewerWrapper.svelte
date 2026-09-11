@@ -28,7 +28,7 @@
 		localDurationStatuses,
 		workspaceId,
 		render,
-		onSelectedIteration,
+		onSelectedIteration
 	}: Props = $props()
 
 	// State for tracking expanded rows - using Record to allow explicit control

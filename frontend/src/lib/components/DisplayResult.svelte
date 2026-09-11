@@ -60,6 +60,7 @@
 	import AgentStreamDisplay from './AgentStreamDisplay.svelte'
 	import AgentTrace from './AgentTrace.svelte'
 	import { isAgentStream, parseAgentErrorMessages, parseAgentResult } from './aiAgentResult'
+	import { buildAgentTrace } from './agentTrace'
 
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
@@ -166,8 +167,16 @@
 	let s3FileDisplayRawMode = $state(false)
 	/** Which half of an agent result is showing; JSON is `forceJson`, as for any kind. */
 	let agentView: 'answer' | 'trace' = $state('answer')
-	/** The partial conversation a max-iterations failure carries, if this is one. */
-	let agentErrorMessages = $derived(parseAgentErrorMessages(result))
+	/** What a max-iterations failure got through before it gave up, if this is one.
+	 *  Empty for a run that failed before the worker tagged anything, and for one
+	 *  that predates the tags reaching this payload at all — in which case the
+	 *  section is not rendered rather than heading an empty box. */
+	let agentErrorTrace = $derived.by(() => {
+		const messages = parseAgentErrorMessages(result)
+		if (!messages) return undefined
+		const entries = buildAgentTrace(messages)
+		return entries.length > 0 ? messages : undefined
+	})
 
 	// Build the image/PDF source URL for an S3 object. When `appPath` is set
 	// (deployed app view) the read is authorized on-behalf of the app author via
@@ -1016,14 +1025,14 @@
 						{/if}
 						{@render children?.()}
 					</div>
-					{#if agentErrorMessages}
+					{#if agentErrorTrace}
 						<!-- A run stopped by max_iterations fails, so the error above is what it
 						     returned. What it managed to do rides inside that error and is the
 						     whole reason to look at such a run, so it is added under the error
 						     rather than replacing it. -->
 						<div class="flex flex-col gap-1 pt-4 w-full min-w-0">
 							<span class="text-emphasis text-xs font-semibold">Trace</span>
-							<AgentTrace messages={agentErrorMessages} {workspaceId} />
+							<AgentTrace messages={agentErrorTrace} {workspaceId} />
 						</div>
 					{/if}
 					{#if !isTest && language === 'bun'}
