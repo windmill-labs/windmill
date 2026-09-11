@@ -995,6 +995,21 @@ pub(crate) async fn delete_workspace(
     // but the destructive cleanup itself runs only after the commit below: a delete that
     // fails mid-way must never leave a live workspace with its fork data destroyed and no
     // registry row to retry from. Read-only: nothing is dropped here.
+    // Read before the delete: another workspace's data table entry can point at one of this
+    // workspace's, and deleting the workspace it names leaves that pointer resolving to nothing.
+    // Nothing sweeps them — turning them back into copies would hand each fork the database
+    // outright — so the deleter is told which data tables they just stranded.
+    let stranded_pointers = sqlx::query!(
+        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "datatable!"
+           FROM workspace_settings ws
+           CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
+           WHERE dt.value->'reference'->>'workspace_id' = $1
+           ORDER BY ws.workspace_id, dt.key"#,
+        &w_id,
+    )
+    .fetch_all(&db)
+    .await
+    .unwrap_or_default();
 
     let fork_ducklake_cleanups = prepare_fork_ducklake_cleanups(&db, &w_id, None)
         .await
@@ -1248,33 +1263,6 @@ pub(crate) async fn delete_workspace(
         "admins",
         Some(&w_id),
         None,
-    )
-    .await?;
-    // Who points here, read after the delete above and inside this transaction. A fork writes its
-    // pointer in the transaction that inserts it, and that insert key-share locks this row through
-    // the parent foreign key: so the fork either committed before the delete and is seen here, or
-    // waits on it and then fails on the missing parent. No pointer can escape this list. Nothing
-    // sweeps them afterwards — turning them back into copies would hand each fork the database
-    // outright — so the deleter is told which data tables they stranded.
-    let stranded_pointers = sqlx::query!(
-        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "datatable!"
-           FROM workspace_settings ws
-           CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
-           WHERE dt.value->'reference'->>'workspace_id' = $1
-           ORDER BY ws.workspace_id, dt.key"#,
-        &w_id,
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    // Each fork pointing here keeps the replication stream it opened while this workspace
-    // governed it. Bounced in this transaction, so a listener that reconnects finds its pointer
-    // dangling instead of streaming on.
-    crate::datatable_permissions::restart_streams_named(
-        &mut *tx,
-        stranded_pointers
-            .iter()
-            .map(|r| (r.workspace_id.clone(), r.datatable.clone()))
-            .collect(),
     )
     .await?;
     tx.commit().await?;
