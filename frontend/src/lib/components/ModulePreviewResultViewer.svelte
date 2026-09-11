@@ -10,8 +10,6 @@
 	import type { FlowEditorContext, OutputViewerJob } from './flows/types'
 	import { getContext } from 'svelte'
 	import { getStringError } from './copilot/chat/utils'
-	import AgentTranscript from './AgentTranscript.svelte'
-	import { parseAgentResult } from './aiAgentResult'
 
 	interface Props {
 		lang: Script['language']
@@ -57,10 +55,6 @@
 	)
 	const logJob = $derived(testJob ?? selectedJob)
 	const preview = $derived.by(() => outputPickerInner?.getPreview?.())
-	// The trace of an agent step is its conversation, which its own result carries.
-	const agentResult = $derived(
-		logJob?.type === 'CompletedJob' ? parseAgentResult(logJob.result) : undefined
-	)
 </script>
 
 <Splitpanes horizontal>
@@ -105,10 +99,6 @@
 				customEmptyMessage="Using pinned data"
 				{tagLabel}
 			/>
-		{:else if agentResult}
-			<div class="h-full overflow-auto p-2">
-				<AgentTranscript messages={agentResult.messages} workspaceId={logJob?.workspace_id} />
-			</div>
 		{:else}
 			<LogViewer
 				small
