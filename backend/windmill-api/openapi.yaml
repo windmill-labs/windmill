@@ -33969,12 +33969,6 @@ components:
             the app bundle so `windmill-client` calls run as the viewer. Must
             be a subset of the server's curated allowlist (jobs:run, jobs:read,
             users:read, resources:read, variables:read).
-        hide_login_status:
-          type: boolean
-          description: >
-            When true, the app's public and custom URLs do not show the viewer's
-            login status (the user they are signed in as, or that they are
-            signed out) in the top-left corner. Absent or false shows it.
 
     ListableApp:
       type: object

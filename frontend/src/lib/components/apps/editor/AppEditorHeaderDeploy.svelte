@@ -649,24 +649,6 @@
 				</div>
 			{/if}
 		</div>
-
-		<div class="mt-4">
-			<Toggle
-				options={{ right: "Show the viewer's login status" }}
-				checked={!policy.hide_login_status}
-				on:change={(e) => {
-					policy.hide_login_status = e.detail ? undefined : true
-					if (savedApp && !newApp) {
-						setPublishState(e.detail ? 'Login status shown' : 'Login status hidden')
-					}
-				}}
-				disabled={!savedApp}
-			/>
-			<div class="text-xs text-secondary mt-1">
-				The public and custom URLs show who the viewer is signed in as, or that they are signed out,
-				in the top-left corner.
-			</div>
-		</div>
 	</div>
 	<Alert type="info" title="Only latest deployed app is publicly available">
 		You will still need to deploy the app to make visible the latest changes

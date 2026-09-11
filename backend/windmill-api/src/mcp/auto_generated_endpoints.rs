@@ -1283,10 +1283,6 @@ is, a different one moves it there and archives the old path"),
                                                 "type": "string"
                                         },
                                         "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true — an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read).\n"
-                                },
-                                "hide_login_status": {
-                                        "type": "boolean",
-                                        "description": "When true, the app's public and custom URLs do not show the viewer's login status (the user they are signed in as, or that they are signed out) in the top-left corner. Absent or false shows it.\n"
                                 }
                         }
                 }
@@ -1402,10 +1398,6 @@ is, a different one moves it there and archives the old path"),
                                                 "type": "string"
                                         },
                                         "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true — an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read).\n"
-                                },
-                                "hide_login_status": {
-                                        "type": "boolean",
-                                        "description": "When true, the app's public and custom URLs do not show the viewer's login status (the user they are signed in as, or that they are signed out) in the top-left corner. Absent or false shows it.\n"
                                 }
                         }
                 },
