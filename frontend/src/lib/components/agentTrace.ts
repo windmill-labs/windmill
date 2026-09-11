@@ -46,7 +46,7 @@ function contentText(content: unknown): string {
 
 function sourcesOf(message: AgentMessage): WebSearchSource[] | undefined {
 	const annotations = message.annotations
-	if (!annotations?.length) {
+	if (!Array.isArray(annotations) || annotations.length === 0) {
 		return undefined
 	}
 	const sources = annotations
@@ -61,7 +61,14 @@ export function buildAgentTrace(messages: AgentMessage[]): AgentTraceEntry[] {
 	// the two are joined by `tool_call_id`.
 	const argsByCallId = new Map<string, string>()
 	for (const message of messages) {
-		for (const call of message.tool_calls ?? []) {
+		// A job result is whatever its script returned, and the shape check that got
+		// us here only proves each message has a `role`. Anything nested is still
+		// arbitrary, and a throw here would take the whole result viewer down with
+		// it — including the plain error a lookalike payload is usually attached to.
+		if (!Array.isArray(message.tool_calls)) {
+			continue
+		}
+		for (const call of message.tool_calls) {
 			if (call.id && typeof call.function?.arguments === 'string') {
 				argsByCallId.set(call.id, call.function.arguments)
 			}
