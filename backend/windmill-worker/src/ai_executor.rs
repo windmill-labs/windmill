@@ -246,12 +246,6 @@ fn overlay_tool_inputs(
     }
 }
 
-/// Write a linked step's own inputs over the brain its agent supplied.
-///
-/// Called only after the resource has been interpolated: these values are caller-controlled and
-/// `build_args_map` has already resolved them, so passing them through it again would expand
-/// contextual values — `$WM_TOKEN` in a user message would reach the model provider.
-///
 /// The roster a run advertises, given the tool names it enabled, plus the resource paths of the
 /// MCP entries it named outright — those enable every tool of that server, which only
 /// `load_mcp_tools` can enumerate.
@@ -282,9 +276,13 @@ fn narrow_roster(
                 .is_some_and(|s| enabled.iter().any(|n| n == s));
             match &t.value {
                 ToolValue::Mcp(mcp) => {
+                    // An MCP entry is added with no summary and the roster displays it by its
+                    // resource path, so that path is the only name the form can offer for it. Match
+                    // it too, or naming one tool would be the sole way to keep a whole server.
+                    let path = mcp.resource_path.trim_start_matches("$res:");
+                    let named = named || enabled.iter().any(|n| n == path);
                     if named {
-                        enabled_mcp_paths
-                            .insert(mcp.resource_path.trim_start_matches("$res:").to_string());
+                        enabled_mcp_paths.insert(path.to_string());
                     }
                     named || names_a_server_tool
                 }
@@ -2055,6 +2053,22 @@ mod tests {
         // one it belongs to is not knowable until they answer.
         let (kept, paths) = narrow_roster(roster(), Some(&["mcp_github_create_issue".to_string()]));
         assert_eq!(names(&kept), ["github"]);
+        assert!(paths.is_empty());
+
+        // An MCP entry is added with no summary, and the form offers it by the path the roster
+        // displays it as. Without this the only way to keep such a server would be naming one of
+        // the tools it has not been asked for yet.
+        let unnamed = || {
+            vec![AgentTool {
+                summary: None,
+                ..mcp("c", "github", "$res:u/test/gh")
+            }]
+        };
+        let (kept, paths) = narrow_roster(unnamed(), Some(&["u/test/gh".to_string()]));
+        assert_eq!(kept.len(), 1);
+        assert_eq!(paths.into_iter().collect::<Vec<_>>(), ["u/test/gh"]);
+        let (dropped, paths) = narrow_roster(unnamed(), Some(&["u/test/other".to_string()]));
+        assert!(dropped.is_empty());
         assert!(paths.is_empty());
     }
 

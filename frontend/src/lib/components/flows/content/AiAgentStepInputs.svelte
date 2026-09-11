@@ -46,7 +46,7 @@
 	import { Plus, X } from 'lucide-svelte'
 	import type { PickableProperties } from '../previousResults'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
-	import type { AgentTool } from '../agentToolUtils'
+	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
 	import {
 		AGENT_FIELDS,
 		AGENT_FIELD_GROUPS,
@@ -168,7 +168,12 @@
 	// field's shape from; `flowInfers` hands every step its own copy, so this stays this step's.
 	// A linked step gets the resource's roster here, which is the one it narrows.
 	$effect(() => {
-		const names = tools.map((tool) => tool.summary).filter((name): name is string => !!name)
+		// By the name the roster shows, not the summary alone: an MCP entry is added without one and
+		// displays as its resource path, so keying on `summary` would leave a whole server with no
+		// name to pick. `narrow_roster` matches that path for the same reason.
+		const names = tools
+			.map((tool) => toolDisplayName(tool))
+			.filter((name): name is string => !!name)
 		const properties = schemaProperties
 		untrack(() => {
 			const list = properties['enabled_tools']?.oneOf?.find((variant) => variant.title === 'only')
