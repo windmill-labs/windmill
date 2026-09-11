@@ -25,6 +25,9 @@
 		gitlab: GitlabIcon
 	}
 	let logins = $state<{ type: string; displayName: string }[]>([])
+	// The instance's SAML entry point, when SSO is configured: a SAML assertion adopts a
+	// credential-less account the way an OAuth login does.
+	let saml = $state<string | undefined>(undefined)
 	// Where password login is off, a password would be a credential that cannot sign in;
 	// the backend refuses it too, this just keeps the dead end off the screen.
 	let passwordAllowed = $state(true)
@@ -44,10 +47,12 @@
 					displayName:
 						l.display_name || labels[l.type] || l.type.charAt(0).toUpperCase() + l.type.slice(1)
 				}))
+				saml = r.saml || undefined
 			})
 			.catch((err) => {
 				console.warn('Could not list OAuth logins', err)
 				logins = []
+				saml = undefined
 			})
 	})
 
@@ -80,12 +85,12 @@
 			has no sign-in method of its own yet. Pick one so you can come back any time.
 		</p>
 
-		{#if logins.length === 0 && !passwordAllowed}
+		{#if logins.length === 0 && !saml && !passwordAllowed}
 			<p class="text-sm text-secondary">
 				No sign-in method is available on this instance right now; ask an administrator.
 			</p>
 		{/if}
-		{#if logins.length > 0}
+		{#if logins.length > 0 || saml}
 			<div class="flex flex-col gap-2">
 				<span class="text-xs font-semibold text-emphasis">Sign in with a provider</span>
 				<div class="grid gap-2">
@@ -105,6 +110,20 @@
 							Continue with {login.displayName}
 						</Button>
 					{/each}
+					{#if saml}
+						<Button
+							variant="default"
+							unifiedSize="lg"
+							onClick={() => {
+								// Same cookie as the OAuth buttons: the SAML ACS goes through the same
+								// adoption path and refuses a different address the same way.
+								document.cookie = `finish_setup=${encodeURIComponent(email)}; path=/; max-age=600; SameSite=Lax`
+								window.location.assign(saml!)
+							}}
+						>
+							Continue with SSO
+						</Button>
+					{/if}
 				</div>
 				<p class="text-2xs text-secondary">
 					Sign in to the provider as {email}; a different address is refused and you stay signed in

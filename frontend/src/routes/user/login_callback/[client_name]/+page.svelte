@@ -34,7 +34,10 @@
 		// address mismatch, an unverified address, a domain rule — that session is the only
 		// way into the account, so it must survive: report and go home rather than log out.
 		// Read before the backend call, which clears the cookie whether or not it adopts.
-		const finishingSetup = !!getCookie('finish_setup')
+		// SAML's ACS answers a top-level POST from the IdP, so a refusal there arrives here
+		// as a redirect with the flag in the query, the cookie already cleared server-side.
+		const finishingSetup =
+			!!getCookie('finish_setup') || page.url.searchParams.get('finish_setup') === '1'
 		function backToSetup(message: string) {
 			document.cookie = 'finish_setup=; path=/; max-age=0; SameSite=Lax'
 			sendUserToast(message, true)
@@ -43,7 +46,9 @@
 		if (error) {
 			if (finishingSetup) {
 				backToSetup(
-					`Signing in with ${clientName} did not go through (${error}). Your account is unchanged.`
+					error.includes('finish_setup_mismatch')
+						? error.replace(/^.*finish_setup_mismatch:\s*/, '')
+						: `Signing in with ${clientName} did not go through (${error}). Your account is unchanged.`
 				)
 				return
 			}
