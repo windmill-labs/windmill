@@ -287,15 +287,25 @@ function boundedSearch(payload: { matches: unknown[]; [k: string]: unknown }): s
 
 	const { unavailable, ...rest } = payload
 	const dropped = Array.isArray(unavailable) ? { unavailableCount: unavailable.length } : {}
+	const found = payload.matches.length
 	const matches = payload.matches.map((m) => ({ ...(m as object) })) as Record<string, unknown>[]
-	const build = () =>
-		JSON.stringify({
-			...rest,
-			...dropped,
-			matches,
-			truncated: true,
-			note: `Truncated to ${MAX_RESULT_CHARS} characters: the lowest-ranked matches lost their inputSchema, some dropped entirely. A rejected call returns the schema. Refine the query to see the rest.`
-		})
+	const build = () => {
+		const schemaless = matches.filter((m) => !m.inputSchema).length
+		const note = [`Truncated to ${MAX_RESULT_CHARS} characters.`]
+		if (schemaless > 0) {
+			note.push(
+				`${schemaless} lower-ranked match(es) are listed without their inputSchema; calling one returns the schema if the arguments are wrong.`
+			)
+		}
+		if (matches.length < found) {
+			note.push(`${found - matches.length} match(es) dropped — refine the query to see them.`)
+		}
+		return JSON.stringify({ ...rest, ...dropped, matches, truncated: true, note: note.join(' ') })
+	}
+	// Dropping the server error text is the first reduction, and the only one left
+	// when nothing matched.
+	out = build()
+	if (out.length <= MAX_RESULT_CHARS) return out
 	// `matches` is ordered by score, so the tail is what the query matched least.
 	for (let i = matches.length - 1; i >= 0; i--) {
 		delete matches[i].inputSchema

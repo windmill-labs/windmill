@@ -165,13 +165,11 @@ export class McpMenu {
 		return [
 			...shown.map(({ path }) => ({
 				displayName: path,
+				icon: McpServerIcon,
 				// Getters, not snapshots: the menu stays open across a click, and it has
 				// to read through the live list rather than the row captured here, since
 				// a reload replaces every row object and a getter bound to the old one
 				// would go on reporting the state it was built with.
-				// One component for every row, so the server's own icon, Windmill's and the
-				// plug all land at the same size and nothing pulls its label out of line.
-				icon: McpServerIcon,
 				get iconProps() {
 					return { icon: row(path)?.icon, size: 14 }
 				},

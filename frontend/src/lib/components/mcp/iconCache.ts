@@ -34,9 +34,8 @@ export function cachedProviderKey(
 }
 
 /**
- * The stored mark for a path, ignoring `editedAt`. A transcript row marks a call
- * that already happened, so the provider from before a reconnect is still the one
- * to draw — and unlike `readOnlyHint`, nothing acts on it.
+ * The stored mark for a path, ignoring `editedAt`: a transcript row has none to
+ * match against, and nothing acts on a mark.
  */
 export function cachedProviderMark(
 	workspace: string,

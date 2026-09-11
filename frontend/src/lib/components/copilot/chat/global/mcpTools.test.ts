@@ -350,6 +350,23 @@ describe('result size cap', () => {
 		expect(result.truncated).toBe(true)
 	})
 
+	it('holds the cap when every server failed and nothing matched', async () => {
+		getMcpToolsMock.mockRejectedValue(new Error('x'.repeat(500)))
+		const servers = Array.from({ length: 50 }, (_, i) => ({ path: `u/hugo/mcp_${i}` }))
+		const raw = await createMcpTools(servers)
+			.find((t) => t.def.function.name === 'search_mcp_tools')!
+			.fn({
+				args: { query: 'issue' },
+				workspace: 'test-ws',
+				helpers: {},
+				toolCallbacks: createToolCallbacks(),
+				toolId: 'tool-1'
+			})
+
+		expect(raw.length).toBeLessThanOrEqual(20_000)
+		expect(JSON.parse(raw).unavailableCount).toBe(50)
+	})
+
 	it('truncates an oversized tools/list failure in search', async () => {
 		getMcpToolsMock.mockRejectedValue(new Error('x'.repeat(80_000)))
 		const result = await run('search_mcp_tools', { query: 'issue' })
