@@ -1567,40 +1567,44 @@ pub async fn refresh_expiring_oauth_tokens(
     if paths.is_empty() {
         return Ok(());
     }
-    let expiring: Vec<(String, i32)> = sqlx::query_as(
-        "SELECT variable.path, variable.account FROM variable
-           JOIN account ON account.id = variable.account
-          WHERE variable.workspace_id = $1 AND variable.path = ANY($2)
-            AND account.expires_at < now() + make_interval(secs => $3)",
+    let linked: Vec<(String, i32)> = sqlx::query_as(
+        "SELECT path, account FROM variable
+          WHERE workspace_id = $1 AND path = ANY($2) AND account IS NOT NULL",
     )
     .bind(w_id)
     .bind(&paths)
-    .bind(margin_secs)
     .fetch_all(db)
     .await?;
-    for (path, account) in expiring {
-        // Locked and rechecked: two jobs resolving the same warehouse would otherwise
-        // exchange one refresh token twice, and a provider that rotates refresh tokens
-        // invalidates one of them. The second waits here, then finds it fresh.
-        let mut tx = db.begin().await?;
-        let still_expiring: Option<i32> = sqlx::query_scalar(
+    for (path, account) in linked {
+        // Every linked token, fresh-looking or not, waits on the account's lock and only
+        // then reads its expiry. `_refresh_token` commits the new expiry before it stores
+        // the token, so a caller that checked first would take the old token during
+        // another job's refresh. Serialized, two jobs also never exchange one refresh
+        // token twice, which a provider that rotates refresh tokens punishes.
+        let mut lock = db.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('oauth_refresh:' || $1::text))")
+            .bind(account)
+            .execute(&mut *lock)
+            .await?;
+        let expiring: Option<i32> = sqlx::query_scalar(
             "SELECT id FROM account
               WHERE workspace_id = $1 AND id = $2
-                AND expires_at < now() + make_interval(secs => $3)
-              FOR UPDATE",
+                AND expires_at < now() + make_interval(secs => $3)",
         )
         .bind(w_id)
         .bind(account)
         .bind(margin_secs)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut *lock)
         .await?;
-        if still_expiring.is_none() {
-            continue;
+        if expiring.is_some() {
+            let tx = db.begin().await?;
+            if let Err(e) =
+                crate::oauth_refresh_oss::_refresh_token(tx, &path, w_id, account, db).await
+            {
+                tracing::warn!("refreshing the OAuth token at {path} ahead of expiry: {e:#}");
+            }
         }
-        if let Err(e) = crate::oauth_refresh_oss::_refresh_token(tx, &path, w_id, account, db).await
-        {
-            tracing::warn!("refreshing the OAuth token at {path} ahead of expiry: {e:#}");
-        }
+        lock.commit().await?;
     }
     Ok(())
 }
