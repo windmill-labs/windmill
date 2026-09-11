@@ -135,6 +135,15 @@ describe('carriedReasoning', () => {
 		expect(carriedReasoning(REASONING_OFF, REASONING_OFF, cap('gpt-5'))).toBeUndefined()
 	})
 
+	// A provider the registry has no rules for draws no thinking control, so a carried level
+	// would be invisible and unclearable — and still sent, since an explicitly set effort
+	// goes out whatever the model.
+	it('drops the effort where it has no rules for the provider', () => {
+		expect(
+			carriedReasoning('high', REASONING_OFF, getReasoningCapability('customai', 'deepseek-r1'))
+		).toBeUndefined()
+	})
+
 	it('has nothing to carry when no effort is set', () => {
 		expect(carriedReasoning(undefined, '', cap('gpt-5.1'))).toBeUndefined()
 		expect(carriedReasoning('', '', cap('gpt-5.1'))).toBeUndefined()
