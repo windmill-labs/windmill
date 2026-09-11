@@ -862,7 +862,9 @@ export function useItems<V>(
 	}
 
 	untrack(reconcile)
-	$effect(reconcile)
+	// Before the template renders: a spec that moved on must not render one more frame of the
+	// item it left, remounting that item's form for nothing.
+	$effect.pre(reconcile)
 	onDestroy(() => {
 		for (const acq of held.values()) acq.release()
 		held.clear()
