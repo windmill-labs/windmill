@@ -1297,8 +1297,25 @@ async fn create_resource(
 
     webhook.send_message(
         w_id.clone(),
-        WebhookMessage::CreateResource { workspace: w_id, path: resource.path.clone() },
+        WebhookMessage::CreateResource { workspace: w_id.clone(), path: resource.path.clone() },
     );
+
+    // Trigger CI tests for items that reference this resource
+    {
+        let db2 = db.clone();
+        let path2 = resource.path.clone();
+        let email2 = authed.email.clone();
+        let username2 = authed.username.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db2, &w_id, &path2, "resource", &email2, &username2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after resource creation");
+            }
+        });
+    }
 
     Ok((
         StatusCode::CREATED,

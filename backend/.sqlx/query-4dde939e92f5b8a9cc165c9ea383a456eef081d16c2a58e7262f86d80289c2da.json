@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE git_sync_synced_head SET tests_dispatched_at = now()\n           WHERE workspace_id = $1 AND repo_resource_path = $2 AND branch = $3 AND sha = $4\n             AND (tests_dispatched_at IS NULL\n                  OR (ci_test_job_ids IS NULL\n                      AND tests_dispatched_at < now() - make_interval(secs => $5)))\n           RETURNING true as \"claimed!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "claimed!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4dde939e92f5b8a9cc165c9ea383a456eef081d16c2a58e7262f86d80289c2da"
+}

@@ -983,19 +983,21 @@ mod git_sync_check_tests {
     }
 }
 
-/// When an auto-pull job (carrying `__git_sync_auto_pull`) fails, roll the
+/// When an auto-pull job (carrying `__git_sync_auto_pull`) completes: on success,
+/// record the commit as a head the workspace reflects; on failure, roll the
 /// optimistic `last_synced_sha` advance back to the pre-pull value so the commit
 /// is retried instead of being silently treated as synced, and record the failure.
+/// The recorded commit is the one the pull script reports having checked out
+/// (`{sha, branch}` in its result): the branch can move between the observation
+/// the marker holds and the clone. A result without it falls back to the marker.
 #[cfg(all(feature = "enterprise", feature = "private"))]
 async fn maybe_reconcile_git_sync_auto_pull(
     db: &DB,
     job_id: &uuid::Uuid,
     workspace_id: &str,
     success: bool,
+    result: &str,
 ) {
-    if success {
-        return; // the optimistic synced state is already correct
-    }
     let marker: Option<serde_json::Value> = match sqlx::query_scalar!(
         "SELECT args->'__git_sync_auto_pull' FROM v2_job WHERE id = $1",
         job_id
@@ -1015,12 +1017,50 @@ async fn maybe_reconcile_git_sync_auto_pull(
     #[derive(serde::Deserialize)]
     struct AutoPullMarker {
         repo_resource_path: String,
+        branch: Option<String>,
+        head_sha: Option<String>,
         #[serde(default)]
         prev_synced: std::collections::HashMap<String, String>,
     }
     let Ok(m) = serde_json::from_value::<AutoPullMarker>(marker) else {
         return;
     };
+    if success {
+        // The optimistic synced state is already correct; record that the workspace
+        // now reflects the commit, which the PR CI-test check waits for.
+        #[derive(serde::Deserialize)]
+        struct PullResult {
+            sha: Option<String>,
+            branch: Option<String>,
+        }
+        let applied = serde_json::from_str::<PullResult>(result).ok();
+        let branch = applied
+            .as_ref()
+            .and_then(|r| r.branch.as_deref())
+            .or(m.branch.as_deref());
+        let sha = applied
+            .as_ref()
+            .and_then(|r| r.sha.as_deref())
+            .or(m.head_sha.as_deref());
+        if let (Some(branch), Some(sha)) = (branch, sha) {
+            if let Err(e) = windmill_git_sync::record_synced_head(
+                db,
+                workspace_id,
+                &m.repo_resource_path,
+                branch,
+                sha,
+                "pull",
+                Some(*job_id),
+            )
+            .await
+            {
+                tracing::warn!(
+                    "git auto-pull: failed to record synced head {sha} on {branch}: {e:#}"
+                );
+            }
+        }
+        return;
+    }
     windmill_git_sync::record_auto_pull_failure(
         db,
         workspace_id,
@@ -1107,6 +1147,70 @@ fn git_sync_push_result_pushed(result: &str) -> Option<bool> {
         .ok()?
         .get("pushed")?
         .as_bool()
+}
+
+/// When a git-sync push job pushed a commit, record it as a head the workspace
+/// reflects, the way a successful pull records the commit it applied. The PR
+/// CI-test check waits for that record. Best-effort: failures are logged, never
+/// propagated.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn maybe_record_git_sync_pushed_head(
+    db: &DB,
+    job_id: &uuid::Uuid,
+    workspace_id: &str,
+    result: &str,
+) {
+    #[derive(serde::Deserialize)]
+    struct PushResult {
+        pushed: bool,
+        sha: Option<String>,
+        branch: Option<String>,
+        #[serde(default)]
+        rebased: bool,
+    }
+    let Ok(PushResult { pushed: true, sha: Some(sha), branch: Some(branch), rebased }) =
+        serde_json::from_str::<PushResult>(result)
+    else {
+        return;
+    };
+    // A push that had to rebase sits on commits this workspace has not pulled, so the
+    // pushed head is not something it reflects yet; the pull those commits trigger
+    // records the head once they are in.
+    if rebased {
+        tracing::info!(
+            "git sync push: {sha} on {branch} was rebased onto unpulled commits; not recording it as synced for {workspace_id}"
+        );
+        return;
+    }
+    let repo_path = match sqlx::query_scalar!(
+        "SELECT args->>'repo_url_resource_path' FROM v2_job WHERE id = $1",
+        job_id
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(Some(Some(p))) => p,
+        Ok(_) => return,
+        Err(e) => {
+            tracing::error!("git sync push: failed to read job args: {e:#}");
+            return;
+        }
+    };
+    if let Err(e) = windmill_git_sync::record_synced_head(
+        db,
+        workspace_id,
+        &repo_path,
+        &branch,
+        &sha,
+        "push",
+        Some(*job_id),
+    )
+    .await
+    {
+        tracing::warn!(
+            "git sync push: failed to record pushed head {sha} on {branch} for {workspace_id}/{repo_path}: {e:#}"
+        );
+    }
 }
 
 /// When a git-sync push job carrying `__git_sync_open_pr` succeeds, open (or
@@ -1707,7 +1811,25 @@ pub async fn process_completed_job(
         #[cfg(all(feature = "enterprise", feature = "private"))]
         if job.kind == JobKind::DeploymentCallback {
             maybe_post_git_sync_check(db, &job_id, &workspace_id, true, result.get()).await;
+            maybe_reconcile_git_sync_auto_pull(db, &job_id, &workspace_id, true, result.get())
+                .await;
+            maybe_record_git_sync_pushed_head(db, &job_id, &workspace_id, result.get()).await;
             maybe_open_git_sync_deploy_pr(db, &job_id, &workspace_id, result.get()).await;
+        }
+        // A CI test job just finished: advance any open "Windmill CI tests" PR check for
+        // its workspace. Detached, since concluding a check calls GitHub and this loop
+        // completes jobs serially; the evaluation is idempotent and the poller retries.
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if job
+            .trigger_kind
+            .as_ref()
+            .is_some_and(|k| k.is(windmill_common::jobs::JobTriggerKind::CiTest))
+        {
+            let db = db.clone();
+            let w_id = workspace_id.clone();
+            tokio::spawn(async move {
+                windmill_git_sync::evaluate_and_conclude_ci_test_checks(&db, &w_id).await
+            });
         }
 
         // Asset-trigger fan-out: best-effort, never propagates errors.
@@ -1819,7 +1941,20 @@ pub async fn process_completed_job(
         #[cfg(all(feature = "enterprise", feature = "private"))]
         if job.kind == JobKind::DeploymentCallback {
             maybe_post_git_sync_check(db, &job.id, &job.workspace_id, false, result.get()).await;
-            maybe_reconcile_git_sync_auto_pull(db, &job.id, &job.workspace_id, false).await;
+            maybe_reconcile_git_sync_auto_pull(db, &job.id, &job.workspace_id, false, "").await;
+        }
+        // A failed CI test job also settles its check; same detached advance as on success.
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if job
+            .trigger_kind
+            .as_ref()
+            .is_some_and(|k| k.is(windmill_common::jobs::JobTriggerKind::CiTest))
+        {
+            let db = db.clone();
+            let w_id = job.workspace_id.clone();
+            tokio::spawn(async move {
+                windmill_git_sync::evaluate_and_conclude_ci_test_checks(&db, &w_id).await
+            });
         }
         if job.is_flow_step() {
             if let Some(parent_job) = job.parent_job {

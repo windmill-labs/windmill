@@ -827,6 +827,29 @@ async fn create_flow(
         WebhookMessage::CreateFlow { workspace: w_id.clone(), path: nf.path.clone() },
     );
 
+    // Trigger CI tests for items that reference this flow
+    {
+        let db2 = db.clone();
+        let w_id2 = w_id.clone();
+        let flow_path2 = nf.path.clone();
+        let email2 = authed.email.clone();
+        let username2 = authed.username.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db2,
+                &w_id2,
+                &flow_path2,
+                "flow",
+                &email2,
+                &username2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after flow creation");
+            }
+        });
+    }
+
     Ok((StatusCode::CREATED, nf.path.to_string()))
 }
 

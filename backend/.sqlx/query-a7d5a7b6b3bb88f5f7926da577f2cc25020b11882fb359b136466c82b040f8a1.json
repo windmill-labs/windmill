@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM git_sync_ci_test_check c\n         WHERE c.concluded AND c.github_posted\n           AND c.concluded_at < now() - make_interval(secs => $1)\n           AND NOT EXISTS (\n               SELECT 1 FROM git_sync_synced_head h\n               WHERE h.workspace_id = c.workspace_id\n                 AND h.repo_resource_path = c.repo_resource_path\n                 AND h.sha = c.head_sha\n           )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a7d5a7b6b3bb88f5f7926da577f2cc25020b11882fb359b136466c82b040f8a1"
+}

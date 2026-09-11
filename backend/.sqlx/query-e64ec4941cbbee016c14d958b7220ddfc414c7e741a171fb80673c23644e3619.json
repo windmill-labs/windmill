@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace_id, poster_workspace_id, head_sha, repo_url, repo_resource_path,\n                  check_run_id\n           FROM git_sync_ci_test_check\n           WHERE NOT concluded OR NOT github_posted",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "poster_workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "head_sha",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "repo_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "repo_resource_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "check_run_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "e64ec4941cbbee016c14d958b7220ddfc414c7e741a171fb80673c23644e3619"
+}

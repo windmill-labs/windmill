@@ -618,6 +618,93 @@ repo's **Environments** timeline ("Production → Deployed"). Needs
 opt-in / later. The check-run version is the cheap default and matches the visual
 Cloudflare parity without a new permission.
 
+### Phase 7 — CI test results check (WIN-2051) — implemented
+
+Surfaces Windmill's own CI tests (the `// test: script/...` annotation) as a
+**"Windmill CI tests"** check run on **any PR** against the tracked branch, so a customer
+can mark it a **required status check** and have Windmill CI results gate the PR —
+replacing the documented GitHub Action that polls `ci_test_results_batch`. GitHub App-backed
+only; reuses the Phase 4 `Checks: write` grant, so no new permission. Token repos keep the
+Action, and GitLab merge requests get no CI-test surface for the same reason the Phase 4
+preview lives in a note there (a commit status would fail the project's own pipeline).
+
+Driven by the **`pull_request` webhook** — the same event Phase 4 already reacts to —
+rather than the deploy push/pull, so it's uniform across how the PR's commit came to exist
+(a fork deploy that pushes `wm-fork/**` and opens the PR, or an external push that gets
+pulled in). CI tests run as separate async `ci_test` jobs in the **fork workspace** the PR
+corresponds to; the check reflects that fork's current results on the PR head.
+
+- **State** — `git_sync_ci_test_check(workspace_id, repo_resource_path, head_sha)` (new
+  table). `workspace_id` is the **fork** whose `ci_test` jobs the check reflects;
+  `repo_resource_path` the repository (a fork can sync several, and two can hold the same
+  commit); `poster_workspace_id` is the **parent** whose GitHub-App installation posts the
+  run (the workspace that received the webhook and owns the repo hook). Plus `repo_url`,
+  `head_ref`, `check_run_id` (NULL until the create succeeds, and reset to NULL by a re-fired event
+  for the same head: the row is written first so a create that never gets recorded cannot
+  strand an in-progress run, and the poller retries any row without an id), `created_at`,
+  `concluded`, `conclusion`, `concluded_at`, `github_posted`.
+  Partial index `(workspace_id) WHERE NOT concluded OR NOT github_posted` (the live set the
+  hook + poller scan).
+- **Open** — in the `pull_request` handler (opened/synchronize/reopened, or edited with a
+  base change, base = tracked): when the head lives in the base repo, resolve the fork
+  workspace from the head ref (reusing the fork-branch routing;
+  `resolve_pr_head_workspace`), persist the intent row with a null check-run id, then
+  `create_check_run` in_progress on `head_sha` via the parent's installation and adopt the
+  id (the poller retries the create from the row if it failed), then evaluate. An earlier head's open check is left to conclude on its
+  own (fork verdict or timeout): a late-delivered event for an old head must never touch
+  the current head's check.
+- **Conclude** — the verdict is the head's own suite. Once the fork reflects the head (below)
+  and its dependency jobs settled, every CI test the fork declares is dispatched once, one
+  run per `ci_test_reference` row the way a deploy of that item would (`trigger_all_ci_tests`,
+  as the fork's owner, the user who created it, with no more reach than they have; a
+  missing or disabled owner concludes the check as failure; and without the per-item
+  debounce so a deploy-triggered run of the same test cannot supersede a suite run), and the job ids are
+  recorded on the synced-head row (`ci_test_job_ids`; `tests_dispatched_at` claims the
+  dispatch so the per-job hook and the poller queue it once, and a claim that never recorded
+  ids is retaken after 5 min). The verdict is exactly those runs: fail-fast on any
+  failed/canceled; `success` once all settle ("No CI tests" when the fork declares none);
+  `skipped` ignored. Nothing older, newer or workspace-wide stands in
+  for a head's runs, so a re-fired event reads the same runs and gets the same answer, a
+  test-only change is run because the suite runs on every head, and a deploy in flight in
+  the fork cannot feed another head's check. Runs purged by job retention reset the row so
+  the head is re-tested.
+- **Readiness** — the suite is dispatched only once the fork reflects the head, so it does
+  not matter which webhook GitHub delivers first. The evidence is `git_sync_synced_head`: the
+  pull completion hook writes a row when a pull job succeeds (the pull script reports the
+  commit its clone checked out; the enqueue-time marker is the fallback), and the push
+  completion hook writes one from the deploy push script's `{pushed, sha, branch, rebased}`
+  result (a rebased push sits on unpulled commits and is not recorded). The head is ready
+  when the repository branch's newest row names it, so a branch reset to an older commit
+  waits for its re-pull; the prune keeps each repository branch's newest row so a PR reopened
+  at an unchanged head stays ready. This is a sync event log, deliberately apart from
+  `auto_pull.last_synced_sha`: that map decides whether the next poll pulls (a push must
+  never write it, or a commit someone else pushed under ours would be skipped) and it is
+  client-round-tripped settings. The check row stores `head_ref` for the lookup. Dispatch
+  also waits while a dependency job in the fork or a pull of the repository branch is queued
+  (a deploy push lands on whatever the remote held when it cloned, so a commit pushed there
+  from outside is in the workspace only once its pull ran), and the check fails outright if
+  a dependency job failed after the head's pull started (the item deployed nothing
+  runnable). A commit the fork never comes to reflect times out; a timeout on a repository
+  pinned to a sync script older than the one that reports pushed commits names that as the
+  reason. Needs the hub script versions that report the sha (`LATEST_GIT_SYNC_SCRIPT_PATH`,
+  `GIT_SYNC_PULL_SCRIPT_PATH`).
+- **Drivers** — a per-`ci_test`-job completion hook (low latency) and the git-sync poller
+  (the backstop: retries the GitHub create/deliver, times stuck checks out after 30 min,
+  prunes old rows; runs after the auto-pull advisory lock is released so its GitHub calls
+  never extend the tick). Both call one idempotent `evaluate_and_conclude`, which claims the
+  decision with a guarded `UPDATE ... WHERE NOT concluded RETURNING` (exactly-once) and
+  decouples GitHub delivery via `github_posted` so a failed PATCH is retried, not hung.
+
+Invariants: only a head in the base repo can map to a workspace (a contributor fork's
+branch names mean nothing here); the webhook's workspace posts through its own
+installation; the timeout stops a hung test job from blocking a required check forever;
+rows cascade away with either workspace. A plain feature-branch or
+contributor-fork PR resolves to no fork workspace and gets an already-concluded `skipped`
+check (branch protection counts `skipped` as passing, so requiring the check does not block
+those PRs). A timeout on a repository pinned to a sync script older than the one that reports
+pushed commits names that as the reason. Known limit (accepted for v1): the fork's status is workspace-wide (all its
+tested items), which for the one-fork-per-PR model equals the PR's scope.
+
 ## 16. Alternatives considered
 
 **Portal as webhook proxy (the rejected "option 2").** Subscribe the managed app
