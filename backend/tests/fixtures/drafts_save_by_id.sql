@@ -1,0 +1,16 @@
+-- Fixture for saving a draft by row id across a rename.
+--
+-- A deployed script at `u/test-user/byid_a` (hash 7030 = 0x1b76) with the
+-- deployer's own draft on it. The test renames the script and then saves the
+-- draft by id from an editor still bound to the old path.
+
+INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by,
+                    schema, summary, description, lock, extra_perms)
+VALUES ('test-workspace', 7030, 'u/test-user/byid_a',
+        'export function main() { return 1 }',
+        'deno', 'script', 'test-user', '{}', 'A', '', '', '{}');
+
+INSERT INTO draft (id, workspace_id, path, typ, value, email, base)
+VALUES (9001, 'test-workspace', 'u/test-user/byid_a', 'script',
+        '{"path": "u/test-user/byid_a", "parent_hash": "0000000000001b76", "summary": "A", "content": "draft"}',
+        'test@windmill.dev', '0000000000001b76');

@@ -358,7 +358,10 @@
 		if (getDraft) {
 			otherDraftsUsers = (backendFlow.other_drafts_users ?? []) as OtherDraftUser[]
 		}
-		draftSync.recordRemoteSync(backendFlow.draft_saved_at as string | undefined)
+		draftSync.recordRemoteSync(
+			backendFlow.draft_saved_at as string | undefined,
+			backendFlow.draft_id
+		)
 		// Re-evaluate per load: true for draft-only paths, false once deployed.
 		isNewFlow = !!backendFlow.no_deployed
 		// Per-response, NOT sticky: a later no-own-draft load in the same editor
@@ -522,6 +525,7 @@
 	{draftBaseVersion}
 	deployedHeadVersion={version != null ? String(version) : undefined}
 	onViewDiff={() => flowBuilder?.openDiffDrawer()}
+	onBeforeRelocate={() => flowBuilder?.saveDraft()}
 	onLoadLatestDeploy={async () => {
 		// stopSync-bracketed; see /scripts/edit's restoreDeployed for the race.
 		if (!$workspaceStore) return

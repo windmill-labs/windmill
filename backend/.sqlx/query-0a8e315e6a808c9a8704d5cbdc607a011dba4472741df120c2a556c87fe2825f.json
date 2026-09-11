@@ -1,29 +1,29 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT value as \"value!: sqlx::types::Json<Box<serde_json::value::RawValue>>\",\n                  created_at, base\n           FROM draft\n           WHERE workspace_id = $1\n             AND (email = $2 OR email IS NULL)\n             AND path = $3\n             AND typ = $4\n           ORDER BY email NULLS LAST\n           LIMIT 1",
+  "query": "INSERT INTO draft (workspace_id, email, path, typ, value, created_at, base)\n               VALUES ($1, $2, $3, $4, $5::text::json, COALESCE($8::timestamptz, now()), $9)\n               ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL\n               DO UPDATE SET value = EXCLUDED.value, created_at = EXCLUDED.created_at,\n                             base = EXCLUDED.base\n               WHERE $7::bool = true\n                  OR $6::timestamptz IS NULL\n                  OR draft.created_at <= $6::timestamptz\n               RETURNING id, path, created_at",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
-        "type_info": "Json"
+        "name": "id",
+        "type_info": "Int8"
       },
       {
         "ordinal": 1,
-        "name": "created_at",
-        "type_info": "Timestamptz"
+        "name": "path",
+        "type_info": "Varchar"
       },
       {
         "ordinal": 2,
-        "name": "base",
-        "type_info": "Text"
+        "name": "created_at",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Text",
-        "Text",
+        "Varchar",
+        "Varchar",
+        "Varchar",
         {
           "Custom": {
             "name": "draft_kind",
@@ -58,14 +58,19 @@
               ]
             }
           }
-        }
+        },
+        "Text",
+        "Timestamptz",
+        "Bool",
+        "Timestamptz",
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
-      true
+      false
     ]
   },
-  "hash": "0cc6770a81ecaecafe0d9b7100f94b329c4ec7978b016af4c964415e0c38396c"
+  "hash": "0a8e315e6a808c9a8704d5cbdc607a011dba4472741df120c2a556c87fe2825f"
 }

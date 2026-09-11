@@ -129,17 +129,6 @@ export type DraftConflictInfo = {
 	localLastSync: string | null
 }
 
-/** Where an item went after someone moved it, as reported by a refused save. */
-export type DraftMovedInfo = {
-	movedTo: string
-	movedBy: string | undefined
-	/** Fields the server says to merge into the draft before re-saving it at
-	 * `movedTo` — the typed target path and the version the item now sits at.
-	 * The server owns these key names (`UserDraftItemKind::typed_path_field` /
-	 * `base_version_field`), so nothing here reproduces them. */
-	patch: Record<string, unknown> | undefined
-}
-
 export type UserDraftLastSyncQuery = {
 	workspace: string
 	itemKind: UserDraftItemKind
@@ -226,12 +215,18 @@ const syncLocked = new Map<string, (() => void) | undefined>()
 const conflicts = new SvelteMap<string, DraftConflictInfo>()
 
 /**
- * Keys whose item was MOVED out from under an editor still bound to the old
- * path. The server refuses the write (saving would plant a phantom draft-only
- * item where the item no longer is) and answers with where it went; read via
- * `getMove(query)` to prompt the user over there.
+ * The server row id per key, learned from the load (`draft_id`) or the first
+ * save. Sent with every later save so the write addresses the row wherever a
+ * move took it, rather than the path this editor was opened on.
  */
-const moves = new SvelteMap<string, DraftMovedInfo>()
+const draftIds = new Map<string, number>()
+
+/**
+ * Per-key listeners fired when a save lands at a path other than the key's:
+ * the item was moved while the editor was open, and the row followed it. The
+ * editor follows too (see `onRelocated`).
+ */
+const relocationListeners = new Map<string, Set<(newPath: string) => void>>()
 
 /**
  * Draft keys whose last save threw (network / 5xx) → extracted error
@@ -310,21 +305,10 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 				// `last_sync` (first-ever save) hits the backend's "treat as
 				// fresh" branch.
 				last_sync: opts.force ? undefined : lastSync,
-				force: opts.force ?? false
+				force: opts.force ?? false,
+				id: draftIds.get(key)
 			}
 		})
-		if (resp.status === 'moved') {
-			// Nothing was written. Like a conflict, `lastSync` stays put so the
-			// state survives every retry until the user acts on it.
-			if (resp.moved_to) {
-				moves.set(key, {
-					movedTo: resp.moved_to,
-					movedBy: resp.moved_by,
-					patch: resp.moved_patch as Record<string, unknown> | undefined
-				})
-			}
-			return
-		}
 		if (resp.status === 'conflict') {
 			// Someone advanced the row past our `last_sync`. Park the
 			// snapshot for the UI; do NOT touch `lastSync` — the next save
@@ -339,8 +323,10 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		// resp.status === 'saved' — advance lastSync (or drop on delete).
 		if (opts.value === null) {
 			clearLastSync(opts.workspace, opts.itemKind, opts.path)
+			draftIds.delete(key)
 		} else {
 			setLastSync(opts.workspace, opts.itemKind, opts.path, resp.current_timestamp)
+			if (resp.id != null) draftIds.set(key, resp.id)
 		}
 		// postSave is the only place a draft's server-side existence changes,
 		// so it's the single source for the list pages' `*` hint
@@ -348,7 +334,6 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		// free instead of maintaining a separate source of truth.
 		setLocalDraftHint(opts.workspace, opts.itemKind, opts.path, opts.value !== null)
 		conflicts.delete(key)
-		moves.delete(key)
 		failures.delete(key)
 		// Clear pending only if it's still the opts we just saved — a
 		// newer `save()` that arrived during the POST replaces the entry
@@ -365,6 +350,12 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		// cached state the same way an upsert does. Listener errors must never
 		// make a committed save read as failed.
 		notifyAnySaved({ workspace: opts.workspace, itemKind: opts.itemKind, path: opts.path })
+		// The row was carried elsewhere by a move and the save followed it. Last,
+		// so the editor that reacts (by leaving this path) sees a settled key.
+		if (opts.value !== null && resp.path && resp.path !== opts.path) {
+			const listeners = relocationListeners.get(key)
+			if (listeners) for (const l of [...listeners]) l(resp.path)
+		}
 	} catch (e) {
 		console.error('UserDraftDbSyncer.save failed', e)
 		// Leave pending opts in place so the next attempt retries the same
@@ -558,18 +549,28 @@ export const UserDraftDbSyncer = {
 	 * Seed the per-tab `last_sync` after an editor reads a draft from the
 	 * server. Pass the response's `draft_saved_at` so the next save sends a
 	 * matching `last_sync`; pass `undefined` when no draft existed (next
-	 * save omits `last_sync`, the backend's first-push branch).
+	 * save omits `last_sync`, the backend's first-push branch). `draftId` is
+	 * the row's id from the same response; with it the next save addresses
+	 * the row rather than the path, so it follows a move.
 	 */
-	recordRemoteSync(query: UserDraftLastSyncQuery, draftSavedAt: string | undefined): void {
+	recordRemoteSync(
+		query: UserDraftLastSyncQuery,
+		draftSavedAt: string | undefined,
+		draftId?: number
+	): void {
 		const key = draftKey(query.workspace, query.itemKind, query.path)
 		if (draftSavedAt) {
 			setLastSync(query.workspace, query.itemKind, query.path, draftSavedAt)
 		} else {
 			clearLastSync(query.workspace, query.itemKind, query.path)
 		}
+		if (draftId != null) {
+			draftIds.set(key, draftId)
+		} else {
+			draftIds.delete(key)
+		}
 		// Back in sync with the server: clear any conflict / failure.
 		conflicts.delete(key)
-		moves.delete(key)
 		failures.delete(key)
 	},
 
@@ -647,27 +648,26 @@ export const UserDraftDbSyncer = {
 		conflicts.delete(draftKey(query.workspace, query.itemKind, query.path))
 	},
 
-	/** Reactive "the item moved away from this path" snapshot, if any. */
-	getMove(query: UserDraftLastSyncQuery): {
-		readonly move: DraftMovedInfo | undefined
-	} {
+	/**
+	 * Subscribe to saves for a draft key that landed at another path: the item
+	 * was moved while this editor was open and the row followed it. Fired with
+	 * the row's current path, after the save is fully accounted for. Returns an
+	 * unsubscribe.
+	 */
+	onRelocated(query: UserDraftLastSyncQuery, listener: (newPath: string) => void): () => void {
 		const key = draftKey(query.workspace, query.itemKind, query.path)
-		return {
-			get move() {
-				return moves.get(key)
-			}
+		let set = relocationListeners.get(key)
+		if (!set) {
+			set = new Set()
+			relocationListeners.set(key, set)
 		}
-	},
-
-	clearMove(query: UserDraftLastSyncQuery): void {
-		moves.delete(draftKey(query.workspace, query.itemKind, query.path))
-	},
-
-	/** Re-point a key's move verdict, for an item that moved again while its
-	 * carry was in flight (A→B→C). Without this the prompt keeps naming B, and
-	 * every retry is refused for the same reason. */
-	recordMove(query: UserDraftLastSyncQuery, move: DraftMovedInfo): void {
-		moves.set(draftKey(query.workspace, query.itemKind, query.path), move)
+		set.add(listener)
+		return () => {
+			const s = relocationListeners.get(key)
+			if (!s) return
+			s.delete(listener)
+			if (s.size === 0) relocationListeners.delete(key)
+		}
 	},
 
 	/**

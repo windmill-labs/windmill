@@ -9430,6 +9430,10 @@ paths:
                   type: string
                   format: date-time
                   description: Upsert-only override for the stored creation timestamp. Normal saves omit it (stamped server-side); the localStorage→DB migration passes the draft's original write time so migrated drafts keep their age.
+                id:
+                  type: integer
+                  format: int64
+                  description: The draft row to write, from a previous save's `id` or the get-by-path `draft_id`. Addresses the row wherever a move took it; the URL path only applies when the id names no row of the caller's any more.
       responses:
         "200":
           description: save result
@@ -9440,21 +9444,17 @@ paths:
                 properties:
                   status:
                     type: string
-                    enum: [saved, conflict, moved]
-                    description: "`moved`: the item left this path, so nothing was written — see `moved_to`."
+                    enum: [saved, conflict]
                   current_timestamp:
                     type: string
                     format: date-time
-                  moved_to:
+                  id:
+                    type: integer
+                    format: int64
+                    description: "`saved` upserts only: the row's id, to save by from now on."
+                  path:
                     type: string
-                    description: "`moved` only: the path the item lives at now."
-                  moved_by:
-                    type: string
-                    description: "`moved` only: who last deployed it there. Best-effort."
-                  moved_patch:
-                    type: object
-                    additionalProperties: true
-                    description: "`moved` only: fields to merge into the refused draft before re-saving it at `moved_to` — the typed target path and the version the item now sits at. Sent as a patch so the client does not reproduce the per-kind key names."
+                    description: "`saved` upserts only: where the row is. Differs from the URL path once a move has carried the row elsewhere; the editor follows it there."
                 required: [status, current_timestamp]
 
   /w/{workspace}/drafts/move/{kind}/{path}:
@@ -26105,6 +26105,10 @@ components:
         draft_saved_at:
           type: string
           format: date-time
+        draft_id:
+          type: integer
+          format: int64
+          description: The draft row's id. Pass it as `id` on updateDraft so saves follow the row through a move.
         draft_base:
           type: string
           description: |

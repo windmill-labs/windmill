@@ -240,7 +240,8 @@
 		if ($workspaceStore && path) {
 			UserDraftDbSyncer.recordRemoteSync(
 				{ workspace: $workspaceStore, itemKind: 'app', path },
-				backendApp.draft_saved_at
+				backendApp.draft_saved_at,
+				backendApp.draft_id
 			)
 		}
 		// The app autosave stores a raw `App`, but this loader (and AppEditor's

@@ -2,7 +2,6 @@
 	/**
 	 * The draft modals every editor route mounts at its trailer:
 	 *  - DraftSyncConflictModal: surfaces a 409 from the autosave pipeline.
-	 *  - DraftMovedModal: the item was moved away from this path mid-edit.
 	 *  - OtherUsersDraftsModal: other users' drafts at this path, for forking.
 	 *  - StaleDraftModal: prompts when the user's draft predates the latest
 	 *    deploy; open-state is computed here from the route's timestamps.
@@ -13,8 +12,11 @@
 	 */
 	import type { UserDraftItemKind } from '$lib/gen'
 	import DraftSyncConflictModal from './DraftSyncConflictModal.svelte'
-	import DraftMovedModal from './DraftMovedModal.svelte'
 	import OtherUsersDraftsModal, { type OtherDraftUser } from './OtherUsersDraftsModal.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { base } from '$app/paths'
+	import { goto } from '$app/navigation'
 	import StaleDraftModal from './StaleDraftModal.svelte'
 	import ConfirmationModal from './ConfirmationModal.svelte'
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
@@ -54,6 +56,11 @@
 		 *  choice between keeping and discarding is informed. Omit where the editor
 		 *  has no diff drawer; the action is then not rendered. */
 		onViewDiff?: () => void | Promise<void>
+		/** Runs before this editor follows its draft to the item's new path: the
+		 *  editor's own draft save, which materializes text the code editor still
+		 *  holds. Without it, keystrokes typed since the relocating save are lost
+		 *  to the navigation. */
+		onBeforeRelocate?: () => void | Promise<void>
 		/** Defaults to true; set to false to suppress all modals. */
 		enabled?: boolean
 	}
@@ -74,6 +81,7 @@
 		deployedHeadVersion = undefined,
 		onLoadLatestDeploy,
 		onViewDiff,
+		onBeforeRelocate,
 		enabled = true
 	}: Props = $props()
 
@@ -113,6 +121,30 @@
 			}
 		})
 	})
+
+	const EDITOR_SEGMENT: Partial<Record<UserDraftItemKind, string>> = {
+		script: 'scripts/edit',
+		flow: 'flows/edit',
+		app: 'apps/edit',
+		raw_app: 'apps_raw/edit'
+	}
+
+	// The item was moved while this editor was open: the draft row followed it
+	// and the save just landed there. Follow it too — the route reloads the item
+	// at its new path, and the stale prompt above then says what changed. Edits
+	// typed since that save are flushed first, so leaving this path drops none.
+	$effect(() => {
+		if (!enabled || !workspace || !path) return
+		const seg = EDITOR_SEGMENT[itemKind]
+		if (!seg) return
+		const query = { workspace, itemKind, path }
+		return UserDraftDbSyncer.onRelocated(query, async (newPath) => {
+			await onBeforeRelocate?.()
+			await UserDraftDbSyncer.flush(query)
+			sendUserToast(`This item was moved to ${newPath}. You are now editing it there.`)
+			await goto(`${base}/${seg}/${newPath}`)
+		})
+	})
 </script>
 
 {#if enabled && workspace && path}
@@ -121,7 +153,6 @@
 		{onLoadFromServer}
 		{getLocalDraft}
 	/>
-	<DraftMovedModal query={{ workspace, itemKind, path }} {getLocalDraft} />
 	{#if otherDraftsUsers.length > 0}
 		{#key path}
 			<OtherUsersDraftsModal

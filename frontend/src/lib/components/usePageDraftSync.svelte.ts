@@ -47,8 +47,10 @@ export interface PageDraftSync<V> {
 	seedBaseline(value: V): void
 	/** After a backend load, record the server's `draft_saved_at` so the
 	 *  next autosave attaches a matching `last_sync` and the server can
-	 *  reject stale writes. `undefined` clears it (no draft existed). */
-	recordRemoteSync(draftSavedAt: string | undefined): void
+	 *  reject stale writes. `undefined` clears it (no draft existed). The
+	 *  row's `draft_id` makes later saves address the row, so they follow a
+	 *  move. */
+	recordRemoteSync(draftSavedAt: string | undefined, draftId?: number): void
 	/** Drop the draft (server row + local cell) — restore-to-deployed and
 	 *  post-deploy cleanup. */
 	remove(): void
@@ -99,14 +101,15 @@ export function usePageDraftSync<V = unknown>(opts: PageDraftSyncOptions<V>): Pa
 			if (!ws || !p) return
 			UserDraft.seed(opts.itemKind, p, value, { workspace: ws })
 		},
-		recordRemoteSync(draftSavedAt: string | undefined) {
+		recordRemoteSync(draftSavedAt: string | undefined, draftId?: number) {
 			const ws = opts.workspace()
 			const p = opts.path()
 			if (!ws || !p) return
 			untrack(() =>
 				UserDraftDbSyncer.recordRemoteSync(
 					{ workspace: ws, itemKind: opts.itemKind, path: p },
-					draftSavedAt
+					draftSavedAt,
+					draftId
 				)
 			)
 		},

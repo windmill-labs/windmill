@@ -317,7 +317,10 @@
 			// Seed the per-tab `last_sync` so the next autosave attaches a matching
 			// timestamp the backend can stale-check. `undefined` (no draft) clears
 			// it, making the next save take the "first push" branch.
-			draftSync.recordRemoteSync(backendScript.draft_saved_at as string | undefined)
+			draftSync.recordRemoteSync(
+				backendScript.draft_saved_at as string | undefined,
+				backendScript.draft_id
+			)
 			// Per-response, NOT sticky: navigating to another path in the same editor
 			// must reset this, else a later no-own-draft load wrongly enters overlay.
 			const hasOwnDraft = !!backendScript.is_draft
@@ -483,6 +486,7 @@
 	draftBaseVersion={draftBaseHash}
 	deployedHeadVersion={deployedHeadHash}
 	onViewDiff={() => scriptBuilder?.openDiffDrawer()}
+	onBeforeRelocate={() => scriptBuilder?.saveDraft()}
 	onLoadLatestDeploy={async () => {
 		// stopSync-bracketed; see restoreDeployed for the race.
 		if (!$workspaceStore) return

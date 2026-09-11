@@ -786,7 +786,7 @@
 	// + `tick()` first so the last keystrokes reach the bindable before the
 	// syncer flushes. No toast — the AutosaveIndicator narrates the result, and
 	// `flush` never rejects (postSave routes errors to the failures map).
-	async function saveDraft(): Promise<void> {
+	export async function saveDraft(): Promise<void> {
 		if (!opWorkspace || !userDraftPath) return
 		editor?.flushPendingChanges()
 		await tick()

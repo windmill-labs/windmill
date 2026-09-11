@@ -240,6 +240,10 @@ pub struct WithDraftOverlay {
     pub is_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_saved_at: Option<DateTime<Utc>>,
+    /// The draft row's id. The editor saves by it from then on, so its writes
+    /// follow the row through a move.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_id: Option<i64>,
     /// The deployed version the draft forked from (`draft.base`), as text
     /// whatever the kind. The editor compares it to the head it loaded to tell
     /// a draft that is behind. Absent when there is no draft or it was never
@@ -331,6 +335,7 @@ where
             inner: Box::new(deployed),
             is_draft: false,
             draft_saved_at: None,
+            draft_id: None,
             draft_base: None,
             no_deployed: false,
             draft: None,
@@ -351,7 +356,7 @@ where
     // NULL-email workspace draft. `NULLS LAST` + `LIMIT 1` drops the legacy
     // row when an owned one exists.
     let row = sqlx::query!(
-        r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+        r#"SELECT id, value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
                   created_at, base
            FROM draft
            WHERE workspace_id = $1
@@ -373,6 +378,7 @@ where
             inner: Box::new(deployed),
             is_draft: false,
             draft_saved_at: None,
+            draft_id: None,
             draft_base: None,
             no_deployed: false,
             draft: None,
@@ -386,6 +392,7 @@ where
         inner: Box::new(deployed),
         is_draft: true,
         draft_saved_at: Some(row.created_at),
+        draft_id: Some(row.id),
         draft_base: row.base,
         no_deployed: false,
         draft: Some(draft_json),
@@ -665,7 +672,7 @@ pub async fn fetch_draft_only(
 ) -> Result<Option<WithDraftOverlay>> {
     // Own draft first, legacy NULL-email row as fallback (see `maybe_overlay_draft`).
     let row = sqlx::query!(
-        r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+        r#"SELECT id, value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
                   created_at, base
            FROM draft
            WHERE workspace_id = $1
@@ -697,6 +704,7 @@ pub async fn fetch_draft_only(
         inner: Box::new(draft_json.clone()),
         is_draft: true,
         draft_saved_at: Some(row.created_at),
+        draft_id: Some(row.id),
         draft_base: row.base,
         no_deployed: true,
         draft: Some(draft_json),
