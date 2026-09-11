@@ -1,6 +1,7 @@
 # Git repo viewer — hub script
 
-The hub script `clone_repo_and_upload_to_instance_storage` is published from
+The hub script `clone_repo_and_upload_to_instance_storage`
+([hub page](https://hub.windmill.dev/scripts/windmill/13968)) is published from
 `windmill-integrations`
 (`hub/windmill/scripts/action/13968_clone_repo_and_upload_to_instance_storage/script.ts`)
 and pinned in `frontend/src/lib/hubPaths.json` as
@@ -175,8 +176,7 @@ A link is resolved with `realpathSync` and followed only when its target lies
 inside the checkout's real path. A file target is uploaded under the link's own
 path; a directory target is walked as if it sat there, so
 `inventories/prod/group_vars -> ../../shared/group_vars` shows up in the viewer
-with its files. Everything else is skipped, with a log line naming the link and
-its target:
+with its files. Everything else is skipped and logged:
 
 - **A target outside the checkout.** The repository chooses the target, and the
   checkout sits in the job's working directory next to the ssh key
