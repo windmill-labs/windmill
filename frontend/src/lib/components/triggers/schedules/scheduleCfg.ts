@@ -253,7 +253,9 @@ export async function newScheduleCfg(opts: NewScheduleOptions): Promise<Schedule
 		cron_version: s?.cron_version ?? 'v2',
 		timezone: s?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
 		paused_until: s?.paused_until ?? undefined,
-		enabled: s?.enabled ?? false,
+		// A create always enables the schedule (`writeScheduleCfg`), so that is where a new one
+		// starts: the deployed side a create records is the value it sent.
+		enabled: true,
 		summary: s?.summary ?? '',
 		labels: s?.labels ?? undefined,
 		description: s?.description ?? '',

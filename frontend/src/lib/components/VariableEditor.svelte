@@ -361,7 +361,9 @@
 		</div>
 		{#snippet actions()}
 			<OpenInSessionButton source={sessionSource} />
-			{#if edit && curWs}
+			<!-- Only for a variable opened for editing: one created here holds the other workspaces
+				under its temporary key, which names nothing in them. -->
+			{#if editPath !== undefined && curWs}
 				<WsSpecificVersions kind="variable" workspaceId={curWs} {initialPath} bind:selected />
 			{/if}
 			<Button
