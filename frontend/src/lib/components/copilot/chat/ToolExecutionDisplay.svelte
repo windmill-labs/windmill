@@ -40,12 +40,19 @@
 	import RunScriptCard from './RunScriptCard.svelte'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
+	import McpServerIcon from '$lib/components/mcp/McpServerIcon.svelte'
+	import { resolveMcpServerMark } from '$lib/components/mcp/serverMark'
 
 	interface Props {
 		message: ToolDisplayMessage
 	}
 
 	let { message }: Props = $props()
+
+	// Recorded by the call itself, from the connected-server list rather than from the
+	// model's arguments — which is what lets a reloaded transcript still resolve it, and
+	// what keeps a path the model made up from being read as a workspace resource.
+	const mcpServerPath = $derived(message.mcpServer)
 
 	const isPlanReview = $derived(message.toolName === EXIT_PLAN_MODE_TOOL)
 	const isPlanCard = $derived(isPlanCardTool(message.toolName))
@@ -242,6 +249,17 @@
 		{/if}
 	{/snippet}
 
+	<!-- Which system a call reaches is the first thing to know about it, so an MCP call
+	     is marked before its label. Awaited rather than drawn immediately: the MCP logo
+	     appearing first and being replaced would flicker on every row. -->
+	{#snippet serverMark()}
+		{#if mcpServerPath && aiChatManager.operatingWorkspace}
+			{#await resolveMcpServerMark(aiChatManager.operatingWorkspace, mcpServerPath) then mark}
+				<McpServerIcon icon={mark.icon} size={14} />
+			{/await}
+		{/if}
+	{/snippet}
+
 	<!-- The shimmer is the only running indicator, so the states have to read off
 	     weight alone: queued calls (waiting their turn behind the executing tool)
 	     are faded, the running one sweeps, a settled one is plain. -->
@@ -258,6 +276,7 @@
 		labelClass={showPreviewChip ? 'truncate' : ''}
 		contentClass="space-y-3"
 		headerRight={showPreviewChip ? previewChip : undefined}
+		headerLeft={mcpServerPath ? serverMark : undefined}
 	>
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
 		{#snippet belowHeader()}

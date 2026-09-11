@@ -353,6 +353,14 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> 
 				}),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = callMcpToolSchema.parse(args)
+			// Marks the row with the provider it reaches. Recorded before the listing is
+			// awaited, so an unreachable server still marks its own failure row, and taken
+			// from the connected list rather than from `parsed.server`, which is a path the
+			// model could point anywhere.
+			const named = servers.find((s) => s.path === parsed.server)
+			if (named) {
+				toolCallbacks.setToolStatus(toolId, { mcpServer: named.path })
+			}
 			// Listing is a live call to a third party: a server that has gone away
 			// must fail this tool, not the chat loop around it.
 			let resolved: Awaited<ReturnType<typeof resolveTool>>

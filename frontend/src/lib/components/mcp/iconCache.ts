@@ -33,6 +33,19 @@ export function cachedProviderKey(
 	return entry.editedAt === editedAt ? entry.key : undefined
 }
 
+/**
+ * The stored mark for a path, ignoring `editedAt`. A transcript row marks a call
+ * that already happened, so the provider from before a reconnect is still the one
+ * to draw — and unlike `readOnlyHint`, nothing acts on it.
+ */
+export function cachedProviderMark(
+	workspace: string,
+	path: string
+): { key: string | null } | undefined {
+	const entry = read()[workspace]?.[path]
+	return entry ? { key: entry.key } : undefined
+}
+
 export function rememberProviderKey(
 	workspace: string,
 	path: string,

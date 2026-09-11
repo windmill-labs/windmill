@@ -625,6 +625,9 @@ export type ToolDisplayMessage = {
 	autoCollapseDetails?: boolean
 	isStreamingArguments?: boolean
 	toolName?: string
+	/** What marks this row with its provider. Recorded rather than looked up, because the
+	 * server listing lives only in memory and a reloaded transcript does not have it. */
+	mcpServer?: string
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
