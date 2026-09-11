@@ -3430,7 +3430,9 @@ fn git_url_userinfo(url: &str) -> Option<&str> {
     git_url_userinfo_range(url).map(|r| &url[r])
 }
 
-/// Validates a git URL to prevent option injection, SSRF, and local file read.
+/// Validates a git URL to prevent option injection, SSRF, and local file read. The
+/// syntax and scheme checks apply to every caller; the private-host refusal only
+/// where [`private_git_host_allowed`] refuses `caller`.
 async fn validate_git_url(url: &str, caller: GitRemoteCaller) -> Result<()> {
     let url = url.trim();
     if url.is_empty() {
@@ -3770,9 +3772,9 @@ async fn get_git_ssh_cmd(
 const GIT_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// `git` command for a remote probe, with HTTP redirects disabled. `validate_git_url`
-/// only vets the host in the URL; git's default (`http.followRedirects=initial`)
-/// would let a validated public remote 302 the probe onto a private or link-local
-/// address that no check ever sees. Build every probe through this.
+/// checks the host in the URL, never one a redirect names; git's default
+/// (`http.followRedirects=initial`) would let a public remote 302 the probe of a
+/// caller refused private hosts onto one. Build every probe through this.
 ///
 /// The transports are pinned too: an SCP-shaped remote-helper string such as
 /// `ext::<command>@host:path` passes the URL check for a caller allowed private
@@ -3840,8 +3842,8 @@ fn dot_git_url(url: &str) -> Option<String> {
 }
 
 /// Run a remote probe, retrying against [`dot_git_url`] if the remote answered the
-/// URL as given with a redirect. Extending the path keeps the retry on the host
-/// `validate_git_url` already cleared, which is exactly what following the redirect
+/// URL as given with a redirect. Extending the path keeps the retry on the host of
+/// the URL `validate_git_url` checked, which is exactly what following the redirect
 /// would not guarantee. `build` must produce the probe for the URL it is handed.
 ///
 /// A retry that also fails reports the *original* failure, so the caller's message
@@ -5041,6 +5043,22 @@ mod tests {
         assert!(v("https://github.com/user/repo.git").await.is_ok());
         assert!(v("git@github.com:user/repo.git").await.is_ok());
         assert!(v("ssh://git@github.com/user/repo.git").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_git_probe_refuses_remote_helpers() {
+        // A caller allowed private hosts skips the DNS step that would reject this
+        // SCP-shaped string, so the transport pin is what keeps git from running it.
+        let output = git_probe_command()
+            .args(["ls-remote", "testhelper::x@127.0.0.1:repo"])
+            .output()
+            .await
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("transport 'testhelper' not allowed"),
+            "{stderr}"
+        );
     }
 
     #[tokio::test]
