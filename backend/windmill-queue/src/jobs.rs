@@ -5505,6 +5505,8 @@ async fn push_inner<'c, 'd>(
         ) {
             // Check current usage with SELECT (fast, no row locks)
             // Only check user usage for non-premium workspaces
+            // `email` here and in the per-user checks below can be a cached dispatch address, up
+            // to one notify poll stale; accepted, see `get_email_from_permissioned_as`.
             let (current_workspace_usage, current_user_usage) =
                 check_usage_limits(db, &billing_w_id, email, !team_plan_status.premium).await?;
 

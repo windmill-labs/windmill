@@ -484,6 +484,8 @@ async fn fetch_authed_from_permissioned_as_inner(
                 )
                 .fetch_optional(&mut *conn)
                 .await?;
+                // No live binding at all: the supplied address stands. A cached one is at most one
+                // notify poll stale; accepted, see `users::get_email_from_permissioned_as`.
                 resolved_email.as_deref().unwrap_or(email)
             }
             _ => email,

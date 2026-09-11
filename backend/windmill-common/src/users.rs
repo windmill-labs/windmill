@@ -249,9 +249,10 @@ pub async fn permissioned_as_from_email(
 /// - "g/{group}" → "group-{group}@windmill.dev"
 /// - raw email → return as-is
 ///
-/// `notify_user_email_change` evicts the key on every replica for each change that can move it,
-/// but the poller delivers that asynchronously, so a hit can still be the old address for the
-/// length of one poll.
+/// `notify_user_email_change` evicts the key on every process for each change that can move it,
+/// at that process's next notify-event poll (`LISTEN_NEW_EVENTS_INTERVAL_SEC`, 10s by default),
+/// so a hit can still be the old address for up to one poll. The TTL caps it if an eviction is
+/// ever missed.
 ///
 /// Which of the two to use is a question of how long a wrong answer lives, not of whether it is
 /// stored — both of these get stored and read back. A config row (an app policy, a schedule, a
@@ -260,12 +261,17 @@ pub async fn permissioned_as_from_email(
 /// also stores its answer, and the worker reads it back to build that run's authed, but it
 /// governs one job and dies with it, so it stays here.
 ///
-/// What makes a stale dispatch address harmless is not that bound, though — it is that nothing
-/// trusts the address as given. `fetch_authed_from_permissioned_as` re-resolves it from the
-/// principal's live binding before granting anything, so a value this cache handed over after a
-/// username was reassigned is corrected rather than believed. Route an address into an `Authed`,
+/// The job's own authorization does not trust the address as given:
+/// `fetch_authed_from_permissioned_as` re-resolves it from the principal's live binding, and that
+/// corrected address is what the job row and its token carry. Route an address into an `Authed`,
 /// a job row or a token without going through that function, and this cache stops being safe to
 /// read at dispatch.
+///
+/// What reads the dispatch address before that re-resolution (the quota and superadmin-exemption
+/// checks at the top of `push_inner`, a flow step's tag check) or when the principal has no live
+/// binding can act on the old address for up to one poll after a username reuse, an email change
+/// or a superadmin change. That window is accepted as the cost of keeping dispatch off the
+/// database; a consumer that cannot tolerate it must re-resolve first.
 ///
 /// Reads through the non-RLS pool and authorizes nothing — callers must already be authorized
 /// for `workspace_id`.
