@@ -8,7 +8,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
-	import { getContext, onMount, setContext } from 'svelte'
+	import { getContext, setContext } from 'svelte'
 	import {
 		EMBED_NAV_CONTEXT_KEY,
 		IS_APP_PUBLIC_CONTEXT_KEY,
@@ -92,12 +92,12 @@
 		// console.log(user)
 	}
 
-	onMount(() => {
-		// this is to avoid loading global user if the userStore is set at loading
-		setTimeout(() => {
-			if ($userStore) return
+	// Only the no-access page reads it, to tell a signed-in non-member which
+	// workspace the app belongs to.
+	$effect(() => {
+		if (noPermission && !guestAppPath && !$userStore && !globalUser) {
 			loadGlobalUser()
-		}, 2000)
+		}
 	})
 </script>
 
