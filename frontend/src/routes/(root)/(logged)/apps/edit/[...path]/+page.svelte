@@ -465,13 +465,6 @@
 	{draftBaseVersion}
 	{deployedHeadVersion}
 	{deployedBy}
-	onTakeLatest={async () => {
-		const head = deployedHeadVersion != null ? Number(deployedHeadVersion) : undefined
-		if (!app?.value || head == null || !$workspaceStore) return
-		;(app.value as App).parent_version = head
-		draftBaseVersion = String(head)
-		await UserDraft.forcePersist('app', path, { workspace: $workspaceStore })
-	}}
 	onLoadLatestDeploy={async () => {
 		if (!$workspaceStore) return
 		await runResetToDeployed({

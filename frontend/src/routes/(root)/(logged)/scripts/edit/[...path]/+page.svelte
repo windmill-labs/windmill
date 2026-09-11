@@ -489,16 +489,6 @@
 	draftBaseVersion={draftBaseHash}
 	deployedHeadVersion={deployedHeadHash}
 	{deployedBy}
-	onTakeLatest={async () => {
-		const head = deployedHeadHash
-		if (!draftSync.draft || !head || !$workspaceStore) return
-		draftSync.draft = { ...draftSync.draft, parent_hash: head }
-		// The baseline mirrors the draft's base so an unedited draft still
-		// compares equal and the autosave can discard it.
-		if (deployedBaseline) deployedBaseline = { ...deployedBaseline, parent_hash: head }
-		draftBaseHash = head
-		await UserDraft.forcePersist('script', draftPath, { workspace: $workspaceStore })
-	}}
 	onViewDiff={() => scriptBuilder?.openDiffDrawer()}
 	onBeforeRelocate={() => scriptBuilder?.saveDraft()}
 	onLoadLatestDeploy={async () => {
@@ -520,6 +510,18 @@
 		bind:this={scriptBuilder}
 		{initialPath}
 		userDraftPath={draftPath}
+		onTakeLatest={draftBaseHash && deployedHeadHash && draftBaseHash !== deployedHeadHash
+			? async () => {
+					const head = deployedHeadHash
+					if (!draftSync.draft || !head || !$workspaceStore) return
+					draftSync.draft = { ...draftSync.draft, parent_hash: head }
+					// The baseline mirrors the draft's base so an unedited draft still
+					// compares equal and the autosave can discard it.
+					if (deployedBaseline) deployedBaseline = { ...deployedBaseline, parent_hash: head }
+					draftBaseHash = head
+					await UserDraft.forcePersist('script', draftPath, { workspace: $workspaceStore })
+				}
+			: undefined}
 		bind:script={draftSync.draft}
 		template={builderTemplate}
 		{lockedLanguage}

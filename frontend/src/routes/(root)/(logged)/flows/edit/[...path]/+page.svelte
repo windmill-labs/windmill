@@ -528,13 +528,6 @@
 	{draftBaseVersion}
 	deployedHeadVersion={version != null ? String(version) : undefined}
 	{deployedBy}
-	onTakeLatest={async () => {
-		const head = version
-		if (!draftSync.draft || head == null || !$workspaceStore) return
-		draftSync.draft = { ...draftSync.draft, version_id: head }
-		draftBaseVersion = String(head)
-		await UserDraft.forcePersist('flow', flowDraftPath, { workspace: $workspaceStore })
-	}}
 	onViewDiff={() => flowBuilder?.openDiffDrawer()}
 	onBeforeRelocate={() => flowBuilder?.saveDraft()}
 	onLoadLatestDeploy={async () => {
@@ -558,6 +551,15 @@
 	</div>
 {:else if renderEditor}
 	<FlowBuilder
+		onTakeLatest={draftBaseVersion && version != null && draftBaseVersion !== String(version)
+			? async () => {
+					const head = version
+					if (!draftSync.draft || head == null || !$workspaceStore) return
+					draftSync.draft = { ...draftSync.draft, version_id: head }
+					draftBaseVersion = String(head)
+					await UserDraft.forcePersist('flow', flowDraftPath, { workspace: $workspaceStore })
+				}
+			: undefined}
 		onDeploy={(e) => {
 			// stopSync-bracketed immediate delete; see /scripts/edit's restoreDeployed.
 			if ($workspaceStore) {

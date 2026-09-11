@@ -136,6 +136,9 @@
 		 *  deployed" guard: deploying is refused with a confirmation while it is not
 		 *  the head. Undefined for a draft-only app. */
 		version?: number | undefined
+		/** Moves the draft's base to the deployed head and keeps its content;
+		 *  offered in the diff drawer while the draft is behind. */
+		onTakeLatest?: () => void | Promise<void>
 		// See ScriptBuilderProps — same indicator semantics.
 		loadedFromDraft?: boolean
 		othersDraftsCount?: number
@@ -208,7 +211,8 @@
 		onRestore,
 		onSavedNewAppPath,
 		condensedHeader = false,
-		version = undefined
+		version = undefined,
+		onTakeLatest = undefined
 	}: Props = $props()
 
 	// Workspace this editor operates on: the session's acting workspace when
@@ -2303,6 +2307,7 @@
 		bind:summary
 		bind:pendingDraftPath
 		{version}
+		{onTakeLatest}
 		{onRestore}
 		{onSavedNewAppPath}
 		{policy}

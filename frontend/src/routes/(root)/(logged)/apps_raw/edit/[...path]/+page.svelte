@@ -582,14 +582,6 @@
 	{draftBaseVersion}
 	{deployedHeadVersion}
 	{deployedBy}
-	onTakeLatest={() => {
-		const head = deployedHeadVersion != null ? Number(deployedHeadVersion) : undefined
-		if (head == null) return
-		// The bundle carries `parentVersion`, so this alone re-persists the draft.
-		parentVersion = head
-		if (deployedBaseline) deployedBaseline = { ...deployedBaseline, parent_version: head }
-		draftBaseVersion = String(head)
-	}}
 	onViewDiff={() => rawAppEditor?.openDiffDrawer()}
 	onLoadLatestDeploy={async () => {
 		// stopSync-bracketed; see /scripts/edit's restoreDeployed for the race.
@@ -630,6 +622,17 @@
 				{diffDrawer}
 				newApp={isNewApp}
 				version={parentVersion}
+				onTakeLatest={draftBaseVersion &&
+				deployedHeadVersion &&
+				draftBaseVersion !== deployedHeadVersion
+					? () => {
+							const head = Number(deployedHeadVersion)
+							// The bundle carries `parentVersion`, so this alone re-persists the draft.
+							parentVersion = head
+							if (deployedBaseline) deployedBaseline = { ...deployedBaseline, parent_version: head }
+							draftBaseVersion = String(head)
+						}
+					: undefined}
 				onDeploy={({ version }) => {
 					// The version just written is the new head, and the base the next
 					// autosave should carry.

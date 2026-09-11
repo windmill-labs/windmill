@@ -36,6 +36,10 @@ export interface ScriptBuilderProps {
 	 * stop/restart pair is a no-op on a non-live entry.
 	 */
 	userDraftPath?: string
+	/** Moves the draft's base to the deployed head and keeps its content; offered
+	 *  in the diff drawer while the draft is behind. The route owns it because
+	 *  the base lives in a per-kind field of the value. */
+	onTakeLatest?: () => void | Promise<void>
 	/**
 	 * Workspace + path the AutosaveIndicator watches for sync state. Default
 	 * (undefined) falls back to `$workspaceStore` / `userDraftPath` — the

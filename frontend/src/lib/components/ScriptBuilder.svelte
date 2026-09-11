@@ -119,6 +119,7 @@
 		fullyLoaded = true,
 		initialPath = $bindable(''),
 		userDraftPath = '',
+		onTakeLatest = undefined,
 		autosaveWorkspace = undefined,
 		autosavePath = undefined,
 		template = $bindable('script'),
@@ -887,6 +888,7 @@
 			deployed,
 			deployedLabel: deployedVersionLabel(deployed),
 			versions: await deployedVersionOptions(headHash),
+			onTakeLatest,
 			loadVersion: async (hash) => {
 				const v = await ScriptService.getScriptByHash({ workspace: opWorkspace!, hash })
 				return replaceFalseWithUndefined({

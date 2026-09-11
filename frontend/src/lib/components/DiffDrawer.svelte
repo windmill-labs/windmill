@@ -50,6 +50,7 @@
 				 *  way to tell what their draft is being compared against. */
 				deployedLabel?: string
 				versions?: DiffVersionOption[]
+				onTakeLatest?: () => void | Promise<void>
 				draft: DiffData | undefined
 				current: DiffData
 				path?: string
@@ -112,6 +113,18 @@
 		}
 	}
 
+	let takingLatest = $state(false)
+	async function takeLatest() {
+		if (!data || data.mode !== 'normal' || !data.onTakeLatest || takingLatest) return
+		takingLatest = true
+		try {
+			await data.onTakeLatest()
+			diffViewer?.closeDrawer()
+		} finally {
+			takingLatest = false
+		}
+	}
+
 	export function setDiff(
 		diff:
 			| {
@@ -120,6 +133,7 @@
 					deployedLabel?: string
 					versions?: DiffVersionOption[]
 					loadVersion?: (id: string) => Promise<Value | undefined>
+					onTakeLatest?: () => void | Promise<void>
 					draft?: Value | undefined
 					current: Value
 					defaultDiffType?: 'deployed' | 'draft'
@@ -134,7 +148,16 @@
 			  }
 	) {
 		if (diff.mode === 'normal') {
-			const { deployed, deployedLabel, versions, loadVersion, draft, current, button } = diff
+			const {
+				deployed,
+				deployedLabel,
+				versions,
+				loadVersion,
+				onTakeLatest,
+				draft,
+				current,
+				button
+			} = diff
 			versionLoader = loadVersion
 			headLabel = deployedLabel
 			selectedVersion = versions?.find((v) => v.isHead)?.id
@@ -143,6 +166,7 @@
 				deployed: !deployed.draft_only ? prepareDiff(deployed) : undefined,
 				deployedLabel,
 				versions,
+				onTakeLatest,
 				draft: draft ? prepareDiff(draft) : undefined,
 				current: prepareDiff(current),
 				path: draft?.path || deployed?.path,
@@ -279,6 +303,11 @@
 			{/if}
 		</div>
 		{#snippet actions()}
+			{#if data?.mode === 'normal' && data.onTakeLatest}
+				<Button unifiedSize="sm" variant="default" loading={takingLatest} onClick={takeLatest}>
+					Take latest, keep my edits
+				</Button>
+			{/if}
 			{#if data?.mode === 'normal'}
 				<Button
 					unifiedSize="sm"

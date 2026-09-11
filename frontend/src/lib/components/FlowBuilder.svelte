@@ -123,6 +123,7 @@
 		 *  route re-seeds from `draft_path` so the topbar shows the pending name,
 		 *  this stays where the item actually is. */
 		userDraftPath = '',
+		onTakeLatest = undefined,
 		pathStoreInit = undefined,
 		newFlow,
 		selectedId,
@@ -1072,6 +1073,7 @@
 			deployed: deployedValue ?? savedFlow,
 			deployedLabel,
 			versions: await deployedVersionOptions(),
+			onTakeLatest,
 			loadVersion: async (id) => {
 				const v = await FlowService.getFlowVersion({
 					workspace: opWorkspace!,

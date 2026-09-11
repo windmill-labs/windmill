@@ -3,9 +3,10 @@
 	 * The prompt for a draft that is behind: someone deployed a newer version
 	 * of the item after the draft forked from it. Opened on every load while
 	 * that holds (the parent computes it; see DraftEditorModals), it names the
-	 * two versions and offers the four ways out: look at the diff, keep going,
-	 * take the latest as the new base while keeping the edits, or drop the
-	 * draft for the latest deploy.
+	 * two versions and offers two ways out: look at the diff, or drop the draft
+	 * for the latest deploy. Closing it is "keep editing". Taking the latest as
+	 * the new base while keeping the edits lives in the diff drawer, where the
+	 * user can see what they are taking.
 	 *
 	 * Open-state is bindable so the parent can dismiss programmatically
 	 * (e.g. after the load-latest-deploy callback completes).
@@ -38,10 +39,6 @@
 		 *  to see what actually differs — and after a rename the difference is
 		 *  often only the path. Omitted where the editor has no diff drawer. */
 		onViewDiff?: () => void | Promise<void>
-		/** Moves the draft's base to the head and keeps its content: the one way
-		 *  to acknowledge the newer version without discarding edits. The route
-		 *  owns it because the base lives in a per-kind field of the value. */
-		onTakeLatest?: () => void | Promise<void>
 	}
 
 	let {
@@ -53,25 +50,10 @@
 		deployedHeadVersion = undefined,
 		deployedBy = undefined,
 		onLoadLatestDeploy,
-		onViewDiff,
-		onTakeLatest
+		onViewDiff
 	}: Props = $props()
 
 	let loading = $state(false)
-	let takingLatest = $state(false)
-
-	async function takeLatest() {
-		if (takingLatest || !onTakeLatest) return
-		takingLatest = true
-		try {
-			await onTakeLatest()
-			isOpen = false
-		} catch (e: any) {
-			sendUserToast(`Could not take the latest version: ${e?.body ?? e?.message ?? e}`, true)
-		} finally {
-			takingLatest = false
-		}
-	}
 
 	// Scripts are versioned by hash, the other kinds by a numeric version id;
 	// the diff picker renders them the same way.
@@ -142,19 +124,11 @@
 			{:else}
 				<div></div>
 			{/if}
-			<div class="flex gap-2">
-				<Button variant="default" unifiedSize="sm" on:click={() => (isOpen = false)}>
-					Keep editing my draft
-				</Button>
-				{#if onTakeLatest}
-					<Button variant="default" unifiedSize="sm" loading={takingLatest} on:click={takeLatest}>
-						Take latest, keep my edits
-					</Button>
-				{/if}
-				<Button variant="accent" unifiedSize="sm" {loading} on:click={loadLatestDeploy}>
-					Load latest deploy
-				</Button>
-			</div>
+			<!-- Red: this replaces the draft with the latest deploy. Closing the modal
+			     is "keep editing", so it needs no button of its own. -->
+			<Button variant="accent" destructive unifiedSize="sm" {loading} on:click={loadLatestDeploy}>
+				Use latest
+			</Button>
 		</div>
 	</div>
 </Modal2>
