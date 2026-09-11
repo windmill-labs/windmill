@@ -1,5 +1,7 @@
-import { AppService, FlowService } from './gen'
+import type { Schema } from './common'
+import { AppService, FlowService, type Script } from './gen'
 import hubPathsData from './hubPaths.json'
+import { encodeState } from './utils'
 import {
 	replacePlaceholderForSignatureScriptTemplate,
 	SIGNATURE_TEMPLATE_FLOW_HUB_ID,
@@ -16,6 +18,26 @@ export const HubScript = {
 export const HubFlow = {
 	SIGNATURE_TEMPLATE: SIGNATURE_TEMPLATE_FLOW_HUB_ID
 } as const
+
+/**
+ * The Hub's script submission form, prefilled with this script. The Hub decodes the
+ * hash, so the code never reaches its server until the user submits. Flows and apps
+ * reach the Hub inside a project, published from a folder, so only scripts have this.
+ */
+export function scriptToHubUrl(
+	content: string,
+	summary: string,
+	description: string,
+	kind: Script['kind'],
+	language: Script['language'],
+	schema: Schema | any,
+	lock: string | undefined,
+	hubBaseUrl: string
+): URL {
+	const url = new URL(hubBaseUrl + '/scripts/add')
+	url.hash = encodeState({ content, summary, description, kind, language, schema, lock })
+	return url
+}
 
 export function replaceScriptPlaceholderWithItsValues(id: string, content: string) {
 	switch (id) {

@@ -9,7 +9,14 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
 	import { ScriptService, type Script } from '$lib/gen'
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		disableHubStore,
+		hubBaseUrlStore,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
+	import { scriptToHubUrl } from '$lib/hub'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	import { createEventDispatcher } from 'svelte'
@@ -32,6 +39,7 @@
 		FolderOpen,
 		ChevronUpSquare,
 		GitFork,
+		Globe2,
 		List,
 		Pen,
 		Shield,
@@ -402,6 +410,30 @@
 						action: () => {
 							copyToClipboard(script.path)
 						}
+					},
+					{
+						displayName: 'Publish to Hub',
+						icon: Globe2,
+						action: async () => {
+							const scriptData = await ScriptService.getScriptByPath({
+								workspace: $workspaceStore!,
+								path: script.path
+							})
+							window.open(
+								scriptToHubUrl(
+									scriptData.content,
+									scriptData.summary,
+									scriptData.description ?? '',
+									scriptData.kind,
+									scriptData.language,
+									scriptData.schema,
+									scriptData.lock ?? '',
+									$hubBaseUrlStore
+								).toString(),
+								'_blank'
+							)
+						},
+						hide: $disableHubStore
 					},
 					{
 						displayName: script.archived ? 'Unarchive' : 'Archive',
