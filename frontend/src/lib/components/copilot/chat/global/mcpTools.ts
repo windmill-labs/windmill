@@ -8,8 +8,7 @@ import { enabledMcpPaths } from '$lib/components/mcp/enabledServers'
  * as three static tools — search, read call, write call — instead of one
  * registered tool per remote tool. A server like GitHub's exposes ~90 tools,
  * whose schemas would otherwise be re-sent on every chat iteration; here only
- * matched summaries enter the model's context, and a full input schema only
- * after a call fails.
+ * the tools a search matched enter the model's context, with their schemas.
  */
 
 type McpToolDef = GetMcpToolsResponse[number]
@@ -17,7 +16,7 @@ type McpToolDef = GetMcpToolsResponse[number]
 export type McpServer = { path: string; editedAt?: string }
 
 const MAX_SEARCH_RESULTS = 10
-const MAX_DESCRIPTION_CHARS = 200
+const MAX_DESCRIPTION_CHARS = 1_000
 const MAX_RESULT_CHARS = 20_000
 // A server writes its own error text, and every enabled server can contribute
 // one, so search results are capped the same way call results are.
@@ -139,24 +138,17 @@ function isReadOnly(tool: McpToolDef): boolean {
 	return tool.annotations?.readOnlyHint === true
 }
 
-function schemaPropertyNames(schema: unknown): string[] {
-	const properties = (schema as { properties?: Record<string, unknown> } | null | undefined)
-		?.properties
-	return properties ? Object.keys(properties) : []
-}
-
 function truncate(text: string, max: number): string {
 	return text.length > max ? text.slice(0, max) + '…' : text
 }
 
 function summarizeTool(server: McpServer, tool: McpToolDef) {
-	const params = schemaPropertyNames(tool.inputSchema)
 	return {
 		server: server.path,
 		tool: tool.name,
 		description: truncate(tool.description ?? '', MAX_DESCRIPTION_CHARS),
 		mode: isReadOnly(tool) ? 'read' : 'write',
-		...(params.length > 0 ? { params } : {})
+		inputSchema: tool.inputSchema
 	}
 }
 
@@ -285,28 +277,31 @@ function bounded(payload: {
 }
 
 /**
- * The search payload under the same ceiling as a call result. Server error text
- * goes first: the matches are what the model asked for.
+ * The search payload under the same ceiling as a call result. Schemas go before
+ * matches: a tool listed without its schema is still callable, since a rejected
+ * call returns the schema, while a tool dropped from the list is not.
  */
 function boundedSearch(payload: { matches: unknown[]; [k: string]: unknown }): string {
+	let out = JSON.stringify(payload)
+	if (out.length <= MAX_RESULT_CHARS) return out
+
 	const { unavailable, ...rest } = payload
 	const dropped = Array.isArray(unavailable) ? { unavailableCount: unavailable.length } : {}
-	let out = JSON.stringify(payload, null, 2)
-	if (out.length <= MAX_RESULT_CHARS) return out
-	const matches = [...payload.matches]
+	const matches = payload.matches.map((m) => ({ ...(m as object) })) as Record<string, unknown>[]
 	const build = () =>
-		JSON.stringify(
-			{
-				...rest,
-				...dropped,
-				matches,
-				truncated: true,
-				note: `Truncated to ${MAX_RESULT_CHARS} characters. Refine the query.`
-			},
-			null,
-			2
-		)
-	out = build()
+		JSON.stringify({
+			...rest,
+			...dropped,
+			matches,
+			truncated: true,
+			note: `Truncated to ${MAX_RESULT_CHARS} characters: the lowest-ranked matches lost their inputSchema, some dropped entirely. A rejected call returns the schema. Refine the query to see the rest.`
+		})
+	// `matches` is ordered by score, so the tail is what the query matched least.
+	for (let i = matches.length - 1; i >= 0; i--) {
+		delete matches[i].inputSchema
+		out = build()
+		if (out.length <= MAX_RESULT_CHARS) return out
+	}
 	while (out.length > MAX_RESULT_CHARS && matches.length > 0) {
 		matches.pop()
 		out = build()
@@ -413,7 +408,7 @@ export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
 			def: createToolDef(
 				searchMcpToolsSchema,
 				'search_mcp_tools',
-				'Search the tools exposed by the MCP servers connected to this workspace (listed in the system prompt). Returns server + tool names to pass to call_mcp_read_tool or call_mcp_write_tool.'
+				'Search the tools exposed by the MCP servers connected to this workspace (listed in the system prompt). Returns server + tool names to pass to call_mcp_read_tool or call_mcp_write_tool, each with the input schema its arguments must follow.'
 			),
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				const parsed = searchMcpToolsSchema.parse(args)

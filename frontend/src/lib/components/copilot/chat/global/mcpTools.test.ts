@@ -228,7 +228,7 @@ describe('call results', () => {
 })
 
 describe('search_mcp_tools', () => {
-	it('returns compact summaries without the full input schemas', async () => {
+	it('returns each match with its full input schema', async () => {
 		const result = await run('search_mcp_tools', { query: 'issue' })
 		expect(result.matches).toEqual([
 			{
@@ -236,7 +236,7 @@ describe('search_mcp_tools', () => {
 				tool: 'get_issue',
 				description: 'Get details of a GitHub issue',
 				mode: 'read',
-				params: ['owner', 'repo']
+				inputSchema: TOOLS[0].inputSchema
 			}
 		])
 	})
@@ -328,6 +328,26 @@ describe('result size cap', () => {
 
 		expect(result.success).toBe(false)
 		expect(callMcpToolMock).not.toHaveBeenCalled()
+	})
+
+	it('drops the lowest-ranked schemas before dropping the matches themselves', async () => {
+		getMcpToolsMock.mockResolvedValue(
+			['issue_a', 'issue_b', 'issue_c'].map((name) => ({
+				name,
+				description: 'An issue tool',
+				inputSchema: {
+					type: 'object',
+					properties: { body: { type: 'string', description: 'x'.repeat(9_000) } }
+				},
+				annotations: { readOnlyHint: true }
+			}))
+		)
+		const result = await run('search_mcp_tools', { query: 'issue' })
+
+		expect(result.matches.map((m: any) => m.tool)).toEqual(['issue_a', 'issue_b', 'issue_c'])
+		expect(result.matches[0].inputSchema).toBeDefined()
+		expect(result.matches[2].inputSchema).toBeUndefined()
+		expect(result.truncated).toBe(true)
 	})
 
 	it('truncates an oversized tools/list failure in search', async () => {
