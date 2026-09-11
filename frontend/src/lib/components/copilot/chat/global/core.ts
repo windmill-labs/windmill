@@ -909,7 +909,9 @@ const testRunScriptToolDef = createToolDef(
 
 const runScriptSchema = z.object({
 	path: z.string().describe('Workspace path of the deployed script to run.'),
-	args: testRunArgsSchema
+	args: testRunArgsSchema,
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
 })
 
 const runScriptToolDef = createToolDef(
@@ -5772,8 +5774,18 @@ async function runDeployedScript(
 			// Bypassable like a test run: the posture is the user's standing answer, and a form
 			// it parks on is a card nobody is watching.
 			autoAcceptable: true,
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 			startJob: (submitted) =>
-				JobService.runScriptByPath({ workspace, path: args.path, requestBody: submitted })
+				JobService.runScriptByPath({
+					workspace,
+					path: args.path,
+					requestBody: submitted,
+					// As the script's own run page does: the form fills the main input schema, and a
+					// preprocessor would take these arguments for a webhook body and hand the script
+					// its own output instead.
+					skipPreprocessor: true
+				})
 		},
 		ctx
 	)
