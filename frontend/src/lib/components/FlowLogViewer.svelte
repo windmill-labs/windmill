@@ -49,7 +49,6 @@
 		) => Promise<void>
 		getSelectedIteration: (stepId: string) => number
 		flowSummary?: string
-		mode?: 'flow' | 'aiagent'
 		currentId?: string | null
 		navigationChain?: NavigationChain
 		select: (id: string) => void
@@ -81,7 +80,6 @@
 		onSelectedIteration,
 		getSelectedIteration,
 		flowSummary,
-		mode = 'flow',
 		currentId,
 		navigationChain = $bindable(),
 		select,
@@ -127,7 +125,7 @@
 	function getStepProgress(job: RootJobData | undefined, totalSteps: number): string {
 		if (!job || totalSteps === 0) return ''
 
-		const stepWord = mode === 'aiagent' ? 'action' : 'step'
+		const stepWord = 'step'
 
 		// If flow is completed, show total steps
 		if (job.type === 'CompletedJob') {
@@ -558,7 +556,7 @@
 					{@render flowIcon(getFlowStatus(rootJob), flowInfo?.hasErrors)}
 
 					<div class="text-xs text-left font-mono">
-						{mode === 'aiagent' ? 'AI Agent' : level == 0 ? 'Flow' : 'Subflow'}
+						{level == 0 ? 'Flow' : 'Subflow'}
 						{#if flowInfo?.label}
 							: {flowInfo.label}
 						{/if}
@@ -703,32 +701,22 @@
 												<div class="flex items-center gap-2">
 													<span class="text-xs font-mono text-left">
 														<b class="flex items-center gap-1">
-															{#if mode === 'aiagent'}
-																{#if module.summary}
-																	Tool call: {module.summary}
-																{:else}
-																	Message
-																{/if}
-															{:else}
-																{module.id}
-															{/if}
+															{module.id}
 														</b>
-														{#if mode === 'flow'}
-															{#if module.value.type === 'forloopflow'}
-																For loop
-															{:else if module.value.type === 'whileloopflow'}
-																While loop
-															{:else if module.value.type === 'branchall'}
-																Branch to all
-															{:else if module.value.type === 'branchone'}
-																Branch to one
-															{:else if module.value.type === 'flow'}
-																Subflow
-															{:else}
-																Step
-															{/if}
+														{#if module.value.type === 'forloopflow'}
+															For loop
+														{:else if module.value.type === 'whileloopflow'}
+															While loop
+														{:else if module.value.type === 'branchall'}
+															Branch to all
+														{:else if module.value.type === 'branchone'}
+															Branch to one
+														{:else if module.value.type === 'flow'}
+															Subflow
+														{:else}
+															Step
 														{/if}
-														{#if module.summary && mode !== 'aiagent'}
+														{#if module.summary}
 															: {module.summary}
 														{/if}
 														{#if hasEmptySubflowValue}
