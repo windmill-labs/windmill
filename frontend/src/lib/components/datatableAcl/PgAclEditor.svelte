@@ -13,12 +13,13 @@
 	import PgGrantBuilder from './PgGrantBuilder.svelte'
 	import {
 		ADMIN_ROLE,
+		blockingSources,
 		grantKey,
 		grantScopeLabel,
 		groupGrants,
 		revocablePrivileges,
 		revokeScopeOf,
-		unreachableSources
+		uncoveredCreators
 	} from './aclScopes'
 
 	let {
@@ -42,7 +43,7 @@
 				workspace: ws,
 				datatableName: dt,
 				kind: t.kind,
-				schema: t.schema,
+				schema: t.kind === 'database' ? undefined : t.schema,
 				table: t.kind === 'table' ? t.table : undefined
 			})
 			onLoaded?.(t, loaded)
@@ -132,7 +133,7 @@
 					<span class="text-xs font-semibold text-emphasis">Owner</span>
 					<span class="text-xs text-secondary">
 						{target.kind === 'schema'
-							? 'The role that owns the schema and everything already in it, except what belongs to an extension, which stays with the extension. Changing it also keeps the new owner in reach of what the roles there are now create here later.'
+							? 'The role that owns the schema and everything already in it, except what belongs to an extension, which stays with the extension. Changing it also keeps the new owner in reach of what the current roles create here from then on; a role added afterwards is not covered.'
 							: 'The role that owns the table. Its owner may always read and write it, and is who ALTER and DROP answer to.'}
 					</span>
 				</div>
@@ -198,7 +199,8 @@
 						{#each grantRows as grant (grantKey(grant))}
 							{@const revokeScope = revokeScopeOf(grant)}
 							{@const revocable = revocablePrivileges(grant, target)}
-							{@const unreachable = unreachableSources(grant)}
+							{@const blocked = blockingSources(grant, revocable)}
+							{@const uncovered = uncoveredCreators(grant, info.roles)}
 							<Row>
 								<Cell first>{grant.grantee}</Cell>
 								<Cell wrap
@@ -206,19 +208,27 @@
 								>
 								<Cell>
 									{grantScopeLabel(grant)}
-									{#if unreachable.length > 0}
+									{#if blocked.length > 0}
 										<span
 											class="text-2xs text-secondary"
 											title="Only this role can take the grant back: Postgres revokes a grant through the role that made it"
 										>
-											from {unreachable.join(', ')}
+											from {blocked.join(', ')}
+										</span>
+									{/if}
+									{#if uncovered.length > 0}
+										<span
+											class="text-2xs text-secondary"
+											title="A default privilege covers only the roles it was granted for: grant it again to cover these"
+										>
+											· not for what {uncovered.join(', ')} create
 										</span>
 									{/if}
 								</Cell>
 								<Cell last>
 									<!-- What `admin` holds is what every role here connects through, so it is not
 									this editor's to take away. -->
-									{#if info.editable && revokeScope && revocable.length > 0 && info.roles.includes(grant.grantee) && grant.grantee !== ADMIN_ROLE}
+									{#if info.editable && revokeScope && revocable.length > 0 && blocked.length === 0 && info.roles.includes(grant.grantee) && grant.grantee !== ADMIN_ROLE}
 										<Button
 											unifiedSize="xs"
 											variant="subtle"

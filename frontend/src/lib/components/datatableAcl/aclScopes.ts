@@ -102,7 +102,7 @@ export type GroupedGrant = {
 	privileges: string[]
 	objects: NonNullable<AclGrant['object']>[]
 	future?: string
-	/** Every role the row's grants come from, each once. */
+	/** Every role the row's grants come from, each once, with what it gave. */
 	sources: AclSource[]
 }
 
@@ -124,8 +124,12 @@ export function groupGrants(grants: AclGrant[]): GroupedGrant[] {
 				const known = existing.sources.find((s) => s.role === source.role)
 				// Whether a role's grant can be taken back depends on the object it is on, so a row
 				// holds a source as reachable only if it is on every object the row folds.
-				if (known) known.reachable &&= source.reachable
-				else existing.sources.push({ ...source })
+				if (known) {
+					known.reachable &&= source.reachable
+					known.privileges = [...new Set([...known.privileges, ...source.privileges])].sort()
+				} else {
+					existing.sources.push({ ...source, privileges: [...source.privileges] })
+				}
 			}
 		} else {
 			rows.push({
@@ -133,17 +137,26 @@ export function groupGrants(grants: AclGrant[]): GroupedGrant[] {
 				privileges: grant.privileges,
 				objects: grant.object ? [grant.object] : [],
 				future: grant.future,
-				sources: grant.sources.map((s) => ({ ...s }))
+				sources: grant.sources.map((s) => ({ ...s, privileges: [...s.privileges] }))
 			})
 		}
 	}
 	return rows
 }
 
-/** The roles a row comes from that this data table's connection cannot act for. Only they can take
- * those grants back, so the editor offers no revoke for the row. */
-export function unreachableSources(grant: GroupedGrant): string[] {
-	return grant.sources.filter((s) => !s.reachable).map((s) => s.role)
+/** The roles that gave some of `privileges` and that this data table's connection cannot act for.
+ * Only they can take those grants back, so a revoke of `privileges` is not offered. */
+export function blockingSources(grant: GroupedGrant, privileges: string[]): string[] {
+	return grant.sources
+		.filter((s) => !s.reachable && s.privileges.some((p) => privileges.includes(p)))
+		.map((s) => s.role)
+}
+
+/** Which of `roles` a "created later" row does not cover. A default privilege binds only the
+ * creating roles it was granted for, so what the others create stays out of it. */
+export function uncoveredCreators(grant: GroupedGrant, roles: string[]): string[] {
+	if (!grant.future) return []
+	return roles.filter((r) => !grant.sources.some((s) => s.role === r))
 }
 
 /** A row's identity. Two rows may share a grantee and an object name — a table `orders` and a
@@ -157,11 +170,10 @@ export function grantKey(grant: GroupedGrant): string {
 	].join('|')
 }
 
-/** The scope a revoke of this row takes, or `undefined` when there is none here: a source out of
- * reach, or privileges on types, present and default, which nothing here grants and the API has no
- * scope for. */
+/** The scope a revoke of this row takes, or `undefined` when the builder cannot express it —
+ * Postgres also records privileges on types, present and default, which nothing here grants and
+ * the API has no scope for. */
 export function revokeScopeOf(grant: GroupedGrant): AclScope | undefined {
-	if (unreachableSources(grant).length > 0) return undefined
 	if (!grant.future) return grant.objects.some((o) => o.kind === 'TYPE') ? undefined : 'target'
 	const scope = `future_${grant.future.toLowerCase()}`
 	return (['future_tables', 'future_sequences', 'future_functions'] as const).find(

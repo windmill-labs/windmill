@@ -226,6 +226,9 @@ pub struct AclGrant {
 pub struct AclSource {
     /// Under the same names as [`AclGrant::grantee`].
     pub role: String,
+    /// What `role` gave of the grant's privileges. A revoke is held back only by a source out of
+    /// reach that gave some of what it takes back.
+    pub privileges: Vec<String>,
     /// Whether this data table's connection can take back what `role` gave: on an object only the
     /// owner's grants when it acts for the owner, or else its own (`grant_source!`); for a default
     /// privilege, a creating role it acts for. A grant with any source out of reach is not
@@ -1093,15 +1096,15 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
     };
 
     // One row per privilege and source — and, for default privileges, per creating role. Fold them
-    // back into one entry per grantee and object that keeps every source: a revoke takes the grant
-    // back from each of them.
+    // back into one entry per grantee and object that keeps every source and what each gave: a
+    // revoke takes a privilege back from every source that gave it.
     let mut folded: BTreeMap<
         (
             String,
             Option<(String, String, Option<String>)>,
             Option<String>,
         ),
-        (Vec<String>, BTreeMap<String, bool>),
+        (Vec<String>, BTreeMap<String, (bool, Vec<String>)>),
     > = BTreeMap::new();
     for row in rows.drain(..) {
         let grantee: String = row.get(0);
@@ -1125,8 +1128,12 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
                 future,
             ))
             .or_default();
+        sources
+            .entry(role_name_of(&source))
+            .or_insert_with(|| (reachable, vec![]))
+            .1
+            .push(privilege.clone());
         privileges.push(privilege);
-        sources.insert(role_name_of(&source), reachable);
     }
     Ok(folded
         .into_iter()
@@ -1140,7 +1147,11 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
                 future,
                 sources: sources
                     .into_iter()
-                    .map(|(role, reachable)| AclSource { role, reachable })
+                    .map(|(role, (reachable, mut privileges))| {
+                        privileges.sort();
+                        privileges.dedup();
+                        AclSource { role, privileges, reachable }
+                    })
                     .collect(),
             }
         })
@@ -1582,6 +1593,23 @@ mod tests {
         .await
         .unwrap();
         assert!(held_none.is_empty(), "{held_none:?}");
+        // Each source says what it gave: that, and not the whole row, is what a revoke of some of
+        // its privileges is held back by.
+        let grants = read_grants(
+            &client,
+            &AclTarget::Schema { schema: "granted".to_string() },
+        )
+        .await
+        .unwrap();
+        let on_g = grants
+            .iter()
+            .find(|g| {
+                g.grantee == "pg_read_all_data" && g.object.as_ref().is_some_and(|o| o.name == "g")
+            })
+            .unwrap();
+        assert_eq!(on_g.sources.len(), 1, "{:?}", on_g.sources);
+        assert_eq!(on_g.sources[0].privileges, ["INSERT", "SELECT"]);
+        assert!(on_g.sources[0].reachable);
     }
 
     /// A kind of object the list misses stays with its old owner while the schema changes hands,

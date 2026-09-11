@@ -32648,28 +32648,82 @@ components:
                 type: string
 
     AclTarget:
+      description: what access is read or changed on
+      oneOf:
+        - $ref: "#/components/schemas/AclTargetDatabase"
+        - $ref: "#/components/schemas/AclTargetSchema"
+        - $ref: "#/components/schemas/AclTargetTable"
+      discriminator:
+        propertyName: kind
+        mapping:
+          database: "#/components/schemas/AclTargetDatabase"
+          schema: "#/components/schemas/AclTargetSchema"
+          table: "#/components/schemas/AclTargetTable"
+
+    AclTargetDatabase:
       type: object
       required: [kind]
       properties:
         kind:
           type: string
-          enum: [database, schema, table]
+          enum: [database]
+
+    AclTargetSchema:
+      type: object
+      required: [kind, schema]
+      properties:
+        kind:
+          type: string
+          enum: [schema]
         schema:
           type: string
-          description: required for a schema or table target
+
+    AclTargetTable:
+      type: object
+      required: [kind, schema, table]
+      properties:
+        kind:
+          type: string
+          enum: [table]
+        schema:
+          type: string
         table:
           type: string
 
     AclChange:
+      description: one change to plan or apply
+      oneOf:
+        - $ref: "#/components/schemas/AclChangeSetOwner"
+        - $ref: "#/components/schemas/AclChangeGrant"
+        - $ref: "#/components/schemas/AclChangeRevoke"
+      discriminator:
+        propertyName: type
+        mapping:
+          set_owner: "#/components/schemas/AclChangeSetOwner"
+          grant: "#/components/schemas/AclChangeGrant"
+          revoke: "#/components/schemas/AclChangeRevoke"
+
+    AclChangeSetOwner:
       type: object
+      description: >-
+        hands the target to role — for a schema, with everything already in it but an extension's
+        members, which stay with the extension
       required: [type, role]
       properties:
         type:
           type: string
-          enum: [set_owner, grant, revoke]
-          description: >-
-            set_owner hands the target to role — for a schema, with everything already in it but
-            an extension's members, which stay with the extension.
+          enum: [set_owner]
+        role:
+          type: string
+          description: a data table role of the instance, or admin
+
+    AclChangeGrant:
+      type: object
+      required: [type, role, privileges, scope]
+      properties:
+        type:
+          type: string
+          enum: [grant]
         role:
           type: string
           description: a data table role of the instance, or admin
@@ -32678,22 +32732,45 @@ components:
           items:
             type: string
         scope:
+          $ref: "#/components/schemas/AclGrantScope"
+
+    AclChangeRevoke:
+      type: object
+      required: [type, role, privileges, scope]
+      properties:
+        type:
           type: string
-          enum:
-            [
-              target,
-              all_tables,
-              all_sequences,
-              all_functions,
-              future_tables,
-              future_sequences,
-              future_functions,
-            ]
+          enum: [revoke]
+        role:
+          type: string
+          description: a data table role of the instance, other than admin
+        privileges:
+          type: array
+          items:
+            type: string
+        scope:
+          $ref: "#/components/schemas/AclGrantScope"
         objects:
           type: array
-          description: objects inside the target a revoke covers, empty for the target itself
+          description: >-
+            objects inside the target the revoke covers, empty for the target itself. Only with the
+            target scope; a revoke on all objects of a kind is refused, since it cannot say which
+            grants it takes back.
           items:
             $ref: "#/components/schemas/AclObject"
+
+    AclGrantScope:
+      type: string
+      enum:
+        [
+          target,
+          all_tables,
+          all_sequences,
+          all_functions,
+          future_tables,
+          future_sequences,
+          future_functions,
+        ]
 
     AclChangeRequest:
       type: object
@@ -32765,10 +32842,17 @@ components:
 
     AclSource:
       type: object
-      required: [role, reachable]
+      required: [role, privileges, reachable]
       properties:
         role:
           type: string
+        privileges:
+          type: array
+          description: >-
+            what role gave of the grant's privileges. A revoke is held back only by a source out of
+            reach that gave some of what it takes back.
+          items:
+            type: string
         reachable:
           type: boolean
           description: >-
