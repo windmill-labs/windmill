@@ -6,8 +6,9 @@
 	import { page } from '$app/state'
 	import Login from '$lib/components/Login.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { Alert, Skeleton } from '$lib/components/common'
-	import { WindmillIcon } from '$lib/components/icons'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
+	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { getContext, onMount, setContext } from 'svelte'
 	import {
 		EMBED_NAV_CONTEXT_KEY,
@@ -18,7 +19,6 @@
 	import { UserService, type AppWithLastVersion, type GlobalWhoamiResponse } from '$lib/gen'
 	import { urlParamsToObject } from '$lib/utils'
 	import { goto } from '$app/navigation'
-	import AppPreview from './AppPreview.svelte'
 	import RawAppPreview from '$lib/components/raw_apps/RawAppPreview.svelte'
 	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
 	import { twMerge } from 'tailwind-merge'
@@ -188,27 +188,38 @@
 				)}
 				style={app?.value?.['css']?.['app']?.['viewer']?.style}
 			>
-				<AppPreview
-					noBackend={false}
-					{hideRefreshBar}
-					context={{
-						email: $userStore?.email,
-						name: $userStore?.name,
-						groups: $userStore?.groups,
-						username: $userStore?.username,
-						query: urlParamsToObject(page.url.searchParams, { stripReserved: true }),
-						hash: page.url.hash.substring(1)
-					}}
-					workspace={effectiveWorkspace}
-					summary={app.summary}
-					app={app.value}
-					appPath={app.path}
-					{breakpoint}
-					policy={app.policy}
-					isEditor={false}
-					replaceStateFn={(path) => goto(path)}
-					gotoFn={(path, opt) => (embedNav ? embedNav.navigateTop(path) : goto(path, opt))}
-				/>
+				<!-- Lazy: AppPreview statically reaches every low-code component (and through
+				     them monaco, ag-grid, chart.js, the flow viewer...), which a raw app
+				     never renders. -->
+				{#await import('./AppPreview.svelte')}
+					<Skeleton layout={[[4], 0.5, [50]]} />
+				{:then Module}
+					<Module.default
+						noBackend={false}
+						{hideRefreshBar}
+						context={{
+							email: $userStore?.email,
+							name: $userStore?.name,
+							groups: $userStore?.groups,
+							username: $userStore?.username,
+							query: urlParamsToObject(page.url.searchParams, { stripReserved: true }),
+							hash: page.url.hash.substring(1)
+						}}
+						workspace={effectiveWorkspace}
+						summary={app.summary}
+						app={app.value}
+						appPath={app.path}
+						{breakpoint}
+						policy={app.policy}
+						isEditor={false}
+						replaceStateFn={(path) => goto(path)}
+						gotoFn={(path, opt) => (embedNav ? embedNav.navigateTop(path) : goto(path, opt))}
+					/>
+				{:catch}
+					<div class="px-4 mt-20 w-full">
+						<Alert type="error" title="Could not load the app">Reload the page to try again.</Alert>
+					</div>
+				{/await}
 			</div>
 		{/if}
 	{/key}
