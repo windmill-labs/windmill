@@ -5055,6 +5055,67 @@ describe('global AI tools', () => {
 		})
 	})
 
+	// What separates a deployed run from a test run of the same flow: the form is built from the
+	// deployed schema rather than the draft's, and the editor open on that path is left alone —
+	// it holds the draft, so a deployed run painted into its graph would show steps that are not
+	// the ones running.
+	it('run_flow forms on the deployed flow and leaves the live editor alone', async () => {
+		seedBackendDraft(
+			'flow',
+			'u/admin/deployed_and_drafted',
+			{
+				path: 'u/admin/deployed_and_drafted',
+				summary: 'Draft of the deployed flow',
+				value: { modules: [{ id: 'draft_step', value: { type: 'identity' } }] },
+				schema: { type: 'object', properties: { draft_only: { type: 'string' } } },
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {}
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: 'u/admin/deployed_and_drafted',
+			effectivePath: 'u/admin/deployed_and_drafted'
+		})
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			path: 'u/admin/deployed_and_drafted',
+			summary: 'Deployed flow',
+			value: { modules: [{ id: 'deployed_step', value: { type: 'identity' } }] },
+			schema: FLOW_NAME_SCHEMA
+		} as any)
+		const testActiveFlow = vi.fn(async () => 'job-live-flow')
+
+		let form: any
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_flow',
+				{ path: 'u/admin/deployed_and_drafted', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, f) => {
+						form = f
+						return { name: 'Grace' }
+					}
+				},
+				{ testActiveFlow }
+			)
+		)
+
+		expect(form.runnableKind).toBe('flow')
+		expect(form.schema?.properties).toEqual(FLOW_NAME_SCHEMA.properties)
+		expect(testActiveFlow).not.toHaveBeenCalled()
+		expect(JobService.runFlowPreview).not.toHaveBeenCalled()
+		expect(JobService.runFlowByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'u/admin/deployed_and_drafted',
+			requestBody: { name: 'Grace' }
+		})
+	})
+
 	it('test_run_step previews rawscript steps from the draft flow', async () => {
 		const content = 'export async function main(name: string) {\n\treturn name.toUpperCase()\n}'
 		await callGlobalTool('write_flow', {

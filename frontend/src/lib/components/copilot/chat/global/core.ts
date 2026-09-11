@@ -933,6 +933,20 @@ const testRunFlowToolDef = createToolDef(
 	{ strict: false }
 )
 
+const runFlowSchema = z.object({
+	path: z.string().describe('Workspace path of the deployed flow to run.'),
+	args: testRunArgsSchema,
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
+})
+
+const runFlowToolDef = createToolDef(
+	runFlowSchema,
+	'run_flow',
+	'Run a DEPLOYED flow for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real"); otherwise use test_run_flow.',
+	{ strict: false }
+)
+
 const testRunStepSchema = z.object({
 	path: z.string().describe('Workspace path of the flow containing the step to test.'),
 	stepId: z.string().describe('The id of the step/module to test.'),
@@ -1348,7 +1362,7 @@ ${pipelineBullet}
 			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
 	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
 - For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
-- Default to test_run_script, test_run_flow, or test_run_step for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For run_script, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema, and fill in every one you can infer. test_run_script, run_script and test_run_flow all show the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat. runFlowByPath from the API catalog is the exception — it runs a deployed flow with no form at all: only for a flow the user asked to run deployed.
+- Default to test_run_script, test_run_flow, or test_run_step for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script or run_flow only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For those two, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema. Every one of these tools shows the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
@@ -3705,6 +3719,20 @@ export const globalTools: Tool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
+		def: runFlowToolDef,
+		fn: async (ctx) => {
+			const parsed = runFlowSchema.parse(ctx.args)
+			return runDeployedFlow(parsed, ctx)
+		},
+		// No requiresConfirmation, for the reason test_run_script carries.
+		bypassedByAutoAccept: true,
+		streamingLabel: 'Preparing the run form...',
+		confirmationMessage: 'Run a deployed flow',
+		queuedLabel: (args) => `Run ${args?.path ?? 'a flow'}`,
+		showDetails: true,
+		autoCollapseDetails: false
+	},
+	{
 		def: testRunStepToolDef,
 		fn: async (ctx) => {
 			const parsed = testRunStepSchema.parse(ctx.args)
@@ -5776,6 +5804,43 @@ async function runDeployedScript(
 			autoAcceptable: true,
 			startJob: (submitted) =>
 				JobService.runScriptByPath({ workspace, path: args.path, requestBody: submitted })
+		},
+		ctx
+	)
+}
+
+async function runDeployedFlow(
+	args: z.infer<typeof runFlowSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace } = ctx
+	// The deployed flow, never loadFlowDraftValue: this runs what is live, so the form has to
+	// offer the inputs the live version accepts. For the same reason no live editor is driven
+	// here as a test run drives one — that editor holds the draft, and a deployed run painted
+	// into its graph would show steps that are not the ones running.
+	const flow = await FlowService.getFlowByPath({ workspace, path: args.path })
+	const schema = (flow.schema as Record<string, any> | null | undefined) ?? {}
+	return runThroughForm(
+		{
+			path: args.path,
+			schema,
+			summary: flow.summary,
+			kind: 'run',
+			// A flow's dynamic-option pickers are one script stored on the schema itself.
+			code: schema['x-windmill-dyn-select-code'],
+			lang: schema['x-windmill-dyn-select-lang'],
+			schemaNoun: 'deployed',
+			toolName: 'run_flow',
+			proposed: args.args,
+			startMessage: `Running "${args.path}"...`,
+			contextName: 'flow',
+			// Bypassable like a test run: the posture is the user's standing answer, and a form
+			// it parks on is a card nobody is watching.
+			autoAcceptable: true,
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+			startJob: (submitted) =>
+				JobService.runFlowByPath({ workspace, path: args.path, requestBody: submitted })
 		},
 		ctx
 	)
