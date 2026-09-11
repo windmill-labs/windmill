@@ -990,6 +990,59 @@ export function main() { return [ns === isNumber, label, local()]; }"#
     Ok(())
 }
 
+/// Bundling a locked script resolves a pinned dynamic `import()` as written, which fails. Both the
+/// dependency job and a run that finds no cached bundle must still build it, from the version the
+/// lock pins.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_bundles_pinned_dynamic_import(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // The dependency job saves the script's bundle here; the server binary creates it at startup.
+    std::fs::create_dir_all(&*windmill_worker::BUN_BUNDLE_CACHE_DIR)?;
+
+    // The nonce keys a bundle no earlier job cached, which would skip the build under test.
+    // 4.17.20 is not npm's `latest`, so a bundle that lost the pin cannot match by accident.
+    let content = || {
+        format!(
+            r#"export async function main() {{
+  const m = await import("lodash@4.17.20");
+  return (m.default ?? m).VERSION;
+}}
+// {}"#,
+            Uuid::new_v4()
+        )
+    };
+
+    let deps = RunJob::from(JobPayload::RawScriptDependencies {
+        script_path: "f/pinned_dynamic_import/main".into(),
+        content: content(),
+        language: ScriptLang::Bun,
+    })
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+    let Some(lock) = deps["lock"].as_str() else {
+        panic!("the dependency job returned no lock: {deps}");
+    };
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        content: content(),
+        path: Some("f/pinned_dynamic_import/main".into()),
+        language: ScriptLang::Bun,
+        lock: Some(lock.into()),
+        ..RawCode::default()
+    }))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+    assert_eq!(result, serde_json::json!("4.17.20"));
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base", "bun_edge_cases"))]
 async fn test_bun_shared_imports_both_styles(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
