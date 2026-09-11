@@ -4955,6 +4955,62 @@ describe('global AI tools', () => {
 		})
 	})
 
+	// The form waits as long as the user does, so which editor is on screen is only known when
+	// they press Run — checking it when the card appeared would drive an editor they have since
+	// moved away from.
+	it('test_run_flow re-checks the editor on screen when the form is submitted', async () => {
+		const modules = [{ id: 'moved_step', value: { type: 'identity' } }]
+		seedBackendDraft(
+			'flow',
+			'u/admin/moved_flow',
+			{
+				path: 'u/admin/moved_flow',
+				summary: 'Moved flow',
+				value: { modules },
+				schema: FLOW_NAME_SCHEMA,
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {}
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: 'u/admin/moved_flow',
+			effectivePath: 'u/admin/moved_flow'
+		})
+		const testActiveFlow = vi.fn(async () => 'job-live-flow')
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_flow',
+				{ path: 'u/admin/moved_flow', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						// The preview panel moves to another flow while the form sits open.
+						UserDraft.setLiveEditorDraft({
+							workspace: WORKSPACE,
+							itemKind: 'flow',
+							storagePath: 'u/admin/other_flow',
+							effectivePath: 'u/admin/other_flow'
+						})
+						return form.args
+					}
+				},
+				{ testActiveFlow }
+			)
+		)
+
+		expect(testActiveFlow).not.toHaveBeenCalled()
+		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: { path: 'u/admin/moved_flow', value: { modules }, args: { name: 'Ada' } }
+		})
+	})
+
 	// The flow may be open in a session tab that isn't the one on screen: driving its editor
 	// would paint the run into a tab the user is not looking at.
 	it('test_run_flow previews rather than driving an editor the user is not looking at', async () => {
