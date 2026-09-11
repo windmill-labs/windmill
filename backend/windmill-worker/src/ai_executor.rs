@@ -75,6 +75,18 @@ lazy_static::lazy_static! {
 const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
 const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
 
+/// What a run stopped by `max_iterations` reports back: the conversation it got
+/// through before giving up.
+///
+/// `Message` rather than `OpenAIMessage` is load-bearing. `agent_action` is
+/// `skip_serializing` on `OpenAIMessage` and only reaches JSON through this
+/// wrapper, so serializing these raw drops every tool name and job id and leaves
+/// the partial run unreadable — which is the one thing worth having on this path.
+#[derive(serde::Serialize)]
+struct MaxIterPartialResult<'a> {
+    messages: Vec<Message<'a>>,
+}
+
 fn strip_system_messages(messages: &[OpenAIMessage]) -> Vec<OpenAIMessage> {
     messages
         .iter()
@@ -1482,14 +1494,6 @@ pub async fn run_agent(
                         step_id: Option<&'a str>,
                         result: MaxIterPartialResult<'a>,
                     }
-                    // Through the same wrapper the success envelope uses: `agent_action`
-                    // is `skip_serializing` on `OpenAIMessage`, so serializing these raw
-                    // would drop every tool name and job id and leave the partial run
-                    // unreadable — which is the one thing worth having on this path.
-                    #[derive(serde::Serialize)]
-                    struct MaxIterPartialResult<'a> {
-                        messages: Vec<Message<'a>>,
-                    }
                     return Err(Error::ExecutionRawError(
                         serde_json::value::to_raw_value(&MaxIterError {
                             message: format!(
@@ -1741,6 +1745,37 @@ mod tests {
         assert!(streaming_requested(None));
         assert!(streaming_requested(Some(true)));
         assert!(!streaming_requested(Some(false)));
+    }
+
+    /// The frontend reads a capped run's partial actions out of this payload and
+    /// keys entirely off `agent_action`. That field is `skip_serializing` on
+    /// `OpenAIMessage`, so serializing these messages directly rather than through
+    /// `Message` silently empties the trace of the one run worth reading.
+    #[test]
+    fn max_iterations_partial_result_keeps_the_action_tags() {
+        let messages = vec![OpenAIMessage {
+            role: "tool".to_string(),
+            content: Some(OpenAIContent::Text("{\"rows\":2}".to_string())),
+            tool_call_id: Some("call_1".to_string()),
+            agent_action: Some(AgentAction::ToolCall {
+                job_id: uuid::Uuid::nil(),
+                function_name: "list_payouts".to_string(),
+                module_id: "b".to_string(),
+            }),
+            ..Default::default()
+        }];
+
+        let partial = MaxIterPartialResult {
+            messages: messages
+                .iter()
+                .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
+                .collect(),
+        };
+        let json = serde_json::to_value(&partial).unwrap();
+
+        let action = &json["messages"][0]["agent_action"];
+        assert_eq!(action["type"], "tool_call");
+        assert_eq!(action["function_name"], "list_payouts");
     }
 
     /// Over 64 characters OpenAI rejects the key outright, which costs a wasted round
