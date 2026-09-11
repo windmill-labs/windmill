@@ -2,7 +2,9 @@
 	// A refusal spends the offer for good, and the layout mounts one instance of this
 	// component per breakpoint: kept at module level so crossing it does not lose the
 	// explanation and the way to the portal, which the next instance can never refetch.
-	let trialRefusal = $state<{ reason: string; location: string } | null>(null)
+	// The module outlives a same-tab sign-out, so the record names the account it answers
+	// and is shown to that account only.
+	let refusal = $state<{ email: string; reason: string; location: string } | null>(null)
 </script>
 
 <script lang="ts">
@@ -47,6 +49,9 @@
 			.catch(() => (trialOffered = false))
 	})
 	let starting = $state(false)
+	let trialRefusal = $derived(
+		refusal && $userStore?.email && refusal.email === $userStore.email ? refusal : null
+	)
 	async function startPreApprovedTrial() {
 		if (starting) return
 		starting = true
@@ -58,7 +63,7 @@
 				// Recorded where the button was, so it stays readable for the rest of the session
 				// without a toast running its timer, and the person chooses whether to go.
 				trialOffered = false
-				trialRefusal = { reason, location }
+				refusal = { email: $userStore?.email ?? '', reason, location }
 				starting = false
 				return
 			}

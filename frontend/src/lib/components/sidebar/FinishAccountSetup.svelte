@@ -14,10 +14,10 @@
 	// password or the first provider sign-in with the same address makes it a normal
 	// account; the entry disappears with `login_type`, so nothing is stored here.
 	let {
-		open = $bindable(false),
+		open = $bindable(),
 		email,
 		onDone
-	}: { open?: boolean; email: string; onDone: () => void } = $props()
+	}: { open: boolean; email: string; onDone: () => void } = $props()
 
 	const icons: Record<string, Component<any>> = {
 		google: GoogleIcon,
