@@ -4479,8 +4479,10 @@ describe('global AI tools', () => {
 		const deployedForm = statuses.find((s) => s.runForm)?.runForm
 		expect(deployedForm.submitted).toBe(true)
 		expect(deployedForm.schema).toBeUndefined()
+		// skipPreprocessor: the form fills the main input schema, so a preprocessor would take
+		// these arguments for a webhook body and run main on its output instead.
 		expect(JobService.runScriptByPath).toHaveBeenCalledWith(
-			expect.objectContaining({ requestBody: { name: 'Ada' } })
+			expect.objectContaining({ requestBody: { name: 'Ada' }, skipPreprocessor: true })
 		)
 	})
 
@@ -4664,6 +4666,27 @@ describe('global AI tools', () => {
 		const persisted = statuses.filter((s) => s.parameters !== undefined).at(-1)?.parameters
 		expect(persisted).toEqual({ reason: 'WINDMILL_TOO_BIG' })
 		expect(JSON.stringify(statuses)).not.toContain(huge)
+	})
+
+	// A dropped pass-through fails silently: the argument is accepted and ignored, and the
+	// run just waits out the default budget.
+	it('run_script detaches on background and on wait_seconds', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/slow',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		// wait_seconds 0 detaches the same way, so one run of each pins both lines.
+		for (const detachArg of [{ background: true }, { wait_seconds: 0 }]) {
+			const onJobDetached = vi.fn()
+			await callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/slow', args: { name: 'Ada' }, ...detachArg },
+				{ ...toolCallbacks, onJobStarted: vi.fn(), onJobDetached }
+			)
+
+			expect(onJobDetached).toHaveBeenCalledWith('job-script-by-path')
+		}
 	})
 
 	// A schema with no fields still opens a form: an empty one is still the Run button, and
@@ -5112,7 +5135,8 @@ describe('global AI tools', () => {
 				locked: 'fixed',
 				doc: bytes,
 				token: '$var:u/ada/prod_api_key'
-			}
+			},
+			skipPreprocessor: true
 		})
 		expect(result).toContain('does not declare force_delete')
 		expect(result).toContain('<file: 3 KB>')
@@ -5201,7 +5225,8 @@ describe('global AI tools', () => {
 		expect(JobService.runScriptByPath).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
 			path: 'f/scripts/greet',
-			requestBody: { name: 'Grace' }
+			requestBody: { name: 'Grace' },
+			skipPreprocessor: true
 		})
 		// The model must not assume its proposal is what ran.
 		expect(result).toContain('Ran with arguments: {"name":"Grace"}')
