@@ -16,12 +16,13 @@
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
 	import DetectionFlow from './DetectionFlow.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { apiErrorMessage, displayDate } from '$lib/utils'
+	import { apiErrorMessage } from '$lib/utils'
 	import { fade } from 'svelte/transition'
 	import { workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import { GitSyncService, ResourceService, VariableService } from '$lib/gen'
 
@@ -57,8 +58,8 @@
 	const gitSyncTestJob = $derived(idx !== null ? gitSyncContext.gitSyncTestJobs?.[idx] : null)
 	let confirmingDelete = $state(false)
 
-	function pullStatusTime(status: { at: number }): string {
-		return displayDate(new Date(status.at * 1000))
+	function pullStatusDate(status: { at: number }): string {
+		return new Date(status.at * 1000).toISOString()
 	}
 
 	// Enable/disable automatic repo → workspace pulls, managing the optional
@@ -923,11 +924,18 @@
 											{#if repo.auto_pull.last_pull_status.success}
 												Last synced{repo.auto_pull.last_pull_status.synced_sha
 													? ` to ${repo.auto_pull.last_pull_status.synced_sha.slice(0, 7)}`
-													: ''} at {pullStatusTime(repo.auto_pull.last_pull_status)}.
+													: ''}
+												<TimeAgo
+													date={pullStatusDate(repo.auto_pull.last_pull_status)}
+													noSeconds
+												/>.
 											{:else}
 												<span class="text-red-600 dark:text-red-400">
-													Last sync failed at {pullStatusTime(repo.auto_pull.last_pull_status)}{repo
-														.auto_pull.last_pull_status.error
+													Last sync failed
+													<TimeAgo
+														date={pullStatusDate(repo.auto_pull.last_pull_status)}
+														noSeconds
+													/>{repo.auto_pull.last_pull_status.error
 														? `: ${repo.auto_pull.last_pull_status.error}`
 														: ''}.
 												</span>
@@ -1005,14 +1013,21 @@
 											{#if repo.auto_pull.last_pull_status.success}
 												Last synced{repo.auto_pull.last_pull_status.synced_sha
 													? ` to ${repo.auto_pull.last_pull_status.synced_sha.slice(0, 7)}`
-													: ''} at {pullStatusTime(repo.auto_pull.last_pull_status)}.
+													: ''}
+												<TimeAgo
+													date={pullStatusDate(repo.auto_pull.last_pull_status)}
+													noSeconds
+												/>.
 												{viaWebhook
 													? ' Syncing instantly via webhook.'
 													: ' Checking the tracked branch about every minute.'}
 											{:else}
 												<span class="text-red-600 dark:text-red-400">
-													Last sync failed at {pullStatusTime(repo.auto_pull.last_pull_status)}{repo
-														.auto_pull.last_pull_status.error
+													Last sync failed
+													<TimeAgo
+														date={pullStatusDate(repo.auto_pull.last_pull_status)}
+														noSeconds
+													/>{repo.auto_pull.last_pull_status.error
 														? `: ${repo.auto_pull.last_pull_status.error}`
 														: ''}.
 												</span>
