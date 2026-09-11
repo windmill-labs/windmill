@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { User, UserRoundX } from 'lucide-svelte'
 	import { applyDarkModeVariant } from '$lib/darkModeVariant'
 	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { base } from '$app/paths'
@@ -9,7 +8,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
-	import { getContext, onMount, setContext } from 'svelte'
+	import { getContext, setContext } from 'svelte'
 	import {
 		EMBED_NAV_CONTEXT_KEY,
 		IS_APP_PUBLIC_CONTEXT_KEY,
@@ -48,7 +47,7 @@
 		/**
 		 * In-workspace rendering (`/apps/get`, `/app_embed`): keep exact parity
 		 * with the pre-sandbox member viewer — no "Powered by Windmill" badge, no
-		 * user overlay, no HTML-result approval gate, column flex wrapper.
+		 * HTML-result approval gate, column flex wrapper.
 		 */
 		inWorkspace?: boolean
 		hideRefreshBar?: boolean
@@ -56,10 +55,6 @@
 
 	// Use workspace from props or from app.workspace_id (for custom path responses)
 	let effectiveWorkspace = $derived(workspace ?? app?.workspace_id)
-
-	// The setting lives on the app, so the badge waits for it while loading
-	// instead of flashing on an app that hides it.
-	let showLoginStatus = $derived(app ? !app.policy?.hide_login_status : notExists || noPermission)
 
 	// On the public surfaces (untrusted distribution) runnable-authored html/svg needs
 	// the viewer's approval before it renders, unless the app sandbox isolates it. The
@@ -97,12 +92,12 @@
 		// console.log(user)
 	}
 
-	onMount(() => {
-		// this is to avoid loading global user if the userStore is set at loading
-		setTimeout(() => {
-			if ($userStore) return
+	// Only the no-access page reads it, to tell a signed-in non-member which
+	// workspace the app belongs to.
+	$effect(() => {
+		if (noPermission && !guestAppPath && !$userStore && !globalUser) {
 			loadGlobalUser()
-		}, 2000)
+		}
 	})
 </script>
 
@@ -116,20 +111,6 @@
 			>Powered by &nbsp;<WindmillIcon />&nbsp;Windmill</a
 		>
 	</div>
-
-	{#snippet userInfo(child)}
-		<div class="flex gap-1 items-center"><User size={14} />{child}</div>
-	{/snippet}
-
-	{#if showLoginStatus}
-		<div class="z-50 text-2xs text-primary absolute top-3 left-2"
-			>{#if $userStore}
-				{@render userInfo($userStore.username)}
-			{:else if globalUser}
-				{@render userInfo(globalUser.email)}
-			{:else}<UserRoundX size={14} />{/if}
-		</div>
-	{/if}
 {/if}
 
 {#if notExists}
