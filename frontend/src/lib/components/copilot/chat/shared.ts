@@ -629,6 +629,11 @@ export type ToolDisplayMessage = {
 	autoCollapseDetails?: boolean
 	isStreamingArguments?: boolean
 	toolName?: string
+	/** What marks this row with its provider. Recorded rather than looked up, because the
+	 * server listing lives only in memory and a reloaded transcript does not have it. The
+	 * workspace rides along: a chat is readable from any workspace, and the same path names
+	 * a different server in each. */
+	mcpServer?: { workspace: string; path: string }
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
