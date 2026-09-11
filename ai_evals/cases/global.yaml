@@ -2105,8 +2105,8 @@
       - run_flow
       - call_api_endpoint
       - deploy_workspace_item
-  # The judge only sees the drafts artifact and cannot observe runs; validate the draft
-  # via valueIncludes and the test run via toolExpect.
+  # The judge cannot observe runs, and the edit's content is already pinned by
+  # global-test5 on this fixture; what this case guards is where the run went.
   skipJudge: true
   judgeChecklist:
     - creates an AI draft of f/evals/global/process_invoice applying 8% tax
