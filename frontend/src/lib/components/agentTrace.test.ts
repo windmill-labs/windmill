@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildAgentActions } from './agentActions'
+import { buildAgentTrace } from './agentTrace'
 import type { AgentMessage } from './aiAgentResult'
 
 // The worker splits one tool call across two messages: the assistant message
@@ -34,9 +34,9 @@ const messages: AgentMessage[] = [
 	{ role: 'assistant', content: 'eu-central-1 is down.', agent_action: { type: 'message' } }
 ]
 
-describe('buildAgentActions', () => {
+describe('buildAgentTrace', () => {
 	it('joins a tool call to the arguments on the message that requested it', () => {
-		expect(buildAgentActions(messages)).toEqual([
+		expect(buildAgentTrace(messages)).toEqual([
 			{
 				kind: 'tool',
 				name: 'query_metrics',
@@ -49,7 +49,7 @@ describe('buildAgentActions', () => {
 	})
 
 	it('keeps an MCP call, whose arguments live on the action itself', () => {
-		const entries = buildAgentActions([
+		const entries = buildAgentTrace([
 			{
 				role: 'tool',
 				content: 'sunny',
@@ -74,7 +74,7 @@ describe('buildAgentActions', () => {
 	})
 
 	it('carries web search citations onto the entry', () => {
-		const entries = buildAgentActions([
+		const entries = buildAgentTrace([
 			{
 				role: 'assistant',
 				content: 'Postgres 17 changed the default.',
@@ -94,9 +94,9 @@ describe('buildAgentActions', () => {
 	// The prompt and the question are the step's inputs, shown as inputs. A replayed
 	// turn comes back from memory without its tag, and crediting this run with an
 	// answer a previous one gave would be a lie about what happened.
-	it('keeps only what this run did', () => {
+	it('traces only what this run did', () => {
 		expect(
-			buildAgentActions([
+			buildAgentTrace([
 				{ role: 'system', content: 'You are an SRE assistant.' },
 				{ role: 'user', content: 'Which region is broken?' },
 				{ role: 'assistant', content: 'Answered in an earlier turn, replayed from memory.' },

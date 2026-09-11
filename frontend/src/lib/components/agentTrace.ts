@@ -2,17 +2,16 @@ import type { WebSearchSource } from './copilot/chat/shared'
 import type { AgentMessage } from './aiAgentResult'
 
 /**
- * One thing an agent did. Built from the envelope alone: the tool arguments come
- * from the assistant message that asked for the call, and the result from the
- * `tool` message that answered it, so the list renders without waiting on any
- * request. A tool's child job is enrichment (logs, duration, whether it
- * succeeded), not what makes the row.
+ * One entry in the trace of an agent run. Built from the envelope alone: the tool
+ * arguments come from the assistant message that asked for the call, and the
+ * result from the `tool` message that answered it, so the trace renders without
+ * waiting on any request. A tool's child job is enrichment (logs, duration,
+ * whether it succeeded), not what makes the row.
  *
  * The prompt and the user's question are deliberately absent. They are inputs to
- * the step, shown as inputs, and a run is not a conversation the viewer is part
- * of — it is a record of what the agent did with them.
+ * the step and are shown as inputs; the trace is what the agent did with them.
  */
-export type AgentActionEntry =
+export type AgentTraceEntry =
 	| { kind: 'assistant'; content: string; sources?: WebSearchSource[] }
 	| { kind: 'search'; content: string; sources?: WebSearchSource[] }
 	| {
@@ -54,7 +53,7 @@ function sourcesOf(message: AgentMessage): WebSearchSource[] | undefined {
 	return sources.length > 0 ? sources : undefined
 }
 
-export function buildAgentActions(messages: AgentMessage[]): AgentActionEntry[] {
+export function buildAgentTrace(messages: AgentMessage[]): AgentTraceEntry[] {
 	// The arguments live on the assistant message that requested the call, while
 	// the action tag and the result live on the `tool` message answering it, so
 	// the two are joined by `tool_call_id`.
@@ -67,7 +66,7 @@ export function buildAgentActions(messages: AgentMessage[]): AgentActionEntry[] 
 		}
 	}
 
-	const entries: AgentActionEntry[] = []
+	const entries: AgentTraceEntry[] = []
 	for (const message of messages) {
 		const action = message.agent_action
 		if (action?.type === 'tool_call') {

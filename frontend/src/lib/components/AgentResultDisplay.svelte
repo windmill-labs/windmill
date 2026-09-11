@@ -2,13 +2,13 @@
 	import type { Snippet } from 'svelte'
 	import { Badge } from '$lib/components/common'
 	import GfmMarkdown from './GfmMarkdown.svelte'
-	import AgentActions from './AgentActions.svelte'
+	import AgentTrace from './AgentTrace.svelte'
 	import { formatTokenCount, summarizeAgentResult, type AgentResult } from './aiAgentResult'
 
 	interface Props {
 		result: AgentResult
 		/** The answer, or what the agent did to get there; JSON is the viewer's own toggle. */
-		view: 'answer' | 'actions'
+		view: 'answer' | 'trace'
 		workspaceId?: string
 		/**
 		 * How to render an answer that is not text. An `output_schema` makes `output`
@@ -27,8 +27,8 @@
 </script>
 
 <div class="flex flex-col gap-2 w-full pt-1">
-	{#if view === 'actions'}
-		<AgentActions messages={result.messages} {workspaceId} />
+	{#if view === 'trace'}
+		<AgentTrace messages={result.messages} {workspaceId} />
 	{:else if textOutput !== undefined}
 		{#if textOutput === ''}
 			<span class="text-tertiary text-xs">The agent returned no answer</span>
