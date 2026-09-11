@@ -37,6 +37,10 @@
 	// it would discard those edits.
 	const draft = untrack(() => aiChatManager.runFormDraft(toolCallId, runForm))
 
+	const runnableKind = $derived(runForm.runnableKind ?? 'script')
+	const staleFormToast = () =>
+		sendUserToast(`This run form is no longer active — ask again to run the ${runnableKind}.`, true)
+
 	const properties = $derived(draft.schema?.properties ?? {})
 	const hasArgs = $derived(Object.keys(properties).length > 0)
 
@@ -71,7 +75,7 @@
 		// manager that opened it, so submitting would mint an ephemeral secret variable
 		// per click and still run nothing.
 		if (!aiChatManager.isRunFormPending(toolCallId)) {
-			sendUserToast('This run form is no longer active — ask again to run the script.', true)
+			staleFormToast()
 			return
 		}
 		// Ahead of processSecretArgs, which writes ephemeral variables to the workspace: the
@@ -102,7 +106,7 @@
 		// then the ephemeral variables exist — say so rather than leaving a dead button.
 		if (!aiChatManager.handleRunFormSubmit(toolCallId, processed)) {
 			aiChatManager.endRunFormSubmit(toolCallId)
-			sendUserToast('This run form is no longer active — ask again to run the script.', true)
+			staleFormToast()
 		}
 	}
 </script>
@@ -151,7 +155,7 @@
 								? runForm.code && runForm.lang
 									? { source: 'inline', code: runForm.code, lang: runForm.lang }
 									: undefined
-								: { source: 'deployed', path: runForm.path, runnable_kind: 'script' }}
+								: { source: 'deployed', path: runForm.path, runnable_kind: runnableKind }}
 						disabled={planMode}
 						{workspace}
 						prettifyHeader
@@ -159,7 +163,7 @@
 						bind:args={draft.args}
 					/>
 				{:else}
-					<p class="text-xs text-secondary">This script takes no arguments.</p>
+					<p class="text-xs text-secondary">This {runnableKind} takes no arguments.</p>
 				{/if}
 			</div>
 		</div>
@@ -196,7 +200,7 @@
 		{/if}
 		{#if runForm.resetKeys?.length}
 			<p class="text-2xs text-secondary">
-				Disabled by this script, so it will run with its default:
+				Disabled by this {runnableKind}, so it will run with its default:
 				<span class="font-mono">{runForm.resetKeys.join(', ')}</span>
 			</p>
 		{/if}

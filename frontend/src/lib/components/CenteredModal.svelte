@@ -14,6 +14,8 @@
 		centerVertically?: boolean
 		loading?: boolean
 		containOverflow?: boolean
+		/** The Windmill version and update notice in the header. */
+		showVersion?: boolean
 		children?: import('svelte').Snippet
 	}
 
@@ -25,6 +27,7 @@
 		centerVertically = true,
 		loading = false,
 		containOverflow = false,
+		showVersion = true,
 		children
 	}: Props = $props()
 
@@ -82,5 +85,5 @@
 		{/if}
 	</div>
 
-	<LoginPageHeader />
+	<LoginPageHeader {showVersion} />
 </div>

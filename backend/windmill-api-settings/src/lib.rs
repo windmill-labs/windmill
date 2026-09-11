@@ -113,6 +113,9 @@ async fn get_ruff_config_unauthed(Extension(db): Extension<DB>) -> error::Result
 pub fn global_service() -> Router {
     #[warn(unused_mut)]
     let r = Router::new()
+        // `/local` is the path in openapi.yaml, so every generated client (getLocal) calls it;
+        // `/envs` stays for callers that found the route in the code.
+        .route("/local", get(get_local_settings))
         .route("/envs", get(get_local_settings))
         .route(
             "/global/{key}",

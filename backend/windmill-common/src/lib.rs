@@ -112,6 +112,7 @@ pub use pipeline_advanced_ee as pipeline_advanced;
 pub use pipeline_advanced_oss as pipeline_advanced;
 pub mod query_builders;
 pub mod queue;
+pub mod queue_metrics;
 pub mod result_stream;
 pub mod runnable_settings;
 pub mod schedule;

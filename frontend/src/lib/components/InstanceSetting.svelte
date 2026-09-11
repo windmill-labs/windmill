@@ -31,6 +31,7 @@
 	import IndexerJobIndexSettings from './instanceSettings/IndexerJobIndexSettings.svelte'
 	import IndexerLogIndexSettings from './instanceSettings/IndexerLogIndexSettings.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import Description from './Description.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	interface Props {
@@ -694,6 +695,13 @@
 									<option value="http/protobuf">http/protobuf</option>
 								</select>
 							</div>
+							<Description
+								class="text-2xs text-secondary"
+								link="https://www.windmill.dev/docs/misc/guides/otel#environment-variables"
+							>
+								Service name, environment, resource attributes, metrics temporality and other
+								options are set with environment variables.
+							</Description>
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'otel_tracing_proxy'}
