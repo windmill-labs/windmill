@@ -227,7 +227,15 @@
 			const active = document.activeElement
 			const focusOnChat =
 				!active || active === document.body || (panelEl?.contains(active) ?? false)
-			if (!focusOnChat) return
+			// An Escape while a run form is open must not discard what the user typed, so the action
+			// row alone stops the turn — wherever it is mounted, since the preview panel holds the
+			// form outside `panelEl`. Matched by call: two chats can be loading at once, and one's
+			// row must not answer for the other.
+			if (aiChatManager.hasPendingRunForm) {
+				const row = active?.closest('[data-run-form-actions]')
+				const toolCallId = row?.getAttribute('data-run-form-actions')
+				if (!toolCallId || !aiChatManager.isRunFormPending(toolCallId)) return
+			} else if (!focusOnChat) return
 			e.preventDefault()
 			// Immediate form: other chat panels' identical listeners must not
 			// also cancel on body focus, nor a drawer/modal close on this press.
@@ -559,7 +567,7 @@
 
 	const yoloBypassedTools = $derived.by(() => {
 		return aiChatManager.tools
-			.filter((tool) => tool.requiresConfirmation === true)
+			.filter((tool) => tool.requiresConfirmation === true || tool.bypassedByAutoAccept === true)
 			.map((tool) => ({
 				name: tool.def.function.name,
 				// confirmationMessage may be a function of the call args, which we don't

@@ -324,6 +324,11 @@ pub async fn uv_pip_compile(
             "compile",
             "-q",
             "--no-header",
+            // The `#`-line filter applied to the output below only catches whole-line
+            // annotations, and uv's annotation style is configurable: `[pip]
+            // annotation-style = "line"` in the worker HOME's uv.toml emits them inline
+            // ("anyio==4.15.1  # via httpx"), which that filter keeps.
+            "--no-annotate",
             file,
             "--strip-extras",
             "-o",

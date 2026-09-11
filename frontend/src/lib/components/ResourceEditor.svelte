@@ -9,7 +9,7 @@
 	} from '$lib/gen'
 	import { canWrite } from '$lib/utils'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
@@ -17,8 +17,7 @@
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { resource } from 'runed'
-	import { getUserExt } from '$lib/user'
-	import type { UserExt } from '$lib/stores'
+	import { useActingUser } from '$lib/actingUser.svelte'
 	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
@@ -31,6 +30,9 @@
 		hidePath?: boolean
 		onChange?: (args: { path: string; args: Record<string, any>; description: string }) => void
 		defaultValues?: Record<string, any> | undefined
+		/** Workspace this editor acts in — every call, permission check and cache key below
+		 * derives from it. Optional for the packaged component; the navigation workspace is
+		 * substituted once, at `effectiveWorkspace`, and nowhere else. */
 		workspace?: string | undefined
 		selected?: string | undefined
 		/** Show the value as JSON rather than as the resource type's form. Bindable so a caller can
@@ -70,6 +72,8 @@
 
 	const dispatch = createEventDispatcher()
 
+	// Sole ambient read in this file: the acting workspace is an input, and only its
+	// default comes from the navigation store.
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 	// Fallback to `effectiveWorkspace` insulates against reactify-style
 	// parents that re-spread props without `selected` — otherwise it
@@ -83,10 +87,13 @@
 	// releasing them on component teardown. `states` indexes the resulting
 	// handles by workspace ID for ergonomic lookup downstream.
 	let workspaceSpecs = $state<Array<{ ws: string; defaultValue: ResourceState }>>([])
+	// Plain objects keyed by workspace id, so an id that is also an `Object.prototype` key
+	// (`constructor`, …) reads as already present and the resource never loads. Such ids are
+	// deliberately unsupported: too unlikely to be worth guarding every read.
 	let initialStates: Record<string, ResourceState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let fetchedResources: Record<string, Resource> = $state({})
-	let perWsUser: Record<string, UserExt | undefined> = $state({})
+	const acting = useActingUser(() => selected)
 
 	const handlesArray = UserDraft.useMany<ResourceState>(() =>
 		workspaceSpecs.map((s) => ({
@@ -221,7 +228,7 @@
 			() => deployedPath,
 			() => deployedUrl,
 			() => resource_type,
-			() => (selected ? (perWsUser[selected] ?? $userStore)?.is_admin : undefined)
+			() => acting.in(selected)?.is_admin
 		],
 		async ([ws, path, _url, type, admin]) =>
 			ws && path && type === 'git_repository' && admin
@@ -238,15 +245,15 @@
 	let resourceToEdit: Resource | undefined = $derived(
 		selected ? fetchedResources[selected] : undefined
 	)
-	let can_write = $derived.by(() => {
-		if (!selected) return true
+	// `undefined` until both the resource and the acting user have landed — a pending verdict
+	// is neither a grant nor the denial the read-only alert announces, so the two must stay
+	// distinguishable.
+	let can_write: boolean | undefined = $derived.by(() => {
+		// A resource that does not exist yet has nobody's permissions on it.
+		if (!initialPath || !selected) return true
 		const r = fetchedResources[selected]
-		if (!r) return true
-		return canWrite(
-			current?.path ?? initialPath,
-			r.extra_perms ?? {},
-			perWsUser[selected] ?? $userStore
-		)
+		if (!r || !acting.resolved(selected)) return undefined
+		return canWrite(current?.path ?? initialPath, r.extra_perms ?? {}, acting.in(selected))
 	})
 
 	const dirtyWorkspaces = $derived(
@@ -275,7 +282,7 @@
 	const selectedDirty = $derived(!!selected && dirtyWorkspaces.includes(selected))
 	const otherDirty = $derived(
 		dirtyWorkspaces.length == 1
-			? dirtyWorkspaces.filter((ws) => ws !== $workspaceStore)
+			? dirtyWorkspaces.filter((ws) => ws !== effectiveWorkspace)
 			: dirtyWorkspaces
 	)
 	const dirtyValid = $derived(dirtyWorkspaces.every((ws) => perWsValid[ws] !== false))
@@ -283,12 +290,7 @@
 		dirtyWorkspaces.every((ws) => {
 			const r = fetchedResources[ws]
 			return (
-				!r ||
-				canWrite(
-					states[ws]?.draft?.path ?? initialPath,
-					r.extra_perms ?? {},
-					perWsUser[ws] ?? $userStore
-				)
+				!r || canWrite(states[ws]?.draft?.path ?? initialPath, r.extra_perms ?? {}, acting.in(ws))
 			)
 		})
 	)
@@ -296,9 +298,10 @@
 	// New-resource bootstrap: seed empty state per workspace (edit mode
 	// is seeded by the lazy-fetch effect below).
 	$effect(() => {
-		if (!selected) return
+		const ws = selected
+		if (!ws) return
 		if (initialPath) return
-		if (selected in initialStates) return
+		if (ws in initialStates) return
 		untrack(() => {
 			const s: ResourceState = {
 				path: '',
@@ -307,9 +310,9 @@
 				labels: undefined,
 				wsSpecific: false
 			}
-			ensureHandle(selected, s)
-			initialStates[selected] = structuredClone(s)
-			existedInitially[selected] = false
+			ensureHandle(ws, s)
+			initialStates[ws] = structuredClone(s)
+			existedInitially[ws] = false
 		})
 	})
 
@@ -319,42 +322,40 @@
 		if (!ws || !initialPath) return
 		if (ws in states) return
 		untrack(() => {
-			Promise.all([
-				ResourceService.getResource({ workspace: ws, path: initialPath, getDraft: true }),
-				getUserExt(ws)
-			]).then(([r, user]) => {
-				// `.draft` already holds the editor's `ResourceState` shape.
-				const savedDraftState = (r as any).draft as ResourceState | undefined
-				fetchedResources[ws] = r
-				// Deployed baseline as the dirty-check reference, so the banner
-				// compares draft-vs-deployed and fires immediately when a draft exists.
-				const deployedState: ResourceState = {
-					path: r.path,
-					description: r.description ?? '',
-					args: (r.value ?? {}) as any,
-					labels: r.labels ?? undefined,
-					wsSpecific: r.ws_specific ?? false
+			ResourceService.getResource({ workspace: ws, path: initialPath, getDraft: true }).then(
+				(r) => {
+					// `.draft` already holds the editor's `ResourceState` shape.
+					const savedDraftState = (r as any).draft as ResourceState | undefined
+					fetchedResources[ws] = r
+					// Deployed baseline as the dirty-check reference, so the banner
+					// compares draft-vs-deployed and fires immediately when a draft exists.
+					const deployedState: ResourceState = {
+						path: r.path,
+						description: r.description ?? '',
+						args: (r.value ?? {}) as any,
+						labels: r.labels ?? undefined,
+						wsSpecific: r.ws_specific ?? false
+					}
+					// Open with the saved draft if present, else the deployed.
+					const s: ResourceState = savedDraftState ?? deployedState
+					openedOnDraft[ws] = !!savedDraftState
+					// Gate BEFORE the handle is acquired: `stopSync` queues on a
+					// not-yet-live entry, and the form can settle before the effect
+					// above gets a chance to run. Only worth doing when no draft exists
+					// yet — where one does, there is no phantom to prevent and
+					// suspending could only drop a write.
+					if (!savedDraftState) setGated(ws, true)
+					ensureHandle(ws, s)
+					initialStates[ws] = structuredClone(deployedState)
+					// Draft-only paths (`no_deployed`) have no row — saving must
+					// CREATE, not update (update 404s).
+					existedInitially[ws] = !(r as any).no_deployed
+					// Keep resource_type in sync for the base workspace (controls the schema)
+					if (ws === effectiveWorkspace) {
+						resource_type = r.resource_type
+					}
 				}
-				// Open with the saved draft if present, else the deployed.
-				const s: ResourceState = savedDraftState ?? deployedState
-				openedOnDraft[ws] = !!savedDraftState
-				// Gate BEFORE the handle is acquired: `stopSync` queues on a
-				// not-yet-live entry, and the form can settle before the effect
-				// above gets a chance to run. Only worth doing when no draft exists
-				// yet — where one does, there is no phantom to prevent and
-				// suspending could only drop a write.
-				if (!savedDraftState) setGated(ws, true)
-				ensureHandle(ws, s)
-				initialStates[ws] = structuredClone(deployedState)
-				// Draft-only paths (`no_deployed`) have no row — saving must
-				// CREATE, not update (update 404s).
-				existedInitially[ws] = !(r as any).no_deployed
-				perWsUser[ws] = user
-				// Keep resource_type in sync for the base workspace (controls the schema)
-				if (ws === effectiveWorkspace) {
-					resource_type = r.resource_type
-				}
-			})
+			)
 		})
 	})
 
@@ -421,7 +422,7 @@
 		onDraftStateChange?.(!!initialPath && selectedDirty)
 	})
 	$effect(() => {
-		onCanWriteChange?.(can_write)
+		onCanWriteChange?.(can_write === true)
 	})
 
 	export function localDraftDeployed(): ResourceState | undefined {
@@ -555,7 +556,9 @@
 			</Alert>
 		{/if}
 
-		{#if current}
+		<!-- Held back until there is a verdict: rendering the form against a pending `can_write`
+			would flash read-only controls at someone who can in fact write. -->
+		{#if current && can_write !== undefined}
 			{#key current}
 				<ResourceForm
 					bind:path={() => current!.path, setPath}
@@ -577,6 +580,7 @@
 					{resourceToEdit}
 					onLoadResourceType={() => resourceTypeResource.refetch()}
 					workspace={selected}
+					actingUser={acting.in(selected) ?? null}
 				/>
 			{/key}
 		{/if}

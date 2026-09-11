@@ -1,0 +1,74 @@
+import { untrack } from 'svelte'
+import { fromStore } from 'svelte/store'
+import { SvelteMap } from 'svelte/reactivity'
+import { userStore, workspaceStore, type UserExt } from '$lib/stores'
+import { getWorkspaceRole, type RoleLookup } from '$lib/user'
+
+/**
+ * The user acting in a workspace that is not necessarily the one the top nav points at — an AI
+ * session or a workspace-specific variant acts on a workspace the nav deliberately is not on.
+ *
+ * `$userStore` answers for the navigation workspace at no cost, exactly as every permission check
+ * in the app did before this hook existed — including when it holds nobody, which reads as unknown
+ * and refuses. Every other workspace is looked up, and an unresolved user there is `undefined`: it
+ * must never fall back to the navigation user, whose rights belong to another workspace.
+ * `canWrite`/`isOwner` refuse for an unknown user, which is the only safe answer. A caller that
+ * must not render that refusal as a denial asks `resolved` first.
+ */
+export function useActingUser(workspace: () => string | undefined) {
+	const navWorkspace = fromStore(workspaceStore)
+	const navUser = fromStore(userStore)
+	const looked = new SvelteMap<string, RoleLookup>()
+	// The workspace this effect last acted on, so arriving at one is distinguishable from the
+	// effect re-running while already there.
+	let asking: string | undefined
+
+	$effect(() => {
+		const ws = workspace()
+		if (asking !== ws) {
+			asking = ws
+			// Dropped on the way *in*, not on the way out: a lookup that fails after the acting
+			// workspace has already moved on has no entry to clear at the moment it is left, so
+			// clearing it there would keep a refusal that no attempt is behind any more.
+			if (ws && untrack(() => looked.get(ws)?.kind) === 'lookup_failed') looked.delete(ws)
+		}
+		if (!ws || ws === navWorkspace.current) return
+		// Any settled answer stops the asking, a failure included — otherwise recording one
+		// would re-enter this effect and loop.
+		if (looked.has(ws)) return
+		untrack(() => {
+			// Memoized process-wide, so two components pointed at the same workspace share one
+			// request rather than each issuing their own.
+			getWorkspaceRole(ws).then((lookup) => looked.set(ws, lookup))
+		})
+	})
+
+	function userIn(ws: string | undefined): UserExt | undefined {
+		if (!ws) return undefined
+		if (ws === navWorkspace.current) return navUser.current
+		const lookup = looked.get(ws)
+		return lookup?.kind === 'resolved' ? lookup.user : undefined
+	}
+
+	return {
+		/** The acting user in `ws`, or `undefined` when it is not known. Only workspaces this
+		 *  hook has been pointed at are looked up; the rest read as unknown. */
+		in: userIn,
+		/** Whether `ws` has an answer at all — a user, or a lookup that came back without one.
+		 *  The navigation workspace always has one: `$userStore`, "nobody" included. */
+		resolved: (ws: string | undefined): boolean =>
+			!!ws && (ws === navWorkspace.current || looked.has(ws)),
+		get current(): UserExt | undefined {
+			return userIn(workspace())
+		},
+		/** Drop the lookups that came back empty so they are asked again. Arriving at a
+		 *  workspace already does this; a long-lived editor must call this too when it starts a
+		 *  fresh session on the workspace it is already on, or a `whoami` that happened to fail
+		 *  pins it to "unknown user" for as long as it stays there. */
+		forgetFailures(): void {
+			for (const [ws, lookup] of looked) {
+				if (lookup.kind === 'lookup_failed') looked.delete(ws)
+			}
+		}
+	}
+}

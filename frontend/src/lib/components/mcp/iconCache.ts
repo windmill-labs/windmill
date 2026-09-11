@@ -33,6 +33,18 @@ export function cachedProviderKey(
 	return entry.editedAt === editedAt ? entry.key : undefined
 }
 
+/**
+ * The stored mark for a path, ignoring `editedAt`: a transcript row has none to
+ * match against, and nothing acts on a mark.
+ */
+export function cachedProviderMark(
+	workspace: string,
+	path: string
+): { key: string | null } | undefined {
+	const entry = read()[workspace]?.[path]
+	return entry ? { key: entry.key } : undefined
+}
+
 export function rememberProviderKey(
 	workspace: string,
 	path: string,

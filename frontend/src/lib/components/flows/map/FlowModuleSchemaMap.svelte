@@ -806,6 +806,19 @@
 						}
 					}
 				}
+				// Group notes reference their members by module id. A stale id here is not
+				// merely cosmetic: cleanupGroupNotes drops ids it cannot resolve and deletes
+				// the note once none are left.
+				const notes = flowStore.val.value.notes
+				if (notes) {
+					for (const note of notes) {
+						if (note.contained_node_ids) {
+							note.contained_node_ids = note.contained_node_ids.map((nid) =>
+								nid === id ? newId : nid
+							)
+						}
+					}
+				}
 				flowStateStore.val[newId] = flowStateStore.val[id]
 				delete flowStateStore.val[id]
 				refreshStateStore(flowStore)
