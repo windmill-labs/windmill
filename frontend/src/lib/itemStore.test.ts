@@ -26,9 +26,15 @@ function deferred<T = void>() {
 function fakeRows() {
 	const writes: { path: string; value: unknown }[] = []
 	const conflicts = new Set<string>()
+	/** Paths whose next write the server fails. */
+	const failing = new Set<string>()
+	const failures = new Map<string, string>()
 	const hints = new Map<string, boolean>()
 	const port: ItemRowPort = {
-		write: (key, value) => void writes.push({ path: key.path, value }),
+		write: (key, value) => {
+			writes.push({ path: key.path, value })
+			if (failing.has(key.path)) failures.set(key.path, 'unreachable')
+		},
 		flush: async () => {},
 		overwrite: async (key, value) => {
 			conflicts.delete(key.path)
@@ -36,11 +42,11 @@ function fakeRows() {
 		},
 		seedSync: () => {},
 		conflicted: (key) => conflicts.has(key.path),
-		failure: () => undefined,
+		failure: (key) => failures.get(key.path),
 		dropPending: () => {},
 		hint: (key, on) => void hints.set(key.path, on)
 	}
-	return { port, writes, conflicts, hints }
+	return { port, writes, conflicts, failing, hints }
 }
 
 const deployedRes: Res = { path: 'u/me/r', description: 'deployed', args: { a: 1 } }
@@ -191,6 +197,34 @@ describe('item store: commands', () => {
 		])
 		expect(written).toEqual(['w1'])
 		expect([first.dirty, second.dirty, second.busy]).toEqual([true, true, false])
+	})
+
+	it('keeps a toggle made during a save out of the draft row', async () => {
+		type Sched = { path: string; enabled: boolean; summary: string }
+		const rows = fakeRows()
+		const saveGate = deferred()
+		const store = createItemStore(rows.port)
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'trigger_schedule', path: 's' },
+			{ workspace: 'w', path: 's' },
+			{
+				load: async () => ({ deployed: { path: 's', enabled: true, summary: 'a' } }),
+				write: () => saveGate.promise
+			} as ItemAdapter<Sched>
+		)
+		await settle()
+		item.value = { path: 's', enabled: true, summary: 'b' }
+		const saving = item.save()
+		const toggling = item.patch({ enabled: false }, async () => {})
+		saveGate.resolve()
+		await saving
+		// The save's baseline predates the toggle; the toggle's field survives it, so nothing
+		// is left unsaved and the row goes.
+		expect(item.dirty).toBe(false)
+		expect(rows.writes.at(-1)).toEqual({ path: 's', value: null })
+		await toggling
+		expect(item.deployed).toEqual({ path: 's', enabled: false, summary: 'b' })
+		expect(rows.writes.at(-1)).toEqual({ path: 's', value: null })
 	})
 
 	it('holds a toggle behind a save, and keeps an unrelated edit through the toggle', async () => {
@@ -348,6 +382,18 @@ describe('item store: origins', () => {
 		expect(rows.writes).toEqual([{ path: 'u/me/r', value: null }])
 	})
 
+	it('keeps a draft-only item whose delete did not land', async () => {
+		const rows = fakeRows()
+		const draft = { ...deployedRes, description: 'only a draft' }
+		const { item } = await open(rows, adapter({ draft }))
+		rows.failing.add('u/me/r')
+
+		expect(await item.discard()).toEqual({ removed: false })
+		expect(item.removed).toBe(false)
+		expect(item.value).toEqual(draft)
+		expect(item.status).toBe('failed')
+	})
+
 	it('creates under a temporary path, then moves to the real one and clears any row there', async () => {
 		const rows = fakeRows()
 		const temp = newItemPath()
@@ -383,6 +429,41 @@ describe('item store: origins', () => {
 		expect(rows.writes.slice(1)).toEqual([
 			{ path: 'u/me/r', value: null },
 			{ path: 'u/me/renamed', value: null }
+		])
+	})
+})
+
+describe('item store: one entry per key', () => {
+	it('moves onto a key another editor holds, which then follows the item there', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const at = (path: string, load: ItemLoad<Res>) =>
+			store.acquire(
+				{ workspace: 'w', kind: 'resource', path },
+				{ workspace: 'w', path },
+				adapter(load)
+			).handle
+		const other = at('u/me/b', {
+			draft: { ...deployedRes, path: 'u/me/b', description: 'draft b' }
+		})
+		const moving = at('u/me/r', { deployed: deployedRes })
+		await settle()
+
+		moving.value = { ...deployedRes, path: 'u/me/b' }
+		expect(await moving.save()).toMatchObject({ ok: true, moved: true })
+
+		expect(other.key.path).toBe('u/me/b')
+		expect(other.value).toEqual({ ...deployedRes, path: 'u/me/b' })
+		expect(other.origin).toBe('deployed')
+		// The displaced entry writes nothing more: `u/me/b` has one writer.
+		const before = rows.writes.length
+		other.value = { ...deployedRes, path: 'u/me/b', description: 'typed in the other editor' }
+		expect(moving.value?.description).toBe('typed in the other editor')
+		expect(rows.writes.slice(before)).toEqual([
+			{
+				path: 'u/me/b',
+				value: { ...deployedRes, path: 'u/me/b', description: 'typed in the other editor' }
+			}
 		])
 	})
 })

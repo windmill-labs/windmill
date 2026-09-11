@@ -172,7 +172,13 @@ class Entry<V> {
 	absorbs: ((next: V, deployed: V) => boolean) | undefined
 	refs = 0
 	disposed = false
+	/** Replaced by an entry that moved onto its key: it no longer owns the row there. */
+	retired = false
+	handles = new Set<Handle<V>>()
 	stopWatch: (() => void) | undefined
+	/** Fields a `patch` has put on the deployed side ahead of the server; a save landing
+	 *  meanwhile keeps them rather than rolling the baseline back past them. */
+	private patched: Record<string, unknown> = {}
 	/** The value as last observed, serialized: `touch` acts only on a real change. */
 	private seen: string | undefined
 	/** The row last handed to the syncer (`null`: none, `undefined`: not known — the next
@@ -217,7 +223,7 @@ class Entry<V> {
 	/** Mirror `dirty ? value : null` to the draft row. The only place a row is written. */
 	reconcile(): void {
 		const key = this.key
-		if (!this.loaded || this.origin === 'new' || isTemporaryPath(key.path)) return
+		if (this.retired || !this.loaded || this.origin === 'new' || isTemporaryPath(key.path)) return
 		const desired = this.dirty ? (serialize(this.value) ?? null) : null
 		this.ports.hint(key, desired !== null)
 		if (desired === this.row) return
@@ -358,7 +364,7 @@ class Entry<V> {
 				return { ok: false, error: this.error }
 			}
 			this.error = undefined
-			this.deployed = sent
+			this.deployed = { ...sent, ...this.patched } as V
 			this.origin = 'deployed'
 			this.template = undefined
 			const moved = to !== from.path
@@ -377,9 +383,17 @@ class Entry<V> {
 		return this.run(async () => {
 			if (!this.loaded) return { removed: false }
 			if (this.origin === 'draft') {
+				const kept = snapshot(this.value)
+				const keptRow = this.row
 				this.replaceValue(undefined)
 				this.reconcile()
 				await this.settleRows([this.key])
+				// The row is the item: while its delete has not landed, the item is still there.
+				if (this.rowRefused(this.key)) {
+					this.row = keptRow
+					this.replaceValue(kept)
+					return { removed: false }
+				}
 				this.removed = true
 				return { removed: true }
 			}
@@ -398,6 +412,11 @@ class Entry<V> {
 	 */
 	private async settleRows(keys: ItemKey[]): Promise<void> {
 		await Promise.all(keys.filter((k) => !isTemporaryPath(k.path)).map((k) => this.ports.flush(k)))
+	}
+
+	/** The syncer settles a rejected or failed write without throwing; this is how to tell. */
+	private rowRefused(key: ItemKey): boolean {
+		return this.ports.conflicted(key) || this.ports.failure(key) !== undefined
 	}
 
 	/**
@@ -427,12 +446,19 @@ class Entry<V> {
 		const before = snapshot(this[baseKey]) as Record<string, unknown> | undefined
 		const sent = snapshot(fields) as Record<string, unknown>
 		if (before !== undefined) this[baseKey] = { ...before, ...sent } as V
+		if (baseKey === 'deployed') Object.assign(this.patched, sent)
 		if (this.value !== undefined) Object.assign(this.value as object, fields)
 		this.touch()
+		const settled = () => {
+			for (const [k, v] of Object.entries(sent)) {
+				if (deepEqual(this.patched[k], v)) delete this.patched[k]
+			}
+		}
 		return this.run(async () => {
 			try {
 				await write(this.key)
 			} catch (e) {
+				settled()
 				const giveBack = (side: V | undefined): V | undefined => {
 					if (side === undefined || before === undefined) return undefined
 					const out = snapshot(side) as Record<string, unknown>
@@ -453,8 +479,8 @@ class Entry<V> {
 				this.reconcile()
 				return { ok: false, error: this.error }
 			}
+			settled()
 			this.error = undefined
-			// A save that landed while this waited set the baseline to what it sent.
 			if (this[baseKey] !== undefined) this[baseKey] = { ...this[baseKey], ...sent } as V
 			this.touch()
 			this.reconcile()
@@ -550,7 +576,8 @@ export type ItemSpec<V> = {
 /** A class, not a literal: Svelte deep-proxies plain objects put in `$state`, and a proxied
  *  handle would no longer be the one `saveEach` recognizes. */
 class Handle<V> implements ItemHandle<V> {
-	readonly entry: Entry<V>
+	/** Reactive: a handle follows its item onto the entry that took over its key. */
+	entry: Entry<V> = $state.raw()!
 	readonly spec: ItemSpec<V>
 	readonly adapter: ItemAdapter<V>
 
@@ -558,6 +585,7 @@ class Handle<V> implements ItemHandle<V> {
 		this.entry = entry
 		this.spec = spec
 		this.adapter = adapter
+		entry.handles.add(this)
 	}
 
 	get key() {
@@ -654,8 +682,28 @@ export function createItemStore(ports: ItemRowPort) {
 		rekey(entry, from) {
 			const k = keyString(from)
 			if (entries.get(k) === entry) entries.delete(k)
-			entries.set(keyString(entry.key), entry)
+			const to = keyString(entry.key)
+			const displaced = entries.get(to)
+			if (displaced && displaced !== entry) retire(displaced, entry)
+			entries.set(to, entry)
 		}
+	}
+
+	/**
+	 * An entry moved onto a key another live entry holds. One key has one row writer, so the
+	 * old one stops writing and every handle on it moves to the entry that now is the item —
+	 * the same outcome as when nobody had it open: what was there is superseded by the write.
+	 */
+	function retire(old: Entry<any>, into: Entry<any>): void {
+		old.retired = true
+		old.stopWatch?.()
+		for (const handle of old.handles) {
+			handle.entry = into
+			into.handles.add(handle)
+			into.refs++
+			old.refs--
+		}
+		old.handles.clear()
 	}
 
 	function watch(entry: Entry<any>): void {
@@ -691,14 +739,15 @@ export function createItemStore(ports: ItemRowPort) {
 			watch(entry)
 		}
 		entry.refs++
-		const held = entry
+		const handle = new Handle(entry, spec, adapter)
 		let released = false
 		return {
-			handle: new Handle(held, spec, adapter),
+			handle,
 			release() {
 				if (released) return
 				released = true
-				internals.release(held)
+				handle.entry.handles.delete(handle)
+				internals.release(handle.entry)
 			}
 		}
 	}
