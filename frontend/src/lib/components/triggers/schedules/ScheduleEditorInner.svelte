@@ -217,8 +217,15 @@
 		scheduleAdapter
 	)
 
-	// A schedule read from the server is created, not updated, while it only exists as a draft.
-	const edit = $derived(mode === 'fixed' || (mode === 'edit' && item.origin !== 'draft'))
+	// A schedule read from the server is created, not updated, while it only exists as a draft;
+	// one this editor created is edited from then on, as the drawer can outlive the create.
+	const edit = $derived(
+		mode === 'fixed' || item.origin === 'deployed' || (mode === 'edit' && item.origin !== 'draft')
+	)
+	// Where the schedule is stored: the item's own path once it has one.
+	const schedulePath = $derived(
+		item.current && !isTemporaryPath(item.key.path) ? item.key.path : initialPath
+	)
 	const hasBaseline = $derived(
 		item.loaded && (item.origin === 'deployed' || item.origin === 'draft')
 	)
@@ -284,7 +291,7 @@
 	$effect(() => {
 		if (!item.removed) return
 		untrack(() => {
-			onUpdate?.(initialPath)
+			onUpdate?.(schedulePath)
 			drawer?.closeDrawer()
 		})
 	})
@@ -589,7 +596,7 @@
 	async function handleToggleEnabled(nEnabled: boolean) {
 		enabled = nEnabled
 		if (trigger?.draftConfig) return
-		const target = initialPath
+		const target = schedulePath
 		const workspace = wsId ?? ''
 		// Queued behind any save of this schedule; on refusal the item gives the field back and
 		// the form re-reads it.
@@ -621,7 +628,7 @@
 {#snippet saveButton()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
-			triggerPath={initialPath}
+			triggerPath={schedulePath}
 			triggerKind="schedule"
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
@@ -1299,8 +1306,8 @@
 			bannerReserved={hasBaseline}
 			title={edit
 				? can_write
-					? `Edit schedule ${initialPath}`
-					: `View schedule ${initialPath}`
+					? `Edit schedule ${schedulePath}`
+					: `View schedule ${schedulePath}`
 				: 'New schedule'}
 			on:close={drawer.closeDrawer}
 		>

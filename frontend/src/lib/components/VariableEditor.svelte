@@ -25,6 +25,7 @@
 	import DraftConflictAlert from './DraftConflictAlert.svelte'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import {
+		isTemporaryPath,
 		newItemPath,
 		saveEach,
 		useItems,
@@ -62,8 +63,6 @@
 	const acting = useActingUser(() => selected)
 
 	const MAX_VARIABLE_LENGTH = 10000
-	const edit = $derived(editPath !== undefined)
-	const initialPath = $derived(editPath ?? '')
 
 	function isValid(v: VariableState | undefined): boolean {
 		// `$encrypted:` markers are ciphertext; the backend re-derives the real value on save,
@@ -193,12 +192,20 @@
 		pageDrawerSessionSource(VARIABLES_PATH, editPath, selected ?? curWs)
 	)
 	const selectedItem = $derived(selected ? items[selected] : undefined)
+	// A variable this drawer created is edited from then on: the drawer stays open on it when an
+	// edit was typed during the create.
+	const edit = $derived(editPath !== undefined || selectedItem?.origin === 'deployed')
+	const initialPath = $derived(
+		editPath ??
+			(selectedItem && !isTemporaryPath(selectedItem.key.path) ? selectedItem.key.path : '')
+	)
 	const current = $derived(selectedItem?.value)
 	// `undefined` until the selected workspace's permissions and acting user have both
 	// landed — a pending verdict is neither a grant nor the denial the read-only alert
 	// announces, so the two must stay distinguishable.
 	const can_write: boolean | undefined = $derived.by(() => {
-		if (!selected || !edit) return true
+		// Nobody else's permissions apply to a variable this drawer is creating, or just created.
+		if (!selected || editPath === undefined) return true
 		const perms = extraPermsOf(selected)
 		if (!perms || !acting.resolved(selected)) return undefined
 		return canWrite(editPath ?? '', perms, acting.in(selected))
