@@ -42,9 +42,10 @@ async fn stored_auto_pull(db: &Pool<Postgres>) -> anyhow::Result<serde_json::Val
     Ok(git_sync["repositories"][0]["auto_pull"].clone())
 }
 
-/// The stale recovery every test below runs: decided on the fixture's failure at
-/// head "aaa".
-async fn stale_recovery(db: &Pool<Postgres>) -> anyhow::Result<()> {
+/// The recovery every test below runs, decided on the fixture's failure at head
+/// "aaa": live in the first test, stale in the two that move the stored state
+/// first.
+async fn recovery_for_the_fixture_failure(db: &Pool<Postgres>) -> anyhow::Result<()> {
     clear_auto_pull_failure(
         db,
         WS,
@@ -60,7 +61,7 @@ async fn stale_recovery(db: &Pool<Postgres>) -> anyhow::Result<()> {
 
 #[sqlx::test(fixtures("git_sync_autopull_recovery"))]
 async fn recovery_clears_the_failure_at_the_synced_head(db: Pool<Postgres>) -> anyhow::Result<()> {
-    stale_recovery(&db).await?;
+    recovery_for_the_fixture_failure(&db).await?;
 
     let auto_pull = stored_auto_pull(&db).await?;
     assert_eq!(auto_pull["last_pull_status"]["success"], true);
@@ -96,7 +97,7 @@ async fn stale_recovery_leaves_a_newer_state_alone(db: Pool<Postgres>) -> anyhow
     )
     .await?;
 
-    stale_recovery(&db).await?;
+    recovery_for_the_fixture_failure(&db).await?;
 
     let auto_pull = stored_auto_pull(&db).await?;
     assert_eq!(auto_pull["last_synced_sha"]["main"], "bbb");
@@ -128,7 +129,7 @@ async fn stale_recovery_keeps_a_newer_failure_at_the_same_head(
     ] {
         persist_auto_pull_state(&db, WS, REPO, &same_sha, &newer).await?;
 
-        stale_recovery(&db).await?;
+        recovery_for_the_fixture_failure(&db).await?;
 
         let auto_pull = stored_auto_pull(&db).await?;
         assert_eq!(auto_pull["last_pull_status"]["success"], false);
