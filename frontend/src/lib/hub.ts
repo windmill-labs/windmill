@@ -1,4 +1,3 @@
-import type { Schema } from './common'
 import { AppService, FlowService, type Script } from './gen'
 import hubPathsData from './hubPaths.json'
 import { encodeState } from './utils'
@@ -25,17 +24,23 @@ export const HubFlow = {
  * reach the Hub inside a project, published from a folder, so only scripts have this.
  */
 export function scriptToHubUrl(
-	content: string,
-	summary: string,
-	description: string,
-	kind: Script['kind'],
-	language: Script['language'],
-	schema: Schema | any,
-	lock: string | undefined,
+	script: Pick<
+		Script,
+		'content' | 'summary' | 'description' | 'kind' | 'language' | 'schema' | 'lock'
+	>,
 	hubBaseUrl: string
 ): URL {
+	const { content, summary, kind, language, schema } = script
 	const url = new URL(hubBaseUrl + '/scripts/add')
-	url.hash = encodeState({ content, summary, description, kind, language, schema, lock })
+	url.hash = encodeState({
+		content,
+		summary,
+		description: script.description ?? '',
+		kind,
+		language,
+		schema,
+		lock: script.lock ?? ''
+	})
 	return url
 }
 
