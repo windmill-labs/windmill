@@ -156,6 +156,14 @@ export function emptyAgentStreamProgress(): AgentStreamProgress {
 	return { consumed: 0, stream: { answer: '', reasoning: '' } }
 }
 
+/**
+ * Any of these means a tool call is beginning, and which one arrives depends on
+ * the provider: the SSE parsers announce `tool_call`, while Bedrock streams only
+ * the arguments and the worker follows with `tool_execution`. Resetting on all
+ * three is idempotent and keeps the rule provider-independent.
+ */
+const TOOL_TURN_STARTED = ['tool_call', 'tool_call_arguments', 'tool_execution']
+
 const STREAM_EVENT_TYPES = [
 	'token_delta',
 	'reasoning_token_delta',
@@ -232,11 +240,11 @@ export function advanceAgentStream(
 		} else if (event.type === 'reasoning_token_delta' && typeof event.content === 'string') {
 			stream.reasoning += event.content
 		} else if (typeof event.function_name === 'string') {
-			if (event.type === 'tool_call') {
+			if (TOOL_TURN_STARTED.includes(event.type)) {
 				// A model can narrate and request a tool in the same turn, and the loop
 				// then runs again. That narration is not part of the answer — the
-				// finished result keeps only the last turn's text — so a new call
-				// starts the answer over rather than appending to what came before.
+				// finished result keeps the text of the last turn that produced any — so
+				// a starting call resets rather than appending to what came before.
 				stream.answer = ''
 				stream.reasoning = ''
 			}

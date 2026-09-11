@@ -75,13 +75,10 @@ lazy_static::lazy_static! {
 const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
 const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
 
-/// What a run stopped by `max_iterations` reports back: the conversation it got
-/// through before giving up.
-///
-/// `Message` rather than `OpenAIMessage` is load-bearing. `agent_action` is
-/// `skip_serializing` on `OpenAIMessage` and only reaches JSON through this
-/// wrapper, so serializing these raw drops every tool name and job id and leaves
-/// the partial run unreadable — which is the one thing worth having on this path.
+/// What a run stopped by `max_iterations` reports back. `Message` rather than
+/// `OpenAIMessage` is load-bearing: `agent_action` is `skip_serializing` on the
+/// latter and reaches JSON only through this wrapper, so serializing these raw
+/// drops every tool name and job id and leaves the partial run unreadable.
 #[derive(serde::Serialize)]
 struct MaxIterPartialResult<'a> {
     messages: Vec<Message<'a>>,
@@ -1747,10 +1744,6 @@ mod tests {
         assert!(!streaming_requested(Some(false)));
     }
 
-    /// The frontend reads a capped run's partial actions out of this payload and
-    /// keys entirely off `agent_action`. That field is `skip_serializing` on
-    /// `OpenAIMessage`, so serializing these messages directly rather than through
-    /// `Message` silently empties the trace of the one run worth reading.
     #[test]
     fn max_iterations_partial_result_keeps_the_action_tags() {
         let messages = vec![OpenAIMessage {

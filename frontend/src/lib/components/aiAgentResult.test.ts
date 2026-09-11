@@ -151,4 +151,22 @@ describe('a stream that narrates before calling a tool', () => {
 		const poll3 = advanceAgentStream(afterCall + '{"type":"token_delta","content":"Done."}\n', poll2)
 		expect(poll3.stream.answer).toBe('Done.')
 	})
+
+	// Bedrock has its own streaming implementation rather than the shared SSE
+	// parsers, and never announces `tool_call` — only the arguments, then the
+	// worker's `tool_execution`. Keying the reset on `tool_call` alone leaves the
+	// narration in place for that provider.
+	it('resets on a provider that never announces the call itself', () => {
+		const raw = [
+			'{"type":"token_delta","content":"Let me check the metrics."}',
+			'{"type":"tool_call_arguments","call_id":"c1","function_name":"q","arguments":"{}"}',
+			'{"type":"tool_execution","call_id":"c1","function_name":"q"}',
+			'{"type":"tool_result","call_id":"c1","function_name":"q","result":"{}","success":true}',
+			'{"type":"token_delta","content":"eu-central-1 is down."}',
+			''
+		].join('\n')
+		expect(advanceAgentStream(raw, emptyAgentStreamProgress()).stream.answer).toBe(
+			'eu-central-1 is down.'
+		)
+	})
 })
