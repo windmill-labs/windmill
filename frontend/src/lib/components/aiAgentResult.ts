@@ -187,18 +187,21 @@ export function summarizeAgentResult(result: AgentResult): AgentResultSummary {
 	}
 }
 
+export type AgentStreamTool = { callId: string; name: string; running: boolean; success?: boolean }
+
 export type AgentStream = {
 	answer: string
 	reasoning: string
-	/** The most recent tool the run touched, so a stream that is mid-call says so. */
-	tool?: { name: string; running: boolean; success?: boolean }
+	/** Every tool the run has touched, in order, so a stream shows the same rows
+	 *  the finished trace will. */
+	tools: AgentStreamTool[]
 }
 
 /** How much of the stream has been folded in, so the next poll starts there. */
 export type AgentStreamProgress = { consumed: number; stream: AgentStream }
 
 export function emptyAgentStreamProgress(): AgentStreamProgress {
-	return { consumed: 0, stream: { answer: '', reasoning: '' } }
+	return { consumed: 0, stream: { answer: '', reasoning: '', tools: [] } }
 }
 
 /**
@@ -273,7 +276,7 @@ export function advanceAgentStream(
 	if (complete <= previous.consumed) {
 		return previous
 	}
-	const stream: AgentStream = { ...previous.stream }
+	const stream: AgentStream = { ...previous.stream, tools: [...previous.stream.tools] }
 	for (const line of raw.slice(previous.consumed, complete).split('\n')) {
 		if (line.trim() === '') {
 			continue
@@ -295,10 +298,21 @@ export function advanceAgentStream(
 				stream.answer = ''
 				stream.reasoning = ''
 			}
-			stream.tool = {
-				name: event.function_name,
-				running: event.type !== 'tool_result',
-				success: event.type === 'tool_result' ? event.success === true : undefined
+			// The same call is announced, then argued, then executed, then answered.
+			// Keyed on `call_id` so those four events are one row rather than four.
+			const callId = typeof event.call_id === 'string' ? event.call_id : event.function_name
+			const existing = stream.tools.find((t) => t.callId === callId)
+			const settled = event.type === 'tool_result'
+			if (existing) {
+				existing.running = !settled
+				existing.success = settled ? event.success === true : existing.success
+			} else {
+				stream.tools.push({
+					callId,
+					name: event.function_name,
+					running: !settled,
+					success: settled ? event.success === true : undefined
+				})
 			}
 		}
 	}

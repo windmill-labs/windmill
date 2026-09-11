@@ -84,7 +84,9 @@ describe('agent stream', () => {
 		const { stream } = advanceAgentStream(events, emptyAgentStreamProgress())
 		expect(stream.answer).toBe('eu-central-1 is down')
 		expect(stream.reasoning).toBe('checking')
-		expect(stream.tool).toEqual({ name: 'query_metrics', running: false, success: true })
+		expect(stream.tools).toEqual([
+			{ callId: 'c1', name: 'query_metrics', running: false, success: true }
+		])
 	})
 
 	// The stream only grows, so each poll must fold in the new lines and re-read
@@ -107,13 +109,18 @@ describe('agent stream', () => {
 	it('marks a tool still running, and a failed one', () => {
 		const started = '{"type":"tool_execution","call_id":"c1","function_name":"fetch"}\n'
 		const running = advanceAgentStream(started, emptyAgentStreamProgress())
-		expect(running.stream.tool).toEqual({ name: 'fetch', running: true, success: undefined })
+		expect(running.stream.tools).toEqual([
+			{ callId: 'c1', name: 'fetch', running: true, success: undefined }
+		])
 		const failed = advanceAgentStream(
 			started +
 				'{"type":"tool_result","call_id":"c1","function_name":"fetch","result":"boom","success":false}\n',
 			running
 		)
-		expect(failed.stream.tool).toEqual({ name: 'fetch', running: false, success: false })
+		// One row for the call, not one per event about it.
+		expect(failed.stream.tools).toEqual([
+			{ callId: 'c1', name: 'fetch', running: false, success: false }
+		])
 	})
 })
 
