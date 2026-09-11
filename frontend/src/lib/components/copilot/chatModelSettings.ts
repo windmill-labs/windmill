@@ -84,13 +84,18 @@ export const REASONING_PROVIDER_DEFAULT = 'default'
  * level. Dropped rather than carried because a model that cannot think at that level either
  * rejects the request or quietly runs at another one, and the button would name a level the
  * run never used. Off survives only onto a model that can truly disable.
+ *
+ * A model the registry has no rules for keeps whatever it had: dropping on `supported:
+ * false` would discard a real setting on the strength of never having heard of the
+ * provider, and nothing would draw a control to put it back.
  */
 export function carriedReasoning(
 	current: string | undefined,
 	offToken: string | undefined,
-	capability: { levels: string[]; canDisable: boolean }
+	capability: { levels: string[]; canDisable: boolean; known: boolean }
 ): string | undefined {
 	if (current === undefined || current === '') return undefined
+	if (!capability.known) return current
 	if (offToken !== undefined && current === offToken) {
 		return capability.canDisable ? current : undefined
 	}

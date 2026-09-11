@@ -16,6 +16,7 @@ import type { AttachedTextFile } from '$lib/components/copilot/chat/textFileUtil
 import { HelpersService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { randomUUID } from '$lib/utils/uuid'
+import { turnFailed } from './turnTranscript'
 import {
 	attachmentsToMessageInputs,
 	MessageInputsStore,
@@ -132,27 +133,6 @@ function toDisplayMessage(
 				createdAt: message.created_at
 			}
 	}
-}
-
-/**
- * Whether the turn a user message started ended without an answer.
- *
- * Read from the turn's last row and no other. A tool that fails mid-turn is handed back to
- * the agent, which routinely recovers and answers, so an unsuccessful tool row says nothing
- * about the turn — and this drives the Retry button, which in the copilot means "the request
- * never went through" rather than "something inside it went wrong". Offering it for a turn
- * that answered would invite running the whole flow a second time, side effects and all.
- */
-function turnFailed(messages: ChatMessage[], userIndex: number): boolean {
-	let last: ChatMessage | undefined
-	for (let i = userIndex + 1; i < messages.length; i++) {
-		const message = messages[i]
-		if (message.message_type === 'user') break
-		// Still going, so the turn has no outcome to report yet.
-		if (message.streaming || message.loading) return false
-		last = message
-	}
-	return last?.success === false
 }
 
 /**

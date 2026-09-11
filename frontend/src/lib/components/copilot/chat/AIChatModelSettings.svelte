@@ -247,16 +247,20 @@
 				}))
 			}
 		],
-		reasoning: {
-			provider: providerModel.provider as AIProvider,
-			model: providerModel.model,
-			value: providerModel.reasoning,
-			offToken: REASONING_OFF,
-			// The copilot fills an unset effort in before it calls the provider, so unset
-			// really does run at the default level and the button may name it.
-			sendsDefaultWhenUnset: true,
-			onSelect: selectReasoning
-		},
+		// Silent where the registry has no rules for the provider: claiming the model cannot
+		// think would be a guess, and the row saying so is the only thing that would render.
+		reasoning: getReasoningCapability(providerModel.provider, providerModel.model).known
+			? {
+					provider: providerModel.provider as AIProvider,
+					model: providerModel.model,
+					value: providerModel.reasoning,
+					offToken: REASONING_OFF,
+					// The copilot fills an unset effort in before it calls the provider, so unset
+					// really does run at the default level and the button may name it.
+					sendsDefaultWhenUnset: true,
+					onSelect: selectReasoning
+				}
+			: undefined,
 		// A reading preference rather than a model parameter: it applies to every chat in
 		// this browser, including thinking already in the transcript. No close(): flipping
 		// it should not dismiss the menu.

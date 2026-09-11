@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { appendRevealed, applyStreamEvent, emptyTurnState, type TurnStep } from './turnTranscript'
+import {
+	appendRevealed,
+	applyStreamEvent,
+	emptyTurnState,
+	turnFailed,
+	type TurnStep
+} from './turnTranscript'
+import type { ChatMessage } from './FlowChatManager.svelte'
 import type { StreamEvent } from '$lib/components/chat/utils'
 
 function start(): TurnStep {
@@ -73,5 +80,57 @@ describe('turn transcript', () => {
 		expect(step.rows).toHaveLength(1)
 		expect(step.rows[0].content).toBe('Hello')
 		expect(step.rows[0].streaming).toBe(true)
+	})
+})
+
+/**
+ * Gates the Retry button, which on a flow re-runs the whole thing — side effects included —
+ * so it has to mean "this turn produced no answer", not "something inside it went wrong".
+ */
+describe('turnFailed', () => {
+	const row = (over: Partial<ChatMessage>): ChatMessage =>
+		({ id: 'x', message_type: 'assistant', content: '', ...over }) as ChatMessage
+
+	it('is false when a tool failed but the agent went on to answer', () => {
+		const messages = [
+			row({ message_type: 'user' }),
+			row({ message_type: 'tool', success: false }),
+			row({ message_type: 'assistant', success: true })
+		]
+		expect(turnFailed(messages, 0)).toBe(false)
+	})
+
+	it('is true when the turn ends on a failure', () => {
+		const messages = [
+			row({ message_type: 'user' }),
+			row({ message_type: 'tool', success: true }),
+			row({ message_type: 'assistant', success: false })
+		]
+		expect(turnFailed(messages, 0)).toBe(true)
+	})
+
+	it('reports nothing while the turn is still running', () => {
+		const messages = [
+			row({ message_type: 'user' }),
+			row({ message_type: 'tool', success: false }),
+			row({ message_type: 'assistant', streaming: true })
+		]
+		expect(turnFailed(messages, 0)).toBe(false)
+	})
+
+	// The window stops at the next user message, so a later turn's failure is not this one's.
+	it('does not read past the next user message', () => {
+		const messages = [
+			row({ message_type: 'user' }),
+			row({ message_type: 'assistant', success: true }),
+			row({ message_type: 'user' }),
+			row({ message_type: 'assistant', success: false })
+		]
+		expect(turnFailed(messages, 0)).toBe(false)
+		expect(turnFailed(messages, 2)).toBe(true)
+	})
+
+	it('is false for a turn that has produced nothing yet', () => {
+		expect(turnFailed([row({ message_type: 'user' })], 0)).toBe(false)
 	})
 })
