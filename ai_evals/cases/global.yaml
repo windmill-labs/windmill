@@ -2046,6 +2046,76 @@
     - passes the account "acme"
     - does not invent or guess the token's value
 
+- id: global-test35-run-deployed-flow-with-form
+  prompt: |-
+    Run the deployed flow `f/evals/global/notify_customer` for me — the customer is `acme`.
+  initial: ai_evals/fixtures/frontend/global/initial/notify_customer_flow.json
+  runtime:
+    maxTurns: 8
+    # A session chat is where the run card has a preview pane beside it; run_flow
+    # itself is offered in every chat.
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - run_flow
+      # A draft may declare different arguments than the deployed version being run, so
+      # the names to prefill have to come from the deployed schema.
+      - read_workspace_item
+    forbiddenToolsUsed:
+      - test_run_flow
+      - call_api_endpoint
+      - write_flow
+      - deploy_workspace_item
+    # An empty form pushes the work back onto the user, so the prefill is part of
+    # what the tool is for.
+    toolCallArgs:
+      - tool: run_flow
+        field: args.customer
+        stringIncludesAnyOf:
+          - acme
+  # Running produces no draft, and the judge cannot observe runs; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - runs the deployed flow through run_flow rather than a preview test run or a raw API endpoint
+    - passes the customer "acme" so the confirmation form comes up prefilled
+
+- id: global-test36-draft-flow-test-run-not-deployed
+  prompt: |-
+    Update the `calculate_total` step of `f/evals/global/process_invoice` so it applies 8% tax and
+    returns `subtotal`, `tax` and `total`, then run it to check it works.
+    Keep it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/process_invoice_flow.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        path: f/evals/global/process_invoice
+        valueIncludes:
+          - calculate_total
+          - tax
+          - total
+  toolExpect:
+    # A one-step flow is as well checked by running the step as the whole flow, so both
+    # count: what matters is that the run is against the draft.
+    requiredToolsAnyOf:
+      - [test_run_flow, test_run_step]
+    # The draft is what the user asked to check, and run_flow would run the deployed
+    # version instead — the edit would not be in what ran.
+    forbiddenToolsUsed:
+      - run_flow
+      - call_api_endpoint
+      - deploy_workspace_item
+  # The judge only sees the drafts artifact and cannot observe runs; validate the draft
+  # via valueIncludes and the test run via toolExpect.
+  skipJudge: true
+  judgeChecklist:
+    - creates an AI draft of f/evals/global/process_invoice applying 8% tax
+    - does not deploy or save the draft
+
 - id: global-undo-created-draft
   prompt: |-
     Create a draft Postgres resource at `u/admin/scratch_db` for host db.example.com port 5432, database `orders`, user `app`, and tell me what fields it ended up with.
