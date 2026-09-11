@@ -1540,6 +1540,51 @@ fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
+/// Refresh the OAuth tokens a resource's `$var:` fields reference that expire within
+/// `margin_secs`. A read refreshes a token only once it has expired, which is too late
+/// for a caller that logs in with it well after resolving it. A refresh that fails
+/// leaves the token as it was: it is still valid, so reading it must not fail.
+#[cfg(feature = "oauth2")]
+pub async fn refresh_expiring_oauth_tokens(
+    db: &DB,
+    w_id: &str,
+    resource_path: &str,
+    margin_secs: f64,
+) -> Result<()> {
+    let value: Option<Option<serde_json::Value>> =
+        sqlx::query_scalar("SELECT value FROM resource WHERE workspace_id = $1 AND path = $2")
+            .bind(w_id)
+            .bind(resource_path)
+            .fetch_optional(db)
+            .await?;
+    let mut paths = vec![];
+    if let Some(Some(value)) = value {
+        collect_var_refs(&value, &mut paths);
+    }
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let expiring: Vec<(String, i32)> = sqlx::query_as(
+        "SELECT variable.path, variable.account FROM variable
+           JOIN account ON account.id = variable.account
+          WHERE variable.workspace_id = $1 AND variable.path = ANY($2)
+            AND account.expires_at < now() + make_interval(secs => $3)",
+    )
+    .bind(w_id)
+    .bind(&paths)
+    .bind(margin_secs)
+    .fetch_all(db)
+    .await?;
+    for (path, account) in expiring {
+        let tx = db.begin().await?;
+        if let Err(e) = crate::oauth_refresh_oss::_refresh_token(tx, &path, w_id, account, db).await
+        {
+            tracing::warn!("refreshing the OAuth token at {path} ahead of expiry: {e:#}");
+        }
+    }
+    Ok(())
+}
+
 /// Deleting a resource cascades into the `$var:` variables its value references. A
 /// scoped token must not use that cascade to delete variables it could not delete
 /// directly via `delete_variable` (which gates on `variables:write:<path>`), so require

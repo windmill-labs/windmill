@@ -19,19 +19,21 @@ const MASKED_CREDENTIAL: &str = "$CREDENTIAL";
 
 /// Whether a target key holds a credential rather than part of the address. By
 /// name, because a `dbt_profile` block's keys are its adapter's own: `password`,
-/// `token`, `private_key_passphrase`, `client_secret`, `aws_secret_access_key`, …
+/// dbt-postgres's `pass`, `token`, `private_key_passphrase`, `client_secret`,
+/// `aws_secret_access_key`, …
 fn is_credential_key(key: &str) -> bool {
     let key = key.to_ascii_lowercase();
-    [
-        "password",
-        "passphrase",
-        "secret",
-        "token",
-        "private_key",
-        "api_key",
-    ]
-    .iter()
-    .any(|c| key.contains(c))
+    key == "pass"
+        || [
+            "password",
+            "passphrase",
+            "secret",
+            "token",
+            "private_key",
+            "api_key",
+        ]
+        .iter()
+        .any(|c| key.contains(c))
 }
 
 /// The per-adapter facts, so each adapter states them together and a new one
@@ -865,17 +867,17 @@ pub fn render_dbt_profile(
 /// [`MASKED_CREDENTIAL`], at any depth, for [`RenderedProfile::identity`].
 fn emit_entry(out: &mut String, indent: usize, key: &str, v: &Value, mask: bool) {
     out.push_str(&format!("{}{}:", " ".repeat(indent), yaml_scalar(key)));
-    if mask && is_credential_key(key) {
-        out.push_str(&format!(" {}\n", yaml_scalar(MASKED_CREDENTIAL)));
-        return;
-    }
-    emit_value(out, indent, v, mask);
+    emit_value(out, indent, v, mask, mask && is_credential_key(key));
 }
 
 /// The value half, after `key:`. An empty collection is emitted INLINE: a block with no
 /// children reads back as `null`, so `extensions: []` would reach the adapter as a missing
 /// value rather than the empty list dbt was handed.
-fn emit_value(out: &mut String, indent: usize, v: &Value, mask: bool) {
+///
+/// `credential` masks scalars only. A collection under a credential-named key is still
+/// walked: dbt-duckdb's `secrets:` list holds the endpoint and scope that say which
+/// connection it is, each entry judged by its own key.
+fn emit_value(out: &mut String, indent: usize, v: &Value, mask: bool, credential: bool) {
     match v {
         Value::Object(m) => {
             // A null is an optional field the resource form left unset, and dbt validates
@@ -900,9 +902,10 @@ fn emit_value(out: &mut String, indent: usize, v: &Value, mask: bool) {
             for item in items {
                 out.push_str(&pad);
                 out.push('-');
-                emit_value(out, indent + 2, item, mask);
+                emit_value(out, indent + 2, item, mask, credential);
             }
         }
+        _ if credential => out.push_str(&format!(" {}\n", yaml_scalar(MASKED_CREDENTIAL))),
         _ => out.push_str(&format!(" {}\n", yaml_value(v))),
     }
 }
@@ -1335,11 +1338,9 @@ mod tests {
         assert_ne!(rendered("acc", "t1"), rendered("other", "t1"));
 
         // A `dbt_profile` block, whose keys are the adapter's own, nested ones too.
-        let block = |project: &str, key: &str| {
-            let v = json!({"type": "bigquery", "project": project, "dataset": "d",
-                           "keyfile_json": {"client_email": "e", "private_key": key}});
+        let block = |adapter: KnownAdapter, v: Value| {
             render_dbt_profile(
-                &KnownAdapter::Bigquery.into(),
+                &adapter.into(),
                 v.as_object().unwrap(),
                 "wm",
                 "prod",
@@ -1350,8 +1351,32 @@ mod tests {
             .unwrap()
             .identity
         };
-        assert_eq!(block("p", "k1"), block("p", "k2"));
-        assert_ne!(block("p", "k1"), block("q", "k1"));
+        let bq = |project: &str, key: &str| {
+            block(
+                KnownAdapter::Bigquery,
+                json!({"type": "bigquery", "project": project, "dataset": "d",
+                       "keyfile_json": {"client_email": "e", "private_key": key}}),
+            )
+        };
+        assert_eq!(bq("p", "k1"), bq("p", "k2"));
+        assert_ne!(bq("p", "k1"), bq("q", "k1"));
+        // Only scalars are masked: a `secrets:` entry still names its endpoint.
+        let duck = |endpoint: &str, secret: &str| {
+            block(
+                KnownAdapter::Duckdb,
+                json!({"type": "duckdb", "path": "x.duckdb",
+                       "secrets": [{"type": "s3", "endpoint": endpoint, "secret": secret}]}),
+            )
+        };
+        assert_eq!(duck("s3.a", "k1"), duck("s3.a", "k2"));
+        assert_ne!(duck("s3.a", "k1"), duck("s3.b", "k1"));
+        let pg = |pass: &str| {
+            block(
+                KnownAdapter::Postgres,
+                json!({"type": "postgres", "host": "h", "user": "u", "pass": pass}),
+            )
+        };
+        assert_eq!(pg("p1"), pg("p2"));
     }
 
     // dbt rejects a BigQuery target with no dataset and a service-account JSON

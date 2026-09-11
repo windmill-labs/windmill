@@ -13,6 +13,12 @@ use windmill_common::{
 use crate::db::{ApiAuthed, OptJobAuthed};
 use windmill_api_auth::{is_no_auth, Tokened};
 
+/// How long a warehouse's OAuth token must stay valid once a dbt process resolves it.
+/// dbt logs in only after starting and parsing the project, and each thread opens its
+/// connection when it first runs a node; a Snowflake token lasts ten minutes.
+#[cfg(feature = "oauth2")]
+const TOKEN_MARGIN_SECS: f64 = 300.0;
+
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/warehouse/{name}", get(get_warehouse))
@@ -42,6 +48,14 @@ async fn get_warehouse(
             // rather than one of them accepting whatever the URL carried.
             windmill_common::workspaces::validate_dbt_warehouse_name(&name)?;
             let (resource_path, target) = dbt_warehouse_resource(&db, &w_id, &name).await?;
+            #[cfg(feature = "oauth2")]
+            windmill_store::resources::refresh_expiring_oauth_tokens(
+                &db,
+                &w_id,
+                &resource_path,
+                TOKEN_MARGIN_SECS,
+            )
+            .await?;
             let value = windmill_store::resources::get_resource_value_interpolated_internal(
                 &windmill_common::db::DbWithOptAuthed::<ApiAuthed>::from_authed(
                     &authed,
@@ -89,6 +103,14 @@ async fn get_warehouse(
     // the literal placeholder. Unchecked (no `user_db`) because dbt warehouses
     // are unpermissioned by design; uncached because a job-context value must
     // not be served to the next job.
+    #[cfg(feature = "oauth2")]
+    windmill_store::resources::refresh_expiring_oauth_tokens(
+        &db,
+        &w_id,
+        &resource_path,
+        TOKEN_MARGIN_SECS,
+    )
+    .await?;
     let value = windmill_store::resources::get_resource_value_interpolated_internal(
         &windmill_common::db::DbWithOptAuthed::<ApiAuthed>::from_authed(&authed, db.clone(), None),
         &w_id,

@@ -336,14 +336,13 @@ async fn get_variable(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    // `is_expired` carries the refresh margin `get_value_internal` explains.
     let variable_o = sqlx::query_as::<_, ListableVariable>(
         "SELECT variable.workspace_id, variable.path, variable.value, variable.is_secret,
         variable.description, variable.extra_perms, variable.account, variable.is_oauth,
         variable.expires_at, variable.labels,
         folder_labels(variable.workspace_id, variable.path) as inherited_labels,
         variable.edited_at, variable.edited_by,
-        (now() + interval '2 minutes' > account.expires_at) as is_expired, account.refresh_error,
+        (now() > account.expires_at) as is_expired, account.refresh_error,
         resource.path IS NOT NULL as is_linked,
         account.refresh_token != '' as is_refreshed,
         ws_specific.path IS NOT NULL as ws_specific
@@ -1513,11 +1512,8 @@ pub async fn get_value_internal<'a>(
     }
 
     let mut tx = db_with_opt_authed.begin().await?;
-    // Refreshed a little BEFORE it expires: a token handed out with seconds left
-    // fails whoever logs in with it a moment later. A dbt run reaches Snowflake,
-    // whose tokens last ten minutes, only after starting dbt and parsing the project.
     let variable_o = sqlx::query!(
-        "SELECT value, account, (now() + interval '2 minutes' > account.expires_at) as is_expired, is_secret, path from variable
+        "SELECT value, account, (now() > account.expires_at) as is_expired, is_secret, path from variable
         LEFT JOIN account ON variable.account = account.id WHERE variable.path = $1 AND variable.workspace_id = $2", path, w_id
     )
     .fetch_optional(&mut *tx)

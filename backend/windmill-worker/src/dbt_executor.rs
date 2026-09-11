@@ -1137,7 +1137,7 @@ impl PreparedProject {
     /// Snowflake OAuth token lasts ten minutes, and the build follows `dbt deps`
     /// and a parse, the `after_all` tests follow the build, a node retry follows
     /// its backoff.
-    async fn refresh_profile(
+    pub(crate) async fn refresh_profile(
         &self,
         descriptor: &DbtDescriptor,
         job_id: &Uuid,
@@ -1941,7 +1941,7 @@ async fn write_profiles(
         .or(workspace_target.as_deref())
         .unwrap_or("default");
     let dir = PathBuf::from(job_dir).join("dbt_profiles");
-    tokio::fs::create_dir_all(&dir)
+    fresh_dir(&dir)
         .await
         .map_err(|e| Error::internal_err(format!("creating the profiles dir: {e}")))?;
     let rendered = if is_dbt_profile {
@@ -2003,6 +2003,20 @@ async fn write_profiles(
         target: Some(target.to_string()),
         digest: profile_digest,
     })
+}
+
+/// An empty directory at `dir`, whatever was there. `refresh_profile` writes into
+/// the job directory after project code has run in a jail that can write it, and a
+/// symlink left at `dir` or inside it would carry the worker's write out of the
+/// sandbox. An entry that is not a real directory is unlinked, never followed.
+async fn fresh_dir(dir: &Path) -> std::io::Result<()> {
+    match tokio::fs::symlink_metadata(dir).await {
+        Ok(m) if m.is_dir() => tokio::fs::remove_dir_all(dir).await?,
+        Ok(_) => tokio::fs::remove_file(dir).await?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    tokio::fs::create_dir_all(dir).await
 }
 
 /// Where a workspace warehouse name points: its resource path and, if the
@@ -5780,17 +5794,44 @@ mod tests {
     // and without normalizing it the saved run is never recognized as its own.
     #[test]
     fn profile_identity_ignores_the_attempts_token() {
-        let yaml = |tok: &str| format!("host: \"wh\"\npassword: \"{tok}\"\n");
+        let yaml = |v: &str| format!("host: \"{v}\"\nuser: \"u\"\n");
         let dir = Path::new("/tmp/windmill/w/job-1/profiles");
         assert_eq!(
             profile_identity_digest(&yaml("tok-first"), dir, None, "tok-first"),
             profile_identity_digest(&yaml("tok-retry"), dir, None, "tok-retry")
         );
-        // A password that is NOT the job's token is the connection, and changing
-        // it must still read as a different warehouse.
+        // A value that is NOT the job's token is the connection, and changing it
+        // must still read as a different warehouse.
         assert_ne!(
             profile_identity_digest(&yaml("static-a"), dir, None, "tok-first"),
             profile_identity_digest(&yaml("static-b"), dir, None, "tok-retry")
+        );
+    }
+
+    // Project code can leave a symlink where the worker later writes the profile:
+    // either the directory or the file in it. Neither may be followed.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn fresh_dir_never_follows_what_the_jail_left() {
+        let root = tempfile::tempdir().unwrap();
+        let host = root.path().join("host");
+        std::fs::create_dir(&host).unwrap();
+        std::fs::write(host.join("profiles.yml"), "host file").unwrap();
+        let dir = root.path().join("dbt_profiles");
+
+        std::os::unix::fs::symlink(&host, &dir).unwrap();
+        fresh_dir(&dir).await.unwrap();
+        assert!(!std::fs::symlink_metadata(&dir).unwrap().is_symlink());
+        std::fs::write(dir.join("profiles.yml"), "rendered").unwrap();
+
+        fresh_dir(&dir).await.unwrap();
+        std::os::unix::fs::symlink(host.join("profiles.yml"), dir.join("profiles.yml")).unwrap();
+        fresh_dir(&dir).await.unwrap();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+
+        assert_eq!(
+            std::fs::read_to_string(host.join("profiles.yml")).unwrap(),
+            "host file"
         );
     }
 

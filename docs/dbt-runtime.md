@@ -301,19 +301,20 @@ although its credential is an access token that lasts ten minutes:
   as the refresh-token flow and refuse a profile without client credentials,
   while dbt-snowflake has `jwt` only from 1.9 and the 1.x engine can resolve 1.8.
 - Every dbt process that logs in re-resolves the warehouse first
-  (`PreparedProject::refresh_profile`), and an OAuth variable is refreshed two
-  minutes before it expires. So the build, the `after_all` tests and a node
-  retry each start with a live token.
+  (`PreparedProject::refresh_profile`), and resolving it refreshes any of its
+  OAuth tokens with less than five minutes left. So the build, the `after_all`
+  tests, a node retry and the column-lineage pass each start with at least five
+  minutes of token.
 - Run identity masks credentials (`RenderedProfile::identity`), so a token
   refreshed between a failure and its retry still matches.
 - The OAuth connect flow asks for `database`, `warehouse`, `role` and `schema`
   (`resource_fields` in `oauth_connect.json`). No token response carries them,
   and dbt needs a database.
 
-One gap stays: a thread whose first connection opens more than ten minutes into
-a single dbt process logs in with the token that process started with. Closing
-it would mean handing dbt the refresh token and the instance's client secret,
-which any model can read on dbt-core 1.x.
+One gap stays: within a single dbt process, a thread whose first connection opens
+after the token that process started with has expired cannot log in, and that
+can be as soon as five minutes in. Closing it would mean handing dbt the refresh
+token and the instance's client secret, which any model can read on dbt-core 1.x.
 
 Three things follow, and they are the reason for the rule rather than
 consequences to work around.
