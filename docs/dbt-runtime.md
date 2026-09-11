@@ -303,7 +303,8 @@ although its credential is an access token that lasts ten minutes:
 - Every dbt process that logs in re-resolves the warehouse first
   (`PreparedProject::refresh_profile`), and resolving an expired OAuth token
   refreshes it. So the build, the `after_all` tests, a node retry and the
-  column-lineage pass each start with a live token.
+  column-lineage pass each start with a live token, unless resolving fails: the
+  process then keeps the profile it already has, token included.
 - Run identity masks credentials (`RenderedProfile::identity`), so a token
   refreshed between a failure and its retry still matches.
 - The OAuth connect flow asks for `database`, `warehouse`, `role` and `schema`

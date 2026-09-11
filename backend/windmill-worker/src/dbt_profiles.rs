@@ -20,9 +20,13 @@ const MASKED_CREDENTIAL: &str = "$CREDENTIAL";
 /// Whether a target key holds a credential rather than part of the address. By
 /// name, because a `dbt_profile` block's keys are its adapter's own: `password`,
 /// dbt-postgres's `pass`, `token`, `private_key_passphrase`, `client_secret`,
-/// `aws_secret_access_key`, …
+/// `aws_secret_access_key`, … An endpoint is address even when its name says
+/// otherwise: BigQuery's `token_uri` is where the token comes from.
 fn is_credential_key(key: &str) -> bool {
     let key = key.to_ascii_lowercase();
+    if key.ends_with("_uri") || key.ends_with("_url") || key.contains("endpoint") {
+        return false;
+    }
     key == "pass"
         || [
             "password",
@@ -1351,15 +1355,17 @@ mod tests {
             .unwrap()
             .identity
         };
-        let bq = |project: &str, key: &str| {
+        let bq = |project: &str, key: &str, token_uri: &str| {
             block(
                 KnownAdapter::Bigquery,
                 json!({"type": "bigquery", "project": project, "dataset": "d",
-                       "keyfile_json": {"client_email": "e", "private_key": key}}),
+                       "keyfile_json": {"client_email": "e", "private_key": key,
+                                        "token_uri": token_uri}}),
             )
         };
-        assert_eq!(bq("p", "k1"), bq("p", "k2"));
-        assert_ne!(bq("p", "k1"), bq("q", "k1"));
+        assert_eq!(bq("p", "k1", "t"), bq("p", "k2", "t"));
+        assert_ne!(bq("p", "k1", "t"), bq("q", "k1", "t"));
+        assert_ne!(bq("p", "k1", "t"), bq("p", "k1", "elsewhere"));
         // Only scalars are masked: a `secrets:` entry still names its endpoint.
         let duck = |endpoint: &str, secret: &str| {
             block(
