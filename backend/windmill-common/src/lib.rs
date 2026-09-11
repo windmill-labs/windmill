@@ -284,9 +284,11 @@ pub fn check_on_behalf_of_preservation(
 
 /// Resolves the identity to store when creating/updating a flow, script or app.
 ///
-/// The permissioned_as is the only stored identity — it decides what the job may access,
-/// and the address is derived from it at read time — so the two can never name different
-/// accounts. Callers may supply either: a bare email (every client written before the
+/// The permissioned_as is the identity: it decides what the job may access, and the address is
+/// a function of it, so the two can never name different accounts. For a script or flow the
+/// address is derived at read time; an app still stores it, as a compatibility copy written
+/// through from the principal on every save and returned verbatim by the app reads (see
+/// `docs/app-policy-email-removal.md`). Callers may supply either: a bare email (every client written before the
 /// principal existed) is resolved to the principal it names, and an email that names
 /// nobody is rejected rather than recorded, since it could only produce a runnable that
 /// cannot authenticate.
