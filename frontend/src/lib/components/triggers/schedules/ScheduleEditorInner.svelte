@@ -24,19 +24,18 @@
 		type Script,
 		ScriptService,
 		type Flow,
-		SettingService,
 		type Retry,
 		type Schedule,
 		type ErrorHandler
 	} from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
+	import { canWrite, emptyString, sendUserToast, cronV1toV2 } from '$lib/utils'
 	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
 	import TriggerEditorToolbar from '$lib/components/triggers/TriggerEditorToolbar.svelte'
-	import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
+	import { writeScheduleCfg } from '$lib/components/flows/scheduleUtils'
 	import DateTimeInput from '$lib/components/DateTimeInput.svelte'
 	import FlowRetries from '$lib/components/flows/content/FlowRetries.svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -44,13 +43,25 @@
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
-	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
+	import DraftConflictAlert from '$lib/components/DraftConflictAlert.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { useActingUser } from '$lib/actingUser.svelte'
+	import { untrack } from 'svelte'
+	import { resource } from 'runed'
+	import { onUserInput } from '$lib/userDraftEditGate'
+	import { isTemporaryPath, newItemPath, useItem, type ItemAdapter } from '$lib/itemStore.svelte'
+	import {
+		newScheduleCfg,
+		normalizeScheduleCfg,
+		scheduleCfgOf,
+		scheduleFormOf,
+		type NewScheduleOptions,
+		type ScheduleCfg
+	} from './scheduleCfg'
 
 	let {
 		useDrawer = true,
@@ -74,7 +85,9 @@
 		| 'retries'
 		| 'dynamic_skip' = $state('error_handler')
 	let initialPath = $state('')
-	let edit = $state(true)
+	/** `edit`: a schedule at `initialPath`, read from the server. `fixed`: one whose config the
+	 * caller handed in (a runnable's trigger panel). `new`: being created. */
+	let mode = $state<'edit' | 'fixed' | 'new'>('edit')
 	let schedule: string = $state('0 0 12 * *')
 	let cronVersion: string = $state('v2')
 	let isLatestCron = $state(true)
@@ -108,12 +121,8 @@
 	// already-bound script. We swap the runnable ScriptPicker for a read-only
 	// viewer so the trigger can't be silently reassigned off the pipeline.
 	let fixedScriptPath = $state('')
-	let runnable: Script | Flow | undefined = $state()
 	let args: Record<string, any> = $state({})
-	let loading = $state(false)
-	let drawerLoading = $state(true)
 	let showLoading = $state(false)
-	let initialConfig: Record<string, any> | undefined = undefined
 	let extraPerms: Record<string, boolean> = $state({})
 	// Path the permissions above were loaded for — the verdict is about the schedule as
 	// stored, not about a rename being typed into the form. `undefined` until a config has
@@ -131,7 +140,6 @@
 	let validCRON = $state(true)
 	let isValid = $state(true)
 	let allowSchedule = $derived(isValid && validCRON && script_path != '')
-	let deploymentLoading = $state(false)
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
@@ -162,14 +170,117 @@
 	const wsParam = $derived(triggerWs?.() ? `&workspace=${encodeURIComponent(wsId!)}` : '')
 	const scheduleCfg = $derived.by(getScheduleCfg)
 
-	const draftSync = useTriggerDraftSync({
-		itemKind: 'trigger_schedule',
-		path: () => initialPath,
-		workspace: () => wsId,
-		drawerLoading: () => drawerLoading,
-		getCfg: () => scheduleCfg,
-		applyCfg: loadScheduleCfg,
-		deployed: () => initialConfig
+	// The item the form edits. A schedule read from the server is keyed by its path; a new one,
+	// or one whose config the caller supplied, by a temporary path that is never persisted.
+	let itemPath: string | undefined = $state(undefined)
+	let session = $state(0)
+	let fixedTemplate: ScheduleCfg | undefined = undefined
+	const newTemplates = new Map<string, NewScheduleOptions>()
+
+	const scheduleAdapter: ItemAdapter<ScheduleCfg> = {
+		settles: true,
+		async load({ workspace, path }) {
+			if (isTemporaryPath(path)) {
+				const opts = newTemplates.get(path)
+				newTemplates.delete(path)
+				if (!opts) throw new Error('No template for this schedule')
+				return { template: await newScheduleCfg(opts) }
+			}
+			try {
+				const s = await ScheduleService.getSchedule({ workspace, path, getDraft: true })
+				// Drafts are saved in the form's config shape, over the deployed fields.
+				const { draft, draft_saved_at, no_deployed, ...deployedSchedule } = s as any
+				return {
+					deployed: no_deployed ? undefined : normalizeScheduleCfg(deployedSchedule),
+					draft: draft ? normalizeScheduleCfg({ ...deployedSchedule, ...draft }) : undefined,
+					draftSavedAt: draft_saved_at
+				}
+			} catch (err) {
+				sendUserToast(`Could not load schedule: ${err}`, true)
+				throw err
+			}
+		},
+		async write({ workspace, value, deployed }) {
+			await writeScheduleCfg(value, deployed !== undefined, workspace)
+		}
+	}
+
+	const item = useItem<ScheduleCfg>(
+		'trigger_schedule',
+		() => ({ workspace: wsId, path: itemPath, session, template: fixedTemplate }),
+		scheduleAdapter
+	)
+
+	// A schedule read from the server is created, not updated, while it only exists as a draft.
+	const edit = $derived(mode === 'fixed' || (mode === 'edit' && item.origin !== 'draft'))
+	const hasBaseline = $derived(
+		item.loaded && (item.origin === 'deployed' || item.origin === 'draft')
+	)
+
+	// Which item's value the form holds, and as of which revision. Edits only flow back into
+	// the item the form was filled from, never into one it has not caught up with yet.
+	let hydratedHandle: unknown = $state(undefined)
+	let hydratedRevision = $state(0)
+	const drawerLoading = $derived(
+		!item.loaded || item.value === undefined || hydratedHandle !== item.current
+	)
+
+	$effect(() => {
+		const current = item.current
+		const revision = item.revision
+		const value = item.value
+		if (!current || !item.loaded || value === undefined) return
+		untrack(() => {
+			if (current === hydratedHandle && revision === hydratedRevision) return
+			hydrate($state.snapshot(value) as ScheduleCfg)
+			hydratedHandle = current
+			hydratedRevision = revision
+		})
+	})
+
+	$effect(() => {
+		const cfg = $state.snapshot(scheduleCfg) as ScheduleCfg
+		untrack(() => {
+			if (hydratedHandle !== item.current || hydratedRevision !== item.revision) return
+			if (item.value === undefined) return
+			item.value = cfg
+		})
+	})
+
+	// The form's own settling is not an edit; the first input is. These editors are mounted by
+	// the list page, so input while the drawer loads is the click that opened it.
+	onUserInput(() => {
+		if (!drawerLoading) item.markEdited()
+	})
+
+	$effect(() => {
+		if (!drawerLoading) {
+			showLoading = false
+			return
+		}
+		// Do not show the loading spinner for the first 100ms
+		const timeout = setTimeout(() => (showLoading = true), 100)
+		return () => clearTimeout(timeout)
+	})
+
+	// Set by Save and cleared by opening anything: closes the drawer once the item on screen has
+	// landed with nothing left unsaved, so an edit typed during the write stays in front of you.
+	let closeOnSettle = $state(false)
+	$effect(() => {
+		if (!closeOnSettle || item.busy) return
+		untrack(() => {
+			closeOnSettle = false
+			if (item.status === 'idle' && !item.dirty) drawer?.closeDrawer()
+		})
+	})
+
+	// A draft-only schedule is gone once its draft is discarded.
+	$effect(() => {
+		if (!item.removed) return
+		untrack(() => {
+			onUpdate?.(initialPath)
+			drawer?.closeDrawer()
+		})
 	})
 
 	export async function openEdit(
@@ -178,141 +289,23 @@
 		defaultCfg?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
-		let loadingTimeout = setTimeout(() => {
-			showLoading = true
-		}, 100) // Do not show loading spinner for the first 100ms
-		drawerLoading = true
 		acting.forgetFailures()
-		try {
-			drawer?.openDrawer()
-			setPageDrawerAnchor(SCHEDULES_PATH, ePath)
-			initialPath = ePath
-			itemKind = isFlow ? 'flow' : 'script'
-			path = defaultCfg?.path ?? ePath
-			fixedScriptPath = fixedScriptPath_ ?? ''
-			const { overlay: draftOverlay, noDeployed } = await loadSchedule(defaultCfg)
-			// Draft-only schedules have no deployed row, so saving must CREATE (update 404s).
-			edit = !noDeployed
-			if (!defaultCfg) {
-				// Form holds DEPLOYED here; capture it as `initialConfig` so the
-				// dirty check / banner fires whenever a saved draft exists.
-				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
-			}
-			if (draftOverlay) await loadScheduleCfg(draftOverlay)
-			await draftSync.maybeRestore()
-		} finally {
-			clearTimeout(loadingTimeout)
-			drawerLoading = false
-			showLoading = false
-		}
-	}
-
-	async function setScheduleHandler(s?: Schedule) {
-		if (s) {
-			if (s.on_failure) {
-				let splitted = s.on_failure.split('/')
-				errorHandleritemKind = splitted[0] as 'flow' | 'script'
-				errorHandlerPath = splitted.slice(1)?.join('/')
-				failedTimes = s.on_failure_times ?? 1
-				failedExact = s.on_failure_exact ?? false
-				errorHandlerExtraArgs = s.on_failure_extra_args ?? {}
-				errorHandlerSelected = getHandlerType('error', errorHandlerPath)
-			} else {
-				errorHandlerPath = undefined
-				errorHandleritemKind = 'script'
-				errorHandlerExtraArgs = {}
-				failedExact = false
-				failedTimes = 1
-				errorHandlerSelected = 'slack'
-			}
-			if (s.on_recovery) {
-				let splitted = s.on_recovery.split('/')
-				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
-				recoveryHandlerPath = splitted.slice(1)?.join('/')
-				recoveredTimes = s.on_recovery_times ?? 1
-				recoveryHandlerExtraArgs = s.on_recovery_extra_args ?? {}
-				recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath)
-			} else {
-				recoveryHandlerPath = undefined
-				recoveryHandlerItemKind = 'script'
-				recoveredTimes = 1
-				recoveryHandlerSelected = 'slack'
-				recoveryHandlerExtraArgs = {}
-			}
-			if (s.on_success) {
-				let splitted = s.on_success.split('/')
-				successHandlerItemKind = splitted[0] as 'flow' | 'script'
-				successHandlerPath = splitted.slice(1)?.join('/')
-				successHandlerExtraArgs = s.on_success_extra_args ?? {}
-				successHandlerSelected = getHandlerType('success', successHandlerPath)
-			} else {
-				successHandlerPath = undefined
-				successHandlerItemKind = 'script'
-				successHandlerSelected = 'slack'
-				successHandlerExtraArgs = {}
-			}
+		closeOnSettle = false
+		drawer?.openDrawer()
+		setPageDrawerAnchor(SCHEDULES_PATH, ePath)
+		initialPath = ePath
+		itemKind = isFlow ? 'flow' : 'script'
+		fixedScriptPath = fixedScriptPath_ ?? ''
+		if (defaultCfg) {
+			mode = 'fixed'
+			fixedTemplate = normalizeScheduleCfg({ ...defaultCfg, path: defaultCfg.path ?? ePath })
+			itemPath = newItemPath()
 		} else {
-			let defaultErrorHandlerMaybe = undefined
-			let defaultRecoveryHandlerMaybe = undefined
-			let defaultSuccessHandlerMaybe = undefined
-			if (wsId) {
-				defaultErrorHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_error_handler_' + wsId!
-				})) as any
-				defaultRecoveryHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_recovery_handler_' + wsId!
-				})) as any
-				defaultSuccessHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_success_handler_' + wsId!
-				})) as any
-			}
-
-			if (defaultErrorHandlerMaybe !== undefined && defaultErrorHandlerMaybe !== null) {
-				wsErrorHandlerMuted = defaultErrorHandlerMaybe['wsErrorHandlerMuted']
-				let splitted = (defaultErrorHandlerMaybe['errorHandlerPath'] as string).split('/')
-				errorHandleritemKind = splitted[0] as 'flow' | 'script'
-				errorHandlerPath = splitted.slice(1)?.join('/')
-				errorHandlerExtraArgs = defaultErrorHandlerMaybe['errorHandlerExtraArgs']
-				errorHandlerSelected = getHandlerType('error', errorHandlerPath)
-				failedTimes = defaultErrorHandlerMaybe['failedTimes']
-				failedExact = defaultErrorHandlerMaybe['failedExact']
-			} else {
-				wsErrorHandlerMuted = false
-				errorHandlerPath = undefined
-				errorHandleritemKind = 'script'
-				errorHandlerExtraArgs = {}
-				errorHandlerSelected = 'slack'
-				failedTimes = 1
-				failedExact = false
-			}
-			if (defaultRecoveryHandlerMaybe !== undefined && defaultRecoveryHandlerMaybe !== null) {
-				let splitted = (defaultRecoveryHandlerMaybe['recoveryHandlerPath'] as string).split('/')
-				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
-				recoveryHandlerPath = splitted.slice(1)?.join('/')
-				recoveryHandlerExtraArgs = defaultRecoveryHandlerMaybe['recoveryHandlerExtraArgs']
-				recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath)
-				recoveredTimes = defaultRecoveryHandlerMaybe['recoveredTimes']
-			} else {
-				recoveryHandlerPath = undefined
-				recoveryHandlerItemKind = 'script'
-				recoveryHandlerExtraArgs = {}
-				recoveryHandlerSelected = 'slack'
-				recoveredTimes = 1
-			}
-			if (defaultSuccessHandlerMaybe !== undefined && defaultSuccessHandlerMaybe !== null) {
-				let splitted = (defaultSuccessHandlerMaybe['successHandlerPath'] as string).split('/')
-				successHandlerItemKind = splitted[0] as 'flow' | 'script'
-				successHandlerPath = splitted.slice(1)?.join('/')
-				successHandlerExtraArgs = defaultSuccessHandlerMaybe['successHandlerExtraArgs']
-				successHandlerSelected = getHandlerType('success', successHandlerPath)
-				recoveredTimes = defaultSuccessHandlerMaybe['recoveredTimes']
-			} else {
-				successHandlerPath = undefined
-				successHandlerItemKind = 'script'
-				successHandlerExtraArgs = {}
-				successHandlerSelected = 'slack'
-			}
+			mode = 'edit'
+			fixedTemplate = undefined
+			itemPath = ePath
 		}
+		session++
 	}
 
 	export async function openNew(
@@ -323,75 +316,76 @@
 		fixedScriptPath_?: string,
 		opts: { getDraft?: boolean } = {}
 	) {
-		const getDraft = opts.getDraft ?? true
-		let loadingTimeout = setTimeout(() => {
-			showLoading = true
-		}, 100) // Do not show loading spinner for the first 100ms
-		drawerLoading = true
 		acting.forgetFailures()
-		try {
-			let s: Schedule | undefined
-			if (schedule_path) {
-				const resp = await ScheduleService.getSchedule({
-					workspace: wsId!,
-					path: schedule_path,
-					getDraft
-				})
-				// `.draft` holds the saved Schedule; layer it over the deployed
-				// fields so the form assignments below see the last-saved state.
-				const { draft: draftFromBackend, ...deployedSchedule } = resp as any
-				s = draftFromBackend
-					? ({ ...deployedSchedule, ...draftFromBackend } as Schedule)
-					: (deployedSchedule as Schedule)
-				initNewPath = true
-			} else if (defaultValues) {
-				s = defaultValues
-			}
-			drawer?.openDrawer()
-			runnable = undefined
-			edit = false
-			// No deployed baseline for a brand-new schedule. The editor instance
-			// is reused across open() calls, so clear any baseline left by a prior
-			// openEdit — otherwise the "unsaved changes" banner / dirty check would
-			// compare against a stale config.
-			initialConfig = undefined
-			itemKind = (s?.is_flow ?? nis_flow) ? 'flow' : 'script'
-			initialScriptPath = initial_script_path ?? ''
-			fixedScriptPath = fixedScriptPath_ ?? ''
-			path = initNewPath
-				? ''
-				: (defaultValues?.path ?? (trigger?.isPrimary ? initialScriptPath : ''))
-			initialPath = path
-			cronVersion = s?.cron_version ?? 'v2'
-			initialCronVersion = cronVersion
-			isLatestCron = cronVersion == 'v2'
-			schedule = s?.schedule ?? '0 0 12 * *'
-			initialSchedule = schedule
-			timezone = s?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
-			paused_until = s?.paused_until ?? undefined
-			showPauseUntil = paused_until !== undefined
-			summary = s?.summary ?? ''
-			labels = s?.labels ?? undefined
-			description = s?.description ?? ''
-			script_path = s?.script_path ?? initialScriptPath
-			args = s?.args ?? {}
-			tag = s?.tag ?? undefined
+		closeOnSettle = false
+		drawer?.openDrawer()
+		mode = 'new'
+		if (schedule_path) initNewPath = true
+		initialScriptPath = initial_script_path ?? ''
+		fixedScriptPath = fixedScriptPath_ ?? ''
+		initialPath = schedule_path
+			? ''
+			: (defaultValues?.path ?? (trigger?.isPrimary ? initialScriptPath : ''))
+		fixedTemplate = undefined
+		const temporary = newItemPath()
+		newTemplates.set(temporary, {
+			workspace: wsId!,
+			isFlow: nis_flow,
+			initialScriptPath,
+			defaultValues,
+			schedulePath: schedule_path,
+			getDraft: opts.getDraft ?? true,
+			isPrimary: !!trigger?.isPrimary
+		})
+		itemPath = temporary
+		session++
+	}
 
-			await loadScript(script_path)
-
-			no_flow_overlap = s?.no_flow_overlap ?? false
-			wsErrorHandlerMuted = s?.ws_error_handler_muted ?? false
-			retry = s?.retry ?? undefined
-
-			await setScheduleHandler(s)
-			permissionedAs = undefined
-			selectedPermissionedAs = undefined
-			preservePermissionedAs = false
-		} finally {
-			clearTimeout(loadingTimeout)
-			drawerLoading = false
-			showLoading = false
-		}
+	/** Fill the form from `cfg`. Synchronous, so the form never holds half of one config. */
+	function hydrate(cfg: ScheduleCfg): void {
+		const f = scheduleFormOf(cfg)
+		path = f.path
+		cronVersion = f.cronVersion
+		initialCronVersion = cronVersion
+		isLatestCron = cronVersion == 'v2'
+		enabled = f.enabled
+		schedule = f.schedule
+		initialSchedule = schedule
+		timezone = f.timezone
+		paused_until = f.paused_until
+		showPauseUntil = paused_until !== undefined
+		summary = f.summary
+		labels = f.labels
+		description = f.description
+		script_path = f.script_path
+		itemKind = f.itemKind
+		no_flow_overlap = f.no_flow_overlap
+		wsErrorHandlerMuted = f.wsErrorHandlerMuted
+		retry = f.retry
+		errorHandleritemKind = f.errorHandleritemKind
+		errorHandlerPath = f.errorHandlerPath
+		failedTimes = f.failedTimes
+		failedExact = f.failedExact
+		errorHandlerExtraArgs = f.errorHandlerExtraArgs
+		errorHandlerSelected = f.errorHandlerSelected
+		recoveryHandlerItemKind = f.recoveryHandlerItemKind
+		recoveryHandlerPath = f.recoveryHandlerPath
+		recoveredTimes = f.recoveredTimes
+		recoveryHandlerExtraArgs = f.recoveryHandlerExtraArgs
+		recoveryHandlerSelected = f.recoveryHandlerSelected
+		successHandlerItemKind = f.successHandlerItemKind
+		successHandlerPath = f.successHandlerPath
+		successHandlerExtraArgs = f.successHandlerExtraArgs
+		successHandlerSelected = f.successHandlerSelected
+		dynamicSkipPath = f.dynamicSkipPath
+		args = f.args
+		extraPerms = f.extraPerms
+		// A schedule being created has no stored permissions to judge against.
+		permsPath = mode === 'new' ? undefined : f.path
+		tag = f.tag
+		permissionedAs = cfg.permissioned_as
+		selectedPermissionedAs = f.selectedPermissionedAs
+		preservePermissionedAs = f.preservePermissionedAs
 	}
 
 	// set isValid to true when a script/flow without any properties is selected
@@ -408,20 +402,22 @@
 		}
 	}
 
-	async function loadScript(p: string | undefined): Promise<void> {
-		if (p) {
-			runnable = undefined
+	const runnableResource = resource(
+		[() => wsId, () => script_path, () => is_flow],
+		async ([ws, p, flow]): Promise<Script | Flow | undefined> => {
+			if (!ws || !p) return undefined
 			try {
-				if (is_flow) {
-					runnable = await FlowService.getFlowByPath({ workspace: wsId!, path: p })
-				} else {
-					runnable = await ScriptService.getScriptByPath({ workspace: wsId!, path: p })
-				}
-			} catch (err) {}
-		} else {
-			runnable = undefined
+				return flow
+					? await FlowService.getFlowByPath({ workspace: ws, path: p })
+					: await ScriptService.getScriptByPath({ workspace: ws, path: p })
+			} catch {
+				return undefined
+			}
 		}
-	}
+	)
+	// Only the runnable the picker names: the previous one's schema would fill `args` in.
+	const loading = $derived(runnableResource.loading)
+	const runnable = $derived(loading ? undefined : runnableResource.current)
 
 	async function saveAsDefaultErrorHandler(overrideExisting: boolean) {
 		if (!$enterpriseLicense) {
@@ -506,153 +502,16 @@
 		}
 	}
 
-	/**
-	 * Apply the deployed config to the form, then return the saved-draft overlay
-	 * so the caller captures `initialConfig` from the deployed-only form BEFORE
-	 * applying the draft, making the banner fire whenever a draft is present.
-	 */
-	async function loadSchedule(
-		defaultCfg?: Record<string, any>
-	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
-		if (defaultCfg) {
-			await loadScheduleCfg(defaultCfg)
-			return { overlay: undefined, noDeployed: false }
-		}
-		try {
-			const s = await ScheduleService.getSchedule({
-				workspace: wsId!,
-				path: initialPath,
-				getDraft: true
-			})
-			const { draft: draftFromBackend, ...deployedSchedule } = s as any
-			await loadScheduleCfg(deployedSchedule)
-			return {
-				overlay: draftFromBackend
-					? ({ ...deployedSchedule, ...draftFromBackend } as Record<string, any>)
-					: undefined,
-				// Draft-only: synthesized stand-in, no row, so saving must CREATE.
-				noDeployed: !!(s as any).no_deployed
-			}
-		} catch (err) {
-			sendUserToast(`Could not load schedule: ${err}`, true)
-			return { overlay: undefined, noDeployed: false }
-		}
-	}
-
-	async function loadScheduleCfg(cfg: Record<string, any>): Promise<void> {
-		loading = true
-
-		cronVersion = cfg.cron_version ?? 'v2'
-		initialCronVersion = cronVersion
-		isLatestCron = cronVersion == 'v2'
-		enabled = cfg.enabled
-		schedule = cfg.schedule
-		initialSchedule = schedule
-		timezone = cfg.timezone
-		paused_until = cfg.paused_until
-		showPauseUntil = paused_until !== undefined
-		summary = cfg.summary ?? ''
-		labels = cfg.labels ?? undefined
-		description = cfg.description ?? ''
-		script_path = cfg.script_path ?? ''
-		await loadScript(script_path)
-
-		itemKind = cfg.is_flow ? 'flow' : 'script'
-		no_flow_overlap = cfg.no_flow_overlap ?? false
-		wsErrorHandlerMuted = cfg.ws_error_handler_muted ?? false
-		retry = cfg.retry
-		if (cfg.on_failure) {
-			let splitted = cfg.on_failure.split('/')
-			errorHandleritemKind = splitted[0] as 'flow' | 'script'
-			errorHandlerPath = splitted.slice(1)?.join('/')
-			failedTimes = cfg.on_failure_times ?? 1
-			failedExact = cfg.on_failure_exact ?? false
-			errorHandlerExtraArgs = cfg.on_failure_extra_args ?? {}
-			errorHandlerSelected = getHandlerType('error', errorHandlerPath ?? '')
-		} else {
-			errorHandlerPath = undefined
-			errorHandleritemKind = 'script'
-			errorHandlerExtraArgs = {}
-			failedExact = false
-			failedTimes = 1
-			errorHandlerSelected = 'slack'
-		}
-		if (cfg.on_recovery) {
-			let splitted = cfg.on_recovery.split('/')
-			recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
-			recoveryHandlerPath = splitted.slice(1)?.join('/')
-			recoveredTimes = cfg.on_recovery_times ?? 1
-			recoveryHandlerExtraArgs = cfg.on_recovery_extra_args ?? {}
-			recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath ?? '')
-		} else {
-			recoveryHandlerPath = undefined
-			recoveryHandlerItemKind = 'script'
-			recoveredTimes = 1
-			recoveryHandlerSelected = 'slack'
-			recoveryHandlerExtraArgs = {}
-		}
-		if (cfg.on_success) {
-			let splitted = cfg.on_success.split('/')
-			successHandlerItemKind = splitted[0] as 'flow' | 'script'
-			successHandlerPath = splitted.slice(1)?.join('/')
-			successHandlerExtraArgs = cfg.on_success_extra_args ?? {}
-			successHandlerSelected = getHandlerType('success', successHandlerPath ?? '')
-		} else {
-			successHandlerPath = undefined
-			successHandlerItemKind = 'script'
-			successHandlerSelected = 'slack'
-			successHandlerExtraArgs = {}
-		}
-		dynamicSkipPath = cfg.dynamic_skip
-		args = cfg.args ?? {}
-		extraPerms = cfg.extra_perms ?? {}
-		permsPath = cfg.path
-		tag = cfg.tag
-		permissionedAs = cfg.permissioned_as
-		selectedPermissionedAs = cfg.permissioned_as
-		preservePermissionedAs = !!cfg.permissioned_as
-
-		loading = false
-	}
-
 	async function scheduleScript(): Promise<void> {
-		const previousPath = initialPath
-		const scheduleCfg = getScheduleCfg()
-		deploymentLoading = true
-		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
-		if (isSaved) {
-			draftSync.discard(previousPath, scheduleCfg)
-			onUpdate?.(scheduleCfg.path)
-			drawer?.closeDrawer()
+		const created = !edit
+		closeOnSettle = true
+		const outcome = await item.save()
+		if (!outcome.ok) {
+			sendUserToast(outcome.error, true)
+			return
 		}
-		deploymentLoading = false
-	}
-
-	function getHandlerType(
-		isHandler: 'error' | 'recovery' | 'success',
-		scriptPath: string
-	): ErrorHandler {
-		const handlerMap = {
-			error: {
-				teams: '/workspace-or-schedule-error-handler-teams',
-				slack: '/workspace-or-schedule-error-handler-slack'
-			},
-			recovery: {
-				teams: '/schedule-recovery-handler-teams',
-				slack: '/schedule-recovery-handler-slack'
-			},
-			success: {
-				teams: '/schedule-success-handler-teams',
-				slack: '/schedule-success-handler-slack'
-			}
-		}
-
-		for (const [type, suffix] of Object.entries(handlerMap[isHandler])) {
-			if (scriptPath.startsWith('hub/') && scriptPath.endsWith(suffix)) {
-				return type as ErrorHandler
-			}
-		}
-		return 'custom'
+		sendUserToast(`Schedule ${outcome.path} ${created ? 'created' : 'updated'}`)
+		onUpdate?.(outcome.path)
 	}
 
 	let drawer: Drawer | undefined = $state()
@@ -680,69 +539,73 @@
 		}
 	}
 
-	function getScheduleCfg(): Record<string, any> {
-		return {
-			path: path,
-			schedule: formatCron(schedule),
-			timezone: timezone,
-			script_path: script_path,
-			is_flow: is_flow,
-			args: args,
-			enabled: enabled,
-			on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
-			on_failure_times: failedTimes,
-			on_failure_exact: failedExact,
-			on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
-			on_recovery: recoveryHandlerPath
-				? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
-				: undefined,
-			on_recovery_times: recoveredTimes,
-			on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
-			on_success: successHandlerPath
-				? `${successHandlerItemKind}/${successHandlerPath}`
-				: undefined,
-			on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
-			ws_error_handler_muted: wsErrorHandlerMuted,
-			retry: retry,
-			summary: summary != '' ? summary : undefined,
-			labels: labels,
-			description: description,
-			no_flow_overlap: no_flow_overlap,
-			tag: tag,
-			paused_until: paused_until,
-			cron_version: cronVersion,
-			extra_perms: extraPerms,
-			dynamic_skip: dynamicSkipPath,
-			permissioned_as: selectedPermissionedAs,
-			preserve_permissioned_as: preservePermissionedAs || undefined
-		}
+	function getScheduleCfg(): ScheduleCfg {
+		return scheduleCfgOf({
+			path,
+			cronVersion,
+			schedule,
+			timezone,
+			paused_until,
+			enabled,
+			summary,
+			labels,
+			description,
+			script_path,
+			itemKind,
+			no_flow_overlap,
+			wsErrorHandlerMuted,
+			retry,
+			errorHandleritemKind,
+			errorHandlerPath,
+			failedTimes,
+			failedExact,
+			errorHandlerExtraArgs,
+			errorHandlerSelected,
+			recoveryHandlerItemKind,
+			recoveryHandlerPath,
+			recoveredTimes,
+			recoveryHandlerExtraArgs,
+			recoveryHandlerSelected,
+			successHandlerItemKind,
+			successHandlerPath,
+			successHandlerExtraArgs,
+			successHandlerSelected,
+			dynamicSkipPath,
+			args,
+			extraPerms,
+			tag,
+			selectedPermissionedAs,
+			preservePermissionedAs
+		})
 	}
 
 	async function handleToggleEnabled(nEnabled: boolean) {
-		const previousEnabled = enabled
 		enabled = nEnabled
-		if (!trigger?.draftConfig) {
+		if (trigger?.draftConfig) return
+		const target = initialPath
+		const workspace = wsId ?? ''
+		// Queued behind any save of this schedule; on refusal the item gives the field back and
+		// the form re-reads it.
+		const outcome = await item.patch({ enabled: nEnabled }, async () => {
 			const ok = await withForkConflictRetry(
 				(force) =>
 					ScheduleService.setScheduleEnabled({
-						path: initialPath,
-						workspace: wsId ?? '',
+						path: target,
+						workspace,
 						requestBody: { enabled: nEnabled, force }
 					}),
 				'schedule'
 			)
-			if (!ok) {
-				enabled = previousEnabled
-				return
-			}
-			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)
-			onUpdate?.(initialPath)
-		}
+			if (!ok) throw new Error(`Could not ${nEnabled ? 'enable' : 'disable'} ${target}`)
+		})
+		if (!outcome.ok) return
+		sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${target}`)
+		onUpdate?.(target)
 	}
 
 	$effect(() => {
 		if (!drawerLoading) {
-			handleConfigChange(scheduleCfg, initialConfig, saveDisabled, edit, onConfigChange)
+			handleConfigChange(scheduleCfg, item.deployed, saveDisabled, edit, onConfigChange)
 		}
 	})
 </script>
@@ -755,11 +618,11 @@
 			triggerKind="schedule"
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
-			{saveDisabled}
+			saveDisabled={saveDisabled || item.busy}
 			mode={enabled ? 'enabled' : 'disabled'}
 			{allowDraft}
 			{edit}
-			isLoading={deploymentLoading}
+			isLoading={item.busy}
 			onUpdate={scheduleScript}
 			{onReset}
 			{onDelete}
@@ -802,6 +665,12 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
+		{#if item.status === 'conflicted'}
+			<DraftConflictAlert
+				onReload={() => item.resolveConflict('reload')}
+				onOverwrite={() => item.resolveConflict('overwrite')}
+			/>
+		{/if}
 		<PermissionedAsLine
 			{permissionedAs}
 			{path}
@@ -970,9 +839,6 @@
 							allowRefresh={can_write}
 							bind:itemKind
 							bind:scriptPath={script_path}
-							on:select={(e) => {
-								loadScript(e.detail.path)
-							}}
 							clearable
 						/>
 					{:else}
@@ -1068,7 +934,7 @@
 
 {#snippet errorHandler()}
 	<div class="flex flex-col gap-2 min-h-96">
-		{#if !loading}
+		{#if !drawerLoading}
 			<Tabs bind:selected={optionTabSelected}>
 				<Tab value="error_handler" label="Error Handler" />
 				<Tab value="recovery_handler" label="Recovery Handler" />
@@ -1423,7 +1289,7 @@
 {#if useDrawer}
 	<Drawer size="900px" bind:this={drawer} on:close={() => clearPageDrawerAnchor(SCHEDULES_PATH)}>
 		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
+			bannerReserved={hasBaseline}
 			title={edit
 				? can_write
 					? `Edit schedule ${initialPath}`
@@ -1438,11 +1304,11 @@
 			{/snippet}
 			{#snippet banner()}
 				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					show={hasBaseline && item.dirty}
+					getDeployed={() => item.deployed}
+					reserveSpace={hasBaseline}
+					getCurrent={() => item.value}
+					onDiscard={async () => void (await item.discard())}
 					disabled={!can_write}
 				/>
 			{/snippet}

@@ -149,6 +149,22 @@ export async function saveScheduleFromCfg(
 	edit: boolean,
 	workspace: string
 ): Promise<boolean> {
+	try {
+		await writeScheduleCfg(scheduleCfg, edit, workspace)
+		sendUserToast(`Schedule ${scheduleCfg.path} ${edit ? 'updated' : 'created'}`)
+		return true
+	} catch (error) {
+		sendUserToast(error.body || error.message, true)
+		return false
+	}
+}
+
+/** Update (`edit`) or create the schedule `scheduleCfg` describes. Throws what the API throws. */
+export async function writeScheduleCfg(
+	scheduleCfg: Record<string, any>,
+	edit: boolean,
+	workspace: string
+): Promise<void> {
 	const requestBody = {
 		schedule: scheduleCfg.schedule,
 		timezone: scheduleCfg.timezone,
@@ -175,30 +191,22 @@ export async function saveScheduleFromCfg(
 		preserve_permissioned_as: scheduleCfg.preserve_permissioned_as,
 		labels: scheduleCfg.labels
 	}
-	try {
-		if (edit) {
-			await ScheduleService.updateSchedule({
-				workspace,
+	if (edit) {
+		await ScheduleService.updateSchedule({
+			workspace,
+			path: scheduleCfg.path,
+			requestBody: requestBody
+		})
+	} else {
+		await ScheduleService.createSchedule({
+			workspace,
+			requestBody: {
 				path: scheduleCfg.path,
-				requestBody: requestBody
-			})
-			sendUserToast(`Schedule ${scheduleCfg.path} updated`)
-		} else {
-			await ScheduleService.createSchedule({
-				workspace,
-				requestBody: {
-					path: scheduleCfg.path,
-					script_path: scheduleCfg.script_path,
-					is_flow: scheduleCfg.is_flow,
-					...requestBody,
-					enabled: true
-				}
-			})
-			sendUserToast(`Schedule ${scheduleCfg.path} created`)
-		}
-		return true
-	} catch (error) {
-		sendUserToast(error.body || error.message, true)
-		return false
+				script_path: scheduleCfg.script_path,
+				is_flow: scheduleCfg.is_flow,
+				...requestBody,
+				enabled: true
+			}
+		})
 	}
 }

@@ -47,9 +47,12 @@
 				save: () => void
 				localDraftDeployed: () => unknown
 				localDraftCurrent: () => unknown
-				discardLocalDraft: () => void
+				discardLocalDraft: () => Promise<boolean>
 		  }
 		| undefined = $state(undefined)
+	// Bumped by every opening, so each gets an editor of its own even when one opens before
+	// the previous one has finished closing.
+	let session = $state(0)
 	let hasLocalDraft = $state(false)
 	let canWriteSelected = $state(true)
 
@@ -89,6 +92,7 @@
 		// anchor clear. Every session starts having to clear its own.
 		keepAnchorOnClose = false
 		historyUser.forgetFailures()
+		session++
 		resource_type = undefined
 		path = p
 		selected = effectiveWorkspace
@@ -103,6 +107,7 @@
 	): Promise<void> {
 		keepAnchorOnClose = false
 		historyUser.forgetFailures()
+		session++
 		path = undefined
 		resource_type = resourceType
 		defaultValues = nDefaultValues
@@ -148,19 +153,21 @@
 		{#await import('./ResourceEditor.svelte')}
 			<Loader2 class="animate-spin" />
 		{:then Module}
-			<Module.default
-				{path}
-				{resource_type}
-				{defaultValues}
-				workspace={effectiveWorkspace}
-				on:refresh
-				bind:this={resourceEditor}
-				bind:canSave
-				bind:selected
-				bind:viewJsonSchema
-				onDraftStateChange={(v) => (hasLocalDraft = v)}
-				onCanWriteChange={(v) => (canWriteSelected = v)}
-			/>
+			{#key session}
+				<Module.default
+					{path}
+					{resource_type}
+					{defaultValues}
+					workspace={effectiveWorkspace}
+					on:refresh
+					bind:this={resourceEditor}
+					bind:canSave
+					bind:selected
+					bind:viewJsonSchema
+					onDraftStateChange={(v) => (hasLocalDraft = v)}
+					onCanWriteChange={(v) => (canWriteSelected = v)}
+				/>
+			{/key}
 		{/await}
 		{#snippet banner()}
 			<LocalDraftBanner
@@ -168,7 +175,10 @@
 				reserveSpace={mode == 'edit'}
 				getDeployed={() => resourceEditor?.localDraftDeployed()}
 				getCurrent={() => resourceEditor?.localDraftCurrent()}
-				onDiscard={() => resourceEditor?.discardLocalDraft()}
+				onDiscard={async () => {
+					// A draft-only resource is its draft: discarding it leaves nothing to show.
+					if (await resourceEditor?.discardLocalDraft()) drawer?.closeDrawer()
+				}}
 				disabled={!canWriteSelected}
 			/>
 		{/snippet}

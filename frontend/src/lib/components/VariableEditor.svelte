@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { VariableService, WorkspaceService } from '$lib/gen'
+	import { VariableService, WorkspaceService, type ListableVariable } from '$lib/gen'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
@@ -21,10 +21,16 @@
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
 	import { resource } from 'runed'
 	import { useActingUser } from '$lib/actingUser.svelte'
-	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
+	import DraftConflictAlert from './DraftConflictAlert.svelte'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
-	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import {
+		newItemPath,
+		saveEach,
+		useItems,
+		type ItemAdapter,
+		type ItemHandle
+	} from '$lib/itemStore.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -44,55 +50,135 @@
 	let curWs = $derived(workspace ?? $workspaceStore)
 
 	let editPath: string | undefined = $state(undefined)
-
-	// Per-workspace handles are driven by `useMany`. We track the workspace
-	// IDs (and their seeded defaults) in a parallel `$state` array; on every
-	// mutation `useMany` reconciles, acquiring entries for new workspaces and
-	// releasing them on component teardown. `states` indexes the resulting
-	// handles by workspace ID for ergonomic lookup downstream.
-	let workspaceSpecs = $state<Array<{ ws: string; defaultValue: VariableState }>>([])
-	// Plain objects keyed by workspace id, so an id that is also an `Object.prototype` key
-	// (`constructor`, …) reads as already present and the variable never loads. Such ids are
-	// deliberately unsupported: too unlikely to be worth guarding every read.
-	let initialStates: Record<string, VariableState> = $state({})
-	let existedInitially: Record<string, boolean> = $state({})
-	let extraPerms: Record<string, Record<string, boolean>> = $state({})
+	/** The item open in the drawer: `editPath`, or a temporary path while creating one. */
+	let itemPath: string | undefined = $state(undefined)
+	let template: VariableState | undefined = undefined
+	/** Bumped by every opening, so reopening an item reads it afresh. */
+	let session = $state(0)
+	// Every workspace the drawer has shown this item in (WsSpecificVersions re-points it).
+	let workspaces = $state<string[]>([])
 	let selected: string | undefined = $state(undefined)
 	let pathError = $state('')
 	const acting = useActingUser(() => selected)
 
-	const handlesArray = UserDraft.useMany<VariableState>(() =>
-		workspaceSpecs.map((s) => ({
-			itemKind: 'variable' as const,
-			path: editPath ?? '',
-			workspace: s.ws,
-			defaultValue: s.defaultValue,
-			// Autosaves landing back on the deployed value become deletes (same
-			// comparison as the banner's `dirtyWorkspaces`, so they can't disagree).
-			// Guarded by `existedInitially` so draft-only items aren't destroyed.
-			discardIf: (val) => !!existedInitially[s.ws] && draftValuesEqual(val, initialStates[s.ws])
-		}))
-	)
-	const states = $derived.by(() => {
-		const out: Record<string, UserDraftHandle<VariableState>> = {}
-		for (let i = 0; i < workspaceSpecs.length; i++) {
-			const handle = handlesArray[i]
-			if (handle) out[workspaceSpecs[i].ws] = handle
+	const MAX_VARIABLE_LENGTH = 10000
+	const edit = $derived(editPath !== undefined)
+	const initialPath = $derived(editPath ?? '')
+
+	function isValid(v: VariableState | undefined): boolean {
+		// `$encrypted:` markers are ciphertext; the backend re-derives the real value on save,
+		// so the length cap doesn't apply.
+		return (
+			!!v &&
+			(isEncryptedDraftValue(v.variable.value) || v.variable.value.length <= MAX_VARIABLE_LENGTH)
+		)
+	}
+
+	const variableAdapter: ItemAdapter<VariableState> = {
+		async load({ workspace, path }) {
+			const v = await VariableService.getVariable({
+				workspace,
+				path,
+				decryptSecret: false,
+				getDraft: true
+			})
+			const { draft, draft_saved_at, no_deployed } = v as any
+			return {
+				deployed: no_deployed
+					? undefined
+					: {
+							path: v.path,
+							variable: {
+								value: v.value ?? '',
+								is_secret: v.is_secret,
+								description: v.description ?? ''
+							},
+							labels: v.labels ?? undefined,
+							wsSpecific: v.ws_specific ?? false
+						},
+				// `.draft` already holds the editor's `VariableState` shape.
+				draft: draft as VariableState | undefined,
+				draftSavedAt: draft_saved_at,
+				meta: v
+			}
+		},
+		async write({ workspace, path, value: s, deployed: ini }) {
+			if (ini) {
+				await VariableService.updateVariable({
+					workspace,
+					path,
+					requestBody: {
+						path: ini.path != s.path ? s.path : undefined,
+						value: s.variable.value == '' ? undefined : s.variable.value,
+						is_secret:
+							ini.variable.is_secret != s.variable.is_secret ? s.variable.is_secret : undefined,
+						description:
+							ini.variable.description != s.variable.description
+								? s.variable.description
+								: undefined,
+						labels: s.labels,
+						ws_specific: s.wsSpecific
+					}
+				})
+			} else {
+				await VariableService.createVariable({
+					workspace,
+					requestBody: {
+						path: s.path,
+						value: s.variable.value,
+						is_secret: s.variable.is_secret,
+						description: s.variable.description,
+						labels: s.labels,
+						ws_specific: s.wsSpecific
+					}
+				})
+			}
+			// Path now exists server-side — drop the autocomplete cache so
+			// it shows up immediately instead of after the 60s TTL.
+			invalidateWorkspacePaths(workspace)
 		}
+	}
+
+	const handles = useItems<VariableState>(
+		'variable',
+		() =>
+			workspaces.map((ws) => ({
+				workspace: ws,
+				path: itemPath,
+				template,
+				session,
+				valid: () => isValid(items[ws]?.value),
+				writable: () => {
+					const perms = extraPermsOf(ws)
+					return !perms || canWrite(editPath ?? '', perms, acting.in(ws))
+				}
+			})),
+		variableAdapter
+	)
+	const items = $derived.by(() => {
+		const out: Record<string, ItemHandle<VariableState>> = {}
+		workspaces.forEach((ws, i) => {
+			const handle = handles[i]
+			if (handle) out[ws] = handle
+		})
 		return out
 	})
 
-	/** Register a workspace so `useMany` acquires (or reuses) its handle.
-	 * `defaultValue` is what the handle reports when no autosave is persisted;
-	 * an existing autosave always wins. The default itself never round-trips
-	 * to localStorage — only the user's first real edit triggers a write. */
-	function ensureHandle(ws: string, defaultValue: VariableState): void {
-		if (workspaceSpecs.some((s) => s.ws === ws)) return
-		workspaceSpecs.push({ ws, defaultValue })
+	function extraPermsOf(ws: string): Record<string, boolean> | undefined {
+		const meta = items[ws]?.meta as ListableVariable | undefined
+		return meta ? (meta.extra_perms ?? {}) : undefined
 	}
 
+	// Open the selected workspace's version of the item alongside the others.
+	$effect(() => {
+		const ws = selected
+		if (!ws || !itemPath) return
+		untrack(() => {
+			if (!workspaces.includes(ws)) workspaces.push(ws)
+		})
+	})
+
 	let drawer: Drawer | undefined = $state()
-	let form: VariableForm | undefined = $state()
 
 	const deployTo = resource(
 		() => selected,
@@ -100,213 +186,112 @@
 			ws ? (await WorkspaceService.getDeployTo({ workspace: ws })).deploy_to : undefined
 	)
 
-	const MAX_VARIABLE_LENGTH = 10000
-	const edit = $derived(editPath !== undefined)
-	const initialPath = $derived(editPath ?? '')
 	// `selected`, not `curWs`: WsSpecificVersions re-points this drawer at another
 	// workspace's version of the variable, and the session must act on the one the
 	// user is looking at.
 	const sessionSource = $derived(
 		pageDrawerSessionSource(VARIABLES_PATH, editPath, selected ?? curWs)
 	)
-	const current = $derived(selected ? states[selected]?.draft : undefined)
+	const selectedItem = $derived(selected ? items[selected] : undefined)
+	const current = $derived(selectedItem?.value)
 	// `undefined` until the selected workspace's permissions and acting user have both
 	// landed — a pending verdict is neither a grant nor the denial the read-only alert
 	// announces, so the two must stay distinguishable.
 	const can_write: boolean | undefined = $derived.by(() => {
 		if (!selected || !edit) return true
-		const perms = extraPerms[selected]
+		const perms = extraPermsOf(selected)
 		if (!perms || !acting.resolved(selected)) return undefined
 		return canWrite(editPath ?? '', perms, acting.in(selected))
 	})
-	const dirtyWorkspaces = $derived(
-		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
-	)
-
-	// The list-page `*` hint is owned by UserDraftDbSyncer (set on save, cleared
-	// on delete). The editor only CLEARS it — a workspace at the deployed
-	// baseline has no draft, so drop any stale hint (this is how a draft
-	// discarded in another tab vanishes on reopen). Never SET here.
-	$effect(() => {
-		const p = editPath
-		const loadedWs = Object.keys(states)
-		const dirty = dirtyWorkspaces
-		untrack(() => {
-			if (!p) return
-			for (const ws of loadedWs) {
-				if (!dirty.includes(ws)) setLocalDraftHint(ws, 'variable', p, false)
-			}
-		})
-	})
+	const dirtyWorkspaces = $derived(Object.keys(items).filter((ws) => items[ws].dirty))
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
+	const anyBusy = $derived(Object.values(items).some((it) => it.busy))
 	// Banner is scoped to the selected workspace — the diff/discard only
 	// operate on it, so showing it for an unrelated dirty workspace would be
 	// misleading. The cross-workspace `otherDirty` alert below still covers
 	// that case.
-	const selectedDirty = $derived(!!selected && dirtyWorkspaces.includes(selected))
+	const selectedDirty = $derived(!!selectedItem?.dirty)
 	const otherDirty = $derived(
 		dirtyWorkspaces.length == 1 ? dirtyWorkspaces.filter((ws) => ws !== curWs) : dirtyWorkspaces
 	)
-	const dirtyValid = $derived(
-		dirtyWorkspaces.every((ws) => {
-			const v = states[ws].draft
-			// `$encrypted:` markers are ciphertext; the backend re-derives the
-			// real value on save, so the length cap doesn't apply.
-			return (
-				!!v &&
-				(isEncryptedDraftValue(v.variable.value) || v.variable.value.length <= MAX_VARIABLE_LENGTH)
-			)
-		})
-	)
-	const dirtyCanWrite = $derived(
-		dirtyWorkspaces.every((ws) => {
-			const perms = extraPerms[ws]
-			return !perms || canWrite(editPath ?? '', perms, acting.in(ws))
-		})
+	const canSave = $derived(
+		anyDirty && dirtyWorkspaces.every((ws) => items[ws].canSave) && pathError == ''
 	)
 
-	// Lazy-fetch the variable for the selected workspace when not already cached
+	// Set by Save and cleared by opening anything: closes the drawer once the items on screen
+	// have landed with nothing left unsaved, so an edit typed during the write stays in front
+	// of you.
+	let closeOnSettle = $state(false)
 	$effect(() => {
-		const ws = selected
-		const p = editPath
-		if (!ws || !p) return
-		if (ws in states) return
+		if (!closeOnSettle || anyBusy) return
 		untrack(() => {
-			VariableService.getVariable({
-				workspace: ws,
-				path: p,
-				decryptSecret: false,
-				getDraft: true
-			}).then((v) => {
-				// `.draft` already holds the editor's `VariableState` shape.
-				const savedDraftState = (v as any).draft as VariableState | undefined
-				// Deployed baseline as the dirty-check reference, so the banner
-				// compares draft-vs-deployed and fires immediately when a draft exists.
-				const deployedState: VariableState = {
-					path: v.path,
-					variable: {
-						value: v.value ?? '',
-						is_secret: v.is_secret,
-						description: v.description ?? ''
-					},
-					labels: v.labels ?? undefined,
-					wsSpecific: v.ws_specific ?? false
-				}
-				// Open with the saved draft if present, else the deployed.
-				const s: VariableState = savedDraftState ?? deployedState
-				ensureHandle(ws, s)
-				initialStates[ws] = structuredClone(deployedState)
-				// Draft-only paths (`no_deployed`) have no row — saving must
-				// CREATE, not update (update 404s).
-				existedInitially[ws] = !(v as any).no_deployed
-				extraPerms[ws] = v.extra_perms ?? {}
-			})
+			closeOnSettle = false
+			const shown = Object.values(items)
+			if (shown.every((it) => it.status === 'idle' && !it.dirty)) drawer?.closeDrawer()
 		})
 	})
 
-	function reset() {
-		// Clearing workspaceSpecs triggers useMany's reconcile to release
-		// every acquired entry. The $derived `states` then collapses to {}.
-		workspaceSpecs = []
-		initialStates = {}
-		existedInitially = {}
-		extraPerms = {}
+	// A draft-only variable is gone once its draft is discarded.
+	$effect(() => {
+		if (!selectedItem?.removed) return
+		untrack(() => {
+			dispatch('create')
+			drawer?.closeDrawer()
+		})
+	})
+
+	function open(path: string, ws: string): void {
+		closeOnSettle = false
 		pathError = ''
 		acting.forgetFailures()
+		itemPath = path
+		workspaces = [ws]
+		selected = ws
+		session++
+		drawer?.openDrawer()
 	}
 
 	export function initNew(): void {
-		reset()
 		editPath = undefined
-		const ws = curWs!
-		const s: VariableState = {
+		template = {
 			path: '',
 			variable: { value: '', is_secret: true, description: '' },
 			labels: undefined,
 			wsSpecific: false
 		}
-		ensureHandle(ws, s)
-		initialStates[ws] = structuredClone(s)
-		existedInitially[ws] = false
-		selected = ws
-		drawer?.openDrawer()
+		open(newItemPath(), curWs!)
 	}
 
 	export function editVariable(edit_path: string): void {
-		reset()
 		editPath = edit_path
-		selected = curWs!
-		drawer?.openDrawer()
+		template = undefined
+		open(edit_path, curWs!)
 		setPageDrawerAnchor(VARIABLES_PATH, edit_path)
 	}
 
-	async function loadSecret(): Promise<void> {
-		if (!editPath || !selected) return
-		const getV = await VariableService.getVariable({
-			workspace: selected,
-			path: editPath,
-			decryptSecret: true
+	function loadSecret(): void {
+		void selectedItem?.learn(async ({ workspace, path }) => {
+			const v = await VariableService.getVariable({ workspace, path, decryptSecret: true })
+			return (side) => {
+				side.variable.value = v.value ?? ''
+			}
 		})
-		const s = states[selected]?.draft
-		const ini = initialStates[selected]
-		if (s) s.variable.value = getV.value ?? ''
-		if (ini) ini.variable.value = getV.value ?? ''
-		form?.setCode(getV.value ?? '')
 	}
 
 	async function save(): Promise<void> {
-		const dirty = dirtyWorkspaces
-		try {
-			for (const ws of dirty) {
-				const s = states[ws].draft!
-				const ini = initialStates[ws]
-				if (existedInitially[ws]) {
-					await VariableService.updateVariable({
-						workspace: ws,
-						path: ini.path,
-						requestBody: {
-							path: ini.path != s.path ? s.path : undefined,
-							value: s.variable.value == '' ? undefined : s.variable.value,
-							is_secret:
-								ini.variable.is_secret != s.variable.is_secret ? s.variable.is_secret : undefined,
-							description:
-								ini.variable.description != s.variable.description
-									? s.variable.description
-									: undefined,
-							labels: s.labels,
-							ws_specific: s.wsSpecific
-						}
-					})
-				} else {
-					await VariableService.createVariable({
-						workspace: ws,
-						requestBody: {
-							path: s.path,
-							value: s.variable.value,
-							is_secret: s.variable.is_secret,
-							description: s.variable.description,
-							labels: s.labels,
-							ws_specific: s.wsSpecific
-						}
-					})
-				}
-				// The just-saved state is the new deployed baseline; reset the
-				// handle to it via `discard` (not `remove` — blanking the cell to
-				// `undefined` reads as dirty). The `value: null` POST also deletes
-				// the server draft row so `is_draft` clears on refetch.
-				initialStates[ws] = $state.snapshot(s) as VariableState
-				existedInitially[ws] = true
-				UserDraft.discard('variable', editPath ?? '', s, { workspace: ws })
-				// Path now exists server-side — drop the autocomplete cache so
-				// it shows up immediately instead of after the 60s TTL.
-				invalidateWorkspacePaths(ws)
-			}
-			sendUserToast(edit ? `Updated variable in ${dirty.length} workspace(s)` : `Created variable`)
-			dispatch('create')
-			drawer?.closeDrawer()
-		} catch (err) {
-			sendUserToast(`Could not save variable: ${err.body}`, true)
+		const targets = dirtyWorkspaces.map((ws) => items[ws])
+		const updated = edit
+		closeOnSettle = true
+		const outcomes = await saveEach(targets)
+		const failed = outcomes.find((o) => !o.ok && !o.skipped)
+		if (failed && !failed.ok) {
+			sendUserToast(`Could not save variable: ${failed.error}`, true)
+			return
 		}
+		sendUserToast(
+			updated ? `Updated variable in ${targets.length} workspace(s)` : `Created variable`
+		)
+		dispatch('create')
 	}
 </script>
 
@@ -320,14 +305,9 @@
 			<LocalDraftBanner
 				show={edit && selectedDirty}
 				reserveSpace={edit}
-				getDeployed={() => (selected ? initialStates[selected] : undefined)}
+				getDeployed={() => selectedItem?.deployed}
 				getCurrent={() => current}
-				onDiscard={() => {
-					if (!selected) return
-					UserDraft.discard('variable', editPath ?? '', initialStates[selected], {
-						workspace: selected
-					})
-				}}
+				onDiscard={async () => void (await selectedItem?.discard())}
 				disabled={!can_write}
 			/>
 		{/snippet}
@@ -336,6 +316,13 @@
 				<Alert type="warning" title="Only read access">
 					You only have read access to this resource and cannot edit it
 				</Alert>
+			{/if}
+
+			{#if selectedItem?.status === 'conflicted'}
+				<DraftConflictAlert
+					onReload={() => selectedItem?.resolveConflict('reload')}
+					onOverwrite={() => selectedItem?.resolveConflict('overwrite')}
+				/>
 			{/if}
 
 			{#if otherDirty.length > 0}
@@ -349,7 +336,6 @@
 			{#if current && can_write !== undefined}
 				{#key current}
 					<VariableForm
-						bind:this={form}
 						bind:path={current.path}
 						bind:pathError
 						bind:variable={current.variable}
@@ -373,7 +359,7 @@
 			{/if}
 			<Button
 				on:click={save}
-				disabled={!anyDirty || !dirtyValid || !dirtyCanWrite || pathError != ''}
+				disabled={!canSave}
 				startIcon={{ icon: Save }}
 				variant="accent"
 				size="sm"

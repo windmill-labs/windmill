@@ -8,7 +8,7 @@
 		type ResourceType
 	} from '$lib/gen'
 	import { canWrite } from '$lib/utils'
-	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
@@ -16,12 +16,18 @@
 	import ReplaceGitCredential from './git_sync/ReplaceGitCredential.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import Alert from './common/alert/Alert.svelte'
+	import DraftConflictAlert from './DraftConflictAlert.svelte'
 	import { resource } from 'runed'
 	import { useActingUser } from '$lib/actingUser.svelte'
-	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
-	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { draftValuesEqual } from '$lib/userDraft.svelte'
 	import { onUserInput } from '$lib/userDraftEditGate'
+	import {
+		newItemPath,
+		saveEach,
+		useItems,
+		type ItemAdapter,
+		type ItemHandle
+	} from '$lib/itemStore.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -80,102 +86,147 @@
 	// transiently resets and the form below remounts on every keystroke.
 	let selected = $derived(selectedProp ?? effectiveWorkspace)
 	let initialPath = path
+	// The item this editor opens: the resource at `initialPath`, or a new one.
+	const itemPath = initialPath || newItemPath()
+	// Read once, like the path: this editor opens one item for its lifetime.
+	const template: ResourceState = untrack(() => ({
+		path: '',
+		description: '',
+		args: (defaultValues && Object.keys(defaultValues).length > 0 ? defaultValues : {}) as any,
+		labels: undefined,
+		wsSpecific: false
+	}))
 
-	// Per-workspace handles are driven by `useMany`. We track the workspace
-	// IDs (and their seeded defaults) in a parallel `$state` array; on every
-	// mutation `useMany` reconciles, acquiring entries for new workspaces and
-	// releasing them on component teardown. `states` indexes the resulting
-	// handles by workspace ID for ergonomic lookup downstream.
-	let workspaceSpecs = $state<Array<{ ws: string; defaultValue: ResourceState }>>([])
-	// Plain objects keyed by workspace id, so an id that is also an `Object.prototype` key
-	// (`constructor`, …) reads as already present and the resource never loads. Such ids are
-	// deliberately unsupported: too unlikely to be worth guarding every read.
-	let initialStates: Record<string, ResourceState> = $state({})
-	let existedInitially: Record<string, boolean> = $state({})
-	let fetchedResources: Record<string, Resource> = $state({})
+	// Every workspace the editor has shown this resource in (WsSpecificVersions re-points it).
+	let workspaces = $state<string[]>([])
 	const acting = useActingUser(() => selected)
+	let perWsValid: Record<string, boolean> = $state({})
 
-	const handlesArray = UserDraft.useMany<ResourceState>(() =>
-		workspaceSpecs.map((s) => ({
-			itemKind: 'resource' as const,
-			path: initialPath ?? '',
-			workspace: s.ws,
-			defaultValue: s.defaultValue,
-			// Autosaves landing back on the deployed value become deletes;
-			// `existedInitially` guards draft-only items from self-destructing.
-			discardIf: (val) => !!existedInitially[s.ws] && draftValuesEqual(val, initialStates[s.ws])
-		}))
-	)
-	const states = $derived.by(() => {
-		const out: Record<string, UserDraftHandle<ResourceState>> = {}
-		for (let i = 0; i < workspaceSpecs.length; i++) {
-			const handle = handlesArray[i]
-			if (handle) out[workspaceSpecs[i].ws] = handle
+	/** The schema can only ever write `args`. `path`, `labels`, `description` and
+	 * `wsSpecific` are beyond its reach, so a difference in one of those is the
+	 * user's — whatever event did or didn't reach the gate. Removing a label runs
+	 * a click handler and emits nothing native, and would otherwise be absorbed. */
+	function differsOutsideArgs(a: ResourceState, b: ResourceState): boolean {
+		return !draftValuesEqual({ ...a, args: null }, { ...b, args: null })
+	}
+
+	const resourceAdapter: ItemAdapter<ResourceState> = {
+		// The schema form materializes values the stored resource never carried as it renders;
+		// until the user's first input those join the deployed side instead of making a draft.
+		settles: true,
+		absorbs: (next, deployed) => !differsOutsideArgs(next, deployed),
+		async load({ workspace, path }) {
+			const r = await ResourceService.getResource({ workspace, path, getDraft: true })
+			const { draft, draft_saved_at, no_deployed } = r as any
+			return {
+				// Draft-only paths (`no_deployed`) have no row — saving must CREATE.
+				deployed: no_deployed
+					? undefined
+					: {
+							path: r.path,
+							description: r.description ?? '',
+							args: (r.value ?? {}) as any,
+							labels: r.labels ?? undefined,
+							wsSpecific: r.ws_specific ?? false
+						},
+				// `.draft` already holds the editor's `ResourceState` shape.
+				draft: draft as ResourceState | undefined,
+				draftSavedAt: draft_saved_at,
+				meta: r
+			}
+		},
+		async write({ workspace, path, value: s, deployed, meta }) {
+			const fetched = meta as Resource | undefined
+			if (deployed) {
+				await ResourceService.updateResource({
+					workspace,
+					path,
+					requestBody: {
+						path: s.path,
+						value: s.args,
+						description: s.description,
+						labels: s.labels,
+						ws_specific: s.wsSpecific
+					}
+				})
+				if (fetched?.resource_type === 'json_schema') clearJsonSchemaResourceCache(path, workspace)
+			} else {
+				await ResourceService.createResource({
+					workspace,
+					requestBody: {
+						path: s.path,
+						value: s.args,
+						description: s.description,
+						resource_type: fetched?.resource_type ?? resource_type!,
+						labels: s.labels,
+						ws_specific: s.wsSpecific
+					}
+				})
+			}
+			// Path now exists server-side — drop the autocomplete cache so
+			// it shows up immediately instead of after the 60s TTL.
+			invalidateWorkspacePaths(workspace)
 		}
+	}
+
+	const handles = useItems<ResourceState>(
+		'resource',
+		() =>
+			workspaces.map((ws) => ({
+				workspace: ws,
+				path: itemPath,
+				template,
+				valid: () => perWsValid[ws] !== false,
+				writable: () => {
+					const r = fetchedOf(ws)
+					return (
+						!r ||
+						canWrite(items[ws]?.value?.path ?? initialPath, r.extra_perms ?? {}, acting.in(ws))
+					)
+				}
+			})),
+		resourceAdapter
+	)
+	const items = $derived.by(() => {
+		const out: Record<string, ItemHandle<ResourceState>> = {}
+		workspaces.forEach((ws, i) => {
+			const handle = handles[i]
+			if (handle) out[ws] = handle
+		})
 		return out
 	})
 
-	/** Register a workspace so `useMany` acquires (or reuses) its handle.
-	 * `defaultValue` is what the handle reports when no autosave is persisted;
-	 * an existing autosave always wins. The default itself never round-trips
-	 * to localStorage — only the user's first real edit triggers a write. */
-	function ensureHandle(ws: string, defaultValue: ResourceState): void {
-		if (workspaceSpecs.some((s) => s.ws === ws)) return
-		workspaceSpecs.push({ ws, defaultValue })
+	function fetchedOf(ws: string): Resource | undefined {
+		return items[ws]?.meta as Resource | undefined
 	}
 
-	// Gated per workspace until the user puts something into that workspace's
-	// form (see `onUserInput`): the autosave stays suspended and the deployed
-	// baseline absorbs whatever the form settles on. A workspace opened ON a
-	// saved draft keeps its baseline — that divergence is the user's own.
-	let userEdited: Record<string, boolean> = $state({})
-	let openedOnDraft: Record<string, boolean> = $state({})
-	const suspendedWorkspaces = new Set<string>()
-
-	function setGated(ws: string, gated: boolean): void {
-		if (!initialPath) return
-		if (gated === suspendedWorkspaces.has(ws)) return
-		if (gated) {
-			UserDraft.stopSync('resource', initialPath, { workspace: ws })
-			suspendedWorkspaces.add(ws)
-		} else {
-			UserDraft.restartSync('resource', initialPath, { workspace: ws })
-			suspendedWorkspaces.delete(ws)
-		}
-	}
-
-	// Nothing counts until this workspace's form is on screen, and while the
-	// schema is still arriving a precursor alone does not: it would open the gate
-	// just in time for the schema's materialized values to POST. `Path`, the
-	// labels and the description render above that skeleton and stay editable
-	// throughout, so a real value event still counts and keeps the edit.
-	onUserInput((kind) => {
-		if (!selected || !(selected in states)) return
-		if (kind === 'precursor' && loadingSchema) return
-		userEdited[selected] = true
-	})
-
+	// Open the selected workspace's version of the resource alongside the others. A new one
+	// only exists in the workspace it is being created in.
 	$effect(() => {
-		const wss = Object.keys(states)
-		const edited = { ...userEdited }
-		const onDraft = { ...openedOnDraft }
+		const ws = selected
+		if (!ws) return
 		untrack(() => {
-			// A workspace opened on a saved draft is never suspended — there is no
-			// phantom to prevent, and a write made while suspended is dropped for
-			// good. Without `onDraft` here this effect re-suspends it the moment its
-			// handle appears, undoing the decision made when it was opened.
-			for (const ws of wss) setGated(ws, !edited[ws] && !onDraft[ws])
+			if (workspaces.includes(ws)) return
+			if (initialPath) workspaces.push(ws)
+			else workspaces = [ws]
 		})
 	})
 
-	// `stopSync` must be paired or the key stays unsynced for the session.
-	onDestroy(() => {
-		for (const ws of [...suspendedWorkspaces]) setGated(ws, false)
+	const selectedItem = $derived(selected ? items[selected] : undefined)
+
+	// Nothing counts until this workspace's form is on screen, and while the
+	// schema is still arriving a precursor alone does not: it would open the gate
+	// just in time for the schema's materialized values to join the draft. `Path`,
+	// the labels and the description render above that skeleton and stay editable
+	// throughout, so a real value event still counts and keeps the edit.
+	onUserInput((kind) => {
+		if (!selectedItem?.loaded) return
+		if (kind === 'precursor' && loadingSchema) return
+		selectedItem.markEdited()
 	})
 
 	let isValid = $state(true)
 	let jsonError = $state('')
-	let perWsValid: Record<string, boolean> = $state({})
 
 	const deployToResource = resource(
 		() => selected,
@@ -207,16 +258,18 @@
 	})
 	let loadingSchema = $derived(resourceTypeResource.loading)
 
-	let current = $derived(selected ? states[selected]?.draft : undefined)
+	let current = $derived(selectedItem?.value)
 	// The saved URL, not the draft's: a credential is bound to the repository it
 	// is issued for, so binding one to an edit that has not landed yet would tie
 	// it to something the resource does not point at.
 	let deployedUrl = $derived(
-		selected ? ((fetchedResources[selected]?.value as any)?.url as string | undefined) : undefined
+		selected ? ((fetchedOf(selected)?.value as any)?.url as string | undefined) : undefined
 	)
 	// The deployed path, for the same reason as the deployed URL: the server
 	// answers about what is stored, and an unsaved rename names nothing yet.
-	let deployedPath = $derived(selected ? (initialStates[selected]?.path ?? initialPath) : undefined)
+	let deployedPath = $derived(
+		selected && initialPath ? (selectedItem?.deployed?.path ?? initialPath) : undefined
+	)
 	// Asked of the server rather than read off the resource: the resource is
 	// client-editable, exported and copied into forks, so nothing written on it
 	// stays true. Re-asked when the saved URL moves, since that is a different
@@ -242,162 +295,34 @@
 	// opening the drawer materialises schema defaults (`folder: ""`), so a whole-
 	// resource dirty check would disable it the moment the drawer opens.
 	let urlDirty = $derived(!!deployedUrl && current?.args?.url !== deployedUrl)
-	let resourceToEdit: Resource | undefined = $derived(
-		selected ? fetchedResources[selected] : undefined
-	)
+	let resourceToEdit: Resource | undefined = $derived(selected ? fetchedOf(selected) : undefined)
 	// `undefined` until both the resource and the acting user have landed — a pending verdict
 	// is neither a grant nor the denial the read-only alert announces, so the two must stay
 	// distinguishable.
 	let can_write: boolean | undefined = $derived.by(() => {
 		// A resource that does not exist yet has nobody's permissions on it.
 		if (!initialPath || !selected) return true
-		const r = fetchedResources[selected]
+		const r = fetchedOf(selected)
 		if (!r || !acting.resolved(selected)) return undefined
 		return canWrite(current?.path ?? initialPath, r.extra_perms ?? {}, acting.in(selected))
 	})
 
-	const dirtyWorkspaces = $derived(
-		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
-	)
-	const anyDirty = $derived(dirtyWorkspaces.length > 0)
-
-	// The syncer owns the list-page `*` hint; the editor only CLEARS it when a
-	// workspace is at the deployed baseline (so a draft discarded elsewhere
-	// vanishes on reopen). Never SET here. See VariableEditor for the full note.
-	$effect(() => {
-		const p = initialPath
-		const loadedWs = Object.keys(states)
-		const dirty = dirtyWorkspaces
-		untrack(() => {
-			if (!p) return
-			for (const ws of loadedWs) {
-				if (!dirty.includes(ws)) setLocalDraftHint(ws, 'resource', p, false)
-			}
-		})
-	})
+	const dirtyWorkspaces = $derived(Object.keys(items).filter((ws) => items[ws].dirty))
 	// Banner is scoped to the selected workspace — the diff/discard only
 	// operate on it, so showing it for an unrelated dirty workspace would be
 	// misleading. The cross-workspace `otherDirty` alert below still covers
 	// that case.
-	const selectedDirty = $derived(!!selected && dirtyWorkspaces.includes(selected))
+	const selectedDirty = $derived(!!selectedItem?.dirty)
 	const otherDirty = $derived(
 		dirtyWorkspaces.length == 1
 			? dirtyWorkspaces.filter((ws) => ws !== effectiveWorkspace)
 			: dirtyWorkspaces
 	)
-	const dirtyValid = $derived(dirtyWorkspaces.every((ws) => perWsValid[ws] !== false))
-	const dirtyCanWrite = $derived(
-		dirtyWorkspaces.every((ws) => {
-			const r = fetchedResources[ws]
-			return (
-				!r || canWrite(states[ws]?.draft?.path ?? initialPath, r.extra_perms ?? {}, acting.in(ws))
-			)
-		})
-	)
 
-	// New-resource bootstrap: seed empty state per workspace (edit mode
-	// is seeded by the lazy-fetch effect below).
+	// Keep resource_type in sync for the base workspace (controls the schema)
 	$effect(() => {
-		const ws = selected
-		if (!ws) return
-		if (initialPath) return
-		if (ws in initialStates) return
-		untrack(() => {
-			const s: ResourceState = {
-				path: '',
-				description: '',
-				args: (defaultValues && Object.keys(defaultValues).length > 0 ? defaultValues : {}) as any,
-				labels: undefined,
-				wsSpecific: false
-			}
-			ensureHandle(ws, s)
-			initialStates[ws] = structuredClone(s)
-			existedInitially[ws] = false
-		})
-	})
-
-	// Lazy-fetch the resource for the selected workspace when not already cached
-	$effect(() => {
-		const ws = selected
-		if (!ws || !initialPath) return
-		if (ws in states) return
-		untrack(() => {
-			ResourceService.getResource({ workspace: ws, path: initialPath, getDraft: true }).then(
-				(r) => {
-					// `.draft` already holds the editor's `ResourceState` shape.
-					const savedDraftState = (r as any).draft as ResourceState | undefined
-					fetchedResources[ws] = r
-					// Deployed baseline as the dirty-check reference, so the banner
-					// compares draft-vs-deployed and fires immediately when a draft exists.
-					const deployedState: ResourceState = {
-						path: r.path,
-						description: r.description ?? '',
-						args: (r.value ?? {}) as any,
-						labels: r.labels ?? undefined,
-						wsSpecific: r.ws_specific ?? false
-					}
-					// Open with the saved draft if present, else the deployed.
-					const s: ResourceState = savedDraftState ?? deployedState
-					openedOnDraft[ws] = !!savedDraftState
-					// Gate BEFORE the handle is acquired: `stopSync` queues on a
-					// not-yet-live entry, and the form can settle before the effect
-					// above gets a chance to run. Only worth doing when no draft exists
-					// yet — where one does, there is no phantom to prevent and
-					// suspending could only drop a write.
-					if (!savedDraftState) setGated(ws, true)
-					ensureHandle(ws, s)
-					initialStates[ws] = structuredClone(deployedState)
-					// Draft-only paths (`no_deployed`) have no row — saving must
-					// CREATE, not update (update 404s).
-					existedInitially[ws] = !(r as any).no_deployed
-					// Keep resource_type in sync for the base workspace (controls the schema)
-					if (ws === effectiveWorkspace) {
-						resource_type = r.resource_type
-					}
-				}
-			)
-		})
-	})
-
-	/** The schema can only ever write `args`. `path`, `labels`, `description` and
-	 * `wsSpecific` are beyond its reach, so a difference in one of those is the
-	 * user's — whatever event did or didn't reach the gate. Removing a label runs
-	 * a click handler and emits nothing native, and would otherwise be absorbed. */
-	function differsOutsideArgs(a: ResourceState, b: ResourceState | undefined): boolean {
-		return !!b && !draftValuesEqual({ ...a, args: null }, { ...b, args: null })
-	}
-
-	// Absorb the form's settling writes into the deployed baseline while the
-	// selected workspace is gated, so they show up neither as the "unsaved
-	// changes" banner nor, once `discardIf` reads the baseline, as a draft.
-	// Only the selected workspace has a form rendered against it.
-	$effect(() => {
-		const ws = selected
-		if (!ws || !initialPath) return
-		if (userEdited[ws] || openedOnDraft[ws]) return
-		// `$state.snapshot` deep-reads, so nested `args` mutations re-run this.
-		const settled = states[ws]?.draft
-			? ($state.snapshot(states[ws].draft) as ResourceState)
-			: undefined
-		untrack(() => {
-			if (!settled) return
-			if (differsOutsideArgs(settled, initialStates[ws])) {
-				// An edit, not settling. This runs AFTER the write landed, and a write
-				// made while suspended is swallowed for good (the mirror advances its
-				// baseline either way), so un-suspend and push the value here rather
-				// than leaving it to whichever effect happens to run next.
-				userEdited[ws] = true
-				setGated(ws, false)
-				void UserDraftDbSyncer.save({
-					workspace: ws,
-					itemKind: 'resource',
-					path: initialPath,
-					value: settled
-				})
-				return
-			}
-			if (!draftValuesEqual(settled, initialStates[ws])) initialStates[ws] = settled
-		})
+		const r = fetchedOf(effectiveWorkspace)
+		if (r) untrack(() => (resource_type = r.resource_type))
 	})
 
 	// Keep current.path bound to the outer `path` prop for consumers
@@ -412,7 +337,7 @@
 	})
 
 	$effect(() => {
-		canSave = anyDirty && dirtyValid && dirtyCanWrite
+		canSave = dirtyWorkspaces.length > 0 && dirtyWorkspaces.every((ws) => items[ws].canSave)
 	})
 
 	// Drive the parent drawer's "unsaved changes" banner. The drawer chrome
@@ -426,24 +351,21 @@
 	})
 
 	export function localDraftDeployed(): ResourceState | undefined {
-		return selected ? initialStates[selected] : undefined
+		return selectedItem?.deployed
 	}
 	export function localDraftCurrent(): ResourceState | undefined {
 		return current
 	}
-	export function discardLocalDraft(): void {
-		if (!selected) return
-		// Back to the deployed value with nothing of the user's left in it, so
-		// the gate closes again — otherwise the form settles on the schema's
-		// values a second time and the discarded draft comes straight back.
-		// `discard` POSTs the delete itself, so suspending first is safe.
-		openedOnDraft[selected] = false
-		userEdited[selected] = false
-		setGated(selected, true)
-		UserDraft.discard('resource', initialPath ?? '', initialStates[selected], {
-			workspace: selected
-		})
+	/** Resolves `true` when the discard removed the resource: a draft-only one is its draft. */
+	export async function discardLocalDraft(): Promise<boolean> {
+		const outcome = await selectedItem?.discard()
+		return !!outcome?.removed
 	}
+
+	// A draft-only resource is gone once its draft is discarded.
+	$effect(() => {
+		if (selectedItem?.removed) untrack(() => dispatch('refresh', initialPath))
+	})
 
 	$effect(() => {
 		if (current)
@@ -474,63 +396,31 @@
 	/** Whether the write landed. It toasts its own failure, so most callers ignore this;
 	 * one that follows the save with bookkeeping of its own has to know not to. */
 	export async function save(): Promise<boolean> {
-		const dirty = dirtyWorkspaces
-		try {
-			for (const ws of dirty) {
-				const s = states[ws].draft!
-				const ini = initialStates[ws]
-				if (existedInitially[ws]) {
-					await ResourceService.updateResource({
-						workspace: ws,
-						path: ini.path,
-						requestBody: {
-							path: s.path,
-							value: s.args,
-							description: s.description,
-							labels: s.labels,
-							ws_specific: s.wsSpecific
-						}
-					})
-					const fetched = fetchedResources[ws]
-					if (fetched?.resource_type === 'json_schema') {
-						clearJsonSchemaResourceCache(ini.path, ws)
-					}
-				} else {
-					await ResourceService.createResource({
-						workspace: ws,
-						requestBody: {
-							path: s.path,
-							value: s.args,
-							description: s.description,
-							resource_type: resource_type!,
-							labels: s.labels,
-							ws_specific: s.wsSpecific
-						}
-					})
-				}
-				// Reset the handle to the new deployed baseline via `discard`, not
-				// `remove`. See VariableEditor for the full rationale.
-				initialStates[ws] = $state.snapshot(s) as ResourceState
-				existedInitially[ws] = true
-				UserDraft.discard('resource', initialPath ?? '', s, { workspace: ws })
-				// Path now exists server-side — drop the autocomplete cache so
-				// it shows up immediately instead of after the 60s TTL.
-				invalidateWorkspacePaths(ws)
-			}
-			sendUserToast(
-				dirty.length > 1 ? `Saved resource in ${dirty.length} workspaces` : `Saved resource`
-			)
-			dispatch('refresh', current?.path ?? path)
-			return true
-		} catch (err) {
-			sendUserToast(`Could not save resource: ${err.body ?? err.message}`, true)
+		const targets = dirtyWorkspaces.map((ws) => items[ws])
+		const outcomes = await saveEach(targets)
+		const failed = outcomes.find((o) => !o.ok && !o.skipped)
+		if (failed && !failed.ok) {
+			sendUserToast(`Could not save resource: ${failed.error}`, true)
 			return false
 		}
+		const last = outcomes.at(-1)
+		sendUserToast(
+			targets.length > 1 ? `Saved resource in ${targets.length} workspaces` : `Saved resource`
+		)
+		dispatch('refresh', last?.ok ? last.path : path)
+		return true
 	}
 </script>
 
 <div>
 	<div class="flex flex-col gap-6 pb-2">
+		{#if selectedItem?.status === 'conflicted'}
+			<DraftConflictAlert
+				onReload={() => selectedItem?.resolveConflict('reload')}
+				onOverwrite={() => selectedItem?.resolveConflict('overwrite')}
+			/>
+		{/if}
+
 		{#if otherDirty.length > 0}
 			<Alert type="warning" title="Editing multiple workspaces">
 				You are going to edit the value in: {otherDirty.join(', ')}
