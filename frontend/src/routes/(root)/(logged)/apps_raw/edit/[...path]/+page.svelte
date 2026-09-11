@@ -122,6 +122,7 @@
 			summary,
 			policy,
 			custom_path: savedApp?.custom_path,
+			parent_version: parentVersion,
 			// Persist the typed path as `draft_path` only when it actually differs
 			// from the current path — a `draft_path` equal to the baseline is a
 			// no-op that would block the draft from deduping against the deployed
@@ -165,6 +166,13 @@
 	let othersModalOpen = $state(false)
 	let draftSavedAt = $state<string | undefined>(undefined)
 	let deployedAt = $state<string | undefined>(undefined)
+	// The app_version the draft forked from, and the deployed head, for the exact
+	// staleness check (vs the drifting timestamps). `parentVersion` is what the
+	// bundle carries: an own draft keeps the version it forked from; a fresh
+	// checkout forks from the head.
+	let parentVersion = $state<number | undefined>(undefined)
+	let draftBaseVersion = $state<string | undefined>(undefined)
+	let deployedHeadVersion = $state<string | undefined>(undefined)
 	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
@@ -185,6 +193,9 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			parentVersion = undefined
+			draftBaseVersion = undefined
+			deployedHeadVersion = undefined
 			// `labels` is route-level state; reset it too so a fresh draft doesn't
 			// inherit (and then deploy) the previously-opened app's labels. The
 			// import branch re-seeds it via extractRawApp below.
@@ -301,6 +312,15 @@
 		// See /apps/edit's loader.
 		draftSavedAt = backendApp.draft_saved_at as string | undefined
 		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
+		// Head = the last entry of the deployed `versions`. The base the bundle
+		// carries is the draft's own when it has one; a draft that predates the
+		// base (or a fresh checkout) forks from the head from here on.
+		const versions = backendApp.versions as number[] | undefined
+		const headVersion =
+			backendApp.no_deployed || !Array.isArray(versions) ? undefined : versions[versions.length - 1]
+		deployedHeadVersion = headVersion != null ? String(headVersion) : undefined
+		draftBaseVersion = backendApp.draft_base as string | undefined
+		parentVersion = hasOwnDraft && draftBaseVersion != null ? Number(draftBaseVersion) : headVersion
 		// Deployed baseline for the autosave `discardIf`, captured BEFORE the swap
 		// below mutates `backendApp`. Mirrors the bundle `$effect`'s shape (minus
 		// the edit-only `draft_path`) so an unedited draft compares equal.
@@ -314,7 +334,8 @@
 						data: extractDataConfig(backendApp.value) ?? { ...DEFAULT_DATA },
 						summary: backendApp.summary ?? '',
 						policy: backendApp.policy,
-						custom_path: backendApp.custom_path
+						custom_path: backendApp.custom_path,
+						parent_version: parentVersion
 					})
 				) as RawAppDraft)
 		// The raw-app autosave stores a flat `RawAppDraft`, but this loader (and
@@ -549,6 +570,9 @@
 	bind:othersModalOpen
 	{draftSavedAt}
 	{deployedAt}
+	{draftBaseVersion}
+	{deployedHeadVersion}
+	onViewDiff={() => rawAppEditor?.openDiffDrawer()}
 	onLoadLatestDeploy={async () => {
 		// stopSync-bracketed; see /scripts/edit's restoreDeployed for the race.
 		if (!$workspaceStore) return
@@ -587,6 +611,15 @@
 				bind:savedApp
 				{diffDrawer}
 				newApp={isNewApp}
+				version={parentVersion}
+				onDeploy={({ version }) => {
+					// The version just written is the new head, and the base the next
+					// autosave should carry.
+					if (version != null) {
+						parentVersion = version
+						deployedHeadVersion = String(version)
+					}
+				}}
 				onResetToDeployed={reloadDeployed}
 				{loadedFromDraft}
 				othersDraftsCount={otherDraftsUsers.length}

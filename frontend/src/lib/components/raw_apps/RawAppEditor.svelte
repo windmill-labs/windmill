@@ -102,8 +102,9 @@
 			| undefined
 		diffDrawer?: DiffDrawer | undefined
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
-		/** Fired after a successful deploy; the session preview reloads on it. */
-		onDeploy?: (e: { path: string }) => void
+		/** Fired after a successful deploy; the session preview reloads on it and
+		 *  the route re-pins the draft's fork base to the version just written. */
+		onDeploy?: (e: { path: string; version?: number }) => void
 		/** Initial collapsed state for the file/runnable sidebar. The user's
 		 * toggled preference is persisted under `sidebarStorageKey`; this prop
 		 * only seeds the very first open. */
@@ -131,6 +132,10 @@
 		pendingDraftPath?: string | undefined
 		// Threaded to the AutosaveIndicator's "Reset to deployed" button.
 		onResetToDeployed?: () => void | Promise<void>
+		/** The app_version the draft forked from, for the deploy-time "new version
+		 *  deployed" guard: deploying is refused with a confirmation while it is not
+		 *  the head. Undefined for a draft-only app. */
+		version?: number | undefined
 		// See ScriptBuilderProps — same indicator semantics.
 		loadedFromDraft?: boolean
 		othersDraftsCount?: number
@@ -202,9 +207,9 @@
 		onScreenshotRequester = undefined,
 		onRestore,
 		onSavedNewAppPath,
-		condensedHeader = false
+		condensedHeader = false,
+		version = undefined
 	}: Props = $props()
-	export const version: number | undefined = undefined
 
 	// Workspace this editor operates on: the session's acting workspace when
 	// embedded in a session preview (autosaveWorkspace), else the navigation
@@ -247,6 +252,12 @@
 	// in the sidebar to be handed a prop. A raw app has no addressable sub-editor,
 	// so the preview just opens the app.
 	setOpenInSessionHandoff({ source: () => sessionOpen })
+
+	let header: RawAppEditorHeader | undefined = $state(undefined)
+	/** The Deployed↔Current diff, for the route's stale-draft prompt. */
+	export function openDiffDrawer() {
+		return header?.openDiffDrawer()
+	}
 
 	/** Hand this app off to a fresh AI session, seeding `seedPrompt` and sending
 	 * it on arrival. Exposed for the template picker's "Start in AI session": the
@@ -2285,11 +2296,13 @@
 />
 <div bind:clientWidth={rootWidth} class="max-h-full overflow-hidden h-full min-h-0 flex flex-col">
 	<RawAppEditorHeader
+		bind:this={header}
 		bind:jobs
 		bind:jobsById
 		bind:savedApp
 		bind:summary
 		bind:pendingDraftPath
+		{version}
 		{onRestore}
 		{onSavedNewAppPath}
 		{policy}

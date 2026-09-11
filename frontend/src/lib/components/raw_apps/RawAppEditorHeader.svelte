@@ -146,8 +146,9 @@
 		 *  falls back to `$workspaceStore`/`liveEditorDraftStoragePath`. */
 		autosaveWorkspace?: string
 		autosavePath?: string
-		// Fired after a successful deploy; lets the session preview reload.
-		onDeploy?: (e: { path: string }) => void
+		// Fired after a successful deploy; lets the session preview reload. Carries
+		// the version just written so the route can re-pin the draft's fork base.
+		onDeploy?: (e: { path: string; version?: number }) => void
 		/** Surfaces the user-typed path (`newEditedPath`) up to the route
 		 *  when (and only when) it differs from the deployed/seeded
 		 *  `savedApp.path`. The route writes it into the autosaved raw-app
@@ -431,7 +432,7 @@
 		}
 	}
 
-	async function openDiffDrawer() {
+	export async function openDiffDrawer() {
 		if (!savedApp) {
 			return
 		}
@@ -513,7 +514,7 @@
 		if (appPath !== npath) {
 			onSavedNewAppPath?.(npath)
 		}
-		onDeploy?.({ path: npath })
+		onDeploy?.({ path: npath, version })
 	}
 
 	async function setPublishState(message?: string) {
