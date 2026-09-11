@@ -73,6 +73,52 @@ function assertAcyclicChunks() {
 	}
 }
 
+/**
+ * Fail the build if a public app URL statically loads the low-code runtime or monaco.
+ *
+ * These pages also serve raw apps, which only need a small shell around their bundle's
+ * iframe. One static import of AppPreview (or of anything reaching monaco) makes every
+ * public app page preload ~650 chunks instead of ~55. See loadAppPreview.ts.
+ */
+function assertLeanPublicAppRoutes() {
+	// Route directories, so +page.js counts as well as +page.svelte.
+	const routes = ['/src/routes/public/[workspace]/[...secret]/', '/src/routes/a/[...path]/']
+	const forbidden = [
+		'/src/lib/components/apps/editor/AppPreview.svelte',
+		'/node_modules/monaco-editor/'
+	]
+	return {
+		name: 'wm-assert-lean-public-app-routes',
+		generateBundle(_options, bundle) {
+			const chunks = Object.entries(bundle).filter(([, c]) => c.type === 'chunk')
+			if (!chunks.some(([file]) => file.startsWith('_app/immutable/'))) return
+			const idsOf = (c) => c.moduleIds ?? Object.keys(c.modules ?? {})
+			for (const route of routes) {
+				const starts = chunks
+					.filter(([, c]) => idsOf(c).some((id) => id.includes(route)))
+					.map(([file]) => file)
+				if (!starts.length)
+					this.error(`No chunk contains ${route}; update assertLeanPublicAppRoutes`)
+				const seen = new Set(starts)
+				const queue = [...starts]
+				while (queue.length) {
+					const chunk = bundle[queue.shift()]
+					if (!chunk) continue
+					const hit = idsOf(chunk).find((id) => forbidden.some((f) => id.includes(f)))
+					if (hit) {
+						this.error(`${route} statically loads ${hit}; import it lazily (see loadAppPreview.ts)`)
+					}
+					for (const dep of chunk.imports ?? []) {
+						if (seen.has(dep)) continue
+						seen.add(dep)
+						queue.push(dep)
+					}
+				}
+			}
+		}
+	}
+}
+
 const remoteUrl =
 	process.env.REMOTE ??
 	(process.env.BACKEND_PORT
@@ -188,7 +234,8 @@ const config = {
 		sveltekit(),
 		...(process.env.HTTPS === 'true' ? [mkcert()] : []),
 		plugin,
-		assertAcyclicChunks()
+		assertAcyclicChunks(),
+		assertLeanPublicAppRoutes()
 	],
 	define: { __pkg__: version },
 	optimizeDeps: {
