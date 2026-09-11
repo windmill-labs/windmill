@@ -51,6 +51,9 @@
 	// releasing them on component teardown. `states` indexes the resulting
 	// handles by workspace ID for ergonomic lookup downstream.
 	let workspaceSpecs = $state<Array<{ ws: string; defaultValue: VariableState }>>([])
+	// Plain objects keyed by workspace id, so an id that is also an `Object.prototype` key
+	// (`constructor`, …) reads as already present and the variable never loads. Such ids are
+	// deliberately unsupported: too unlikely to be worth guarding every read.
 	let initialStates: Record<string, VariableState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let extraPerms: Record<string, Record<string, boolean>> = $state({})

@@ -18,8 +18,6 @@ import { getWorkspaceRole, type RoleLookup } from '$lib/user'
 export function useActingUser(workspace: () => string | undefined) {
 	const navWorkspace = fromStore(workspaceStore)
 	const navUser = fromStore(userStore)
-	// A Map, not an object: a workspace may legitimately be named `constructor`, which a plain
-	// object would answer for out of its prototype.
 	const looked = new SvelteMap<string, RoleLookup>()
 	// The workspace this effect last acted on, so arriving at one is distinguishable from the
 	// effect re-running while already there.
