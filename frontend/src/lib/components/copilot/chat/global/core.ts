@@ -5816,11 +5816,10 @@ async function runDeployedFlow(
 	// No live editor is driven here as a test run drives one: that editor holds the draft, and a
 	// deployed run painted into its graph would show steps that are not the ones running.
 	const flow = await FlowService.getFlowByPath({ workspace, path: args.path })
-	const schema = (flow.schema as Record<string, any> | null | undefined) ?? {}
 	return runThroughForm(
 		{
 			path: args.path,
-			schema,
+			schema: (flow.schema as Record<string, any>) ?? {},
 			summary: flow.summary,
 			kind: 'run',
 			// No code/lang: the dynamic-option pickers come from the deployed flow, not an inline copy.

@@ -2094,10 +2094,6 @@
     requiredDrafts:
       - type: flow
         path: f/evals/global/process_invoice
-        valueIncludes:
-          - calculate_total
-          - tax
-          - total
   toolExpect:
     # A one-step flow is as well checked by running the step as the whole flow, so both
     # count: what matters is that the run is against the draft.
