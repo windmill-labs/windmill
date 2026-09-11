@@ -6896,10 +6896,10 @@ async fn push_inner<'c, 'd>(
         language as Option<ScriptLang>,
         same_worker,
         pre_run_error.map(|e| e.to_string()),
-        // `job_authed`'s, not the caller's: that one came through
-        // `fetch_authed_from_permissioned_as`, which re-resolves the address from the principal's
-        // live binding. The same statement writes it to `job_perms.email`, and the two columns
-        // naming different accounts is the state this is here to prevent.
+        // `job_authed`'s, not the handed-in `email`: unless the caller's own authed already names
+        // this identity, it came through `fetch_authed_from_permissioned_as`, which re-resolves the
+        // address from the principal's live binding. The same statement writes it to
+        // `job_perms.email`, and the two columns naming different accounts is what this prevents.
         job_authed.email,
         visible_to_owner,
         flow_innermost_root_job,
@@ -7017,7 +7017,7 @@ async fn push_inner<'c, 'd>(
             hm.insert("created_by", user);
         }
         let audit_author = AuditAuthor {
-            // The validated address, matching `v2_job` and `job_perms` above.
+            // `job_authed`'s address, matching `v2_job` and `job_perms` above.
             email: job_authed.email.clone(),
             username: if runs_on_behalf {
                 windmill_common::auth::permissioned_as_to_username(&permissioned_as)
