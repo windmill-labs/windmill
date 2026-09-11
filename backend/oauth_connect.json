@@ -241,6 +241,7 @@
     }
   },
   "snowflake_oauth": {
+    "resource_fields": ["database", "warehouse", "role", "schema"],
     "connect_config_template": {
       "display_name": "Snowflake",
       "label": "Snowflake Account Identifier",

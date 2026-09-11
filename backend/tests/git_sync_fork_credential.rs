@@ -251,23 +251,25 @@ async fn a_credential_is_not_served_over_a_downgraded_transport(
     Ok(())
 }
 
-/// A GitLab the server refuses to reach is the error reported, not the GitHub App
-/// lookup that runs after it: for a self-managed GitLab on a private network,
-/// "no GitHub App installation" names neither the host nor the setting that
-/// allows it.
+/// A GitLab the server cannot reach is the error reported, not the GitHub App
+/// lookup that runs after it: for a self-managed GitLab behind a firewall or an
+/// untrusted certificate, "no GitHub App installation" names neither the host
+/// nor the cause.
 #[sqlx::test(fixtures("git_sync_fork_credential"))]
-async fn a_refused_gitlab_host_is_the_reported_error(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn an_unreachable_gitlab_host_is_the_reported_error(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     let err = create_repo_webhook(
         &db,
         "parent-ws",
-        "http://glpat-secret@10.0.0.5/grp/proj.git",
+        "http://glpat-secret@127.0.0.1:1/grp/proj.git",
         "https://windmill.example/api/w/parent-ws/git_sync/webhook/gitlab",
         "hook-secret",
     )
     .await
-    .expect_err("a private host is refused");
+    .expect_err("nothing listens on port 1");
     assert!(
-        err.to_string().contains("ALLOW_LOCAL_GIT_REMOTES"),
+        err.to_string().contains("Could not reach the git host"),
         "unexpected error: {err}"
     );
     assert!(

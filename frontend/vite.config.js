@@ -73,13 +73,89 @@ function assertAcyclicChunks() {
 	}
 }
 
+/**
+ * Fail the build if a public app URL statically loads the low-code runtime or monaco.
+ *
+ * These pages also serve raw apps, which only need a small shell around their bundle's
+ * iframe. One static import of AppPreview (or of anything reaching monaco) makes every
+ * public app page preload ~650 chunks instead of ~55. See loadAppPreview.ts.
+ */
+function assertLeanPublicAppRoutes() {
+	// Route directories, so +page.js counts as well as +page.svelte.
+	const routes = ['/src/routes/public/[workspace]/[...secret]/', '/src/routes/a/[...path]/']
+	const forbidden = [
+		'/src/lib/components/apps/editor/AppPreview.svelte',
+		'/node_modules/monaco-editor/'
+	]
+	return {
+		name: 'wm-assert-lean-public-app-routes',
+		generateBundle(_options, bundle) {
+			const chunks = Object.entries(bundle).filter(([, c]) => c.type === 'chunk')
+			if (!chunks.some(([file]) => file.startsWith('_app/immutable/'))) return
+			const idsOf = (c) => c.moduleIds ?? Object.keys(c.modules ?? {})
+			for (const route of routes) {
+				const starts = chunks
+					.filter(([, c]) => idsOf(c).some((id) => id.includes(route)))
+					.map(([file]) => file)
+				if (!starts.length)
+					this.error(`No chunk contains ${route}; update assertLeanPublicAppRoutes`)
+				const seen = new Set(starts)
+				const queue = [...starts]
+				while (queue.length) {
+					const chunk = bundle[queue.shift()]
+					if (!chunk) continue
+					const hit = idsOf(chunk).find((id) => forbidden.some((f) => id.includes(f)))
+					if (hit) {
+						this.error(`${route} statically loads ${hit}; import it lazily (see loadAppPreview.ts)`)
+					}
+					for (const dep of chunk.imports ?? []) {
+						if (seen.has(dep)) continue
+						seen.add(dep)
+						queue.push(dep)
+					}
+				}
+			}
+		}
+	}
+}
+
 const remoteUrl =
 	process.env.REMOTE ??
 	(process.env.BACKEND_PORT
 		? `http://localhost:${process.env.BACKEND_PORT}`
 		: 'https://app.windmill.dev/')
 
-const cookieDomain = process.env.ISOLATE_DEV_AUTH === '1' ? '' : 'localhost'
+// Browsers scope cookies by host, not port, so dev servers sharing a host (one per
+// worktree) would share one `token` and each login would sign the others out. The session
+// is stored under a name tied to its backend and forwarded as `token`, the name the backend
+// reads. ISOLATE_DEV_AUTH=0 keeps the shared `token` for tools reading it across instances.
+const isolateDevAuth = process.env.ISOLATE_DEV_AUTH !== '0'
+const authCookie = `token_${new URL(remoteUrl).host.replace(/\W/g, '_')}`
+
+// Isolated cookies are host-only: `Domain=localhost` is rejected when the dev server is
+// reached as 127.0.0.1 or over the network.
+const cookieDomain = isolateDevAuth ? '' : 'localhost'
+
+function isolateAuthCookie(proxy) {
+	if (!isolateDevAuth) return
+	proxy.on('proxyReq', (proxyReq, req) => {
+		const kept = []
+		let session
+		for (const cookie of (req.headers.cookie ?? '').split(/;\s*/)) {
+			if (cookie.startsWith(`${authCookie}=`)) session = cookie.slice(authCookie.length + 1)
+			else if (cookie && !cookie.startsWith('token=')) kept.push(cookie)
+		}
+		if (session !== undefined) kept.push(`token=${session}`)
+		if (kept.length) proxyReq.setHeader('cookie', kept.join('; '))
+		else proxyReq.removeHeader('cookie')
+	})
+	proxy.on('proxyRes', (proxyRes) => {
+		const setCookie = proxyRes.headers['set-cookie']
+		if (setCookie) {
+			proxyRes.headers['set-cookie'] = setCookie.map((c) => c.replace(/^token=/, `${authCookie}=`))
+		}
+	})
+}
 
 // Cross-origin isolation headers, scoped to mirror the production predicate —
 // see `needs_cross_origin_isolation` in backend/windmill-api/src/static_assets.rs
@@ -133,13 +209,15 @@ const config = {
 			'^/\\.well-known/.*': {
 				target: remoteUrl,
 				changeOrigin: true,
-				cookieDomainRewrite: cookieDomain
+				cookieDomainRewrite: cookieDomain,
+				configure: isolateAuthCookie
 			},
 			'^/api/w/[^/]+/s3_proxy/.*': {
 				target: remoteUrl,
 				changeOrigin: false, // Important for signature to be correct
 				cookieDomainRewrite: cookieDomain,
 				configure: (proxy, options) => {
+					isolateAuthCookie(proxy)
 					proxy.on('proxyReq', (proxyReq, req, res) => {
 						// Prevent collapsing slashes during URL normalization
 						const originalPath = req.url
@@ -151,7 +229,8 @@ const config = {
 			'^/api/.*': {
 				target: remoteUrl,
 				changeOrigin: true,
-				cookieDomainRewrite: cookieDomain
+				cookieDomainRewrite: cookieDomain,
+				configure: isolateAuthCookie
 			},
 			'^/ws/.*': {
 				target: process.env.REMOTE_LSP ?? process.env.REMOTE_EXTRA ?? 'https://app.windmill.dev',
@@ -188,7 +267,8 @@ const config = {
 		sveltekit(),
 		...(process.env.HTTPS === 'true' ? [mkcert()] : []),
 		plugin,
-		assertAcyclicChunks()
+		assertAcyclicChunks(),
+		assertLeanPublicAppRoutes()
 	],
 	define: { __pkg__: version },
 	optimizeDeps: {

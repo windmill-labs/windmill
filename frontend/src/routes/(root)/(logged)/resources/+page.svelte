@@ -1546,6 +1546,7 @@
 
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
+	workspace={$workspaceStore}
 	on:refresh={loadResources}
 	onRestored={loadResources}
 />

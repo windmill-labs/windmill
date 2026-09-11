@@ -1121,15 +1121,72 @@ pub struct PreparedProject {
     /// Written nsjail profile for this job, when the worker sandboxes jobs.
     /// `None` means the phases run unsandboxed, exactly as before.
     pub sandbox_config: Option<SandboxProfile>,
-    /// One-way digest of the rendered profile — the resolved connection, not
-    /// just the names it exposes. A resource repointed from one warehouse to
-    /// another that happens to use the same database and schema names is
-    /// invisible to `relation_root`, and a retry would then execute the saved
-    /// failures against a warehouse where the successful nodes do not exist.
+    /// One-way digest of the rendered profile, credentials masked: the resolved
+    /// connection, not just the names it exposes. A resource repointed from one
+    /// warehouse to another that happens to use the same database and schema
+    /// names is invisible to `relation_root`, and a retry would then execute the
+    /// saved failures against a warehouse where the successful nodes do not exist.
     pub profile_digest: String,
+    /// The job's client, which `refresh_profile` re-resolves the warehouse with.
+    client: AuthedClient,
 }
 
 impl PreparedProject {
+    /// Re-resolve the warehouse and rewrite `profiles.yml` just before a dbt
+    /// process that logs in. What preparation wrote can have expired by then: a
+    /// Snowflake OAuth token lasts ten minutes, and the build follows `dbt deps`
+    /// and a parse, the `after_all` tests follow the build, a node retry follows
+    /// its backoff.
+    pub(crate) async fn refresh_profile(
+        &self,
+        descriptor: &DbtDescriptor,
+        job_id: &Uuid,
+        w_id: &str,
+        conn: &Connection,
+    ) -> error::Result<()> {
+        // A project-owned `profiles.yml` is rendered by dbt itself, from an
+        // environment resolved once.
+        if descriptor.profile.profiles_yml.is_some() {
+            return Ok(());
+        }
+        let fresh = match write_profiles(
+            descriptor,
+            &self.project_dir,
+            &self.project_dir.to_string_lossy(),
+            &self.client,
+            &self.template_env(),
+        )
+        .await
+        {
+            Ok(fresh) => fresh,
+            // The profile on disk is still whole: a credential that does not
+            // expire connects with it exactly as before.
+            Err(e) => {
+                append_logs(
+                    job_id,
+                    w_id,
+                    format!(
+                        "\nCould not re-resolve the warehouse, so this dbt process uses the \
+                         credentials resolved earlier in the job: {e}\n"
+                    ),
+                    conn,
+                )
+                .await;
+                return Ok(());
+            }
+        };
+        // Credentials are masked out of the digest, so a mismatch is the warehouse
+        // itself moving mid-run, and this process would build somewhere else.
+        if fresh.digest != self.profile_digest {
+            return Err(Error::BadRequest(format!(
+                "the `{}` warehouse was repointed while this run was in progress; run the \
+                 script again",
+                self.warehouse.as_deref().unwrap_or(DBT_DEFAULT_WAREHOUSE)
+            )));
+        }
+        Ok(())
+    }
+
     /// Where this run's relations live: the resolved schema and database. Drift
     /// here since the deploy means the stored graph names relations that no
     /// longer exist.
@@ -1388,6 +1445,7 @@ pub(crate) async fn prepare_project(
         },
         sandbox_config,
         profile_digest: profile.digest,
+        client: client.clone(),
         project_dir,
         profiles_dir: profile.dir,
         engine,
@@ -1883,9 +1941,6 @@ async fn write_profiles(
         .or(workspace_target.as_deref())
         .unwrap_or("default");
     let dir = PathBuf::from(job_dir).join("dbt_profiles");
-    tokio::fs::create_dir_all(&dir)
-        .await
-        .map_err(|e| Error::internal_err(format!("creating the profiles dir: {e}")))?;
     let rendered = if is_dbt_profile {
         let block = value.as_object().ok_or_else(|| {
             Error::BadRequest(
@@ -1906,6 +1961,7 @@ async fn write_profiles(
     } else {
         render_profile(
             &adapter,
+            descriptor.engine(),
             &value,
             &profile_name,
             target,
@@ -1914,6 +1970,10 @@ async fn write_profiles(
             &dir,
         )?
     };
+    // After the render, so a render that fails leaves the previous profile whole.
+    fresh_dir(&dir)
+        .await
+        .map_err(|e| Error::internal_err(format!("creating the profiles dir: {e}")))?;
     write_file(dir.to_str().unwrap(), "profiles.yml", &rendered.yaml)?;
     if let Some(pem) = rendered.root_certificate_pem.as_deref() {
         write_file(
@@ -1923,7 +1983,7 @@ async fn write_profiles(
         )?;
     }
     let profile_digest = profile_identity_digest(
-        &rendered.yaml,
+        &rendered.identity,
         &dir,
         rendered.root_certificate_pem.as_deref(),
         &client.token,
@@ -1946,6 +2006,20 @@ async fn write_profiles(
     })
 }
 
+/// An empty directory at `dir`, whatever was there. `refresh_profile` writes into
+/// the job directory after project code has run in a jail that can write it, and a
+/// symlink left at `dir` or inside it would carry the worker's write out of the
+/// sandbox. An entry that is not a real directory is unlinked, never followed.
+async fn fresh_dir(dir: &Path) -> std::io::Result<()> {
+    match tokio::fs::symlink_metadata(dir).await {
+        Ok(m) if m.is_dir() => tokio::fs::remove_dir_all(dir).await?,
+        Ok(_) => tokio::fs::remove_file(dir).await?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    tokio::fs::create_dir_all(dir).await
+}
+
 /// Where a workspace warehouse name points: its resource path and, if the
 /// workspace names one, its target.
 async fn resolve_warehouse(
@@ -1965,7 +2039,9 @@ async fn resolve_warehouse(
         .map_err(|e| Error::BadRequest(format!("resolving the dbt warehouse `{warehouse}`: {e}")))
 }
 
-/// Identifies the connection a rendered profile describes, for run identity.
+/// Identifies the connection a rendered profile describes, for run identity,
+/// from the rendering whose credentials are already masked
+/// (`RenderedProfile::identity`).
 ///
 /// Two things in the rendered text belong to the ATTEMPT rather than the
 /// connection, and hashing either as-is makes a retry reject its own
@@ -2271,7 +2347,11 @@ pub(crate) fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
-        .env("GIT_PATH", GIT_PATH.as_str());
+        .env("GIT_PATH", GIT_PATH.as_str())
+        // dbt reports anonymous usage to dbt Labs from every invocation unless told
+        // not to, and a project's `flags:` block cannot override the variable. Set
+        // before the project's environment so a descriptor can still opt back in.
+        .env("DBT_SEND_ANONYMOUS_USAGE_STATS", "false");
     // Both environments belong to the child. Under a sandbox they reach it through
     // the jail profile instead: set here, they would reach the dynamic loader that
     // execs nsjail itself, so an `LD_PRELOAD` from the project would run as the
@@ -2490,6 +2570,8 @@ async fn run_dbt(
     ctx: &mut JobCtx<'_>,
     with_selection: bool,
 ) -> error::Result<()> {
+    p.refresh_profile(descriptor, &job.id, &job.workspace_id, conn)
+        .await?;
     let mut cmd = dbt_command(p, &[command]);
     // The console stays human-readable and goes straight to the job log; the
     // machine-readable copy goes to a file the progress reporter tails, so
@@ -3153,6 +3235,7 @@ async fn run_show(
              `@`) or wildcard (`*`), resolves to a set: run `build` with it instead"
         )));
     }
+    p.refresh_profile(descriptor, job_id, w_id, conn).await?;
     let mut cmd = dbt_command(p, &["show"]);
     if inv.deferral.is_some() {
         cmd.args(defer_flags("show", p.engine.engine));
@@ -5712,17 +5795,44 @@ mod tests {
     // and without normalizing it the saved run is never recognized as its own.
     #[test]
     fn profile_identity_ignores_the_attempts_token() {
-        let yaml = |tok: &str| format!("host: \"wh\"\npassword: \"{tok}\"\n");
+        let yaml = |v: &str| format!("host: \"{v}\"\nuser: \"u\"\n");
         let dir = Path::new("/tmp/windmill/w/job-1/profiles");
         assert_eq!(
             profile_identity_digest(&yaml("tok-first"), dir, None, "tok-first"),
             profile_identity_digest(&yaml("tok-retry"), dir, None, "tok-retry")
         );
-        // A password that is NOT the job's token is the connection, and changing
-        // it must still read as a different warehouse.
+        // A value that is NOT the job's token is the connection, and changing it
+        // must still read as a different warehouse.
         assert_ne!(
             profile_identity_digest(&yaml("static-a"), dir, None, "tok-first"),
             profile_identity_digest(&yaml("static-b"), dir, None, "tok-retry")
+        );
+    }
+
+    // Project code can leave a symlink where the worker later writes the profile:
+    // either the directory or the file in it. Neither may be followed.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn fresh_dir_never_follows_what_the_jail_left() {
+        let root = tempfile::tempdir().unwrap();
+        let host = root.path().join("host");
+        std::fs::create_dir(&host).unwrap();
+        std::fs::write(host.join("profiles.yml"), "host file").unwrap();
+        let dir = root.path().join("dbt_profiles");
+
+        std::os::unix::fs::symlink(&host, &dir).unwrap();
+        fresh_dir(&dir).await.unwrap();
+        assert!(!std::fs::symlink_metadata(&dir).unwrap().is_symlink());
+        std::fs::write(dir.join("profiles.yml"), "rendered").unwrap();
+
+        fresh_dir(&dir).await.unwrap();
+        std::os::unix::fs::symlink(host.join("profiles.yml"), dir.join("profiles.yml")).unwrap();
+        fresh_dir(&dir).await.unwrap();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+
+        assert_eq!(
+            std::fs::read_to_string(host.join("profiles.yml")).unwrap(),
+            "host file"
         );
     }
 
