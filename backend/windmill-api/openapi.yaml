@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.808.0
+  version: 1.809.0
   title: Windmill API
 
   contact:
@@ -16851,6 +16851,7 @@ paths:
                   - can_approve
                   - user_auth_required
                   - approvers
+                  - skin
                 properties:
                   flow_id:
                     type: string
@@ -16883,6 +16884,16 @@ paths:
                   hide_cancel:
                     type: boolean
                     description: whether to hide the cancel button in the UI
+                  skin:
+                    type: string
+                    enum: [detailed, minimal]
+                    description: how the approval page presents the request
+                  step_summary:
+                    type: string
+                    description: summary of the approval step, for the page title
+                  flow_summary:
+                    type: string
+                    description: summary of the flow or workflow the approval belongs to
                   approvers:
                     type: array
                     items:
