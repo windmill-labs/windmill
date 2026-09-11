@@ -4,7 +4,8 @@
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import AgentTrace from './AgentTrace.svelte'
 	import LabeledDivider from './LabeledDivider.svelte'
-	import { buildAgentTrace } from './agentTrace'
+	import WebSearchSourcesDisplay from './copilot/chat/WebSearchSourcesDisplay.svelte'
+	import { buildAgentTrace, splitFinalAnswer } from './agentTrace'
 	import { runPane } from './agentScroll'
 	import { createBottomSticker } from './stickToBottom'
 	import { formatTokenCount, summarizeAgentResult, type AgentResult } from './aiAgentResult'
@@ -29,13 +30,11 @@
 	let summary = $derived(summarizeAgentResult(result))
 	let textOutput = $derived(typeof result.output === 'string' ? result.output : undefined)
 
-	// The run's last message is what produced `output`, so it is dropped from the
-	// trace: the output block below is that same text, and printing it twice in
-	// one scroll reads as the agent having answered itself.
-	let trace = $derived.by(() => {
-		const entries = buildAgentTrace(result.messages)
-		return entries.at(-1)?.kind === 'assistant' ? entries.slice(0, -1) : entries
-	})
+	// The turn that produced `output` is not a trace row: the output block below is
+	// that same text, and printing it twice in one scroll reads as the agent having
+	// answered itself. Its citations move down with it.
+	let answer = $derived(splitFinalAnswer(buildAgentTrace(result.messages), result.output))
+	let trace = $derived(answer.trace)
 
 	let anchor: HTMLElement | undefined = $state()
 	const sticker = createBottomSticker()
@@ -68,6 +67,11 @@
 			{/if}
 		{:else}
 			{@render structuredOutput(result.output)}
+		{/if}
+		{#if answer.sources}
+			<div class="mt-2">
+				<WebSearchSourcesDisplay sources={answer.sources} />
+			</div>
 		{/if}
 	</div>
 

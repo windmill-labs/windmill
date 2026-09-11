@@ -110,3 +110,35 @@ export function buildAgentTrace(messages: AgentMessage[]): AgentTraceEntry[] {
 	return entries
 }
 
+/**
+ * Separates the turn that produced the output from the rest of the trace, so a
+ * view can render the answer once, under its own heading, with the citations
+ * that belong to it.
+ *
+ * The turn is found by content, and from the end rather than at it. Every turn
+ * that produced text is an entry while only one of them became the output, so a
+ * run whose last turn returned a tool call and no text leaves its answer sitting
+ * mid-trace — and anything that only inspects the final entry renders that answer
+ * twice. Searching from the end is what makes two turns of identical text resolve
+ * to the later one.
+ */
+export function splitFinalAnswer(
+	entries: AgentTraceEntry[],
+	output: unknown
+): { trace: AgentTraceEntry[]; sources?: WebSearchSource[] } {
+	if (typeof output !== 'string') {
+		// A schema-shaped output is rendered by the result viewer itself and matches
+		// no turn, so the whole trace stands.
+		return { trace: entries }
+	}
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i]
+		if (entry.kind === 'assistant' && entry.content === output) {
+			// The citations are an annotation on that turn, so moving the turn without
+			// them would leave a run that shows a web search ran and no source for
+			// what it answered.
+			return { trace: [...entries.slice(0, i), ...entries.slice(i + 1)], sources: entry.sources }
+		}
+	}
+	return { trace: entries }
+}

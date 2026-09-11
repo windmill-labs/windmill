@@ -13,7 +13,7 @@
  * Distance from the end within which a reader counts as still following. Allows
  * for sub-pixel rounding from `scrollTo` and the occasional overscroll bounce.
  */
-export const STICK_TO_BOTTOM_PX = 8
+const STICK_TO_BOTTOM_PX = 8
 
 /** A scroll event this close after our own scroll is ours, not the reader's. */
 const OWN_SCROLL_WINDOW_MS = 120

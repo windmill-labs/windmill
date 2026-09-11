@@ -92,7 +92,10 @@ describe('agent stream', () => {
 	// The stream only grows, so each poll must fold in the new lines and re-read
 	// none of the old ones — the reason this is incremental at all.
 	it('resumes where the previous poll stopped', () => {
-		const firstPoll = advanceAgentStream(lines.slice(0, 3).join('\n') + '\n', emptyAgentStreamProgress())
+		const firstPoll = advanceAgentStream(
+			lines.slice(0, 3).join('\n') + '\n',
+			emptyAgentStreamProgress()
+		)
 		const secondPoll = advanceAgentStream(events, firstPoll)
 		expect(secondPoll.consumed).toBe(events.length)
 		expect(secondPoll.stream.current).toBe('eu-central-1 is down')
@@ -136,7 +139,7 @@ describe('formatTokenCount', () => {
 // tool at once. Appending across that boundary makes the live answer read
 // "I'll checkThe issue is..." and never converge on the finished output.
 describe('a stream that narrates before calling a tool', () => {
-	it('keeps only the turn that produced the answer', () => {
+	it('turns the narration into a row and starts the answer fresh', () => {
 		const raw = [
 			'{"type":"token_delta","content":"Let me check the metrics."}',
 			'{"type":"tool_call","call_id":"c1","function_name":"query_metrics"}',
@@ -150,7 +153,7 @@ describe('a stream that narrates before calling a tool', () => {
 		expect(stream.entries[0]).toEqual({ kind: 'assistant', content: 'Let me check the metrics.' })
 	})
 
-	it('drops the narration at the boundary even across polls', () => {
+	it('closes the turn at the boundary even when polls split it', () => {
 		const first = '{"type":"token_delta","content":"Let me check."}\n'
 		const afterCall = first + '{"type":"tool_call","call_id":"c1","function_name":"q"}\n'
 		const poll1 = advanceAgentStream(first, emptyAgentStreamProgress())
@@ -158,8 +161,25 @@ describe('a stream that narrates before calling a tool', () => {
 		const poll2 = advanceAgentStream(afterCall, poll1)
 		expect(poll2.stream.current).toBe('')
 		expect(poll2.stream.entries[0]).toEqual({ kind: 'assistant', content: 'Let me check.' })
-		const poll3 = advanceAgentStream(afterCall + '{"type":"token_delta","content":"Done."}\n', poll2)
+		const poll3 = advanceAgentStream(
+			afterCall + '{"type":"token_delta","content":"Done."}\n',
+			poll2
+		)
 		expect(poll3.stream.current).toBe('Done.')
+	})
+
+	// Extended thinking emits reasoning with no narration before the tool call, so
+	// the turn boundary is the only thing that can end it.
+	it('ends a turn that thought without narrating', () => {
+		const raw = [
+			'{"type":"reasoning_token_delta","content":"The user wants the metrics."}',
+			'{"type":"tool_call","call_id":"c1","function_name":"q"}',
+			'{"type":"tool_result","call_id":"c1","function_name":"q","result":"{}","success":true}',
+			'{"type":"reasoning_token_delta","content":"eu-central-1 looks down."}',
+			''
+		].join('\n')
+		const { stream } = advanceAgentStream(raw, emptyAgentStreamProgress())
+		expect(stream.reasoning).toBe('eu-central-1 looks down.')
 	})
 
 	// Bedrock has its own streaming implementation rather than the shared SSE
@@ -194,8 +214,14 @@ describe('coercing messages at the boundary', () => {
 	it.each([
 		['tool_calls that are not a list', { role: 'assistant', tool_calls: {} }],
 		['a null entry inside tool_calls', { role: 'assistant', tool_calls: [null] }],
-		['a tool call whose function is a string', { role: 'assistant', tool_calls: [{ id: 'c1', function: 'q' }] }],
-		['non-string arguments', { role: 'assistant', tool_calls: [{ id: 'c1', function: { arguments: 3 } }] }],
+		[
+			'a tool call whose function is a string',
+			{ role: 'assistant', tool_calls: [{ id: 'c1', function: 'q' }] }
+		],
+		[
+			'non-string arguments',
+			{ role: 'assistant', tool_calls: [{ id: 'c1', function: { arguments: 3 } }] }
+		],
 		['annotations that are not a list', { role: 'assistant', annotations: 'abc' }],
 		['a null entry inside annotations', { role: 'assistant', annotations: [null] }],
 		['an annotation with no url', { role: 'assistant', annotations: [{ title: 'x' }] }],
@@ -209,7 +235,10 @@ describe('coercing messages at the boundary', () => {
 
 	it('keeps a well-formed call intact', () => {
 		const parsed = messagesOf([
-			{ role: 'assistant', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'q', arguments: '{}' } }] }
+			{
+				role: 'assistant',
+				tool_calls: [{ id: 'c1', type: 'function', function: { name: 'q', arguments: '{}' } }]
+			}
 		])
 		expect(parsed?.[0].tool_calls).toEqual([
 			{ id: 'c1', type: 'function', function: { name: 'q', arguments: '{}' } }

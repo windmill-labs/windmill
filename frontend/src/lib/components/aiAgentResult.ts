@@ -67,7 +67,9 @@ function toAgentMessage(raw: Record<string, unknown>): AgentMessage {
 			}))
 		: undefined
 	const annotations = Array.isArray(raw.annotations)
-		? raw.annotations.filter((a): a is Record<string, unknown> => isRecord(a) && typeof a.url === 'string')
+		? raw.annotations.filter(
+				(a): a is Record<string, unknown> => isRecord(a) && typeof a.url === 'string'
+			)
 		: undefined
 	return {
 		role: raw.role as string,
@@ -299,13 +301,19 @@ export function advanceAgentStream(
 		} else if (event.type === 'reasoning_token_delta' && typeof event.content === 'string') {
 			stream.reasoning += event.content
 		} else if (typeof event.function_name === 'string') {
-			if (TOOL_TURN_STARTED.includes(event.type) && stream.current !== '') {
-				// A model can narrate and request a tool in the same turn. The call
-				// settles what that text was: narration, not the output. It becomes a
-				// row rather than being dropped, so nothing vanishes from the screen
-				// only to reappear when the result lands.
-				stream.entries.push({ kind: 'assistant', content: stream.current })
-				stream.current = ''
+			if (TOOL_TURN_STARTED.includes(event.type)) {
+				if (stream.current !== '') {
+					// A model can narrate and request a tool in the same turn. The call
+					// settles what that text was: narration, not the output. It becomes a
+					// row rather than being dropped, so nothing vanishes from the screen
+					// only to reappear when the result lands.
+					stream.entries.push({ kind: 'assistant', content: stream.current })
+					stream.current = ''
+				}
+				// Thinking belongs to the turn that produced it, and a turn can think
+				// without narrating — extended thinking before a tool call is exactly
+				// that shape. So this clears on the boundary itself, not with the
+				// narration, or one turn's thoughts run into the next turn's.
 				stream.reasoning = ''
 			}
 			// The same call is announced, then argued, then executed, then answered.
