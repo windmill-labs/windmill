@@ -59,6 +59,7 @@
 	// The flow_version the draft was forked from (pinned, doesn't drift), for the
 	// precise staleness check in DraftEditorModals + FlowBuilder's deploy guard.
 	let draftBaseVersion = $state<string | undefined>(undefined)
+	let deployedBy = $state<string | undefined>(undefined)
 	// Editor-displayed path; defaults to the URL path. Cleared to '' in the
 	// `new_draft` branch so the Path widget's `initPath` seeds the friendly name.
 	let flowInitialPath = $state(page.params.path ?? '')
@@ -163,6 +164,7 @@
 			// bleed across the reused route and falsely trip the stale-draft modal.
 			version = undefined
 			draftBaseVersion = undefined
+			deployedBy = undefined
 			// Brand-new flow: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			// Suspend autosave around the bootstrap cascade: the Path widget's
@@ -372,6 +374,7 @@
 		// is the deploy time (from `flow_version.created_at`), `draft_saved_at` the draft's.
 		draftSavedAt = backendFlow.draft_saved_at as string | undefined
 		deployedAt = backendFlow.edited_at as string | undefined
+		deployedBy = backendFlow.edited_by as string | undefined
 		// Layer the draft (`.draft`, if any) over the deployed payload at the field
 		// level. See /scripts/edit's loader for the rationale.
 		const { draft: draftFromBackend, ...deployedFlow } = backendFlow as any
@@ -524,6 +527,14 @@
 	{deployedAt}
 	{draftBaseVersion}
 	deployedHeadVersion={version != null ? String(version) : undefined}
+	{deployedBy}
+	onTakeLatest={async () => {
+		const head = version
+		if (!draftSync.draft || head == null || !$workspaceStore) return
+		draftSync.draft = { ...draftSync.draft, version_id: head }
+		draftBaseVersion = String(head)
+		await UserDraft.forcePersist('flow', flowDraftPath, { workspace: $workspaceStore })
+	}}
 	onViewDiff={() => flowBuilder?.openDiffDrawer()}
 	onBeforeRelocate={() => flowBuilder?.saveDraft()}
 	onLoadLatestDeploy={async () => {

@@ -50,8 +50,13 @@
 		 *  fallback. */
 		draftBaseVersion?: string | undefined
 		deployedHeadVersion?: string | undefined
+		/** Who deployed the head, named in the stale prompt. */
+		deployedBy?: string | undefined
 		/** Discard the draft and reload deployed (same as "Reset to deployed"). */
 		onLoadLatestDeploy?: () => void | Promise<void>
+		/** Move the draft's base to the head and keep its content (see
+		 *  StaleDraftModal). Omit where the route cannot set the base. */
+		onTakeLatest?: () => void | Promise<void>
 		/** Opens the editor's Deployed↔Current diff from the stale prompt, so the
 		 *  choice between keeping and discarding is informed. Omit where the editor
 		 *  has no diff drawer; the action is then not rendered. */
@@ -79,8 +84,10 @@
 		deployedAt = undefined,
 		draftBaseVersion = undefined,
 		deployedHeadVersion = undefined,
+		deployedBy = undefined,
 		onLoadLatestDeploy,
 		onViewDiff,
+		onTakeLatest,
 		onBeforeRelocate,
 		enabled = true
 	}: Props = $props()
@@ -170,10 +177,15 @@
 	{#if onLoadLatestDeploy}
 		<StaleDraftModal
 			bind:isOpen={staleModalOpen}
+			{itemKind}
 			{draftSavedAt}
 			{deployedAt}
+			{draftBaseVersion}
+			{deployedHeadVersion}
+			{deployedBy}
 			{onLoadLatestDeploy}
 			{onViewDiff}
+			{onTakeLatest}
 		/>
 	{/if}
 	<ConfirmationModal

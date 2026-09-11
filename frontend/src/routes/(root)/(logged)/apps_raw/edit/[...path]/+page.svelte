@@ -47,6 +47,9 @@
 		/** User-typed path the home list renders, set only when it differs
 		 *  from the deployed/seeded `savedApp.path`. */
 		draft_path?: string
+		/** The app_version the draft forked from; the server derives `draft.base`
+		 *  from it. */
+		parent_version?: number
 	}
 
 	let files: Record<string, string> | undefined = $state(undefined)
@@ -173,6 +176,7 @@
 	let parentVersion = $state<number | undefined>(undefined)
 	let draftBaseVersion = $state<string | undefined>(undefined)
 	let deployedHeadVersion = $state<string | undefined>(undefined)
+	let deployedBy = $state<string | undefined>(undefined)
 	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
@@ -196,6 +200,7 @@
 			parentVersion = undefined
 			draftBaseVersion = undefined
 			deployedHeadVersion = undefined
+			deployedBy = undefined
 			// `labels` is route-level state; reset it too so a fresh draft doesn't
 			// inherit (and then deploy) the previously-opened app's labels. The
 			// import branch re-seeds it via extractRawApp below.
@@ -315,6 +320,7 @@
 		// See /apps/edit's loader.
 		draftSavedAt = backendApp.draft_saved_at as string | undefined
 		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
+		deployedBy = backendApp.no_deployed ? undefined : (backendApp.created_by as string | undefined)
 		// Head = the last entry of the deployed `versions`. The base the bundle
 		// carries is the draft's own when it has one; a draft that predates the
 		// base (or a fresh checkout) forks from the head from here on.
@@ -575,6 +581,15 @@
 	{deployedAt}
 	{draftBaseVersion}
 	{deployedHeadVersion}
+	{deployedBy}
+	onTakeLatest={() => {
+		const head = deployedHeadVersion != null ? Number(deployedHeadVersion) : undefined
+		if (head == null) return
+		// The bundle carries `parentVersion`, so this alone re-persists the draft.
+		parentVersion = head
+		if (deployedBaseline) deployedBaseline = { ...deployedBaseline, parent_version: head }
+		draftBaseVersion = String(head)
+	}}
 	onViewDiff={() => rawAppEditor?.openDiffDrawer()}
 	onLoadLatestDeploy={async () => {
 		// stopSync-bracketed; see /scripts/edit's restoreDeployed for the race.

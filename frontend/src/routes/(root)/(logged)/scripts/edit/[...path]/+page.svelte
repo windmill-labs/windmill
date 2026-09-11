@@ -111,6 +111,7 @@
 	 *  equivalent of the flow/app version pair. Behind ⇔ the two differ. */
 	let draftBaseHash = $state<string | undefined>(undefined)
 	let deployedHeadHash = $state<string | undefined>(undefined)
+	let deployedBy = $state<string | undefined>(undefined)
 
 	// Remounts ScriptBuilder on nav: false while a reload runs, true once data is
 	// ready. A synchronous `{#key}` swap instead races Monaco's init against the
@@ -157,6 +158,7 @@
 			deployedAt = undefined
 			draftBaseHash = undefined
 			deployedHeadHash = undefined
+			deployedBy = undefined
 			// Brand-new script: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			const templatePath = page.url.searchParams.get('template')
@@ -329,6 +331,7 @@
 			// `created_at` is the latest deploy, `draft_saved_at` the draft's save.
 			draftSavedAt = backendScript.draft_saved_at as string | undefined
 			deployedAt = backendScript.created_at as string | undefined
+			deployedBy = backendScript.created_by as string | undefined
 			// Layer the draft (`.draft`, if any) over the deployed payload at the
 			// field level: the draft supplies editor state (content, summary, …),
 			// the deployed supplies metadata it lacks (hash, version markers).
@@ -485,6 +488,17 @@
 	{deployedAt}
 	draftBaseVersion={draftBaseHash}
 	deployedHeadVersion={deployedHeadHash}
+	{deployedBy}
+	onTakeLatest={async () => {
+		const head = deployedHeadHash
+		if (!draftSync.draft || !head || !$workspaceStore) return
+		draftSync.draft = { ...draftSync.draft, parent_hash: head }
+		// The baseline mirrors the draft's base so an unedited draft still
+		// compares equal and the autosave can discard it.
+		if (deployedBaseline) deployedBaseline = { ...deployedBaseline, parent_hash: head }
+		draftBaseHash = head
+		await UserDraft.forcePersist('script', draftPath, { workspace: $workspaceStore })
+	}}
 	onViewDiff={() => scriptBuilder?.openDiffDrawer()}
 	onBeforeRelocate={() => scriptBuilder?.saveDraft()}
 	onLoadLatestDeploy={async () => {

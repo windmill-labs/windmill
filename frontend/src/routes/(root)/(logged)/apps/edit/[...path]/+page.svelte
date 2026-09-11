@@ -54,6 +54,7 @@
 	// the precise staleness check in DraftEditorModals (vs the drifting timestamp).
 	let draftBaseVersion = $state<string | undefined>(undefined)
 	let deployedHeadVersion = $state<string | undefined>(undefined)
+	let deployedBy = $state<string | undefined>(undefined)
 
 	/** Increments per `loadApp` call. Stale loads (e.g. when picker
 	 * navigation races a draft-discard reload) bail at the next checkpoint
@@ -91,6 +92,7 @@
 			// reused route and falsely trip the stale-draft modal.
 			draftBaseVersion = undefined
 			deployedHeadVersion = undefined
+			deployedBy = undefined
 			// Brand-new app: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			const templatePath = page.url.searchParams.get('template')
@@ -290,6 +292,7 @@
 		// `no_deployed` — no baseline to be older than.
 		draftSavedAt = backendApp.draft_saved_at as string | undefined
 		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
+		deployedBy = backendApp.no_deployed ? undefined : (backendApp.created_by as string | undefined)
 		// The app_version the draft forked from; undefined for a draft never forked
 		// from a deploy. Head = the last entry of the deployed `versions`.
 		draftBaseVersion = backendApp.draft_base
@@ -461,6 +464,14 @@
 	{deployedAt}
 	{draftBaseVersion}
 	{deployedHeadVersion}
+	{deployedBy}
+	onTakeLatest={async () => {
+		const head = deployedHeadVersion != null ? Number(deployedHeadVersion) : undefined
+		if (!app?.value || head == null || !$workspaceStore) return
+		;(app.value as App).parent_version = head
+		draftBaseVersion = String(head)
+		await UserDraft.forcePersist('app', path, { workspace: $workspaceStore })
+	}}
 	onLoadLatestDeploy={async () => {
 		if (!$workspaceStore) return
 		await runResetToDeployed({
