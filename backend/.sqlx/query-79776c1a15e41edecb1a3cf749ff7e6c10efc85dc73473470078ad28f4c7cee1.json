@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by, title)\n         VALUES ($1, $2, $3, $4, $5)\n         RETURNING id, workspace_id, flow_path, title, created_at, updated_at, created_by",
+  "query": "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by, title, is_test)\n         VALUES ($1, $2, $3, $4, $5, $6)\n         RETURNING id, workspace_id, flow_path, title, created_at, updated_at, created_by, is_test",
   "describe": {
     "columns": [
       {
@@ -37,6 +37,11 @@
         "ordinal": 6,
         "name": "created_by",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_test",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -45,7 +50,8 @@
         "Varchar",
         "Varchar",
         "Varchar",
-        "Varchar"
+        "Varchar",
+        "Bool"
       ]
     },
     "nullable": [
@@ -55,8 +61,9 @@
       true,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "6bd23a98838e3eec309e6b696edc776bd56fc9dae1238b3272557d1562400dbe"
+  "hash": "79776c1a15e41edecb1a3cf749ff7e6c10efc85dc73473470078ad28f4c7cee1"
 }

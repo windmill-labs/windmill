@@ -485,12 +485,45 @@ pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> e
     )
     .execute(&mut *conn)
     .await?;
-    sqlx::query!(
-        "DELETE FROM flow_conversation_message WHERE job_id = ANY($1)",
+    let mut conversation_ids: Vec<uuid::Uuid> = sqlx::query_scalar!(
+        "DELETE FROM flow_conversation_message WHERE job_id = ANY($1) RETURNING conversation_id",
         ids
     )
-    .execute(&mut *conn)
+    .fetch_all(&mut *conn)
     .await?;
+    conversation_ids.sort_unstable();
+    conversation_ids.dedup();
+    if !conversation_ids.is_empty() {
+        // A conversation is a view over its messages: once the last one goes with its job,
+        // the row and the agent's memory for it are all that is left, and nothing else
+        // collects them — `ai_agent_memory` carries no job id for retention to match on.
+        // Two statements rather than one CTE: a data-modifying CTE reads the snapshot from
+        // before the delete above, so every conversation would still look non-empty.
+        // Memory first, since it reads the conversation row for its workspace.
+        sqlx::query!(
+            "DELETE FROM ai_agent_memory a
+               USING flow_conversation c
+              WHERE c.id = ANY($1)
+                AND a.conversation_id = c.id
+                AND a.workspace_id = c.workspace_id
+                AND NOT EXISTS (
+                    SELECT 1 FROM flow_conversation_message m WHERE m.conversation_id = c.id
+                )",
+            &conversation_ids
+        )
+        .execute(&mut *conn)
+        .await?;
+        sqlx::query!(
+            "DELETE FROM flow_conversation c
+              WHERE c.id = ANY($1)
+                AND NOT EXISTS (
+                    SELECT 1 FROM flow_conversation_message m WHERE m.conversation_id = c.id
+                )",
+            &conversation_ids
+        )
+        .execute(&mut *conn)
+        .await?;
+    }
     sqlx::query!("DELETE FROM zombie_job_counter WHERE job_id = ANY($1)", ids)
         .execute(&mut *conn)
         .await?;

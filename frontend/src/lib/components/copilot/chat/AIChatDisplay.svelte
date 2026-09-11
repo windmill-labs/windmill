@@ -35,6 +35,7 @@
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
+	import ScrollFade from '$lib/components/ScrollFade.svelte'
 	import AssistantSettingsModal from './AssistantSettingsModal.svelte'
 	import { SkillsMenu } from './skills/skillsMenu.svelte'
 	import { McpMenu } from '$lib/components/mcp/mcpMenu.svelte'
@@ -44,6 +45,7 @@
 	import Markdown from 'svelte-exmarkdown'
 	import { twMerge } from 'tailwind-merge'
 	import { AIAutonomyMode, AIMode } from './AIChatManager.svelte'
+	import { getChatViewHost } from './chatViewHost'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import AIChatInput from './AIChatInput.svelte'
@@ -54,6 +56,7 @@
 	import type { SelectedContext } from './app/core'
 	import { type FileToAttach } from './files/attachedFiles.svelte'
 	import { isImageFile } from './imageUtils'
+	import { matchesAccept } from './blobUtils'
 	import {
 		hasFileSystemAccess,
 		pickDirectory,
@@ -68,6 +71,9 @@
 	import { base } from '$lib/base'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
+	const chatHost = getChatViewHost()
+	// The skill and MCP menus take an AIChatManager itself, which the seam deliberately
+	// doesn't carry. They render only under GLOBAL, which a non-copilot host never sets.
 	const aiChatManager = getAiChatManager()
 
 	// The user spent their one-time free Windmill AI grant: there is no model left to send
@@ -174,8 +180,12 @@
 		wideLayout = false,
 		emptyHint,
 		inputPreface,
+		footerSettings,
 		initialInstructions = undefined,
-		onDraftChange = undefined
+		onDraftChange = undefined,
+		placeholder = undefined,
+		scrollElement = $bindable(),
+		onTranscriptScroll = undefined
 	}: {
 		messages: DisplayMessage[]
 		pastChats: { id: string; title: string }[]
@@ -202,9 +212,18 @@
 		wideLayout?: boolean
 		emptyHint?: Snippet
 		inputPreface?: Snippet
+		/** The settings control at the footer's right edge, where the copilot puts its
+		 * model picker. A host that configures its turn elsewhere replaces it here. */
+		footerSettings?: Snippet
 		// Seed / observe the main composer's draft text (see AIChatInput).
 		initialInstructions?: string
 		onDraftChange?: (text: string) => void
+		/** Composer placeholder. Falls back to the per-AI-mode wording. */
+		placeholder?: string
+		/** The transcript's scroll container. A host that paginates older messages
+		 * needs it to measure and restore the scroll position. */
+		scrollElement?: HTMLDivElement | undefined
+		onTranscriptScroll?: () => void
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
@@ -223,7 +242,7 @@
 	let panelEl: HTMLDivElement | undefined = $state()
 	$effect(() => {
 		function onWindowKeydownCapture(e: KeyboardEvent) {
-			if (e.key !== 'Escape' || !aiChatManager.loading) return
+			if (e.key !== 'Escape' || !chatHost.loading) return
 			const active = document.activeElement
 			const focusOnChat =
 				!active || active === document.body || (panelEl?.contains(active) ?? false)
@@ -231,22 +250,21 @@
 			// row alone stops the turn — wherever it is mounted, since the preview panel holds the
 			// form outside `panelEl`. Matched by call: two chats can be loading at once, and one's
 			// row must not answer for the other.
-			if (aiChatManager.hasPendingRunForm) {
+			if (chatHost.hasPendingRunForm) {
 				const row = active?.closest('[data-run-form-actions]')
 				const toolCallId = row?.getAttribute('data-run-form-actions')
-				if (!toolCallId || !aiChatManager.isRunFormPending(toolCallId)) return
+				if (!toolCallId || !chatHost.isRunFormPending(toolCallId)) return
 			} else if (!focusOnChat) return
 			e.preventDefault()
 			// Immediate form: other chat panels' identical listeners must not
 			// also cancel on body focus, nor a drawer/modal close on this press.
 			e.stopImmediatePropagation()
-			aiChatManager.cancel()
+			chatHost.cancel()
 		}
 		window.addEventListener('keydown', onWindowKeydownCapture, true)
 		return () => window.removeEventListener('keydown', onWindowKeydownCapture, true)
 	})
 
-	let scrollEl: HTMLDivElement | undefined = $state()
 	// Programmatic-scroll guard. `scrollDown()` triggers an async `scroll`
 	// event; if a token-append between the scrollTo and the dispatch makes
 	// scrollHeight grow, the gap can briefly exceed STICK_TO_BOTTOM_PX and
@@ -259,22 +277,23 @@
 	// Instant scroll — smooth would animate every token append, racing with
 	// the next scrollDown and confusing the onscroll bottom-detection below.
 	function scrollDown() {
-		if (!scrollEl) return
+		if (!scrollElement) return
 		programmaticScrollAt = Date.now()
-		scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: 'auto' })
+		scrollElement.scrollTo({ top: scrollElement.scrollHeight, behavior: 'auto' })
 	}
 
 	let height = $state(0)
 	$effect(() => {
-		if (aiChatManager.automaticScroll && height) {
+		if (chatHost.automaticScroll && height) {
 			scrollDown()
 		}
 		// Recompute the scroll-to-latest visibility on every content-height
 		// change. `onScroll` only fires for actual scroll events, so without
 		// this the arrow can go stale when content grows past the threshold
 		// while auto-scroll is disabled (user scrolled up mid-stream).
-		if (scrollEl && height) {
-			const distance = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
+		if (scrollElement && height) {
+			const distance =
+				scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight
 			showScrollToLatest = distance > SCROLL_TO_LATEST_THRESHOLD_PX
 		}
 	})
@@ -289,8 +308,9 @@
 	const SCROLL_TO_LATEST_THRESHOLD_PX = 200
 	let showScrollToLatest = $state(false)
 	function onScroll() {
-		if (!scrollEl) return
-		const distance = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
+		if (!scrollElement) return
+		const distance =
+			scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight
 		// Always refresh the arrow visibility — even during the cooldown,
 		// because clicking the arrow itself triggers a programmatic scroll
 		// whose only event would otherwise be swallowed, leaving the arrow
@@ -303,14 +323,15 @@
 			return
 		}
 		if (distance <= STICK_TO_BOTTOM_PX) {
-			aiChatManager.enableAutomaticScroll()
+			chatHost.enableAutomaticScroll()
 		} else {
-			aiChatManager.disableAutomaticScroll()
+			chatHost.disableAutomaticScroll()
 		}
+		onTranscriptScroll?.()
 	}
 
 	function submitSuggestion(suggestion: string) {
-		aiChatManager.sendRequest({ instructions: suggestion })
+		chatHost.sendRequest({ instructions: suggestion })
 	}
 
 	export function focusInput() {
@@ -319,35 +340,31 @@
 
 	$effect(() => {
 		if (aiChatInput) {
-			aiChatManager.setAiChatInput(aiChatInput)
+			chatHost.setAiChatInput(aiChatInput)
 		}
 
 		return () => {
-			aiChatManager.setAiChatInput(null)
+			chatHost.setAiChatInput(null)
 		}
 	})
 
 	// Also shown for a run held by another tab, labeled with where it is: the
 	// dots say a turn is in flight even before the reader reaches the footer
 	// note. Remote runs pause nothing and offer no Stop — this tab can't cancel.
-	const showTypingIndicator = $derived(aiChatManager.loading || aiChatManager.runHeldElsewhere)
+	const showTypingIndicator = $derived(chatHost.loading || chatHost.runHeldElsewhere)
 
 	// The manual `@` context-picker button. Shown in SCRIPT/FLOW (workspace items +
 	// code blocks) and APP (datatables, frontend files). Hidden in GLOBAL — there
 	// `@`-context is still invoked inline by typing `@` in the input, so the button
 	// is redundant. NAVIGATOR/ASK/API don't take @-context at all.
 	const showContextPicker = $derived(
-		aiChatManager.mode === AIMode.SCRIPT ||
-			aiChatManager.mode === AIMode.FLOW ||
-			aiChatManager.mode === AIMode.APP
+		chatHost.mode === AIMode.SCRIPT || chatHost.mode === AIMode.FLOW || chatHost.mode === AIMode.APP
 	)
 
-	// File attachment is GLOBAL-mode only.
-	const canAttachFiles = $derived(aiChatManager.mode === AIMode.GLOBAL && !disabled)
-	// Steers the OS file picker toward text + image formats (soft hint; both attach
-	// to the message — text files after a content sniff).
-	const TEXT_FILE_ACCEPT =
-		'image/*,text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
+	const canAttachFiles = $derived(chatHost.supportsMessageAttachments && !disabled)
+	// Folders are linked as session-wide assets, which only a host that reads files in
+	// the browser can do — a host running the turn server-side takes attachments only.
+	const canLinkFolders = $derived(chatHost.supportsLinkedFolders && !disabled)
 	let fileInputEl = $state<HTMLInputElement | null>(null)
 	let folderInputEl = $state<HTMLInputElement | null>(null)
 	let dragDepth = $state(0)
@@ -373,12 +390,12 @@
 	}
 
 	async function handleAddFiles(files: FileList | FileToAttach[]) {
-		const { added, rejected } = await aiChatManager.attachedFiles.addFiles(files)
+		const { added, rejected } = await chatHost.attachedFiles.addFiles(files)
 		reportAddResult(added, rejected)
 	}
 
 	async function addDirHandle(dir: FileSystemDirectoryHandle) {
-		const { added, rejected } = await aiChatManager.attachedFiles.addFolder(dir)
+		const { added, rejected } = await chatHost.attachedFiles.addFolder(dir)
 		reportAddResult(added, rejected)
 	}
 
@@ -467,12 +484,16 @@
 				handles.length === 0
 					? flatFiles
 					: await Promise.all(handles.filter(isFileHandle).map((h) => h.getFile()))
-			// Loose text files attach to the message, like images.
-			const textFiles = looseFiles.filter((f) => !isImageFile(f))
-			if (textFiles.length > 0) await aiChatInput?.addTextFiles(textFiles)
+			// Loose files attach to the message, like images.
+			await attachNonImageFiles(looseFiles.filter((f) => !isImageFile(f)))
 			// Folders link as a live handle.
-			for (const h of handles.filter(isDirectoryHandle)) {
-				await addDirHandle(h)
+			const dirs = handles.filter(isDirectoryHandle)
+			if (dirs.length > 0 && !canLinkFolders) {
+				sendUserToast('Folders cannot be attached in this chat — drop individual files.', true)
+			} else {
+				for (const h of dirs) {
+					await addDirHandle(h)
+				}
 			}
 		} else {
 			// Fallback (no File System Access API): snapshot dropped files AND folders by walking
@@ -497,23 +518,51 @@
 					topLevelText.push(file)
 				}
 			}
-			if (folderEntries.length > 0) await handleAddFiles(folderEntries)
-			if (topLevelText.length > 0) await aiChatInput?.addTextFiles(topLevelText)
+			if (folderEntries.length > 0) {
+				if (canLinkFolders) await handleAddFiles(folderEntries)
+				else sendUserToast('Folders cannot be attached in this chat — drop individual files.', true)
+			}
+			await attachNonImageFiles(topLevelText)
 		}
 	}
 
 	async function onFileInputChange(e: Event) {
 		const input = e.currentTarget as HTMLInputElement
 		if (input.files && input.files.length > 0) {
-			const picked = Array.from(input.files)
-			const imageFiles = picked.filter(isImageFile)
-			const textFiles = picked.filter((f) => !isImageFile(f))
-			// Reserved before the text work is awaited — see onPanelDrop.
-			const imageWork = imageFiles.length > 0 ? aiChatInput?.addImages(imageFiles) : undefined
-			if (textFiles.length > 0) await aiChatInput?.addTextFiles(textFiles)
-			await imageWork
+			await attachPickedFiles(Array.from(input.files))
 		}
 		input.value = '' // allow re-selecting the same file
+	}
+
+	/**
+	 * Route non-image files to the lane the host reads. A host that decodes them
+	 * takes text; one that forwards them verbatim (to object storage, say) takes
+	 * blobs, and its narrower `accept` is re-applied here because a drop bypasses
+	 * the picker's own filtering.
+	 */
+	async function attachNonImageFiles(files: File[]) {
+		if (files.length === 0) return
+		if (chatHost.attachmentsAsBlobs) {
+			const allowed = files.filter((f) => matchesAccept(f, chatHost.attachmentAccept))
+			if (allowed.length < files.length) {
+				sendUserToast(
+					`${files.length - allowed.length} file(s) skipped — this chat accepts ${chatHost.attachmentAccept}.`,
+					true
+				)
+			}
+			await aiChatInput?.addBlobs(allowed)
+		} else {
+			await aiChatInput?.addTextFiles(files)
+		}
+	}
+
+	async function attachPickedFiles(picked: File[]) {
+		const imageFiles = picked.filter(isImageFile)
+		const others = picked.filter((f) => !isImageFile(f))
+		// Reserved before the other work is awaited — see onPanelDrop.
+		const imageWork = imageFiles.length > 0 ? aiChatInput?.addImages(imageFiles) : undefined
+		await attachNonImageFiles(others)
+		await imageWork
 	}
 
 	function onFolderInputChange(e: Event) {
@@ -524,9 +573,9 @@
 		input.value = ''
 	}
 	const autonomyAvailability = $derived({
-		autoAcceptEditsAvailable: aiChatManager.autoAcceptEditsAvailable,
-		autoAcceptToolConfirmationsAvailable: aiChatManager.autoAcceptToolConfirmationsAvailable,
-		planModeAvailable: aiChatManager.planModeAvailable
+		autoAcceptEditsAvailable: chatHost.autoAcceptEditsAvailable,
+		autoAcceptToolConfirmationsAvailable: chatHost.autoAcceptToolConfirmationsAvailable,
+		planModeAvailable: chatHost.planModeAvailable
 	})
 	const availableAutonomyModeOptions = $derived(
 		autonomyModeOptions.filter((option) => option.isAvailable(autonomyAvailability))
@@ -534,8 +583,8 @@
 	// Fall back to ask-permission when the persisted mode isn't applicable in the
 	// current AI mode (e.g. auto-accept edits while in a mode without edits).
 	const effectiveAutonomyMode = $derived(
-		availableAutonomyModeOptions.some((option) => option.mode === aiChatManager.autonomyMode)
-			? aiChatManager.autonomyMode
+		availableAutonomyModeOptions.some((option) => option.mode === chatHost.autonomyMode)
+			? chatHost.autonomyMode
 			: AIAutonomyMode.DEFAULT
 	)
 	const showAutonomyModeSelector = $derived(!disabled && availableAutonomyModeOptions.length > 1)
@@ -544,13 +593,13 @@
 	// The typing-dots indicator implies the AI is busy, which is misleading while
 	// the loop is parked on the user; surface a text pill instead so users know to
 	// act on the tool above.
-	const waitingForUserAction = $derived(aiChatManager.loading && !!pendingUserAction(messages))
+	const waitingForUserAction = $derived(chatHost.loading && !!pendingUserAction(messages))
 
 	// Gated on `loading` because a card restored from history still looks parked:
 	// its resolver left with the old page, so the composer must not advertise an
 	// answer it cannot deliver.
 	const pendingQuestionToolCallId = $derived.by(() => {
-		if (!aiChatManager.loading) {
+		if (!chatHost.loading) {
 			return undefined
 		}
 		const pending = pendingUserActionDetail(messages)
@@ -559,14 +608,14 @@
 
 	// Get app context for display when in APP mode
 	const appContext = $derived.by((): SelectedContext | undefined => {
-		if (aiChatManager.mode !== AIMode.APP || !aiChatManager.appAiChatHelpers) {
+		if (chatHost.mode !== AIMode.APP || !chatHost.appAiChatHelpers) {
 			return undefined
 		}
-		return aiChatManager.appAiChatHelpers.getSelectedContext()
+		return chatHost.appAiChatHelpers.getSelectedContext()
 	})
 
 	const yoloBypassedTools = $derived.by(() => {
-		return aiChatManager.tools
+		return chatHost.tools
 			.filter((tool) => tool.requiresConfirmation === true || tool.bypassedByAutoAccept === true)
 			.map((tool) => ({
 				name: tool.def.function.name,
@@ -583,8 +632,7 @@
 		Math.max(0, yoloBypassedTools.length - visibleYoloBypassedTools.length)
 	)
 	const showFlowPendingActionControls = $derived(
-		(aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false) &&
-			!aiChatManager.autoAcceptEditsActive
+		(chatHost.flowAiChatHelpers?.hasPendingChanges() ?? false) && !chatHost.autoAcceptEditsActive
 	)
 	// A disabled state with no message (a remote hold, a spent free grant) keeps
 	// the footer toolbar in place — swapping it for an empty strip would make
@@ -592,11 +640,15 @@
 	// a real message (archived, AI off) still shows it, hold or not, matching
 	// the precedence disabledMessage itself encodes.
 	const footerMessageShown = $derived(disabled && disabledMessage !== '')
+	// `canAttachFiles` belongs in the group too: in GLOBAL mode the `+` always has the
+	// context picker or the autonomy selector beside it, but a host with attachments and
+	// nothing else would lose the group and the `+` with it.
 	const showFooterLeftControls = $derived(
 		!footerMessageShown &&
-			(showContextPicker ||
+			(canAttachFiles ||
+				showContextPicker ||
 				showAutonomyModeSelector ||
-				(aiChatManager.mode === AIMode.SCRIPT && hasDiff))
+				(chatHost.mode === AIMode.SCRIPT && hasDiff))
 	)
 </script>
 
@@ -694,12 +746,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									{#each pastChats as chat (chat.id)}
 										<button
 											class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
-											disabled={aiChatManager.loading ||
-												aiChatManager.sendInFlight ||
-												aiChatManager.runHeldElsewhere}
-											title={aiChatManager.runHeldElsewhere
+											disabled={chatHost.loading ||
+												chatHost.sendInFlight ||
+												chatHost.runHeldElsewhere}
+											title={chatHost.runHeldElsewhere
 												? 'Wait for the turn in the other tab to switch conversation'
-												: aiChatManager.loading || aiChatManager.sendInFlight
+												: chatHost.loading || chatHost.sendInFlight
 													? 'Stop the current answer to switch conversation'
 													: undefined}
 											onclick={() => {
@@ -731,10 +783,10 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					{/snippet}
 				</Popover>
 				<Button
-					title={aiChatManager.runHeldElsewhere
+					title={chatHost.runHeldElsewhere
 						? 'Wait for the turn in the other tab to start a new chat'
 						: 'New chat'}
-					disabled={aiChatManager.runHeldElsewhere}
+					disabled={chatHost.runHeldElsewhere}
 					on:click={() => {
 						saveAndClear()
 					}}
@@ -769,7 +821,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		<div class="flex-1 min-h-0 relative">
 			<div
 				class="absolute inset-0 overflow-y-scroll pt-2 scrollbar-subtle"
-				bind:this={scrollEl}
+				bind:this={scrollElement}
 				onscroll={onScroll}
 			>
 				<div
@@ -800,22 +852,24 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							<ChatTypingIndicator
 								loading={showTypingIndicator}
 								paused={waitingForUserAction}
-								label={aiChatManager.runHeldElsewhere
+								label={chatHost.runHeldElsewhere
 									? 'Running in another tab'
-									: aiChatManager.loadingLabel
-										? aiChatManager.loadingLabel
-										: aiChatManager.compacting
+									: chatHost.loadingLabel
+										? chatHost.loadingLabel
+										: chatHost.compacting
 											? 'Compacting conversation'
-											: aiChatManager.currentReasoningActive &&
-												  !aiChatManager.currentReply &&
-												  !aiChatManager.currentReasoning
-												? (aiChatManager.reasoningHiddenIndicatorLabel ?? 'Thinking')
+											: chatHost.currentReasoningActive &&
+												  !chatHost.currentReply &&
+												  !chatHost.currentReasoning
+												? (chatHost.reasoningHiddenIndicatorLabel ?? 'Thinking')
 												: undefined}
 							/>
 						</div>
 					{/if}
 				</div>
 			</div>
+			<!-- Sits below the scroll-to-latest button, which carries z-10. -->
+			<ScrollFade scroller={scrollElement} />
 			{#if showScrollToLatest}
 				<div
 					transition:fade={{ duration: 120 }}
@@ -832,7 +886,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						aria-label="Scroll to latest message"
 						startIcon={{ icon: ArrowDown }}
 						on:click={() => {
-							aiChatManager.enableAutomaticScroll()
+							chatHost.enableAutomaticScroll()
 							scrollDown()
 						}}
 					/>
@@ -841,10 +895,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		</div>
 	{/if}
 
+	<!-- Same horizontal padding as the transcript above: the composer's edges line up with
+	     the messages rather than sitting closer to the panel edge. -->
 	<div
 		class={wideLayout
-			? 'relative w-full max-w-3xl mx-auto px-6 pb-2'
-			: 'relative w-full max-w-2xl mx-auto px-2 pb-2'}
+			? 'relative w-full max-w-3xl mx-auto px-7 pb-2'
+			: 'relative w-full max-w-2xl mx-auto px-3 pb-2'}
 	>
 		{#if showFlowPendingActionControls}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
@@ -854,7 +910,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					variant="default"
 					btnClasses="bg-green-500 hover:bg-green-600 text-white hover:text-white"
 					onclick={() => {
-						aiChatManager.flowAiChatHelpers?.acceptAllModuleActions()
+						chatHost.flowAiChatHelpers?.acceptAllModuleActions()
 					}}
 				>
 					Accept all
@@ -866,7 +922,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						variant="default"
 						btnClasses="dark:opacity-50 opacity-60 hover:opacity-100"
 						onclick={() => {
-							aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
+							chatHost.flowAiChatHelpers?.rejectAllModuleActions()
 						}}
 					>
 						Reject all
@@ -876,7 +932,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		{/if}
 		<div>
 			<QueuedMessageChip />
-			{#if aiChatManager.mode === AIMode.GLOBAL && !aiChatManager.isSessionChat}
+			{#if chatHost.mode === AIMode.GLOBAL && !chatHost.isSessionChat}
 				<!-- Standalone Jobs bar for the global side-panel chat. In /sessions the
 				     Jobs segment lives inside the session bar (SessionChangesBar). -->
 				<div class="mb-1">
@@ -898,9 +954,10 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				bind:this={aiChatInput}
 				bind:selectedContext
 				{availableContext}
+				{placeholder}
 				{initialInstructions}
 				{onDraftChange}
-				showContext={aiChatManager.mode !== AIMode.GLOBAL}
+				showContext={chatHost.mode !== AIMode.GLOBAL}
 				{disabled}
 				{pendingQuestionToolCallId}
 				isFirstMessage={messages.length === 0}
@@ -925,7 +982,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									/>
 								{/snippet}
 								{#snippet content({ close })}
-									{#if aiChatManager.mode === AIMode.APP}
+									{#if chatHost.mode === AIMode.APP}
 										<AppAvailableContextList
 											{availableContext}
 											{selectedContext}
@@ -969,7 +1026,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									// together: awaited inline they queue, and the whole menu —
 									// attachments included — waits out two round trips.
 									const closeMenu = () => (plusMenuOpen = false)
-									const inGlobal = aiChatManager.mode === AIMode.GLOBAL
+									const inGlobal = chatHost.mode === AIMode.GLOBAL
 									const [skillItems, mcpItems] = await Promise.all([
 										inGlobal ? skillsMenu.items(closeMenu) : undefined,
 										inGlobal ? mcpMenu.items(closeMenu) : undefined
@@ -983,19 +1040,23 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 												linkFiles()
 											}
 										},
-										{
-											// A real (live) link needs the File System Access API; without it the
-											// folder is only snapshotted, so call it "Add folder", not "Link folder".
-											displayName: canUseFsAccess ? 'Link folder' : 'Add folder',
-											icon: Folder,
-											tooltip: canUseFsAccess
-												? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
-												: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
-											action: () => {
-												plusMenuOpen = false
-												linkFolder()
-											}
-										},
+										...(canLinkFolders
+											? [
+													{
+														// A real (live) link needs the File System Access API; without it the
+														// folder is only snapshotted, so call it "Add folder", not "Link folder".
+														displayName: canUseFsAccess ? 'Link folder' : 'Add folder',
+														icon: Folder,
+														tooltip: canUseFsAccess
+															? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
+															: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
+														action: () => {
+															plusMenuOpen = false
+															linkFolder()
+														}
+													}
+												]
+											: []),
 										...(skillItems
 											? [
 													{
@@ -1054,7 +1115,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								bind:this={fileInputEl}
 								type="file"
 								multiple
-								accept={TEXT_FILE_ACCEPT}
+								accept={chatHost.attachmentAccept}
 								class="hidden no-default-style"
 								onchange={onFileInputChange}
 							/>
@@ -1075,7 +1136,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									availableAutonomyModeOptions.map((option) => ({
 										displayName: option.label,
 										selected: effectiveAutonomyMode === option.mode,
-										action: () => aiChatManager.setAutonomyMode(option.mode)
+										action: () => chatHost.setAutonomyMode(option.mode)
 									}))}
 								placement="bottom-start"
 								fixedHeight={false}
@@ -1102,18 +1163,18 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{#if effectiveAutonomyMode === AIAutonomyMode.PLAN}
 							<span class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.modeNote}</span>
 						{/if}
-						{#if effectiveAutonomyMode === AIAutonomyMode.YOLO && aiChatManager.autoAcceptToolConfirmationsAvailable}
+						{#if effectiveAutonomyMode === AIAutonomyMode.YOLO && chatHost.autoAcceptToolConfirmationsAvailable}
 							<Tooltip small placement="top">
 								<AlertTriangle class="w-3 h-3 text-red-500" />
 								{#snippet text()}
 									<div class="max-w-64 text-xs">
 										<p class="font-semibold">
-											{aiChatManager.autoAcceptEditsAvailable
+											{chatHost.autoAcceptEditsAvailable
 												? 'Bypass permissions auto-accepts edits and tool usage.'
 												: 'Bypass permissions auto-accepts tool usage.'}
 										</p>
 										<p class="mt-1">
-											{aiChatManager.autoAcceptEditsAvailable
+											{chatHost.autoAcceptEditsAvailable
 												? 'This can result in edits being applied or tools being called without user confirmation.'
 												: 'This can result in tools being called without user confirmation.'}
 										</p>
@@ -1134,7 +1195,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								{/snippet}
 							</Tooltip>
 						{/if}
-						{#if aiChatManager.mode === AIMode.SCRIPT && hasDiff && !disabled}
+						{#if chatHost.mode === AIMode.SCRIPT && hasDiff && !disabled}
 							<ChatQuickActions {askAi} {diffMode} />
 						{/if}
 					</div>
@@ -1145,25 +1206,27 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					</div>
 				{:else}
 					<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center">
-						{#if aiChatManager.mode === AIMode.GLOBAL}
+						{#if chatHost.mode === AIMode.GLOBAL}
 							<AttachedFilesBar />
 						{/if}
 						{#if !hideModeSelector}
 							<ChatMode />
 						{/if}
-						{#if aiChatManager.mode === AIMode.APP}
+						{#if chatHost.mode === AIMode.APP}
 							<DatatableCreationPolicy />
 						{/if}
 						<ContextUsageIndicator />
-						<!-- Unconditional: this composer mounts only via `AIChat` ← `SessionWrapper`,
-						     and `sessionRuntime` locks a session to GLOBAL, where the settings
-						     modal's Instructions section owns the prompt entries. -->
-						<AIChatModelSettings promptSettings={false} />
-						{#if aiChatManager.mode === AIMode.GLOBAL}
+						{#if chatHost.supportsModelSettings}
+							<!-- `promptSettings={false}`: in a session, GLOBAL, the settings modal's
+							     Instructions section owns the prompt entries. -->
+							<AIChatModelSettings promptSettings={false} />
+						{/if}
+						{@render footerSettings?.()}
+						{#if chatHost.mode === AIMode.GLOBAL}
 							<AssistantSettingsModal bind:this={assistantSettings} />
 						{/if}
 
-						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
+						{#if chatHost.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
 							{#if appContext.inspectorElement}
 								<div
 									class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-2xs"
@@ -1210,7 +1273,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				{/if}
 			</div>
 		</div>
-		{#if (aiChatManager.mode === AIMode.NAVIGATOR || aiChatManager.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
+		{#if (chatHost.mode === AIMode.NAVIGATOR || chatHost.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
 			<div class="px-2 mt-4">
 				<div class="flex flex-col gap-2">
 					{#each suggestions as suggestion (suggestion)}

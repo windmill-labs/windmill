@@ -767,6 +767,7 @@ impl QueryBuilder for AnthropicQueryBuilder {
 
         let AnthropicSSEParser {
             accumulated_content,
+            accumulated_reasoning,
             accumulated_tool_calls,
             events_str,
             annotations,
@@ -790,6 +791,7 @@ impl QueryBuilder for AnthropicQueryBuilder {
             } else {
                 Some(accumulated_content)
             },
+            reasoning: (!accumulated_reasoning.is_empty()).then_some(accumulated_reasoning),
             tool_calls: accumulated_tool_calls.into_values().collect(),
             events_str: Some(events_str),
             annotations,

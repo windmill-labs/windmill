@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { createFlowChatManager } from './FlowChatManager.svelte'
+	import { createFlowChatManager, type ConversationKind } from './FlowChatManager.svelte'
 	import FlowConversationsSidebar from './FlowConversationsSidebar.svelte'
 	import FlowChatInterface from './FlowChatInterface.svelte'
 	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../types'
+	import type { FlowModule } from '$lib/gen'
 
 	interface Props {
 		onRunFlow: (
@@ -15,8 +16,16 @@
 		useStreaming?: boolean
 		deploymentInProgress?: boolean
 		path: string
-		hideSidebar?: boolean
 		inputSchema?: Record<string, any>
+		/** The flow's modules, used to find which inputs an AI agent step reads directly. */
+		flowModules?: FlowModule[]
+		/** Wider centered column, for the full-page chat. */
+		wideLayout?: boolean
+		/** Draw the chat as its own panel. On a page that gives it a region of its own,
+		 * rather than a pane already bounded by the editor's own frame. */
+		boxed?: boolean
+		/** Which chats the sidebar lists before the reader filters it themselves. */
+		conversationKind?: ConversationKind
 	}
 
 	let {
@@ -24,19 +33,33 @@
 		deploymentInProgress = false,
 		useStreaming = false,
 		path,
-		hideSidebar = false,
-		inputSchema = undefined
+		inputSchema = undefined,
+		flowModules = undefined,
+		wideLayout = false,
+		boxed = false,
+		conversationKind = 'deployed'
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const manager = createFlowChatManager()
 	manager.operatingWorkspace = () => flowEditorContext?.opWorkspace?.()
+	manager.conversationKind = conversationKind
+	// The filter moves; what this surface runs does not.
+	manager.surfaceKind = conversationKind === 'test' ? 'test' : 'deployed'
+	// The editor is the only surface with both kinds in play, and it is the one that opens
+	// on test chats. A deployed flow lists what its users started, with no way to ask for
+	// anything else.
+	manager.canFilterConversationKind = conversationKind !== 'deployed'
 
 	// Initialize manager when component mounts
 	$effect(() => {
 		if ($workspaceStore) {
 			manager.initialize(onRunFlow, path, useStreaming)
+			// Reads the open conversation, and this effect tears down with `cleanup()`: tracked,
+			// the first send of a fresh chat would select the conversation it just created and
+			// so abort its own turn.
+			untrack(() => manager.selectLatestConversation())
 		}
 
 		return () => {
@@ -53,24 +76,41 @@
 		}
 	})
 
-	// Derive additional inputs schema (excluding user_message) for chat mode
+	// Everything the chat asks for beyond the message itself. `user_message` is the
+	// composer: the server requires that exact argument on a chat-enabled flow and
+	// stores it as the conversation's message (execution.rs:644), so the name is a
+	// contract rather than the author's choice.
 	const additionalInputsSchema = $derived.by(() => {
 		const props = inputSchema?.properties ?? {}
-		const filtered = Object.fromEntries(Object.entries(props).filter(([k]) => k !== 'user_message'))
+		const messageInput = 'user_message'
+		const filtered = Object.fromEntries(Object.entries(props).filter(([k]) => k !== messageInput))
 		if (Object.keys(filtered).length === 0) return undefined
 		const required = inputSchema?.required
 		const requiredArray: string[] = Array.isArray(required) ? required : []
 		return {
 			...inputSchema,
 			properties: filtered,
-			required: requiredArray.filter((k: string) => k !== 'user_message')
+			required: requiredArray.filter((k: string) => k !== messageInput)
 		}
 	})
 </script>
 
-<div class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-1">
-	{#if !hideSidebar}
-		<FlowConversationsSidebar {manager} />
-	{/if}
-	<FlowChatInterface {manager} {deploymentInProgress} {additionalInputsSchema} {path} />
+<!-- Boxed: its own panel, corners clipped so the sidebar's edge follows them. Otherwise a
+     top border alone, dividing the chat from whatever header sits above it. The column's
+     max width and side padding come from AIChatDisplay itself. -->
+<div class="flex overflow-hidden flex-1 {boxed ? 'border rounded-md' : 'border-t'}">
+	<FlowConversationsSidebar {manager} />
+	<!-- pb-3 on the chat alone, not on the row: the transcript and composer stop short of
+	     the panel edge the way the session chat does, while the sidebar and the border
+	     dividing it from the chat still reach the bottom. -->
+	<div class="flex flex-1 min-w-0 min-h-0 pb-3">
+		<FlowChatInterface
+			{manager}
+			{deploymentInProgress}
+			{additionalInputsSchema}
+			{flowModules}
+			{path}
+			{wideLayout}
+		/>
+	</div>
 </div>

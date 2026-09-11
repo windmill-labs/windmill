@@ -12,6 +12,11 @@
 		workspaceItemRegistry
 	} from './workspaceItems.svelte'
 	import { markdownProse } from '$lib/components/markdownProse'
+	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import { ExternalLink } from 'lucide-svelte'
+	import CopyButton from '$lib/components/common/button/CopyButton.svelte'
+	import { base } from '$lib/base'
+	import { displayDate } from '$lib/utils'
 
 	interface Props {
 		message: DisplayMessage
@@ -21,6 +26,21 @@
 	}
 
 	let { message, workspace }: Props = $props()
+
+	// The run this answer came out of. Only a flow chat has one — a copilot turn runs in
+	// the browser — so the footer is absent rather than empty elsewhere.
+	const jobId = $derived(message.role === 'assistant' ? message.jobId : undefined)
+	const createdAt = $derived(message.role === 'assistant' ? message.createdAt : undefined)
+	const runHref = $derived(jobId ? `${base}/run/${jobId}?workspace=${workspace}` : undefined)
+	// Today's answers show the time alone; the day earns its place only on a conversation
+	// read back later. Resolved at render, so a chat left open across midnight keeps
+	// yesterday's format until it is reopened.
+	const timestamp = $derived.by(() => {
+		if (!createdAt) return undefined
+		const at = new Date(createdAt)
+		const today = new Date().toDateString() === at.toDateString()
+		return displayDate(at, false, !today)
+	})
 
 	const reasoning = $derived(
 		message.role === 'assistant' ? message.reasoning?.trim() || undefined : undefined
@@ -59,6 +79,20 @@
 		const rest = seconds % 60
 		return rest === 0 ? `${minutes}m` : `${minutes}m ${rest}s`
 	}
+
+	const stepName = $derived(message.role === 'assistant' ? message.stepName : undefined)
+
+	// A flow step can return a file rather than text; the raw JSON would be
+	// unreadable, so hand it to the result viewer instead of the markdown renderer.
+	const s3Object = $derived.by(() => {
+		if (!message.content.startsWith('{')) return undefined
+		try {
+			const parsed = JSON.parse(message.content)
+			return parsed?.type === 'windmill_s3_object' && parsed?.s3 ? parsed : undefined
+		} catch {
+			return undefined
+		}
+	})
 
 	const candidatePaths = $derived(extractCandidatePaths(message.content))
 	const rendererPlugin = {
@@ -112,8 +146,44 @@
 	</ChatCollapsibleCard>
 {/if}
 
-{#if message.content}
+{#if stepName}
+	<div class="text-2xs text-tertiary font-medium mb-1">{stepName}</div>
+{/if}
+
+{#if s3Object}
+	<DisplayResult result={s3Object} workspaceId={workspace} noControls={true} />
+{:else if message.content}
 	<div class="w-full space-y-2 {markdownProse.sm}">
 		<Markdown md={message.content} {plugins} />
+	</div>
+{/if}
+
+{#if message.content}
+	<!-- Present but invisible until the answer is hovered: kept in flow so revealing it
+	     does not nudge the message below, and with no margin of its own so it sits in the
+	     gap the transcript already leaves between messages. A row carrying only thinking
+	     has no answer to copy or date, and the run behind it is the one the next row
+	     already links. -->
+	<div
+		class="flex items-center gap-2 text-2xs text-tertiary opacity-0 transition-opacity duration-150 group-hover/answer:opacity-100 focus-within:opacity-100"
+	>
+		{#if message.content}
+			<CopyButton value={message.content} title="Copy answer" class="-ml-1" />
+		{/if}
+		{#if timestamp}
+			<span>{timestamp}</span>
+		{/if}
+		{#if runHref}
+			<a
+				href={runHref}
+				target="_blank"
+				rel="noopener noreferrer"
+				class="inline-flex items-center gap-1 hover:text-primary hover:underline"
+				title="Open this run"
+			>
+				<span>job <span class="font-mono">{jobId?.slice(0, 8)}</span></span>
+				<ExternalLink size={11} class="shrink-0" />
+			</a>
+		{/if}
 	</div>
 {/if}

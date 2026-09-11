@@ -135,6 +135,8 @@ pub trait SSEParser {
 
 pub struct OpenAISSEParser {
     pub accumulated_content: String,
+    /// The thinking streamed before the answer, kept so it can be stored with it.
+    pub accumulated_reasoning: String,
     pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
     pub events_str: String,
     pub stream_event_processor: Box<dyn StreamEventSink>,
@@ -146,6 +148,7 @@ impl OpenAISSEParser {
     pub fn new(stream_event_processor: Box<dyn StreamEventSink>) -> Self {
         Self {
             accumulated_content: String::new(),
+            accumulated_reasoning: String::new(),
             accumulated_tool_calls: HashMap::new(),
             events_str: String::new(),
             stream_event_processor,
@@ -175,6 +178,7 @@ impl SSEParser for OpenAISSEParser {
             if let Some(mut choices) = event.choices.filter(|s| !s.is_empty()) {
                 if let Some(delta) = choices.remove(0).delta {
                     if let Some(reasoning) = delta.reasoning_content.filter(|s| !s.is_empty()) {
+                        self.accumulated_reasoning.push_str(&reasoning);
                         let event = StreamingEvent::ReasoningTokenDelta { content: reasoning };
                         self.stream_event_processor
                             .send(event, &mut self.events_str)
@@ -353,6 +357,8 @@ enum ContentBlockState {
 /// Anthropic SSE Parser for streaming responses
 pub struct AnthropicSSEParser {
     pub accumulated_content: String,
+    /// The thinking streamed before the answer, kept so it can be stored with it.
+    pub accumulated_reasoning: String,
     pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
     pub events_str: String,
     pub stream_event_processor: Box<dyn StreamEventSink>,
@@ -375,6 +381,7 @@ impl AnthropicSSEParser {
     pub fn new(stream_event_processor: Box<dyn StreamEventSink>) -> Self {
         Self {
             accumulated_content: String::new(),
+            accumulated_reasoning: String::new(),
             accumulated_tool_calls: HashMap::new(),
             events_str: String::new(),
             stream_event_processor,
@@ -455,6 +462,7 @@ impl SSEParser for AnthropicSSEParser {
                                     .thinking
                                     .get_or_insert_with(String::new)
                                     .push_str(&thinking);
+                                self.accumulated_reasoning.push_str(&thinking);
                                 self.stream_event_processor
                                     .send(
                                         StreamingEvent::ReasoningTokenDelta { content: thinking },
@@ -523,6 +531,7 @@ impl SSEParser for AnthropicSSEParser {
                                     .thinking
                                     .get_or_insert_with(String::new)
                                     .push_str(&thinking);
+                                self.accumulated_reasoning.push_str(&thinking);
                                 self.stream_event_processor
                                     .send(
                                         StreamingEvent::ReasoningTokenDelta { content: thinking },
@@ -590,6 +599,8 @@ impl SSEParser for AnthropicSSEParser {
 /// `windmill_ai::ai_google` so the logic can be shared with the API proxy.
 pub struct GeminiSSEParser {
     pub accumulated_content: String,
+    /// The thinking streamed before the answer, kept so it can be stored with it.
+    pub accumulated_reasoning: String,
     pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
     pub events_str: String,
     pub stream_event_processor: Box<dyn StreamEventSink>,
@@ -603,6 +614,7 @@ impl GeminiSSEParser {
     pub fn new(stream_event_processor: Box<dyn StreamEventSink>) -> Self {
         Self {
             accumulated_content: String::new(),
+            accumulated_reasoning: String::new(),
             accumulated_tool_calls: HashMap::new(),
             events_str: String::new(),
             stream_event_processor,
@@ -621,6 +633,7 @@ impl SSEParser for GeminiSSEParser {
         };
 
         if let Some(reasoning) = parsed.reasoning.filter(|s| !s.is_empty()) {
+            self.accumulated_reasoning.push_str(&reasoning);
             self.stream_event_processor
                 .send(
                     StreamingEvent::ReasoningTokenDelta { content: reasoning },

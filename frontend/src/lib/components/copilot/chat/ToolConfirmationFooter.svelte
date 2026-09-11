@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
-	import { getAiChatManager } from './aiChatManagerContext'
+	import { getChatViewHost } from './chatViewHost'
 
 	interface Props {
 		toolCallId: string | undefined
@@ -25,11 +25,11 @@
 		class: className
 	}: Props = $props()
 
-	const aiChatManager = getAiChatManager()
+	const chatHost = getChatViewHost()
 
 	function respond(confirmed: boolean) {
 		if (toolCallId) {
-			aiChatManager.handleToolConfirmation(toolCallId, confirmed)
+			chatHost.handleToolConfirmation(toolCallId, confirmed)
 		}
 	}
 </script>

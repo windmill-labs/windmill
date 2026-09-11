@@ -33,7 +33,7 @@ use windmill_common::{
     client::AuthedClient,
     db::DB,
     error::Error,
-    flow_conversations::MessageType,
+    flow_conversations::{MessageExtras, MessageType},
     flow_status::AgentAction,
     flows::FlowModuleValue,
     worker::{to_raw_value, Connection},
@@ -235,9 +235,21 @@ async fn execute_mcp_tool_call(
                 update_flow_status_module_with_actions_success(ctx.db, parent_job, true).await?;
             }
 
-            // Add tool message to conversation if chat_input_enabled
+            // Add tool message to conversation if chat_input_enabled. An MCP tool runs
+            // inside this job, so the row is the only place its call can be read back from.
             let content = format!("Used {} tool", tool_call.function.name);
-            add_tool_message_to_chat(ctx, None, &content, true).await;
+            add_tool_message_to_chat(
+                ctx,
+                None,
+                &content,
+                true,
+                Some(MessageExtras {
+                    tool_arguments: Some(tool_call.function.arguments.clone()),
+                    tool_result: Some(result_str),
+                    ..Default::default()
+                }),
+            )
+            .await;
         }
         Err(e) => {
             let error_msg = format!("MCP tool error: {}", e);
@@ -272,7 +284,17 @@ async fn execute_mcp_tool_call(
             }
 
             // Add tool message to conversation if chat_input_enabled
-            add_tool_message_to_chat(ctx, None, &error_msg, false).await;
+            add_tool_message_to_chat(
+                ctx,
+                None,
+                &error_msg,
+                false,
+                Some(MessageExtras {
+                    tool_arguments: Some(tool_call.function.arguments.clone()),
+                    ..Default::default()
+                }),
+            )
+            .await;
         }
     }
 
@@ -681,7 +703,7 @@ async fn handle_tool_execution_error(
     }
 
     // Add tool message to conversation if chat_input_enabled (error case)
-    add_tool_message_to_chat(ctx, Some(job_id), &error_message, false).await;
+    add_tool_message_to_chat(ctx, Some(job_id), &error_message, false, None).await;
 
     Ok(())
 }
@@ -806,7 +828,7 @@ async fn handle_tool_execution_success(
         format!("Error executing {}", tool_call.function.name)
     };
 
-    add_tool_message_to_chat(ctx, Some(job_id), &content, success).await;
+    add_tool_message_to_chat(ctx, Some(job_id), &content, success, None).await;
 
     Ok(())
 }
@@ -817,6 +839,8 @@ async fn add_tool_message_to_chat(
     tool_job_id: Option<Uuid>,
     content: &str,
     success: bool,
+    // Only for a tool with no job of its own; a Windmill tool's call is read from its job.
+    extras: Option<MessageExtras>,
 ) {
     if ctx.omit_output_from_conversation {
         return;
@@ -852,6 +876,7 @@ async fn add_tool_message_to_chat(
                     MessageType::Tool,
                     &step_name,
                     success,
+                    extras.as_ref(),
                 )
                 .await
                 {

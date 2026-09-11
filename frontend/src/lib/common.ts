@@ -45,6 +45,8 @@ export interface SchemaProperty {
 	required?: string[]
 	showExpr?: string
 	hideWhenChatEnabled?: boolean
+	/** Why the oneOf variant is chat mode's to pick. Set = selector disabled, reason shown. */
+	lockOneOfWhenChatEnabled?: string
 	password?: boolean
 	order?: string[]
 	nullable?: boolean

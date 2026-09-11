@@ -662,6 +662,14 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 	 * would look like it is still streaming forever.
 	 */
 	streaming?: boolean
+	/** Flow step that produced this message, when the conversation is a flow run
+	 * rather than a copilot turn. Rendered as a label above the content. */
+	stepName?: string
+	/** The run behind this answer, linked under it. Flow chats only: a copilot turn
+	 * happens in the browser and has no job to open. */
+	jobId?: string
+	/** When the message was stored, shown beside the run link. */
+	createdAt?: string
 }
 
 /**

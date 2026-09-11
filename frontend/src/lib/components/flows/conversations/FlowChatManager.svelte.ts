@@ -1,4 +1,8 @@
-import type { FlowConversation, FlowConversationMessage } from '$lib/gen/types.gen'
+import type {
+	FlowConversation,
+	FlowConversationMessage,
+	ListFlowConversationsData
+} from '$lib/gen/types.gen'
 import { FlowConversationsService, JobService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { waitJob } from '$lib/components/waitJob'
@@ -6,17 +10,32 @@ import { tick } from 'svelte'
 import InfiniteList from '$lib/components/InfiniteList.svelte'
 import { workspaceStore, userStore } from '$lib/stores'
 import { get } from 'svelte/store'
-import { parseStreamDeltas } from '$lib/components/chat/utils'
+import { parseStreamEvents } from '$lib/components/chat/utils'
 import { randomUUID } from '$lib/utils/uuid'
+import {
+	prefersInstantReveal,
+	TypewriterReveal
+} from '$lib/components/copilot/chat/typewriterReveal'
+import { appendRevealed, applyStreamEvent, emptyTurnState, type TurnState } from './turnTranscript'
 
 export interface ChatMessage extends FlowConversationMessage {
 	loading?: boolean
 	streaming?: boolean
+	/**
+	 * The tool a row's call belongs to, as the stream reports it. Local to a running turn:
+	 * afterwards the name comes from the summary the server stored, and the call itself
+	 * from the tool's own job (see toolCallContext) or from the row's own
+	 * `tool_arguments` / `tool_result` when the tool had no job.
+	 */
+	tool_name?: string
 }
 
 export interface ConversationWithDraft extends FlowConversation {
 	isDraft?: boolean
 }
+
+/** A chat run from the editor's test panel, one started on the deployed flow, or both. */
+export type ConversationKind = NonNullable<ListFlowConversationsData['kind']>
 
 export class FlowChatManager {
 	// State
@@ -36,6 +55,73 @@ export class FlowChatManager {
 	conversations = $state<ConversationWithDraft[]>([])
 	deletingConversationId = $state<string | undefined>(undefined)
 	isSidebarExpanded = $state(false)
+	/**
+	 * A turn is on its way but has no job yet — attachments uploading, say. `isLoading`
+	 * only covers the run itself, and the gap between them is long enough to change what
+	 * the send lands in.
+	 */
+	isDispatchingTurn = $state(false)
+	/** The thinking of the turn in flight, until it is attached to the answer it produced. */
+	currentReasoning = $state('')
+	/** The model is reasoning: true from the first thinking token until the answer starts. */
+	isReasoningActive = $state(false)
+
+	// What the turn has written so far — which row is open, and the text in it. Held here
+	// rather than in the stream handler's locals: the typewriter reveals on animation
+	// frames, long after the chunk that delivered the text was applied.
+	#turn: TurnState = emptyTurnState('')
+
+	/** Row ids are temp- prefixed: the sweep after a run keeps only what the server stored. */
+	#newRowId = () => 'temp-' + randomUUID()
+
+	// The worker's events reach us in bursts — the provider batches tokens, and the SSE
+	// endpoint ships whatever accumulated — so display is paced separately from arrival,
+	// exactly as the session chat does it. Answer and thinking pace independently.
+	#replyReveal = new TypewriterReveal({
+		onReveal: (chunk) => this.#reveal('answer', chunk),
+		instant: prefersInstantReveal()
+	})
+	#reasoningReveal = new TypewriterReveal({
+		onReveal: (chunk) => this.#reveal('reasoning', chunk),
+		instant: prefersInstantReveal()
+	})
+
+	#reveal(kind: 'answer' | 'reasoning', chunk: string) {
+		const step = appendRevealed(
+			{ rows: this.messages, state: this.#turn },
+			kind,
+			chunk,
+			this.#newRowId
+		)
+		this.messages = step.rows
+		this.#turn = step.state
+		if (kind === 'reasoning') this.currentReasoning = step.state.reasoning
+	}
+
+	/** Reveal everything buffered now, so the row is whole before the turn moves on. */
+	#flushReveals() {
+		this.#replyReveal.flush()
+		this.#reasoningReveal.flush()
+	}
+	/**
+	 * Which conversations the list holds. The editor shows its own test chats, since
+	 * testing is what happens there; a deployed flow shows the chats its users started,
+	 * so nobody's trial runs are mixed into them.
+	 */
+	conversationKind = $state<ConversationKind>('deployed')
+	/**
+	 * Whether the sidebar offers the kind filter. Only the editor does: a deployed flow has
+	 * no test chats of its own to show, and offering to list someone's trial runs there
+	 * would put editor scratch in front of the flow's users.
+	 */
+	canFilterConversationKind = $state(false)
+	/**
+	 * What this surface's own runs are, which the filter does not change: the editor runs
+	 * previews, the flow page runs the deployed flow. A conversation is fixed to one kind
+	 * at creation, so a turn sent from here into a conversation of the other kind would be
+	 * stored as part of it and the mixing would be invisible afterwards.
+	 */
+	surfaceKind = $state<Exclude<ConversationKind, 'all'>>('deployed')
 	selectedConversationId = $state<string | undefined>(undefined)
 	conversationListComponent = $state<InfiniteList | undefined>(undefined)
 
@@ -81,6 +167,11 @@ export class FlowChatManager {
 	}
 
 	cleanup() {
+		this.#replyReveal.reset()
+		this.#reasoningReveal.reset()
+		this.#turn = emptyTurnState('')
+		this.currentReasoning = ''
+		this.isReasoningActive = false
 		if (this.currentEventSource) {
 			this.currentEventSource.close()
 			this.currentEventSource = undefined
@@ -127,6 +218,8 @@ export class FlowChatManager {
 			created_at: new Date().toISOString(),
 			updated_at: new Date().toISOString(),
 			created_by: get(userStore)!.username!,
+			// The kind the first turn will give it: a draft started here runs on this surface.
+			is_test: this.surfaceKind === 'test',
 			isDraft: true
 		}
 
@@ -158,6 +251,118 @@ export class FlowChatManager {
 			// For persisted conversations, load messages from backend
 			await this.loadConversationMessages(conversationId)
 		}
+	}
+
+	/**
+	 * Open this flow's most recent conversation, unless the caller already chose one.
+	 *
+	 * Every turn is stored the moment it runs — a preview from the editor exactly like a
+	 * deployed run — so a chat that has been used before should come back to it instead of
+	 * to an empty pane. The editor needs this most: it hides the conversations sidebar, so
+	 * without it there is no way back to what was said.
+	 */
+	async selectLatestConversation() {
+		if (this.selectedConversationId || !this.#workspace() || !this.#path) return
+		const [latest] = await this.loadConversations(1, 1)
+		// Re-checked after the await: a message sent meanwhile has already opened its own.
+		if (!latest || this.selectedConversationId) return
+		await this.selectConversation(latest.id)
+	}
+
+	/**
+	 * Narrow the list to one kind of chat and reload it.
+	 *
+	 * The open conversation goes with it when it is not of the new kind: the composer sends
+	 * into whatever is selected, and a test run appended to a deployed conversation would be
+	 * stored as part of it — `get_or_create_conversation_with_id` keeps the row's own
+	 * `is_test`, so the mixing would be invisible afterwards.
+	 */
+	async setConversationKind(kind: ConversationKind) {
+		if (this.conversationKind === kind) return
+		// A turn in flight writes into the conversation it started in — the stream appends
+		// rows, the poller merges more — so the selection cannot be moved under it. Held
+		// from the moment the composer starts dispatching, since an upload runs before the
+		// job exists and a send landing after the switch would start a fresh conversation.
+		// The control is disabled meanwhile; this is the same rule where it is enforced.
+		if (this.isTurnInFlight) return
+		this.conversationKind = kind
+		const open = this.conversations.find((c) => c.id === this.selectedConversationId)
+		const stillListed =
+			open === undefined ||
+			open.isDraft === true ||
+			kind === 'all' ||
+			(kind === 'test') === (open.is_test === true)
+		if (!stillListed) {
+			this.selectedConversationId = undefined
+			this.clearMessages()
+		}
+		await this.refreshConversations()
+	}
+
+	// A name typed on a chat that has not run yet, kept until its first turn creates the row
+	// server-side: that insert titles the conversation from the message, and the refresh
+	// which follows would otherwise replace the typed name with it.
+	#draftTitle: { id: string; title: string } | undefined = undefined
+
+	/** Write a title to the server and to the row the list holds. */
+	async #writeConversationTitle(conversationId: string, title: string) {
+		try {
+			await FlowConversationsService.updateFlowConversation({
+				workspace: this.#workspace()!,
+				conversationId,
+				requestBody: { title }
+			})
+			this.conversations = this.conversations.map((c) =>
+				c.id === conversationId ? { ...c, title } : c
+			)
+			return true
+		} catch (error) {
+			console.error('Failed to rename conversation:', error)
+			sendUserToast('Failed to rename conversation', true)
+			return false
+		}
+	}
+
+	/** Rename a chat. The list holds the row, so it is patched rather than reloaded. */
+	async renameConversation(conversationId: string, title: string) {
+		const trimmed = title.trim()
+		const current = this.conversations.find((c) => c.id === conversationId)
+		if (!current || trimmed === '' || trimmed === current.title) return
+		// A chat that has never run is local to this list; there is nothing to rename yet.
+		// The name is held instead, and written once the first turn creates the row.
+		if (current.isDraft) {
+			this.#draftTitle = { id: conversationId, title: trimmed }
+			this.conversations = this.conversations.map((c) =>
+				c.id === conversationId ? { ...c, title: trimmed } : c
+			)
+			return
+		}
+		await this.#writeConversationTitle(conversationId, trimmed)
+	}
+
+	/** No job came of the send, so nothing is in flight and nothing is waiting on one. */
+	#turnFailedToStart() {
+		this.isLoading = false
+		this.isWaitingForResponse = false
+		this.isDispatchingTurn = false
+	}
+
+	/**
+	 * Why the composer must stay shut, when the open conversation belongs to the other
+	 * surface. Reading such a chat is fine; adding to it from here is not.
+	 */
+	get wrongKindReason(): string | undefined {
+		const open = this.conversations.find((c) => c.id === this.selectedConversationId)
+		if (!open || open.isDraft || (open.is_test === true) === (this.surfaceKind === 'test'))
+			return undefined
+		return this.surfaceKind === 'test'
+			? 'This chat belongs to the deployed flow. Start a new chat to test.'
+			: 'This chat was run from the editor. Start a new chat to continue here.'
+	}
+
+	/** A turn is being dispatched or is running: nothing may move the conversation under it. */
+	get isTurnInFlight(): boolean {
+		return this.isLoading || this.isWaitingForResponse || this.isDispatchingTurn
 	}
 
 	async refreshConversations() {
@@ -221,6 +426,7 @@ export class FlowChatManager {
 			const response = await FlowConversationsService.listFlowConversations({
 				workspace: this.#workspace()!,
 				flowPath: this.#path,
+				kind: this.conversationKind,
 				page: page,
 				perPage: perPage
 			})
@@ -403,8 +609,25 @@ export class FlowChatManager {
 	}
 
 	// Message sending
-	async sendMessage(additionalInputs?: Record<string, any>) {
-		if (!this.inputMessage.trim() || this.isLoading) return
+	/**
+	 * Send `inputMessage` as a turn. `onUserRow` is called with the id of the row added
+	 * for it, which is the only moment that id is knowable: the caller needs it to hang
+	 * what the composer sent — attachments, other inputs — on a row that has no job yet.
+	 *
+	 * An empty message is allowed here: a turn can carry attachments alone, and only the
+	 * caller knows whether it does.
+	 */
+	async sendMessage(
+		additionalInputs?: Record<string, any>,
+		onUserRow?: (rowId: string) => void,
+		/**
+		 * The conversation the turn was started in. Passed by a caller that had to await
+		 * something first — an attachment upload — since the reader can select another
+		 * conversation while it runs, and the turn belongs to the one they sent it from.
+		 */
+		pinnedConversationId?: string
+	): Promise<boolean> {
+		if (this.isLoading) return false
 
 		const isNewConversation = this.messages.length === 0
 
@@ -412,15 +635,15 @@ export class FlowChatManager {
 		this.stopPolling()
 
 		// Generate a new conversation ID if we don't have one
-		let currentConversationId = this.selectedConversationId
-		if (!this.selectedConversationId) {
+		let currentConversationId = pinnedConversationId ?? this.selectedConversationId
+		if (!currentConversationId) {
 			const newConversationId = await this.createConversation({ clearMessages: false })
 			currentConversationId = newConversationId
 		}
 
 		if (!currentConversationId) {
 			console.error('No conversation ID found')
-			return
+			return false
 		}
 
 		// Invalidate the conversation cache
@@ -436,24 +659,28 @@ export class FlowChatManager {
 		}
 
 		this.messages = [...this.messages, userMessage]
+		onUserRow?.(userMessage.id)
 		const messageContent = this.inputMessage.trim()
 		this.inputMessage = ''
 		this.isLoading = true
 		this.isWaitingForResponse = true
 
+		// This turn's own answer, not shared state: a queued follow-up can flush while this
+		// one is still finishing, and re-enter sendMessage before it reads the result.
+		let started = false
 		try {
 			await tick()
 			this.scrollToUserMessage(userMessage.id)
 
 			if (this.#useStreaming && this.#path) {
-				await this.handleStreamingMessage(
+				started = await this.handleStreamingMessage(
 					messageContent,
 					currentConversationId,
 					isNewConversation,
 					additionalInputs
 				)
 			} else {
-				await this.handlePollingMessage(
+				started = await this.handlePollingMessage(
 					messageContent,
 					currentConversationId,
 					isNewConversation,
@@ -463,37 +690,66 @@ export class FlowChatManager {
 		} catch (error) {
 			console.error('Error running flow:', error)
 			sendUserToast('Failed to run flow: ' + error, true)
+			// A turn that never started leaves nothing to wait for. Said here as well as in
+			// the finally because the streaming path keeps `isLoading` for its own stream,
+			// and without this the composer and the sidebar stay locked until a reload.
+			this.#turnFailedToStart()
+			started = false
 		} finally {
 			if (!this.#useStreaming) {
 				this.isLoading = false
 			}
 		}
 
+		// The row now exists, titled from the message by the server. A name typed while it
+		// was a draft has to be written over that — unconditionally, not through
+		// renameConversation: on the streaming path this runs before any refresh, so the
+		// local row still carries the typed name and an equality check would skip the write.
+		// Cleared only once it lands, so a failed run keeps the name for the next attempt.
+		// Only when a turn actually ran: nothing created the row otherwise, so the write
+		// would 404 and stack a rename failure on top of the real one.
+		if (started && this.#draftTitle?.id === currentConversationId) {
+			const { title } = this.#draftTitle
+			if (await this.#writeConversationTitle(currentConversationId, title)) {
+				this.#draftTitle = undefined
+			}
+		}
+
 		await tick()
 		this.focusInput()
+		if (!started) {
+			// Nothing ran, so the row claiming a turn has to go with it — the caller puts
+			// the message back in the composer.
+			this.messages = this.messages.filter((m) => m.id !== userMessage.id)
+			return false
+		}
+		return true
 	}
 
+	/** Answers whether a job was actually started. */
 	private async handleStreamingMessage(
 		messageContent: string,
 		currentConversationId: string,
 		isNewConversation: boolean,
 		additionalInputs?: Record<string, any>
-	) {
+	): Promise<boolean> {
 		// Close any existing EventSource
 		if (this.currentEventSource) {
 			this.currentEventSource.close()
 		}
 
 		// Track stream state for this message
-		let accumulatedContent = ''
-		let assistantMessageId = ''
+		this.#turn = emptyTurnState(currentConversationId)
+		this.#replyReveal.reset()
+		this.#reasoningReveal.reset()
 		let isCompleted = false
 
 		try {
 			const jobId = await this.#onRunFlow?.(messageContent, currentConversationId, additionalInputs)
 			if (!jobId) {
 				console.error('No jobId returned from onRunFlow')
-				return
+				this.#turnFailedToStart()
+				return false
 			}
 
 			// Build the EventSource URL
@@ -561,74 +817,39 @@ export class FlowChatManager {
 						if (data.new_result_stream) {
 							// Stop polling since we are receiving last step streaming
 							this.stopPolling()
-							const {
-								type,
-								content: newContent,
-								success
-							} = parseStreamDeltas(data.new_result_stream)
-							accumulatedContent += newContent
-
-							// Create tool message if type is tool_result
-							if (type === 'tool_result') {
-								// set last message streaming to false
-								this.messages = this.messages.map((msg) =>
-									msg.id === this.messages[this.messages.length - 1].id
-										? { ...msg, streaming: false }
-										: msg
-								)
-
-								this.messages = [
-									...this.messages,
-									{
-										id: 'temp-' + randomUUID(),
-										content: newContent,
-										created_at: new Date().toISOString(),
-										created_seq: 0,
-										message_type: 'tool',
-										conversation_id: currentConversationId,
-										job_id: '',
-										loading: false,
-										streaming: false,
-										success
+							// One chunk can carry several events, so each is applied in turn: a
+							// chunk holding a call and its result must produce both.
+							for (const event of parseStreamEvents(data.new_result_stream)) {
+								if (event.kind === 'reasoning') {
+									this.isReasoningActive = true
+									this.#reasoningReveal.push(event.content)
+								} else if (event.kind === 'token') {
+									this.#replyReveal.push(event.content)
+								} else {
+									// Whatever the pacing still holds belongs to the row before the tool —
+									// thinking that led straight to the call included — so it is revealed
+									// before the event that closes that row.
+									if (event.kind === 'tool_call' || event.kind === 'tool_execution') {
+										this.#flushReveals()
+										this.currentReasoning = ''
+										this.isReasoningActive = false
 									}
-								]
-								// Reset assistant message ID since we are creating a tool message
-								assistantMessageId = ''
-								accumulatedContent = ''
-							}
-
-							// Create message on first content
-							else if (
-								type === 'message' &&
-								assistantMessageId.length === 0 &&
-								accumulatedContent.length > 0
-							) {
-								assistantMessageId = 'temp-' + randomUUID()
-								this.messages = [
-									...this.messages,
-									{
-										id: assistantMessageId,
-										content: accumulatedContent,
-										created_at: new Date().toISOString(),
-										created_seq: 0,
-										message_type: 'assistant',
-										conversation_id: currentConversationId,
-										job_id: '',
-										loading: false,
-										streaming: true
-									}
-								]
-							} else {
-								// Update existing message
-								this.messages = this.messages.map((msg) =>
-									msg.id === assistantMessageId ? { ...msg, content: accumulatedContent } : msg
-								)
+									const step = applyStreamEvent(
+										{ rows: this.messages, state: this.#turn },
+										event,
+										this.#newRowId
+									)
+									this.messages = step.rows
+									this.#turn = step.state
+								}
 							}
 						}
 
 						// Handle completion
 						if (data.completed) {
 							isCompleted = true
+							// Anything still buffered would be dropped by the temp-row sweep below.
+							this.#flushReveals()
 							// Do a final poll to get all messages from database
 							if (this.selectedConversationId) {
 								await this.pollConversationMessages(this.selectedConversationId, {
@@ -650,22 +871,30 @@ export class FlowChatManager {
 				this.cleanup()
 			}
 		} catch (error) {
+			// Everything that can throw here happens before the stream is live — the run
+			// request itself (which the deployed page's launcher throws from), or building
+			// the EventSource. Either way no turn ran.
 			console.error('Stream connection error:', error)
 			sendUserToast('Failed to connect to stream', true)
 			this.cleanup()
+			this.#turnFailedToStart()
+			return false
 		}
+		return true
 	}
 
+	/** Answers whether a job was actually started. */
 	private async handlePollingMessage(
 		messageContent: string,
 		currentConversationId: string,
 		isNewConversation: boolean,
 		additionalInputs?: Record<string, any>
-	) {
+	): Promise<boolean> {
 		const jobId = await this.#onRunFlow?.(messageContent, currentConversationId, additionalInputs)
 		if (!jobId) {
 			console.error('No jobId returned from onRunFlow')
-			return
+			this.#turnFailedToStart()
+			return false
 		}
 
 		// Store the current job ID so it can be cancelled
@@ -678,6 +907,7 @@ export class FlowChatManager {
 		// Start polling for intermediate messages in non-streaming mode too
 		this.startPolling(currentConversationId)
 		this.pollJobResult(jobId)
+		return true
 	}
 }
 

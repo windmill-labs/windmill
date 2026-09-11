@@ -26,6 +26,8 @@ pub struct FlowConversation {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub created_by: String,
+    /// Started from the flow editor's test panel rather than a deployed run.
+    pub is_test: bool,
 }
 
 pub async fn get_or_create_conversation_with_id(
@@ -35,11 +37,12 @@ pub async fn get_or_create_conversation_with_id(
     username: &str,
     title: &str,
     conversation_id: Uuid,
+    is_test: bool,
 ) -> Result<FlowConversation> {
     // Check if conversation already exists
     let existing_conversation = sqlx::query_as!(
         FlowConversation,
-        "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
+        "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by, is_test
          FROM flow_conversation
          WHERE id = $1 AND workspace_id = $2",
         conversation_id,
@@ -58,19 +61,30 @@ pub async fn get_or_create_conversation_with_id(
     // Create new conversation with provided ID
     let conversation = sqlx::query_as!(
         FlowConversation,
-        "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by, title)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, workspace_id, flow_path, title, created_at, updated_at, created_by",
+        "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by, title, is_test)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, workspace_id, flow_path, title, created_at, updated_at, created_by, is_test",
         conversation_id,
         w_id,
         flow_path,
         username,
-        title
+        title,
+        is_test
     )
     .fetch_one(&mut **tx)
     .await?;
 
     Ok(conversation)
+}
+
+/// What a row carries beyond its text, for the parts of a turn that no job holds: an
+/// MCP or provider-native tool runs inside the agent's job, and thinking is streamed
+/// and never returned in a response body.
+#[derive(Debug, Clone, Default)]
+pub struct MessageExtras {
+    pub tool_arguments: Option<String>,
+    pub tool_result: Option<String>,
+    pub reasoning: Option<String>,
 }
 
 /// Add a message to a conversation using an existing transaction
@@ -84,6 +98,7 @@ pub async fn add_message_to_conversation_tx(
     message_type: MessageType,
     step_name: Option<&str>,
     success: bool,
+    extras: Option<&MessageExtras>,
 ) -> Result<()> {
     // Check if conversation exists first
     let conversation_exists = sqlx::query!(
@@ -104,14 +119,17 @@ pub async fn add_message_to_conversation_tx(
 
     // Insert the message
     sqlx::query!(
-        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, step_name, success)
-         VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, step_name, success, tool_arguments, tool_result, reasoning)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         conversation_id,
         message_type as MessageType,
         content,
         job_id,
         step_name,
-        success
+        success,
+        extras.and_then(|e| e.tool_arguments.as_deref()),
+        extras.and_then(|e| e.tool_result.as_deref()),
+        extras.and_then(|e| e.reasoning.as_deref())
     )
     .execute(&mut **tx)
     .await?;
