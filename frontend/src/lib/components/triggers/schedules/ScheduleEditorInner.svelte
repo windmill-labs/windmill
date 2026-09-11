@@ -176,6 +176,9 @@
 	let session = $state(0)
 	let fixedTemplate: ScheduleCfg | undefined = undefined
 	const newTemplates = new Map<string, NewScheduleOptions>()
+	// Temporary keys holding a config the caller supplied for a schedule that already exists:
+	// saving one updates that schedule rather than creating it.
+	const standsForDeployed = new Set<string>()
 
 	const scheduleAdapter: ItemAdapter<ScheduleCfg> = {
 		settles: true,
@@ -200,8 +203,12 @@
 				throw err
 			}
 		},
-		async write({ workspace, value, deployed }) {
-			await writeScheduleCfg(value, deployed !== undefined, workspace)
+		async write({ workspace, path, value, deployed }) {
+			await writeScheduleCfg(
+				value,
+				deployed !== undefined || standsForDeployed.has(path),
+				workspace
+			)
 		}
 	}
 
@@ -300,6 +307,7 @@
 			mode = 'fixed'
 			fixedTemplate = normalizeScheduleCfg({ ...defaultCfg, path: defaultCfg.path ?? ePath })
 			itemPath = newItemPath()
+			standsForDeployed.add(itemPath)
 		} else {
 			mode = 'edit'
 			fixedTemplate = undefined
