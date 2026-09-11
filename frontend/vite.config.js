@@ -125,7 +125,37 @@ const remoteUrl =
 		? `http://localhost:${process.env.BACKEND_PORT}`
 		: 'https://app.windmill.dev/')
 
-const cookieDomain = process.env.ISOLATE_DEV_AUTH === '1' ? '' : 'localhost'
+// Browsers scope cookies by host, not port, so dev servers sharing a host (one per
+// worktree) would share one `token` and each login would sign the others out. The session
+// is stored under a name tied to its backend and forwarded as `token`, the name the backend
+// reads. ISOLATE_DEV_AUTH=0 keeps the shared `token` for tools reading it across instances.
+const isolateDevAuth = process.env.ISOLATE_DEV_AUTH !== '0'
+const authCookie = `token_${new URL(remoteUrl).host.replace(/\W/g, '_')}`
+
+// Isolated cookies are host-only: `Domain=localhost` is rejected when the dev server is
+// reached as 127.0.0.1 or over the network.
+const cookieDomain = isolateDevAuth ? '' : 'localhost'
+
+function isolateAuthCookie(proxy) {
+	if (!isolateDevAuth) return
+	proxy.on('proxyReq', (proxyReq, req) => {
+		const kept = []
+		let session
+		for (const cookie of (req.headers.cookie ?? '').split(/;\s*/)) {
+			if (cookie.startsWith(`${authCookie}=`)) session = cookie.slice(authCookie.length + 1)
+			else if (cookie && !cookie.startsWith('token=')) kept.push(cookie)
+		}
+		if (session !== undefined) kept.push(`token=${session}`)
+		if (kept.length) proxyReq.setHeader('cookie', kept.join('; '))
+		else proxyReq.removeHeader('cookie')
+	})
+	proxy.on('proxyRes', (proxyRes) => {
+		const setCookie = proxyRes.headers['set-cookie']
+		if (setCookie) {
+			proxyRes.headers['set-cookie'] = setCookie.map((c) => c.replace(/^token=/, `${authCookie}=`))
+		}
+	})
+}
 
 // Cross-origin isolation headers, scoped to mirror the production predicate —
 // see `needs_cross_origin_isolation` in backend/windmill-api/src/static_assets.rs
@@ -179,13 +209,15 @@ const config = {
 			'^/\\.well-known/.*': {
 				target: remoteUrl,
 				changeOrigin: true,
-				cookieDomainRewrite: cookieDomain
+				cookieDomainRewrite: cookieDomain,
+				configure: isolateAuthCookie
 			},
 			'^/api/w/[^/]+/s3_proxy/.*': {
 				target: remoteUrl,
 				changeOrigin: false, // Important for signature to be correct
 				cookieDomainRewrite: cookieDomain,
 				configure: (proxy, options) => {
+					isolateAuthCookie(proxy)
 					proxy.on('proxyReq', (proxyReq, req, res) => {
 						// Prevent collapsing slashes during URL normalization
 						const originalPath = req.url
@@ -197,7 +229,8 @@ const config = {
 			'^/api/.*': {
 				target: remoteUrl,
 				changeOrigin: true,
-				cookieDomainRewrite: cookieDomain
+				cookieDomainRewrite: cookieDomain,
+				configure: isolateAuthCookie
 			},
 			'^/ws/.*': {
 				target: process.env.REMOTE_LSP ?? process.env.REMOTE_EXTRA ?? 'https://app.windmill.dev',
