@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildAgentTrace } from './agentTrace'
+import { buildAgentTrace, splitFinalAnswer } from './agentTrace'
 import { parseAgentErrorMessages } from './aiAgentResult'
 import type { AgentMessage } from './aiAgentResult'
 
@@ -121,6 +121,50 @@ describe('buildAgentTrace', () => {
 // than reusing the success envelope's writer. `agent_action` is `skip_serializing`
 // on `OpenAIMessage`, so if that path ever stops wrapping them the tags vanish and
 // this trace silently empties — which is the one run worth reading.
+describe('splitFinalAnswer', () => {
+	it('moves the answering turn out of the trace, with its citations', () => {
+		const entries = buildAgentTrace([
+			{ role: 'tool', content: 'Used websearch tool', agent_action: { type: 'web_search' } },
+			{
+				role: 'assistant',
+				content: 'Postgres 17 changed the default.',
+				annotations: [{ url: 'https://postgresql.org/docs', title: 'Release notes' }],
+				agent_action: { type: 'message' }
+			}
+		])
+		expect(splitFinalAnswer(entries, 'Postgres 17 changed the default.')).toEqual({
+			trace: [{ kind: 'search' }],
+			sources: [{ url: 'https://postgresql.org/docs', title: 'Release notes' }]
+		})
+	})
+
+	// A run whose last turn returned a tool call and no text leaves its answer
+	// mid-trace. Looking only at the final entry finds nothing to move and prints
+	// that answer as a row and again under the output.
+	it('finds the answering turn even when it is not the last one', () => {
+		const entries = buildAgentTrace([
+			{ role: 'assistant', content: 'Let me check.', agent_action: { type: 'message' } },
+			{
+				role: 'tool',
+				tool_call_id: 'call_1',
+				content: '{}',
+				agent_action: {
+					type: 'tool_call',
+					job_id: '0199-job',
+					module_id: 'b',
+					function_name: 'query_metrics'
+				}
+			}
+		])
+		expect(splitFinalAnswer(entries, 'Let me check.').trace).toEqual([entries[1]])
+	})
+
+	it('leaves the trace whole when the output is not a turn of its own', () => {
+		const entries = buildAgentTrace(messages)
+		expect(splitFinalAnswer(entries, { rows: 3 })).toEqual({ trace: entries })
+	})
+})
+
 describe('the max-iterations path', () => {
 	it('traces the partial messages the error carries', () => {
 		const partial = parseAgentErrorMessages({

@@ -30,6 +30,11 @@
 			const continues = progress.key === streamKey && raw.length >= progress.consumed
 			const base = continues ? progress : emptyAgentStreamProgress()
 			progress = { ...advanceAgentStream(raw, base), key: streamKey }
+			if (!continues) {
+				// Another run, so the reader's decision to stop following the previous
+				// one does not carry over: this one starts at its latest output.
+				following = true
+			}
 		})
 	})
 
@@ -66,7 +71,6 @@
 			sticker.scrollToEnd(runPane(anchor))
 		}
 	})
-
 </script>
 
 <!-- The same order a finished run uses — what it did, then what it is saying — so
