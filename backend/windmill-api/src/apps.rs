@@ -3463,7 +3463,7 @@ async fn update_app_internal<'a>(
         // Everything left at the old path is a draft this deploy didn't consume
         // — teammates' rows, and the deployer's own when the caller asked us to
         // keep it. Carry them rather than strand them.
-        let outcome = windmill_common::user_drafts::move_drafts_for_path(
+        windmill_common::user_drafts::move_drafts_for_path(
             &mut tx,
             &w_id,
             &[UserDraftItemKind::App, UserDraftItemKind::RawApp],
@@ -3471,13 +3471,6 @@ async fn update_app_internal<'a>(
             &npath,
         )
         .await?;
-        if outcome.left_behind > 0 {
-            tracing::warn!(
-                "{} of {} app draft(s) stranded at {path}: their owner already has a draft at {npath}",
-                outcome.left_behind,
-                outcome.moved + outcome.left_behind
-            );
-        }
     }
     audit_log(
         &mut *tx,

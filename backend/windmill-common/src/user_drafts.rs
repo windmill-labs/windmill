@@ -599,71 +599,53 @@ pub async fn delete_own_draft_for_path(
 /// and guessing wrong silently either strands the user's staged rename or
 /// clears a staleness warning they needed.
 ///
-/// A row whose owner already has a draft at `new_path` stays put: the target
-/// draft is work in its own right and is never overwritten. Those rows are
-/// reported as `left_behind` rather than swallowed — they are exactly the
-/// orphans this function exists to prevent, so a caller that ignores the count
-/// is choosing to strand them silently.
+/// A draft already at `new_path` (a never-deployed item, or one left on an
+/// archived script there) occupies that path the way a deployed item does, and
+/// the move is refused with `BadRequest` — inside the deploy's transaction, so
+/// the rename itself is what gets refused. Moving onto it would either merge two
+/// items or strand the row that lost the collision.
 pub async fn move_drafts_for_path(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
     kinds: &[UserDraftItemKind],
     old_path: &str,
     new_path: &str,
-) -> Result<MoveDraftsOutcome> {
+) -> Result<()> {
     let typs = kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
+    let taken = sqlx::query_scalar!(
+        r#"SELECT count(*) as "n!" FROM draft
+           WHERE workspace_id = $1 AND path = $2 AND typ::text = ANY($3::text[])"#,
+        w_id,
+        new_path,
+        &typs as &[&str],
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    if taken > 0 {
+        return Err(crate::error::Error::BadRequest(format!(
+            "'{new_path}' already has a draft on it — move it or discard it first"
+        )));
+    }
     // Only the row's path column. The value is the user's payload and this deploy
     // is not their edit, so nothing in it is rewritten — including the path it
     // would deploy to, which stays whatever they last typed. A carried draft
     // therefore reads as out of date against the version this deploy created,
     // which is true, and the editor's stale prompt shows the diff that says
     // whether it matters.
-    let moved = sqlx::query_scalar!(
-        r#"UPDATE draft AS d
+    sqlx::query!(
+        r#"UPDATE draft
            SET path = $3
-           WHERE d.workspace_id = $1
-             AND d.path = $2
-             AND d.typ::text = ANY($4::text[])
-             AND NOT EXISTS (
-                 SELECT 1 FROM draft o
-                 WHERE o.workspace_id = d.workspace_id
-                   AND o.path = $3
-                   AND o.typ = d.typ
-                   AND o.email IS NOT DISTINCT FROM d.email
-             )
-           RETURNING d.id"#,
+           WHERE workspace_id = $1
+             AND path = $2
+             AND typ::text = ANY($4::text[])"#,
         w_id,
         old_path,
         new_path,
         &typs as &[&str],
     )
-    .fetch_all(&mut **tx)
+    .execute(&mut **tx)
     .await?;
-
-    // Anything still sitting at the old path was blocked by the collision
-    // guard. Counted rather than inferred from `moved`, so a concurrent insert
-    // at the old path is reported too.
-    let left_behind = sqlx::query_scalar!(
-        r#"SELECT count(*) as "n!" FROM draft
-           WHERE workspace_id = $1 AND path = $2 AND typ::text = ANY($3::text[])"#,
-        w_id,
-        old_path,
-        &typs as &[&str],
-    )
-    .fetch_one(&mut **tx)
-    .await?;
-
-    Ok(MoveDraftsOutcome { moved: moved.len(), left_behind: left_behind as usize })
-}
-
-/// What `move_drafts_for_path` did. `left_behind` is non-zero only when the
-/// target owner already held a draft at the new path; those rows are now
-/// orphaned at a path their item has left, so a caller that sees a non-zero
-/// count owes the user a warning.
-#[derive(Debug, Clone, Copy)]
-pub struct MoveDraftsOutcome {
-    pub moved: usize,
-    pub left_behind: usize,
+    Ok(())
 }
 
 /// Fetch the authed user's draft as a standalone payload, for "get by path"
