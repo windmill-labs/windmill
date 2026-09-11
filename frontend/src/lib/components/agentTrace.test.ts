@@ -144,3 +144,17 @@ describe('the max-iterations path', () => {
 		])
 	})
 })
+
+// A result is whatever a script returned, so every nested field is arbitrary even
+// once the messages have roles. A throw in here takes down the whole result
+// viewer, including the ordinary error such a payload usually rides on.
+describe('a malformed message that still has a role', () => {
+	it.each([
+		['tool_calls that are not a list', { role: 'assistant', tool_calls: {} }],
+		['annotations that are not a list', { role: 'assistant', content: 'hi', annotations: 'abc' }],
+		['a content object', { role: 'assistant', content: { text: 'hi' } }],
+		['an agent_action that is not an object', { role: 'tool', agent_action: 'tool_call' }]
+	])('survives %s', (_label, message) => {
+		expect(() => buildAgentTrace([message as never])).not.toThrow()
+	})
+})
