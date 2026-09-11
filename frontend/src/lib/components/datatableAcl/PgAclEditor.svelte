@@ -132,7 +132,7 @@
 					<span class="text-xs font-semibold text-emphasis">Owner</span>
 					<span class="text-xs text-secondary">
 						{target.kind === 'schema'
-							? 'The role that owns the schema and everything already in it, except what belongs to an extension, which stays with the extension. Changing it also keeps the new owner in reach of what the other roles create here later.'
+							? 'The role that owns the schema and everything already in it, except what belongs to an extension, which stays with the extension. Changing it also keeps the new owner in reach of what the roles there are now create here later.'
 							: 'The role that owns the table. Its owner may always read and write it, and is who ALTER and DROP answer to.'}
 					</span>
 				</div>
