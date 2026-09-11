@@ -123,3 +123,32 @@ describe('formatTokenCount', () => {
 		expect(formatTokenCount(48211)).toBe('48k')
 	})
 })
+
+// The worker streams every iteration's text, and a turn may narrate and call a
+// tool at once. Appending across that boundary makes the live answer read
+// "I'll checkThe issue is..." and never converge on the finished output.
+describe('a stream that narrates before calling a tool', () => {
+	it('keeps only the turn that produced the answer', () => {
+		const raw = [
+			'{"type":"token_delta","content":"Let me check the metrics."}',
+			'{"type":"tool_call","call_id":"c1","function_name":"query_metrics"}',
+			'{"type":"tool_result","call_id":"c1","function_name":"query_metrics","result":"{}","success":true}',
+			'{"type":"token_delta","content":"eu-central-1 is down."}',
+			''
+		].join('\n')
+		expect(advanceAgentStream(raw, emptyAgentStreamProgress()).stream.answer).toBe(
+			'eu-central-1 is down.'
+		)
+	})
+
+	it('drops the narration at the boundary even across polls', () => {
+		const first = '{"type":"token_delta","content":"Let me check."}\n'
+		const afterCall = first + '{"type":"tool_call","call_id":"c1","function_name":"q"}\n'
+		const poll1 = advanceAgentStream(first, emptyAgentStreamProgress())
+		expect(poll1.stream.answer).toBe('Let me check.')
+		const poll2 = advanceAgentStream(afterCall, poll1)
+		expect(poll2.stream.answer).toBe('')
+		const poll3 = advanceAgentStream(afterCall + '{"type":"token_delta","content":"Done."}\n', poll2)
+		expect(poll3.stream.answer).toBe('Done.')
+	})
+})

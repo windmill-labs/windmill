@@ -6,7 +6,7 @@
 	import { Button } from '$lib/components/common'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import Required from './Required.svelte'
-	import autosize from '$lib/autosize'
+	import TextInput from './text_input/TextInput.svelte'
 
 	interface Props {
 		description: string
@@ -35,6 +35,9 @@
 				unifiedSize="xs"
 				btnClasses={editing ? 'bg-surface-hover' : ''}
 				startIcon={{ icon: Pen }}
+				iconOnly
+				title={editing ? 'Stop editing the description' : 'Edit the description'}
+				aria-label={editing ? 'Stop editing the description' : 'Edit the description'}
 				on:click={() => (editing = !editing)}
 			/>
 		{/if}
@@ -42,13 +45,11 @@
 	{#if canWrite && editing}
 		<div class="relative">
 			<div class="text-2xs text-primary absolute -top-4 right-0">GH Markdown</div>
-			<textarea
-				class="text-xs text-primary font-normal"
-				disabled={!canWrite}
-				use:autosize
+			<TextInput
+				underlyingInputEl="textarea"
 				bind:value={description}
-				{placeholder}
-			></textarea>
+				inputProps={{ placeholder, 'aria-label': label, disabled: !canWrite }}
+			/>
 		</div>
 	{:else if description == undefined || description == ''}
 		<div class="text-xs text-secondary font-normal">No description provided</div>
