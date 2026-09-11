@@ -41,7 +41,7 @@
 	})
 </script>
 
-<div class="flex flex-col w-full pt-1">
+<div class="flex flex-col w-full pt-3">
 	{#if trace.length > 0}
 		<AgentTrace entries={trace} {workspaceId} />
 	{/if}
