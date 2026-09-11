@@ -30,6 +30,8 @@ function fakeRows() {
 	const failing = new Set<string>()
 	const failures = new Map<string, string>()
 	const hints = new Map<string, boolean>()
+	/** Paths whose parked payload was dropped. */
+	const dropped: string[] = []
 	const port: ItemRowPort = {
 		write: (key, value) => {
 			writes.push({ path: key.path, value })
@@ -43,10 +45,10 @@ function fakeRows() {
 		seedSync: () => {},
 		conflicted: (key) => conflicts.has(key.path),
 		failure: (key) => failures.get(key.path),
-		dropPending: () => {},
+		dropPending: (key) => void dropped.push(key.path),
 		hint: (key, on) => void hints.set(key.path, on)
 	}
-	return { port, writes, conflicts, failing, hints }
+	return { port, writes, conflicts, failing, hints, dropped }
 }
 
 const deployedRes: Res = { path: 'u/me/r', description: 'deployed', args: { a: 1 } }
@@ -392,6 +394,7 @@ describe('item store: origins', () => {
 		expect(item.removed).toBe(false)
 		expect(item.value).toEqual(draft)
 		expect(item.status).toBe('failed')
+		expect(rows.hints.get('u/me/r')).toBe(true)
 	})
 
 	it('creates under a temporary path, then moves to the real one and clears any row there', async () => {
@@ -488,6 +491,23 @@ describe('item store: conflicts', () => {
 			path: 'u/me/r',
 			value: { ...deployedRes, description: 'mine' }
 		})
+	})
+
+	it('drops the rejected payload when the other version is taken', async () => {
+		const rows = fakeRows()
+		const theirs = { ...deployedRes, description: 'theirs' }
+		let reads = 0
+		const { item } = await open(
+			rows,
+			adapter(async () =>
+				reads++ === 0 ? { deployed: deployedRes } : { deployed: deployedRes, draft: theirs }
+			)
+		)
+		item.value = { ...deployedRes, description: 'mine' }
+
+		await item.resolveConflict('reload')
+		expect(rows.dropped).toContain('u/me/r')
+		expect(item.value).toEqual(theirs)
 	})
 })
 

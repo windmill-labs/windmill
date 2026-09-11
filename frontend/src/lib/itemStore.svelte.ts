@@ -392,6 +392,7 @@ class Entry<V> {
 				if (this.rowRefused(this.key)) {
 					this.row = keptRow
 					this.replaceValue(kept)
+					this.reconcile()
 					return { removed: false }
 				}
 				this.removed = true
@@ -515,7 +516,12 @@ class Entry<V> {
 
 	/** Out of `conflicted`: `reload` takes the server's row, `overwrite` forces this one. */
 	resolveConflict(how: 'reload' | 'overwrite', adapter: ItemAdapter<V>): Promise<CommandOutcome> {
-		if (how === 'reload') return this.load(adapter)
+		// The syncer keeps a rejected payload parked, and the page-close flush would send it with
+		// the timestamp the reload adopts — over the version the user just chose.
+		if (how === 'reload') {
+			this.ports.dropPending(this.key)
+			return this.load(adapter)
+		}
 		return this.run(async () => {
 			const desired = this.dirty ? snapshot(this.value) : null
 			await this.ports.overwrite(this.key, desired)
