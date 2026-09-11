@@ -947,6 +947,9 @@ async fn test_bun_lock_keeps_pin_from_imported_script(db: Pool<Postgres>) -> any
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
+    // The dependency job saves the script's bundle here; the server binary creates it at startup.
+    std::fs::create_dir_all(&*windmill_worker::BUN_BUNDLE_CACHE_DIR)?;
+
     // 6.0.0 is not npm's `latest`, so a lock that lost the pin cannot match by accident.
     insert_deployed_bun_script(
         &db,
@@ -969,7 +972,9 @@ export function main() { return helper(1); }"#
     .json_result()
     .unwrap();
 
-    let lock = result["lock"].as_str().unwrap();
+    let Some(lock) = result["lock"].as_str() else {
+        panic!("the dependency job returned no lock: {result}");
+    };
     assert!(lock.contains(r#""is-number": "6.0.0""#), "{lock}");
     assert!(lock.contains("is-number@6.0.0"), "{lock}");
     Ok(())
