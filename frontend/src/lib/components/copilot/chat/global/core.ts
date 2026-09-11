@@ -5826,9 +5826,8 @@ async function runDeployedFlow(
 			schema,
 			summary: flow.summary,
 			kind: 'run',
-			// A flow's dynamic-option pickers are one script stored on the schema itself.
-			code: schema['x-windmill-dyn-select-code'],
-			lang: schema['x-windmill-dyn-select-lang'],
+			// No code/lang: a deployed run's dynamic-option pickers are fetched from the deployed
+			// flow itself, which is the version running. Only a test run carries its draft inline.
 			schemaNoun: 'deployed',
 			toolName: 'run_flow',
 			proposed: args.args,
