@@ -1362,7 +1362,7 @@ ${pipelineBullet}
 			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
 	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
 - For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
-- Default to test_run_script, test_run_flow, or test_run_step for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script or run_flow only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For those two, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema. Every one of these tools shows the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat.
+- Default to test_run_script, test_run_flow, or test_run_step for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script or run_flow only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For those two, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema. test_run_script, test_run_flow, run_script and run_flow all show the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
@@ -3724,7 +3724,6 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = runFlowSchema.parse(ctx.args)
 			return runDeployedFlow(parsed, ctx)
 		},
-		// No requiresConfirmation, for the reason test_run_script carries.
 		bypassedByAutoAccept: true,
 		streamingLabel: 'Preparing the run form...',
 		confirmationMessage: 'Run a deployed flow',
@@ -5814,10 +5813,8 @@ async function runDeployedFlow(
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace } = ctx
-	// The deployed flow, never loadFlowDraftValue: this runs what is live, so the form has to
-	// offer the inputs the live version accepts. For the same reason no live editor is driven
-	// here as a test run drives one — that editor holds the draft, and a deployed run painted
-	// into its graph would show steps that are not the ones running.
+	// No live editor is driven here as a test run drives one: that editor holds the draft, and a
+	// deployed run painted into its graph would show steps that are not the ones running.
 	const flow = await FlowService.getFlowByPath({ workspace, path: args.path })
 	const schema = (flow.schema as Record<string, any> | null | undefined) ?? {}
 	return runThroughForm(
@@ -5826,20 +5823,25 @@ async function runDeployedFlow(
 			schema,
 			summary: flow.summary,
 			kind: 'run',
-			// No code/lang: a deployed run's dynamic-option pickers are fetched from the deployed
-			// flow itself, which is the version running. Only a test run carries its draft inline.
+			// No code/lang: the dynamic-option pickers come from the deployed flow, not an inline copy.
 			schemaNoun: 'deployed',
 			toolName: 'run_flow',
 			proposed: args.args,
 			startMessage: `Running "${args.path}"...`,
 			contextName: 'flow',
-			// Bypassable like a test run: the posture is the user's standing answer, and a form
-			// it parks on is a card nobody is watching.
 			autoAcceptable: true,
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 			startJob: (submitted) =>
-				JobService.runFlowByPath({ workspace, path: args.path, requestBody: submitted })
+				JobService.runFlowByPath({
+					workspace,
+					path: args.path,
+					requestBody: submitted,
+					// As the flow's own run page does: the form fills the main input schema, and a
+					// preprocessor would take these arguments for a webhook body and hand the flow
+					// its own output instead.
+					skipPreprocessor: true
+				})
 		},
 		ctx
 	)

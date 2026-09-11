@@ -5112,7 +5112,8 @@ describe('global AI tools', () => {
 		expect(JobService.runFlowByPath).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
 			path: 'u/admin/deployed_and_drafted',
-			requestBody: { name: 'Grace' }
+			requestBody: { name: 'Grace' },
+			skipPreprocessor: true
 		})
 	})
 
