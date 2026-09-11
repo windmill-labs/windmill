@@ -293,6 +293,32 @@ dbt hands the driver — it is written beside `profiles.yml` and pointed at by
 `sslrootcert`, as it is for a translated postgres resource. `profile.schema` and
 `threads` from the descriptor override their block keys rather than joining them.
 
+**A `snowflake_oauth` warehouse behaves like a key-pair `snowflake` one**,
+although its credential is an access token that lasts ten minutes:
+
+- The token goes under the `authenticator` each engine reads as an access
+  token: `oauth` on dbt-core 1.x, `jwt` on the Rust engines. Those read `oauth`
+  as the refresh-token flow and refuse a profile without client credentials,
+  while dbt-snowflake has `jwt` only from 1.9 and the 1.x engine can resolve 1.8.
+- Every dbt process that logs in re-resolves the warehouse first
+  (`PreparedProject::refresh_profile`), and resolving an expired OAuth token
+  refreshes it. So the build, the `after_all` tests, a node retry and the
+  column-lineage pass each start with a live token, unless resolving fails: the
+  process then keeps the profile it already has, token included.
+- Run identity masks credentials (`RenderedProfile::identity`), so a token
+  refreshed between a failure and its retry still matches.
+- The OAuth connect flow asks for `database`, `warehouse`, `role` and `schema`
+  (`resource_fields` in `oauth_connect.json`). No token response carries them,
+  and dbt needs a database.
+
+One gap stays: a login after the token its dbt process started with has expired
+fails. That is a thread whose first connection opens late in a long process, or
+a process's first login when the token it was handed had only seconds left.
+Refreshing tokens ahead of expiry would narrow it, but a token's lifetime is not
+stored, so no margin fits every provider. Closing it would mean handing dbt the
+refresh token and the instance's client secret, which any model can read on
+dbt-core 1.x.
+
 Three things follow, and they are the reason for the rule rather than
 consequences to work around.
 
@@ -1278,9 +1304,10 @@ relations that are no longer there. Keyed on all four, it reads as an
 environment nothing has published yet, which is what it is.
 
 What the key deliberately does NOT carry is the resolved connection. That is the
-`profile_digest` a retry is held to, and it moves when a password is rotated,
-which moves no relation; a warehouse pointing somewhere else entirely is
-decision 11's accepted limitation, spelled the same way here as everywhere else.
+`profile_digest` a retry is held to. It masks credentials, but it still moves
+with changes that move no relation, like another Snowflake warehouse or role; a
+warehouse pointing somewhere else entirely is decision 11's accepted limitation,
+spelled the same way here as everywhere else.
 
 Today one script has one environment, because a descriptor fixes both the
 warehouse and the target and a run cannot override either. The key is what makes
