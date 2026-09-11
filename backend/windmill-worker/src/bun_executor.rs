@@ -1146,11 +1146,11 @@ pub async fn generate_bun_bundle(
     Ok(())
 }
 
-/// [`generate_bun_bundle`], built once more with the pins dropped from the dynamic `import()`
+/// [`generate_bun_bundle`], built once more with the version pins dropped from the import
 /// specifiers of `main.ts` if it fails. The lockfile pins those versions, but bun fails on a
 /// pinned specifier except where it tolerates a failed import (in a `try`, under a `.catch`, in
 /// dead code). Such a script builds as written and must keep that bundle, so only failures retry.
-async fn generate_bun_bundle_unpinning_dynamic_imports(
+async fn generate_bun_bundle_unpinning_imports(
     job_dir: &str,
     w_id: &str,
     job_id: &Uuid,
@@ -1201,7 +1201,7 @@ async fn generate_bun_bundle_unpinning_dynamic_imports(
         append_logs(
             job_id,
             w_id,
-            "\nbundling again with the dynamic imports' versions taken from the lockfile\n",
+            "\nbundling again with the imports' versions taken from the lockfile\n",
             db,
         )
         .await;
@@ -1380,7 +1380,7 @@ pub async fn prebundle_bun_script(
 
     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
-    generate_bun_bundle_unpinning_dynamic_imports(
+    generate_bun_bundle_unpinning_imports(
         job_dir,
         w_id,
         job_id,
@@ -2277,7 +2277,7 @@ try {{
 
     if !codebase.is_some() && !has_bundle_cache {
         if build_cache {
-            generate_bun_bundle_unpinning_dynamic_imports(
+            generate_bun_bundle_unpinning_imports(
                 job_dir,
                 &job.workspace_id,
                 &job.id,

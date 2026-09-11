@@ -1019,7 +1019,8 @@ async fn test_bun_bundles_pinned_dynamic_import(db: Pool<Postgres>) -> anyhow::R
     std::fs::create_dir_all(&*windmill_worker::BUN_BUNDLE_CACHE_DIR)?;
 
     const PATH: &str = "f/pinned_dynamic_import/main";
-    // The nonce keys a bundle no earlier job cached, which would skip the build under test.
+    // Every `script` call draws its own nonce, so each job below misses every bundle cached before
+    // it, this test's included, and has to build one: a cached bundle skips the build under test.
     // 4.17.20 is not npm's `latest`, so a bundle that lost the pin cannot match by accident.
     let script = |body: &str| {
         format!(
