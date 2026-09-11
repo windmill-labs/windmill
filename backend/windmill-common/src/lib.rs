@@ -301,9 +301,11 @@ pub fn check_on_behalf_of_preservation(
 /// Callers must already be authorized for the workspace they pass.
 ///
 /// The lookup and the caller's write are separate transactions, so a principal renamed or removed
-/// between them is stored after the sweep that would have moved it: the runnable then fails to
-/// authenticate until it is deployed with a current identity. That race fails closed and is
-/// accepted rather than serialized against every identity mutation.
+/// between them is stored after the sweep that would have moved it. The runnable then fails to
+/// authenticate until it is deployed with a current identity, except an app naming an external
+/// superadmin, which keeps running as that same account through the stored address
+/// `fetch_authed_from_permissioned_as` falls back to. Neither reaches another account, so the race
+/// is accepted rather than serialized against every identity mutation.
 pub async fn resolve_on_behalf_of(
     on_behalf_of_email: Option<&str>,
     on_behalf_of: Option<&str>,

@@ -5744,9 +5744,14 @@ async fn build_args(
                 "email" => authed.as_ref().map(|a| serde_json::to_value(&a.email)),
                 "workspace" => Some(serde_json::to_value(&w_id)),
                 "groups" => authed.as_ref().map(|a| serde_json::to_value(&a.groups)),
+                // Same rule as `get_on_behalf_of`: the stored address, derived only when absent.
                 "author" => {
-                    let author = match policy.on_behalf_of.as_deref() {
-                        Some(permissioned_as) => Some(
+                    let author = match (
+                        policy.on_behalf_of_email.as_deref(),
+                        policy.on_behalf_of.as_deref(),
+                    ) {
+                        (Some(email), _) => Some(email.to_string()),
+                        (None, Some(permissioned_as)) => Some(
                             windmill_common::users::get_email_from_permissioned_as(
                                 permissioned_as,
                                 w_id,
@@ -5754,7 +5759,7 @@ async fn build_args(
                             )
                             .await?,
                         ),
-                        None => None,
+                        (None, None) => None,
                     };
                     Some(serde_json::to_value(&author))
                 }
