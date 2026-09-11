@@ -390,6 +390,9 @@ class Entry<V> {
 				await this.settleRows([this.key])
 				// The row is the item: while its delete has not landed, the item is still there.
 				if (this.rowRefused(this.key)) {
+					// The syncer keeps a failed payload for its page-close flush; that delete would
+					// remove the item this reports as kept.
+					this.ports.dropPending(this.key)
 					this.row = keptRow
 					this.replaceValue(kept)
 					this.reconcile()

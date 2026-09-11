@@ -395,6 +395,7 @@ describe('item store: origins', () => {
 		expect(item.value).toEqual(draft)
 		expect(item.status).toBe('failed')
 		expect(rows.hints.get('u/me/r')).toBe(true)
+		expect(rows.dropped).toContain('u/me/r')
 	})
 
 	it('creates under a temporary path, then moves to the real one and clears any row there', async () => {
