@@ -300,12 +300,17 @@ pub fn check_on_behalf_of_preservation(
 /// whether preservation is allowed, and its role flags are not re-checked against `w_id`.
 /// Callers must already be authorized for the workspace they pass.
 ///
-/// The lookup and the caller's write are separate transactions, so a principal renamed or removed
-/// between them is stored after the sweep that would have moved it. The runnable then fails to
-/// authenticate until it is deployed with a current identity, except an app naming an external
-/// superadmin, which keeps running as that same account through the stored address
-/// `fetch_authed_from_permissioned_as` falls back to. Neither reaches another account, so the race
-/// is accepted rather than serialized against every identity mutation.
+/// Known, accepted race. The lookup runs on the pool, outside the caller's write transaction, so
+/// an account renamed or removed between the two has its sweep run before the write is visible,
+/// and the write stores the old principal. The runnable then fails to authenticate until it is
+/// deployed with a current identity, with two exceptions: an app naming an external superadmin
+/// keeps running as that account through its stored address, and if the freed username is later
+/// given to another account, the stale principal binds to that account and runs as it. Every
+/// caller shares this (scripts, flows and apps, address-only inputs included), and it needs a
+/// rename or removal of the exact account inside the lookup-to-commit gap. Closing it means
+/// serializing every identity write against every identity mutation, across all runnable kinds
+/// (a `usr` row lock in each write, with each sweep ordered after the account change), which no
+/// single caller can do on its own; it is left open deliberately.
 pub async fn resolve_on_behalf_of(
     on_behalf_of_email: Option<&str>,
     on_behalf_of: Option<&str>,
