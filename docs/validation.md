@@ -16,6 +16,7 @@ After making changes, run the appropriate checks and fix all errors before consi
 | Multiple gated modules | `cargo check --features enterprise,parquet` | Combine only the flags you need |
 | API route changes | `cargo check` | Then update `openapi.yaml` and run `npm run generate-backend-client` |
 | Database migrations | `cargo check` | Test migration applies cleanly with `sqlx migrate run` |
+| The `sqlx` dependency (version bump, `[patch.crates-io]` entries, fork rebase) | `cargo test -p windmill-common --test sqlx_begin_cancel_safe -- --ignored` | Windmill runs a patched `sqlx`: upstream's `Pool::begin` is not cancel-safe on Postgres, and a cancelled one poisons the pooled connection for 30 minutes. Losing the patch still compiles, so this ignored test is the only thing that notices. `backend/Cargo.toml` has the detail |
 
 **Never** use `--features all_sqlx_features` — it compiles everything and is very slow. Check `backend/Cargo.toml` `[features]` to find the right flags.
 
@@ -39,6 +40,7 @@ After all code changes are done, run `./update_sqlx.sh` from `backend/` to regen
 | Modified Flow structures | Also update `openflow.openapi.yaml` |
 | Changed DB schema | Update `backend/summarized_schema.txt` if needed |
 | Enterprise file changes | Companion PR in `windmill-ee-private` (see `docs/enterprise.md`) |
+| Changed a hook in `.claude/hooks/` | `bash .claude/hooks/test-hooks.sh` — pins which commands prompt |
 
 ## When to Write Tests
 

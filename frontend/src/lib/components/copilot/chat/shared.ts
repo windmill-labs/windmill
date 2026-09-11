@@ -4,6 +4,15 @@ import type {
 	ChatCompletionMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import type { UserDraftItemKind } from '$lib/gen'
+// The gate's two refusals, from a module that holds prose and one size limit: under the
+// shallow-import rule below, the rest of plan mode is not reachable from here.
+import { PLAN_MODE_MESSAGES } from './planModeMessages'
+// Import-free leaf, so it satisfies the shallow-import rule below.
+import {
+	openItemPreviewAction,
+	type OpenItemPreviewAction,
+	type PreviewCardKind
+} from './itemPreview'
 
 // The tool modules that import this one (workspaceTools, flow/core, global/core, ...)
 // call createToolDef and read SPECIAL_MODULE_IDS at *module scope*, so if a chunk cycle
@@ -45,7 +54,7 @@ import {
 } from '$lib/gen'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
-import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { logFeatureUsage, logHubScriptPick } from '$lib/utils/featureUsage'
 import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
@@ -523,34 +532,10 @@ export type NavigateAction = {
 	page: string
 }
 
-/** Kinds of previewable item a write tool can land — the subset of draft item
- * kinds a session preview can host. */
-export type PreviewCardKind = 'script' | 'flow' | 'raw_app'
-
-// A discrete card shown on a tool call that created or updated a workspace item.
-// Clicking it opens the item's live preview in the session side panel — or focuses
-// the tab if it is already open. The handler is registered by the sessions page
-// (the only surface with a preview panel).
-export type OpenItemPreviewAction = {
-	id: string
-	type: 'open_item_preview'
-	label: string
-	previewKind: PreviewCardKind
-	path: string
-}
+// Re-exported: most consumers reach these through this module.
+export { openItemPreviewAction, type PreviewCardKind, type OpenItemPreviewAction }
 
 export type ToolDisplayAction = CreatedResourceAction | NavigateAction | OpenItemPreviewAction
-
-/** Build the action a preview card dispatches from its (kind, path). */
-export function openItemPreviewAction(kind: PreviewCardKind, path: string): OpenItemPreviewAction {
-	return {
-		id: `open-item-preview:${kind}:${path}`,
-		type: 'open_item_preview',
-		label: `Open ${kind === 'raw_app' ? 'app' : kind} preview`,
-		previewKind: kind,
-		path
-	}
-}
 
 export type UserQuestionDisplay = {
 	question: string
@@ -568,6 +553,53 @@ export function answeredChoices(q: UserQuestionDisplay): string[] | undefined {
 	return q.selectedChoices ?? (q.selectedChoice ? [q.selectedChoice] : undefined)
 }
 
+/** Argument form for a deployed-script run, persisted with the transcript — every
+ * field has to stay plain JSON. */
+export type RunFormDisplay = {
+	path: string
+	summary?: string
+	/** What the run is, in the card's own words: a deployed script run, or a preview of the
+	 * draft being written. Only the tense of the row's label turns on it. */
+	kind?: 'run' | 'test'
+	/** Of whatever version is about to run: the deployed script, or the draft a test
+	 * previews. Only the rendered form reads it, so it is dropped once one of the flags
+	 * below unmounts that form: kept, every settled card would carry a copy of the schema
+	 * — password and file defaults included — in history forever. */
+	schema?: Record<string, any>
+	/** The draft a test run previews, for the `dynselect-` helper only — a deployed helper
+	 * would answer for the wrong version. Set on a test run alone, and dropped with the
+	 * schema once the form unmounts, so no settled card carries a copy of the code. */
+	code?: string
+	lang?: ScriptLang
+	/** Prefill only: the card's `parameters` records what the job started with. */
+	args: Record<string, any>
+	/** Proposed arguments emptied because their declared type had no reading of them.
+	 * Named on the card: an empty field is otherwise the caller having sent nothing. */
+	clearedKeys?: string[]
+	/** Proposed arguments a disabled field overrode with its default. Named for the same
+	 * reason: the field renders locked, so the value it holds is not the proposed one. */
+	resetKeys?: string[]
+	/** File arguments emptied out of the proposal. Named so an empty field reads as the
+	 * caller's value having been removed, not as the field having none. */
+	strippedKeys?: string[]
+	/** Either one unmounts the form, so set exactly one, and only once the loop has
+	 * stopped waiting on this card. */
+	submitted?: boolean
+	canceled?: boolean
+	/** The job exists. Distinct from `submitted`, which flips a round trip earlier — in
+	 * between, whether the server queued a job is unknown, so a turn stopped there is
+	 * recorded as neither started nor canceled. */
+	started?: boolean
+}
+
+/** What a run form is being filled with while it waits. Held by the chat manager, not by
+ * the form, so the chat card and the preview pane edit one draft rather than two copies.
+ * The schema rides along because SchemaForm binds and reorders it. */
+export type RunFormDraft = {
+	args: Record<string, any>
+	schema: Record<string, any>
+}
+
 /** One page hit from a provider-side web search (OpenAI sources carry no title). */
 export type WebSearchSource = {
 	url: string
@@ -580,6 +612,9 @@ export type ToolDisplayMessage = {
 	content: string
 	parameters?: any
 	result?: any
+	/** What the job has streamed of its result so far, while it is still running.
+	 * Cleared when the job lands: `result` is then the whole of it. */
+	resultStream?: string
 	logs?: string
 	isLoading?: boolean
 	/** Arguments fully streamed but execution not started (see queuedToolStatus). */
@@ -593,6 +628,7 @@ export type ToolDisplayMessage = {
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
+	runForm?: RunFormDisplay
 	webSearchSources?: WebSearchSource[]
 	/** Data URL of an image the tool produced (e.g. take_screenshot), shown on the card. */
 	imageUrl?: string
@@ -600,12 +636,25 @@ export type ToolDisplayMessage = {
 	 * always-visible card that opens (or focuses) the item's preview in the
 	 * session side panel. Set only for session chats — the side panel is their surface. */
 	previewCard?: { kind: PreviewCardKind; path: string }
+	planArtifactId?: string
+	/** The version this card's proposal wrote, so a card scrolled far up still opens the plan
+	 * it proposed rather than what the document became. */
+	planVersion?: number
+	/** Refused by the plan-mode gate. Renders as its own lean row rather than a tool
+	 * error, so the transcript says the mode stopped it and not that the call failed. */
+	blockedByPlanMode?: boolean
+	/** The user declined: the reject button, a Stop, or a posture switch. Set only there, so
+	 * a decision is distinguishable from every other way a call errors. */
+	declinedByUser?: boolean
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
 	role: 'assistant'
 	/** Summarized reasoning/thinking text streamed before the answer (Anthropic + compat providers). */
 	reasoning?: string
+	/** Wall time the model spent reasoning, from the first thinking token to the
+	 * first answer token. Absent on messages finalized before it was recorded. */
+	reasoningDurationMs?: number
 	/**
 	 * True only on the synthetic live message appended while tokens stream
 	 * (see AIChat.svelte). Finalized messages never set it — without the flag,
@@ -641,8 +690,8 @@ export type DisplayMessage =
 
 // A tool message whose askUserQuestion is still awaiting an answer: the AI loop
 // is paused on the user. Drives the question card's interactivity, the
-// "waiting for user" indicator, and disabling the main chat input — keep those
-// in sync by going through this single predicate.
+// "waiting for user" indicator, and routing a composer send to the answer —
+// keep those in sync by going through this single predicate.
 export function isActiveUserQuestion(message: DisplayMessage | undefined): boolean {
 	return Boolean(
 		message &&
@@ -655,22 +704,50 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 	)
 }
 
+export function isActiveRunForm(message: DisplayMessage | undefined): boolean {
+	return Boolean(
+		message &&
+			message.role === 'tool' &&
+			message.runForm &&
+			message.isLoading &&
+			!message.error &&
+			!message.runForm.submitted &&
+			!message.runForm.canceled
+	)
+}
+
 // The loop is parked on the user: an unanswered askUserQuestion, or a tool call
 // staged for confirmation. The manager stays `loading` through both, so anything
 // rendering progress must ask here first or it reports "the AI is working".
 export type PendingUserAction = 'question' | 'confirmation'
 
+export function pendingUserAction(messages: DisplayMessage[]): PendingUserAction | undefined {
+	return pendingUserActionDetail(messages)?.action
+}
+
 // Scans back to the turn boundary, not just the last message: a turn's cards are
 // created up front and run one at a time, and text between two tool calls pushes
 // an assistant card between them, so the blocked card is rarely last. Only cards
 // of a live turn can match — every resolution path clears `isLoading`.
-export function pendingUserAction(messages: DisplayMessage[]): PendingUserAction | undefined {
+export function pendingUserActionDetail(
+	messages: DisplayMessage[]
+): { action: PendingUserAction; toolCallId: string } | undefined {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i]
 		if (message.role === 'user') break
 		if (message.role !== 'tool') continue
-		if (isActiveUserQuestion(message)) return 'question'
-		if (message.needsConfirmation && message.isLoading) return 'confirmation'
+		if (isActiveUserQuestion(message)) {
+			return { action: 'question', toolCallId: message.tool_call_id }
+		}
+		// A run form is a confirmation carrying arguments, not a question: it parks the
+		// turn the same way, but Run or Cancel resolves it and typing never does — so it
+		// must not claim the answer affordance a pending question offers.
+		if (isActiveRunForm(message)) {
+			return { action: 'confirmation', toolCallId: message.tool_call_id }
+		}
+		if (message.needsConfirmation && message.isLoading) {
+			return { action: 'confirmation', toolCallId: message.tool_call_id }
+		}
 	}
 	return undefined
 }
@@ -717,17 +794,24 @@ async function callTool<T>({
 
 type MaybePromise<T> = T | Promise<T>
 
+/** A refused tool call: the row the user reads, and the result the model gets. A bare string
+ * is both at once. */
+export type ToolRejection = string | { label: string; result: string }
+
+function normalizeToolRejection(
+	rejection: ToolRejection | undefined
+): { label: string; result: string } | undefined {
+	if (rejection === undefined) return undefined
+	return typeof rejection === 'string' ? { label: rejection, result: rejection } : rejection
+}
+
 /**
  * Key paths present in `supplied` that a strip-mode parse discarded. Sub-fields of a
  * schedule's `retry` are all optional, so a guessed shape validates clean, loses the
  * misspelled keys and saves a policy that does nothing. Recursive because dropping one
  * nested key leaves the parent non-empty.
  */
-export function droppedOptionKeys(
-	supplied: unknown,
-	parsed: unknown,
-	prefix = ''
-): string[] {
+export function droppedOptionKeys(supplied: unknown, parsed: unknown, prefix = ''): string[] {
 	if (supplied === null || typeof supplied !== 'object' || Array.isArray(supplied)) {
 		return parsed === undefined && prefix ? [prefix] : []
 	}
@@ -735,7 +819,11 @@ export function droppedOptionKeys(
 		return Object.keys(supplied).length && prefix ? [prefix] : []
 	}
 	return Object.entries(supplied).flatMap(([key, value]) =>
-		droppedOptionKeys(value, (parsed as Record<string, unknown>)[key], prefix ? `${prefix}.${key}` : key)
+		droppedOptionKeys(
+			value,
+			(parsed as Record<string, unknown>)[key],
+			prefix ? `${prefix}.${key}` : key
+		)
 	)
 }
 
@@ -770,6 +858,15 @@ function stringifyErrorBody(body: unknown): string {
 	}
 }
 
+/**
+ * Closed vocabulary for the `ai_chat`/`tool` counter's `<name>:<status>` key.
+ * `ok` means the tool function resolved — tools that report failure by returning an
+ * error string instead of throwing land there too. A call abandoned mid-execution
+ * (tab closed while a tool polls) logs nothing, so the statuses sum to the calls that
+ * finished, not to the calls made.
+ */
+type ToolCallStatus = 'ok' | 'error' | 'declined' | 'rejected' | 'blocked_plan_mode'
+
 export async function processToolCall<T>({
 	tools,
 	toolCall,
@@ -783,24 +880,77 @@ export async function processToolCall<T>({
 	toolCallbacks: ToolCallbacks
 	workspace?: string
 }): Promise<ChatCompletionMessageParam> {
+	const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
+	const workspaceId = workspace ?? get(workspaceStore) ?? ''
+
+	// Exactly once per call, on whichever path ends it. Keyed by the resolved tool's
+	// declared name, not the model-provided string, so hallucinated tool names never
+	// enter telemetry — an unresolved name is counted nowhere.
+	let outcomeLogged = false
+	const logToolOutcome = (status: ToolCallStatus) => {
+		if (!tool || outcomeLogged) return
+		outcomeLogged = true
+		logFeatureUsage('ai_chat', 'tool', {
+			key: `${tool.def.function.name}:${status}`,
+			workspace: workspaceId
+		})
+	}
+
 	try {
 		const args = JSON.parse(toolCall.function.arguments || '{}')
-		const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
-		const workspaceId = workspace ?? get(workspaceStore) ?? ''
 
-		const validationError = await tool?.validateBeforeConfirmation?.({
-			args,
-			workspace: workspaceId,
-			helpers
-		})
-		if (validationError) {
+		// Fails closed: untagged is blocked, only the safety tag exempt. Runs before anything
+		// belonging to the tool, so a validator cannot probe while planning — and again after
+		// the confirmation wait, since plan mode can be entered while a card is pending.
+		// An unresolved name is left alone, so it still reads as the unknown tool it is.
+		const planModeBlock = (): ChatCompletionMessageParam | undefined => {
+			if (!toolCallbacks.isPlanModeActive?.() || !tool) return undefined
+			// A tagged tool may still name arguments it refuses: the tag says the tool is usable
+			// while planning, not that every call of it is. Asked only once the tag has passed, so
+			// it can narrow what the gate admits and never widen it.
+			const refusal =
+				tool.planModeSafe === true
+					? normalizeToolRejection(tool.refuseInPlanMode?.({ args, helpers }))
+					: { label: PLAN_MODE_MESSAGES.blockedLabel, result: PLAN_MODE_MESSAGES.blockedResult }
+			if (!refusal) return undefined
+			toolCallbacks.onToolBlockedByPlanMode?.()
+			logToolOutcome('blocked_plan_mode')
 			toolCallbacks.setToolStatus(toolCall.id, {
-				content: validationError,
+				content: refusal.label,
 				parameters: args,
 				isLoading: false,
 				isQueued: false,
 				isStreamingArguments: false,
-				error: validationError,
+				error: refusal.result,
+				blockedByPlanMode: true,
+				needsConfirmation: false,
+				showDetails: tool.showDetails,
+				autoCollapseDetails: tool.autoCollapseDetails
+			})
+			return {
+				role: 'tool' as const,
+				tool_call_id: toolCall.id,
+				content: refusal.result
+			}
+		}
+
+		const preConfirmationBlock = planModeBlock()
+		if (preConfirmationBlock) {
+			return preConfirmationBlock
+		}
+
+		const rejection = normalizeToolRejection(
+			await tool?.validateBeforeConfirmation?.({ args, workspace: workspaceId, helpers })
+		)
+		if (rejection) {
+			logToolOutcome('rejected')
+			toolCallbacks.setToolStatus(toolCall.id, {
+				content: rejection.label,
+				parameters: args,
+				isLoading: false,
+				isQueued: false,
+				isStreamingArguments: false,
+				error: rejection.label,
 				needsConfirmation: false,
 				showDetails: tool?.showDetails,
 				autoCollapseDetails: tool?.autoCollapseDetails
@@ -808,14 +958,16 @@ export async function processToolCall<T>({
 			return {
 				role: 'tool' as const,
 				tool_call_id: toolCall.id,
-				content: validationError
+				content: rejection.result
 			}
 		}
 
-		// Check if tool requires confirmation
 		const requiresConfirmation = tool?.requiresConfirmation === true
+		// By name: skipping the wait is itself an answer on the user's behalf, and one tool
+		// must not be answered for.
 		const autoAcceptConfirmation =
-			requiresConfirmation && toolCallbacks.shouldAutoAcceptToolConfirmations?.() === true
+			requiresConfirmation &&
+			toolCallbacks.shouldAutoAcceptToolConfirmations?.(toolCall.function.name) === true
 		const needsConfirmation = requiresConfirmation && !autoAcceptConfirmation
 
 		const confirmationContent =
@@ -842,21 +994,29 @@ export async function processToolCall<T>({
 
 		// If confirmation is needed and we have the callback, wait for it
 		if (needsConfirmation && toolCallbacks.requestConfirmation) {
-			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id)
+			tool?.onConfirmationRequested?.({ args, toolCallbacks, toolId: toolCall.id })
+			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id, toolCall.function.name)
 
 			if (!confirmed) {
+				logToolOutcome('declined')
 				toolCallbacks.setToolStatus(toolCall.id, {
 					content: 'Cancelled by user',
 					isLoading: false,
 					isStreamingArguments: false,
 					error: 'Tool execution was cancelled by user',
+					declinedByUser: true,
 					needsConfirmation: false
 				})
 				return {
 					role: 'tool' as const,
 					tool_call_id: toolCall.id,
-					content: 'Tool execution was cancelled by user'
+					content: tool?.cancellationMessage ?? 'Tool execution was cancelled by user'
 				}
+			}
+
+			const postConfirmationBlock = planModeBlock()
+			if (postConfirmationBlock) {
+				return postConfirmationBlock
 			}
 
 			// Update status to executing after confirmation
@@ -867,11 +1027,9 @@ export async function processToolCall<T>({
 		}
 
 		let result = ''
-		// Key by the resolved tool's declared name, not the model-provided string,
-		// so hallucinated tool names never enter telemetry.
-		if (tool) {
-			logFeatureUsage('ai_chat', 'tool', { key: tool.def.function.name, workspace: workspaceId })
-		}
+		// A tool that asks for consent itself settles the call as declined or blocked and
+		// returns normally, so without this both telemeter as successful runs.
+		let settledInsideTool: 'declined' | 'blocked_plan_mode' | undefined = undefined
 		try {
 			result = await callTool({
 				tools,
@@ -879,15 +1037,24 @@ export async function processToolCall<T>({
 				args,
 				workspace: workspaceId,
 				helpers,
-				toolCallbacks,
+				toolCallbacks: {
+					...toolCallbacks,
+					setToolStatus: (toolId, status) => {
+						if (status?.declinedByUser) settledInsideTool = 'declined'
+						else if (status?.blockedByPlanMode) settledInsideTool = 'blocked_plan_mode'
+						toolCallbacks.setToolStatus(toolId, status)
+					}
+				},
 				toolId: toolCall.id
 			})
+			logToolOutcome(settledInsideTool ?? 'ok')
 			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: false,
 				isStreamingArguments: false
 			})
 		} catch (err) {
 			console.error(err)
+			logToolOutcome('error')
 			const errorMessage = formatToolError(err)
 			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: false,
@@ -904,6 +1071,7 @@ export async function processToolCall<T>({
 		return toAdd
 	} catch (err) {
 		console.error(err)
+		logToolOutcome('error')
 		const errorMessage = formatToolError(err)
 		toolCallbacks.setToolStatus(toolCall.id, {
 			isLoading: false,
@@ -927,20 +1095,29 @@ export async function processToolCall<T>({
  * id is already answered by its tool result before this non-tool message. The image
  * parts ride the same `image_url` carrier that the provider converters translate.
  */
-export function appendPendingToolImages(
-	messages: ChatCompletionMessageParam[],
-	addedMessages: ChatCompletionMessageParam[],
-	toolCallbacks: ToolCallbacks
-): void {
-	const images = toolCallbacks.takePendingToolImages?.() ?? []
-	if (images.length === 0) return
-	const message: ChatCompletionMessageParam = {
+/** The message that hands tool-produced images to the model, or undefined when
+ *  there are none. Split out so a snapshot of a turn still buffering them can
+ *  build the same message without draining the buffer the live turn still owns. */
+export function pendingToolImagesMessage(
+	images: AttachedImage[]
+): ChatCompletionMessageParam | undefined {
+	if (images.length === 0) return undefined
+	return {
 		role: 'user',
 		content: [
 			{ type: 'text', text: 'Screenshot(s) of the app preview:' },
 			...images.map((img) => dataUrlToImagePart(img.dataUrl))
 		]
 	}
+}
+
+export function appendPendingToolImages(
+	messages: ChatCompletionMessageParam[],
+	addedMessages: ChatCompletionMessageParam[],
+	toolCallbacks: ToolCallbacks
+): void {
+	const message = pendingToolImagesMessage(toolCallbacks.takePendingToolImages?.() ?? [])
+	if (!message) return
 	messages.push(message)
 	addedMessages.push(message)
 }
@@ -955,16 +1132,35 @@ export interface Tool<T> {
 		toolId: string
 	}) => Promise<string>
 	preAction?: (p: { toolCallbacks: ToolCallbacks; toolId: string }) => void
+	/** Refuse the call before any confirmation is offered. A bare string is both the row the
+	 * user reads and the result the model gets; return the pair when the model needs a steer
+	 * too long to be a transcript row. */
 	validateBeforeConfirmation?: (p: {
 		args: any
 		workspace: string
 		helpers: T
-	}) => MaybePromise<string | undefined>
+	}) => MaybePromise<ToolRejection | undefined>
 	setSchema?: (helpers: any) => Promise<void>
+	/** Safe to run while plan mode is active. Absence fails closed. */
+	planModeSafe?: boolean
+	/** The arguments a plan-mode-safe tool still refuses while the posture holds — for a tool
+	 * that is admissible in general but not on every target. Consulted only once `planModeSafe`
+	 * is true. */
+	refuseInPlanMode?: (p: { args: any; helpers: T }) => ToolRejection | undefined
 	requiresConfirmation?: boolean
+	/** The tool's own argument form is its confirmation, and the bypass posture answers that
+	 * form — so no card is waited on, yet a decision is still being made for the user. The
+	 * list of what the posture bypasses is built from both this and `requiresConfirmation`. */
+	bypassedByAutoAccept?: boolean
 	/** Header shown on the confirmation card before the tool runs. Pass a function
 	 * to derive it from the parsed arguments (e.g. name the script being tested). */
 	confirmationMessage?: string | ((args: any) => string)
+	/** Only when a card gates the call, so `fn` must not rely on it. Not awaited, so it may
+	 * not throw, and must be safe for a call the user then declines. */
+	onConfirmationRequested?: (p: { args: any; toolCallbacks: ToolCallbacks; toolId: string }) => void
+	/** Model-facing result returned when the user rejects the confirmation; defaults
+	 * to a generic cancellation. */
+	cancellationMessage?: string
 	showDetails?: boolean
 	autoCollapseDetails?: boolean
 	streamArguments?: boolean
@@ -1108,12 +1304,24 @@ export interface ToolCallbacks {
 	/** Fired when the model starts reasoning — drives a "Thinking" indicator even when
 	 * no summary text is returned (e.g. OpenAI reasoning models). */
 	onReasoningStart?: () => void
-	requestConfirmation?: (toolId: string) => Promise<boolean>
-	shouldAutoAcceptToolConfirmations?: () => boolean
+	requestConfirmation?: (toolId: string, toolName?: string) => Promise<boolean>
+	shouldAutoAcceptToolConfirmations?: (toolName?: string) => boolean
+	isPlanModeActive?: () => boolean
+	onToolBlockedByPlanMode?: () => void
 	requestUserQuestion?: (
 		toolId: string,
 		question: UserQuestionDisplay
 	) => Promise<string[] | undefined>
+	/** Park the loop on an argument form and resolve with the args the user submitted, or
+	 * undefined if they cancelled. Wired only where the form can be rendered. `autoAccepted`
+	 * says YOLO already answered it with what it opened with, so there is no card to wait on. */
+	requestRunArgs?: (
+		toolId: string,
+		form: RunFormDisplay,
+		opts?: { autoAccepted?: boolean }
+	) => Promise<Record<string, any> | undefined>
+	/** The submitted form's job is queued. Wired alongside requestRunArgs. */
+	markRunFormStarted?: (toolId: string) => void
 	/** Records a workspace item the tool call created/edited/deleted, by its
 	 * canonical (itemKind, storagePath). Session chats wire this to accumulate the
 	 * chat's modified-items mask; the global side-panel chat omits it (no-op). */
@@ -1233,6 +1441,7 @@ export function isHubPath(path: string): boolean {
 
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	def: searchHubScriptsToolDef,
+	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		toolCallbacks.setToolStatus(toolId, {
 			content: 'Searching for hub scripts related to "' + args.query + '"...'
@@ -1253,6 +1462,9 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 				if (!withContent) {
 					return { path, summary: s.summary }
 				}
+				// The content fetch, not the listing above: these are the few candidates
+				// the AI pulled to choose between, which is the closest signal we have.
+				logHubScriptPick(s, 'ai')
 				try {
 					// get_full, not the raw content endpoint: callers are told to match the
 					// script's language, which raw content does not carry.
@@ -1369,7 +1581,7 @@ export async function buildSchemaForTool(
 
 // Constants for result formatting
 const MAX_RESULT_LENGTH = 12000
-const MAX_LOG_LENGTH = 4000
+export const MAX_LOG_LENGTH = 4000
 export const MAX_RUNNABLE_CONTENT_LENGTH = 20000
 
 /** How long a test run is awaited inline before it detaches into the background
@@ -1398,9 +1610,16 @@ export interface TestRunConfig {
 	detachAfterMs?: number
 	/** Human label for the jobs tray row (path / step id). Defaults to the job id. */
 	label?: string
-	/** Overrides the default "…test started, waiting for completion" status while the
+	/** Overrides the default "…started, waiting for completion" status while the
 	 * job runs inline (e.g. an SQL tool shows "SQL running…"). */
 	runningMessage?: string
+	/** The item noun in the human-facing status strings ("Flow test completed
+	 * successfully"). Defaults to `contextName`, which also carries the jobs-tray kind
+	 * and so cannot always name what ran: an app's path runnable queues a flow job. */
+	completionName?: string
+	/** The action noun in those same strings ("Script run completed successfully").
+	 * Defaults to "test", so a tool running the deployed item for real passes "run". */
+	actionNoun?: string
 	/** Custom terminal formatting for the INLINE completion path (callers whose
 	 * result isn't a plain test-run summary, e.g. exec_datatable_sql shaping rows).
 	 * Returns the string handed to the model plus the tool-card patch. When omitted,
@@ -1419,6 +1638,46 @@ export interface TestRunConfig {
 export type BackgroundJobFormatter = (job: CompletedJob) => {
 	llmText: string
 	card: Partial<ToolDisplayMessage>
+}
+
+/** Reads a running job's output incrementally through `getJobUpdates`, the only endpoint
+ * carrying `new_result_stream` — `getJob` returns logs but never the partial result. Each
+ * reader keeps its own offsets, so one starting over refetches from zero. Best-effort: a
+ * failed poll answers `undefined` and mutates nothing, so the next resumes from the same
+ * offsets and a run always lands on `getJob` alone. */
+export function createJobUpdateReader(jobId: string, workspace: string) {
+	let logs = ''
+	let resultStream = ''
+	let logOffset = 0
+	let streamOffset = 0
+	let started = false
+	return {
+		async poll(): Promise<{ completed: boolean; logs: string; resultStream: string } | undefined> {
+			let update: Awaited<ReturnType<typeof JobService.getJobUpdates>>
+			try {
+				update = await JobService.getJobUpdates({
+					workspace,
+					id: jobId,
+					running: started,
+					logOffset,
+					streamOffset
+				})
+			} catch {
+				return undefined
+			}
+			started ||= update.running ?? false
+			// Both kept as a tail: the offsets come from the server, so dropping the head
+			// costs nothing here, and neither is the record of the run — the logs are on the
+			// job, and a streamed partial is replaced by the result the moment it lands.
+			if (update.new_logs) logs = (logs + update.new_logs).slice(-MAX_LOG_LENGTH)
+			if (update.new_result_stream) {
+				resultStream = (resultStream + update.new_result_stream).slice(-MAX_LOG_LENGTH)
+			}
+			if (update.log_offset) logOffset = update.log_offset
+			if (update.stream_offset) streamOffset = update.stream_offset
+			return { completed: update.completed ?? false, logs, resultStream }
+		}
+	}
 }
 
 // Common job polling function.
@@ -1440,24 +1699,54 @@ export async function pollJobCompletion(
 	const maxAttempts = detachEnabled ? Math.ceil((options?.detachAfterMs ?? 0) / 1000) : 60
 	let attempts = 0
 	let job: CompletedJob | null = null
+	const reader = createJobUpdateReader(jobId, workspace)
 
 	while (attempts < maxAttempts) {
 		await new Promise((resolve) => setTimeout(resolve, 1000))
 		attempts++
 
 		try {
+			const update = await reader.poll()
+			// The tray's snapshot is trimmed of logs (it is persisted), so the card is the
+			// only place a running job's output can land. Cards that hide their logs while
+			// loading are unaffected; the run card follows them line by line.
+			if (update) {
+				toolCallbacks.setToolStatus(toolId, {
+					logs: formatLogs(update.logs),
+					resultStream: update.resultStream || undefined
+				})
+			}
+
+			// Ask for the logs when the run may be over — the tail written between the last
+			// poll and the end is only on the job itself — or when there is no reader output
+			// to have collected them.
+			const wantLogs = !update || update.completed
 			const fetchedJob = await JobService.getJob({
 				workspace: workspace,
 				id: jobId,
-				noLogs: false,
+				noLogs: !wantLogs,
 				noCode: true
 			})
-
 			if (fetchedJob.type === 'CompletedJob') {
-				job = fetchedJob
+				// The updates can still call a landed job unfinished, so a completion seen on
+				// a logless fetch is fetched again rather than settled without them: the model
+				// reads these logs, and their absence is indistinguishable from a silent run.
+				job = wantLogs
+					? fetchedJob
+					: ((await JobService.getJob({
+							workspace: workspace,
+							id: jobId,
+							noLogs: false,
+							noCode: true
+						})) as CompletedJob)
 				break
 			}
-			// Keep the tray's status + Job snapshot fresh during the inline wait.
+			// With no reader, this is the only place the card's logs can come from.
+			if (!update) {
+				toolCallbacks.setToolStatus(toolId, { logs: formatLogs(fetchedJob.logs) })
+			}
+			// The badge needs the real Job to tell running from suspended or scheduled, which
+			// the updates do not say.
 			toolCallbacks.onJobStatus?.(jobId, {
 				status: deriveChatJobStatus(fetchedJob),
 				job: trimJob(fetchedJob)
@@ -1571,14 +1860,22 @@ function backgroundedSummary(jobId: string, label: string): string {
 // fills its card the same way one that finished inline does.
 export function completedJobToolStatus(job: CompletedJob): Partial<ToolDisplayMessage> {
 	// A canceled job isn't a `success`, but it isn't a failure either — the user
-	// stopped it — so don't dress the card as an error.
+	// stopped it — so don't dress the card as an error. It still has the result the run
+	// page shows for a canceled run, which names who stopped it, so keep that.
 	if (job.canceled) {
-		return { content: 'Background job canceled', logs: formatLogs(job.logs) }
+		return {
+			content: 'Background job canceled',
+			result: formatResult(job.result),
+			logs: formatLogs(job.logs),
+			resultStream: undefined
+		}
 	}
 	return {
 		content: `Background job ${job.success ? 'completed successfully' : 'failed'}`,
 		result: formatResult(job.result),
 		logs: formatLogs(job.logs),
+		// The partial is the result now, so nothing streamed is kept beside it.
+		resultStream: undefined,
 		...(job.success ? {} : { error: getErrorMessage(job.result) })
 	}
 }
@@ -1608,12 +1905,15 @@ export function backgroundJobCompletionNote(
 	)
 }
 
-// Main execution function for test runs
 export async function executeTestRun(config: TestRunConfig): Promise<string> {
 	// Detach-into-background is enabled only when the host wired the job hooks
 	// (global/sessions chat). Otherwise this stays a blocking call.
 	const detachEnabled = !!config.toolCallbacks.onJobStarted
 	const label = config.label ?? config.contextName
+	const actionNoun = config.actionNoun ?? 'test'
+	// Stands on its own where the status strings are prefixed by the item, so its
+	// default carries the noun.
+	const failureNoun = config.actionNoun ?? 'test run'
 	try {
 		config.toolCallbacks.setToolStatus(config.toolId, {
 			content: config.startMessage || `Starting ${config.contextName} test...`
@@ -1621,7 +1921,8 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 
 		const jobId = await config.jobStarter()
 
-		const contextName = config.contextName.charAt(0).toUpperCase() + config.contextName.slice(1)
+		const shown = config.completionName ?? config.contextName
+		const contextName = shown.charAt(0).toUpperCase() + shown.slice(1)
 
 		// Register the job so the tray shows it from the moment it is queued. Carry the
 		// serializable resultFormat so a job that later detaches (and may outlive a
@@ -1637,7 +1938,8 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		})
 
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: config.runningMessage ?? `${contextName} test started, waiting for completion...`
+			content:
+				config.runningMessage ?? `${contextName} ${actionNoun} started, waiting for completion...`
 		})
 
 		const outcome = await pollJobCompletion(
@@ -1657,7 +1959,7 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		if (outcome === 'detached') {
 			config.toolCallbacks.onJobDetached?.(jobId)
 			config.toolCallbacks.setToolStatus(config.toolId, {
-				content: `${contextName} test running in background (job ${jobId})`
+				content: `${contextName} ${actionNoun} running in background (job ${jobId})`
 			})
 			return backgroundedSummary(jobId, label)
 		}
@@ -1676,9 +1978,12 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		}
 
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: `${contextName} test ${job.success ? 'completed successfully' : 'failed'}`,
+			content: `${contextName} ${actionNoun} ${job.success ? 'completed successfully' : 'failed'}`,
 			result: formatResult(job.result),
 			logs: formatLogs(job.logs),
+			// The partial is the result now, so the card reads it off `result` alone and the
+			// transcript stops carrying a second copy of a streamed answer.
+			resultStream: undefined,
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
 
@@ -1693,12 +1998,16 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		}
 		return summary
 	} catch (error) {
-		const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+		// formatToolError, not `error.message`: the generated client puts the server's
+		// message in `body` and leaves `message` as the bare status text, so a path
+		// runnable aimed at an undeployed flow reported "Not Found" instead of naming
+		// the flow it could not find — losing the one diagnostic the run exists for.
+		const errorMessage = formatToolError(error)
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: `Test execution failed`,
+			content: `Execution failed`,
 			error: errorMessage
 		})
-		throw new Error(`Failed to execute test run: ${errorMessage}`)
+		throw new Error(`Failed to execute ${failureNoun}: ${errorMessage}`)
 	}
 }
 
@@ -2082,6 +2391,7 @@ export const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
 
 export const createSearchWorkspaceTool = () => ({
 	def: searchWorkspaceToolDef,
+	planModeSafe: true,
 	fn: async ({
 		args,
 		workspace,
@@ -2132,6 +2442,7 @@ const getRunnableDetailsToolDef = createToolDef(
 
 export const createGetRunnableDetailsTool = () => ({
 	def: getRunnableDetailsToolDef,
+	planModeSafe: true,
 	fn: async ({
 		args,
 		workspace,

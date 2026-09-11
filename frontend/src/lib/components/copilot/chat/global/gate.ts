@@ -9,8 +9,8 @@
  *
  * When the beta ends, replace every call to `isGlobalAiEnabled()` with `true`
  * and delete this file. The references are intentionally narrow (chat mode
- * visibility, custom prompt settings, the `change_mode` tool enum, and the
- * AI skills workspace settings tab) so the rip-out is a small grep.
+ * visibility, custom prompt settings, and the `change_mode` tool enum) so the
+ * rip-out is a small grep.
  */
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 
@@ -23,6 +23,16 @@ export function isGlobalAiEnabled(): boolean {
 	} catch {
 		return false
 	}
+}
+
+/**
+ * Whether an AI entry point hands off to a session instead of driving the docked
+ * chat. Deliberately the same condition as the root layout's `disableAi`, so a
+ * caller falling back on `false` always has a mounted pane to fall back to.
+ * Operators keep that pane (`/sessions` refuses them) until the operator chat ships.
+ */
+export function prefersSessionHandoff(isOperator: boolean | undefined): boolean {
+	return isGlobalAiEnabled() && !isOperator
 }
 
 /** Persist the opt-out choice, then hard-reload so every gated site re-reads it. */

@@ -157,7 +157,8 @@ async fn list_flows(
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
               LEFT JOIN password p ON p.email = d.email AND p.super_admin = true \
-              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'flow') as draft_users",
+              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'flow' \
+                AND (d.email IS NULL OR u.username IS NOT NULL OR p.email IS NOT NULL)) as draft_users",
             "folder_labels(o.workspace_id, o.path) as inherited_labels"
         ])
         .left()
@@ -381,6 +382,7 @@ async fn toggle_workspace_error_handler(
 async fn toggle_workspace_error_handler(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(req): Json<ToggleWorkspaceErrorHandler>,
 ) -> Result<String> {
@@ -401,9 +403,10 @@ async fn toggle_workspace_error_handler(
     .await?
     .unwrap_or(None);
 
+    let mut updated_rows = 0;
     let response = match error_handler_maybe {
         Some(_) => {
-            sqlx::query_scalar!(
+            updated_rows = sqlx::query_scalar!(
                 r#"
                     UPDATE 
                         flow 
@@ -418,7 +421,8 @@ async fn toggle_workspace_error_handler(
                 req.muted,
             )
             .execute(&mut *tx)
-            .await?;
+            .await?
+            .rows_affected();
             Ok("".to_string())
         }
         None => Err(Error::BadRequest(
@@ -427,6 +431,37 @@ async fn toggle_workspace_error_handler(
     };
 
     tx.commit().await?;
+
+    // `ws_error_handler_muted` is part of the synced flow metadata, so the
+    // toggle is a deploy like any other edit of it. The version is a
+    // placeholder: git sync keys off the path and kind alone. The update runs
+    // under RLS against an unchecked path, so it can match nothing — deploy
+    // only what it actually wrote.
+    if updated_rows > 0 {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            DeployedObject::Flow {
+                path: path.to_path().to_string(),
+                parent_path: None,
+                version: 0,
+            },
+            Some(format!(
+                "Flow '{}' {} the workspace error handler",
+                path.to_path(),
+                if req.muted.unwrap_or(false) {
+                    "muted"
+                } else {
+                    "unmuted"
+                }
+            )),
+            true,
+            None,
+        )
+        .await?;
+    }
 
     return response;
 }
@@ -578,8 +613,7 @@ async fn create_flow(
 
     // Apply folder default_permissioned_as on create when the caller did not
     // explicitly preserve a value and the user can preserve.
-    let explicit_preserve = (nf.on_behalf_of_email.is_some()
-        || nf.on_behalf_of.is_some())
+    let explicit_preserve = (nf.on_behalf_of_email.is_some() || nf.on_behalf_of.is_some())
         && nf.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed);
     if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
@@ -599,16 +633,15 @@ async fn create_flow(
     check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
     let schema_str = nf.schema.and_then(|x| serde_json::to_string(&x.0).ok());
-    let resolved_on_behalf_of =
-        windmill_common::resolve_on_behalf_of(
-            nf.on_behalf_of_email.as_deref(),
-            nf.on_behalf_of.as_deref(),
-            nf.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
-            &w_id,
-            &db,
-        )
-        .await?;
+    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
+        nf.on_behalf_of_email.as_deref(),
+        nf.on_behalf_of.as_deref(),
+        nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &w_id,
+        &db,
+    )
+    .await?;
     // Written beside the principal only while a worker that still reads it may be live.
     let legacy_on_behalf_of_email =
         windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
@@ -1126,16 +1159,15 @@ async fn update_flow(
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
     let is_new_path = nf.path != flow_path;
     let schema_str = schema.and_then(|x| serde_json::to_string(&x).ok());
-    let resolved_on_behalf_of =
-        windmill_common::resolve_on_behalf_of(
-            nf.on_behalf_of_email.as_deref(),
-            nf.on_behalf_of.as_deref(),
-            nf.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
-            &w_id,
-            &db,
-        )
-        .await?;
+    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
+        nf.on_behalf_of_email.as_deref(),
+        nf.on_behalf_of.as_deref(),
+        nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &w_id,
+        &db,
+    )
+    .await?;
     // Written beside the principal only while a worker that still reads it may be live.
     let legacy_on_behalf_of_email =
         windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)

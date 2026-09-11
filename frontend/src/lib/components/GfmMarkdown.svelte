@@ -1,13 +1,16 @@
 <script lang="ts">
 	import { Markdown } from 'svelte-exmarkdown'
 	import { markdownPlugins as plugins } from './markdownPlugins'
+	import { markdownProse, type MarkdownProseSize } from './markdownProse'
 	import { isOfflineReplay } from './recording/offlineReplay.svelte'
 	interface Props {
 		md: string
 		noPadding?: boolean
+		/** Shared prose stack to render with. */
+		prose?: MarkdownProseSize
 	}
 
-	let { md, noPadding }: Props = $props()
+	let { md, noPadding, prose = 'sm' }: Props = $props()
 
 	// Rendering markdown turns `![](url)` into a real `<img>`, i.e. a request. On the
 	// public replay page the source is a recording from an arbitrary origin and the
@@ -17,7 +20,7 @@
 	let asPlainText = $derived(isOfflineReplay())
 </script>
 
-<div class="!prose-xs {noPadding ? '' : 'pgap'}">
+<div class="{markdownProse[prose]} {noPadding ? '' : 'pgap'}">
 	{#if asPlainText}
 		<p class="whitespace-pre-wrap">{md}</p>
 	{:else}

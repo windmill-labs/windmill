@@ -4,7 +4,6 @@
 	import {
 		JobService,
 		ResourceService,
-		SettingService,
 		UserService,
 		VariableService,
 		WorkspaceService,
@@ -25,7 +24,8 @@
 		workspaceIsFork,
 		findWorkspaceRoot,
 		findWorkspaceDescendants,
-		findDefaultForkBase
+		findDefaultForkBase,
+		devWorkspacesInChainAbove
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 	import {
@@ -33,14 +33,25 @@
 		isRuleUnconditionallyActiveInRulesets
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { resource } from 'runed'
-	import { Badge, Button } from '$lib/components/common'
-	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
+	import { Button } from '$lib/components/common'
+	import {
+		DEV_WORKSPACE_LABELS,
+		devBadgeText,
+		devLabelKey,
+		type DevWorkspaceLabelKey
+	} from '$lib/utils/devWorkspaceLabel'
+	import DevWorkspaceLabelPicker from '$lib/components/workspaceSettings/DevWorkspaceLabelPicker.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { onMount } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import TestAIKey from '$lib/components/copilot/TestAIKey.svelte'
-	import { switchWorkspace } from '$lib/storeUtils'
+	import {
+		enterNewWorkspace,
+		loadUsernamePolicy,
+		refreshWorkspaceList
+	} from '$lib/workspaceCreation'
+	import { validateWorkspaceId } from '$lib/utils/workspaceId'
 	import { deleteSessionsForWorkspace } from '$lib/components/sessions/sessionState.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -83,8 +94,9 @@
 		copyMembers = createAsDevWorkspace
 	})
 
-	// A dev workspace can only be created off a root base (backend rejects a dev of a fork). Clear a
-	// stale toggle when the base no longer qualifies so we never submit is_dev_workspace against a fork.
+	// A dev workspace can only be created off a root or dev base (backend rejects a dev of a throwaway
+	// fork). Clear a stale toggle when the base no longer qualifies so we never submit
+	// is_dev_workspace against a fork.
 	$effect(() => {
 		if (!canDesignateDevWorkspace && createAsDevWorkspace) {
 			createAsDevWorkspace = false
@@ -136,34 +148,48 @@
 		baseWorkspaceId = defaultBaseWorkspaceId
 	})
 
-	// Cosmetic display label for the new dev workspace: 'dev' | 'staging'. Purely visual (badge text +
-	// wording); reset when the dev toggle is turned off.
-	let devWorkspaceLabel = $state<'dev' | 'staging'>('dev')
-	$effect(() => {
-		if (!createAsDevWorkspace) devWorkspaceLabel = 'dev'
-	})
-
-	// The dev-workspace option is only offered when forking a root workspace that doesn't already
-	// have one: a workspace gets at most one dev, and dev workspaces don't nest (a dev of a dev).
+	// The dev-workspace option is only offered when forking a workspace that doesn't already have a
+	// dev: a workspace gets at most one. The base may be a root or, less conventionally, another dev
+	// workspace (a dev of a dev) — only a throwaway fork can't host one.
 	let baseWorkspaceEntry = $derived(forkableWorkspaces.find((w) => w.id === baseWorkspaceId))
-	// Require the base workspace to be loaded before treating it as a root: a missing entry must
-	// not read as root (it would offer invalid dev creation while the workspace list is still loading).
+	// Require the base workspace to be loaded before treating it as eligible: a missing entry must not
+	// read as a root (it would offer invalid dev creation while the workspace list is still loading).
 	// `workspaceIsFork` (prefix OR parent) also excludes an orphaned `wm-fork-` workspace, whose parent
 	// FK was set null — it has no parent but is still a fork, so it can't host a dev workspace.
-	let currentIsRoot = $derived(
-		!!baseWorkspaceEntry && !workspaceIsFork(baseWorkspaceId, forkableWorkspaces)
+	let baseCanHostDev = $derived(
+		!!baseWorkspaceEntry &&
+			(!workspaceIsFork(baseWorkspaceId, forkableWorkspaces) ||
+				!!baseWorkspaceEntry.is_dev_workspace)
 	)
 	// Ask the server whether a dev already exists: the caller may not be a member of this prod's dev,
 	// so the client workspace list can't see it and would offer an invalid "create dev" action.
 	const devWorkspaceResource = resource(
-		() => (currentIsRoot ? baseWorkspaceId : undefined),
+		() => (baseCanHostDev ? baseWorkspaceId : undefined),
 		async (ws) => (ws ? await WorkspaceService.getDevWorkspace({ workspace: ws }) : undefined)
 	)
+	// The label names the deploy branch, and the dev workspaces the new one would share a chain with
+	// hold theirs: the picker steers away from those rather than offering a choice the backend rejects.
+	let chainTakenLabels = $derived(
+		new Set(
+			devWorkspacesInChainAbove(baseWorkspaceId, forkableWorkspaces).map((w) =>
+				devLabelKey(w.dev_workspace_label)
+			)
+		)
+	)
+	let availableDevLabels = $derived(DEV_WORKSPACE_LABELS.filter((l) => !chainTakenLabels.has(l)))
 	// Offer dev designation only once the server confirms there's no dev yet (returns null); stay
-	// conservative (no offer) while the check is loading (current is undefined).
-	let canDesignateDevWorkspace = $derived(currentIsRoot && devWorkspaceResource.current === null)
+	// conservative (no offer) while the check is loading (current is undefined). With every label
+	// taken the chain is full and there is nothing left to designate.
+	let canDesignateDevWorkspace = $derived(
+		baseCanHostDev && availableDevLabels.length > 0 && devWorkspaceResource.current === null
+	)
+
+	let devWorkspaceLabel = $state<DevWorkspaceLabelKey>('dev')
+	$effect(() => {
+		if (!createAsDevWorkspace) devWorkspaceLabel = 'dev'
+	})
 	let currentWorkspaceName = $derived(
-		baseWorkspaceEntry?.name ?? baseWorkspaceId ?? 'the root workspace'
+		baseWorkspaceEntry?.name ?? baseWorkspaceId ?? 'the base workspace'
 	)
 
 	// If the root already blocks direct deploy / forking through an existing protection rule, keep the
@@ -248,13 +274,10 @@
 			errorId = forkIdTaken
 				? `A workspace with id '${effectiveId}' already exists. It may be an archived fork: archiving keeps the id reserved.`
 				: 'ID already exists'
-		} else if (id != '' && !/^\w+(-\w+)*$/.test(id)) {
-			errorId = 'ID can only contain letters, numbers and dashes and must not finish by a dash'
-		} else if (effectiveId.length > 50) {
-			// `wm-fork-` prefix included: matches the backend's 50-char (git-branch / DB) limit.
-			errorId = `ID '${effectiveId}' is too long (${effectiveId.length} chars). Maximum is 50.`
 		} else {
-			errorId = ''
+			// `effectiveId` carries the `wm-fork-` prefix into the length check, since
+			// that is what the backend stores.
+			errorId = (id != '' && validateWorkspaceId(id, effectiveId)) || ''
 		}
 		checking = false
 	}
@@ -456,12 +479,11 @@
 		forkCreationLoading = false
 		sendUserToast(
 			createAsDevWorkspace
-				? `Created ${devWorkspaceLabel === 'staging' ? 'staging' : 'dev'} workspace ${effectiveForkId} for ${baseWorkspaceId}`
+				? `Created ${devWorkspaceLabel} workspace ${effectiveForkId} for ${baseWorkspaceId}`
 				: `Successfully forked workspace ${baseWorkspaceId} as: wm-fork-${id}`
 		)
 
-		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-		switchWorkspace(prefixed_id)
+		await enterNewWorkspace(prefixed_id)
 
 		onFinish?.()
 	}
@@ -530,15 +552,11 @@
 						}
 					: {}
 			})
-
-			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-			switchWorkspace(id)
 		}
 
 		sendUserToast(`Created workspace id: ${id}`)
 
-		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-		switchWorkspace(id)
+		await enterNewWorkspace(id)
 		onFinish?.()
 	}
 
@@ -553,7 +571,7 @@
 	async function loadWorkspaces() {
 		if (!$usersWorkspaceStore) {
 			try {
-				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+				await refreshWorkspaceList()
 			} catch {}
 		}
 		if (!$usersWorkspaceStore) {
@@ -565,20 +583,10 @@
 
 	let automateUsernameCreation = $state(true)
 	async function getAutomateUsernameCreationSetting() {
-		automateUsernameCreation =
-			((await SettingService.getGlobal({ key: 'automate_username_creation' })) as any) ?? true
-
-		if (!automateUsernameCreation) {
-			UserService.globalWhoami().then((x) => {
-				let uname = ''
-				if (x.name) {
-					uname = x.name.split(' ')[0]
-				} else {
-					uname = x.email.split('@')[0]
-				}
-				uname = uname.replace(/\./gi, '')
-				username = uname.toLowerCase()
-			})
+		const policy = await loadUsernamePolicy()
+		automateUsernameCreation = policy.automate
+		if (policy.suggested) {
+			username = policy.suggested
 		}
 	}
 	getAutomateUsernameCreationSetting()
@@ -586,9 +594,17 @@
 	onMount(() => {
 		loadWorkspaces()
 
-		WorkspaceService.isDomainAllowed().then((x) => {
-			isDomainAllowed = x
-		})
+		// Settle on a value rather than leaving the section stuck in its in-flight
+		// state, and settle on `false`: `createWorkspace` commits the workspace
+		// before `editAutoInvite`, so offering the toggle to a domain the backend
+		// then rejects leaves a created workspace behind a failed submit.
+		WorkspaceService.isDomainAllowed()
+			.then((x) => {
+				isDomainAllowed = x
+			})
+			.catch(() => {
+				isDomainAllowed = false
+			})
 	})
 
 	let isDomainAllowed: undefined | boolean = $state(undefined)
@@ -605,15 +621,15 @@
 			id = name.toLowerCase().replace(/\s/gi, '-')
 		}
 	})
-	// When creating a dev workspace, prefill the fork name with `<root>-dev` / `<root>-stg` (the effect
-	// above slugifies it into the id). Only fill an empty field or one still holding a prior suggestion,
-	// so a user-typed name is never overwritten; flipping Dev<->Staging updates the suffix, and turning
-	// the dev toggle back off clears the suggestion.
+	// When creating a dev workspace, prefill the fork name with `<root>-<badge>` (the effect above
+	// slugifies it into the id). Only fill an empty field or one still holding a prior suggestion, so a
+	// user-typed name is never overwritten; changing the label updates the suffix, and turning the dev
+	// toggle back off clears the suggestion.
 	let lastAutoDevName = $state<string | undefined>(undefined)
 	$effect(() => {
 		const target =
 			createAsDevWorkspace && $workspaceStore
-				? `${$workspaceStore}-${devWorkspaceLabel === 'staging' ? 'stg' : 'dev'}`
+				? `${$workspaceStore}-${devBadgeText(devWorkspaceLabel)}`
 				: ''
 		if (name === '' || name === lastAutoDevName) {
 			name = target
@@ -831,25 +847,18 @@
 					<div class="flex flex-col gap-2 pt-1">
 						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
 						{#if createAsDevWorkspace}
-							<div class="text-2xs text-secondary">
-								Label: <Badge color="indigo" small>{devBadgeText(devWorkspaceLabel)}</Badge>
-								<button
-									type="button"
-									class="text-secondary hover:text-primary hover:underline"
-									onclick={() =>
-										(devWorkspaceLabel = devWorkspaceLabel === 'staging' ? 'dev' : 'staging')}
-								>
-									Change to {devWorkspaceLabel === 'staging' ? 'dev' : 'staging'}
-								</button>
-							</div>
+							<DevWorkspaceLabelPicker
+								bind:value={devWorkspaceLabel}
+								takenLabels={chainTakenLabels}
+							/>
 							<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
 								<div class="flex flex-col gap-0.5">
 									<span class="text-xs font-semibold text-emphasis"
 										>Protect {currentWorkspaceName}</span
 									>
 									<span class="text-2xs text-secondary">
-										Adds protection rules to this (root) workspace so changes are made in the new
-										dev workspace and promoted here.
+										Adds protection rules to the base workspace so changes are made in the new dev
+										workspace and promoted there.
 									</span>
 								</div>
 								{#if deployLocked}
@@ -907,7 +916,7 @@
 					</div>
 					<span class="text-xs text-secondary">
 						{#if createAsDevWorkspace}
-							A dev workspace is always based on the root workspace.
+							A dev workspace is paired with the workspace it is based on, which here is {currentWorkspaceName}.
 						{:else}
 							Workspace to fork from: the new branch is based on the selected workspace's branch.
 							Pick an existing fork to create a fork of a fork.
@@ -998,64 +1007,61 @@
 						</div>
 					{/if}
 				</div>
-				<div class="flex flex-col gap-1">
-					<label for="auto-invite" class="text-xs font-semibold text-emphasis"
-						>{isCloudHosted()
-							? `Auto-${autoAdd ? 'add' : 'invite'} anyone from ${domain}`
-							: `Auto-${autoAdd ? 'add' : 'invite'} anyone joining the instance`}</label
-					>
-					<Toggle
-						id="auto-invite"
-						disabled={isCloudHosted() && !isDomainAllowed}
-						bind:checked={auto_invite}
-					/>
-					{#if isCloudHosted() && isDomainAllowed == false}
-						<div class="text-secondary text-2xs">{domain} domain not allowed for auto-invite</div>
-					{/if}
+				<!-- Strict `=== true`: undefined means the domain check is still in flight,
+				     and rendering then is a section that flashes in and back out. -->
+				{#if !isCloudHosted() || isDomainAllowed === true}
+					<div class="flex flex-col gap-1">
+						<label for="auto-invite" class="text-xs font-semibold text-emphasis"
+							>{isCloudHosted()
+								? `Auto-${autoAdd ? 'add' : 'invite'} anyone from ${domain}`
+								: `Auto-${autoAdd ? 'add' : 'invite'} anyone joining the instance`}</label
+						>
+						<Toggle id="auto-invite" bind:checked={auto_invite} />
 
-					{#if auto_invite}
-						<div class="bg-surface-tertiary p-4 rounded-md flex flex-col gap-8">
-							<!-- svelte-ignore a11y_label_has_associated_control -->
-							{#if isCloudHosted()}
-								<label class="flex flex-col gap-1">
-									<span class="text-xs font-semibold text-emphasis">Mode</span>
+						{#if auto_invite}
+							<div class="bg-surface-tertiary p-4 rounded-md flex flex-col gap-8">
+								<!-- svelte-ignore a11y_label_has_associated_control -->
+								{#if isCloudHosted()}
+									<label class="flex flex-col gap-1">
+										<span class="text-xs font-semibold text-emphasis">Mode</span>
+										<span class="text-xs text-secondary font-normal"
+											>Whether to invite or add users directly to the workspace.</span
+										>
+										<ToggleButtonGroup
+											selected={autoAdd ? 'add' : 'invite'}
+											on:selected={async (e) => {
+												autoAdd = e.detail === 'add'
+											}}
+										>
+											{#snippet children({ item })}
+												<ToggleButton value="invite" label="Auto-invite" {item} />
+												<ToggleButton value="add" label="Auto-add" {item} />
+											{/snippet}
+										</ToggleButtonGroup>
+									</label>
+								{/if}
+
+								<label class="font-semibold flex flex-col gap-1">
+									<span class="text-xs font-semibold text-emphasis">Role</span>
 									<span class="text-xs text-secondary font-normal"
-										>Whether to invite or add users directly to the workspace.</span
+										>Role of the auto-invited users</span
 									>
 									<ToggleButtonGroup
-										selected={autoAdd ? 'add' : 'invite'}
-										on:selected={async (e) => {
-											autoAdd = e.detail === 'add'
+										selected={operatorOnly ? 'operator' : 'developer'}
+										on:selected={(e) => {
+											operatorOnly = e.detail == 'operator'
 										}}
 									>
 										{#snippet children({ item })}
-											<ToggleButton value="invite" label="Auto-invite" {item} />
-											<ToggleButton value="add" label="Auto-add" {item} />
+											<ToggleButton value="operator" label="Operator" {item} />
+											<ToggleButton value="developer" label="Developer" {item} />
 										{/snippet}
 									</ToggleButtonGroup>
 								</label>
-							{/if}
-
-							<label class="font-semibold flex flex-col gap-1">
-								<span class="text-xs font-semibold text-emphasis">Role</span>
-								<span class="text-xs text-secondary font-normal"
-									>Role of the auto-invited users</span
-								>
-								<ToggleButtonGroup
-									selected={operatorOnly ? 'operator' : 'developer'}
-									on:selected={(e) => {
-										operatorOnly = e.detail == 'operator'
-									}}
-								>
-									{#snippet children({ item })}
-										<ToggleButton value="operator" label="Operator" {item} />
-										<ToggleButton value="developer" label="Developer" {item} />
-									{/snippet}
-								</ToggleButtonGroup>
-							</label>
-						</div>
-					{/if}
-				</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</div>

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path FROM eval_dataset\n         WHERE scorers::text LIKE $1 AND NOT path LIKE $2 AND workspace_id = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fd12bbe0605c80fced218a5a2e1288e6c04f4a1a76a2038679f8f538320cab1f"
+}

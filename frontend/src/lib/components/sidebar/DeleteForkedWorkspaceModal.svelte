@@ -26,8 +26,18 @@
 	const forkedDescendants = $derived(
 		$workspaceStore ? findWorkspaceDescendants($workspaceStore, $userWorkspaces ?? []) : []
 	)
-	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix.
-	const currentWsIsFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces ?? []))
+	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix — except
+	// that the prefix answers before the workspace list has loaded, which is why the entry must be
+	// present and non-dev rather than merely absent from it. A dev workspace is torn down by
+	// detaching it, never deleted from here, and this guard also holds an already-open modal.
+	const currentWsIsFork = $derived.by(() => {
+		const current = $userWorkspaces?.find((w) => w.id === $workspaceStore)
+		return (
+			!!current &&
+			workspaceIsFork($workspaceStore, $userWorkspaces ?? []) &&
+			!current.is_dev_workspace
+		)
+	})
 
 	async function loadForkedDatatables() {
 		if (!$workspaceStore) return

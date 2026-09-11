@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO schedule (\n            workspace_id, path, edited_by, edited_at, schedule, enabled, script_path,\n            args, extra_perms, is_flow, email, error, timezone, on_failure,\n            on_recovery, on_failure_times, on_failure_exact, on_failure_extra_args,\n            on_recovery_times, on_recovery_extra_args, ws_error_handler_muted, retry,\n            summary, no_flow_overlap, tag, paused_until, on_success, on_success_extra_args,\n            cron_version, description, dynamic_skip, permissioned_as, labels\n        )\n        SELECT\n            $1, path, edited_by, edited_at, schedule, FALSE, script_path,\n            args, extra_perms, is_flow, email, error, timezone, on_failure,\n            on_recovery, on_failure_times, on_failure_exact, on_failure_extra_args,\n            on_recovery_times, on_recovery_extra_args, ws_error_handler_muted, retry,\n            summary, no_flow_overlap, tag, paused_until, on_success, on_success_extra_args,\n            cron_version, description, dynamic_skip, permissioned_as, labels\n        FROM schedule WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "149b645af2324fc3140bf2662e75e579dcc8b928be3a2cc051e62aa2ddc09b1e"
+}

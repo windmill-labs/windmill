@@ -29,10 +29,10 @@ pub enum AssetKind {
     Ducklake,
     DataTable,
     Volume,
-    /// A warehouse relation a dbt project builds or reads,
-    /// `dbt://<warehouse>/<schema>/<name>`, the warehouse named as the
-    /// workspace configures it. The scheme names the producer, the path stays
-    /// the relation — see `windmill_types::AssetKind::Dbt`.
+    /// A warehouse relation, `dbt://<warehouse>/<schema>/<name>`, the warehouse
+    /// named as the workspace configures it. The scheme names the namespace dbt
+    /// made — a script in any language but dbt's own can declare a write to one —
+    /// and the path stays the relation. See `windmill_types::AssetKind::Dbt`.
     Dbt,
 }
 
@@ -288,11 +288,13 @@ pub struct RetrySpec {
 }
 
 // `// materialize [manual] <asset> [append] [key=<col>] [history] [track=<c1,c2>]`
-// — declares that this script produces a *managed* materialization of `<asset>`
-// (a `ducklake://` table). By default the runtime generates the write DDL around
+// — declares that this script produces `<asset>`. A `ducklake://` table is
+// materialized *managed* by default: the runtime generates the write DDL around
 // the script's single trailing `SELECT` and owns idempotency, partition-state
 // and snapshot capture. `manual` is the escape hatch: the script writes its own
-// DDL and the runtime only records state (track-only). The reconciliation
+// DDL and the runtime only records state (track-only) — and it is the only mode a
+// `dbt://` warehouse relation has, since nothing generates warehouse DDL (deploy
+// enforces that; see docs/dbt-runtime.md). The reconciliation
 // strategy options apply to managed mode: none → DELETE-by-partition + INSERT
 // (replace); `key=<col>` → MERGE (dedup within slice, SCD type 1); `append` →
 // INSERT-only. `append` wins if both are given (deploy-time warning).
@@ -802,6 +804,18 @@ pub fn canonicalize_table_asset_path(path: &str) -> String {
         unquote_schema_segment(schema).to_ascii_lowercase(),
         unquote_identifier(name).to_ascii_lowercase()
     )
+}
+
+/// Whether a `dbt://` path names a whole relation, `<warehouse>/<schema>/<name>`.
+///
+/// Every producer spells one that way — the manifest ingest derives it from
+/// `relation_name`, a `// materialize` target is checked against it — so anything
+/// else can be produced by nothing and read by nothing. Both sides of the deploy
+/// ask here rather than counting segments themselves: a subscription and a write
+/// that disagreed on the shape would refuse and accept the same string.
+pub fn is_full_relation_path(path: &str) -> bool {
+    let mut segments = path.split('/');
+    segments.clone().count() == 3 && !segments.any(str::is_empty)
 }
 
 /// A doubled delimiter inside a quoted identifier is that delimiter, literally —
@@ -1740,10 +1754,7 @@ mod pipeline_annotation_tests {
     // just stop being the same node and the cross-boundary cascade never fires.
     #[test]
     fn table_paths_from_every_spelling_canonicalize_to_one_key() {
-        let canonical = Some((
-            AssetKind::Dbt,
-            Cow::Owned("main/analytics/orders".into()),
-        ));
+        let canonical = Some((AssetKind::Dbt, Cow::Owned("main/analytics/orders".into())));
         for spelling in [
             // Hand-written annotation.
             "dbt://main/analytics/orders",
@@ -1762,6 +1773,17 @@ mod pipeline_annotation_tests {
                 canonical,
                 "spelling {spelling} did not canonicalize"
             );
+        }
+    }
+
+    /// The shape both halves of the deploy check against: a subscription and a
+    /// write that disagreed on it would refuse and accept the same string.
+    #[test]
+    fn a_whole_relation_is_three_non_empty_segments() {
+        assert!(is_full_relation_path("main/analytics/orders"));
+        assert!(is_full_relation_path("main/archive.sales/orders"));
+        for partial in ["main", "main/analytics", "main/analytics/orders/x", "", "main//orders"] {
+            assert!(!is_full_relation_path(partial), "{partial} is not a relation");
         }
     }
 
@@ -1791,10 +1813,7 @@ mod pipeline_annotation_tests {
         // database qualifier.
         assert_eq!(
             parse_asset_syntax("dbt://main/\"sales.v2\"/orders", false),
-            Some((
-                AssetKind::Dbt,
-                Cow::Owned("main/sales.v2/orders".into())
-            ))
+            Some((AssetKind::Dbt, Cow::Owned("main/sales.v2/orders".into())))
         );
     }
 
@@ -1813,14 +1832,8 @@ mod pipeline_annotation_tests {
                 "dbt://main/analytics/\"order\"\"s\"",
                 "main/analytics/order\"s",
             ),
-            (
-                "dbt://main/`da``ta`/`orders`",
-                "main/da`ta/orders",
-            ),
-            (
-                "dbt://main/[my]]schema]/[orders]",
-                "main/my]schema/orders",
-            ),
+            ("dbt://main/`da``ta`/`orders`", "main/da`ta/orders"),
+            ("dbt://main/[my]]schema]/[orders]", "main/my]schema/orders"),
             // And in one half of a database-qualified segment.
             (
                 "dbt://main/\"arch\"\"ive\".\"sales\"/orders",
@@ -1839,8 +1852,14 @@ mod pipeline_annotation_tests {
         // apart. A lone delimiter treated as opening a quote would be dropped —
         // `sa"les` filed as `sales` — and the two derivations would split.
         for (decoded, spelled) in [
-            ("dbt://main/sa\"les/orders", "dbt://main/\"sa\"\"les\"/orders"),
-            ("dbt://main/analytics/order\"s", "dbt://main/analytics/\"order\"\"s\""),
+            (
+                "dbt://main/sa\"les/orders",
+                "dbt://main/\"sa\"\"les\"/orders",
+            ),
+            (
+                "dbt://main/analytics/order\"s",
+                "dbt://main/analytics/\"order\"\"s\"",
+            ),
             (
                 "dbt://main/arch\"ive.sales/orders",
                 "dbt://main/\"arch\"\"ive\".\"sales\"/orders",

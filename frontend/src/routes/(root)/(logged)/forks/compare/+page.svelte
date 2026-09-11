@@ -51,6 +51,10 @@
 	// prefix. Distinct from having a compare target: a root workspace has no parent
 	// yet can still be pointed at an arbitrary one.
 	const isFork = $derived(!!parentWorkspaceId)
+	// A dev workspace is a standing environment, torn down by detaching it in the
+	// dev-workspace settings — never by an archive/delete button sitting next to the
+	// merge it is here to perform.
+	const isDevWorkspace = $derived(!!currentWorkspaceData?.is_dev_workspace)
 	const hasCompareTarget = $derived(!!compareTargetId)
 
 	// Mode is seeded from the URL (?mode=draft|fork). `draft` is valid for any
@@ -67,7 +71,8 @@
 	// merged toggle (CompareModeToggle, rendered inside each card) reports its
 	// selection here; the page only swaps which comparison component is shown.
 	// `?dir=update` opens on the other one, for callers that already know which
-	// direction has something in it (the fork banner's CTA).
+	// direction has something in it (the fork banner's CTA, the "not in the dev
+	// workspace yet" prompt).
 	let forkDirection = $state<'deploy_to' | 'update'>(
 		page.url.searchParams.get('dir') === 'update' ? 'update' : 'deploy_to'
 	)
@@ -388,10 +393,10 @@
 <CenteredPage>
 	<PageHeader title="Compare & Deploy">
 		<div class="flex flex-row gap-2 items-center">
-			<!-- The merged compare toggle (fork direction + deployed↔draft) now lives
-			     inside each comparison card; only the fork lifecycle actions remain
-			     in the page header. -->
-			{#if isFork}
+			<!-- The merged compare toggle (fork direction + deployed↔draft) lives inside
+			     each comparison card; only the fork lifecycle actions remain in the page
+			     header, and only for a throwaway fork. -->
+			{#if isFork && !isDevWorkspace}
 				<Button
 					variant="default"
 					color="light"
@@ -458,6 +463,7 @@
 				{draftKeys}
 				{chatMask}
 				{chatMaskReady}
+				maskAppliesToUpdate={urlItemsMask !== undefined}
 				onChanged={refreshCounts}
 				onModeSelected={selectMode}
 			/>

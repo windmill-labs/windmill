@@ -379,6 +379,22 @@ async fn test_runnables_search_and_kind_filters(db: Pool<Postgres>) -> anyhow::R
         "search must substring-match the summary only"
     );
 
+    // Terms may sit apart and span the summary and the path — what the homepage's
+    // fuzzy ranking accepts but a single contiguous ILIKE would withhold.
+    assert_eq!(
+        list_once(port, "search=deploy%20one").await,
+        vec!["script:f/alpha/one".to_string()],
+        "terms may sit apart, in the summary and the path"
+    );
+
+    // The three rules that bound it, each pinned by a query that must return nothing:
+    // terms hold their order, every term must appear, and a query of pure separators
+    // is a search that matches nothing rather than no search at all.
+    for query in ["search=one%20deploy", "search=deploy%20beta", "search=%20"] {
+        let none = list_once(port, query).await;
+        assert!(none.is_empty(), "{query} must match nothing, got {none:?}");
+    }
+
     // kinds filter selects a single kind.
     let flows = list_once(port, "kinds=flow").await;
     assert_eq!(flows, vec!["flow:f/alpha/flowy".to_string()], "kinds=flow");
@@ -389,6 +405,45 @@ async fn test_runnables_search_and_kind_filters(db: Pool<Postgres>) -> anyhow::R
         scripts.len(),
         4,
         "kinds=script -> 4 scripts, got {scripts:?}"
+    );
+
+    // Seeded last: the counts above are asserted exactly.
+    // Without a summary the haystack is the bare path, so such a row stays findable.
+    let r = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_script("f/alpha/unsummarized", ""))
+    .send()
+    .await?;
+    assert_eq!(r.status(), 201, "create: {}", r.text().await?);
+    assert_eq!(
+        list_once(port, "search=alpha%20unsummarized").await,
+        vec!["script:f/alpha/unsummarized".to_string()],
+        "a row with no summary is searchable by its path"
+    );
+
+    // A draft is named by the path typed in the editor, so that is what a search has
+    // to match — never the generated `draft_<uuid>` it is parked at.
+    let r = authed(
+        client().post(format!(
+            "{base}/drafts/update/script/u/test-user/draft_9f2a"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "value": { "path": "f/beta/typed_name", "summary": "" } }))
+    .send()
+    .await?;
+    assert_eq!(r.status(), 200, "save draft: {}", r.text().await?);
+    assert_eq!(
+        list_once(port, "search=beta%20typed&include_draft_only=true").await,
+        vec!["script:u/test-user/draft_9f2a".to_string()],
+        "a draft-only row is searchable by its typed path"
+    );
+    let by_storage_path = list_once(port, "search=9f2a&include_draft_only=true").await;
+    assert!(
+        by_storage_path.is_empty(),
+        "the draft_<uuid> path is not searchable, got {by_storage_path:?}"
     );
     Ok(())
 }

@@ -5,17 +5,17 @@
 	import { getGraphContext } from './graphContext'
 	import { getNodeColorClasses } from '$lib/components/graph'
 	import type { FlowNodeState } from '$lib/components/graph/util'
-	import type { GraphModuleState } from './model'
 	import type { FlowModule } from '$lib/gen'
 	import type { GraphEventHandlers } from './graphBuilder.svelte'
+	import { getFlowRunStatusContext } from './flowRunStatus.svelte'
 
 	interface Props {
 		modules: FlowModule[]
-		flowModuleStates?: Record<string, GraphModuleState> | undefined
 		eventHandlers?: GraphEventHandlers
 	}
 
-	let { modules, flowModuleStates, eventHandlers }: Props = $props()
+	let { modules, eventHandlers }: Props = $props()
+	const flowRunStatus = getFlowRunStatusContext()
 
 	const { selectionManager } = getGraphContext()
 
@@ -75,11 +75,11 @@
 	}
 
 	let overflowAggregateState = $derived.by<FlowNodeState | undefined>(() => {
-		if (!flowModuleStates) return undefined
+		if (!flowRunStatus) return undefined
 		let best: FlowNodeState | undefined = undefined
 		let bestPriority = 0
 		for (const mod of overflowModules) {
-			const state = flowModuleStates[mod.id]?.type
+			const state = flowRunStatus.getModuleState(mod.id)?.type
 			if (state) {
 				const p = STATE_PRIORITY[state] ?? 0
 				if (p > bestPriority) {
@@ -105,15 +105,17 @@
 	}
 
 	function selectModule(mod: FlowModule) {
-		selectionManager.selectId(mod.id)
-		eventHandlers?.select(mod.id)
+		// These icons stand in for nodes the graph marks unselectable, so there is no
+		// node to double-click — the click itself has to open the panel.
+		selectionManager.selectId(mod.id, { openPanel: true })
+		eventHandlers?.select(mod.id, { openPanel: true })
 	}
 </script>
 
 <div class="flex items-center gap-1">
 	{#each displayModules as mod (mod.id)}
 		{@const selected = selectionManager.isNodeSelected(mod.id)}
-		{@const nodeState = flowModuleStates?.[mod.id]?.type}
+		{@const nodeState = flowRunStatus?.getModuleState(mod.id)?.type}
 		{@const colorClasses = getNodeColorClasses(nodeState, selected)}
 		<Tooltip placement="bottom">
 			{#snippet children()}
@@ -155,7 +157,7 @@
 					style="max-height: 50vh;"
 				>
 					{#each overflowModules as mod (mod.id)}
-						{@const nodeState = flowModuleStates?.[mod.id]?.type}
+						{@const nodeState = flowRunStatus?.getModuleState(mod.id)?.type}
 						{@const colorClasses = getNodeColorClasses(nodeState, false)}
 						{@const selected = selectionManager.isNodeSelected(mod.id)}
 						<!-- svelte-ignore a11y_click_events_have_key_events -->

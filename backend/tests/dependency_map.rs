@@ -515,6 +515,7 @@ def main():
                 preserve_on_behalf_of: None,
                 labels: None,
                 skip_draft_deletion: None,
+                allow_kind_change: None,
             })
             .send()
             .await

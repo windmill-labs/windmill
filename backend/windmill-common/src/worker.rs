@@ -30,6 +30,7 @@ use crate::{
     agent_workers::PingJobStatusResponse,
     cache::{unwrap_or_error, RawNode, RawScript},
     error::{self, to_anyhow},
+    external_ip::UNKNOWN_IP,
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
     server::Smtp,
@@ -209,6 +210,19 @@ impl SpecificTagType {
 
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
+/// Premium cloud workspaces may run a job for this many times [`MAX_TIMEOUT`].
+const CLOUD_PREMIUM_TIMEOUT_MULTIPLIER: u64 = 6;
+
+/// Longest a single job may run, in seconds. A premium cloud workspace outruns [`MAX_TIMEOUT`]
+/// sixfold, so a per-job resource sized off `MAX_TIMEOUT` alone dies under a job the instance is
+/// still willing to keep running.
+pub fn max_job_duration_secs(cloud_premium_workspace: bool) -> u64 {
+    if cloud_premium_workspace {
+        MAX_TIMEOUT.saturating_mul(CLOUD_PREMIUM_TIMEOUT_MULTIPLIER)
+    } else {
+        *MAX_TIMEOUT
+    }
+}
 pub const MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS: u64 = 60;
 /// Default for [`CONCURRENCY_KEY_MAX_QUEUED`]; also the value the setting loader restores when
 /// the setting is cleared or malformed.
@@ -262,6 +276,31 @@ lazy_static::lazy_static! {
     });
 
     pub static ref NO_LOGS: bool = std::env::var("NO_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
+
+    /// Shut the worker process down once it has executed this many jobs, so a supervisor
+    /// (docker restart policy, kubernetes, systemd, ...) restarts it on a pristine
+    /// environment. Meant for deployments that cannot sandbox jobs with nsjail and rely on
+    /// the process/container lifetime to isolate one execution from the next. `0` (or unset)
+    /// disables it. Only the jobs the worker's own main loop ran count: ones handed off to a
+    /// dedicated worker or a flow runner are executed by another task and never counted.
+    /// Workers of one process share that environment, so with `NUM_WORKERS > 1` the first of
+    /// them to reach the limit takes the whole process down, cancelling whatever the others
+    /// still run in a container or a dedicated worker. Run one worker per process.
+    /// A value that does not parse is rejected at startup by [`validate_worker_lifecycle_env`]
+    /// rather than read as "disabled" here: a deployment that isolates executions this way
+    /// would otherwise keep running with no isolation at all.
+    pub static ref EXIT_AFTER_N_JOBS: Option<u64> = std::env::var("EXIT_AFTER_N_JOBS")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
+        .filter(|x| *x > 0);
+
+    /// Replaces the random part of the worker name, which is what makes a restarted process
+    /// reclaim its `worker_ping` row rather than register as a new worker. Two worker
+    /// processes must never share it: it is only needed when several of them run on one host
+    /// under the same worker group, since the name is otherwise derived from the hostname.
+    pub static ref WORKER_SUFFIX: Option<String> = std::env::var("WORKER_SUFFIX")
+        .ok()
+        .filter(|x| !x.is_empty());
 
     pub static ref NATIVE_MODE: bool = std::env::var("NATIVE_MODE").ok().is_some_and(|x| x == "1" || x == "true");
 
@@ -334,10 +373,11 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<u64>().ok())
     .unwrap_or_else(|| if *CLOUD_HOSTED { DEFAULT_CLOUD_TIMEOUT } else { DEFAULT_SELFHOSTED_TIMEOUT });
 
-    pub static ref SCRIPT_TOKEN_EXPIRY: u64 = std::env::var("SCRIPT_TOKEN_EXPIRY")
+    /// Explicit operator override for the ephemeral job token's lifetime. Unset, the lifetime is
+    /// derived per workspace by `job_token_expiry_secs`, the only place this is read.
+    pub static ref SCRIPT_TOKEN_EXPIRY_OVERRIDE: Option<u64> = std::env::var("SCRIPT_TOKEN_EXPIRY")
         .ok()
-        .and_then(|x| x.parse::<u64>().ok())
-        .unwrap_or(*MAX_TIMEOUT);
+        .and_then(|x| x.parse::<u64>().ok());
 
     pub static ref WORKER_CONFIG: arc_swap::ArcSwap<WorkerConfig> = arc_swap::ArcSwap::from_pointee(WorkerConfig {
         worker_tags: Default::default(),
@@ -352,6 +392,7 @@ lazy_static::lazy_static! {
         pip_local_dependencies: Default::default(),
         env_vars: Default::default(),
         native_mode: false,
+        object_store_cache_config: Default::default(),
     });
 
     pub static ref WORKER_PULL_QUERIES: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
@@ -448,6 +489,18 @@ lazy_static::lazy_static! {
 
 lazy_static::lazy_static! {
     pub static ref ROOT_CACHE_NOMOUNT_DIR: String = format!("{}/cache_nomount/", *WINDMILL_DIR);
+}
+
+/// Refuses to start on an `EXIT_AFTER_N_JOBS` that does not parse. Silently ignoring it
+/// would leave a worker meant to recycle its environment running forever without doing so,
+/// which is exactly the guarantee the deployment set it for.
+pub fn validate_worker_lifecycle_env() -> anyhow::Result<()> {
+    match std::env::var("EXIT_AFTER_N_JOBS") {
+        Ok(v) if !v.is_empty() && v.parse::<u64>().is_err() => Err(anyhow::anyhow!(
+            "EXIT_AFTER_N_JOBS must be a positive integer (or 0 to disable), got '{v}'"
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// Whether native mode is forced by the environment (NATIVE_MODE=true env var or WORKER_GROUP=native).
@@ -682,11 +735,17 @@ fn format_pull_query(peek: String) -> String {
     r
 }
 
+// The `CASE` is `suspend <= 0 OR suspend_until <= now()` written as one indexable
+// expression, equivalent only under the `suspend_until IS NOT NULL` guard. It must stay in
+// sync with `queue_suspended_v2` (migration 20260826202939): if it no longer matches, the
+// test silently reverts to a heap filter over every suspended row on every worker poll.
 pub fn make_suspended_pull_query(tags: &[String]) -> String {
     format_pull_query(format!(
         "SELECT id
         FROM v2_job_queue
-        WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag IN ({})
+        WHERE suspend_until IS NOT NULL
+          AND (CASE WHEN suspend <= 0 THEN '-infinity'::timestamptz ELSE suspend_until END) <= now()
+          AND tag IN ({})
         ORDER BY priority DESC NULLS LAST, created_at
         FOR UPDATE SKIP LOCKED
         LIMIT 1",
@@ -911,20 +970,22 @@ pub fn write_file_at_user_defined_location(
 }
 
 pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
-    let q = sqlx::query!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        CUSTOM_TAGS_SETTING
-    )
-    .fetch_optional(db)
-    .await?;
+    let q =
+        crate::global_settings::load_value_from_global_settings(db, CUSTOM_TAGS_SETTING).await?;
+    apply_custom_tags_setting(q);
+    Ok(())
+}
 
+/// The half of [`reload_custom_tags_setting`] after the read, so a batched settings pass can
+/// apply a value it already fetched.
+pub fn apply_custom_tags_setting(q: Option<serde_json::Value>) {
     let tags = if let Some(q) = q {
-        if let Ok(v) = serde_json::from_value::<Vec<String>>(q.value.clone()) {
+        if let Ok(v) = serde_json::from_value::<Vec<String>>(q.clone()) {
             v
         } else {
             tracing::error!(
                 "Could not parse custom tags setting as vec of strings, found: {:#?}",
-                &q.value
+                &q
             );
             vec![]
         }
@@ -952,7 +1013,6 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
         ]
         .concat(),
     ));
-    Ok(())
 }
 
 #[cfg(not(windows))]
@@ -1472,6 +1532,73 @@ pub fn get_vcpus() -> Option<i64> {
     (sys.cpus().len() * 100000).try_into().ok()
 }
 
+/// The window `get_vcpus`'s quota is spent over, in the same microseconds. Only
+/// their ratio is a number of CPUs, and the window is configurable — 100ms is
+/// merely its usual value.
+#[cfg(not(windows))]
+pub fn get_cpu_period() -> Option<i64> {
+    if Path::new("/sys/fs/cgroup/cpu/cpu.cfs_period_us").exists() {
+        // cgroup v1
+        parse_file("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
+    } else {
+        // cgroup v2: `cpu.max` is "<quota|max> <period>"
+        let cgroup_path = get_cgroupv2_path()?;
+        parse_file::<String>(&format!("{cgroup_path}/cpu.max"))?
+            .split_whitespace()
+            .nth(1)?
+            .parse()
+            .ok()
+    }
+    .filter(|period| *period > 0)
+}
+
+#[cfg(windows)]
+pub fn get_cpu_period() -> Option<i64> {
+    Some(100000)
+}
+
+/// CPUs the process is allowed to run on, ignoring any bandwidth quota — the count
+/// Go's `NumCPU` reports. `available_parallelism` cannot stand in for it: that folds
+/// the quota in, so a fraction of a CPU makes it report a single-core machine.
+#[cfg(not(windows))]
+pub fn get_affinity_cpus() -> Option<usize> {
+    // "Cpus_allowed_list:\t0-7,16-23"
+    let status = parse_file::<String>("/proc/self/status")?;
+    let list = status
+        .split("Cpus_allowed_list:")
+        .nth(1)?
+        .lines()
+        .next()?
+        .trim();
+
+    let cpus = list
+        .split(',')
+        .map(|range| {
+            let (first, last) = range.split_once('-').unwrap_or((range, range));
+            let (first, last) = (first.trim().parse::<usize>(), last.trim().parse::<usize>());
+            match (first, last) {
+                (Ok(first), Ok(last)) if last >= first => Some(last - first + 1),
+                _ => None,
+            }
+        })
+        .sum::<Option<usize>>()?;
+
+    (cpus > 0).then_some(cpus)
+}
+
+#[cfg(windows)]
+pub fn get_affinity_cpus() -> Option<usize> {
+    // The 1CU cap is a policy rather than a bandwidth quota, so it is the whole
+    // answer here as it is for `get_vcpus` and `get_memory` — a consumer that reads
+    // this as the hardware count would raise the worker back above the cap.
+    if *LIMIT_WINDOWS_TO_1CU {
+        return Some(1);
+    }
+    let mut sys = System::new();
+    sys.refresh_cpu_all();
+    Some(sys.cpus().len()).filter(|cpus| *cpus > 0)
+}
+
 #[cfg(not(windows))]
 fn get_memory_from_meminfo() -> Option<i64> {
     let memory_info = parse_file::<String>("/proc/meminfo")?;
@@ -1645,25 +1772,23 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_5m,
                 insert_ping.occupancy_rate_30m,
                 insert_ping.native_mode.unwrap_or(false),
+                insert_ping.ip.as_deref(),
                 db,
             )
             .await?
         }
         PingType::Initial => {
-            if insert_ping.worker_instance.is_none()
-                || insert_ping.version.is_none()
-                || insert_ping.ip.is_none()
-            {
-                return Err(anyhow::anyhow!(
-                    "Worker instance, version and ip are required"
-                ));
+            if insert_ping.worker_instance.is_none() || insert_ping.version.is_none() {
+                return Err(anyhow::anyhow!("Worker instance and version are required"));
             }
 
             insert_ping_query(
                 &insert_ping.worker_instance.unwrap(),
                 &worker_name,
                 worker_group,
-                &insert_ping.ip.unwrap(),
+                // An agent worker sends the sentinel rather than nothing, to stay acceptable to
+                // servers that still require an IP here; both mean "not resolved yet".
+                insert_ping.ip.as_deref().filter(|ip| *ip != UNKNOWN_IP),
                 insert_ping.tags.unwrap_or_default().as_slice(),
                 insert_ping.dw,
                 insert_ping.dws.as_deref(),
@@ -1791,11 +1916,22 @@ pub async fn fetch_raw_script_from_app_query(
     .map(|r| RawScript { content: r.code, lock: r.lock, meta: None, modules: None })
 }
 
+/// Returns the number of jobs the row already accounted for: non-zero when a worker of the
+/// same name pinged before, i.e. when this process is a restart of an earlier one (see
+/// [`crate::utils::resolve_worker_suffix`]) and its counter is meant to keep climbing.
+///
+/// Everything else describing the process is overwritten on such a restart — a row left
+/// reporting the version or the isolation mode of the process that died would, for
+/// `wm_version`, hold the instance-wide `MIN_VERSION` back forever, and one still naming the
+/// job that process was killed mid-way through skews the zombie/OOM diagnostics that read it.
+/// `started_at` and `jobs_executed` are the only two columns carried over, being the
+/// continuity itself — plus `ip` for as long as `ip` is `None`, which means the external IP
+/// lookup has not resolved yet and the predecessor's address is still the best guess.
 pub async fn insert_ping_query(
     worker_instance: &str,
     worker_name: &str,
     worker_group: &str,
-    ip: &str,
+    ip: Option<&str>,
     tags: &[String],
     dw: Option<String>,
     dws: Option<&[String]>,
@@ -1805,10 +1941,15 @@ pub async fn insert_ping_query(
     job_isolation: Option<String>,
     native_mode: bool,
     db: &DB,
-) -> anyhow::Result<()> {
-    sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
-        DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_workers = EXCLUDED.dedicated_workers, native_mode = EXCLUDED.native_mode",
+) -> anyhow::Result<i32> {
+    // A NULL `ip` means the external IP lookup is still in flight; a later ping fills it in, and
+    // meanwhile the value a previous process wrote to a reclaimed row is the best guess we have. A
+    // lookup that has failed reports `external_ip::UNRETRIEVABLE_IP`, which does overwrite it. The
+    // literal below must stay equal to `external_ip::UNKNOWN_IP`.
+    let previous_jobs_executed = sqlx::query_scalar!(
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
+        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL
+        RETURNING jobs_executed",
         worker_instance,
         worker_name,
         ip,
@@ -1822,9 +1963,9 @@ pub async fn insert_ping_query(
         job_isolation.as_deref(),
         native_mode,
         )
-        .execute(db)
+        .fetch_one(db)
         .await?;
-    Ok(())
+    Ok(previous_jobs_executed)
 }
 
 pub async fn update_worker_ping_from_job_query(
@@ -1912,12 +2053,13 @@ pub async fn update_worker_ping_main_loop_query(
     occupancy_rate_5m: Option<f32>,
     occupancy_rate_30m: Option<f32>,
     native_mode: bool,
+    ip: Option<&str>,
     db: &DB,
 ) -> anyhow::Result<()> {
     timeout(Duration::from_secs(10), sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
          occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
-         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12 WHERE worker = $6",
+         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip) WHERE worker = $6",
         jobs_executed,
         tags,
         occupancy_rate,
@@ -1930,6 +2072,7 @@ pub async fn update_worker_ping_main_loop_query(
         occupancy_rate_5m,
         occupancy_rate_30m,
         native_mode,
+        ip,
     )
         .execute(db))
     .await??;
@@ -2201,6 +2344,7 @@ pub async fn load_worker_config(
             .or_else(|| load_additional_python_paths_from_env()),
         env_vars: resolved_env_vars,
         native_mode,
+        object_store_cache_config: config.object_store_cache_config,
     })
 }
 
@@ -2290,6 +2434,7 @@ pub struct WorkerConfigOpt {
     pub env_vars_static: Option<HashMap<String, String>>,
     pub env_vars_allowlist: Option<Vec<String>>,
     pub native_mode: Option<bool>,
+    pub object_store_cache_config: Option<serde_json::Value>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -2308,6 +2453,7 @@ impl Default for WorkerConfigOpt {
             env_vars_static: Default::default(),
             env_vars_allowlist: Default::default(),
             native_mode: Default::default(),
+            object_store_cache_config: Default::default(),
         }
     }
 }
@@ -2326,12 +2472,18 @@ pub struct WorkerConfig {
     pub pip_local_dependencies: Option<Vec<String>>,
     pub env_vars: HashMap<String, String>,
     pub native_mode: bool,
+    /// Object store this group's dependency cache uses instead of the instance one, as stored
+    /// in the group config. Raw JSON: `windmill-common` cannot depend on the object store crate
+    /// that parses it, and comparing the raw value is what tells a reload the store changed.
+    pub object_store_cache_config: Option<serde_json::Value>,
 }
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?} }}",
-        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode)
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?}, object_store_cache_config: {} }}",
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode,
+        // holds bucket credentials
+        self.object_store_cache_config.as_ref().map(|_| "***").unwrap_or("None"))
     }
 }
 
@@ -2358,6 +2510,42 @@ pub fn split_python_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> 
         .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
         .map(String::from)
         .collect()
+}
+
+/// Byte offset of the comment marker, per pip's rule: a `#` at line start or preceded by
+/// whitespace. A `#` elsewhere belongs to the requirement (`pkg @ https://h/p.whl#sha256=…`).
+fn requirement_comment_start(line: &str) -> Option<usize> {
+    line.char_indices()
+        .find(|(i, c)| *c == '#' && (*i == 0 || line[..*i].ends_with(char::is_whitespace)))
+        .map(|(i, _)| i)
+}
+
+/// The installable requirement carried by one lockfile line, or `None` for a comment, a
+/// `-r`/`-e`/`--flag` directive, or a blank.
+///
+/// Windmill installs a lockfile one entry at a time as a `uv pip install` argument, so
+/// requirements-file syntax a file-level parser would absorb is an unparseable package name
+/// here and has to be stripped first.
+pub fn requirement_from_lockfile_line(line: &str) -> Option<&str> {
+    let requirement = match requirement_comment_start(line) {
+        Some(i) => &line[..i],
+        None => line,
+    }
+    .trim()
+    // Continuations are stripped, not joined: right for `--generate-hashes` locks, whose
+    // continued lines are `--hash=` flags this function drops, but a lock continuing onto a
+    // marker or extra would lose it.
+    .trim_end_matches('\\')
+    .trim_end();
+
+    (!requirement.is_empty() && !requirement.starts_with('-')).then_some(requirement)
+}
+
+/// Whether a lockfile line continues onto the next one. The continued lines reach the
+/// installer as entries of their own rather than being joined, so a caller that cares what
+/// they carried — `--hash=` pins, for a `--generate-hashes` lock — has to say so itself.
+pub fn lockfile_line_has_continuation(line: &str) -> bool {
+    line.trim_end().ends_with('\\')
 }
 
 #[derive(Eq, PartialEq, Clone, Copy, Default, Debug)]
@@ -2476,6 +2664,52 @@ mod tests {
     /// A workspace id chain: the workspace itself, then its fork ancestors nearest-first.
     fn chain(ids: &[&str]) -> Vec<String> {
         ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Fixtures are verbatim `uv pip compile` output (uv 0.11.28): split and inline
+    /// annotation styles, and `--generate-hashes`.
+    #[test]
+    fn test_requirement_from_lockfile_line() {
+        assert_eq!(requirement_from_lockfile_line("    # via httpx"), None);
+        assert_eq!(requirement_from_lockfile_line("    # via"), None);
+        assert_eq!(requirement_from_lockfile_line("    #   anyio"), None);
+        assert_eq!(
+            requirement_from_lockfile_line("    # via -r .tmp/requirements.in"),
+            None
+        );
+        assert_eq!(
+            requirement_from_lockfile_line("anyio==4.15.1 \\"),
+            Some("anyio==4.15.1")
+        );
+        assert_eq!(
+            requirement_from_lockfile_line(
+                "    --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7 \\"
+            ),
+            None
+        );
+        assert_eq!(requirement_from_lockfile_line("# py: 3.11"), None);
+        assert_eq!(requirement_from_lockfile_line("-r other.txt"), None);
+        assert_eq!(
+            requirement_from_lockfile_line("--index-url https://x"),
+            None
+        );
+        assert_eq!(requirement_from_lockfile_line("   "), None);
+        assert_eq!(
+            requirement_from_lockfile_line("httpx==0.27.0"),
+            Some("httpx==0.27.0")
+        );
+        assert_eq!(
+            requirement_from_lockfile_line("httpx==0.27.0  # via -r requirements.in"),
+            Some("httpx==0.27.0")
+        );
+        // A `#` not preceded by whitespace is part of the requirement, not a comment.
+        assert_eq!(
+            requirement_from_lockfile_line("wmill @ https://h/wmill.whl#sha256=abc"),
+            Some("wmill @ https://h/wmill.whl#sha256=abc")
+        );
+
+        assert!(lockfile_line_has_continuation("anyio==4.15.1 \\"));
+        assert!(!lockfile_line_has_continuation("anyio==4.15.1"));
     }
 
     #[test]

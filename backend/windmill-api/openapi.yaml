@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.778.0
+  version: 1.809.0
   title: Windmill API
 
   contact:
@@ -268,6 +268,15 @@ paths:
             type: string
         - $ref: "#/components/parameters/ResourceName"
         - $ref: "#/components/parameters/ActionKind"
+        - name: before_id
+          in: query
+          description: >
+            only return logs with an id strictly lower than this one. Logs are ordered by
+            descending id, so this is a keyset cursor to stream a page in several batches
+            without paying a growing offset.
+          schema:
+            type: integer
+            format: int64
         - name: all_workspaces
           in: query
           description: get audit logs for all workspaces
@@ -852,6 +861,34 @@ paths:
                 items:
                   $ref: "#/components/schemas/ExternalJwtToken"
 
+  /users/guests:
+    get:
+      summary: list the distinct guests of the trailing window (superadmin only)
+      description: >-
+        The set the guest allowance is counted on: every distinct email that held a
+        guest session in the last `window_days`, with the workspaces it opened and the
+        days it was first and last seen, most recently seen first. `usage` is the
+        instance's standing against the allowance and the meter.
+      operationId: listGuests
+      tags:
+        - user
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: the guests of the window and the allowance they count against
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestList"
+
   /users/onboarding:
     post:
       summary: Submit user onboarding data
@@ -1239,7 +1276,8 @@ paths:
                   type: boolean
                 dev_workspace_label:
                   type: string
-                  enum: [dev, staging]
+                  enum: [dev, qa, test, uat, staging, demo, sandbox, preprod]
+                  description: "Environment label; also names the branch the dev workspace deploys to. Omitted defaults to 'dev'"
               required:
                 - dev_workspace_id
       responses:
@@ -1301,7 +1339,7 @@ paths:
                   dev_workspace_label:
                     type: string
                     nullable: true
-                    description: "Cosmetic display label ('dev' | 'staging'); null defaults to 'dev'"
+                    description: "Environment label, e.g. 'dev' or 'staging'; null defaults to 'dev'"
                 required:
                   - id
                   - name
@@ -2703,7 +2741,7 @@ paths:
 
   /w/{workspace}/github_app/token:
     post:
-      summary: get github app token
+      summary: get the git credential for a git-sync job (GitHub App token, or the credential stored for the repository)
       operationId: getGithubAppToken
       tags:
         - workspace
@@ -2723,7 +2761,7 @@ paths:
                 - job_token
       responses:
         "200":
-          description: github app token
+          description: git credential
           content:
             application/json:
               schema:
@@ -2733,6 +2771,34 @@ paths:
                     type: string
                 required:
                   - token
+
+  /w/{workspace}/github_app/repo_archive/{path}:
+    get:
+      summary: download a gzipped tarball of a GitHub App repository
+      operationId: getGithubAppRepoArchive
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: ref
+          description: branch, tag or commit sha; defaults to the resource's branch
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: gzipped tarball of the repository at the resolved commit
+          headers:
+            x-commit-sha:
+              description: the commit the archive was taken at
+              schema:
+                type: string
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
 
   /w/{workspace}/github_app/install_from_workspace:
     post:
@@ -2838,6 +2904,131 @@ paths:
       responses:
         "200":
           description: Successfully imported the installation
+
+  /w/{workspace}/git_sync/gitlab/projects:
+    post:
+      tags:
+        - Git Sync
+      summary: List the GitLab projects a token can sync
+      description: >-
+        Lists the projects the supplied GitLab token can push to, so a git
+        repository resource can be filled in without hand-writing a project
+        path. The token is used for this call only and is never stored.
+        Requires workspace admin.
+      operationId: listGitlabProjects
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                base_url:
+                  type: string
+                  description: The GitLab instance, e.g. https://gitlab.com
+                token:
+                  type: string
+                  description: A project access token with the api scope, or a group token that reaches the project
+                search:
+                  type: string
+                  description: Narrow the list to projects matching this text
+              required:
+                - base_url
+                - token
+      responses:
+        "200":
+          description: the projects the token can sync
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GitlabProject"
+
+  /w/{workspace}/git_sync/credential/origin:
+    get:
+      tags:
+        - Git Sync
+      summary: Where a repository's credential comes from
+      description: >-
+        Whether Windmill holds this repository's access token, and which host it
+        talks to. `held` means this workspace stores it, `borrowed` means an
+        ancestor does and it is not this workspace's to replace. Both absent
+        means the repository authenticates with whatever its URL carries.
+        Returns no secret. Requires workspace admin.
+      operationId: getCredentialOrigin
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          description: >-
+            Path of the git repository resource, with or without the `$res:`
+            prefix. A path rather than a URL, because a resource URL may carry a
+            token and a URL in a query string lands in logs.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: where the credential comes from
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  origin:
+                    type: string
+                    enum:
+                      - held
+                      - borrowed
+                  provider:
+                    type: string
+                    enum:
+                      - gitlab
+
+  /w/{workspace}/git_sync/credential:
+    post:
+      tags:
+        - Git Sync
+      summary: Store the credential for a git repository
+      description: >-
+        Stores the access token a git repository authenticates with, so it does
+        not have to be written into the repository URL or a workspace variable.
+        The token is write-only: it is served only to a git-sync job that
+        presents its own job token, and a fork of this workspace reads this
+        copy instead of holding one of its own. Requires workspace admin.
+      operationId: setGitCredential
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repo_url:
+                  type: string
+                  description: >-
+                    The repository the credential is for, and the key it is
+                    stored under. It is served for this repository and no other,
+                    so repointing a resource elsewhere cannot carry the token
+                    along.
+                token:
+                  type: string
+                  description: The access token, as pasted
+              required:
+                - repo_url
+                - token
+      responses:
+        "200":
+          description: the credential was stored
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/github_app/ghes_installation_callback:
     post:
@@ -3629,8 +3820,12 @@ paths:
                     $ref: "#/components/schemas/WorkspaceDeployUISettings"
                   mute_critical_alerts:
                     type: boolean
+                  guest_access_enabled:
+                    type: boolean
+                    description: Whether this workspace admits guest sessions. An app's own `guest` execution mode is inert while this is false.
                 required:
                   - workspace_id
+                  - guest_access_enabled
 
   /w/{workspace}/workspaces/get_settings:
     get:
@@ -3712,6 +3907,15 @@ paths:
                   error_handler_fallback_to_instance_alerts:
                     type: boolean
                     description: Report failed jobs to the instance critical alert channels when no workspace error handler is set.
+                  guest_access_enabled:
+                    type: boolean
+                    description: Whether this workspace admits guest sessions. An app's own `guest` execution mode is inert while this is false.
+                  guest_jwt_public_key:
+                    type: string
+                    description: PEM public key a guest JWT (`jwt_guest_`) is verified against for this workspace. Mutually exclusive with `guest_jwt_jwks_url`.
+                  guest_jwt_jwks_url:
+                    type: string
+                    description: JWKS URL a guest JWT (`jwt_guest_`) is verified against for this workspace. Mutually exclusive with `guest_jwt_public_key`.
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -3749,6 +3953,38 @@ paths:
             application/json:
               schema:
                 type: boolean
+
+  /w/{workspace}/workspaces/billable_seats:
+    get:
+      summary: get the billable seats of the workspace the plan is billed on
+      operationId: getBillableSeats
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: billable seats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  developers:
+                    type: integer
+                    description: >-
+                      Omitted when the seats counted are another workspace's, as they are for a
+                      fork resolving to its billing root.
+                  operators:
+                    type: integer
+                    description: >-
+                      Omitted when the seats counted are another workspace's, as they are for a
+                      fork resolving to its billing root.
+                  seats:
+                    type: integer
+                required:
+                  - seats
 
   /w/{workspace}/workspaces/premium_info:
     get:
@@ -5669,6 +5905,99 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/edit_guest_access:
+    post:
+      summary: enable or disable guest sessions for this workspace
+      description: >-
+        Guests are people the identity provider authenticates who have no Windmill
+        account; the `guest` app execution mode admits them. Off by default. Re-read
+        where a guest session is minted and at the auth door on every guest request, so
+        turning it off takes effect immediately, for sessions already issued and for
+        apps whose policy already says `guest`. Turning it *on* is refused with a 400
+        where guests are unavailable (the shared cloud); turning it off always works.
+      operationId: editGuestAccess
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Whether guest sessions are admitted
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                guest_access_enabled:
+                  type: boolean
+              required:
+                - guest_access_enabled
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_guest_jwt_key:
+    post:
+      summary: set the key guest JWTs are verified against for this workspace
+      description: >-
+        A guest JWT (`jwt_guest_`) is minted by the embedding customer's own backend and
+        verified against this key: a PEM public key (RS/ES family, HS* refused) or a JWKS
+        URL, at most one. Both empty clears the workspace key; off cloud, verification then
+        falls back to the instance issuer (`JWT_EXT_JWKS_URL`) if one is set, else no guest
+        JWT is accepted (`guest_access_enabled` is the on/off switch). Workspace-admin gated.
+        The key is validated before it is stored. Setting a key is refused with a 400 where
+        guests are unavailable (the shared cloud); clearing one always works.
+      operationId: editGuestJwtKey
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: The guest JWT verification key
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                public_key:
+                  type: string
+                  description: A PEM public key (RS or ES family).
+                jwks_url:
+                  type: string
+                  description: A JWKS URL whose keys are fetched and refreshed.
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/guest_usage:
+    get:
+      summary: the instance's standing against the guest allowance
+      description: >-
+        Instance-wide, since a licence is per instance and one email is one guest however
+        many workspaces it opens. Read by workspace admins and app publishers to see how
+        close the cap (Community and Pro) or the meter (Enterprise) is.
+      operationId: getGuestUsage
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: guest usage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestUsage"
+
   /w/{workspace}/workspaces/default_scripts:
     post:
       summary: edit default scripts for workspace
@@ -5724,6 +6053,12 @@ paths:
               properties:
                 name:
                   type: string
+                  description: >-
+                    Environment variable name. New names must be a plain JS
+                    identifier (matching ^[A-Za-z_$][A-Za-z0-9_$]*$) since the
+                    name is spliced into the NativeTS/Bun worker prologue;
+                    otherwise the request is rejected with 400. Existing names
+                    can still be updated regardless of shape.
                 value:
                   type: string
               required: [name]
@@ -5898,6 +6233,41 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/User"
+
+  /w/{workspace}/users/list_addable:
+    get:
+      summary: list instance users that can still be added to this workspace (require to be super admin)
+      operationId: listAddableInstanceUsers
+      tags:
+        - user
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: search
+          in: query
+          description: filter users whose email or username contains this string
+          schema:
+            type: string
+        - name: per_page
+          in: query
+          description: number of users to return (default 10, max 100)
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: addable instance users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    email:
+                      type: string
+                    username:
+                      type: string
+                  required:
+                    - email
 
   /w/{workspace}/users/list_usage:
     get:
@@ -6657,6 +7027,12 @@ paths:
                 - bypass_groups
                 - bypass_users
               properties:
+                name:
+                  type: string
+                  description: >-
+                    New name for the rule. Omit, or pass the current name, to leave it unchanged.
+                    The reserved `dev_workspace_lock` rule cannot be renamed, nor can another rule
+                    be renamed onto it.
                 rules:
                   $ref: "#/components/schemas/ProtectionRules"
                 bypass_groups:
@@ -6933,7 +7309,7 @@ paths:
 
   /w/{workspace}/workspaces/prune_versions:
     post:
-      summary: prune old versions of scripts, flows, or apps
+      summary: prune old versions of scripts, flows, apps, or resources
       operationId: pruneVersions
       tags:
         - workspace
@@ -6952,6 +7328,7 @@ paths:
                     - scripts
                     - flows
                     - apps
+                    - resources
               required:
                 - resource_type
       responses:
@@ -7691,6 +8068,104 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/resources/history/p/{path}:
+    get:
+      summary: get resource version history
+      operationId: getResourceHistory
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: resource version history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  versions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ResourceVersion"
+                  versioned:
+                    type: boolean
+                required:
+                  - versions
+                  - versioned
+    delete:
+      summary: clear a resource's past versions, keeping only the current value
+      operationId: clearResourceHistory
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: history cleared
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/resources/history/v/{id}:
+    get:
+      summary: get a single resource version, with its value
+      operationId: getResourceVersion
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: The version's id, not its number.
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: resource version
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ResourceVersion"
+                  - type: object
+                    properties:
+                      value: {}
+                      missing_references:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - missing_references
+
+  /w/{workspace}/resources/history/restore/v/{id}:
+    post:
+      summary: restore a resource to a previous version
+      operationId: restoreResourceVersion
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: The version's id, not its number.
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: resource restored
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/resources/get/{path}:
     get:
       summary: get resource
@@ -7890,10 +8365,19 @@ paths:
                   properties:
                     path:
                       type: string
-                    value: {}
+                    value:
+                      type: string
+                      description: >-
+                        pretty-printed JSON rendering of the resource value, capped at
+                        4000 characters — a search preview, not the value itself (use
+                        get_value for that)
+                    truncated:
+                      type: boolean
+                      description: whether value was cut short by that cap
                   required:
                     - path
                     - value
+                    - truncated
 
   /w/{workspace}/resources/mcp_tools/{path}:
     get:
@@ -7918,11 +8402,72 @@ paths:
                       type: string
                     description:
                       type: string
-                    parameters:
+                    inputSchema:
                       type: object
+                    annotations:
+                      type: object
+                      properties:
+                        title:
+                          type: string
+                        readOnlyHint:
+                          type: boolean
+                        destructiveHint:
+                          type: boolean
+                        idempotentHint:
+                          type: boolean
+                        openWorldHint:
+                          type: boolean
                   required:
                     - name
-                    - parameters
+                    - inputSchema
+
+  /w/{workspace}/resources/mcp_call_tool/{path}:
+    post:
+      summary: call a tool on the MCP server described by the resource
+      operationId: callMcpTool
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: tool name and arguments
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tool:
+                  type: string
+                arguments:
+                  type: object
+                read_only:
+                  type: boolean
+                  description: |
+                    set when the caller ran the tool without asking the user to
+                    confirm it; the call is refused unless the server's live
+                    listing marks the tool read-only
+              required:
+                - tool
+      responses:
+        "200":
+          description: |
+            the MCP tool result, forwarded verbatim. A tool that ran but failed
+            returns 200 with isError true.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: array
+                    items:
+                      type: object
+                  structuredContent:
+                    type: object
+                  isError:
+                    type: boolean
 
   /w/{workspace}/resources/list_names/{name}:
     get:
@@ -8110,6 +8655,105 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/resources/type/resource_counts:
+    get:
+      summary: count the workspace's resources per resource type
+      operationId: listResourceCountsByType
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: resource count per resource_type
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    resource_type:
+                      type: string
+                    count:
+                      type: integer
+                  required:
+                    - resource_type
+                    - count
+
+  /w/{workspace}/resources/type/hub/info:
+    get:
+      summary: list what the hub knows about its resource types
+      operationId: listHubResourceTypeInfo
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: each hub resource type with its integration and pick count, empty if the hub answers neither read
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    app:
+                      description: the integration the resource type belongs to, which is not always its own name
+                      type: string
+                    picks:
+                      type: integer
+                  required:
+                    - name
+                    - app
+                    - picks
+
+  /w/{workspace}/resources/type/hub/pick/{name}:
+    post:
+      summary: record a hub resource type pick
+      operationId: pickHubResourceType
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: whether the hub recorded the pick
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+
+  /w/{workspace}/npm_proxy/config:
+    get:
+      summary: get npm proxy configuration
+      operationId: getNpmProxyConfig
+      tags:
+        - npm_proxy
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: npm proxy configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  registry_configured:
+                    type: boolean
+                required:
+                  - registry_configured
+
   /w/{workspace}/npm_proxy/metadata/{package}:
     get:
       summary: get npm package metadata from private registry
@@ -8245,6 +8889,35 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/npm_proxy/tarball/{package}/{version}:
+    get:
+      summary: get npm package tarball from private registry
+      operationId: getNpmPackageTarball
+      tags:
+        - npm_proxy
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: package
+          description: npm package name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          description: package version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: package tarball
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
   /w/{workspace}/embeddings/query_resource_types:
     get:
       summary: query resource types by similarity
@@ -8309,6 +8982,9 @@ paths:
                   properties:
                     name:
                       type: string
+                    picks:
+                      description: how often the integration has been picked, absent on a hub that does not count picks
+                      type: integer
                   required:
                     - name
 
@@ -8469,6 +9145,28 @@ paths:
                       - value
                 required:
                   - app
+
+  /apps_u/guest_entry_by_custom_path/{custom_path}:
+    get:
+      summary: whether the app behind a custom path admits guests
+      description: >-
+        The custom-path counterpart of `getGuestEntry`. Unauthenticated; 404 unless
+        the app's execution mode is `guest` AND its workspace has
+        `guest_access_enabled` AND the instance has not set `guest_access_disabled`,
+        and never on a deployment where guests are unavailable (the shared cloud).
+        Returns the workspace too, since a custom URL may not carry it.
+      operationId: getGuestEntryByCustomPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/CustomPath"
+      responses:
+        "200":
+          description: the app is open to guests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestEntry"
 
   /apps_u/public_app_by_custom_path/{custom_path}:
     get:
@@ -9146,14 +9844,15 @@ paths:
     post:
       summary: create script
       description: |
-        Creates a new script when the path does not already exist.
-        Creates a new version of an existing script when called with the same path and the current `parent_hash`.
+        Creates a new script at a path that does not already hold one.
+        Supplying `parent_hash` instead deploys a new version of the script that hash names, and a `path` differing from that version's moves the script there. `POST /w/{workspace}/scripts/update/{path}` does the same, naming the superseded version in its URL.
       operationId: createScript
       x-mcp-tool: true
-      x-mcp-instructions: "To create a NEW script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language, and leave parent_hash unset. For TypeScript, use 'bun' unless deno-specific APIs are needed. To UPDATE an existing script, do NOT delete and recreate it: call this tool with the same path and set parent_hash to the script's current hash, which you can read from the `hash` field returned by getScriptByPath. This creates a new version while preserving the script's history."
+      # The description above names `parent_hash`, which this tool does not expose.
+      x-mcp-tool-description: Creates a script at a path that does not already hold one.
+      x-mcp-instructions: "Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it. A new version generates its lock async, and only a version with a lock is runnable: until it lands, a run by path still executes the previous version. Poll getScriptByPath before running the new one and stop on either outcome: lock non-null means it is ready, lock_error_logs set means the lockfile failed and that version will never run, so report the error instead of polling on."
       x-mcp-tool-include-fields:
         - path
-        - parent_hash
         - content
         - language
         - summary
@@ -9176,6 +9875,46 @@ paths:
       responses:
         "201":
           description: script created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/scripts/update/{path}:
+    post:
+      summary: update script
+      description: |
+        Deploys a new version of the script at `path`, which must already hold one.
+        The body's `path` is the destination: the same path leaves the script where it
+        is, a different one moves it there and archives the old path.
+      operationId: updateScript
+      x-mcp-tool: true
+      x-mcp-instructions: "Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one. A new version generates its lock async, and only a version with a lock is runnable: until it lands, a run by path still executes the previous version. Poll getScriptByPath before running the new one and stop on either outcome: lock non-null means it is ready, lock_error_logs set means the lockfile failed and that version will never run, so report the error instead of polling on."
+      x-mcp-tool-include-fields:
+        - path
+        - content
+        - language
+        - summary
+        - description
+        - kind
+        - tag
+        - deployment_message
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: The new version of the script, whose `path` is where it should end up.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewScript"
+
+      responses:
+        "201":
+          description: new script version created
           content:
             text/plain:
               schema:
@@ -10079,7 +10818,7 @@ paths:
       summary: run script by path
       operationId: runScriptByPath
       x-mcp-tool: true
-      x-mcp-instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected."
+      x-mcp-instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected. A resource argument (schema format `resource-<type>`) is the bare string `$res:<path>` as that whole argument value -- not a wrapper object, not a plain path. A variable is `$var:<path>`."
       x-mcp-tool-include-query-params: []
       tags:
         - job
@@ -10657,6 +11396,33 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs/job_public_view_token/{id}:
+    get:
+      summary: mint a public read-only share token for a job
+      description: >
+        Returns a stateless `{job_id}.{hmac}` token that grants anyone holding it —
+        including logged-out visitors, who land on the minimal public run page — read
+        access to this job (and its flow subtree) via a `view_token` query param or
+        `X-View-Token` header. Only callable by a user who can already read the job.
+      operationId: getJobPublicViewToken
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the public share read token
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/flows/list_paths:
     get:
       summary: list all flow paths
@@ -10742,7 +11508,15 @@ paths:
             type: string
         - name: search
           in: query
-          description: case-insensitive substring match on summary or path
+          description: >-
+            case-insensitive fuzzy match on "summary (path)": the query is split into
+            terms on runs of anything but ASCII letters, digits and apostrophes, and
+            each of the first 8 must appear whole and in order, with anything in
+            between. Terms past the 8th are ignored, so an over-long query matches more
+            rows rather than fewer. Omitted or empty filters nothing; a query holding no
+            ASCII-alphanumeric character at all (a lone space, "_", or text in a
+            non-Latin script) yields no terms and matches nothing, mirroring the
+            homepage, whose matcher discards those queries too.
           schema:
             type: string
         - $ref: "#/components/parameters/PerPage"
@@ -11401,6 +12175,453 @@ paths:
                 items:
                   $ref: "#/components/schemas/FlowConversationMessage"
 
+  /w/{workspace}/ai_evals/datasets/list:
+    get:
+      summary: list eval datasets
+      operationId: listEvalDatasets
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: eval datasets list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EvalDataset"
+
+  /w/{workspace}/ai_evals/datasets/create:
+    post:
+      summary: create an eval dataset
+      operationId: createEvalDataset
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new eval dataset
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+                  maxLength: 255
+                summary:
+                  type: string
+                  maxLength: 1000
+                scorers:
+                  type: array
+                  maxItems: 20
+                  items:
+                    $ref: "#/components/schemas/Scorer"
+                cases:
+                  type: array
+                  maxItems: 1000
+                  description: The cases to create the dataset holding, so one can be assembled in a single act rather than created empty and filled in afterwards.
+                  items:
+                    $ref: "#/components/schemas/NewEvalCase"
+      responses:
+        "200":
+          description: eval dataset created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/datasets/get/{path}:
+    get:
+      summary: get an eval dataset
+      operationId: getEvalDataset
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: eval dataset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvalDataset"
+
+  /w/{workspace}/ai_evals/datasets/update/{path}:
+    post:
+      summary: update an eval dataset
+      operationId: updateEvalDataset
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated eval dataset
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  maxLength: 255
+                  description: >
+                    Renames the dataset. Its cases and experiments follow through the foreign
+                    keys, so a rename keeps the history it already has.
+                summary:
+                  type: string
+                  maxLength: 1000
+                  description: Left out to keep the stored summary; sent as "" to clear it.
+                scorers:
+                  type: array
+                  maxItems: 20
+                  description: >
+                    Left out to keep the dataset's columns as they are; sent to replace them
+                    wholesale.
+                  items:
+                    $ref: "#/components/schemas/Scorer"
+                cases:
+                  type: array
+                  maxItems: 1000
+                  description: >
+                    The cases as they should stand afterwards: all of them, each carrying its id if
+                    the dataset already has it. Sent with the rest of an edit so that a rename the
+                    dataset refuses refuses the case edits with it.
+                  items:
+                    $ref: "#/components/schemas/SaveEvalCase"
+      responses:
+        "200":
+          description: eval dataset updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/datasets/delete/{path}:
+    post:
+      summary: delete an eval dataset and all its cases
+      description: >
+        The cases, the runs and their recorded case sets go with it through the foreign keys; the
+        jobs those runs produced are left alone.
+      operationId: deleteEvalDataset
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: eval dataset deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/cases/list/{path}:
+    get:
+      summary: list the cases of an eval dataset
+      operationId: listEvalCases
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: eval cases
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cases]
+                properties:
+                  cases:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EvalCase"
+  /w/{workspace}/ai_evals/subject_state:
+    get:
+      summary: what the agent under test is right now
+      description: >
+        The version it is deployed at. Small on purpose: the results endpoint reports the same
+        thing but harvests scores and reads every job to do it, so it is not something to ask for
+        on its own.
+      operationId: evalSubjectState
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the subject as it is now
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: integer
+                    format: int64
+
+  /w/{workspace}/ai_evals/run_payload:
+    get:
+      summary: the run one iteration of an eval run answered, as its scorers read it
+      operationId: evalRunPayload
+      description: >
+        Called by the step a run's flow places between the agent and its scorers. Every tool call
+        is enriched with the arguments, result, status and duration of the job that ran it, and
+        with the schema of the script version it ran, none of which the flow itself can read.
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: job_id
+          in: query
+          required: true
+          description: The flow job that answered the case.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the run and its rendering
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [run, rendered]
+                properties:
+                  run:
+                    type: object
+                    description: The case, the answer, and every tool call the agent made.
+                  rendered:
+                    type: string
+                    description: The same run as a judge agent is shown it.
+
+  /w/{workspace}/ai_evals/scorer_defaults:
+    get:
+      summary: what a new judge agent and a new script scorer are created from
+      operationId: scorerDefaults
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: scorer defaults
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [judge_prompt, script_template]
+                properties:
+                  judge_prompt:
+                    type: string
+                    description: The system prompt a judge agent is created with.
+                  script_template:
+                    type: string
+
+  /w/{workspace}/ai_evals/scorers/recent:
+    get:
+      summary: list the scorers already in use in this workspace, most recent first
+      description: >
+        Filtered twice, both times by what the caller can read: the datasets they come from, and
+        the runnables themselves. A scorer they could not run does not appear.
+      operationId: recentScorers
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          description: only scorers of this kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [script, agent]
+      responses:
+        "200":
+          description: recently used scorers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - $ref: "#/components/schemas/Scorer"
+                    - type: object
+                      required: [dataset]
+                      properties:
+                        dataset:
+                          type: string
+                          description: The dataset it is a column of.
+
+  /w/{workspace}/ai_evals/experiments/run:
+    post:
+      summary: run every case of a dataset as one immutable experiment
+      operationId: runExperiment
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: what to run
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dataset, subject]
+              properties:
+                dataset:
+                  type: string
+                subject:
+                  $ref: "#/components/schemas/EvalSubject"
+      responses:
+        "200":
+          description: id of the created experiment
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/experiments/collect:
+    post:
+      summary: record what a run produced, so it outlives the jobs that produced it
+      description: >
+        Called by a run's own flow as its last step. The answers and scores a run produced live in
+        its jobs, which have their own retention; this copies them onto the run's rows. Reading a
+        run does the same, so this is what covers a run nobody opened.
+      operationId: collectExperiment
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: how many of the run's cases are recorded
+          content:
+            application/json:
+              schema:
+                type: integer
+
+  /w/{workspace}/ai_evals/experiments/list_all:
+    get:
+      summary: list every experiment, across datasets
+      operationId: listAllExperiments
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: subject_path
+          description: >
+            Restrict to one agent's runs, which is what makes the list a history rather than a
+            log. Runs of what is deployed, of a past version, and of the edits waiting on top are
+            all that agent's, so this does not discriminate by kind.
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: >
+            The 100 newest experiments, each naming the dataset it is of. Restricted to datasets
+            the caller can read.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EvalExperiment"
+
+  /w/{workspace}/ai_evals/experiments/results/{path}:
+    get:
+      summary: read an experiment's results, one row per case
+      operationId: experimentResults
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: id
+          description: the experiment to read
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: baseline
+          description: >
+            The experiment every column is compared against. A delta is only computed between two
+            scores of the same scorer id, and a column the baseline was never scored with reports
+            it rather than showing a difference.
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: experiment results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [experiment, scorers, rows, means, regressed]
+                properties:
+                  experiment:
+                    $ref: "#/components/schemas/EvalExperiment"
+                  baseline:
+                    $ref: "#/components/schemas/EvalExperiment"
+                  scorers:
+                    type: array
+                    description: The columns, which belong to the dataset rather than the experiment.
+                    items:
+                      $ref: "#/components/schemas/Scorer"
+                  rows:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ExperimentRow"
+                  means:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ScorerMean"
+                  regressed:
+                    type: integer
+                    description: Cells scoring lower than the baseline, across every column.
+                  subject_current_version:
+                    type: integer
+                    format: int64
+                    description: >
+                      The version the subject is on now. A row that ran against an earlier one
+                      describes an agent that no longer exists.
+                  subject_deployed_hash:
+                    type: string
+                    description: >
+                      What the agent hashes to as deployed. A run of unsaved edits carrying this
+                      hash ran exactly what is deployed now — the edits were saved — so it is a run
+                      of that version rather than of edits.
+
   /w/{workspace}/path_autocomplete/list_paths:
     get:
       summary: list all paths in a workspace for client-side autocomplete
@@ -11608,70 +12829,12 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/ai_skills/list:
-    get:
-      summary: list the workspace AI chat skills (name + description only)
-      operationId: listAiSkills
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      responses:
-        "200":
-          description: skill listing
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  required:
-                    - name
-                    - description
-                  properties:
-                    name:
-                      type: string
-                    description:
-                      type: string
-
-  /w/{workspace}/ai_skills/get/{name}:
-    get:
-      summary: get a workspace AI chat skill including its instructions
-      operationId: getAiSkill
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: skill
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - name
-                  - description
-                  - instructions
-                properties:
-                  name:
-                    type: string
-                  description:
-                    type: string
-                  instructions:
-                    type: string
-
-  /w/{workspace}/ai_skills/upload:
+  /w/{workspace}/ai/usage:
     post:
-      summary: upsert workspace AI chat skills (admin only)
-      operationId: uploadAiSkills
+      summary: record AI token usage for the calling user
+      operationId: recordAiUsage
       tags:
-        - workspace
+        - ai
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
@@ -11681,59 +12844,57 @@ paths:
             schema:
               type: object
               required:
-                - skills
+                - events
               properties:
-                skills:
+                events:
                   type: array
-                  maxItems: 50
                   items:
-                    type: object
-                    required:
-                      - name
-                      - description
-                      - instructions
-                    properties:
-                      name:
-                        type: string
-                        minLength: 1
-                        maxLength: 64
-                        pattern: "^[a-z0-9-]+$"
-                      description:
-                        type: string
-                        minLength: 1
-                        maxLength: 1024
-                      instructions:
-                        type: string
-                        minLength: 1
-                        maxLength: 65536
+                    $ref: "#/components/schemas/AITokenUsageEvent"
       responses:
-        "200":
-          description: uploaded
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/ai_skills/delete/{name}:
-    delete:
-      summary: delete a workspace AI chat skill (admin only)
-      operationId: deleteAiSkill
+        "204":
+          description: usage recorded
+    get:
+      summary: list aggregated AI token usage
+      operationId: listAiUsage
       tags:
-        - workspace
+        - ai
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: name
-          in: path
-          required: true
+        - name: days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+        - name: group_by
+          in: query
           schema:
             type: string
+            enum: [day, user, model]
+        - name: scope
+          in: query
+          description: workspace-wide usage (admin only) or the calling user's own
+          schema:
+            type: string
+            enum: [workspace, self]
       responses:
         "200":
-          description: deleted
+          description: usage buckets
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                type: object
+                required:
+                  - buckets
+                  - truncated
+                properties:
+                  buckets:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AITokenUsageBucket"
+                  truncated:
+                    type: boolean
+                    description: more buckets matched than were returned, so summing them under-reports
 
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
@@ -11795,6 +12956,9 @@ paths:
     get:
       summary: list all apps
       operationId: listApps
+      x-mcp-tool: true
+      x-mcp-instructions: "Lists every app, low-code and full-code alike. `raw_app` tells them apart: true is a full-code app, which getAppByPath then reads and updateApp deploys. An app with no `raw_app` field is low-code — the field is omitted rather than sent as false. A low-code app can only be read here — editing one is a job for its editor in the UI."
+      x-mcp-tool-include-query-params: [path_start, page, per_page]
       tags:
         - app
       parameters:
@@ -11854,16 +13018,6 @@ paths:
     post:
       summary: create app
       operationId: createApp
-      x-mcp-tool: true
-      x-mcp-tool-include-fields:
-        - path
-        - value
-        - summary
-        - policy
-        - deployment_message
-      x-mcp-tool-opaque-fields:
-        - value
-        - policy
       tags:
         - app
       parameters:
@@ -11988,6 +13142,9 @@ paths:
     get:
       summary: get app by path
       operationId: getAppByPath
+      x-mcp-tool: true
+      x-mcp-instructions: "Returns the app's whole `value`, which is what updateApp needs: it takes the whole thing, not a patch. A big enough app is truncated by the tool-result limit; sending that back fails the build rather than deploying something partial, so edit those in the app editor or with the CLI. `raw_app` says whether this is a full-code app (its value holds `files`/`runnables`) or a low-code one (a `grid`), and only a full-code app can be deployed through MCP."
+      x-mcp-tool-include-query-params: []
       tags:
         - app
       parameters:
@@ -12171,6 +13328,31 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/apps_u/guest_entry/{path}:
+    get:
+      summary: whether the app behind a share secret admits guests
+      description: >-
+        Unauthenticated: what a signed-out visitor reads to learn that signing in
+        would let them in. 404 unless the app's execution mode is `guest` AND the
+        workspace has `guest_access_enabled` AND the instance has not set the
+        `guest_access_disabled` global setting, and never on a deployment where guests
+        are unavailable (the shared cloud), so it says nothing about apps that are not
+        open to guests. Discloses only the app path, to a caller already
+        holding the share secret.
+      operationId: getGuestEntry
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: the app is open to guests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestEntry"
+
   /w/{workspace}/apps_u/public_app/{path}:
     get:
       summary: get public app by secret
@@ -12298,16 +13480,6 @@ paths:
     post:
       summary: update app
       operationId: updateApp
-      x-mcp-tool: true
-      x-mcp-tool-include-fields:
-        - path
-        - value
-        - summary
-        - policy
-        - deployment_message
-      x-mcp-tool-opaque-fields:
-        - value
-        - policy
       tags:
         - app
       parameters:
@@ -12342,6 +13514,151 @@ paths:
                 skip_draft_deletion:
                   type: boolean
                   description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+                allow_kind_change:
+                  type: boolean
+                  description: "When true, this deploy may switch the app between low-code and raw. Without it, deploying a value to an app of the other kind is refused so an app is never converted by accident."
+      responses:
+        "200":
+          description: app updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/create_raw_source:
+    post:
+      # The summary is what the MCP token picker shows next to the tool, so it has
+      # to carry the consequence of granting it, not just what it does.
+      summary: create a raw app from its sources, compiling them on a worker (which runs the app's own dependencies to do so)
+      operationId: createAppRawSource
+      x-mcp-tool: true
+      # Creating an app through MCP means creating a full-code one; low-code apps
+      # are legacy and aren't exposed there at all.
+      x-mcp-tool-name: createApp
+      x-mcp-instructions: "Creates a raw (full-code) app: `value.files` holds its sources, keyed by path (`/index.tsx`, `/App.tsx`, `/package.json`), and needs an entry point (`/index.tsx`, `/index.ts` or `/index.js`). The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps are legacy and have no MCP tool at all — they are built in their editor."
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: raw app sources to bundle and deploy
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                summary:
+                  type: string
+                value:
+                  type: object
+                  description: "The raw app's value. `files` maps each source path to its content and must contain an entry point; `runnables` and `data` are carried through unchanged."
+                  properties:
+                    files:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    runnables:
+                      type: object
+                    data:
+                      type: object
+                  required: [files]
+                policy:
+                  $ref: "#/components/schemas/Policy"
+                deployment_message:
+                  type: string
+                custom_path:
+                  type: string
+                preserve_on_behalf_of:
+                  type: boolean
+                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                labels:
+                  type: array
+                  items:
+                    type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+              required: [path, value, summary, policy]
+      responses:
+        "201":
+          description: app created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/update_raw_source/{path}:
+    post:
+      # The summary is what the MCP token picker shows next to the tool, so it has
+      # to carry the consequence of granting it, not just what it does.
+      summary: update a raw app from its sources, compiling them on a worker (which runs the app's own dependencies to do so)
+      operationId: updateAppRawSource
+      x-mcp-tool: true
+      x-mcp-tool-name: updateApp
+      x-mcp-instructions: "Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps are legacy and have no MCP tool at all — they are edited in their editor."
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: raw app sources to bundle and deploy
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                summary:
+                  type: string
+                value:
+                  type: object
+                  description: "The raw app's value. `files` maps each source path (e.g. `/index.tsx`, `/App.tsx`, `/package.json`) to its content and must contain an entry point (`/index.tsx`, `/index.ts` or `/index.js`); `runnables` and `data` are carried through unchanged."
+                  properties:
+                    files:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    runnables:
+                      type: object
+                    data:
+                      type: object
+                  required: [files]
+                policy:
+                  $ref: "#/components/schemas/Policy"
+                deployment_message:
+                  type: string
+                custom_path:
+                  type: string
+                preserve_on_behalf_of:
+                  type: boolean
+                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                labels:
+                  type: array
+                  items:
+                    type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+                allow_kind_change:
+                  type: boolean
+                  description: "When true, this deploy may switch the app between low-code and raw. Without it, deploying a value to an app of the other kind is refused so an app is never converted by accident."
+              required: [value]
       responses:
         "200":
           description: app updated
@@ -12391,6 +13708,9 @@ paths:
                     skip_draft_deletion:
                       type: boolean
                       description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+                    allow_kind_change:
+                      type: boolean
+                      description: "When true, this deploy may switch the app between low-code and raw. Without it, deploying a value to an app of the other kind is refused so an app is never converted by accident."
                 js:
                   type: string
                 css:
@@ -12440,6 +13760,10 @@ paths:
                   type: array
                   items:
                     $ref: "#/components/schemas/S3Object"
+                expiry_secs:
+                  type: integer
+                  format: int64
+                  description: how long the signature stays valid, in seconds. Defaults to 43200 (12h) and is clamped server-side to [60, 604800] (1 minute to 7 days).
               required:
                 - s3_objects
       responses:
@@ -12877,7 +14201,7 @@ paths:
       summary: run flow by path
       operationId: runFlowByPath
       x-mcp-tool: true
-      x-mcp-instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected."
+      x-mcp-instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected. A resource argument (schema format `resource-<type>`) is the bare string `$res:<path>` as that whole argument value -- not a wrapper object, not a plain path. A variable is `$var:<path>`."
       x-mcp-tool-include-query-params: []
       tags:
         - job
@@ -15527,6 +16851,7 @@ paths:
                   - can_approve
                   - user_auth_required
                   - approvers
+                  - skin
                 properties:
                   flow_id:
                     type: string
@@ -15559,6 +16884,16 @@ paths:
                   hide_cancel:
                     type: boolean
                     description: whether to hide the cancel button in the UI
+                  skin:
+                    type: string
+                    enum: [detailed, minimal]
+                    description: how the approval page presents the request
+                  step_summary:
+                    type: string
+                    description: summary of the approval step, for the page title
+                  flow_summary:
+                    type: string
+                    description: summary of the flow or workflow the approval belongs to
                   approvers:
                     type: array
                     items:
@@ -17632,6 +18967,49 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/native_triggers/{service_name}/setenabled/{external_id}:
+    post:
+      summary: set enabled state of native trigger
+      description: |
+        Enables or disables a native trigger. A disabled trigger stays registered on the
+        external service but starts no job when it fires.
+        Requires write access to the script or flow that the trigger is associated with.
+      operationId: setNativeTriggerEnabled
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - name: external_id
+          in: path
+          required: true
+          description: The external ID of the trigger from the external service
+          schema:
+            type: string
+      requestBody:
+        description: updated enabled state
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: native trigger enabled state updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/native_triggers/{service_name}/list:
     get:
       summary: list native triggers
@@ -18529,6 +19907,29 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/gcp_triggers/subscriptions/delete:
+    delete:
+      summary: delete a subscription reachable with the instance's application default credentials
+      operationId: deleteGcpSubscriptionWithDefaultCredentials
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: args to delete subscription from google cloud
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteGcpSubscription"
+      responses:
+        "200":
+          description: gcp trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/gcp_triggers/topics/list/{path}:
     get:
       summary: list all topics of google cloud service
@@ -18538,6 +19939,26 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GcpProjectId"
+      responses:
+        "200":
+          description: get all google topics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/gcp_triggers/topics/list:
+    get:
+      summary: list all topics reachable with the instance's application default credentials
+      operationId: listGoogleTopicsWithDefaultCredentials
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/GcpProjectId"
       responses:
         "200":
           description: get all google topics
@@ -18557,6 +19978,31 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: args to get subscription's topic from google cloud
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetAllTopicSubscription"
+      responses:
+        "200":
+          description: get all google topic subscriptions name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/gcp_triggers/subscriptions/list:
+    post:
+      summary: list all subscriptions of a topic reachable with the instance's application default credentials
+      operationId: listAllTGoogleTopicSubscriptionsWithDefaultCredentials
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
         description: args to get subscription's topic from google cloud
         required: true
@@ -19969,6 +21415,36 @@ paths:
                       type: string
                       nullable: true
 
+  /w/{workspace}/triggers_history/list:
+    get:
+      summary: list the history of schedule and trigger modifications
+      operationId: listTriggerHistory
+      tags:
+        - trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: trigger_kind
+          description: "'schedule' or a trigger type (http, kafka, ...)"
+          in: query
+          schema:
+            type: string
+        - name: path
+          description: only return the history of the trigger at this path
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: trigger history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TriggerHistoryEntry"
+
   /w/{workspace}/folders/list:
     get:
       summary: list folders
@@ -20368,6 +21844,98 @@ paths:
                   required:
                     - id
                     - values
+
+  /workers/queue_metrics_series:
+    get:
+      summary: get the queue metrics of a time window, as a bounded line per tag
+      operationId: getQueueMetricsSeries
+      tags:
+        - worker
+      parameters:
+        - name: window_secs
+          in: query
+          required: false
+          description: how far back to read, in seconds (defaults to one day, capped at the 14-day retention)
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: jobs waiting and queue delay per tag, as the vertices of lines joined by straight segments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  from:
+                    type: integer
+                    description: start of the window, in epoch milliseconds
+                  to:
+                    type: integer
+                    description: end of the window, in epoch milliseconds
+                  tags:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        tag:
+                          type: string
+                        count:
+                          type: array
+                          description: "[epoch ms, jobs waiting more than 3 seconds] vertices"
+                          items:
+                            type: array
+                            items:
+                              type: number
+                        delay:
+                          type: array
+                          description: "[epoch ms, seconds the next job has waited] vertices"
+                          items:
+                            type: array
+                            items:
+                              type: number
+                      required:
+                        - tag
+                        - count
+                        - delay
+                required:
+                  - from
+                  - to
+                  - tags
+
+  /workers/queue_status:
+    get:
+      summary: get the live queue status of every tag with jobs waiting or running
+      operationId: getQueueStatus
+      tags:
+        - worker
+      responses:
+        "200":
+          description: queue status per tag
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    tag:
+                      type: string
+                    waiting:
+                      type: integer
+                      description: jobs due for more than 3 seconds that no worker has picked up
+                    delay:
+                      type: number
+                      description: seconds the job the next pull would take has been waiting, absent when none is
+                    running:
+                      type: integer
+                    workers:
+                      type: integer
+                      description: workers that pinged in the last minute and pull this tag
+                  required:
+                    - tag
+                    - waiting
+                    - running
+                    - workers
 
   /workers/queue_counts:
     get:
@@ -22511,6 +24079,7 @@ paths:
   /concurrency_groups/{id}/key:
     get:
       summary: Get the concurrency key for a job that has concurrency limits enabled
+      description: Requires read access to the job, the same as reading the run itself. Returns 403 for a workspace member who cannot see the run, and 404 when the caller is not a member of the job's workspace.
       operationId: getConcurrencyKey
       tags:
         - concurrencyGroups
@@ -22727,7 +24296,7 @@ paths:
                     items:
                       type: string
                   hits:
-                    description: log files that matched the query
+                    description: the log lines that matched the query, newest first
                     type: array
                     items:
                       $ref: "#/components/schemas/LogSearchHit"
@@ -23151,6 +24720,72 @@ paths:
               schema:
                 $ref: "#/components/schemas/AssetGraph"
 
+  /w/{workspace}/assets/column_lineage:
+    get:
+      summary: Column-level lineage of a set of dbt relations
+      description: >
+        The direct (`copy` / `mod`) column-to-column lineage the given relations'
+        columns sit in — the connected component around them, from the engine's
+        static analysis. Not their own edges, which would stop one hop out since
+        a column trace walks transitively, and not a whole project's, which
+        carries model families the selection cannot reach.
+
+        Several relations, answered as one union, because one selection reaches
+        several: a script's output column can derive from columns of several dbt
+        models. Unpinned, the component crosses projects — a relation one project
+        produces is another's source — and the caller's access is decided again
+        for every project it reaches, so a trace ends where their grants do. A
+        pinned answer, by version here or by job on the run route, is one
+        project's.
+
+        Its own endpoint rather than a field on the asset graph: the graph is
+        folder-wide and polled by a run page, while this is rendered for one
+        selection at a time. Empty for projects that did not opt into the
+        analysis pass (`column_lineage: true`), which is the ordinary case. The
+        indirect `scan` kind is stored but never served: it reaches every output
+        column of its model.
+      operationId: getDbtColumnLineage
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: asset_path
+          in: query
+          required: true
+          description: >
+            The `dbt://` relations whose lineage to return. Repeated, once per
+            relation, and answered as one union. At least one, and at most 1000 —
+            a request naming none, or more than that, is refused rather than
+            answered with an empty component.
+          schema:
+            type: array
+            maxItems: 1000
+            minItems: 1
+            items:
+              type: string
+        - name: dbt_script_hash
+          in: query
+          description: >
+            The deployed version a view is drawing, when it is drawing one — the
+            dbt editor, which shows a single project as of a single deploy. A
+            version-pinned answer is that version's project alone, the same as a
+            job-pinned one, and only the unpinned answer crosses projects: a pin
+            says which stored graph is on screen, and another project's live
+            graph is not part of it.
+
+            A run's or an editor buffer's own graph is not reachable here: that
+            pins to a job, and costs the job-read gate — see
+            `jobs/dbt_column_lineage/{id}`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the relations' column-level lineage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DbtColumnLineage"
+
   /w/{workspace}/assets/macros:
     get:
       summary: List every workspace DuckDB macro (deployed `// macros` libraries)
@@ -23342,6 +24977,53 @@ paths:
               schema:
                 $ref: "#/components/schemas/AssetGraph"
 
+  /w/{workspace}/jobs/dbt_column_lineage/{id}:
+    get:
+      summary: Get relations' project column lineage as one run saw it
+      description: >
+        The same answer as `assets/column_lineage`, for the project version a
+        single job ran — including the dbt editor's parse of its own buffer,
+        whose graph belongs to that job and is reachable no other way. One
+        project answers here, the one the run is of, since the graph this
+        annotates is that project's too. Authorized through the job, the same
+        gate as `dbt_graph`. Reaching the run is not on its own enough to read
+        the project: a caller with no access to the script gets its relations and
+        `ref()` edges from `dbt_graph` and an empty answer here, exactly as that
+        endpoint redacts the model's SQL.
+      operationId: getDbtRunColumnLineage
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: The job whose graph the lineage is read from
+          schema:
+            type: string
+            format: uuid
+        - name: asset_path
+          in: query
+          required: true
+          description: >
+            The `dbt://` relations whose lineage to return. Repeated, once per
+            relation, and answered as one union. At least one, and at most 1000 —
+            a request naming none, or more than that, is refused rather than
+            answered with an empty component.
+          schema:
+            type: array
+            maxItems: 1000
+            minItems: 1
+            items:
+              type: string
+      responses:
+        "200":
+          description: the relations' column-level lineage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DbtColumnLineage"
+
   /w/{workspace}/jobs/run_progress/{id}:
     get:
       summary: List the per-relation progress one job has recorded so far
@@ -23372,6 +25054,55 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/AssetProgress"
+
+  /w/{workspace}/jobs/run_assets/{id}:
+    get:
+      summary: List the assets a run touched at runtime
+      description: >
+        Assets detected while the run executed (SDK S3 calls, resources passed as
+        arguments), aggregated over the job and all of its child jobs so a flow or
+        workflow-as-code run reports what its steps and tasks touched. Authorized
+        through the job, the same gate as `run_progress`. Recording is asynchronous,
+        so an asset can take a few minutes after the run to appear, and only the most
+        recent runs that touched an asset keep that record. A run that fans out can
+        touch more assets than one response should carry, so the list is capped and
+        `truncated` says when it was cut.
+      operationId: listRunAssets
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: The job whose runtime assets to read
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: assets this run and its child jobs touched
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [assets, truncated]
+                properties:
+                  truncated:
+                    type: boolean
+                    description: whether the run touched more assets than are listed
+                  assets:
+                    type: array
+                    items:
+                      type: object
+                      required: [path, kind]
+                      properties:
+                        path:
+                          type: string
+                        kind:
+                          $ref: "#/components/schemas/AssetKind"
+                        access_type:
+                          $ref: "#/components/schemas/AssetUsageAccessType"
 
   /w/{workspace}/assets/partitions_in_range:
     get:
@@ -24107,6 +25838,92 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/hub/projects/{slug}/withdraw:
+    post:
+      summary: take a hub project submission back out of review
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body. Everything pushed for the
+        submission is kept, so it can be fixed and submitted again.
+      operationId: withdrawHubProject
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 50
+            pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/projects/{slug}/discard_update:
+    post:
+      summary: discard the pending update to a published hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body. The published project is
+        left untouched.
+      operationId: discardHubProjectUpdate
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 50
+            pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/projects:
+    get:
+      summary: list the hub's published projects
+      description: |
+        Forwards to the configured Hub's public project catalogue and returns its
+        status code and raw response body. Readable by any workspace member: the
+        listing is not workspace-scoped, and it is proxied only because the Hub's
+        listing endpoint sends no CORS header. Refused with 400 when the instance
+        has the Hub disabled, in which case no outbound request is made.
+      operationId: listHubProjects
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+        "400":
+          description: the Hub is disabled on this instance
+
   /w/{workspace}/hub/project:
     get:
       summary: get the hub project linked to a workspace folder
@@ -24240,6 +26057,12 @@ components:
       name: path
       in: path
       required: true
+      schema:
+        type: string
+    GcpProjectId:
+      name: project_id
+      in: query
+      description: GCP project to list resources from, when it is not the project of the credentials
       schema:
         type: string
     S3Sig:
@@ -24818,6 +26641,40 @@ components:
             drawn identically and the ambiguity would otherwise just move into
             the editor. Omitted for the unpinned workspace graph, which spans
             every project and so has no one time.
+    DbtColumnLineage:
+      type: object
+      description: >-
+        The direct column-to-column lineage the asked-for relations' columns sit
+        in — the connected component around them — in the terms the canvas draws:
+        relations and columns, never dbt's node ids.
+      required: [edges, truncated]
+      properties:
+        edges:
+          type: array
+          items:
+            type: object
+            required: [from_asset_path, from_column, to_asset_path, to_column, kind]
+            properties:
+              from_asset_path:
+                type: string
+              from_column:
+                type: string
+              to_asset_path:
+                type: string
+              to_column:
+                type: string
+              kind:
+                type: string
+                description: >-
+                  dbt's own word for how the value travelled — `copy`
+                  (passthrough) or `mod` (transformed). Not an enum: the engine
+                  treats the set as open.
+        truncated:
+          type: boolean
+          description: >-
+            The component reaches further than `edges`, which holds the part
+            nearest the asked-for relations. A trace that stops short is
+            otherwise indistinguishable from one that ends.
     DbtAssetProvenance:
       type: object
       description: >-
@@ -24865,7 +26722,23 @@ components:
         columns:
           type: object
           additionalProperties: true
-          description: Declared column metadata (name -> description). NOT column lineage — `manifest.json` carries none.
+          description: Declared column metadata (name -> description) — what `manifest.json` carries, which is only the columns an author wrote down. Omitted when the caller cannot read the script.
+        column_schema:
+          type: array
+          description: >-
+            Every column of the relation, typed and in the order the model
+            produces them, from the engine's static analysis. Present only for a
+            project that opted into it, and gated like `columns` and the model's
+            SQL: a full column list is the shape of what the author wrote.
+          items:
+            type: object
+            required: [name]
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+                description: The declared type where `schema.yml` gives one, else the inferred one. Omitted when neither is known.
         freshness:
           type: object
           additionalProperties: true
@@ -25445,6 +27318,348 @@ components:
             additionalProperties: true
           description: Array of JSON Web Keys for JWT verification
 
+    EvalSubject:
+      type: object
+      description: What an eval run is executed against.
+      required: [kind, path]
+      properties:
+        kind:
+          type: string
+          description: >
+            `agent` runs the ai_agent resource as it is deployed when the run opens, `agent_draft`
+            the caller's unsaved edits of it as the editor holds them (carried in `draft`), and
+            `agent_version` one past version named by `version`. The first and last are read
+            server-side; all three are inlined into the run, so every case of a run executes one
+            configuration: a deploy part-way through changes what the next run measures, never
+            this one.
+          enum: [agent, agent_draft, agent_version]
+        path:
+          type: string
+          description: Path of the ai_agent resource.
+        version:
+          type: integer
+          format: int64
+          nullable: true
+          description: >
+            The agent's per-path version number when the run opened: how many times the resource
+            had been saved, not a resource_version row id. For `agent` and `agent_draft` it names
+            the configuration the run read and every case executed. For `agent_version` it is the
+            request's own, says which version to inline, and is required.
+        draft:
+          $ref: "#/components/schemas/AgentDraft"
+        draft_hash:
+          type: string
+          description: >
+            Hash of the configuration a draft run executed, stamped server-side. A draft moves
+            without the version moving, so this is what dates a run of one. It is also what
+            recognises a draft run whose configuration was later deployed: when it matches the
+            agent as deployed, the run's kind and version are rewritten to that version, once, and
+            the hash is kept as what the resolution rests on.
+
+    AgentDraft:
+      type: object
+      description: >
+        The brain and tools of an agent, as the flow editor holds them. Carried by the request and
+        present exactly when the subject kind is `agent_draft` — the edits exist only in the editor
+        — where it is the whole definition of what ran: the run goes through the same unlinked
+        branch of the agent executor the editor's own test uses.
+      properties:
+        input_transforms:
+          type: object
+          additionalProperties: true
+          description: >
+            The agent's input transforms: provider, system prompt, output type and the rest. The
+            message and attachments come from the case and override anything named here.
+        tools:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    EvalDataset:
+      type: object
+      required: [path, created_at, created_by, edited_at, edited_by]
+      properties:
+        path:
+          type: string
+          maxLength: 255
+        summary:
+          type: string
+          maxLength: 1000
+        scorers:
+          type: array
+          description: The columns of the results table, in display order.
+          items:
+            $ref: "#/components/schemas/Scorer"
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
+        edited_by:
+          type: string
+
+    EvalCaseInput:
+      type: object
+      description: The inputs a standalone run feeds the agent.
+      properties:
+        user_message:
+          type: string
+        user_attachments:
+          type: array
+          items:
+            type: object
+
+    NewEvalCase:
+      type: object
+      properties:
+        input:
+          $ref: "#/components/schemas/EvalCaseInput"
+        expected:
+          description: Reference output a scorer compares a rerun against.
+
+    SaveEvalCase:
+      allOf:
+        - type: object
+          properties:
+            id:
+              description: Absent for a case the dataset does not hold yet.
+              type: string
+              format: uuid
+        - $ref: "#/components/schemas/NewEvalCase"
+
+    EvalCase:
+      allOf:
+        - type: object
+          required: [id, created_at, created_by]
+          properties:
+            id:
+              type: string
+              format: uuid
+            created_at:
+              type: string
+              format: date-time
+            created_by:
+              type: string
+        - $ref: "#/components/schemas/NewEvalCase"
+
+    Scorer:
+      type: object
+      description: >
+        A scorer is a column of the results table, and it is always a runnable: an ai_agent
+        resource sent the run to grade, or a script handed the run as an argument. `id` is assigned
+        when the scorer is added to a dataset and never reused: it is what makes a column the same
+        column across experiments when the scorer is renamed, and a delta is only ever computed
+        between two scores carrying the same id. A scorer sent without an id is given one.
+      required: [kind, path]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          description: Column header. Defaults to the last segment of the path.
+        pass_if:
+          type: number
+          description: >
+            A score at or above this counts as a pass, and the column reports a pass rate beside
+            its mean. Applied when results are read rather than when they are produced, so moving
+            the line re-reads every score already recorded instead of invalidating them.
+        kind:
+          type: string
+          enum: [script, agent]
+        path:
+          type: string
+          description: The script, or the ai_agent resource used as a judge.
+
+    EvalExperiment:
+      type: object
+      description: >-
+        One run of a dataset: written once when the dataset is run, and only ever read afterwards.
+        The case set it executed is returned by the results endpoint, not here: a listing would
+        otherwise send the whole dataset back once per experiment.
+      required: [id, dataset, subject, run_number, run_job_id, case_count, created_at, created_by]
+      properties:
+        id:
+          type: string
+          format: uuid
+        dataset:
+          type: string
+        subject:
+          $ref: "#/components/schemas/EvalSubject"
+        run_number:
+          type: integer
+          description: >
+            This agent's nth run of this dataset, allocated once and never reused. What a run is
+            called. Numbered per agent rather than per subject kind: runs of what is deployed and
+            runs of its draft are the same agent's history.
+        run_job_id:
+          type: string
+          format: uuid
+          description: >
+            The flow executing the run: one job holding every case and its scores.
+        case_count:
+          type: integer
+        scores:
+          type: array
+          description: >
+            What the run scored, one entry per scorer that produced a number. Carried on the run
+            itself so a list of runs can say what each one scored without reading every cell of
+            every one of them. Empty on a run whose scores have not been read yet.
+          items:
+            $ref: "#/components/schemas/ExperimentScore"
+        running:
+          type: boolean
+          description: >
+            Whether the flow executing this run is still going. What makes a list of runs worth
+            watching rather than worth reloading.
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+
+    ExperimentScore:
+      type: object
+      description: >-
+        One scorer's headline for one run: the two numbers a column reports, over that run's cells.
+      required: [scorer_id, name, kind, scored, failed]
+      properties:
+        scorer_id:
+          type: string
+        name:
+          type: string
+          description: >
+            What the column is called in the dataset that ran it, resolved server-side because a
+            list of runs spanning datasets cannot hold every dataset's scorers to look it up.
+        kind:
+          type: string
+          enum: [agent, script]
+        mean:
+          type: number
+        pass_rate:
+          type: number
+          description: >
+            The share of scored cells at or above the column's threshold, for a column that has
+            one. Absent where the column has no threshold and the mean is the whole headline.
+        scored:
+          type: integer
+        failed:
+          type: integer
+          description: >
+            How many of the run's cells the column failed on. A column that failed on all of them
+            has no number to report and is still one of the columns that ran.
+
+    CellScore:
+      type: object
+      description: One scorer's verdict on one run, and how it compares with the baseline.
+      required: [scorer_id, pending, definition_changed]
+      properties:
+        scorer_id:
+          type: string
+        score:
+          type: number
+        reason:
+          type: string
+        checks: {}
+        error:
+          type: string
+        not_applicable:
+          type: boolean
+          description: >
+            The scorer read this case and had nothing to measure on it. Left out of the column's
+            mean and pass rate rather than counted as a zero.
+        pending:
+          type: boolean
+          description: A scoring job is still running for this cell.
+        passed:
+          type: boolean
+          description: >
+            Which side of the scorer's `pass_if` threshold the score fell on. Absent when the
+            column has no threshold, or has no score yet.
+        baseline:
+          type: number
+          description: The same scorer's number on the baseline experiment.
+        definition_changed:
+          type: boolean
+          description: >
+            The baseline's score came from a different definition of this scorer, so the delta is
+            a change of scorer as much as a change of agent.
+
+    ExperimentRow:
+      type: object
+      required: [case_id, input, status, scores]
+      properties:
+        case_id:
+          type: string
+          format: uuid
+        input:
+          $ref: "#/components/schemas/EvalCaseInput"
+        expected: {}
+        job_id:
+          type: string
+          format: uuid
+          description: >
+            The iteration that ran this case. Absent between a run being recorded and its flow
+            reaching this case, which reads as a case still to run.
+        status:
+          type: string
+          description: >
+            The case's status; `running` until its iteration completes, and `unavailable` for a
+            case whose job was retained away before anything read what it produced.
+          enum: [running, success, failure, canceled, skipped, unavailable]
+        output:
+          type: string
+          description: The agent's answer. The full trajectory stays reachable through job_id.
+        subject_version:
+          type: integer
+          format: int64
+          description: >
+            The agent version this cell ran against. Cells of one experiment can differ, which the
+            table says rather than averaging two versions silently.
+        subject_draft_hash:
+          type: string
+          description: >
+            For a run of unsaved edits, the hash of the configuration this cell ran. Edits move
+            without a version changing, so this is what identifies what ran, and what recognises a
+            run whose edits were later saved as a run of that version.
+        scores:
+          type: array
+          description: One entry per scorer of the dataset, in column order.
+          items:
+            $ref: "#/components/schemas/CellScore"
+
+    ScorerMean:
+      type: object
+      description: >
+        A column's summary. There is no single number for a dataset: averaging a judge with an
+        exact match would invent one.
+      required: [scorer_id, scored, missing_in_baseline, definition_changed]
+      properties:
+        scorer_id:
+          type: string
+        mean:
+          type: number
+        baseline_mean:
+          type: number
+        pass_rate:
+          type: number
+          description: >
+            The share of scored cells that passed, for a column with a threshold. Reported beside
+            the mean rather than instead of it: a pass rate says how many cases are good enough,
+            a mean says by how much, and neither answers the other's question.
+        baseline_pass_rate:
+          type: number
+        scored:
+          type: integer
+        missing_in_baseline:
+          type: integer
+          description: Cells the baseline has no score for, so a column the baseline never ran shows as unscored rather than as a spurious difference.
+        definition_changed:
+          type: boolean
+
     FlowConversation:
       type: object
       required:
@@ -25634,6 +27849,117 @@ components:
             type: integer
             minimum: 1
             maximum: 2000000
+        free_tier:
+          $ref: "#/components/schemas/FreeTierInfo"
+        model_pricing:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ModelPriceOverride"
+        copilot_disabled:
+          type: boolean
+          description: >-
+            Hides the Windmill AI assistant (chat, sessions, code generation, completion,
+            fixes) from the workspace UI. Read from the workspace's own settings even when
+            the providers served fall back to the instance config. AI agent steps and the
+            AI sandbox in flows are unaffected.
+
+    FreeTierInfo:
+      type: object
+      description: >-
+        Read-only. Present when the workspace has no AI provider of its own and is running
+        on Windmill's free tier. Ignored on write.
+      properties:
+        exhausted:
+          type: boolean
+          description: The one-time grant is spent; no provider is served and the user must add their own API key.
+        used_ratio:
+          type: number
+          description: Fraction of the grant consumed, 0 to 1.
+      required:
+        - exhausted
+        - used_ratio
+
+    ModelPriceOverride:
+      type: object
+      description: negotiated rates in USD per million tokens, keyed `provider:model`
+      properties:
+        input:
+          type: number
+          minimum: 0
+          maximum: 1000
+        output:
+          type: number
+          minimum: 0
+          maximum: 1000
+        cache_read:
+          type: number
+          minimum: 0
+          maximum: 1000
+        cache_write:
+          type: number
+          minimum: 0
+          maximum: 1000
+      required:
+        - input
+        - output
+
+    AITokenUsageEvent:
+      type: object
+      properties:
+        provider:
+          $ref: "#/components/schemas/AIProvider"
+        model:
+          type: string
+        session_id:
+          type: string
+        input_tokens:
+          type: integer
+        cache_read_tokens:
+          type: integer
+        cache_write_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        reported_cost_nano_usd:
+          type: integer
+          description: only set by providers that bill back an exact figure
+        requests:
+          type: integer
+      required:
+        - provider
+        - model
+
+    AITokenUsageBucket:
+      type: object
+      properties:
+        key:
+          type: string
+          description: the grouped dimension's value; empty when grouping by model
+        provider:
+          type: string
+        model:
+          type: string
+        input_tokens:
+          type: integer
+        cache_read_tokens:
+          type: integer
+        cache_write_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        reported_cost_nano_usd:
+          type: integer
+        requests:
+          type: integer
+      required:
+        - key
+        - provider
+        - model
+        - input_tokens
+        - cache_read_tokens
+        - cache_write_tokens
+        - output_tokens
+        - requests
 
     InstanceAIProviderSummary:
       type: object
@@ -25898,6 +28224,8 @@ components:
           type: integer
         cache_ttl:
           type: number
+        cache_ignore_s3_path:
+          type: boolean
         dedicated_worker:
           type: boolean
         ws_error_handler_muted:
@@ -25968,6 +28296,10 @@ components:
           type: string
         parent_hash:
           type: string
+          description: >-
+            The hash of the version this one supersedes: deploying with it archives that
+            version and chains the new one onto its history, and a `path` differing from
+            the superseded version's moves the script there.
         auto_parent:
           type: boolean
           description: >-
@@ -26308,7 +28640,10 @@ components:
           type: string
         args:
           $ref: "#/components/schemas/ScriptArgs"
-        result: {}
+        result:
+          description: |
+            For large results, this may be the placeholder string 'WINDMILL_TOO_BIG'.
+            Use the completed job result endpoint to retrieve the full result.
         logs:
           type: string
         deleted:
@@ -27112,6 +29447,82 @@ components:
         - is_operator
         - last_used_at
 
+    GuestUsage:
+      type: object
+      description: >-
+        Guests are free up to `free_allowance` distinct emails over the trailing
+        `window_days`. Past that an Enterprise plan meters them (`metered`, four guests
+        to one seat: `billable_guests`, `guest_seats`); every other plan and build
+        admits no new email until the count drops. `instance_enabled` is the superadmin
+        switch (`guest_access_disabled` global setting) every workspace switch sits under.
+        `available` is whether this deployment can have guests at all: false on the shared
+        cloud, where guest access requires a self-hosted or dedicated deployment, and every
+        other field and switch is then moot.
+      properties:
+        available:
+          type: boolean
+        instance_enabled:
+          type: boolean
+        guest_count:
+          type: integer
+          format: int64
+        window_days:
+          type: integer
+        free_allowance:
+          type: integer
+          format: int64
+        metered:
+          type: boolean
+        billable_guests:
+          type: integer
+          format: int64
+        guest_seats:
+          type: integer
+          format: int64
+      required:
+        - available
+        - instance_enabled
+        - guest_count
+        - window_days
+        - free_allowance
+        - metered
+        - billable_guests
+        - guest_seats
+
+    GuestActivity:
+      type: object
+      properties:
+        email:
+          type: string
+        workspaces:
+          type: array
+          items:
+            type: string
+        first_seen:
+          type: string
+          format: date
+        last_seen:
+          type: string
+          format: date
+      required:
+        - email
+        - workspaces
+        - first_seen
+        - last_seen
+
+    GuestList:
+      type: object
+      properties:
+        usage:
+          $ref: "#/components/schemas/GuestUsage"
+        guests:
+          type: array
+          items:
+            $ref: "#/components/schemas/GuestActivity"
+      required:
+        - usage
+        - guests
+
     NewToken:
       type: object
       properties:
@@ -27379,7 +29790,10 @@ components:
             - "igroup.delete"
             - "igroup.adduser"
             - "igroup.removeuser"
+            - "instance_groups.jit_adduser"
+            - "instance_groups.jit_removeuser"
             - "variables.decrypt_secret"
+            - "workspaces.read_encryption_key"
             - "workspaces.edit_command_script"
             - "workspaces.edit_deploy_to"
             - "workspaces.edit_auto_invite_domain"
@@ -27761,6 +30175,27 @@ components:
         - resource_type
         - is_oauth
 
+    ResourceVersion:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: How this version is addressed. Unique across every resource, so it says nothing about how many times this one has been saved.
+        version:
+          type: integer
+          format: int64
+          description: Which version of this resource it is, counted from its first. What a version is called.
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+      required:
+        - id
+        - version
+        - created_at
+
     ListableResource:
       type: object
       properties:
@@ -27855,6 +30290,50 @@ components:
           type: string
         is_fileset:
           type: boolean
+        format_extension:
+          type: string
+          nullable: true
+          description: >-
+            File extension for a type whose value is one file rather than a set
+            of fields. Omit to leave it unchanged; send null to clear it.
+
+    TriggerHistoryEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        trigger_kind:
+          type: string
+          description: "'schedule' or a trigger type (http, kafka, ...)"
+        path:
+          type: string
+        operation:
+          type: string
+          enum: [create, update, delete, enable, disable, suspend]
+        source:
+          type: string
+          description: The kind of client the change came from. `worker` means the server disabled the trigger on its own after a failure.
+          enum: [ui, cli, api, worker]
+        username:
+          type: string
+          nullable: true
+          description: Unset when the server acted on its own.
+        created_at:
+          type: string
+          format: date-time
+        changes:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: "{field: {old, new}} for the fields that actually changed. Unset for a delete."
+      required:
+        - id
+        - trigger_kind
+        - path
+        - operation
+        - source
+        - created_at
 
     Schedule:
       type: object
@@ -28522,7 +31001,9 @@ components:
           description: If true, passes the request body as a raw string instead of parsing as JSON
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -28611,7 +31092,9 @@ components:
           description: If true, passes the request body as a raw string instead of parsing as JSON
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -28707,7 +31190,9 @@ components:
           description: If true, passes the request body as a raw string instead of parsing as JSON
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -28797,6 +31282,56 @@ components:
         - interval_secs
         - message
 
+    TriggerFilter:
+      description: >
+        Either a leaf filter, matching a field of the message (parsed as JSON) against a
+        value by equality (or superset, when the value is an object or array) — addressed
+        by `key` for a top-level field or `path` for a dotted path into nested objects —
+        or a group nesting sub-filters under a boolean operator (`none_of` matches when
+        none of its sub-filters do).
+      oneOf:
+        - type: object
+          properties:
+            key:
+              type: string
+            value: {}
+          required:
+            - key
+            - value
+        - type: object
+          properties:
+            path:
+              type: string
+              description: Dotted path into nested objects, e.g. `a.b.c`. Does not traverse arrays.
+            value: {}
+          required:
+            - path
+            - value
+        - type: object
+          properties:
+            any_of:
+              type: array
+              items:
+                $ref: "#/components/schemas/TriggerFilter"
+          required:
+            - any_of
+        - type: object
+          properties:
+            all_of:
+              type: array
+              items:
+                $ref: "#/components/schemas/TriggerFilter"
+          required:
+            - all_of
+        - type: object
+          properties:
+            none_of:
+              type: array
+              items:
+                $ref: "#/components/schemas/TriggerFilter"
+          required:
+            - none_of
+
     WebsocketTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -28817,23 +31352,16 @@ components:
           description: Last error message if the trigger failed
         filters:
           type: array
-          description: Array of key-value filters to match incoming messages (only matching messages trigger the script)
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
-            type: object
-            properties:
-              key:
-                type: string
-              value: {}
-            required:
-              - key
-              - value
+            $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
           type: string
           enum:
             - and
             - or
           default: and
-          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
+          description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
         initial_messages:
           type: array
           nullable: true
@@ -28856,7 +31384,9 @@ components:
           description: Optional periodic heartbeat message configuration
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           description: Arguments to pass to the error handler
           $ref: "#/components/schemas/ScriptArgs"
@@ -28889,23 +31419,16 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         filters:
           type: array
-          description: Array of key-value filters to match incoming messages (only matching messages trigger the script)
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
-            type: object
-            properties:
-              key:
-                type: string
-              value: {}
-            required:
-              - key
-              - value
+            $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
           type: string
           enum:
             - and
             - or
           default: and
-          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
+          description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
         initial_messages:
           type: array
           nullable: true
@@ -28928,7 +31451,9 @@ components:
           description: Optional periodic heartbeat message configuration
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           description: Arguments to pass to the error handler
           $ref: "#/components/schemas/ScriptArgs"
@@ -28972,23 +31497,16 @@ components:
           description: True if script_path points to a flow, false if it points to a script
         filters:
           type: array
-          description: Array of key-value filters to match incoming messages (only matching messages trigger the script)
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
-            type: object
-            properties:
-              key:
-                type: string
-              value: {}
-            required:
-              - key
-              - value
+            $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
           type: string
           enum:
             - and
             - or
           default: and
-          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
+          description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
         initial_messages:
           type: array
           nullable: true
@@ -29011,7 +31529,9 @@ components:
           description: Optional periodic heartbeat message configuration
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           description: Arguments to pass to the error handler
           $ref: "#/components/schemas/ScriptArgs"
@@ -29139,7 +31659,9 @@ components:
           description: Last error message if the trigger failed
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -29190,7 +31712,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -29254,7 +31778,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -29337,7 +31863,9 @@ components:
           description: Last error message if the trigger failed
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -29378,7 +31906,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -29432,7 +31962,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -29485,13 +32017,16 @@ components:
       properties:
         gcp_resource_path:
           type: string
-          description: "Path to the GCP resource containing service account credentials for authentication."
+          description: "Path to the GCP resource containing service account credentials for authentication. Omit to authenticate with the instance's application default credentials."
+        project_id:
+          type: string
+          description: "GCP project the client operates in. Defaults to the project of the credentials. Topics and subscriptions given as fully qualified names are reached whatever it is."
         topic_id:
           type: string
-          description: "Google Cloud Pub/Sub topic ID to subscribe to."
+          description: "Google Cloud Pub/Sub topic ID to subscribe to. Accepts a bare ID or a fully qualified name (projects/<project>/topics/<id>)."
         subscription_id:
           type: string
-          description: "Google Cloud Pub/Sub subscription ID."
+          description: "Google Cloud Pub/Sub subscription ID. Accepts a bare ID or a fully qualified name (projects/<project>/subscriptions/<id>)."
         server_id:
           type: string
           description: "ID of the server currently handling this trigger (internal use)."
@@ -29519,7 +32054,6 @@ components:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: "Retry configuration for failed executions."
       required:
-        - gcp_resource_path
         - topic_id
         - subscription_id
         - delivery_type
@@ -29538,15 +32072,18 @@ components:
       properties:
         gcp_resource_path:
           type: string
-          description: "Path to the GCP resource containing service account credentials for authentication."
+          description: "Path to the GCP resource containing service account credentials for authentication. Omit to authenticate with the instance's application default credentials, which only workspace admins may select."
+        project_id:
+          type: string
+          description: "GCP project the client operates in. Defaults to the project of the credentials. Topics and subscriptions given as fully qualified names are reached whatever it is."
         subscription_mode:
           $ref: "#/components/schemas/SubscriptionMode"
         topic_id:
           type: string
-          description: "Google Cloud Pub/Sub topic ID to subscribe to."
+          description: "Google Cloud Pub/Sub topic ID to subscribe to. Accepts a bare ID or a fully qualified name (projects/<project>/topics/<id>)."
         subscription_id:
           type: string
-          description: "Google Cloud Pub/Sub subscription ID."
+          description: "Google Cloud Pub/Sub subscription ID. Accepts a bare ID or a fully qualified name (projects/<project>/subscriptions/<id>)."
         base_endpoint:
           type: string
           description: "Base URL for push delivery endpoint."
@@ -29598,7 +32135,6 @@ components:
         - path
         - script_path
         - is_flow
-        - gcp_resource_path
         - topic_id
         - subscription_mode
 
@@ -29607,6 +32143,8 @@ components:
       properties:
         topic_id:
           type: string
+        project_id:
+          type: string
       required:
         - topic_id
 
@@ -29614,6 +32152,8 @@ components:
       type: object
       properties:
         subscription_id:
+          type: string
+        project_id:
           type: string
       required:
         - subscription_id
@@ -29822,7 +32362,9 @@ components:
           description: Last error message if the trigger failed
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -29924,7 +32466,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -29980,7 +32524,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30108,7 +32654,9 @@ components:
           description: Timestamp of last server heartbeat (internal)
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30148,7 +32696,9 @@ components:
           description: Configuration for creating/managing the publication (tables, operations)
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30200,7 +32750,9 @@ components:
           description: Configuration for creating/managing the publication (tables, operations)
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30244,22 +32796,16 @@ components:
           description: Array of Kafka topic names to subscribe to
         filters:
           type: array
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
-            type: object
-            properties:
-              key:
-                type: string
-              value: {}
-            required:
-              - key
-              - value
+            $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
           type: string
           enum:
             - and
             - or
           default: and
-          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
+          description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
         auto_offset_reset:
           type: string
           enum:
@@ -30283,7 +32829,9 @@ components:
           description: Last error message if the trigger failed
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30322,22 +32870,16 @@ components:
           description: Array of Kafka topic names to subscribe to
         filters:
           type: array
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
-            type: object
-            properties:
-              key:
-                type: string
-              value: {}
-            required:
-              - key
-              - value
+            $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
           type: string
           enum:
             - and
             - or
           default: and
-          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
+          description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
         auto_offset_reset:
           type: string
           enum:
@@ -30353,7 +32895,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30396,22 +32940,16 @@ components:
           description: Array of Kafka topic names to subscribe to
         filters:
           type: array
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
-            type: object
-            properties:
-              key:
-                type: string
-              value: {}
-            required:
-              - key
-              - value
+            $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
           type: string
           enum:
             - and
             - or
           default: and
-          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
+          description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
         auto_offset_reset:
           type: string
           enum:
@@ -30434,7 +32972,9 @@ components:
           description: True if script_path points to a flow, false if it points to a script
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30497,7 +33037,9 @@ components:
           description: Last error message if the trigger failed
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30545,7 +33087,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30604,7 +33148,9 @@ components:
           description: True if script_path points to a flow, false if it points to a script
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30940,7 +33486,7 @@ components:
               dev_workspace_label:
                 type: string
                 nullable: true
-                description: "Cosmetic display label of the dev workspace ('dev' | 'staging'); null defaults to 'dev'"
+                description: "Environment label of the dev workspace, e.g. 'dev' or 'staging'; null defaults to 'dev'"
               created_by:
                 type: string
                 nullable: true
@@ -31016,8 +33562,8 @@ components:
           description: "Copy the parent's members (users + group memberships) into the fork so the team can work in it"
         dev_workspace_label:
           type: string
-          enum: [dev, staging]
-          description: "Cosmetic display label for the dev workspace (badge text + wording only); ignored for non-dev forks"
+          enum: [dev, qa, test, uat, staging, demo, sandbox, preprod]
+          description: "Environment label for the dev workspace: its badge text and the branch it deploys to. Ignored for non-dev forks. Omitted defaults to 'dev'"
       required:
         - id
         - name
@@ -31047,7 +33593,7 @@ components:
         dev_workspace_label:
           type: string
           nullable: true
-          description: "Cosmetic display label of the dev workspace ('dev' | 'staging'); null defaults to 'dev'"
+          description: "Environment label of the dev workspace, e.g. 'dev' or 'staging'; null defaults to 'dev'"
       required:
         - id
         - name
@@ -31387,7 +33933,17 @@ components:
                 type: string
         execution_mode:
           type: string
-          enum: [viewer, publisher, anonymous]
+          enum: [viewer, publisher, guest, anonymous]
+          description: >-
+            Who may open the app, and who its runnables execute as. Optional, and
+            what omitting it means depends on the operation: creating an app
+            defaults it to `publisher` (runs on behalf of the app's publisher and
+            requires an authenticated viewer), while updating one keeps the mode
+            the app is already deployed under. Neither `anonymous`, which makes
+            the app publicly executable, nor `guest`, which opens it to anyone the
+            identity provider authenticates, is ever assumed. A guest is only
+            admitted where the workspace also has `guest_access_enabled`, which is
+            checked when the session is minted and again on every guest request
         on_behalf_of:
           type: string
           description: The user or group the app runs as in anonymous or publisher mode (e.g. 'u/admin' or 'g/mygroup'). The authority for the app's identity.
@@ -31440,7 +33996,7 @@ components:
           format: date-time
         execution_mode:
           type: string
-          enum: [viewer, publisher, anonymous]
+          enum: [viewer, publisher, guest, anonymous]
         raw_app:
           type: boolean
         labels:
@@ -31776,6 +34332,9 @@ components:
           description: the resolved resource, rendered into profiles.yml
         target:
           type: string
+        resource_type:
+          type: string
+          description: decides whether the value is translated into a profiles.yml target or already is one
       required:
         - value
 
@@ -32232,8 +34791,57 @@ components:
         open_pr_error:
           type: string
           description: server-owned, last failure opening a PR for a deploy branch of this repo
+        credential:
+          $ref: "#/components/schemas/GitCredentialStatus"
       required:
         - git_repo_resource_path
+
+    GitCredentialStatus:
+      type: object
+      description: server-owned, what the repo's own credential reports about itself
+      properties:
+        provider:
+          type: string
+          enum:
+            - gitlab
+        token_id:
+          type: integer
+          format: int64
+        expires_at:
+          type: string
+          format: date
+          description: absent for a non-expiring token
+        scopes:
+          type: array
+          items:
+            type: string
+        rotatable:
+          type: boolean
+          description: whether this workspace renews the credential itself
+        checked_at:
+          type: integer
+          format: int64
+        error:
+          type: string
+      required:
+        - provider
+        - rotatable
+        - checked_at
+
+    GitlabProject:
+      type: object
+      description: a GitLab project a token can sync, as the resource form needs it
+      properties:
+        path_with_namespace:
+          type: string
+          description: nested group path plus project name, which is also GitLab's project id
+        http_url_to_repo:
+          type: string
+        default_branch:
+          type: string
+      required:
+        - path_with_namespace
+        - http_url_to_repo
 
     AutoPullMode:
       type: string
@@ -32479,8 +35087,34 @@ components:
     LogSearchHit:
       type: object
       properties:
-        dancer:
+        ts:
+          description: timestamp of the log line itself, not of the file containing it
           type: string
+          format: date-time
+        host:
+          type: string
+        level:
+          type: string
+          enum: [TRACE, DEBUG, INFO, WARN, ERROR]
+        target:
+          description: the tracing target that emitted the line
+          type: string
+          nullable: true
+        message:
+          type: string
+        file_path:
+          description: the log file the line came from
+          type: string
+        line_no:
+          description: offset of the line within its file
+          type: integer
+      required:
+        - ts
+        - host
+        - level
+        - message
+        - file_path
+        - line_no
 
     AutoscalingEvent:
       type: object
@@ -33225,6 +35859,17 @@ components:
       description: Configuration of protection restrictions
       items:
         $ref: "#/components/schemas/ProtectionRuleKind"
+    GuestEntry:
+      type: object
+      description: What a signed-out visitor needs to start a guest sign-in.
+      properties:
+        workspace_id:
+          type: string
+        app_path:
+          type: string
+      required:
+        - workspace_id
+        - app_path
     ProtectionRuleKind:
       type: string
       enum:
@@ -33232,6 +35877,8 @@ components:
         - DisableWorkspaceForking
         - RestrictDeployToDeployers
         - RestrictAnonymousAppDeployment
+        - RestrictPublicRunSharing
+        - RestrictGuestAppDeployment
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset
@@ -33383,6 +36030,9 @@ components:
           type: string
           nullable: true
           description: Short summary to be displayed when listed
+        enabled:
+          type: boolean
+          description: Whether the trigger starts a job when it fires
       required:
         - external_id
         - workspace_id
@@ -33390,6 +36040,7 @@ components:
         - script_path
         - is_flow
         - service_config
+        - enabled
 
     NativeTriggerWithExternal:
       type: object
@@ -33421,6 +36072,9 @@ components:
           type: string
           nullable: true
           description: Short summary to be displayed when listed
+        enabled:
+          type: boolean
+          description: Whether the trigger starts a job when it fires
         external_data:
           type: object
           nullable: true
@@ -33441,6 +36095,7 @@ components:
         - script_path
         - is_flow
         - service_config
+        - enabled
         - external_data
 
     WorkspaceIntegrations:
@@ -33526,6 +36181,12 @@ components:
           type: string
           nullable: true
           description: Short summary to be displayed when listed
+        enabled:
+          type: boolean
+          description: >-
+            Whether the trigger starts a job when it fires. Honoured on create only, so a
+            trigger can be registered already paused; an update ignores it and setenabled is
+            the only way to change an existing trigger's state. Defaults to true.
       required:
         - script_path
         - is_flow

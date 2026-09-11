@@ -51,6 +51,48 @@ describe('supportsReasoning (static registry)', () => {
 			'max'
 		])
 	})
+	it('flags the Claude 5 family, which the 4.x-only patterns used to miss', () => {
+		expect(supportsReasoning('anthropic', 'claude-opus-5')).toBe(true)
+		expect(supportsReasoning('anthropic', 'claude-sonnet-5')).toBe(true)
+		expect(supportsReasoning('anthropic', 'claude-mythos-5')).toBe(true)
+		expect(supportsReasoning('aws_bedrock', 'global.anthropic.claude-opus-5')).toBe(true)
+		// The 5 family carries the full ladder including xhigh.
+		for (const model of ['claude-opus-5', 'claude-sonnet-5', 'claude-mythos-5']) {
+			expect(getReasoningCapability('anthropic', model).levels).toEqual([
+				'low',
+				'medium',
+				'high',
+				'xhigh',
+				'max'
+			])
+		}
+		// Opus 5 / Sonnet 5 think when the field is omitted, so off is the
+		// explicit disable rather than dropping the field. (Mythos, like Fable,
+		// rejects the disable — covered with Fable below.)
+		for (const model of ['claude-opus-5', 'claude-sonnet-5']) {
+			expect(getReasoningCapability('anthropic', model).canDisable).toBe(true)
+			expect(
+				resolveRequestReasoning({ provider: 'anthropic', model, reasoning: REASONING_OFF })
+			).toBe('none')
+		}
+		// Bedrock translates the same sentinel on its Converse path, but only for
+		// Opus 5 — AWS documents Bedrock's Sonnet 5 as always thinking.
+		expect(
+			getReasoningCapability('aws_bedrock', 'global.anthropic.claude-opus-5').canDisable
+		).toBe(true)
+		expect(
+			resolveRequestReasoning({
+				provider: 'aws_bedrock',
+				model: 'global.anthropic.claude-opus-5',
+				reasoning: REASONING_OFF
+			})
+		).toBe('none')
+		expect(
+			getReasoningCapability('aws_bedrock', 'global.anthropic.claude-sonnet-5').canDisable
+		).toBe(false)
+		// ...while the same model on the native provider does accept a disable.
+		expect(getReasoningCapability('anthropic', 'claude-sonnet-5').canDisable).toBe(true)
+	})
 	it('flags Claude models served through Bedrock, with the Anthropic ladder', () => {
 		expect(supportsReasoning('aws_bedrock', 'us.anthropic.claude-opus-4-6-v1')).toBe(true)
 		expect(supportsReasoning('aws_bedrock', 'anthropic.claude-sonnet-4-6-v1:0')).toBe(true)
@@ -88,11 +130,28 @@ describe('supportsReasoning (static registry)', () => {
 	it('flags DeepSeek models with the two effective levels, excluding the chat alias', () => {
 		expect(supportsReasoning('deepseek', 'deepseek-v4-flash')).toBe(true)
 		expect(supportsReasoning('deepseek', 'deepseek-v4-pro')).toBe(true)
-		expect(supportsReasoning('deepseek', 'deepseek-reasoner')).toBe(true)
 		// `deepseek-chat` is the documented non-thinking mode — no knob.
 		expect(supportsReasoning('deepseek', 'deepseek-chat')).toBe(false)
 		// Only high/max are real; low/medium/xhigh are server-side aliases.
 		expect(getReasoningCapability('deepseek', 'deepseek-v4-flash').levels).toEqual(['high', 'max'])
+	})
+	it('exposes the gpt-5.6 ladder, which reopened xhigh and max', () => {
+		expect(supportsReasoning('openai', 'gpt-5.6-sol')).toBe(true)
+		expect(getReasoningCapability('openai', 'gpt-5.6-sol').levels).toEqual([
+			'low',
+			'medium',
+			'high',
+			'xhigh',
+			'max'
+		])
+		expect(getReasoningCapability('openai', 'gpt-5.6-terra').canDisable).toBe(true)
+		expect(getReasoningCapability('openrouter', 'openai/gpt-5.6-luna').levels).toEqual([
+			'low',
+			'medium',
+			'high',
+			'xhigh',
+			'max'
+		])
 	})
 	it('flags OpenAI reasoning families, not gpt-4o', () => {
 		expect(supportsReasoning('openai', 'gpt-5')).toBe(true)
@@ -126,6 +185,8 @@ describe('supportsReasoning (static registry)', () => {
 		expect(supportsReasoning('mistral', 'ministral-8b-latest')).toBe(false)
 		// 'high' is the only accepted effort token; off = omit the field.
 		expect(getReasoningCapability('mistral', 'mistral-medium-3-5').levels).toEqual(['high'])
+		// both spellings of the version resolve, so neither is left unsupported
+		expect(supportsReasoning('mistral', 'mistral-medium-3.5')).toBe(true)
 		expect(getReasoningCapability('mistral', 'mistral-medium-3-5').canDisable).toBe(true)
 	})
 	it('returns no levels for providers without a registry entry', () => {
@@ -178,6 +239,8 @@ describe('supportsReasoning (static registry)', () => {
 			false
 		)
 		expect(getReasoningCapability('openrouter', 'openai/o3').canDisable).toBe(false)
+		// Claude 5 routed through OpenRouter keeps the off that the 4 family has.
+		expect(getReasoningCapability('openrouter', 'anthropic/claude-opus-5').canDisable).toBe(true)
 		expect(getReasoningCapability('openrouter', 'openai/gpt-5-mini').canDisable).toBe(false)
 		expect(getReasoningCapability('openrouter', 'x-ai/grok-4').canDisable).toBe(false)
 		expect(getReasoningCapability('openrouter', 'deepseek/deepseek-r1').canDisable).toBe(false)
@@ -255,15 +318,16 @@ describe('Azure AI Foundry reasoning follows the model family', () => {
 			'xhigh',
 			'max'
 		])
-		// Off is achieved by omission (Foundry rejects effort 'none'), like Anthropic.
+		expect(getReasoningCapability('azure_foundry', 'claude-opus-4-8').canDisable).toBe(true)
 		expect(getReasoningCapability('azure_foundry', 'claude-sonnet-5').canDisable).toBe(true)
+		// Off is the explicit thinking disable, which Foundry serves like Anthropic.
 		expect(
 			resolveRequestReasoning({
 				provider: 'azure_foundry',
 				model: 'claude-sonnet-5',
 				reasoning: REASONING_OFF
 			})
-		).toBeUndefined()
+		).toBe('none')
 	})
 
 	it('treats Foundry OpenAI deployments like the OpenAI provider', () => {
@@ -337,14 +401,40 @@ describe('resolveRequestReasoning', () => {
 			resolveRequestReasoning({ provider: 'openai', model: 'o3', reasoning: REASONING_OFF })
 		).toBeUndefined()
 	})
-	it('keeps off as undefined for providers without default-on reasoning', () => {
+	it('keeps off as undefined only where no disable token exists', () => {
+		// Fable and Mythos reject an explicit disable, so there is nothing to send.
+		for (const model of ['claude-fable-5', 'claude-mythos-5']) {
+			expect(
+				resolveRequestReasoning({ provider: 'anthropic', model, reasoning: REASONING_OFF })
+			).toBeUndefined()
+		}
 		expect(
 			resolveRequestReasoning({
-				provider: 'anthropic',
-				model: 'claude-sonnet-4-6',
+				provider: 'aws_bedrock',
+				model: 'us.anthropic.claude-opus-4-8-v1',
 				reasoning: REASONING_OFF
 			})
 		).toBeUndefined()
+		// Claude 4.6-4.8 keep omission as their off: it already works there, so
+		// the explicit disable is scoped to the models that need it.
+		for (const model of ['claude-opus-4-8', 'claude-opus-4-6', 'claude-sonnet-4-6']) {
+			expect(
+				resolveRequestReasoning({ provider: 'anthropic', model, reasoning: REASONING_OFF })
+			).toBeUndefined()
+		}
+	})
+
+	it('turns the Anthropic off sentinel into an explicit thinking disable', () => {
+		expect(
+			applyReasoningToConfig({ model: 'claude-opus-5', max_tokens: 1 }, 'anthropic', 'none')
+		).toEqual({ model: 'claude-opus-5', max_tokens: 1, thinking: { type: 'disabled' } })
+		// An effort still produces adaptive thinking, not the disable.
+		expect(
+			applyReasoningToConfig({ model: 'claude-opus-5', max_tokens: 1 }, 'anthropic', 'xhigh')
+		).toMatchObject({
+			output_config: { effort: 'xhigh' },
+			thinking: { type: 'adaptive', display: 'summarized' }
+		})
 	})
 	it('never sends a disable token for non-capable models', () => {
 		expect(

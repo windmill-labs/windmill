@@ -12,7 +12,7 @@ use std::{
 };
 
 use chrono::{DateTime, NaiveDateTime, Utc};
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{future::BoxFuture, stream::FuturesUnordered, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize};
 use sqlx::{Pool, Postgres};
 use tokio::{
@@ -37,7 +37,6 @@ use windmill_common::ee_oss::low_disk_alerts;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{jobs_waiting_alerts, worker_groups_alerts};
 
-#[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
 use windmill_common::otel_oss::{
     otel_incr_zombie_delete_count, otel_incr_zombie_restart_count, otel_set_db_pool,
@@ -46,68 +45,73 @@ use windmill_common::otel_oss::{
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::APP_WORKSPACED_ROUTE,
-    auth::{create_token_for_owner, ephemeral_script_token_label},
+    auth::{create_token_for_owner, ephemeral_script_token_label, job_token_expiry_secs},
     ee_oss::CriticalErrorChannel,
     email_oss::send_email_if_possible,
     error,
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
+        get_or_create_jwt_secret, load_value_from_global_settings,
         AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
         BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CONCURRENCY_KEY_MAX_QUEUED_SETTING,
         CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
-        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING, EXPOSE_DEBUG_METRICS_SETTING,
-        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
         NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING, NUGET_CONFIG_SETTING,
-        OTEL_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
-        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
+        OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING, OTEL_TRACING_PROXY_SETTING,
+        PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
+        PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
         SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
         SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
-        STORE_AUDIT_LOGS_S3_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING,
-        UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
-        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
-        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
-        WORKSPACE_MAX_QUEUED_JOBS_SETTING,
+        SERVICE_LOG_RETENTION_SECS_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
+        UV_PYTHON_INSTALL_MIRROR_SETTING, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
+        WORKSPACE_FAIRNESS_ENABLED_SETTING, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
+        WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING, WORKSPACE_MAX_QUEUED_JOBS_SETTING,
     },
     indexer::load_indexer_config,
     jobs::delete_jobs,
     jwt::JWT_SECRET,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_smtp_config,
-    tracing_init::JSON_FMT,
     users::truncate_token,
-    utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode, HUB_API_SECRET},
+    utils::{empty_as_none, now_from_db, report_critical_error, Mode, HUB_API_SECRET},
     worker::{
         load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
-        load_worker_config, reload_custom_tags_setting, store_pull_query,
-        store_suspended_pull_query, Connection, WorkerConfig, CLOUD_HOSTED,
-        CONCURRENCY_KEY_MAX_QUEUED, CONCURRENCY_KEY_MAX_QUEUED_DEFAULT, DEFAULT_TAGS_PER_WORKSPACE,
-        DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG,
-        PREVIEW_TAGS_OVERRIDE, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG,
+        load_worker_config, store_pull_query, store_suspended_pull_query, Connection, WorkerConfig,
+        CLOUD_HOSTED, CONCURRENCY_KEY_MAX_QUEUED, CONCURRENCY_KEY_MAX_QUEUED_DEFAULT,
+        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX,
+        INDEXER_CONFIG, PREVIEW_TAGS_OVERRIDE, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG,
         WORKER_GROUP, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
         WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL, WORKSPACE_MAX_QUEUED_JOBS,
         WORKSPACE_MAX_QUEUED_JOBS_DEFAULT,
     },
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
-    CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB,
-    DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, JOB_RETENTION_SECS_OVERRIDES,
-    JOB_RETENTION_SECS_OVERRIDES_LOADED, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
-    MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
-    SERVICE_LOG_RETENTION_SECS, STORE_AUDIT_LOGS_S3,
+    CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED,
+    CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
+    DEFAULT_OTEL_TRACES_RETENTION_SECS, DEFAULT_SERVICE_LOG_RETENTION_SECS, HUB_BASE_URL,
+    JOB_RETENTION_SECS, JOB_RETENTION_SECS_OVERRIDES, JOB_RETENTION_SECS_OVERRIDES_LOADED,
+    METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED,
+    OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, STORE_AUDIT_LOGS_S3,
 };
 use windmill_common::{
     client::AuthedClient,
     global_settings::{
         APP_WORKSPACED_ROUTE_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE,
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+    },
+    queue_metrics::{
+        QueueSample, QUEUE_COUNT_PREFIX, QUEUE_DELAY_PREFIX, QUEUE_DELAY_SAME_HEAD_SECS,
+        QUEUE_METRIC_HEARTBEAT_SECS, QUEUE_METRIC_STALE_SECS,
     },
 };
 #[cfg(feature = "parquet")]
@@ -117,17 +121,18 @@ use windmill_queue::{
     schedule::{find_unarmed_schedules, rearm_schedule, RearmOutcome},
     SameWorkerPayload,
 };
+use windmill_store::resources::MAX_RESOURCE_VERSIONS;
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
-    OtelTracingProxySettings, SameWorkerSender, WorkspaceRegistryMap, BUNFIG_INSTALL_SCOPES,
-    BUN_INSTALL_MIN_RELEASE_AGE, CARGO_REGISTRIES, INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR,
-    JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR, MAVEN_REPOS, MAVEN_SETTINGS_XML,
-    NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE, NSJAIL_TMPFS_SIZE_MB,
-    NSJAIL_TMP_BACKING, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, SANDBOX_IMAGE_CACHE_MAX_MB,
-    SANDBOX_IMAGE_DEFAULT_REGISTRY, SANDBOX_IMAGE_MAX_SIZE_MB, SANDBOX_IMAGE_PULL_POLICY,
-    SANDBOX_REGISTRY_AUTH, UNSHARE_PATH, UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY,
-    UV_PYTHON_INSTALL_MIRROR, WORKSPACE_REGISTRIES,
+    OtelTracingProxySettings, SameWorkerSender, StepFailureKind, WorkspaceRegistryMap,
+    BUNFIG_INSTALL_SCOPES, BUN_INSTALL_MIN_RELEASE_AGE, CARGO_REGISTRIES, INSTANCE_PYTHON_VERSION,
+    JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR, MAVEN_REPOS,
+    MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE,
+    NSJAIL_TMPFS_SIZE_MB, NSJAIL_TMP_BACKING, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS,
+    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL,
+    SANDBOX_IMAGE_CACHE_MAX_MB, SANDBOX_IMAGE_DEFAULT_REGISTRY, SANDBOX_IMAGE_MAX_SIZE_MB,
+    SANDBOX_IMAGE_PULL_POLICY, SANDBOX_REGISTRY_AUTH, UNSHARE_PATH, UV_EXCLUDE_NEWER,
+    UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR, WORKSPACE_REGISTRIES,
 };
 
 #[cfg(feature = "parquet")]
@@ -224,6 +229,11 @@ lazy_static::lazy_static! {
         .unwrap_or(20);
 }
 
+/// Load every setting this process cares about, at startup and on every full-reload tick.
+///
+/// Reads are declared into a [`SettingsPass`] rather than issued one at a time, so the dozens
+/// this pass makes cost a single fetch. See [`SettingsPass`] for what declaring buys and what
+/// it requires of the order things are declared in.
 pub async fn initial_load(
     conn: &Connection,
     tx: KillpillSender,
@@ -231,102 +241,141 @@ pub async fn initial_load(
     server_mode: bool,
     #[cfg(feature = "parquet")] disable_s3_store: bool,
 ) {
-    if let Err(e) = reload_base_url_setting(&conn).await {
-        tracing::error!("Error loading base url: {:?}", e)
-    }
+    let mut pass = SettingsPass::new();
+
+    pass.settings(
+        &[OAUTH_SETTING, BASE_URL_SETTING],
+        false,
+        move |mut v| async move {
+            if let Err(e) = apply_base_url_setting(
+                conn,
+                v.remove(OAUTH_SETTING).flatten(),
+                v.remove(BASE_URL_SETTING).flatten(),
+            )
+            .await
+            {
+                tracing::error!("Error loading base url: {:?}", e)
+            }
+        },
+    );
+
+    pass.setting(CRITICAL_ERROR_CHANNELS_SETTING, false, |v| async move {
+        apply_critical_error_channels_setting(v)
+    });
+
+    pass.setting(EXPOSE_METRICS_SETTING, true, |v| async move {
+        apply_metrics_enabled(v)
+    });
+    pass.setting(EXPOSE_DEBUG_METRICS_SETTING, true, |v| async move {
+        apply_metrics_debug_enabled(v)
+    });
+    pass.setting(CRITICAL_ALERT_MUTE_UI_SETTING, true, |v| async move {
+        apply_critical_alert_mute_ui_setting(v)
+    });
+    pass.setting(
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
+        true,
+        |v| async move { apply_critical_alerts_on_token_expiry_setting(v) },
+    );
+    pass.setting(
+        CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING,
+        true,
+        |v| async move { apply_critical_alert_mute_zombie_job_restart_setting(v) },
+    );
 
     if let Some(db) = conn.as_sql() {
-        if let Err(e) = reload_critical_error_channels_setting(&db).await {
-            tracing::error!("Could loading critical error emails setting: {:?}", e);
-        }
-    }
-
-    if let Err(e) = load_metrics_enabled(conn).await {
-        tracing::error!("Error loading expose metrics: {e:#}");
-    }
-
-    if let Err(e) = load_metrics_debug_enabled(conn).await {
-        tracing::error!("Error loading expose debug metrics: {e:#}");
-    }
-
-    if let Err(e) = reload_critical_alert_mute_ui_setting(conn).await {
-        tracing::error!("Error loading critical alert mute ui setting: {e:#}");
-    }
-
-    if let Err(e) = reload_critical_alerts_on_token_expiry_setting(conn).await {
-        tracing::error!("Error loading critical alerts on token expiry setting: {e:#}");
-    }
-
-    if let Some(db) = conn.as_sql() {
-        if let Err(e) = load_tag_per_workspace_enabled(db).await {
-            tracing::error!("Error loading default tag per workpsace: {e:#}");
-        }
-
-        if let Err(e) = load_tag_per_workspace_workspaces(db).await {
-            tracing::error!("Error loading default tag per workpsace workspaces: {e:#}");
-        }
-
-        if let Err(e) = load_fork_workspace_tag_append_fork_suffix(db).await {
-            tracing::error!("Error loading fork workspace tag append fork suffix: {e:#}");
-        }
-
-        if let Err(e) = load_preview_tags_override(db).await {
-            tracing::error!("Error loading preview tags override: {e:#}");
-        }
+        pass.setting(DEFAULT_TAGS_PER_WORKSPACE_SETTING, false, |v| async move {
+            apply_tag_per_workspace_enabled(v)
+        });
+        pass.setting(DEFAULT_TAGS_WORKSPACES_SETTING, false, |v| async move {
+            apply_tag_per_workspace_workspaces(v)
+        });
+        pass.setting(
+            FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
+            false,
+            |v| async move { apply_fork_workspace_tag_append_fork_suffix(v) },
+        );
+        pass.setting(PREVIEW_TAGS_OVERRIDE_SETTING, false, |v| async move {
+            apply_preview_tags_override(v)
+        });
 
         // Load per-workspace retention overrides before the first cleanup tick so a fresh server
         // never sweeps globally without honoring configured longer-retention workspaces.
-        if let Err(e) = load_retention_period_overrides(db).await {
-            tracing::error!("Error loading per-workspace retention overrides: {e:#}");
-        }
+        pass.action(async move {
+            if let Err(e) = load_retention_period_overrides(db).await {
+                tracing::error!("Error loading per-workspace retention overrides: {e:#}");
+            }
+        });
 
-        // Workspace fairness (cloud-only). Load the percentage/duration/min knobs
-        // *before* the enabled flag so that `load_workspace_fairness_enabled` reads
-        // current values when re-storing the pull queries.
-        if let Err(e) = load_workspace_fairness_max_percent(db).await {
-            tracing::error!("Error loading workspace fairness max percent: {e:#}");
-        }
-        if let Err(e) = load_workspace_fairness_duration_secs(db).await {
-            tracing::error!("Error loading workspace fairness duration secs: {e:#}");
-        }
-        if let Err(e) = load_workspace_fairness_min_total(db).await {
-            tracing::error!("Error loading workspace fairness min total: {e:#}");
-        }
-        if let Err(e) = load_workspace_fairness_enabled(db).await {
-            tracing::error!("Error loading workspace fairness enabled: {e:#}");
-        }
+        // Workspace fairness (cloud-only). The percentage/duration/min knobs apply
+        // *before* the enabled flag so that `apply_workspace_fairness_enabled` reads
+        // current values when re-storing the pull queries, which declaration order gives us.
+        pass.setting(
+            WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
+            false,
+            |v| async move { apply_workspace_fairness_max_percent(v) },
+        );
+        pass.setting(
+            WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
+            false,
+            |v| async move { apply_workspace_fairness_duration_secs(v) },
+        );
+        pass.setting(
+            WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
+            false,
+            |v| async move { apply_workspace_fairness_min_total(v) },
+        );
+        pass.setting(WORKSPACE_FAIRNESS_ENABLED_SETTING, false, |v| {
+            apply_workspace_fairness_enabled(v)
+        });
 
-        // Only the cloud reads this cap, so don't spend a query loading it anywhere else.
+        // Only the cloud reads these caps, so don't ask for them anywhere else.
         if *CLOUD_HOSTED {
-            if let Err(e) = load_concurrency_key_max_queued(db).await {
-                tracing::error!("Error loading concurrency key max queued: {e:#}");
-            }
-            if let Err(e) = load_workspace_max_queued_jobs(db).await {
-                tracing::error!("Error loading workspace max queued jobs: {e:#}");
-            }
+            pass.setting(CONCURRENCY_KEY_MAX_QUEUED_SETTING, false, |v| async move {
+                apply_concurrency_key_max_queued(v)
+            });
+            pass.setting(WORKSPACE_MAX_QUEUED_JOBS_SETTING, false, |v| async move {
+                apply_workspace_max_queued_jobs(v)
+            });
         }
     }
 
     if server_mode {
         if let Some(db) = conn.as_sql() {
-            load_require_preexisting_user(db).await;
-            load_disable_password_login(db).await;
-            if let Err(e) = reload_critical_alerts_on_db_oversize(db).await {
-                tracing::error!(
-                    "Error reloading critical alerts on db oversize setting: {:?}",
-                    e
-                )
-            }
-            windmill_common::min_version::store_min_keep_alive_version(db).await;
-            reload_instance_events_webhook_setting(db).await;
+            pass.setting(
+                REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+                false,
+                |v| async move { apply_require_preexisting_user(v) },
+            );
+            pass.setting(DISABLE_PASSWORD_LOGIN_SETTING, false, |v| async move {
+                apply_disable_password_login(v)
+            });
+            pass.action(async move {
+                if let Err(e) = reload_critical_alerts_on_db_oversize(db).await {
+                    tracing::error!(
+                        "Error reloading critical alerts on db oversize setting: {:?}",
+                        e
+                    )
+                }
+            });
+            pass.action(windmill_common::min_version::store_min_keep_alive_version(
+                db,
+            ));
+            pass.setting(
+                windmill_common::global_settings::INSTANCE_EVENTS_WEBHOOK_SETTING,
+                false,
+                |v| async move { apply_instance_events_webhook_setting(v) },
+            );
         }
     }
 
     if worker_mode {
-        load_keep_job_dir(conn).await;
+        pass.setting(KEEP_JOB_DIR_SETTING, true, |v| async move {
+            apply_keep_job_dir(v)
+        });
         match conn {
             Connection::Sql(db) => {
-                reload_worker_config(&db, tx, false).await;
+                pass.action(reload_worker_config(&db, tx, false));
             }
             Connection::Http(_) => {
                 // TODO: reload worker config from http
@@ -353,66 +402,148 @@ pub async fn initial_load(
                     additional_python_paths: None,
                     pip_local_dependencies: None,
                     native_mode,
+                    // an agent worker never reads its group's config, only its token
+                    object_store_cache_config: None,
                 }));
             }
         }
     }
 
-    if let Err(e) = reload_hub_base_url_setting(conn, server_mode).await {
-        tracing::error!("Error reloading hub base url: {:?}", e)
-    }
+    pass.setting(HUB_BASE_URL_SETTING, true, move |v| async move {
+        if let Err(e) = apply_hub_base_url_setting(conn, server_mode, v).await {
+            tracing::error!("Error reloading hub base url: {:?}", e)
+        }
+    });
 
     if let Some(db) = conn.as_sql() {
-        if let Err(e) = reload_jwt_secret_setting(db).await {
-            tracing::error!("Could not reload jwt secret setting: {:?}", e);
-        }
+        pass.setting(JWT_SECRET_SETTING, false, move |v| async move {
+            if let Err(e) = apply_jwt_secret_setting(db, v).await {
+                tracing::error!("Could not reload jwt secret setting: {:?}", e);
+            }
+        });
 
-        if let Err(e) = reload_custom_tags_setting(db).await {
-            tracing::error!("Error reloading custom tags: {:?}", e)
-        }
-
-        if let Err(e) = reload_app_workspaced_route_setting(db).await {
-            tracing::error!("Error reloading app workspaced route: {:?}", e)
-        }
-
-        if let Err(e) = reload_http_route_workspaced_route_setting(db).await {
-            tracing::error!("Error reloading http route workspaced route: {:?}", e)
-        }
+        pass.setting(CUSTOM_TAGS_SETTING, false, |v| async move {
+            windmill_common::worker::apply_custom_tags_setting(v)
+        });
+        pass.setting(APP_WORKSPACED_ROUTE_SETTING, false, |v| async move {
+            apply_app_workspaced_route_setting(v)
+        });
+        pass.setting(
+            HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+            false,
+            move |v| async move {
+                if let Err(e) = apply_http_route_workspaced_route_setting(db, v).await {
+                    tracing::error!("Error reloading http route workspaced route: {:?}", e)
+                }
+            },
+        );
     }
 
+    // A step rather than a plain await: an AWS OIDC store mints its first token against an
+    // issuer built from `BASE_URL` (`oidc_ee.rs`), and with `OTEL_ENVIRONMENT` set nothing
+    // loads that before this pass does, so running ahead of the applier would sign with the
+    // unset default and fall back to the 10s retry.
     #[cfg(feature = "parquet")]
     if !disable_s3_store {
         if let Some(db) = conn.as_sql() {
             let db2 = db.clone();
-            match reload_object_store_setting(db).await {
-                ObjectStoreReload::Later => {
-                    tokio::spawn(async move {
-                        tokio::time::sleep(Duration::from_secs(10)).await;
-                        match reload_object_store_setting(&db2).await {
-                            ObjectStoreReload::Later => {
-                                tracing::error!("Giving up on loading object store setting");
+            pass.action(async move {
+                match reload_object_store_setting(db).await {
+                    ObjectStoreReload::Later => {
+                        tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_secs(10)).await;
+                            match reload_object_store_setting(&db2).await {
+                                ObjectStoreReload::Later => {
+                                    tracing::error!("Giving up on loading object store setting");
+                                }
+                                ObjectStoreReload::Never => {
+                                    tracing::info!("Object store setting successfully loaded");
+                                }
                             }
-                            ObjectStoreReload::Never => {
-                                tracing::info!("Object store setting successfully loaded");
-                            }
-                        }
-                    });
+                        });
+                    }
+                    ObjectStoreReload::Never => (),
                 }
-                ObjectStoreReload::Never => (),
-            }
+            });
         }
     }
 
     if let Some(db) = conn.as_sql() {
-        reload_smtp_config(db).await;
+        let _ = db;
+        pass.setting(SMTP_SETTING, false, |v| async move {
+            tracing::info!("Reloading smtp config...");
+            SMTP_CONFIG.store(std::sync::Arc::new(
+                windmill_common::server::parse_smtp_config(v),
+            ));
+        });
     }
 
-    reload_hub_api_secret_setting(&conn).await;
+    pass.option_setting_with(
+        HUB_API_SECRET_SETTING,
+        "HUB_API_SECRET",
+        |v: Option<String>| async move { HUB_API_SECRET.store(std::sync::Arc::new(v)) },
+    );
+
+    // Outside the `server_mode` guard below: every mode reads this. A worker registers its
+    // rotated log files against the cutoff, and a dedicated indexer trims the search index to a
+    // window derived from it — neither is a server.
+    pass.setting(SERVICE_LOG_RETENTION_SECS_SETTING, true, |v| async move {
+        windmill_common::set_service_log_retention_secs(parse_setting_value::<i64>(
+            v,
+            SERVICE_LOG_RETENTION_SECS_SETTING,
+            "SERVICE_LOG_RETENTION_SECS",
+            DEFAULT_SERVICE_LOG_RETENTION_SECS,
+            |x| x,
+        ))
+    });
 
     if server_mode {
-        reload_retention_period_setting(&conn).await;
-        reload_audit_log_retention_days_setting(&conn).await;
-        reload_store_audit_logs_s3_setting(&conn).await;
+        pass.setting(RETENTION_PERIOD_SECS_SETTING, true, |v| async move {
+            JOB_RETENTION_SECS.store(
+                parse_setting_value::<i64>(
+                    v,
+                    RETENTION_PERIOD_SECS_SETTING,
+                    "JOB_RETENTION_SECS",
+                    60 * 60 * 24 * 30,
+                    |x| x,
+                ),
+                Ordering::Relaxed,
+            )
+        });
+        pass.setting(AUDIT_LOG_RETENTION_DAYS_SETTING, true, |v| async move {
+            AUDIT_LOG_RETENTION_DAYS.store(
+                // 0 means use default: 365 for EE, 14 for CE
+                parse_setting_value::<i64>(
+                    v,
+                    AUDIT_LOG_RETENTION_DAYS_SETTING,
+                    "AUDIT_LOG_RETENTION_DAYS",
+                    0,
+                    |x| x,
+                ),
+                Ordering::Relaxed,
+            )
+        });
+        pass.setting(OTEL_TRACES_RETENTION_SECS_SETTING, true, |v| async move {
+            windmill_common::set_otel_traces_retention_secs(parse_setting_value::<i64>(
+                v,
+                OTEL_TRACES_RETENTION_SECS_SETTING,
+                "OTEL_TRACES_RETENTION_SECS",
+                DEFAULT_OTEL_TRACES_RETENTION_SECS,
+                |x| x,
+            ))
+        });
+        pass.setting(STORE_AUDIT_LOGS_S3_SETTING, true, |v| async move {
+            STORE_AUDIT_LOGS_S3.store(
+                parse_setting_value::<bool>(
+                    v,
+                    STORE_AUDIT_LOGS_S3_SETTING,
+                    "STORE_AUDIT_LOGS_S3",
+                    false,
+                    |x| x,
+                ),
+                Ordering::Relaxed,
+            )
+        });
         // Env-var enable has no settings-row xmin and no runtime enable event;
         // anchor the export cursor at startup so rows committed before the
         // first export tick are not skipped (no-op when a settings row exists
@@ -420,66 +551,176 @@ pub async fn initial_load(
         // Enterprise feature; the core logic lives in `crate::ee` (OSS gets a
         // no-op), gated here on a valid Enterprise license.
         #[cfg(feature = "parquet")]
-        if STORE_AUDIT_LOGS_S3.load(std::sync::atomic::Ordering::Relaxed)
-            && matches!(
-                windmill_common::ee_oss::get_license_plan().await,
-                windmill_common::ee_oss::LicensePlan::Enterprise
-            )
-        {
-            if let Some(db) = conn.as_sql() {
-                crate::ee_oss::anchor_audit_logs_s3_checkpoint_env_var(&db).await;
-            }
-        }
-        reload_request_size(&conn).await;
-        reload_saml_metadata_setting(&conn).await;
-        reload_scim_token_setting(&conn).await;
-
-        // Ensure audit partitions exist before any requests arrive
         if let Some(db) = conn.as_sql() {
-            manage_audit_partitions(&db, audit_log_retention_days().await).await;
+            pass.action(async move {
+                if STORE_AUDIT_LOGS_S3.load(std::sync::atomic::Ordering::Relaxed)
+                    && matches!(
+                        windmill_common::ee_oss::get_license_plan().await,
+                        windmill_common::ee_oss::LicensePlan::Enterprise
+                    )
+                {
+                    crate::ee_oss::anchor_audit_logs_s3_checkpoint_env_var(&db).await;
+                }
+            });
+        }
+        pass.required_setting(
+            REQUEST_SIZE_LIMIT_SETTING,
+            "REQUEST_SIZE_LIMIT",
+            DEFAULT_BODY_LIMIT,
+            REQUEST_SIZE_LIMIT.clone(),
+            |x| x.mul(1024 * 1024),
+        );
+        pass.option_setting(
+            SAML_METADATA_SETTING,
+            "SAML_METADATA",
+            SAML_METADATA.clone(),
+        );
+        pass.option_setting(SCIM_TOKEN_SETTING, "SCIM_TOKEN", SCIM_TOKEN.clone());
+
+        // Ensure audit partitions exist before any requests arrive. A step rather than a
+        // plain await: it drops partitions past `audit_log_retention_days`, so running it
+        // before that setting is applied would sweep with the compile-time default.
+        if let Some(db) = conn.as_sql() {
+            pass.action(async move {
+                manage_audit_partitions(&db, audit_log_retention_days().await).await
+            });
         }
     }
 
     if worker_mode {
-        reload_job_default_timeout_setting(&conn).await;
-        reload_job_isolation_setting(&conn).await;
-        reload_nsjail_tmpfs_size_setting(&conn).await;
-        reload_nsjail_tmp_backing_setting(&conn).await;
-        reload_sandbox_image_max_size_setting(&conn).await;
-        reload_sandbox_image_cache_max_setting(&conn).await;
-        reload_sandbox_image_pull_policy_setting(&conn).await;
-        reload_sandbox_image_default_registry_setting(&conn).await;
-        reload_sandbox_registry_auth_setting(&conn).await;
-        reload_extra_pip_index_url_setting(&conn).await;
-        reload_pip_index_url_setting(&conn).await;
-        reload_uv_index_strategy_setting(&conn).await;
-        reload_uv_exclude_newer_setting(&conn).await;
-        reload_uv_python_install_mirror_setting(&conn).await;
-        reload_bun_install_min_release_age_setting(&conn).await;
-        reload_npm_config_registry_setting(&conn).await;
-        reload_bunfig_install_scopes_setting(&conn).await;
-        reload_npmrc_setting(&conn).await;
-        reload_instance_python_version_setting(&conn).await;
-        reload_nuget_config_setting(&conn).await;
-        reload_powershell_repo_url_setting(&conn).await;
-        reload_powershell_repo_pat_setting(&conn).await;
-        reload_maven_repos_setting(&conn).await;
-        reload_maven_settings_xml_setting(&conn).await;
-        reload_no_default_maven_setting(&conn).await;
-        reload_ruby_repos_setting(&conn).await;
-        reload_cargo_registries_setting(&conn).await;
-        reload_workspace_registries_setting(&conn).await;
+        use windmill_common::global_settings as gs;
+        pass.option_setting(
+            JOB_DEFAULT_TIMEOUT_SECS_SETTING,
+            "JOB_DEFAULT_TIMEOUT_SECS",
+            JOB_DEFAULT_TIMEOUT.clone(),
+        );
+        pass.setting(JOB_ISOLATION_SETTING, true, apply_job_isolation_setting);
+        pass.option_setting(
+            NSJAIL_TMPFS_SIZE_MB_SETTING,
+            "NSJAIL_TMPFS_SIZE_MB",
+            NSJAIL_TMPFS_SIZE_MB.clone(),
+        );
+        pass.option_setting(
+            NSJAIL_TMP_BACKING_SETTING,
+            "NSJAIL_TMP_BACKING",
+            NSJAIL_TMP_BACKING.clone(),
+        );
+        pass.option_setting(
+            SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
+            "SANDBOX_IMAGE_MAX_SIZE_MB",
+            SANDBOX_IMAGE_MAX_SIZE_MB.clone(),
+        );
+        pass.option_setting(
+            SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
+            "SANDBOX_IMAGE_CACHE_MAX_MB",
+            SANDBOX_IMAGE_CACHE_MAX_MB.clone(),
+        );
+        pass.option_setting(
+            SANDBOX_IMAGE_PULL_POLICY_SETTING,
+            "SANDBOX_IMAGE_PULL_POLICY",
+            SANDBOX_IMAGE_PULL_POLICY.clone(),
+        );
+        pass.option_setting(
+            SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING,
+            "SANDBOX_IMAGE_DEFAULT_REGISTRY",
+            SANDBOX_IMAGE_DEFAULT_REGISTRY.clone(),
+        );
+        pass.setting(
+            SANDBOX_REGISTRY_AUTH_SETTING,
+            true,
+            apply_sandbox_registry_auth_setting,
+        );
+        pass.option_setting(
+            EXTRA_PIP_INDEX_URL_SETTING,
+            "PIP_EXTRA_INDEX_URL",
+            PIP_EXTRA_INDEX_URL.clone(),
+        );
+        pass.option_setting(
+            PIP_INDEX_URL_SETTING,
+            "PIP_INDEX_URL",
+            PIP_INDEX_URL.clone(),
+        );
+        pass.option_setting(
+            UV_INDEX_STRATEGY_SETTING,
+            "UV_INDEX_STRATEGY",
+            UV_INDEX_STRATEGY.clone(),
+        );
+        pass.option_setting(
+            UV_EXCLUDE_NEWER_SETTING,
+            "UV_EXCLUDE_NEWER",
+            UV_EXCLUDE_NEWER.clone(),
+        );
+        pass.option_setting(
+            UV_PYTHON_INSTALL_MIRROR_SETTING,
+            "UV_PYTHON_INSTALL_MIRROR",
+            UV_PYTHON_INSTALL_MIRROR.clone(),
+        );
+        pass.option_setting(
+            BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
+            "BUN_INSTALL_MIN_RELEASE_AGE",
+            BUN_INSTALL_MIN_RELEASE_AGE.clone(),
+        );
+        pass.option_setting(
+            NPM_CONFIG_REGISTRY_SETTING,
+            "NPM_CONFIG_REGISTRY",
+            NPM_CONFIG_REGISTRY.clone(),
+        );
+        pass.option_setting(
+            BUNFIG_INSTALL_SCOPES_SETTING,
+            "BUNFIG_INSTALL_SCOPES",
+            BUNFIG_INSTALL_SCOPES.clone(),
+        );
+        pass.option_setting(NPMRC_SETTING, "NPMRC", NPMRC.clone());
+        pass.option_setting(
+            INSTANCE_PYTHON_VERSION_SETTING,
+            "INSTANCE_PYTHON_VERSION",
+            INSTANCE_PYTHON_VERSION.clone(),
+        );
+        pass.option_setting(NUGET_CONFIG_SETTING, "NUGET_CONFIG", NUGET_CONFIG.clone());
+        pass.option_setting(
+            POWERSHELL_REPO_URL_SETTING,
+            "POWERSHELL_REPO_URL",
+            POWERSHELL_REPO_URL.clone(),
+        );
+        pass.option_setting(
+            POWERSHELL_REPO_PAT_SETTING,
+            "POWERSHELL_REPO_PAT",
+            POWERSHELL_REPO_PAT.clone(),
+        );
+        pass.option_setting(gs::MAVEN_REPOS_SETTING, "MAVEN_REPOS", MAVEN_REPOS.clone());
+        pass.option_setting(
+            gs::MAVEN_SETTINGS_XML_SETTING,
+            "MAVEN_SETTINGS_XML",
+            MAVEN_SETTINGS_XML.clone(),
+        );
+        pass.action(write_maven_settings_xml());
+        pass.setting(gs::NO_DEFAULT_MAVEN_SETTING, true, |v| async move {
+            apply_no_default_maven_setting(v)
+        });
+        pass.url_list_setting(
+            gs::RUBY_REPOS_SETTING,
+            "RUBY_REPOS",
+            windmill_worker::RUBY_REPOS.clone(),
+        );
+        pass.option_setting(
+            gs::CARGO_REGISTRIES_SETTING,
+            "CARGO_REGISTRIES",
+            CARGO_REGISTRIES.clone(),
+        );
+        pass.setting(
+            gs::WORKSPACE_REGISTRIES_SETTING,
+            true,
+            apply_workspace_registries_setting,
+        );
     }
+
+    pass.run(conn).await;
 }
 
-pub async fn load_metrics_enabled(conn: &Connection) -> error::Result<()> {
-    let metrics_enabled =
-        load_value_from_global_settings_with_conn(conn, EXPOSE_METRICS_SETTING, true).await;
-    match metrics_enabled {
-        Ok(Some(serde_json::Value::Bool(t))) => METRICS_ENABLED.store(t, Ordering::Relaxed),
-        _ => (),
-    };
-    Ok(())
+pub fn apply_metrics_enabled(value: Option<serde_json::Value>) {
+    if let Some(serde_json::Value::Bool(t)) = value {
+        METRICS_ENABLED.store(t, Ordering::Relaxed)
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -563,23 +804,26 @@ pub async fn load_otel(db: &DB) {
 }
 
 pub async fn load_tag_per_workspace_enabled(db: &DB) -> error::Result<()> {
-    let metrics_enabled =
-        load_value_from_global_settings(db, DEFAULT_TAGS_PER_WORKSPACE_SETTING).await;
-
-    match metrics_enabled {
-        Ok(Some(serde_json::Value::Bool(t))) => {
-            DEFAULT_TAGS_PER_WORKSPACE.store(t, Ordering::Relaxed)
-        }
-        _ => (),
-    };
+    let v = load_value_from_global_settings(db, DEFAULT_TAGS_PER_WORKSPACE_SETTING).await?;
+    apply_tag_per_workspace_enabled(v);
     Ok(())
 }
 
-pub async fn load_tag_per_workspace_workspaces(db: &DB) -> error::Result<()> {
-    let workspaces = load_value_from_global_settings(db, DEFAULT_TAGS_WORKSPACES_SETTING).await;
+pub fn apply_tag_per_workspace_enabled(value: Option<serde_json::Value>) {
+    if let Some(serde_json::Value::Bool(t)) = value {
+        DEFAULT_TAGS_PER_WORKSPACE.store(t, Ordering::Relaxed)
+    }
+}
 
-    match workspaces {
-        Ok(Some(serde_json::Value::Array(t))) => {
+pub async fn load_tag_per_workspace_workspaces(db: &DB) -> error::Result<()> {
+    let v = load_value_from_global_settings(db, DEFAULT_TAGS_WORKSPACES_SETTING).await?;
+    apply_tag_per_workspace_workspaces(v);
+    Ok(())
+}
+
+pub fn apply_tag_per_workspace_workspaces(value: Option<serde_json::Value>) {
+    match value {
+        Some(serde_json::Value::Array(t)) => {
             let workspaces = t
                 .iter()
                 .filter_map(|x| x.as_str())
@@ -587,22 +831,23 @@ pub async fn load_tag_per_workspace_workspaces(db: &DB) -> error::Result<()> {
                 .collect::<Vec<String>>();
             DEFAULT_TAGS_WORKSPACES.store(std::sync::Arc::new(Some(workspaces)));
         }
-        Ok(None) => {
+        None => {
             DEFAULT_TAGS_WORKSPACES.store(std::sync::Arc::new(None));
         }
         _ => (),
     };
-    Ok(())
 }
 
 pub async fn load_preview_tags_override(db: &DB) -> error::Result<()> {
-    let value = load_value_from_global_settings(db, PREVIEW_TAGS_OVERRIDE_SETTING).await;
-
-    match value {
-        Ok(Some(serde_json::Value::Bool(t))) => PREVIEW_TAGS_OVERRIDE.store(t, Ordering::Relaxed),
-        _ => (),
-    };
+    let v = load_value_from_global_settings(db, PREVIEW_TAGS_OVERRIDE_SETTING).await?;
+    apply_preview_tags_override(v);
     Ok(())
+}
+
+pub fn apply_preview_tags_override(value: Option<serde_json::Value>) {
+    if let Some(serde_json::Value::Bool(t)) = value {
+        PREVIEW_TAGS_OVERRIDE.store(t, Ordering::Relaxed)
+    }
 }
 
 // Upper bound on the duration window. Postgres `make_interval(secs => $1::int4)` is the consumer
@@ -634,12 +879,17 @@ pub async fn load_workspace_fairness_enabled(db: &DB) -> error::Result<()> {
     // atomic untouched rather than silently toggling the feature off across the whole cluster
     // (which would also trigger an unnecessary `store_pull_query` rebuild — exactly when DB load
     // is probably highest).
-    let new_enabled =
-        match load_value_from_global_settings(db, WORKSPACE_FAIRNESS_ENABLED_SETTING).await? {
-            Some(serde_json::Value::Bool(t)) => t,
-            // Setting unset / non-bool → explicit off.
-            _ => false,
-        };
+    let v = load_value_from_global_settings(db, WORKSPACE_FAIRNESS_ENABLED_SETTING).await?;
+    apply_workspace_fairness_enabled(v).await;
+    Ok(())
+}
+
+pub async fn apply_workspace_fairness_enabled(value: Option<serde_json::Value>) {
+    let new_enabled = match value {
+        Some(serde_json::Value::Bool(t)) => t,
+        // Setting unset / non-bool → explicit off.
+        _ => false,
+    };
     let prev = WORKSPACE_FAIRNESS_ENABLED.swap(new_enabled, Ordering::Relaxed);
     // Re-store the pull queries so the fairness variants appear/disappear in
     // lockstep with the toggle.
@@ -647,18 +897,23 @@ pub async fn load_workspace_fairness_enabled(db: &DB) -> error::Result<()> {
         let wc = windmill_common::worker::WORKER_CONFIG.load_full();
         store_pull_query(&wc).await;
     }
-    Ok(())
 }
 
 pub async fn load_workspace_fairness_max_percent(db: &DB) -> error::Result<()> {
-    // Distinguish three outcomes:
-    //   - `Err(_)`: transient DB issue. Leave the atomic alone (don't clobber a known-good value
-    //     because of a network blip during a notify-event propagation).
-    //   - `Ok(None)` or `Ok(Some(invalid))`: setting is unset / explicitly cleared / corrupt.
-    //     Restore the default so a deletion via the admin UI actually takes effect at runtime
-    //     instead of leaving the stale in-memory value pinned until restart.
-    //   - `Ok(Some(valid))`: clamp and store.
-    match load_value_from_global_settings(db, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING).await? {
+    let v = load_value_from_global_settings(db, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING).await?;
+    apply_workspace_fairness_max_percent(v);
+    Ok(())
+}
+
+// Distinguish three outcomes:
+//   - `Err(_)`: transient DB issue. Leave the atomic alone (don't clobber a known-good value
+//     because of a network blip during a notify-event propagation).
+//   - `Ok(None)` or `Ok(Some(invalid))`: setting is unset / explicitly cleared / corrupt.
+//     Restore the default so a deletion via the admin UI actually takes effect at runtime
+//     instead of leaving the stale in-memory value pinned until restart.
+//   - `Ok(Some(valid))`: clamp and store.
+pub fn apply_workspace_fairness_max_percent(value: Option<serde_json::Value>) {
+    match value {
         Some(serde_json::Value::Number(n)) => {
             let v = n
                 .as_u64()
@@ -671,12 +926,17 @@ pub async fn load_workspace_fairness_max_percent(db: &DB) -> error::Result<()> {
                 .store(WORKSPACE_FAIRNESS_MAX_PERCENT_DEFAULT, Ordering::Relaxed);
         }
     }
-    Ok(())
 }
 
 pub async fn load_workspace_fairness_duration_secs(db: &DB) -> error::Result<()> {
-    // See `load_workspace_fairness_max_percent` for the Err / None / invalid policy.
-    match load_value_from_global_settings(db, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING).await? {
+    let v = load_value_from_global_settings(db, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING).await?;
+    apply_workspace_fairness_duration_secs(v);
+    Ok(())
+}
+
+// See `load_workspace_fairness_max_percent` for the Err / None / invalid policy.
+pub fn apply_workspace_fairness_duration_secs(value: Option<serde_json::Value>) {
+    match value {
         Some(serde_json::Value::Number(n)) => {
             // Clamp to the safe range before narrowing. The downstream `u32 -> i32` cast in
             // `workspace_fairness::refresh_overloaded` makes any value above `i32::MAX` toxic
@@ -692,12 +952,17 @@ pub async fn load_workspace_fairness_duration_secs(db: &DB) -> error::Result<()>
                 .store(WORKSPACE_FAIRNESS_DURATION_SECS_DEFAULT, Ordering::Relaxed);
         }
     }
-    Ok(())
 }
 
 pub async fn load_workspace_fairness_min_total(db: &DB) -> error::Result<()> {
-    // See `load_workspace_fairness_max_percent` for the Err / None / invalid policy.
-    match load_value_from_global_settings(db, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING).await? {
+    let v = load_value_from_global_settings(db, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING).await?;
+    apply_workspace_fairness_min_total(v);
+    Ok(())
+}
+
+// See `load_workspace_fairness_max_percent` for the Err / None / invalid policy.
+pub fn apply_workspace_fairness_min_total(value: Option<serde_json::Value>) {
+    match value {
         Some(serde_json::Value::Number(n)) => {
             // Clamp before narrowing — same reasoning as `_duration_secs`, just for the
             // counting threshold rather than the interval.
@@ -712,12 +977,17 @@ pub async fn load_workspace_fairness_min_total(db: &DB) -> error::Result<()> {
                 .store(WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT, Ordering::Relaxed);
         }
     }
-    Ok(())
 }
 
 pub async fn load_concurrency_key_max_queued(db: &DB) -> error::Result<()> {
-    // See `load_workspace_fairness_max_percent` for the Err / None / invalid policy.
-    match load_value_from_global_settings(db, CONCURRENCY_KEY_MAX_QUEUED_SETTING).await? {
+    let v = load_value_from_global_settings(db, CONCURRENCY_KEY_MAX_QUEUED_SETTING).await?;
+    apply_concurrency_key_max_queued(v);
+    Ok(())
+}
+
+// See `load_workspace_fairness_max_percent` for the Err / None / invalid policy.
+pub fn apply_concurrency_key_max_queued(value: Option<serde_json::Value>) {
+    match value {
         Some(serde_json::Value::Number(n)) => {
             // `0` is a meaningful value here (disable the cap), so unlike the fairness knobs
             // the lower bound is 0 rather than 1.
@@ -745,7 +1015,6 @@ pub async fn load_concurrency_key_max_queued(db: &DB) -> error::Result<()> {
             CONCURRENCY_KEY_MAX_QUEUED.store(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT, Ordering::Relaxed);
         }
     }
-    Ok(())
 }
 
 pub async fn load_workspace_max_queued_jobs(db: &DB) -> error::Result<()> {
@@ -753,8 +1022,14 @@ pub async fn load_workspace_max_queued_jobs(db: &DB) -> error::Result<()> {
     if !*CLOUD_HOSTED {
         return Ok(());
     }
-    // Same Err / None / invalid policy as load_concurrency_key_max_queued: 0 disables.
-    match load_value_from_global_settings(db, WORKSPACE_MAX_QUEUED_JOBS_SETTING).await? {
+    let v = load_value_from_global_settings(db, WORKSPACE_MAX_QUEUED_JOBS_SETTING).await?;
+    apply_workspace_max_queued_jobs(v);
+    Ok(())
+}
+
+/// Same Err / None / invalid policy as [`apply_concurrency_key_max_queued`]: 0 disables.
+pub fn apply_workspace_max_queued_jobs(value: Option<serde_json::Value>) {
+    match value {
         Some(serde_json::Value::Number(n)) => {
             let v = n
                 .as_u64()
@@ -778,52 +1053,92 @@ pub async fn load_workspace_max_queued_jobs(db: &DB) -> error::Result<()> {
             WORKSPACE_MAX_QUEUED_JOBS.store(WORKSPACE_MAX_QUEUED_JOBS_DEFAULT, Ordering::Relaxed);
         }
     }
-    Ok(())
 }
 
 pub async fn load_fork_workspace_tag_append_fork_suffix(db: &DB) -> error::Result<()> {
-    let value =
-        load_value_from_global_settings(db, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING).await;
-
-    match value {
-        Ok(Some(serde_json::Value::Bool(t))) => {
-            FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX.store(t, Ordering::Relaxed)
-        }
-        Ok(None) => FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX.store(false, Ordering::Relaxed),
-        _ => (),
-    };
+    let v =
+        load_value_from_global_settings(db, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING).await?;
+    apply_fork_workspace_tag_append_fork_suffix(v);
     Ok(())
 }
 
+pub fn apply_fork_workspace_tag_append_fork_suffix(value: Option<serde_json::Value>) {
+    match value {
+        Some(serde_json::Value::Bool(t)) => {
+            FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX.store(t, Ordering::Relaxed)
+        }
+        None => FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX.store(false, Ordering::Relaxed),
+        _ => (),
+    };
+}
+
 pub async fn reload_critical_alert_mute_ui_setting(conn: &Connection) -> error::Result<()> {
-    if let Ok(Some(serde_json::Value::Bool(t))) =
-        load_value_from_global_settings_with_conn(conn, CRITICAL_ALERT_MUTE_UI_SETTING, true).await
-    {
+    let v = load_value_from_global_settings_with_conn(conn, CRITICAL_ALERT_MUTE_UI_SETTING, true)
+        .await?;
+    apply_critical_alert_mute_ui_setting(v);
+    Ok(())
+}
+
+pub fn apply_critical_alert_mute_ui_setting(value: Option<serde_json::Value>) {
+    if let Some(serde_json::Value::Bool(t)) = value {
         CRITICAL_ALERT_MUTE_UI_ENABLED.store(t, Ordering::Relaxed);
     }
-    Ok(())
 }
 
 pub async fn reload_critical_alerts_on_token_expiry_setting(
     conn: &Connection,
 ) -> error::Result<()> {
-    if let Ok(Some(serde_json::Value::Bool(t))) = load_value_from_global_settings_with_conn(
+    let v = load_value_from_global_settings_with_conn(
         conn,
         CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
         true,
     )
-    .await
-    {
-        CRITICAL_ALERTS_ON_TOKEN_EXPIRY.store(t, Ordering::Relaxed);
-    }
+    .await?;
+    apply_critical_alerts_on_token_expiry_setting(v);
     Ok(())
 }
 
+pub fn apply_critical_alerts_on_token_expiry_setting(value: Option<serde_json::Value>) {
+    if let Some(serde_json::Value::Bool(t)) = value {
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY.store(t, Ordering::Relaxed);
+    }
+}
+
+pub async fn reload_critical_alert_mute_zombie_job_restart_setting(
+    conn: &Connection,
+) -> error::Result<()> {
+    let v = load_value_from_global_settings_with_conn(
+        conn,
+        CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING,
+        true,
+    )
+    .await?;
+    apply_critical_alert_mute_zombie_job_restart_setting(v);
+    Ok(())
+}
+
+pub fn apply_critical_alert_mute_zombie_job_restart_setting(value: Option<serde_json::Value>) {
+    match value {
+        Some(serde_json::Value::Bool(t)) => {
+            CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART.store(t, Ordering::Relaxed)
+        }
+        // Deleting the row must un-mute: keeping the last value would leave an instance
+        // silently muted until the next restart.
+        None => CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART.store(false, Ordering::Relaxed),
+        _ => (),
+    };
+}
+
 pub async fn load_metrics_debug_enabled(conn: &Connection) -> error::Result<()> {
-    let metrics_enabled =
-        load_value_from_global_settings_with_conn(conn, EXPOSE_DEBUG_METRICS_SETTING, true).await;
-    match metrics_enabled {
-        Ok(Some(serde_json::Value::Bool(t))) => {
+    let v =
+        load_value_from_global_settings_with_conn(conn, EXPOSE_DEBUG_METRICS_SETTING, true).await?;
+    apply_metrics_debug_enabled(v);
+    Ok(())
+}
+
+pub fn apply_metrics_debug_enabled(value: Option<serde_json::Value>) {
+    match value {
+        Some(serde_json::Value::Bool(t)) => {
             METRICS_DEBUG_ENABLED.store(t, Ordering::Relaxed);
             //_RJEM_MALLOC_CONF=prof:true,prof_active:false,lg_prof_interval:30,lg_prof_sample:21,prof_prefix:/tmp/jeprof
             #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
@@ -835,7 +1150,6 @@ pub async fn load_metrics_debug_enabled(conn: &Connection) -> error::Result<()> 
         }
         _ => (),
     };
-    Ok(())
 }
 
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
@@ -936,32 +1250,60 @@ async fn sleep_until_next_minute_start_plus_one_s() {
 }
 
 use windmill_common::tracing_init::TMP_WINDMILL_LOGS_SERVICE;
-async fn find_two_highest_files(hostname: &str) -> (Option<String>, Option<String>) {
+
+/// The minutely rolling appender names each file `<hostname>.log.<%Y-%m-%d-%H-%M>`;
+/// anything else in the directory is not a rotated log file.
+fn parse_log_file_ts(file_name: &str) -> Option<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(
+        file_name.rsplit('.').next()?,
+        windmill_common::tracing_init::LOG_TIMESTAMP_FMT,
+    )
+    .ok()
+}
+
+/// Oldest first. Readdir order is filesystem-dependent — tmpfs hands back the
+/// newest entry first, ext4 hashes the names — so the listing has to be sorted
+/// before anything picks a file out of it.
+fn sorted_log_files(file_names: impl Iterator<Item = String>) -> Vec<(NaiveDateTime, String)> {
+    let mut files = file_names
+        .filter_map(|name| parse_log_file_ts(&name).map(|ts| (ts, name)))
+        .collect::<Vec<_>>();
+    files.sort();
+    files
+}
+
+/// Every log file but the newest one: that one is still being appended to, every
+/// older one is final.
+fn rotated_log_files(file_names: impl Iterator<Item = String>) -> Vec<(NaiveDateTime, String)> {
+    let mut files = sorted_log_files(file_names);
+    files.pop();
+    files
+}
+
+async fn read_log_file_names(hostname: &str) -> Vec<String> {
     let log_dir = format!("{}/{}/", *TMP_WINDMILL_LOGS_SERVICE, hostname);
-    let rd_dir = tokio::fs::read_dir(log_dir).await;
-    if let Ok(mut log_files) = rd_dir {
-        let mut highest_file: Option<String> = None;
-        let mut second_highest_file: Option<String> = None;
-        while let Ok(Some(file)) = log_files.next_entry().await {
-            let file_name = file
-                .file_name()
-                .to_str()
-                .map(|x| x.to_string())
-                .unwrap_or_default();
-            if file_name > highest_file.clone().unwrap_or_default() {
-                second_highest_file = highest_file;
-                highest_file = Some(file_name);
-            }
+    let mut rd_dir = match tokio::fs::read_dir(&log_dir).await {
+        Ok(rd_dir) => rd_dir,
+        Err(e) => {
+            tracing::error!("Error reading log files: {}, {:#?}", log_dir, e);
+            return vec![];
         }
-        (highest_file, second_highest_file)
-    } else {
-        tracing::error!(
-            "Error reading log files: {}, {:#?}",
-            *TMP_WINDMILL_LOGS_SERVICE,
-            rd_dir.unwrap_err()
-        );
-        (None, None)
+    };
+    let mut file_names = vec![];
+    while let Ok(Some(file)) = rd_dir.next_entry().await {
+        if let Some(file_name) = file.file_name().to_str() {
+            file_names.push(file_name.to_string());
+        }
     }
+    file_names
+}
+
+async fn list_log_files(hostname: &str) -> Vec<(NaiveDateTime, String)> {
+    sorted_log_files(read_log_file_names(hostname).await.into_iter())
+}
+
+async fn list_rotated_log_files(hostname: &str) -> Vec<(NaiveDateTime, String)> {
+    rotated_log_files(read_log_file_names(hostname).await.into_iter())
 }
 
 fn get_worker_group(mode: &Mode) -> Option<String> {
@@ -981,133 +1323,188 @@ pub fn send_logs_to_object_store(conn: &Connection, hostname: &str, mode: &Mode)
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(10));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        init_last_log_file_sent(&conn, &hostname).await;
         sleep_until_next_minute_start_plus_one_s().await;
         loop {
             interval.tick().await;
-            let (_, snd_highest_file) = find_two_highest_files(&hostname).await;
-            send_log_file_to_object_store(
-                &hostname,
-                &mode,
-                &worker_group,
-                &conn,
-                snd_highest_file,
-                false,
-            )
-            .await;
+            let files = list_rotated_log_files(&hostname).await;
+            send_log_files_to_object_store(&hostname, &mode, &worker_group, &conn, files).await;
         }
     });
 }
 
-pub async fn send_current_log_file_to_object_store(conn: &Connection, hostname: &str, mode: &Mode) {
-    tracing::info!("Sending current log file to object store");
-    let (highest_file, _) = find_two_highest_files(hostname).await;
+pub async fn flush_pending_log_files_to_object_store(
+    conn: &Connection,
+    hostname: &str,
+    mode: &Mode,
+) {
+    tracing::info!("Sending pending log files to object store");
     let worker_group = get_worker_group(&mode);
-    send_log_file_to_object_store(hostname, mode, &worker_group, conn, highest_file, true).await;
-}
-
-fn get_now_and_str() -> (NaiveDateTime, String) {
-    let ts = Utc::now().naive_utc();
-    (
-        ts,
-        ts.format(windmill_common::tracing_init::LOG_TIMESTAMP_FMT)
-            .to_string(),
-    )
+    // Nothing rotates after this, so the file still being appended to is registered
+    // here, along with any rotated one the loop had not reached yet. Bounded like the
+    // pool close that follows: a backlog against a slow object store would otherwise
+    // hold the process past its termination grace period. Whatever is left over is
+    // registered by the next run's catch-up.
+    let flush = async {
+        let files = list_log_files(hostname).await;
+        send_log_files_to_object_store(hostname, mode, &worker_group, conn, files).await;
+    };
+    if timeout(Duration::from_secs(15), flush).await.is_err() {
+        tracing::warn!("Could not send all pending log files in time (15s). Exiting anyway.");
+    }
 }
 
 lazy_static::lazy_static! {
     static ref LAST_LOG_FILE_SENT: Arc<Mutex<Option<NaiveDateTime>>> = Arc::new(Mutex::new(None));
+    /// Serializes the periodic uploader against the shutdown flush. The uploader is a
+    /// detached task that keeps ticking while the flush runs and both walk the same
+    /// files, so without this both can clear the watermark for one file and count its
+    /// lines twice through the additive upsert.
+    static ref SENDING_LOG_FILES: tokio::sync::Mutex<()> = tokio::sync::Mutex::new(());
 }
 
+fn last_log_file_sent() -> Option<NaiveDateTime> {
+    LAST_LOG_FILE_SENT.lock().ok().and_then(|ts| *ts)
+}
+
+/// Resume from what this host already registered, so a previous run's leftovers reach
+/// the object store rather than being dropped. Their line counts come out zero, this
+/// run having counted none of them, which only flattens their bars in the UI.
+///
+/// The newest registered minute is left out on purpose: the shutdown flush registers
+/// the file that was still open and the appender reopens that minute in append mode,
+/// so a restart inside it would otherwise strand everything written afterwards.
+///
+/// A row rewritten this way restores the object and sums the counters, but it keeps the
+/// `indexed_at` it already had, so one the indexers have taken is not offered again and
+/// the lines added by the rewrite stay out of search.
+async fn init_last_log_file_sent(conn: &Connection, hostname: &str) {
+    let Some(db) = conn.as_sql() else {
+        return;
+    };
+    match sqlx::query_scalar!(
+        "SELECT max(log_ts) FROM log_file
+         WHERE hostname = $1 AND log_ts < (SELECT max(log_ts) FROM log_file WHERE hostname = $1)",
+        hostname
+    )
+    .fetch_one(db)
+    .await
+    {
+        Ok(Some(ts)) => {
+            if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
+                last_log_file_sent.replace(ts);
+            }) {
+                tracing::error!("Error initializing last log file sent: {:?}", e);
+            }
+        }
+        Ok(None) => {}
+        Err(e) => tracing::error!("Error loading last log file sent: {:?}", e),
+    }
+}
+
+async fn send_log_files_to_object_store(
+    hostname: &str,
+    mode: &Mode,
+    worker_group: &Option<String>,
+    conn: &Connection,
+    files: Vec<(NaiveDateTime, String)>,
+) {
+    let _guard = SENDING_LOG_FILES.lock().await;
+    let retention_cutoff = Utc::now().naive_utc()
+        - chrono::Duration::seconds(windmill_common::service_log_retention_secs());
+    for (ts, file_name) in files {
+        if last_log_file_sent().is_some_and(|last| last >= ts) {
+            continue;
+        }
+        // A run coming back from a long outage still finds its predecessor's files on
+        // disk. Registering one past the retention cutoff inserts a row
+        // `delete_expired_items` drops on its next pass, once the indexers have already
+        // paid to parse it.
+        if ts < retention_cutoff {
+            continue;
+        }
+        // Stop at the first failure rather than moving on, so a file is never
+        // registered before an older one that has not made it to the store yet.
+        // The indexers do not depend on that ordering — every row is offered until
+        // it is marked — but a gap here would still be visible while it lasts.
+        if !send_log_file_to_object_store(hostname, mode, worker_group, conn, &file_name, ts).await
+        {
+            break;
+        }
+    }
+}
+
+/// Returns whether the file ended up registered in `log_file`.
 async fn send_log_file_to_object_store(
     hostname: &str,
     mode: &Mode,
     worker_group: &Option<String>,
     conn: &Connection,
-    snd_highest_file: Option<String>,
-    use_now: bool,
-) {
-    if let Some(highest_file) = snd_highest_file {
-        //parse datetime frome file xxxx.yyyy-MM-dd-HH-mm
-        let (ts, ts_str) = if use_now {
-            get_now_and_str()
-        } else {
-            highest_file
-                .split(".")
-                .last()
-                .and_then(|x| {
-                    NaiveDateTime::parse_from_str(
-                        x,
-                        windmill_common::tracing_init::LOG_TIMESTAMP_FMT,
-                    )
-                    .ok()
-                    .map(|y| (y, x.to_string()))
-                })
-                .unwrap_or_else(get_now_and_str)
-        };
+    file_name: &str,
+    ts: NaiveDateTime,
+) -> bool {
+    #[cfg(feature = "parquet")]
+    if let Some(s3_client) = windmill_object_store::get_object_store().await {
+        let path = std::path::Path::new(&*TMP_WINDMILL_LOGS_SERVICE)
+            .join(hostname)
+            .join(file_name);
 
-        let exists = LAST_LOG_FILE_SENT.lock().map(|last_log_file_sent| {
-            last_log_file_sent
-                .map(|last_log_file_sent| last_log_file_sent >= ts)
-                .unwrap_or(false)
-        });
-
-        if exists.unwrap_or(false) {
-            return;
-        }
-
-        #[cfg(feature = "parquet")]
-        let s3_client = windmill_object_store::get_object_store().await;
-        #[cfg(feature = "parquet")]
-        if let Some(s3_client) = s3_client {
-            let path = std::path::Path::new(&*TMP_WINDMILL_LOGS_SERVICE)
-                .join(hostname)
-                .join(&highest_file);
-
-            //read file as byte stream
-            let bytes = tokio::fs::read(&path).await;
-            if let Err(e) = bytes {
+        //read file as byte stream
+        let bytes = match tokio::fs::read(&path).await {
+            Ok(bytes) => bytes,
+            Err(e) => {
                 tracing::error!("Error reading log file: {:?}", e);
-                return;
+                return false;
             }
-            let path = windmill_object_store::object_store_reexports::Path::from_url_path(format!(
-                "{}{hostname}/{highest_file}",
-                windmill_common::tracing_init::LOGS_SERVICE
-            ));
-            if let Err(e) = path {
+        };
+        let path = windmill_object_store::object_store_reexports::Path::from_url_path(format!(
+            "{}{hostname}/{file_name}",
+            windmill_common::tracing_init::LOGS_SERVICE
+        ));
+        let path = match path {
+            Ok(path) => path,
+            Err(e) => {
                 tracing::error!("Error creating log file path: {:?}", e);
-                return;
+                return false;
             }
-            if let Err(e) = s3_client.put(&path.unwrap(), bytes.unwrap().into()).await {
-                tracing::error!("Error sending logs to object store: {:?}", e);
-            }
+        };
+        if let Err(e) = s3_client.put(&path, bytes.into()).await {
+            tracing::error!("Error sending logs to object store: {:?}", e);
+            return false;
         }
+    }
 
-        let (ok_lines, err_lines) = read_log_counters(ts_str);
+    let ts_str = ts
+        .format(windmill_common::tracing_init::LOG_TIMESTAMP_FMT)
+        .to_string();
+    let (ok_lines, err_lines) = read_log_counters(ts_str);
 
-        if let Some(db) = conn.as_sql() {
-            match timeout(Duration::from_secs(10), sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
-             VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)
-             ON CONFLICT (hostname, log_ts) DO UPDATE SET ok_lines = log_file.ok_lines + $6, err_lines = log_file.err_lines + $7",
-                hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64, *JSON_FMT)
-                .execute(db)).await {
-                Ok(Ok(_)) => {
-                    if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
-                        last_log_file_sent.replace(ts);
-                    }) {
-                        tracing::error!("Error updating last log file sent: {:?}", e);
-                    }
-                    tracing::info!("Log file sent: {}", highest_file);
-                }
-                Ok(Err(e)) => {
-                    tracing::error!("Error inserting log file: {:?}", e);
-                }
-                Err(e) => {
-                    tracing::error!("Error inserting log file, timeout elapsed: {:?}", e);
-                }
+    let Some(db) = conn.as_sql() else {
+        // not sending log file to object store in agent mode
+        return false;
+    };
+
+    match timeout(Duration::from_secs(10), sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
+     VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (hostname, log_ts) DO UPDATE SET ok_lines = log_file.ok_lines + $6, err_lines = log_file.err_lines + $7",
+        hostname, mode.to_string(), worker_group.clone(), ts, file_name, ok_lines as i64, err_lines as i64, true)
+        .execute(db)).await {
+        Ok(Ok(_)) => {
+            if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
+                last_log_file_sent.replace(ts);
+            }) {
+                tracing::error!("Error updating last log file sent: {:?}", e);
             }
-        } else {
-            // tracing::warn!("Not sending log file to object store in agent mode");
-            ()
+            tracing::info!("Log file sent: {}", file_name);
+            true
+        }
+        Ok(Err(e)) => {
+            tracing::error!("Error inserting log file: {:?}", e);
+            false
+        }
+        Err(e) => {
+            tracing::error!("Error inserting log file, timeout elapsed: {:?}", e);
+            false
         }
     }
 }
@@ -1131,14 +1528,16 @@ fn read_log_counters(ts_str: String) -> (usize, usize) {
 }
 
 pub async fn load_keep_job_dir(conn: &Connection) {
-    let value = load_value_from_global_settings_with_conn(conn, KEEP_JOB_DIR_SETTING, true).await;
-    match value {
-        Ok(Some(serde_json::Value::Bool(t))) => KEEP_JOB_DIR.store(t, Ordering::Relaxed),
-        Err(e) => {
-            tracing::error!("Error loading keep job dir metrics: {e:#}");
-        }
-        _ => (),
+    match load_value_from_global_settings_with_conn(conn, KEEP_JOB_DIR_SETTING, true).await {
+        Ok(v) => apply_keep_job_dir(v),
+        Err(e) => tracing::error!("Error loading keep job dir metrics: {e:#}"),
     };
+}
+
+pub fn apply_keep_job_dir(value: Option<serde_json::Value>) {
+    if let Some(serde_json::Value::Bool(t)) = value {
+        KEEP_JOB_DIR.store(t, Ordering::Relaxed)
+    }
 }
 
 pub async fn reload_otel_tracing_proxy_setting(conn: &Connection) {
@@ -1175,27 +1574,29 @@ pub async fn reload_otel_tracing_proxy_setting(conn: &Connection) {
 }
 
 pub async fn load_require_preexisting_user(db: &DB) {
-    let value =
-        load_value_from_global_settings(db, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING).await;
-    match value {
-        Ok(Some(serde_json::Value::Bool(t))) => {
-            REQUIRE_PREEXISTING_USER_FOR_OAUTH.store(t, Ordering::Relaxed)
-        }
-        Err(e) => {
-            tracing::error!("Error loading keep job dir metrics: {e:#}");
-        }
-        _ => (),
+    match load_value_from_global_settings(db, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING).await {
+        Ok(v) => apply_require_preexisting_user(v),
+        Err(e) => tracing::error!("Error loading require_preexisting_user setting: {e:#}"),
     };
 }
 
+pub fn apply_require_preexisting_user(value: Option<serde_json::Value>) {
+    if let Some(serde_json::Value::Bool(t)) = value {
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH.store(t, Ordering::Relaxed)
+    }
+}
+
 pub async fn load_disable_password_login(db: &DB) {
-    let value = load_value_from_global_settings(db, DISABLE_PASSWORD_LOGIN_SETTING).await;
+    match load_value_from_global_settings(db, DISABLE_PASSWORD_LOGIN_SETTING).await {
+        Ok(v) => apply_disable_password_login(v),
+        Err(e) => tracing::error!("Error loading disable_password_login setting: {e:#}"),
+    };
+}
+
+pub fn apply_disable_password_login(value: Option<serde_json::Value>) {
     match value {
-        Ok(Some(serde_json::Value::Bool(t))) => DISABLE_PASSWORD_LOGIN.store(t, Ordering::Relaxed),
-        Ok(None) => DISABLE_PASSWORD_LOGIN.store(false, Ordering::Relaxed),
-        Err(e) => {
-            tracing::error!("Error loading disable_password_login setting: {e:#}");
-        }
+        Some(serde_json::Value::Bool(t)) => DISABLE_PASSWORD_LOGIN.store(t, Ordering::Relaxed),
+        None => DISABLE_PASSWORD_LOGIN.store(false, Ordering::Relaxed),
         _ => (),
     };
 }
@@ -1256,6 +1657,97 @@ async fn report_token_expiration(db: &DB, token: &TokenRow, expired: bool) {
     if let Some(email) = &token.email {
         send_email_if_possible(email_subject, &email_body, email);
     }
+}
+
+/// Trim resource version history down to the per-path cap.
+///
+/// Deliberately not part of `delete_expired_items` (which runs every monitor tick): this is a
+/// full pass over `resource_version`, and the cap only has to hold eventually, so the call site
+/// gates it to the same rare cadence as the other heavy sweeps.
+pub async fn trim_resource_versions(db: &DB) -> () {
+    let trimmed = sqlx::query_scalar!(
+        "DELETE FROM resource_version rv
+         USING (
+             SELECT id FROM (
+                 SELECT id, row_number() OVER (
+                     PARTITION BY workspace_id, path ORDER BY id DESC
+                 ) AS rn
+                 FROM resource_version
+             ) ranked WHERE rn > $1
+         ) over_cap
+         WHERE rv.id = over_cap.id
+         RETURNING rv.id",
+        MAX_RESOURCE_VERSIONS,
+    )
+    .fetch_all(db)
+    .await;
+
+    match trimmed {
+        Ok(ids) => {
+            if ids.len() > 0 {
+                tracing::info!("trimmed {} resource versions past the cap", ids.len())
+            }
+        }
+        Err(e) => tracing::error!("Error trimming resource versions: {}", e.to_string()),
+    }
+}
+
+/// Matches the batch the settings-page cleanup uses for the same table.
+const SERVICE_LOG_DELETE_BATCH: i64 = 2_000;
+/// Batches per pass. `monitor_db` runs under a 600s timeout that cancels every maintenance
+/// future in the same `join!` and reports a critical error, so a large backlog has to drain
+/// across ticks rather than inside one, the way the neighbouring sweeps already do.
+const SERVICE_LOG_DELETE_MAX_BATCHES: usize = 10;
+
+/// One span per HTTP request made from a job script, so the table grows far faster than the
+/// job table it is keyed against; batched for the same reason the service log sweep is.
+const OTEL_TRACES_DELETE_BATCH: i64 = 10_000;
+const OTEL_TRACES_DELETE_MAX_BATCHES: usize = 10;
+
+/// Delete HTTP request tracing spans older than `retention_secs`, returning how many went.
+///
+/// `retention_secs` is a parameter rather than a read of the process-wide setting so a test can
+/// pin a window without writing state the other tests in this binary run against concurrently.
+async fn delete_expired_otel_traces(db: &DB, retention_secs: i64) -> u64 {
+    // `start_time_unix_nano` is the proto field stored verbatim, so the cutoff is built in that
+    // unit rather than compared against `now()`. Truncating the epoch to whole seconds first
+    // keeps the multiplication inside `bigint`.
+    //
+    // Batched on `ctid`, not on the `(trace_id, span_id)` primary key: with the key the planner
+    // hashes the LIMITed subquery and Seq Scans the whole table to probe it, which at the size
+    // this table reaches is the cost the batching exists to avoid. `ctid` plans as a Tid Scan, so
+    // each batch touches only the rows it deletes. Safe because the subquery and the delete share
+    // one snapshot, and spans are never updated after insert.
+    let mut deleted = 0;
+    for _ in 0..OTEL_TRACES_DELETE_MAX_BATCHES {
+        let batch = sqlx::query!(
+            "DELETE FROM otel_traces WHERE ctid IN (
+                 SELECT ctid FROM otel_traces
+                 WHERE start_time_unix_nano < EXTRACT(
+                     EPOCH FROM now() - ($1::bigint::text || ' s')::interval
+                 )::bigint * 1000000000
+                 LIMIT $2
+             )",
+            retention_secs,
+            OTEL_TRACES_DELETE_BATCH,
+        )
+        .execute(db)
+        .await;
+
+        match batch {
+            Ok(res) => {
+                deleted += res.rows_affected();
+                if (res.rows_affected() as i64) < OTEL_TRACES_DELETE_BATCH {
+                    break;
+                }
+            }
+            Err(e) => {
+                tracing::error!("Error deleting expired otel trace spans: {:?}", e);
+                break;
+            }
+        }
+    }
+    deleted
 }
 
 pub async fn delete_expired_items(db: &DB) -> () {
@@ -1340,23 +1832,54 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
     }
 
-    match sqlx::query_as!(
-        LogFile,
-        "DELETE FROM log_file WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval RETURNING file_path, hostname",
-        SERVICE_LOG_RETENTION_SECS,
-    )
-    .fetch_all(db)
-    .await
-    {
-        Ok(log_files_to_delete) => {
+    // Batched: every process rotates a log file a minute, so lowering the retention makes one
+    // ordinary setting change expire millions of rows at once. An unbounded `DELETE ...
+    // RETURNING` would materialize all of them, and their deletion futures, in this one tick.
+    for _ in 0..SERVICE_LOG_DELETE_MAX_BATCHES {
+        let batch = sqlx::query_as!(
+            LogFile,
+            "DELETE FROM log_file WHERE (hostname, log_ts) IN (
+                 SELECT hostname, log_ts FROM log_file
+                 WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval
+                 LIMIT $2
+             ) RETURNING file_path, hostname",
+            windmill_common::service_log_retention_secs(),
+            SERVICE_LOG_DELETE_BATCH,
+        )
+        .fetch_all(db)
+        .await;
+
+        match batch {
+            Ok(log_files_to_delete) => {
+                if log_files_to_delete.is_empty() {
+                    break;
+                }
+                let n = log_files_to_delete.len();
                 let paths = log_files_to_delete
                     .iter()
                     .map(|f| format!("{}/{}", f.hostname, f.file_path))
                     .collect();
-                delete_log_files_from_disk_and_store(paths, &*TMP_WINDMILL_LOGS_SERVICE, windmill_common::tracing_init::LOGS_SERVICE).await;
-
+                delete_log_files_from_disk_and_store(
+                    paths,
+                    &*TMP_WINDMILL_LOGS_SERVICE,
+                    windmill_common::tracing_init::LOGS_SERVICE,
+                )
+                .await;
+                if (n as i64) < SERVICE_LOG_DELETE_BATCH {
+                    break;
+                }
+            }
+            Err(e) => {
+                tracing::error!("Error deleting log file: {:?}", e);
+                break;
+            }
         }
-        Err(e) => tracing::error!("Error deleting log file: {:?}", e),
+    }
+
+    let deleted_spans =
+        delete_expired_otel_traces(db, windmill_common::otel_traces_retention_secs()).await;
+    if deleted_spans > 0 {
+        tracing::info!("deleted {} expired otel trace spans", deleted_spans);
     }
 
     let audit_retention_days = audit_log_retention_days().await;
@@ -1419,6 +1942,15 @@ pub async fn delete_expired_items(db: &DB) -> () {
         .await
     {
         tracing::error!("Error deleting old feature_usage rows: {e}");
+    }
+
+    // Guest sign-ins, kept a month longer than the seat window they feed so a late
+    // telemetry send still sees a whole month.
+    if let Err(e) = sqlx::query!("DELETE FROM guest_activity WHERE day < CURRENT_DATE - 60")
+        .execute(db)
+        .await
+    {
+        tracing::error!("Error deleting old guest_activity rows: {e}");
     }
 
     match sqlx::query_scalar!(
@@ -2169,21 +2701,24 @@ async fn delete_log_files_from_disk_and_store(
 
 pub async fn reload_instance_events_webhook_setting(db: &DB) {
     use windmill_common::global_settings::INSTANCE_EVENTS_WEBHOOK_SETTING;
-    use windmill_common::webhook::INSTANCE_EVENTS_WEBHOOK;
 
-    let value = load_value_from_global_settings(db, INSTANCE_EVENTS_WEBHOOK_SETTING).await;
+    match load_value_from_global_settings(db, INSTANCE_EVENTS_WEBHOOK_SETTING).await {
+        Ok(v) => apply_instance_events_webhook_setting(v),
+        Err(e) => tracing::error!("Error loading instance_events_webhook setting: {e:#}"),
+    }
+}
+
+pub fn apply_instance_events_webhook_setting(value: Option<serde_json::Value>) {
+    use windmill_common::webhook::INSTANCE_EVENTS_WEBHOOK;
     match value {
-        Ok(Some(serde_json::Value::String(s))) if !s.is_empty() => {
+        Some(serde_json::Value::String(s)) if !s.is_empty() => {
             INSTANCE_EVENTS_WEBHOOK.store(std::sync::Arc::new(Some(s)));
         }
-        Ok(None) | Ok(Some(serde_json::Value::Null)) | Ok(Some(serde_json::Value::String(_))) => {
+        None | Some(serde_json::Value::Null) | Some(serde_json::Value::String(_)) => {
             // Fall back to env var if DB has no value
             INSTANCE_EVENTS_WEBHOOK.store(std::sync::Arc::new(
                 std::env::var("INSTANCE_EVENTS_WEBHOOK").ok(),
             ));
-        }
-        Err(e) => {
-            tracing::error!("Error loading instance_events_webhook setting: {e:#}");
         }
         _ => (),
     };
@@ -2200,16 +2735,6 @@ pub async fn reload_timeout_wait_result_setting(conn: &Connection) {
         TIMEOUT_WAIT_RESULT_SETTING,
         "TIMEOUT_WAIT_RESULT",
         TIMEOUT_WAIT_RESULT.clone(),
-    )
-    .await;
-}
-
-pub async fn reload_saml_metadata_setting(conn: &Connection) {
-    reload_option_setting_with_tracing(
-        conn,
-        SAML_METADATA_SETTING,
-        "SAML_METADATA",
-        SAML_METADATA.clone(),
     )
     .await;
 }
@@ -2304,10 +2829,6 @@ pub async fn reload_bunfig_install_scopes_setting(conn: &Connection) {
     .await;
 }
 
-pub async fn reload_npmrc_setting(conn: &Connection) {
-    reload_option_setting_with_tracing(conn, NPMRC_SETTING, "NPMRC", NPMRC.clone()).await;
-}
-
 pub async fn reload_nuget_config_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -2356,7 +2877,12 @@ pub async fn reload_maven_settings_xml_setting(conn: &Connection) {
         MAVEN_SETTINGS_XML.clone(),
     )
     .await;
+    write_maven_settings_xml().await;
+}
 
+/// The half of [`reload_maven_settings_xml_setting`] after the read: mirrors the loaded value
+/// onto disk, where the Maven CLI looks for it.
+pub async fn write_maven_settings_xml() {
     if !cfg!(feature = "enterprise") {
         return;
     }
@@ -2382,19 +2908,22 @@ pub async fn reload_maven_settings_xml_setting(conn: &Connection) {
 }
 
 pub async fn reload_no_default_maven_setting(conn: &Connection) {
-    let value = load_value_from_global_settings_with_conn(
+    match load_value_from_global_settings_with_conn(
         conn,
         windmill_common::global_settings::NO_DEFAULT_MAVEN_SETTING,
         true,
     )
-    .await;
-    match value {
-        Ok(Some(serde_json::Value::Bool(t))) => NO_DEFAULT_MAVEN.store(t, Ordering::Relaxed),
-        Err(e) => {
-            tracing::error!("Error loading no default maven repository: {e:#}");
-        }
-        _ => (),
+    .await
+    {
+        Ok(v) => apply_no_default_maven_setting(v),
+        Err(e) => tracing::error!("Error loading no default maven repository: {e:#}"),
     };
+}
+
+pub fn apply_no_default_maven_setting(value: Option<serde_json::Value>) {
+    if let Some(serde_json::Value::Bool(t)) = value {
+        NO_DEFAULT_MAVEN.store(t, Ordering::Relaxed)
+    }
 }
 
 pub async fn reload_ruby_repos_setting(conn: &Connection) {
@@ -2407,25 +2936,22 @@ pub async fn reload_ruby_repos_setting(conn: &Connection) {
     .await;
 }
 
-pub async fn reload_cargo_registries_setting(conn: &Connection) {
-    reload_option_setting_with_tracing(
-        conn,
-        windmill_common::global_settings::CARGO_REGISTRIES_SETTING,
-        "CARGO_REGISTRIES",
-        CARGO_REGISTRIES.clone(),
-    )
-    .await;
-}
-
 pub async fn reload_workspace_registries_setting(conn: &Connection) {
-    let value = load_value_from_global_settings_with_conn(
+    match load_value_from_global_settings_with_conn(
         conn,
         windmill_common::global_settings::WORKSPACE_REGISTRIES_SETTING,
         true,
     )
-    .await;
+    .await
+    {
+        Ok(v) => apply_workspace_registries_setting(v).await,
+        Err(e) => tracing::error!("Error loading workspace_registries setting: {e:#}"),
+    }
+}
+
+pub async fn apply_workspace_registries_setting(value: Option<serde_json::Value>) {
     match value {
-        Ok(Some(v)) => match serde_json::from_value::<WorkspaceRegistryMap>(v) {
+        Some(v) => match serde_json::from_value::<WorkspaceRegistryMap>(v) {
             Ok(parsed) => {
                 tracing::info!(
                     "Loaded workspace registries for {} workspaces",
@@ -2437,11 +2963,8 @@ pub async fn reload_workspace_registries_setting(conn: &Connection) {
                 tracing::error!("Error parsing workspace_registries setting: {e:#}");
             }
         },
-        Ok(None) => {
+        None => {
             *WORKSPACE_REGISTRIES.write().await = None;
-        }
-        Err(e) => {
-            tracing::error!("Error loading workspace_registries setting: {e:#}");
         }
     }
 }
@@ -2466,6 +2989,36 @@ pub async fn reload_retention_period_setting(conn: &Connection) {
     {
         Ok(v) => JOB_RETENTION_SECS.store(v, Ordering::Relaxed),
         Err(e) => tracing::error!("Error reloading retention period: {:?}", e),
+    }
+}
+
+pub async fn reload_service_log_retention_secs_setting(conn: &Connection) {
+    match load_setting_value::<i64>(
+        conn,
+        SERVICE_LOG_RETENTION_SECS_SETTING,
+        "SERVICE_LOG_RETENTION_SECS",
+        DEFAULT_SERVICE_LOG_RETENTION_SECS,
+        |x| x,
+    )
+    .await
+    {
+        Ok(v) => windmill_common::set_service_log_retention_secs(v),
+        Err(e) => tracing::error!("Error reloading service log retention period: {:?}", e),
+    }
+}
+
+pub async fn reload_otel_traces_retention_secs_setting(conn: &Connection) {
+    match load_setting_value::<i64>(
+        conn,
+        OTEL_TRACES_RETENTION_SECS_SETTING,
+        "OTEL_TRACES_RETENTION_SECS",
+        DEFAULT_OTEL_TRACES_RETENTION_SECS,
+        |x| x,
+    )
+    .await
+    {
+        Ok(v) => windmill_common::set_otel_traces_retention_secs(v),
+        Err(e) => tracing::error!("Error reloading otel traces retention period: {:?}", e),
     }
 }
 
@@ -2588,16 +3141,14 @@ pub async fn reload_sandbox_registry_auth_setting(conn: &Connection) {
     // Secret-aware: the value is a raw docker/podman auth.json with credentials, so
     // it must never be logged. Load directly (the generic reload_option_setting path
     // logs the value via load_option_setting_value) and only log a redacted message.
-    let q =
-        match load_value_from_global_settings_with_conn(conn, SANDBOX_REGISTRY_AUTH_SETTING, true)
-            .await
-        {
-            Ok(q) => q,
-            Err(e) => {
-                tracing::error!("Error reloading setting SANDBOX_REGISTRY_AUTH: {e:?}");
-                return;
-            }
-        };
+    match load_value_from_global_settings_with_conn(conn, SANDBOX_REGISTRY_AUTH_SETTING, true).await
+    {
+        Ok(q) => apply_sandbox_registry_auth_setting(q).await,
+        Err(e) => tracing::error!("Error reloading setting SANDBOX_REGISTRY_AUTH: {e:?}"),
+    }
+}
+
+pub async fn apply_sandbox_registry_auth_setting(q: Option<serde_json::Value>) {
     let value = q.and_then(|q| serde_json::from_value::<String>(q).ok());
     let configured = value.as_ref().is_some_and(|v| !v.trim().is_empty());
     *SANDBOX_REGISTRY_AUTH.write().await = value;
@@ -2605,15 +3156,17 @@ pub async fn reload_sandbox_registry_auth_setting(conn: &Connection) {
 }
 
 pub async fn reload_job_isolation_setting(conn: &Connection) {
-    let value =
-        match load_value_from_global_settings_with_conn(conn, JOB_ISOLATION_SETTING, true).await {
-            Ok(Some(v)) => JobIsolationLevel::from_str(v.as_str().unwrap_or("")),
-            Ok(None) => JobIsolationLevel::Undefined,
-            Err(e) => {
-                tracing::error!("Error reloading job_isolation setting: {:?}", e);
-                return;
-            }
-        };
+    match load_value_from_global_settings_with_conn(conn, JOB_ISOLATION_SETTING, true).await {
+        Ok(v) => apply_job_isolation_setting(v).await,
+        Err(e) => tracing::error!("Error reloading job_isolation setting: {:?}", e),
+    }
+}
+
+pub async fn apply_job_isolation_setting(value: Option<serde_json::Value>) {
+    let value = match value {
+        Some(v) => JobIsolationLevel::from_str(v.as_str().unwrap_or("")),
+        None => JobIsolationLevel::Undefined,
+    };
     let old_value = JobIsolationLevel::from_u8(JOB_ISOLATION.swap(value as u8, Ordering::Relaxed));
     if old_value != value {
         tracing::info!(
@@ -2633,21 +3186,6 @@ pub async fn reload_job_isolation_setting(conn: &Connection) {
             "job_isolation is set to unshare but the unshare binary is not available on this worker. \
             Jobs will run without isolation until unshare is installed or the setting is changed."
         );
-    }
-}
-
-pub async fn reload_request_size(conn: &Connection) {
-    if let Err(e) = reload_setting(
-        conn,
-        REQUEST_SIZE_LIMIT_SETTING,
-        "REQUEST_SIZE_LIMIT",
-        DEFAULT_BODY_LIMIT,
-        REQUEST_SIZE_LIMIT.clone(),
-        |x| x.mul(1024 * 1024),
-    )
-    .await
-    {
-        tracing::error!("Error reloading retention period: {:?}", e)
     }
 }
 
@@ -2758,18 +3296,324 @@ pub async fn reload_option_setting_with_tracing<T: FromStr + DeserializeOwned>(
     }
 }
 
-pub async fn load_value_from_global_settings(
-    db: &DB,
-    setting_name: &str,
-) -> error::Result<Option<serde_json::Value>> {
-    let r = sqlx::query!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        setting_name
-    )
-    .fetch_optional(db)
-    .await?
-    .map(|x| x.value);
-    Ok(r)
+type SettingApplier<'a> =
+    Box<dyn FnOnce(Option<serde_json::Value>) -> BoxFuture<'a, ()> + Send + 'a>;
+
+/// The values a [`PassStep::Settings`] step asked for, keyed by setting name.
+pub type SettingValues = std::collections::HashMap<&'static str, Option<serde_json::Value>>;
+
+type MultiSettingApplier<'a> = Box<dyn FnOnce(SettingValues) -> BoxFuture<'a, ()> + Send + 'a>;
+
+enum PassStep<'a> {
+    /// A setting to read, paired with what to do once its value is in hand.
+    Setting { name: &'static str, http: bool, apply: SettingApplier<'a> },
+    /// Several settings one piece of work needs together.
+    Settings { names: &'static [&'static str], http: bool, apply: MultiSettingApplier<'a> },
+    /// Work that is not a settings read but has to keep its place in the sequence.
+    Action(BoxFuture<'a, ()>),
+}
+
+/// One settings-loading pass: every read it will make, declared up front, then fetched
+/// together and applied in the order they were declared.
+///
+/// A pass that reads several dozen settings costs one round trip instead of one each, which
+/// is invisible against a local database and is the bulk of a worker's startup latency
+/// against a real one. Declaring is what makes the batch exact: the same `if server_mode` /
+/// `if *CLOUD_HOSTED` branches that used to guard a read now guard a [`Self::setting`] call,
+/// so the fetch asks for what this process actually needs and nothing else.
+///
+/// Order is preserved end to end, which is what lets non-setting work sit in the middle of the
+/// sequence via [`Self::action`]: appliers run in declaration order, so a setting whose applier
+/// depends on an earlier one having landed still sees it.
+pub struct SettingsPass<'a> {
+    steps: Vec<PassStep<'a>>,
+}
+
+impl<'a> SettingsPass<'a> {
+    pub fn new() -> Self {
+        SettingsPass { steps: Vec::new() }
+    }
+
+    /// Declare a read. `http` mirrors `load_from_http` in
+    /// [`load_value_from_global_settings_with_conn`]: `false` means an agent worker leaves the
+    /// setting unset rather than asking the server for it.
+    pub fn setting<F, Fut>(&mut self, name: &'static str, http: bool, apply: F)
+    where
+        F: FnOnce(Option<serde_json::Value>) -> Fut + Send + 'a,
+        Fut: std::future::Future<Output = ()> + Send + 'a,
+    {
+        self.steps.push(PassStep::Setting {
+            name,
+            http,
+            apply: Box::new(move |v| Box::pin(apply(v))),
+        });
+    }
+
+    /// Declare a step that needs several settings at once. It is skipped, like a single
+    /// [`Self::setting`], if any of them could not be read.
+    pub fn settings<F, Fut>(&mut self, names: &'static [&'static str], http: bool, apply: F)
+    where
+        F: FnOnce(SettingValues) -> Fut + Send + 'a,
+        Fut: std::future::Future<Output = ()> + Send + 'a,
+    {
+        self.steps.push(PassStep::Settings {
+            names,
+            http,
+            apply: Box::new(move |v| Box::pin(apply(v))),
+        });
+    }
+
+    /// Declare work that is not a settings read, keeping its position in the sequence.
+    pub fn action<Fut>(&mut self, fut: Fut)
+    where
+        Fut: std::future::Future<Output = ()> + Send + 'a,
+    {
+        self.steps.push(PassStep::Action(Box::pin(fut)));
+    }
+
+    /// The batched form of [`reload_option_setting_with_tracing`].
+    pub fn option_setting<T: FromStr + DeserializeOwned + Send + Sync + 'a>(
+        &mut self,
+        name: &'static str,
+        std_env_var: &'static str,
+        lock: Arc<RwLock<Option<T>>>,
+    ) {
+        self.option_setting_with(name, std_env_var, move |v| async move {
+            *lock.write().await = v;
+        });
+    }
+
+    /// [`Self::option_setting`] for a setting held in something other than an
+    /// `Arc<RwLock<Option<T>>>`, such as an `ArcSwap`. Going through here rather than calling
+    /// [`parse_option_setting_value`] from a bare [`Self::setting`] is what applies the
+    /// `FORCE_` rule, which a hand-rolled declaration would silently miss.
+    pub fn option_setting_with<T, F, Fut>(
+        &mut self,
+        name: &'static str,
+        std_env_var: &'static str,
+        store: F,
+    ) where
+        T: FromStr + DeserializeOwned + Send + Sync + 'a,
+        F: FnOnce(Option<T>) -> Fut + Send + 'a,
+        Fut: std::future::Future<Output = ()> + Send + 'a,
+    {
+        if forced_env_value::<T>(std_env_var).is_some() {
+            self.forced(move || async move {
+                store(parse_option_setting_value(None, name, std_env_var)).await
+            });
+            return;
+        }
+        self.setting(name, true, move |v| async move {
+            store(parse_option_setting_value(v, name, std_env_var)).await
+        });
+    }
+
+    /// A setting with a default, the batched counterpart of [`load_setting_value`].
+    pub fn required_setting<T: FromStr + DeserializeOwned + Display + Send + Sync + 'a>(
+        &mut self,
+        name: &'static str,
+        std_env_var: &'static str,
+        default: T,
+        lock: Arc<RwLock<T>>,
+        transformer: fn(T) -> T,
+    ) {
+        self.setting(name, true, move |v| async move {
+            *lock.write().await = parse_setting_value(v, name, std_env_var, default, transformer);
+        });
+    }
+
+    /// The batched form of [`reload_url_list_setting_with_tracing`].
+    pub fn url_list_setting(
+        &mut self,
+        name: &'static str,
+        std_env_var: &'static str,
+        lock: Arc<RwLock<Option<Vec<url::Url>>>>,
+    ) {
+        if std::env::var(format!("FORCE_{}", std_env_var)).is_ok() {
+            self.forced(move || async move {
+                *lock.write().await = parse_url_list_setting_value(None, name, std_env_var);
+            });
+            return;
+        }
+        self.setting(name, true, move |v| async move {
+            *lock.write().await = parse_url_list_setting_value(v, name, std_env_var);
+        });
+    }
+
+    /// Apply a setting whose value comes from a `FORCE_` override.
+    ///
+    /// Declared as a step with no read: the override outranks the database, so fetching is
+    /// pointless, and more importantly a failed fetch must not drop it. A skipped applier is
+    /// how an unreadable setting keeps its current value, which for a forced one would mean
+    /// silently running unforced.
+    fn forced<F, Fut>(&mut self, apply: F)
+    where
+        F: FnOnce() -> Fut + Send + 'a,
+        Fut: std::future::Future<Output = ()> + Send + 'a,
+    {
+        self.action(async move { apply().await });
+    }
+
+    /// Fetch every declared setting in one go, then run the steps in declaration order.
+    pub async fn run(self, conn: &Connection) {
+        let over_http = matches!(conn, Connection::Http(_));
+        let declared: Vec<(&'static str, bool)> = self
+            .steps
+            .iter()
+            .flat_map(|s| match s {
+                PassStep::Setting { name, http, .. } => vec![(*name, *http)],
+                PassStep::Settings { names, http, .. } => {
+                    names.iter().map(|n| (*n, *http)).collect()
+                }
+                PassStep::Action(_) => vec![],
+            })
+            .collect();
+
+        // A setting an agent worker is not allowed to ask the server for reads as unset, which
+        // is what `load_value_from_global_settings_with_conn(.., false)` returned for it. That
+        // is not the same as a read that failed, which is left out and skips its applier.
+        let names: Vec<&str> = declared
+            .iter()
+            .filter_map(|(name, http)| (!over_http || *http).then_some(*name))
+            .collect();
+
+        let mut values = fetch_settings_batch(conn, &names).await;
+        // One failed query took every setting with it. At startup there is no known-good
+        // in-memory state to preserve, so read them individually rather than leave the process
+        // on compile-time defaults until the next full reload. Only the single-query transport
+        // can fail this way; over HTTP the batch already is the per-setting read.
+        if matches!(conn, Connection::Sql(_)) && values.is_empty() && !names.is_empty() {
+            tracing::warn!(
+                "Falling back to per-setting reads for {} settings",
+                names.len()
+            );
+            values = fetch_settings_individually(conn, &names).await;
+        }
+        for (name, http) in &declared {
+            if over_http && !*http {
+                values.insert(name.to_string(), None);
+            }
+        }
+
+        for step in self.steps {
+            match step {
+                // A name missing from `values` is one whose read failed, not one that is
+                // unset. Skipping its applier is what keeps a transient database error from
+                // looking like a cleared setting: several of them reset to a default on
+                // `None`, and would otherwise clobber a known-good value on a blip.
+                PassStep::Setting { name, apply, .. } => {
+                    if let Some(value) = values.remove(name) {
+                        apply(value).await
+                    } else {
+                        tracing::warn!(
+                            "Setting {name} could not be read, leaving its in-memory value unchanged"
+                        );
+                    }
+                }
+                PassStep::Settings { names, apply, .. } => {
+                    let asked: SettingValues = names
+                        .iter()
+                        .filter_map(|n| values.get(*n).map(|v| (*n, v.clone())))
+                        .collect();
+                    if asked.len() == names.len() {
+                        apply(asked).await
+                    } else {
+                        let missing = names
+                            .iter()
+                            .filter(|n| !asked.contains_key(*n))
+                            .copied()
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        tracing::warn!(
+                            "Settings {missing} could not be read, leaving the in-memory values of {} unchanged",
+                            names.join(", ")
+                        );
+                    }
+                }
+                PassStep::Action(fut) => fut.await,
+            }
+        }
+    }
+}
+
+/// The value of a `FORCE_<VAR>` override, when it is set and parses.
+///
+/// Mirrors the check [`load_option_setting_value`] makes before it reads, so the batched and
+/// per-setting paths agree on when the database is consulted at all.
+fn forced_env_value<T: FromStr>(std_env_var: &str) -> Option<T> {
+    std::env::var(format!("FORCE_{}", std_env_var))
+        .ok()
+        .and_then(|x| x.parse::<T>().ok())
+}
+
+/// Parse whitespace-separated URLs, dropping and reporting the ones that do not parse.
+fn parse_url_list(raw: &str, source: &str) -> Vec<url::Url> {
+    raw.trim()
+        .split_whitespace()
+        .filter_map(|url_str| match url::Url::parse(url_str) {
+            Ok(url) => Some(url),
+            Err(e) => {
+                tracing::error!("Invalid URL in {}: '{}': {}", source, url_str, e);
+                None
+            }
+        })
+        .collect()
+}
+
+/// One read per setting, concurrently. The fallback for a batch that failed as a whole: a
+/// name whose own read also fails is left out, so its applier is skipped rather than told the
+/// setting is unset.
+async fn fetch_settings_individually(
+    conn: &Connection,
+    names: &[&str],
+) -> std::collections::HashMap<String, Option<serde_json::Value>> {
+    futures::future::join_all(names.iter().map(|name| async move {
+        (
+            name.to_string(),
+            load_value_from_global_settings_with_conn(conn, name, true).await,
+        )
+    }))
+    .await
+    .into_iter()
+    .filter_map(|(name, value)| match value {
+        Ok(value) => Some((name, value)),
+        Err(e) => {
+            tracing::error!("Error loading setting {name}: {e:#}");
+            None
+        }
+    })
+    .collect()
+}
+
+/// Read many settings at once: one query over a database connection, and for an agent worker
+/// one concurrent round of the per-setting endpoint rather than a sequential walk of it.
+///
+/// A name whose read failed is left out entirely, which the caller distinguishes from a name
+/// that is present with no value, i.e. genuinely unset.
+async fn fetch_settings_batch(
+    conn: &Connection,
+    names: &[&str],
+) -> std::collections::HashMap<String, Option<serde_json::Value>> {
+    match conn {
+        Connection::Sql(db) => {
+            match windmill_common::global_settings::load_values_from_global_settings(db, names)
+                .await
+            {
+                // Every requested name is accounted for: the ones with no row read as unset.
+                Ok(mut rows) => names
+                    .iter()
+                    .map(|name| (name.to_string(), rows.remove(*name)))
+                    .collect(),
+                Err(e) => {
+                    tracing::error!("Could not load global settings: {e:#}");
+                    std::collections::HashMap::new()
+                }
+            }
+        }
+        // An agent worker has no batch endpoint, but issuing the reads together still costs
+        // one round instead of one per setting.
+        Connection::Http(_) => fetch_settings_individually(conn, names).await,
+    }
 }
 
 pub async fn load_value_from_global_settings_with_conn(
@@ -2814,6 +3658,22 @@ pub async fn load_option_setting_value<T: FromStr + DeserializeOwned>(
     }
 
     let q = load_value_from_global_settings_with_conn(conn, setting_name, true).await?;
+    Ok(parse_option_setting_value(q, setting_name, std_env_var))
+}
+
+/// The half of [`load_option_setting_value`] after the read, so [`SettingsPass`] can parse a
+/// value it already fetched.
+pub fn parse_option_setting_value<T: FromStr + DeserializeOwned>(
+    q: Option<serde_json::Value>,
+    setting_name: &str,
+    std_env_var: &str,
+) -> Option<T> {
+    if let Some(force_value) = std::env::var(format!("FORCE_{}", std_env_var))
+        .ok()
+        .and_then(|x| x.parse::<T>().ok())
+    {
+        return Some(force_value);
+    }
 
     let mut value = std::env::var(std_env_var)
         .ok()
@@ -2832,7 +3692,7 @@ pub async fn load_option_setting_value<T: FromStr + DeserializeOwned>(
         tracing::info!("Loaded {setting_name} setting to None");
     }
 
-    Ok(value)
+    value
 }
 
 pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
@@ -2888,6 +3748,23 @@ pub async fn load_url_list_setting_value(
     }
 
     let q = load_value_from_global_settings_with_conn(conn, setting_name, true).await?;
+    Ok(parse_url_list_setting_value(q, setting_name, std_env_var))
+}
+
+/// The half of [`load_url_list_setting_value`] after the read, so [`SettingsPass`] can parse a
+/// value it already fetched.
+pub fn parse_url_list_setting_value(
+    q: Option<serde_json::Value>,
+    setting_name: &str,
+    std_env_var: &str,
+) -> Option<Vec<url::Url>> {
+    // A FORCE_ override wins over both the database and the ordinary env var. Invalid URLs in
+    // it are dropped with an error here rather than failing the read, since a settings pass
+    // has nowhere to return the failure to.
+    if let Ok(force_value) = std::env::var(format!("FORCE_{}", std_env_var)) {
+        let urls = parse_url_list(&force_value, &format!("FORCE_{}", std_env_var));
+        return if urls.is_empty() { None } else { Some(urls) };
+    }
 
     // Check regular environment variable
     let mut value = if let Ok(env_value) = std::env::var(std_env_var) {
@@ -2938,7 +3815,7 @@ pub async fn load_url_list_setting_value(
         tracing::info!("Loaded {} setting to None", setting_name);
     }
 
-    Ok(value)
+    value
 }
 
 pub async fn reload_url_list_setting(
@@ -2955,11 +3832,9 @@ pub async fn reload_url_list_setting(
     Ok(())
 }
 
-/// Load a required setting value without writing it anywhere.
-///
-/// Extracted from [`reload_setting`] so callers that store the value in
-/// something other than `Arc<RwLock<T>>` (e.g. `AtomicI64`, `AtomicBool`,
-/// `ArcSwap<T>`) can reuse the load pipeline.
+/// Load a required setting value without writing it anywhere, so callers that store it in
+/// something other than `Arc<RwLock<T>>` (e.g. `AtomicI64`, `AtomicBool`, `ArcSwap<T>`) can
+/// reuse the load pipeline.
 pub async fn load_setting_value<T: FromStr + DeserializeOwned + Display>(
     conn: &Connection,
     setting_name: &str,
@@ -2968,7 +3843,24 @@ pub async fn load_setting_value<T: FromStr + DeserializeOwned + Display>(
     transformer: fn(T) -> T,
 ) -> error::Result<T> {
     let q = load_value_from_global_settings_with_conn(conn, setting_name, true).await?;
+    Ok(parse_setting_value(
+        q,
+        setting_name,
+        std_env_var,
+        default,
+        transformer,
+    ))
+}
 
+/// The half of [`load_setting_value`] after the read, so [`SettingsPass`] can parse a value it
+/// already fetched.
+pub fn parse_setting_value<T: FromStr + DeserializeOwned + Display>(
+    q: Option<serde_json::Value>,
+    setting_name: &str,
+    std_env_var: &str,
+    default: T,
+    transformer: fn(T) -> T,
+) -> T {
     let mut value = std::env::var(std_env_var)
         .ok()
         .and_then(|x| x.parse::<T>().ok())
@@ -2983,23 +3875,7 @@ pub async fn load_setting_value<T: FromStr + DeserializeOwned + Display>(
         }
     };
 
-    Ok(value)
-}
-
-pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
-    conn: &Connection,
-    setting_name: &str,
-    std_env_var: &str,
-    default: T,
-    lock: Arc<RwLock<T>>,
-    transformer: fn(T) -> T,
-) -> error::Result<()> {
-    let value = load_setting_value(conn, setting_name, std_env_var, default, transformer).await?;
-    {
-        let mut l = lock.write().await;
-        *l = value;
-    }
-    Ok(())
+    value
 }
 
 #[cfg(feature = "prometheus")]
@@ -3177,6 +4053,15 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 120 iterations (~20min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC)
+    let trim_resource_versions_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
+            if let Some(db) = conn.as_sql() {
+                trim_resource_versions(&db).await;
+            }
+        }
+    };
+
     // run every hour
     let vacuum_queue_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(60) {
@@ -3195,6 +4080,19 @@ pub async fn monitor_db(
         if server_mode && !initial_load {
             if let Some(db) = conn.as_sql() {
                 delete_expired_items(&db).await;
+            }
+        }
+    };
+
+    // Not gated on server_mode: feature-usage counters accumulate wherever an
+    // instrumented call site runs, and a worker that never flushed would lose
+    // its counts on shutdown.
+    let feature_usage_f = async {
+        if !initial_load {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = windmill_common::feature_usage::flush_feature_usage(db).await {
+                    tracing::error!("Error flushing feature_usage counters: {e}");
+                }
             }
         }
     };
@@ -3423,6 +4321,24 @@ pub async fn monitor_db(
         }
     };
 
+    // Re-check what each git-sync repository's own credential says about its expiry,
+    // and rotate the ones close to it. Every ~40 min: the values move over days, and
+    // `should_run` counts iterations in a u8. Spawned rather than joined: the join
+    // below is cancelled at its deadline, which a long sweep would reach, and a
+    // rotation cut off between GitLab issuing a token and Windmill storing it
+    // loses the token family. Detached, only process shutdown can cut it off,
+    // which a rotation almost never coincides with. The pass's advisory lock
+    // keeps a slow one from overlapping the next.
+    let git_credential_maintenance_f = async {
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(240) {
+            if let Some(db) = conn.as_sql() {
+                let db = db.clone();
+                tokio::spawn(async move { maintain_git_credentials(&db).await });
+            }
+        }
+    };
+
     // run every 2 iterations (~20s at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
     // Enterprise feature: the active `// freshness` backstop lives in
     // windmill-queue's `freshness_watchdog` (`private`); OSS gets a no-op stub.
@@ -3448,8 +4364,10 @@ pub async fn monitor_db(
 
     join!(
         expired_items_f,
+        feature_usage_f,
         zombie_jobs_f,
         stale_jobs_f,
+        trim_resource_versions_f,
         vacuum_queue_f,
         expose_queue_metrics_f,
         verify_license_key_f,
@@ -3474,6 +4392,7 @@ pub async fn monitor_db(
         export_audit_logs_to_object_store_f,
         cleanup_scheduled_job_deletions_f,
         git_auto_pull_f,
+        git_credential_maintenance_f,
         pipeline_freshness_watchdog_f,
         reconcile_unarmed_schedules_f,
     );
@@ -3796,6 +4715,156 @@ lazy_static::lazy_static! {
 #[cfg(feature = "private")]
 const AUTO_PULL_POLL_SLACK_S: i64 = 30;
 
+/// Advisory lock id ensuring only one server replica maintains git credentials at
+/// a time (adjacent to GIT_AUTO_PULL_LOCK_ID).
+#[cfg(all(feature = "enterprise", feature = "private"))]
+const GIT_CREDENTIAL_LOCK_ID: i64 = 737_483_923;
+
+/// Refresh every git-sync repository's credential status and rotate the ones near
+/// expiry, so a token dies visibly (and usually not at all) rather than taking
+/// sync down on its expiry date.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn maintain_git_credentials(db: &Pool<Postgres>) {
+    use windmill_common::ee_oss::{get_license_plan, LicensePlan};
+
+    if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
+        return;
+    }
+
+    // Transaction-scoped advisory lock, as for the schedule reconcile above: a
+    // session lock on a pooled connection would ride back into the pool still
+    // held if the sweep died before unlocking, and wedge the pass on every
+    // replica until a restart. The transaction only owns the lock; the sweep
+    // commits each status and each rotated token on its own as it goes.
+    let mut lock_tx = match db.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::error!("git credentials: failed to begin lock tx: {e:#}");
+            return;
+        }
+    };
+    // The transaction stays idle while the sweep talks to git hosts, and the
+    // pool's ten-minute idle-in-transaction timeout would end it, lock included,
+    // partway through a sweep over enough slow hosts. Lifted for this
+    // transaction only; it dies with the connection either way.
+    if let Err(e) = sqlx::query("SET LOCAL idle_in_transaction_session_timeout = 0")
+        .execute(&mut *lock_tx)
+        .await
+    {
+        tracing::error!("git credentials: failed to lift the idle timeout: {e:#}");
+        return;
+    }
+    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
+        .bind(GIT_CREDENTIAL_LOCK_ID)
+        .fetch_one(&mut *lock_tx)
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("git credentials: advisory lock failed: {e:#}");
+            return;
+        }
+    };
+    if !locked {
+        return;
+    }
+
+    if let Err(e) = maintain_git_credentials_inner(db).await {
+        tracing::error!("git credentials: maintenance error: {e:#}");
+    }
+    drop(lock_tx);
+}
+
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn maintain_git_credentials_inner(db: &Pool<Postgres>) -> error::Result<()> {
+    use windmill_common::workspaces::WorkspaceGitSyncSettings;
+
+    // Same deleted/archived exclusion as the auto-pull poller: a dead workspace's
+    // settings row survives, and rotating a token for one would be pure damage.
+    let rows = sqlx::query!(
+        r#"SELECT ws.workspace_id, ws.git_sync
+           FROM workspace_settings ws
+           JOIN workspace w ON w.id = ws.workspace_id
+           WHERE NOT w.deleted
+             AND ws.git_sync IS NOT NULL
+             AND jsonb_typeof(ws.git_sync->'repositories') = 'array'"#
+    )
+    .fetch_all(db)
+    .await?;
+
+    for row in rows {
+        let Some(git_sync) = row.git_sync else {
+            continue;
+        };
+        let settings: WorkspaceGitSyncSettings = match serde_json::from_value(git_sync) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(
+                    "git credentials: invalid git_sync settings for workspace {}: {e}",
+                    row.workspace_id
+                );
+                continue;
+            }
+        };
+
+        for repo in settings.repositories.iter() {
+            let path = &repo.git_repo_resource_path;
+            // This refreshes and records the status on every repository it looks at,
+            // rotating only the ones near expiry, so it is the whole maintenance pass
+            // rather than just the rotation half.
+            if let Err(e) = windmill_common::git_sync_ee::rotate_git_credential_if_due(
+                db,
+                &row.workspace_id,
+                path,
+            )
+            .await
+            {
+                tracing::error!(
+                    "git credentials: maintenance failed for {path} in workspace {}: {e:#}",
+                    row.workspace_id
+                );
+            }
+
+            // A repository that wants webhook delivery but holds no hook never
+            // gets one otherwise: the reconcile runs on a settings save, so a
+            // credential that was unusable when the hook should have been created
+            // would leave it missing until an admin saved again. Checking stored
+            // state costs nothing, and only the repositories actually missing a
+            // hook reach the host.
+            use windmill_common::workspaces::AutoPullMode;
+            // Also when a hook exists but carries a warning: a save during a GitLab
+            // outage keeps the hook and records why it could not be confirmed, and
+            // that warning is only cleared by a reconcile that confirms it again.
+            // Only repositories with a checked credential of their own: for
+            // everything else a settings save stays the one place hooks are
+            // reconciled, so an App repository or a plain remote is never touched
+            // here, and a recorded delivery mode nobody saved is never normalized.
+            let needs_hook = repo.credential.is_some()
+                && repo.auto_pull.as_ref().is_some_and(|a| {
+                    a.enabled
+                        && matches!(a.mode, AutoPullMode::Auto | AutoPullMode::Webhook)
+                        && (a.webhook_id.is_none() || a.webhook_error.is_some())
+                });
+            if needs_hook {
+                let mut repo = repo.clone();
+                if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(
+                    db,
+                    &row.workspace_id,
+                    &mut repo,
+                )
+                .await
+                {
+                    tracing::warn!(
+                        "git credentials: could not reconcile the webhook for {path} in workspace {}: {e:#}",
+                        row.workspace_id
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(feature = "private")]
 async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
     use windmill_common::workspaces::{AutoPullMode, WorkspaceGitSyncSettings};
@@ -4035,161 +5104,309 @@ async fn poll_git_fork_branches(
 }
 
 async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {
-    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream_v2, job_stats, job_logs, job_perms, concurrency_key, log_file, metrics")
+    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream_v2, job_stats, job_logs, job_perms, concurrency_key, log_file, metrics, otel_traces")
         .execute(db)
         .await?;
     Ok(())
 }
 
-pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
-    let last_check = sqlx::query_scalar!(
-            "SELECT created_at FROM metrics WHERE id LIKE 'queue_count_%' ORDER BY created_at DESC LIMIT 1"
-        )
-        .fetch_optional(db)
-        .await
-        .unwrap_or(Some(chrono::Utc::now()));
+/// Shortest spacing between two stored samples of the same queue metric, so a tag whose
+/// value moves on every monitor round still writes at most one row per interval. Also how
+/// often each server samples the queue when no Prometheus or OTel gauge needs it sooner.
+const QUEUE_METRIC_MIN_INTERVAL_SECS: f64 = 25.0;
+/// A held delay hovers while the head keeps changing, so an exact-value comparison would rarely
+/// dedup it. Only a move the chart would actually render is stored.
+const QUEUE_DELAY_TOLERANCE: f64 = 0.1;
 
-    let metrics_enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
-    let save_metrics = last_check
-        .map(|last_check| chrono::Utc::now() - last_check > chrono::Duration::seconds(25))
-        .unwrap_or(true);
+/// Append the queue metrics the drawer at `GET /workers/queue_metrics_series` charts, skipping
+/// any sample that repeats what is already stored.
+///
+/// Only tags with a backlog appear in `queue_stats`, and an arbitrary `?tag=` nobody serves
+/// stays backlogged forever, so writing every round would repeat the same pair of rows for
+/// the whole 14-day retention. Each metric is written when the value it draws moves, once per
+/// heartbeat while it holds, and once more (as a zero) when the tag drains. Gaps therefore
+/// mean "unchanged since the last row", which is what the chart interpolates. A delay whose
+/// head job stays put is stored as that job's wait start, which the chart draws climbing, so it
+/// never moves away from what is stored either.
+async fn save_queue_metrics(
+    db: &Pool<Postgres>,
+    queue_stats: &std::collections::HashMap<String, windmill_common::queue::QueueStat>,
+) {
+    let sampled_ids = queue_stats
+        .keys()
+        .flat_map(|tag| {
+            [
+                format!("{QUEUE_COUNT_PREFIX}{tag}"),
+                format!("{QUEUE_DELAY_PREFIX}{tag}"),
+            ]
+        })
+        .collect::<Vec<_>>();
 
-    if metrics_enabled || save_metrics || OTEL_METRICS_ENABLED.load(Ordering::Relaxed) {
-        let queue_counts = windmill_common::queue::get_queue_counts(db).await;
-
-        #[cfg(feature = "prometheus")]
-        if metrics_enabled {
-            for q in QUEUE_COUNT_TAGS.read().await.iter() {
-                if queue_counts.get(q).is_none() {
-                    (*QUEUE_COUNT).with_label_values(&[q]).set(0);
-                }
-            }
+    // Last stored sample of every metric that either has a backlog now or was written
+    // recently enough to still be believed backlogged. Bounding the lookup by the stale window
+    // keeps it cheap at any `metrics` size; a per-id `ORDER BY created_at DESC LIMIT 1` does
+    // not, since the planner may serve it from `metrics_sort_idx` and walk the whole table.
+    let last_samples = match sqlx::query!(
+        "SELECT COALESCE(c.id, r.id) AS \"id!\", r.value AS \"value?\",
+            EXTRACT(EPOCH FROM r.created_at)::double precision AS \"at?\",
+            EXTRACT(EPOCH FROM now() - r.created_at)::double precision AS \"age?\"
+        FROM unnest($1::text[]) AS c(id)
+        FULL JOIN (
+            SELECT DISTINCT ON (id) id, value, created_at
+            FROM metrics
+            WHERE id LIKE 'queue_%' AND created_at > now() - make_interval(secs => $2)
+            ORDER BY id, created_at DESC
+        ) r ON r.id = c.id",
+        &sampled_ids[..],
+        QUEUE_METRIC_STALE_SECS,
+    )
+    .fetch_all(db)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::error!("Failed to read last queue metrics samples: {e:#}");
+            return;
         }
+    };
 
-        let otel_enabled = OTEL_METRICS_ENABLED.load(Ordering::Relaxed);
+    let mut ids = vec![];
+    let mut values = vec![];
+    // The wait start of the head of each held delay, whose value the INSERT computes.
+    let mut held_heads: Vec<Option<f64>> = vec![];
+    for row in last_samples {
+        let Some((prefix, tag)) = [QUEUE_COUNT_PREFIX, QUEUE_DELAY_PREFIX]
+            .into_iter()
+            .find_map(|p| row.id.strip_prefix(p).map(|tag| (p, tag)))
+        else {
+            continue;
+        };
+        // A stored value that cannot be read cannot be compared, so the next reading is kept.
+        let last = row
+            .value
+            .as_ref()
+            .and_then(QueueSample::parse)
+            .zip(row.at)
+            .zip(row.age)
+            .map(|((sample, at), age)| (sample, at, age));
+        let stat = queue_stats.get(tag);
+        let current = stat.map(|stat| {
+            if prefix == QUEUE_COUNT_PREFIX {
+                stat.count as f64
+            } else {
+                stat.delay
+            }
+        });
 
-        if otel_enabled {
-            for q in OTEL_QUEUE_COUNT_TAGS.read().await.iter() {
-                if queue_counts.get(q).is_none() {
-                    otel_set_queue_count(q, 0);
+        let next_delay = stat
+            .filter(|_| prefix == QUEUE_DELAY_PREFIX)
+            .map(|stat| delay_sample(last.map(|(sample, at, _)| sample.head_since(at)), stat));
+        let drawn_now = last.map(|(sample, at, age)| (sample.value_at(at + age), age));
+        let redraws = last
+            .zip(next_delay)
+            .is_some_and(|((sample, ..), next)| redraws(sample, next));
+        if should_store(prefix, drawn_now, current, redraws) {
+            let (value, held_head) = match (stat, next_delay) {
+                (None, _) => (serde_json::json!(0), None),
+                (Some(stat), None) => (serde_json::json!(stat.count), None),
+                (Some(stat), Some(QueueSample::Held(_))) => {
+                    (serde_json::Value::Null, Some(stat.head_since))
                 }
-            }
-        }
-
-        #[allow(unused_mut)]
-        let mut tags_to_watch = vec![];
-        #[allow(unused_mut)]
-        let mut otel_tags_to_watch = vec![];
-        for q in queue_counts {
-            let count = q.1;
-            let tag = q.0;
-
-            #[cfg(feature = "prometheus")]
-            if metrics_enabled {
-                let metric = (*QUEUE_COUNT).with_label_values(&[&tag]);
-                metric.set(count as i64);
-                tags_to_watch.push(tag.to_string());
-            }
-
-            if otel_enabled {
-                otel_tags_to_watch.push(tag.to_string());
-            }
-            otel_set_queue_count(&tag, count as i64);
-
-            // save queue_count and delay metrics per tag
-            if save_metrics {
-                sqlx::query!(
-                    "INSERT INTO metrics (id, value) VALUES ($1, $2)",
-                    format!("queue_count_{}", tag),
-                    serde_json::json!(count)
-                )
-                .execute(db)
-                .await
-                .ok();
-                if count > 0 {
-                    sqlx::query!(
-                        "INSERT INTO metrics (id, value)
-                        VALUES ($1, to_jsonb((
-                            SELECT EXTRACT(EPOCH FROM now() - scheduled_for)
-                            FROM v2_job_queue
-                            WHERE tag = $2 AND running = false AND scheduled_for <= now() - ('3 seconds')::interval
-                            ORDER BY priority DESC NULLS LAST, scheduled_for LIMIT 1
-                        )))",
-                        format!("queue_delay_{}", tag),
-                        tag
-                    )
-                    .execute(db)
-                    .await
-                    .ok();
-                }
-            }
-        }
-        if metrics_enabled {
-            let mut w = QUEUE_COUNT_TAGS.write().await;
-            *w = tags_to_watch;
-        }
-        if otel_enabled {
-            let mut w = OTEL_QUEUE_COUNT_TAGS.write().await;
-            *w = otel_tags_to_watch;
-        }
-
-        // Single DB query for running counts, shared by Prometheus and OTel
-        let otel_running = otel_enabled;
-        #[cfg(feature = "prometheus")]
-        let need_running_counts = metrics_enabled || otel_running;
-        #[cfg(not(feature = "prometheus"))]
-        let need_running_counts = otel_running;
-
-        if need_running_counts {
-            let queue_running_counts = windmill_common::queue::get_queue_running_counts(db).await;
-
-            #[cfg(feature = "prometheus")]
-            if metrics_enabled {
-                for q in QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
-                    if queue_running_counts.get(q).is_none() {
-                        (*QUEUE_RUNNING_COUNT).with_label_values(&[q]).set(0);
-                    }
-                }
-            }
-
-            if otel_running {
-                for q in OTEL_QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
-                    if queue_running_counts.get(q).is_none() {
-                        otel_set_queue_running_count(q, 0);
-                    }
-                }
-            }
-
-            #[allow(unused_mut, unused_variables)]
-            let mut running_tags_to_watch: Vec<String> = vec![];
-            #[allow(unused_mut, unused_variables)]
-            let mut otel_running_tags_to_watch: Vec<String> = vec![];
-            for (tag, count) in &queue_running_counts {
-                #[cfg(feature = "prometheus")]
-                if metrics_enabled {
-                    let metric = (*QUEUE_RUNNING_COUNT).with_label_values(&[tag]);
-                    metric.set(*count as i64);
-                    running_tags_to_watch.push(tag.to_string());
-                }
-
-                if otel_running {
-                    otel_set_queue_running_count(tag, *count as i64);
-                    otel_running_tags_to_watch.push(tag.to_string());
-                }
-            }
-
-            #[cfg(feature = "prometheus")]
-            if metrics_enabled {
-                let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
-                *w = running_tags_to_watch;
-            }
-            if otel_running {
-                let mut w = OTEL_QUEUE_RUNNING_COUNT_TAGS.write().await;
-                *w = otel_running_tags_to_watch;
-            }
+                (Some(_), Some(climbing)) => (climbing.to_json(), None),
+            };
+            ids.push(row.id);
+            values.push(value);
+            held_heads.push(held_head);
         }
     }
 
+    if ids.is_empty() {
+        return;
+    }
+    // A held delay is computed from this statement's `now()`, the row's `created_at` too, so
+    // `created_at - value` is exactly its head's wait start. That is how the next sample tells
+    // whether the same job is still at the head, within `QUEUE_DELAY_SAME_HEAD_SECS`, which the
+    // time between reading the queue and this INSERT could otherwise exceed on a busy database.
+    if let Err(e) = sqlx::query!(
+        "INSERT INTO metrics (id, value)
+        SELECT id, COALESCE(to_jsonb(EXTRACT(EPOCH FROM now())::double precision - held_head), value)
+        FROM unnest($1::text[], $2::jsonb[], $3::double precision[]) AS u(id, value, held_head)",
+        &ids[..],
+        &values[..],
+        &held_heads[..] as &[Option<f64>],
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Failed to save queue metrics: {e:#}");
+    }
+}
+
+/// What to store for a delay reading, given when the head job of the last stored sample started
+/// waiting. The same job still at the head keeps the delay climbing from its wait start, which
+/// the chart draws exactly. A head that changed means a moving queue, whose delay hovers and is
+/// held; so is a first sample, which cannot tell yet and must not draw a climb that never was.
+fn delay_sample(
+    last_head_since: Option<f64>,
+    stat: &windmill_common::queue::QueueStat,
+) -> QueueSample {
+    match last_head_since {
+        Some(since) if (since - stat.head_since).abs() < QUEUE_DELAY_SAME_HEAD_SECS => {
+            QueueSample::Climbing { since: stat.head_since }
+        }
+        _ => QueueSample::Held(stat.delay),
+    }
+}
+
+/// Whether the next delay sample is drawn differently from the last one even at the same value:
+/// a climb whose head left would otherwise go on climbing from the old head, and a held delay
+/// whose head stayed would stay flat while the wait grows.
+fn redraws(last: QueueSample, next: QueueSample) -> bool {
+    matches!(last, QueueSample::Climbing { .. }) != matches!(next, QueueSample::Climbing { .. })
+}
+
+/// Whether a reading deserves a row of its own, given the last one stored for that metric:
+/// the value it draws now and how many seconds ago it was written. `current` is `None` once
+/// the tag has no backlog left; `redraws` is set when the reading must be drawn differently.
+fn should_store(
+    prefix: &str,
+    last: Option<(f64, f64)>,
+    current: Option<f64>,
+    redraws: bool,
+) -> bool {
+    let Some((last_value, age)) = last else {
+        // Nothing comparable within the lookback window: a tag that just backed up needs a
+        // first sample, one that was already gone needs nothing.
+        return current.is_some();
+    };
+    let Some(current) = current else {
+        // The tag drained. One zero pins where the line drops; after that the metric matches
+        // and goes quiet, then falls out of the lookback window entirely.
+        return last_value != 0.0;
+    };
+    if age >= QUEUE_METRIC_HEARTBEAT_SECS {
+        return true;
+    }
+    age >= QUEUE_METRIC_MIN_INTERVAL_SECS
+        && (redraws
+            || if prefix == QUEUE_COUNT_PREFIX {
+                last_value != current
+            } else {
+                (current - last_value).abs() > last_value.abs() * QUEUE_DELAY_TOLERANCE
+            })
+}
+
+#[cfg(test)]
+mod queue_metric_sampling {
+    use super::*;
+
+    const RECENT: f64 = QUEUE_METRIC_MIN_INTERVAL_SECS + 1.0;
+
+    #[test]
+    fn a_holding_backlog_writes_only_on_the_heartbeat() {
+        let held = Some((3.0, RECENT));
+        assert!(!should_store(QUEUE_COUNT_PREFIX, held, Some(3.0), false));
+        let due = Some((3.0, QUEUE_METRIC_HEARTBEAT_SECS));
+        assert!(should_store(QUEUE_COUNT_PREFIX, due, Some(3.0), false));
+        // A held delay hovers, so only a move past the tolerance counts as a change.
+        let delay = Some((100.0, RECENT));
+        assert!(!should_store(QUEUE_DELAY_PREFIX, delay, Some(105.0), false));
+        assert!(should_store(QUEUE_DELAY_PREFIX, delay, Some(120.0), false));
+    }
+
+    #[test]
+    fn a_drained_tag_writes_one_zero_then_stops() {
+        assert!(should_store(
+            QUEUE_COUNT_PREFIX,
+            Some((3.0, RECENT)),
+            None,
+            false
+        ));
+        assert!(!should_store(
+            QUEUE_COUNT_PREFIX,
+            Some((0.0, RECENT)),
+            None,
+            false
+        ));
+        // Including once the heartbeat is due: a tag that is gone stays silent.
+        let gone = Some((0.0, QUEUE_METRIC_STALE_SECS));
+        assert!(!should_store(QUEUE_COUNT_PREFIX, gone, None, false));
+        assert!(!should_store(QUEUE_COUNT_PREFIX, None, None, false));
+    }
+
+    #[test]
+    fn a_change_waits_for_the_minimum_interval() {
+        assert!(!should_store(
+            QUEUE_COUNT_PREFIX,
+            Some((3.0, 1.0)),
+            Some(9.0),
+            false
+        ));
+        assert!(should_store(
+            QUEUE_COUNT_PREFIX,
+            Some((3.0, RECENT)),
+            Some(9.0),
+            false
+        ));
+        // A tag that has just backed up is recorded at once.
+        assert!(should_store(QUEUE_COUNT_PREFIX, None, Some(9.0), false));
+    }
+
+    #[test]
+    fn a_delay_climbs_while_the_same_job_stays_at_the_head() {
+        let stat = windmill_common::queue::QueueStat { count: 3, delay: 330.0, head_since: 1000.0 };
+        // A held sample written at 1320 saw the same head: it switches to climbing at once,
+        // although the delay has not moved past the tolerance yet.
+        let first = QueueSample::Held(320.0);
+        let climbing = delay_sample(Some(first.head_since(1320.0)), &stat);
+        assert_eq!(climbing, QueueSample::Climbing { since: 1000.0 });
+        assert!(redraws(first, climbing));
+        let drawn = Some((first.value_at(1330.0), RECENT));
+        assert!(should_store(
+            QUEUE_DELAY_PREFIX,
+            drawn,
+            Some(stat.delay),
+            true
+        ));
+        // Stored climbing, it draws the delay exactly: nothing more until the heartbeat.
+        let drawn = Some((climbing.value_at(1600.0), RECENT));
+        assert!(!should_store(QUEUE_DELAY_PREFIX, drawn, Some(600.0), false));
+        assert_eq!(delay_sample(None, &stat), QueueSample::Held(330.0));
+    }
+
+    #[test]
+    fn a_climb_whose_head_left_is_held_even_within_the_tolerance() {
+        // The head waiting since 0 left at 3600 for one queued at 100: 3500s is within 10% of
+        // the 3600s the climb draws, but kept, the climb would go on from the old head.
+        let moved =
+            windmill_common::queue::QueueStat { count: 2, delay: 3500.0, head_since: 100.0 };
+        let climbing = QueueSample::Climbing { since: 0.0 };
+        let next = delay_sample(Some(climbing.head_since(3000.0)), &moved);
+        assert_eq!(next, QueueSample::Held(3500.0));
+        assert!(redraws(climbing, next));
+        let drawn = Some((climbing.value_at(3600.0), RECENT));
+        assert!(!should_store(
+            QUEUE_DELAY_PREFIX,
+            drawn,
+            Some(moved.delay),
+            false
+        ));
+        assert!(should_store(
+            QUEUE_DELAY_PREFIX,
+            drawn,
+            Some(moved.delay),
+            true
+        ));
+    }
+}
+
+/// When this server last sampled the queue into `metrics`, in Unix milliseconds. It only paces
+/// how often the queue is scanned for that; whether a sample earns a row is decided from what
+/// is already stored. Servers sampling in the same instant can each write it, and the duplicate
+/// draws the same.
+static LAST_QUEUE_SAMPLE_MS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
     // clean queue metrics older than 14 days
     sqlx::query!(
         "DELETE FROM metrics WHERE id LIKE 'queue_%' AND created_at < NOW() - INTERVAL '14 day'"
@@ -4197,6 +5414,131 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
     .execute(db)
     .await
     .ok();
+
+    let metrics_enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
+    let otel_enabled = OTEL_METRICS_ENABLED.load(Ordering::Relaxed);
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let save_metrics = now_ms - LAST_QUEUE_SAMPLE_MS.load(Ordering::Relaxed)
+        >= (QUEUE_METRIC_MIN_INTERVAL_SECS * 1000.0) as i64;
+    if !(metrics_enabled || otel_enabled || save_metrics) {
+        return;
+    }
+
+    // Single DB query for running counts, shared by Prometheus and OTel. It runs ahead of the
+    // backlog read below, which gives up on the rest of the round when it fails.
+    let otel_running = otel_enabled;
+    #[cfg(feature = "prometheus")]
+    let need_running_counts = metrics_enabled || otel_running;
+    #[cfg(not(feature = "prometheus"))]
+    let need_running_counts = otel_running;
+
+    if need_running_counts {
+        let queue_running_counts = windmill_common::queue::get_queue_running_counts(db).await;
+
+        #[cfg(feature = "prometheus")]
+        if metrics_enabled {
+            for q in QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
+                if queue_running_counts.get(q).is_none() {
+                    (*QUEUE_RUNNING_COUNT).with_label_values(&[q]).set(0);
+                }
+            }
+        }
+
+        if otel_running {
+            for q in OTEL_QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
+                if queue_running_counts.get(q).is_none() {
+                    otel_set_queue_running_count(q, 0);
+                }
+            }
+        }
+
+        #[allow(unused_mut, unused_variables)]
+        let mut running_tags_to_watch: Vec<String> = vec![];
+        #[allow(unused_mut, unused_variables)]
+        let mut otel_running_tags_to_watch: Vec<String> = vec![];
+        for (tag, count) in &queue_running_counts {
+            #[cfg(feature = "prometheus")]
+            if metrics_enabled {
+                let metric = (*QUEUE_RUNNING_COUNT).with_label_values(&[tag]);
+                metric.set(*count as i64);
+                running_tags_to_watch.push(tag.to_string());
+            }
+
+            if otel_running {
+                otel_set_queue_running_count(tag, *count as i64);
+                otel_running_tags_to_watch.push(tag.to_string());
+            }
+        }
+
+        #[cfg(feature = "prometheus")]
+        if metrics_enabled {
+            let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
+            *w = running_tags_to_watch;
+        }
+        if otel_running {
+            let mut w = OTEL_QUEUE_RUNNING_COUNT_TAGS.write().await;
+            *w = otel_running_tags_to_watch;
+        }
+    }
+
+    let queue_stats = match windmill_common::queue::get_queue_stats(db).await {
+        Ok(queue_stats) => queue_stats,
+        Err(e) => {
+            tracing::error!("Failed to read queue stats: {e:#}");
+            return;
+        }
+    };
+
+    #[cfg(feature = "prometheus")]
+    if metrics_enabled {
+        for q in QUEUE_COUNT_TAGS.read().await.iter() {
+            if queue_stats.get(q).is_none() {
+                (*QUEUE_COUNT).with_label_values(&[q]).set(0);
+            }
+        }
+    }
+
+    if otel_enabled {
+        for q in OTEL_QUEUE_COUNT_TAGS.read().await.iter() {
+            if queue_stats.get(q).is_none() {
+                otel_set_queue_count(q, 0);
+            }
+        }
+    }
+
+    #[allow(unused_mut)]
+    let mut tags_to_watch = vec![];
+    #[allow(unused_mut)]
+    let mut otel_tags_to_watch = vec![];
+    for (tag, stat) in queue_stats.iter() {
+        let count = stat.count;
+
+        #[cfg(feature = "prometheus")]
+        if metrics_enabled {
+            let metric = (*QUEUE_COUNT).with_label_values(&[tag]);
+            metric.set(count as i64);
+            tags_to_watch.push(tag.to_string());
+        }
+
+        if otel_enabled {
+            otel_tags_to_watch.push(tag.to_string());
+        }
+        otel_set_queue_count(tag, count as i64);
+    }
+
+    if save_metrics {
+        LAST_QUEUE_SAMPLE_MS.store(now_ms, Ordering::Relaxed);
+        save_queue_metrics(db, &queue_stats).await;
+    }
+
+    if metrics_enabled {
+        let mut w = QUEUE_COUNT_TAGS.write().await;
+        *w = tags_to_watch;
+    }
+    if otel_enabled {
+        let mut w = OTEL_QUEUE_COUNT_TAGS.write().await;
+        *w = otel_tags_to_watch;
+    }
 }
 
 pub async fn reload_smtp_config(db: &Pool<Postgres>) {
@@ -4231,6 +5573,7 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                 .dedicated_workers
                 .as_ref()
                 .is_some_and(|dws| !dws.is_empty());
+
         if **wc != config || has_dedicated {
             if kill_if_change {
                 if has_dedicated
@@ -4278,13 +5621,49 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
             store_pull_query(&config).await;
             WORKER_CONFIG.store(std::sync::Arc::new(config));
         }
+
+        // After the store, so a retry that wakes mid-build reads the config being applied
+        // rather than the one it replaced. Unconditional rather than gated on the value
+        // changing, so that a pass triggered by anything else — a license-plan change, most
+        // of all — still re-evaluates the entitlement.
+        #[cfg(feature = "parquet")]
+        reload_cache_object_store_override_with_retry(db).await;
+    }
+}
+
+/// Apply this worker group's dependency-cache object store, retrying once shortly after a build
+/// that failed for a reason that may pass — the periodic settings reload behind it is 12h apart,
+/// which is a long time for a whole group to cache nothing but locally.
+#[cfg(feature = "parquet")]
+pub async fn reload_cache_object_store_override_with_retry(db: &DB) {
+    let settings = WORKER_CONFIG.load().object_store_cache_config.clone();
+    if matches!(
+        windmill_object_store::reload_cache_object_store_override(db, settings).await,
+        ObjectStoreReload::Later
+    ) {
+        let db = db.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            if windmill_object_store::cache_object_store_override_failed().await {
+                // Re-read rather than reuse: the group config may have changed while we slept,
+                // and installing the settings this retry was born with would pin the worker to a
+                // store the group no longer asks for.
+                let settings = WORKER_CONFIG.load().object_store_cache_config.clone();
+                windmill_object_store::reload_cache_object_store_override(&db, settings).await;
+            }
+        });
     }
 }
 
 pub async fn load_base_url(conn: &Connection) -> error::Result<String> {
     let q_base_url =
         load_value_from_global_settings_with_conn(conn, BASE_URL_SETTING, false).await?;
+    Ok(parse_base_url(q_base_url))
+}
 
+/// The half of [`load_base_url`] after the read, so [`SettingsPass`] can use a value it
+/// already fetched. Stores into `BASE_URL` as well as returning it.
+pub fn parse_base_url(q_base_url: Option<serde_json::Value>) -> String {
     let std_base_url = std::env::var("BASE_URL")
         .ok()
         .unwrap_or_else(|| "http://localhost".to_string());
@@ -4306,14 +5685,32 @@ pub async fn load_base_url(conn: &Connection) -> error::Result<String> {
         std_base_url
     };
     BASE_URL.store(std::sync::Arc::new(base_url.clone()));
-    Ok(base_url)
+    base_url
 }
 
 pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
     #[cfg(feature = "oauth2")]
-    let oauths = if let Some(db) = conn.as_sql() {
-        let q_oauth = load_value_from_global_settings(db, OAUTH_SETTING).await?;
+    let q_oauth = match conn.as_sql() {
+        Some(db) => load_value_from_global_settings(db, OAUTH_SETTING).await?,
+        None => None,
+    };
+    #[cfg(not(feature = "oauth2"))]
+    let q_oauth = None;
+    let q_base_url =
+        load_value_from_global_settings_with_conn(conn, BASE_URL_SETTING, false).await?;
+    apply_base_url_setting(conn, q_oauth, q_base_url).await
+}
 
+/// The half of [`reload_base_url_setting`] after the reads.
+pub async fn apply_base_url_setting(
+    conn: &Connection,
+    q_oauth: Option<serde_json::Value>,
+    q_base_url: Option<serde_json::Value>,
+) -> error::Result<()> {
+    // Both only reach a use under a feature gate.
+    let (_, _) = (&conn, &q_oauth);
+    #[cfg(feature = "oauth2")]
+    let oauths = if conn.as_sql().is_some() {
         if let Some(q) = q_oauth {
             if let Ok(v) = serde_json::from_value::<
                 Option<HashMap<String, windmill_api::oauth2_oss::OAuthClient>>,
@@ -4330,7 +5727,7 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
     } else {
         None
     };
-    let base_url = load_base_url(conn).await?;
+    let base_url = parse_base_url(q_base_url);
     let is_secure = base_url.starts_with("https://");
 
     #[cfg(feature = "oauth2")]
@@ -4529,13 +5926,18 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             .execute(db)
             .await;
             tracing::error!(critical_error_message);
-            report_critical_error(
-                critical_error_message,
-                db.clone(),
-                Some(&r.workspace_id),
-                None,
-            )
-            .await;
+            // A restart that still has attempts left is self-healing, so an operator can mute it on
+            // an instance with flaky workers. Exhausting the attempts is a real failure and always
+            // alerts.
+            if !restart || !CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART.load(Ordering::Relaxed) {
+                report_critical_error(
+                    critical_error_message,
+                    db.clone(),
+                    Some(&r.workspace_id),
+                    None,
+                )
+                .await;
+            }
 
             if !restart {
                 zombie_jobs_uuid_restart_limit_reached.push(r.id);
@@ -4668,7 +6070,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 &job.workspace_id,
                 &job.permissioned_as,
                 &label,
-                *SCRIPT_TOKEN_EXPIRY,
+                job_token_expiry_secs(&db, &job.workspace_id).await,
                 &job.permissioned_as_email,
                 &job.id,
                 None,
@@ -4700,7 +6102,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 memory_peak,
                 None,
                 error::Error::ExecutionErr(error_message.clone()),
-                matches!(error_kind, ErrorMessage::SameWorker), // unrecoverable if the job is a same worker zombie
+                // a same worker zombie means the worker itself is gone
+                if matches!(error_kind, ErrorMessage::SameWorker) {
+                    StepFailureKind::Unrecoverable
+                } else {
+                    StepFailureKind::Normal
+                },
                 Some(&same_worker_tx_never_used),
                 "",
                 node_name,
@@ -5001,7 +6408,10 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                 flow.id, flow.workspace_id
             );
             tracing::error!(error_message);
-            report_critical_error(error_message, db.clone(), Some(&flow.workspace_id), None).await;
+            if !CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART.load(Ordering::Relaxed) {
+                report_critical_error(error_message, db.clone(), Some(&flow.workspace_id), None)
+                    .await;
+            }
             // if the flow hasn't started and is a zombie, we can simply restart it
             let mut tx = db.begin().await?;
 
@@ -5491,9 +6901,18 @@ pub async fn reload_hub_base_url_setting(
     conn: &Connection,
     server_mode: bool,
 ) -> error::Result<()> {
-    let hub_base_url =
-        load_value_from_global_settings_with_conn(conn, HUB_BASE_URL_SETTING, true).await?;
+    let v = load_value_from_global_settings_with_conn(conn, HUB_BASE_URL_SETTING, true).await?;
+    apply_hub_base_url_setting(conn, server_mode, v).await
+}
 
+/// The half of [`reload_hub_base_url_setting`] after the read.
+pub async fn apply_hub_base_url_setting(
+    conn: &Connection,
+    server_mode: bool,
+    hub_base_url: Option<serde_json::Value>,
+) -> error::Result<()> {
+    // Only reaches a use under the `embedding` feature.
+    let _ = &conn;
     let base_url = if let Some(q) = hub_base_url {
         if let Ok(v) = serde_json::from_value::<String>(q.clone()) {
             if v != "" {
@@ -5537,9 +6956,12 @@ pub async fn reload_hub_base_url_setting(
 }
 
 pub async fn reload_critical_error_channels_setting(conn: &DB) -> error::Result<()> {
-    let critical_error_channels =
-        load_value_from_global_settings(conn, CRITICAL_ERROR_CHANNELS_SETTING).await?;
+    let v = load_value_from_global_settings(conn, CRITICAL_ERROR_CHANNELS_SETTING).await?;
+    apply_critical_error_channels_setting(v);
+    Ok(())
+}
 
+pub fn apply_critical_error_channels_setting(critical_error_channels: Option<serde_json::Value>) {
     let critical_error_channels = if let Some(q) = critical_error_channels {
         if let Ok(v) = serde_json::from_value::<Vec<CriticalErrorChannel>>(q.clone()) {
             v
@@ -5555,14 +6977,15 @@ pub async fn reload_critical_error_channels_setting(conn: &DB) -> error::Result<
     };
 
     CRITICAL_ERROR_CHANNELS.store(std::sync::Arc::new(critical_error_channels));
-
-    Ok(())
 }
 
 pub async fn reload_app_workspaced_route_setting(conn: &DB) -> error::Result<()> {
-    let app_workspaced_route =
-        load_value_from_global_settings(conn, APP_WORKSPACED_ROUTE_SETTING).await?;
+    let v = load_value_from_global_settings(conn, APP_WORKSPACED_ROUTE_SETTING).await?;
+    apply_app_workspaced_route_setting(v);
+    Ok(())
+}
 
+pub fn apply_app_workspaced_route_setting(app_workspaced_route: Option<serde_json::Value>) {
     let ws_route = match app_workspaced_route {
         Some(serde_json::Value::Bool(ws_route)) => ws_route,
         None => false,
@@ -5577,13 +7000,17 @@ pub async fn reload_app_workspaced_route_setting(conn: &DB) -> error::Result<()>
     };
 
     APP_WORKSPACED_ROUTE.store(ws_route, Ordering::Relaxed);
-    Ok(())
 }
 
 pub async fn reload_http_route_workspaced_route_setting(conn: &DB) -> error::Result<()> {
-    let http_route_workspaced_route =
-        load_value_from_global_settings(conn, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING).await?;
+    let v = load_value_from_global_settings(conn, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING).await?;
+    apply_http_route_workspaced_route_setting(conn, v).await
+}
 
+pub async fn apply_http_route_workspaced_route_setting(
+    conn: &DB,
+    http_route_workspaced_route: Option<serde_json::Value>,
+) -> error::Result<()> {
     let ws_route = match http_route_workspaced_route {
         Some(serde_json::Value::Bool(ws_route)) => ws_route,
         None => false,
@@ -5640,30 +7067,33 @@ pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<(
     Ok(())
 }
 
-async fn generate_and_save_jwt_secret(db: &DB) -> error::Result<String> {
-    let secret = rd_string(32);
-    sqlx::query!(
-        "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
-        JWT_SECRET_SETTING,
-        serde_json::to_value(&secret).unwrap()
-    ).execute(db).await?;
-
-    Ok(secret)
+pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
+    let v = load_value_from_global_settings(db, JWT_SECRET_SETTING).await?;
+    apply_jwt_secret_setting(db, v).await
 }
 
-pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
-    let jwt_secret = load_value_from_global_settings(db, JWT_SECRET_SETTING).await?;
-
-    let jwt_secret = if let Some(q) = jwt_secret {
-        if let Ok(v) = serde_json::from_value::<String>(q.clone()) {
-            v
-        } else {
-            tracing::error!("Could not parse jwt_secret setting, generating new one");
-            generate_and_save_jwt_secret(db).await?
+/// The half of [`reload_jwt_secret_setting`] after the read.
+///
+/// `value` may be stale, which is why generating falls to
+/// [`get_or_create_jwt_secret`]: that statement, not this read, decides whether a new secret
+/// is stored, so a pass that batched an absent read cannot overwrite one another process
+/// wrote in the meantime.
+pub async fn apply_jwt_secret_setting(
+    db: &DB,
+    value: Option<serde_json::Value>,
+) -> error::Result<()> {
+    let jwt_secret = match value {
+        Some(q) => match serde_json::from_value::<String>(q) {
+            Ok(v) => v,
+            Err(_) => {
+                tracing::error!("Could not parse jwt_secret setting, generating new one");
+                get_or_create_jwt_secret(db).await?
+            }
+        },
+        None => {
+            tracing::info!("No jwt secret found, generating one");
+            get_or_create_jwt_secret(db).await?
         }
-    } else {
-        tracing::info!("Not jwt secret found, generating one");
-        generate_and_save_jwt_secret(db).await?
     };
 
     JWT_SECRET.store(std::sync::Arc::new(jwt_secret));
@@ -6111,5 +7541,96 @@ mod zombie_worker_memory_pct_tests {
             zombie_worker_memory_pct(Some(500), Some(500), Some(0)),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod otel_traces_retention_tests {
+    use super::{delete_expired_otel_traces, DB};
+
+    async fn insert_span(db: &DB, id: u8, age_secs: i64) {
+        sqlx::query!(
+            "INSERT INTO otel_traces (trace_id, span_id, name, kind, start_time_unix_nano, end_time_unix_nano)
+             VALUES ($1, $2, 'GET /', 3, $3, $3)",
+            &[id; 16][..],
+            &[id; 8][..],
+            (chrono::Utc::now() - chrono::Duration::seconds(age_secs))
+                .timestamp_nanos_opt()
+                .unwrap(),
+        )
+        .execute(db)
+        .await
+        .unwrap();
+    }
+
+    /// The cutoff crosses two units: a retention configured in seconds against a column holding
+    /// nanoseconds. Getting that conversion wrong is silent in both directions — a window a
+    /// billion times too wide never deletes anything, one a billion times too narrow deletes
+    /// every span on the next tick — so pin it on either side of the boundary.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn deletes_only_spans_past_the_window(db: DB) -> anyhow::Result<()> {
+        let day = 60 * 60 * 24;
+        insert_span(&db, 1, 60).await;
+        insert_span(&db, 2, 6 * day).await;
+        insert_span(&db, 3, 8 * day).await;
+
+        assert_eq!(delete_expired_otel_traces(&db, 7 * day).await, 1);
+
+        let kept = sqlx::query_scalar!("SELECT trace_id FROM otel_traces ORDER BY trace_id")
+            .fetch_all(&db)
+            .await?;
+        assert_eq!(kept, vec![vec![1u8; 16], vec![2u8; 16]]);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod log_file_listing_tests {
+    use super::{rotated_log_files, sorted_log_files};
+
+    fn names(files: Vec<(chrono::NaiveDateTime, String)>) -> Vec<String> {
+        files.into_iter().map(|(_, n)| n).collect()
+    }
+
+    /// A directory read newest-entry-first is what tmpfs actually hands back.
+    #[test]
+    fn orders_by_minute_whatever_order_readdir_used() {
+        let newest_first = [
+            "h.log.2026-08-29-06-49",
+            "h.log.2026-08-29-06-46",
+            "h.log.2026-08-29-06-48",
+            "h.log.2026-08-29-06-47",
+        ];
+        assert_eq!(
+            names(sorted_log_files(newest_first.iter().map(|x| x.to_string()))),
+            vec![
+                "h.log.2026-08-29-06-46",
+                "h.log.2026-08-29-06-47",
+                "h.log.2026-08-29-06-48",
+                "h.log.2026-08-29-06-49",
+            ]
+        );
+        assert_eq!(
+            names(rotated_log_files(
+                newest_first.iter().map(|x| x.to_string())
+            )),
+            vec![
+                "h.log.2026-08-29-06-46",
+                "h.log.2026-08-29-06-47",
+                "h.log.2026-08-29-06-48",
+            ]
+        );
+    }
+
+    #[test]
+    fn drops_names_that_are_not_rotated_log_files() {
+        let files = sorted_log_files(
+            ["h.log", "not-a-log-file", "h.log.2026-08-29-06-46"]
+                .iter()
+                .map(|x| x.to_string()),
+        );
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].1, "h.log.2026-08-29-06-46");
+        assert_eq!(files[0].0.to_string(), "2026-08-29 06:46:00");
     }
 }

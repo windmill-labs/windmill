@@ -336,6 +336,27 @@ export async function getResultMaybe(jobId: string): Promise<any> {
   const workspace = getWorkspace();
   return await JobService.getCompletedJobResultMaybe({ workspace, id: jobId });
 }
+
+/**
+ * Cancel a queued or running job by ID.
+ * @param jobId - UUID of the job to cancel
+ * @param reason - Optional reason for cancellation
+ * @returns Response message from the cancel endpoint
+ */
+export async function cancelJob(
+  jobId: string,
+  reason: string | undefined = undefined
+): Promise<string> {
+  const workspace = getWorkspace();
+  return await JobService.cancelQueuedJob({
+    workspace,
+    id: jobId,
+    requestBody: {
+      reason: reason ?? "cancelled via cancelJob method",
+    },
+  });
+}
+
 const STRIP_COMMENTS =
   /(\/\/.*$)|(\/\*[\s\S]*?\*\/)|(\s*=[^,\)]*(('(?:\\'|[^'\r\n])*')|("(?:\\"|[^"\r\n])*"))|(\s*=[^,\)]*))/gm;
 function getParamNames(func: Function): string[] {
@@ -1036,15 +1057,18 @@ export async function deleteS3File(
 /**
  * Sign S3 objects to be used by anonymous users in public apps
  * @param s3objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 objects
  */
 export async function signS3Objects(
-  s3objects: S3Object[]
+  s3objects: S3Object[],
+  { expirySecs }: { expirySecs?: number } = {}
 ): Promise<S3Object[]> {
   const signedKeys = await AppService.signS3Objects({
     workspace: getWorkspace(),
     requestBody: {
       s3_objects: s3objects.map(parseS3Object),
+      expiry_secs: expirySecs,
     },
   });
   return signedKeys;
@@ -1052,10 +1076,14 @@ export async function signS3Objects(
 /**
  * Sign S3 object to be used by anonymous users in public apps
  * @param s3object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 object
  */
-export async function signS3Object(s3object: S3Object): Promise<S3Object> {
-  const [signedObject] = await signS3Objects([s3object]);
+export async function signS3Object(
+  s3object: S3Object,
+  { expirySecs }: { expirySecs?: number } = {}
+): Promise<S3Object> {
+  const [signedObject] = await signS3Objects([s3object], { expirySecs });
   return signedObject;
 }
 
@@ -1063,11 +1091,12 @@ export async function signS3Object(s3object: S3Object): Promise<S3Object> {
  * Generate a presigned public URL for an array of S3 objects.
  * If an S3 object is not signed yet, it will be signed first.
  * @param s3Objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns list of signed public URLs
  */
 export async function getPresignedS3PublicUrls(
   s3Objects: S3Object[],
-  { baseUrl }: { baseUrl?: string } = {}
+  { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}
 ): Promise<string[]> {
   baseUrl ??= getPublicBaseUrl();
 
@@ -1079,7 +1108,8 @@ export async function getPresignedS3PublicUrls(
     .filter(([s3Obj, _]) => s3Obj.presigned === undefined);
   if (s3ObjsToSign.length > 0) {
     const signedS3Objs = await signS3Objects(
-      s3ObjsToSign.map(([s3Obj, _]) => s3Obj)
+      s3ObjsToSign.map(([s3Obj, _]) => s3Obj),
+      { expirySecs }
     );
     for (let i = 0; i < s3ObjsToSign.length; i++) {
       const [_, originalIndex] = s3ObjsToSign[i];
@@ -1099,13 +1129,17 @@ export async function getPresignedS3PublicUrls(
 /**
  * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
  * @param s3Object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed public URL
  */
 export async function getPresignedS3PublicUrl(
   s3Objects: S3Object,
-  { baseUrl }: { baseUrl?: string } = {}
+  { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}
 ): Promise<string> {
-  const [s3Object] = await getPresignedS3PublicUrls([s3Objects], { baseUrl });
+  const [s3Object] = await getPresignedS3PublicUrls([s3Objects], {
+    baseUrl,
+    expirySecs,
+  });
   return s3Object;
 }
 
@@ -1648,6 +1682,33 @@ export type JsonifiedFn<T extends (...args: any[]) => Promise<any>> = (
   ...args: Parameters<T>
 ) => Promise<Jsonified<Awaited<ReturnType<T>>>>;
 
+/** Re-dispatch policy for a failed task.
+ *
+ * Every attempt is a step of its own (`fetch`, `fetch#2`, `fetch#3`), and the
+ * wait between two of them is a durable sleep, so a retrying task holds no
+ * worker while it backs off.
+ *
+ * A workflow sleeps once per round, so tasks backing off in the same fan-out
+ * wait one after another rather than together: the delay before a fan-out
+ * retries is the sum of every backoff pending in it, not the longest one, and
+ * it grows with both the width of the fan-out and `attempts`. Retries with no
+ * `delay` all go out in a single round.
+ */
+export interface TaskRetry {
+  /** Attempts after the first failure: `2` runs the task at most 3 times.
+   *  A whole number from 0 to 100; anything else is rejected where the policy
+   *  is written. */
+  attempts: number;
+  /** Seconds to wait before the first retry. Default 0, retry immediately.
+   *  Sub-second delays are dropped — a durable sleep resolves to the second. */
+  delay?: number;
+  /** Applied to the delay after each attempt: 1 (the default) keeps it
+   *  constant, 2 doubles it. */
+  multiplier?: number;
+  /** Ceiling for the delay in seconds, for a `multiplier` above 1. */
+  max_delay?: number;
+}
+
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
@@ -1656,6 +1717,48 @@ export interface TaskOptions {
   concurrency_limit?: number;
   concurrency_key?: string;
   concurrency_time_window_s?: number;
+  retry?: TaskRetry;
+}
+
+/** The worker deserializes a sleep into a `u32` of seconds and fails the whole
+ *  job on anything wider, so a delay a multiplier has run away with has to be
+ *  capped here rather than sent. */
+const MAX_SLEEP_SECONDS = 0xffffffff;
+
+/** Every attempt claims its keys before the first one is dispatched, so an
+ *  unbounded `attempts` is a workflow that hangs allocating rather than a very
+ *  patient one. */
+const MAX_RETRY_ATTEMPTS = 100;
+
+/** Rejected where the policy is written, so a workflow fails at its first line
+ *  rather than mid-run on a replay. */
+function assertUsableRetry(retry: TaskRetry | undefined): void {
+  if (retry === undefined) return;
+  const { attempts } = retry;
+  if (!Number.isInteger(attempts) || attempts < 0 || attempts > MAX_RETRY_ATTEMPTS) {
+    throw new Error(
+      `retry.attempts must be a whole number between 0 and ${MAX_RETRY_ATTEMPTS}, got ${attempts}`,
+    );
+  }
+}
+
+/** How many retries the policy asks for, defended against a value that reached
+ *  `_nextStep` without going through `assertUsableRetry`. */
+function retryAttempts(retry: TaskRetry | undefined): number {
+  const attempts = Math.trunc(retry?.attempts ?? 0) || 0;
+  return Math.min(Math.max(attempts, 0), MAX_RETRY_ATTEMPTS);
+}
+
+/** Seconds to wait before retry number `attempt` (0 is the first retry). */
+function retryDelaySeconds(retry: TaskRetry, attempt: number): number {
+  const base = retry.delay ?? 0;
+  if (!(base > 0)) return 0;
+  const grown = base * Math.pow(retry.multiplier ?? 1, attempt);
+  // Clamping against the ceiling also absorbs the `Infinity` an aggressive
+  // multiplier reaches within a few attempts. Floor, rather than round, so
+  // sub-second delays drop the same way they do in the python client.
+  const seconds = Math.floor(Math.min(retry.max_delay ?? grown, grown, MAX_SLEEP_SECONDS));
+  return seconds > 0 ? seconds : 0;
 }
 
 /** A step key travels as one path segment when its URLs are minted, so it must be
@@ -1701,6 +1804,11 @@ export class WorkflowCtx {
    *  into a `complete` — the parent would then record the caught branch's value as
    *  a successful step. Boxed: the thrown value may be any falsy value. */
   private _pendingStepFailure: { error: unknown } | null = null;
+  /** Failed tasks whose rejection nothing has consumed, by step key. An unawaited
+   *  task is still dispatched and still fails, but nothing drives the rejecting
+   *  thenable it returned. The first `.then()` on that thenable drops the entry,
+   *  so what remains is only what the body never looked at. */
+  private _unobservedTaskFailures = new Map<string, Error>();
   /** When set, the task matching this key executes its inner function directly */
   _executingKey: string | null;
   /** Serializes fast-path POSTs across concurrent step() calls within one
@@ -1743,59 +1851,104 @@ export class WorkflowCtx {
     options?: TaskOptions,
   ): PromiseLike<any> {
     this._rethrowSwallowed();
-    const key = this._allocKey(name || script || "step");
+    const stepName = name || script || "step";
+    const maxRetries = retryAttempts(options?.retry);
 
-    if (key in this.completed) {
-      const value = this.completed[key];
-      if (value && typeof value === "object" && (value as any).__wmill_error) {
-        const err = taskErrorFromMarker(value, `Task '${name}' failed`);
-        return { then: (_resolve: any, reject?: any) => { if (reject) reject(err); else throw err; } } as PromiseLike<any>;
+    // Claimed up front, all of them, and named off the first attempt's key: one
+    // allocated later would shift the keys of the steps beside it, and a
+    // `step()` named `t#2` — names are arbitrary — could alias one. Whichever is
+    // allocated second is the one renamed, identically in every round.
+    const baseKey = this._allocKey(stepName);
+    const attemptKeys = [baseKey];
+    const backoffKeys: string[] = [];
+    for (let i = 0; i < maxRetries; i++) {
+      backoffKeys.push(this._allocKey(`${baseKey}#retry${i + 2}`));
+      attemptKeys.push(this._allocKey(`${baseKey}#${i + 2}`));
+    }
+
+    // One pass per attempt. Every attempt the checkpoint already holds is
+    // decided here — a failed one either retries (moving to the next key) or is
+    // handed back to the body — so the loop always ends at the first attempt
+    // that has yet to run.
+    for (let attempt = 0; ; attempt++) {
+      const key = attemptKeys[attempt];
+
+      if (key in this.completed) {
+        const value = this.completed[key];
+        if (value && typeof value === "object" && (value as any).__wmill_error) {
+          if (attempt < maxRetries) {
+            this._retryBackoff(backoffKeys[attempt], baseKey, options!.retry!, attempt);
+            continue;
+          }
+          const err = taskErrorFromMarker(value, `Task '${name}' failed`);
+          this._unobservedTaskFailures.set(baseKey, err);
+          return { then: (_resolve: any, reject?: any) => { this._unobservedTaskFailures.delete(baseKey); if (reject) reject(err); else throw err; } } as PromiseLike<any>;
+        }
+        return { then: (resolve: any) => resolve(value) };
       }
-      return { then: (resolve: any) => resolve(value) };
-    }
 
-    // If this is a child job executing a specific step, return null to signal
-    // that the task wrapper should run the inner function directly
-    if (this._executingKey === key) {
-      return { then: (resolve: any) => resolve(null), _execute_directly: true } as any;
-    }
+      // If this is a child job executing a specific step, return null to signal
+      // that the task wrapper should run the inner function directly
+      if (this._executingKey === key) {
+        return { then: (resolve: any) => resolve(null), _execute_directly: true } as any;
+      }
 
-    // In child job mode (_executingKey is set), non-matching uncompleted steps
-    // should never resolve or throw — the matching step will throw step_complete
-    // which terminates the workflow. Returning a never-resolving thenable prevents
-    // race conditions where a non-matching step's StepSuspend fires before step_complete.
-    if (this._executingKey !== null) {
-      return { then: () => new Promise(() => {}) };
-    }
+      // In child job mode (_executingKey is set), non-matching uncompleted steps
+      // should never resolve or throw — the matching step will throw step_complete
+      // which terminates the workflow. Returning a never-resolving thenable prevents
+      // race conditions where a non-matching step's StepSuspend fires before step_complete.
+      if (this._executingKey !== null) {
+        return { then: () => new Promise(() => {}) };
+      }
 
-    const stepInfo: any = { name: name || key, script: script || key, args, key, dispatch_type };
-    if (options) {
-      if (options.timeout !== undefined) stepInfo.timeout = options.timeout;
-      if (options.tag !== undefined) stepInfo.tag = options.tag;
-      if (options.cache_ttl !== undefined) stepInfo.cache_ttl = options.cache_ttl;
-      if (options.priority !== undefined) stepInfo.priority = options.priority;
-      if (options.concurrency_limit !== undefined) stepInfo.concurrent_limit = options.concurrency_limit;
-      if (options.concurrency_key !== undefined) stepInfo.concurrency_key = options.concurrency_key;
-      if (options.concurrency_time_window_s !== undefined) stepInfo.concurrency_time_window_s = options.concurrency_time_window_s;
+      const stepInfo: any = { name: name || key, script: script || key, args, key, dispatch_type };
+      if (options) {
+        if (options.timeout !== undefined) stepInfo.timeout = options.timeout;
+        if (options.tag !== undefined) stepInfo.tag = options.tag;
+        if (options.cache_ttl !== undefined) stepInfo.cache_ttl = options.cache_ttl;
+        if (options.priority !== undefined) stepInfo.priority = options.priority;
+        if (options.concurrency_limit !== undefined) stepInfo.concurrent_limit = options.concurrency_limit;
+        if (options.concurrency_key !== undefined) stepInfo.concurrency_key = options.concurrency_key;
+        if (options.concurrency_time_window_s !== undefined) stepInfo.concurrency_time_window_s = options.concurrency_time_window_s;
+      }
+      this.pending.push(stepInfo);
+      return {
+        then: (): never => {
+          // Only the first .then() call throws with all accumulated steps.
+          // Subsequent calls (e.g. from Promise.all resolving other thenables)
+          // also throw (they'll be caught by the same handler).
+          if (this._suspended) return new Promise(() => {}) as never;
+          this._suspended = true;
+          const steps = [...this.pending];
+          this.pending = [];
+          const names = steps.map(s => s.name).join(", ");
+          console.log(`\n--- WAC: ${names} ---`);
+          this._raiseSuspend({
+            mode: steps.length > 1 ? "parallel" : "sequential",
+            steps,
+          });
+        },
+      };
     }
-    this.pending.push(stepInfo);
-    return {
-      then: (): never => {
-        // Only the first .then() call throws with all accumulated steps.
-        // Subsequent calls (e.g. from Promise.all resolving other thenables)
-        // also throw (they'll be caught by the same handler).
-        if (this._suspended) return new Promise(() => {}) as never;
-        this._suspended = true;
-        const steps = [...this.pending];
-        this.pending = [];
-        const names = steps.map(s => s.name).join(", ");
-        console.log(`\n--- WAC: ${names} ---`);
-        this._raiseSuspend({
-          mode: steps.length > 1 ? "parallel" : "sequential",
-          steps,
-        });
-      },
-    };
+  }
+
+  /** Wait out the backoff between two attempts of a retried task, as a durable
+   *  sleep, and return once there is nothing to wait for — no delay configured,
+   *  or the sleep already in the checkpoint.
+   *
+   *  Raises where it stands, the way `_sleep` does, rather than handing back a
+   *  thenable: a task call the body never awaits is still dispatched (the runner
+   *  flushes `pending`), so a backoff that only fired when awaited would drop
+   *  the retry and let the round report the workflow complete. */
+  private _retryBackoff(key: string, baseKey: string, retry: TaskRetry, attempt: number): void {
+    const seconds = retryDelaySeconds(retry, attempt);
+    if (seconds < 1) return;
+    if (key in this.completed) return;
+    // Child mode never raises: the parent dispatched this child only after its
+    // own round had slept, so the loop moves on to the attempt being executed.
+    if (this._executingKey !== null) return;
+    console.log(`\n--- WAC: sleep(${key}, ${seconds}s) before retrying ${baseKey} ---`);
+    this._raiseSuspend({ mode: "sleep", key, seconds, steps: [] });
   }
   /** Return and clear any pending (unawaited) steps. */
   _flushPending(): Array<{ name: string; script: string; args: Record<string, any>; key: string; dispatch_type: string }> {
@@ -1809,6 +1962,8 @@ export class WorkflowCtx {
     form?: object;
     selfApproval?: boolean;
     key?: string;
+    skin?: "detailed" | "minimal";
+    description?: string | object;
   }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
     this._rethrowSwallowed();
     if (options?.key !== undefined) assertUsableStepKey(options.key, "waitForApproval key");
@@ -1843,6 +1998,8 @@ export class WorkflowCtx {
       timeout: options?.timeout ?? 1800,
       form: options?.form,
       self_approval_disabled: !(options?.selfApproval ?? true),
+      skin: options?.skin,
+      description: options?.description,
       steps: [],
     });
   }
@@ -2073,6 +2230,22 @@ export class WorkflowCtx {
     this._pendingStepFailure = null;
     return f;
   }
+
+  /** Report the task failures the body never looked at, and forget them. Which
+   *  rounds may call this is the runner's constraint, stated where it is enforced. */
+  _warnUnobservedTaskFailures(): void {
+    // A child round replays the body just to reach one step, so the failures it
+    // re-registers from the checkpoint are the parent round's to report.
+    if (this._executingKey !== null) return;
+    for (const [key, err] of this._unobservedTaskFailures) {
+      // stdout, like every other `--- WAC:` marker: the two streams are merged
+      // without preserving order, so a warning on stderr floats away from them.
+      console.log(
+        `\n--- WAC: task '${key}' failed but was never awaited, so the workflow result does not reflect it: ${err.message} ---`,
+      );
+    }
+    this._unobservedTaskFailures.clear();
+  }
 }
 
 export async function sleep(seconds: number): Promise<void> {
@@ -2111,9 +2284,11 @@ export async function step<T>(
  * @example
  * const extract_data = task(async (url: string) => { ... });
  * const run_external = task("f/external_script", async (x: number) => { ... });
+ * const call_api = task(fetchOrders, { retry: { attempts: 3, delay: 30, multiplier: 2 } });
  *
  * Inside a `workflow()`, calling a task dispatches it as a step.
- * Outside a workflow, the function body executes directly.
+ * Outside a workflow, the function body executes directly and
+ * {@link TaskOptions} — retry included — does not apply.
  *
  * A task runs as its own job, so its result is always encoded as JSON and
  * decoded back before the caller sees it: a `Date` comes back as a string, a
@@ -2136,6 +2311,8 @@ export function task<T extends (...args: any[]) => Promise<any>>(
     fn = fnOrPath;
     taskOptions = maybeFnOrOptions as TaskOptions | undefined;
   }
+
+  assertUsableRetry(taskOptions?.retry);
 
   const taskName = fn.name || taskPath || "";
 
@@ -2221,6 +2398,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
  * // inside workflow: await extract({ url: "https://..." })
  */
 export function taskScript(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any> {
+  assertUsableRetry(options?.retry);
   const name = path.split("/").pop() || path;
   const wrapper = function (...args: any[]) {
     const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
@@ -2246,6 +2424,7 @@ export function taskScript(path: string, options?: TaskOptions): (...args: any[]
  * // inside workflow: await pipeline({ input: data })
  */
 export function taskFlow(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any> {
+  assertUsableRetry(options?.retry);
   const name = path.split("/").pop() || path;
   const wrapper = function (...args: any[]) {
     const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
@@ -2284,6 +2463,10 @@ export function workflow<T>(fn: (...args: any[]) => Promise<T>) {
  * resume exactly this approval — route them through your own channel. Without a
  * key the steps are named `approval`, `approval_2`, ...
  *
+ * `skin: "minimal"` shows approvers only the request (form and approve/reject)
+ * instead of the detailed page with the workflow's details. `description` is
+ * shown above the form: a string, or a rich value such as `{ markdown: "..." }`.
+ *
  * @example
  * const urls = await step("urls", () => getApprovalUrls("manager"));
  * await step("notify", () => sendEmail(urls.resume, urls.cancel));
@@ -2294,6 +2477,8 @@ export function waitForApproval(options?: {
   form?: object;
   selfApproval?: boolean;
   key?: string;
+  skin?: "detailed" | "minimal";
+  description?: string | object;
 }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
   const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
   if (!ctx) {

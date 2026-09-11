@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path FROM script WHERE on_behalf_of_email = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "84f5f871801e568bf1701342ded7a5254bfc33870a112f6e8d4477fff39e351b"
+}

@@ -21,7 +21,7 @@
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Badge, Button, Skeleton } from '$lib/components/common'
+	import { Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -327,7 +327,20 @@
 					<Skeleton layout={[[6], 0.4]} />
 				{/each}
 			{:else if !triggers?.length}
-				<div class="text-center text-sm text-primary mt-2"> No email triggers </div>
+				<EmptyState
+					icon={Mail}
+					title="No custom email triggers yet"
+					description="Every script and flow already has a canonical email trigger attached to it. These are additional parametrizable ones."
+					action={$userStore?.is_admin || $userStore?.is_super_admin
+						? {
+								label: 'Add an email trigger',
+								icon: Plus,
+								onClick: () => emailTriggerEditor?.openNew(false),
+								aiId: 'email-triggers-empty-add',
+								aiDescription: 'Add email trigger'
+							}
+						: undefined}
+				/>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_local_part, path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, marked, local_part, mode, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}

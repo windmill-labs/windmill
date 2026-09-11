@@ -50,7 +50,10 @@ RUN apt-get update && apt-get install -y clang=1:19.0* libclang-dev=1:19.0* cmak
 
 COPY ./backend/windmill-duckdb-ffi-internal .
 
+# The `duckdb` crate comes from a git dependency (a fork carrying an engine patch),
+# which cargo checks out under $CARGO_HOME/git rather than the registry cache.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     cargo build --release -p windmill_duckdb_ffi_internal
 
@@ -138,9 +141,9 @@ FROM ${DEBIAN_IMAGE}
 ARG TARGETPLATFORM
 ARG POWERSHELL_VERSION=7.5.0
 ARG KUBECTL_VERSION=1.36.2
-ARG HELM_VERSION=3.21.2
+ARG HELM_VERSION=3.21.4
 # NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
-ARG GO_VERSION=1.26.0
+ARG GO_VERSION=1.26.8
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
@@ -247,8 +250,8 @@ RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_r
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY --compile-bytecode
 
 
-RUN curl -sL https://deb.nodesource.com/setup_20.x | bash -
-RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get clean \
+RUN curl -sL https://deb.nodesource.com/setup_24.x | bash -
+RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps nodejs awscli && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # go build is slower the first time it is ran, so we prewarm it in the build
@@ -284,7 +287,7 @@ COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/t
 
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
-COPY --from=oven/bun:1.3.10 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.4.0 /usr/local/bin/bun /usr/bin/bun
 
 # Install windmill CLI
 RUN bun install -g windmill-cli \
@@ -296,7 +299,7 @@ RUN bun install -g windmill-cli \
 RUN curl -fsSL https://claude.ai/install.sh | bash \
     && cp /root/.local/share/claude/versions/* /usr/bin/claude
 
-COPY --from=php:8.3.30-cli-trixie /usr/local/bin/php /usr/bin/php
+COPY --from=php:8.3.33-cli-trixie /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.9.5 /usr/bin/composer /usr/bin/composer
 
 # add the docker client to call docker from a worker if enabled

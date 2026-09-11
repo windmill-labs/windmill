@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.asset_path AS \"from_path!\", e.parent_column AS \"from_column!\",\n                      c.asset_path AS \"to_path!\", e.child_column AS \"to_column!\",\n                      e.lineage_kind AS \"kind!\"\n                 FROM unnest($2::text[], $3::bigint[], $4::uuid[])\n                        AS o(script_path, script_hash, job_id)\n                 JOIN dbt_column_edge e ON e.workspace_id = $1\n                                       AND e.script_path = o.script_path\n                                       AND e.job_id = o.job_id\n                                       -- `=` still, with the NULL-to-NULL case\n                                       -- spelled out and gated on the pin: a\n                                       -- version-less row's hash is NULL on both\n                                       -- sides, which `=` never matches, but\n                                       -- `IS NOT DISTINCT FROM` would cost the\n                                       -- equality its index bound everywhere else.\n                                       AND (e.script_hash = o.script_hash\n                                            OR ($5::text IS NOT NULL\n                                                AND o.script_hash IS NULL\n                                                AND e.script_hash IS NULL))\n                 JOIN dbt_node p ON p.workspace_id = e.workspace_id\n                                AND p.script_path = e.script_path\n                                AND p.script_hash IS NOT DISTINCT FROM e.script_hash\n                                AND p.job_id = e.job_id\n                                AND p.unique_id = e.parent_unique_id\n                 JOIN dbt_node c ON c.workspace_id = e.workspace_id\n                                AND c.script_path = e.script_path\n                                AND c.script_hash IS NOT DISTINCT FROM e.script_hash\n                                AND c.job_id = e.job_id\n                                AND c.unique_id = e.child_unique_id\n                WHERE e.lineage_kind IN ('copy', 'mod')\n                  AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "from_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "from_column!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "to_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "to_column!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "kind!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray",
+        "Int8Array",
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "55af8c19888ddc222a0ef2db04fac8ee7e664e64a51972327875b1138f80db5d"
+}

@@ -1,10 +1,13 @@
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Value;
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use windmill_common::error::{self, Error};
+use windmill_common::scripts::ScriptLang;
 use windmill_common::DB;
+use windmill_queue::CanceledBy;
 
 // Checkpoint model + persistence primitives live in windmill-common so the
 // API server can use them without pulling in the full worker crate. Re-export
@@ -43,6 +46,10 @@ pub enum WacOutput {
         form: Option<Value>,
         #[serde(default)]
         self_approval_disabled: Option<bool>,
+        #[serde(default)]
+        skin: Option<windmill_common::flows::ApprovalSkin>,
+        #[serde(default)]
+        description: Option<Value>,
     },
     /// Server-side sleep — suspend the workflow for a duration without holding a worker.
     #[serde(rename = "sleep")]
@@ -82,6 +89,122 @@ pub struct WacStepDispatch {
 
 fn default_dispatch_type() -> String {
     "inline".to_string()
+}
+
+/// What `suspend_wac_parent` did with the parent's queue row.
+#[derive(Debug)]
+pub enum WacPark {
+    /// Parked. Carries the segment that just ended, in milliseconds, for `end_wac_segment`.
+    Parked(Option<i64>),
+    /// A cancel reached the row while this segment was running, so the park was skipped.
+    /// Carries who cancelled, for the completion that must happen instead.
+    Cancelled(CanceledBy),
+}
+
+/// Park a WAC v2 parent in the queue until `suspend` reaches 0 or `suspend_secs`
+/// elapses, whichever comes first. `running` stays true so the normal pull query
+/// skips the row; only the suspended pull query takes it back. The `id`/`workspace_id`
+/// pair is a consistency check, not an authorization one — callers must already hold
+/// the job (every one of them passes a job its own worker pulled).
+///
+/// `started_at` is cleared because the parent holds no worker while parked. The pull
+/// re-stamps it (`started_at = coalesce(started_at, now())`), and every path that
+/// completes a job without a worker-measured duration — a cancel, the child-failure
+/// handler — falls back to `now() - started_at`. Left pointing at the first segment,
+/// that fallback reports the whole sleep or approval wait as execution time.
+pub async fn suspend_wac_parent(
+    tx: &mut Transaction<'_, Postgres>,
+    job_id: &Uuid,
+    w_id: &str,
+    suspend: i32,
+    suspend_secs: f64,
+) -> error::Result<WacPark> {
+    // `FOR UPDATE` orders this against a concurrent soft cancel, which writes `suspend = 0`
+    // and leaves acting on `canceled_by` to the next pull. Parking on top of that keeps the
+    // row unpullable until `suspend_until` — up to the full `sleep()` — so a cancel already
+    // on the row has to stand the park down rather than be overwritten by it.
+    let prev = sqlx::query!(
+        "SELECT canceled_by, canceled_reason,
+                (extract(epoch FROM now() - started_at) * 1000)::bigint AS segment_ms
+         FROM v2_job_queue WHERE id = $1 AND workspace_id = $2 FOR UPDATE",
+        job_id,
+        w_id,
+    )
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("Failed to read WAC parent job {job_id}: {e}")))?
+    // Silently parking nothing is unrecoverable on the dispatch arm: the children are
+    // pushed right after and decrement a `suspend` that was never set, so the parent
+    // sits out its whole suspend window instead of resuming.
+    .ok_or_else(|| {
+        Error::internal_err(format!(
+            "WAC parent job {job_id} not in the queue of workspace {w_id} to suspend"
+        ))
+    })?;
+
+    if let Some(username) = prev.canceled_by {
+        return Ok(WacPark::Cancelled(CanceledBy {
+            username: Some(username),
+            reason: prev.canceled_reason,
+        }));
+    }
+
+    sqlx::query!(
+        "UPDATE v2_job_queue
+         SET suspend = $3, suspend_until = now() + make_interval(secs => $4), started_at = null
+         WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        w_id,
+        suspend,
+        suspend_secs,
+    )
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("Failed to suspend WAC parent job {job_id}: {e}")))?;
+
+    Ok(WacPark::Parked(prev.segment_ms))
+}
+
+/// Turn a cancel that landed mid-segment into the error the executor returns, so the job
+/// completes on this pass instead of parking. Setting the worker's `canceled_by` is what
+/// makes it land as `canceled` rather than `failure`: the row was cancelled after this
+/// worker pulled the job, so the in-memory copy still reads as uncancelled.
+///
+/// The completion charges the segment that just ended, so callers must not also hand it to
+/// `end_wac_segment`.
+pub(crate) fn wac_cancelled_mid_segment(
+    cancel: CanceledBy,
+    canceled_by: &mut Option<CanceledBy>,
+) -> Error {
+    let payload = windmill_common::worker::to_raw_value(&windmill_queue::canceled_result(
+        cancel.reason.as_deref(),
+        cancel.username.as_deref(),
+    ));
+    *canceled_by = Some(cancel);
+    Error::ExecutionRawError(payload)
+}
+
+/// Charge the execution segment a WAC parent just finished. Segments are metered as they
+/// end rather than summed at completion, so a workflow that sleeps for days is billed for
+/// the compute it used, when it used it — and the final segment is charged by the ordinary
+/// completion path.
+///
+/// Call this only where the parent really parks. On a rollback that goes on to complete
+/// the job, the completion charges the same segment and it would be billed twice.
+pub(crate) fn end_wac_segment(
+    _conn: &windmill_common::worker::Connection,
+    _job: &windmill_queue::MiniPulledJob,
+    _segment_ms: Option<i64>,
+) {
+    #[cfg(feature = "cloud")]
+    if let (windmill_common::worker::Connection::Sql(db), Some(segment_ms)) = (_conn, _segment_ms) {
+        windmill_queue::meter_execution_seconds(
+            db,
+            &_job.workspace_id,
+            &_job.permissioned_as_email,
+            segment_ms,
+        );
+    }
 }
 
 /// Parse the WAC result from result.json content.
@@ -345,4 +468,44 @@ pub fn is_wac_v2_py(code: &str) -> bool {
         }
     }
     has_wmill_import && has_workflow_decorator
+}
+
+/// Whether `content` is a workflow-as-code v2 entrypoint, for the languages whose
+/// executor routes it through the WAC runner.
+///
+/// Mirrors exactly what `handle_bun_job` / `handle_python_job` test: a language
+/// missing here (Deno) runs a WAC-shaped script as a plain `main`, so claiming it
+/// is WAC would deny it paths it uses correctly today.
+pub fn is_wac_v2(lang: Option<ScriptLang>, content: &str) -> bool {
+    match lang {
+        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => is_wac_v2_ts(content),
+        Some(ScriptLang::Python3) => is_wac_v2_py(content),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const WAC_TS: &str = r#"import { task, workflow } from "windmill-client";
+export default workflow(async function main(x: number) { return x; });"#;
+    const WAC_PY: &str = "import wmill\n@workflow\ndef main(x: int):\n    return x\n";
+
+    /// Callers use this to decide whether a script may run somewhere that only knows how
+    /// to call `main`. Widening it to a language whose executor ignores WAC (Deno) would
+    /// take that path away from scripts that use it correctly, and narrowing it would let
+    /// a workflow reach a runner that cannot run it.
+    #[test]
+    fn only_the_languages_whose_executor_runs_wac_report_it() {
+        assert!(is_wac_v2(Some(ScriptLang::Bun), WAC_TS));
+        assert!(is_wac_v2(Some(ScriptLang::Bunnative), WAC_TS));
+        assert!(is_wac_v2(Some(ScriptLang::Python3), WAC_PY));
+        assert!(!is_wac_v2(Some(ScriptLang::Deno), WAC_TS));
+        assert!(!is_wac_v2(None, WAC_TS));
+        assert!(!is_wac_v2(
+            Some(ScriptLang::Bun),
+            "export async function main() {}"
+        ));
+    }
 }

@@ -173,7 +173,9 @@
 </script>
 
 <div>
-	<div class="p-4 rounded-md mb-6 min-w-min bg-surface-tertiary">
+	<!-- Stays bounded by the panel width: a content-driven width (min-w-min) would let a long
+	     scope chip stretch this card and push the rest of the form out of view. -->
+	<div class="p-4 rounded-md mb-6 bg-surface-tertiary">
 		<h3 class="pb-2 font-semibold text-emphasis text-sm">{title}</h3>
 
 		{#if showMcpMode && !mcpOnly}
@@ -285,7 +287,9 @@
 							{ label: '1 day', value: 1 * 24 * 60 * 60 },
 							{ label: '7 days', value: 7 * 24 * 60 * 60 },
 							{ label: '30 days', value: 30 * 24 * 60 * 60 },
-							{ label: '90 days', value: 90 * 24 * 60 * 60 }
+							{ label: '90 days', value: 90 * 24 * 60 * 60 },
+							{ label: '180 days', value: 180 * 24 * 60 * 60 },
+							{ label: '365 days', value: 365 * 24 * 60 * 60 }
 						]}
 					/>
 				</div>

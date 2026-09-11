@@ -77,8 +77,14 @@
 	import { twMerge } from 'tailwind-merge'
 	import CiTestResults from '$lib/components/CiTestResults.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import {
+		buildForkEditUrl,
+		editInForkAllowed,
+		editInForkLabel,
+		onEditInForkClick
+	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import { agentStreamingEnabled } from '$lib/components/flows/agentFormFields'
 
 	let flow: Flow | undefined = $state()
 	let can_write = $state(false)
@@ -316,9 +322,11 @@
 				label: editInForkLabel($workspaceStore, $userWorkspaces),
 				buttonProps: {
 					href: buildForkEditUrl('flow', flow.path),
+					onClick: (e: Event | undefined) =>
+						onEditInForkClick(e, 'flow', flow.path, { hasHref: true }),
 					unifiedSize: 'md',
 					variant: !showEditButtons ? 'default' : 'subtle',
-					startIcon: GitFork
+					startIcon: Pen
 				}
 			})
 		}
@@ -518,11 +526,8 @@
 	let shouldUseStreaming = $derived.by(() => {
 		const modules = flow?.value?.modules
 		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		return (
-			lastModule?.value?.type === 'aiagent' &&
-			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
-			lastModule?.value?.input_transforms?.streaming?.value === true
-		)
+		if (lastModule?.value?.type !== 'aiagent') return false
+		return agentStreamingEnabled(lastModule.value)
 	})
 </script>
 
@@ -725,9 +730,6 @@
 													rightTooltip: 'Fill args from JSON'
 												}}
 												lightMode
-												on:change={(e) => {
-													runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-												}}
 											/>
 										{/if}
 									</div>
@@ -740,6 +742,7 @@
 											goto(`/flows/edit/${flow?.path}`)
 										}}
 										runnableType="flow"
+										path={flow?.path}
 									/>
 								{/if}
 
@@ -809,7 +812,7 @@
 				const nargs = JSON.parse(JSON.stringify(e.detail))
 				args = nargs
 				if (jsonView) {
-					runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+					runForm?.syncJsonEditor()
 				}
 			}}
 		/>

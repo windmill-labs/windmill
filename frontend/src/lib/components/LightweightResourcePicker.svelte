@@ -8,6 +8,8 @@
 	import type { AppViewerContext } from './apps/types'
 	import { sendUserToast } from '$lib/toast'
 	import Select from './select/Select.svelte'
+	import IconedResourceType from './IconedResourceType.svelte'
+	import { addResourceTitle } from './resourceTypeDisplay'
 
 	interface Props {
 		value: string | undefined
@@ -103,11 +105,16 @@
 {:else}
 	<Drawer bind:this={drawer} size="800px">
 		<DrawerContent
-			title="Add a resource"
+			title={addResourceTitle(resourceType)}
 			on:close={drawer.closeDrawer}
 			tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
 			documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"
 		>
+			{#snippet titleExtra()}
+				{#if resourceType}
+					<IconedResourceType name={resourceType} silent width="20px" height="20px" />
+				{/if}
+			{/snippet}
 			{#await import('./AppConnectLightweightResourcePicker.svelte')}
 				<Loader2 class="animate-spin" />
 			{:then Module}

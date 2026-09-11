@@ -1,5 +1,6 @@
 import type { ButtonType } from './common/button/model'
 import { z } from 'zod'
+import { instanceBannerFormError } from './instanceBanner'
 import { writable } from 'svelte/store'
 
 /**
@@ -30,6 +31,10 @@ export interface Setting {
 	placeholder?: string
 	cloudonly?: boolean
 	ee_only?: string
+	/** Ceiling a `seconds` field enforces on a build without a license, when CE genuinely caps
+	 * the value. Not implied by `ee_only`: a setting can be EE-badged because the feature it
+	 * configures is EE while the value itself has the same range on either edition. */
+	ceMaxSeconds?: number
 	tooltip?: string
 	key: string
 	// If value is not specified for first element, it will automatcally use undefined
@@ -64,6 +69,7 @@ export interface Setting {
 		| 'webhook_base_url'
 		| 'ws_connectivity'
 		| 'retention_overrides'
+		| 'instance_banner'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -233,6 +239,19 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
+			label: 'Announcement banner',
+			description:
+				'Message shown above every page of the instance, for maintenance windows and incidents.',
+			key: 'instance_banner',
+			fieldType: 'instance_banner',
+			storage: 'setting',
+			// The banner only renders on the managed cloud, so only offer it there.
+			cloudonly: true,
+			hideInQuickSetup: true,
+			// Gates Save. The card renders the specific message itself, so no `error` here.
+			isValid: (value: any) => instanceBannerFormError(value) == undefined
+		},
+		{
 			label: 'Non-prod instance',
 			description:
 				'Whether we should consider the reported usage of this instance as non-prod. <a href="https://www.windmill.dev/docs/advanced/instance_settings#non-prod-instance">Learn more</a>',
@@ -283,6 +302,8 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: '30',
 			storage: 'setting',
 			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
+			// Mirrors CE_MAX_RETENTION_PERIOD_SECS, which the backend clamps to on write.
+			ceMaxSeconds: 60 * 60 * 24 * 30,
 			cloudonly: false
 		},
 		{
@@ -534,6 +555,27 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Auto-build binaries on deployment',
+			description:
+				'When enabled and instance object storage is configured, deploying a Rust, Go or C# script queues a job that compiles it and uploads the binary to object storage, so the first run does not pay the compile. Requires instance object storage: without it the binary would only reach the building worker. Does nothing for languages whose artifact is not cached in object storage.',
+			key: 'auto_build_binary_on_deploy',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Auto-build worker tag',
+			description:
+				'Worker tag the auto-build jobs run on. Leave empty to use the script language tag, where its dependency job already runs. Set it to pin builds to a pool that has the toolchain and matches the platform of your runtime workers — the cache key includes the OS and architecture, so a binary built elsewhere is never reused. Note that compiling runs script-author-controlled build steps (Cargo build scripts, MSBuild targets, cgo) with exactly the isolation the cold build of a first run has — nsjail for Rust when job isolation is on, none for the Go and C# compilers — so this pool now executes them at deploy time rather than at first run.',
+			key: 'auto_build_binary_tag',
+			fieldType: 'text',
+			placeholder: 'e.g. build',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
 		}
 	],
 	'Private Hub': [
@@ -635,6 +677,16 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'text',
 			placeholder: 'okta',
 			storage: 'setting'
+		},
+		{
+			label: 'SSO groups claim',
+			description:
+				'Name of the SAML attribute or OIDC userinfo claim carrying the user\'s IdP groups ("http://schemas.microsoft.com/ws/2008/06/identity/claims/groups" on Entra SAML, "groups" for most OIDC providers). Its values must be the same group ids that SCIM stored as the instance groups\' external id (Entra emits object ids in both), since matching is by external id only. When set, every SSO login reconciles the user\'s membership in those SCIM-provisioned instance groups against the claim, so IdP group changes take effect at the next login instead of waiting for the SCIM push. Instance groups without an external id are never touched, and a login whose claim is absent or empty changes nothing. Leave empty to disable.',
+			key: 'sso_groups_claim',
+			fieldType: 'text',
+			placeholder: 'groups',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	'DB Health': [],
@@ -894,6 +946,15 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'Mute zombie job restart alerts',
+			description:
+				'Stop sending critical alerts when a zombie job or flow is detected and automatically restarted. Jobs that exhaust all their restart attempts, and flows cancelled after hanging between steps, keep alerting.',
+			key: 'critical_alert_mute_zombie_job_restart',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'Slack',
 			key: 'slack',
 			fieldType: 'slack_connect',
@@ -942,6 +1003,24 @@ export const settings: Record<string, Setting[]> = {
 			defaultValue: () => ({ enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] })
 		},
 		{
+			label: 'HTTP Request Tracing retention in secs',
+			key: 'otel_traces_retention_secs',
+			description:
+				'How long a captured HTTP request span is kept in the database, and therefore how far back the job details view can show a job its requests. Independent of the job retention period, so a span may outlive its job or be swept while the job remains. Defaults to 7 days. Leave it empty for the default.',
+			fieldType: 'seconds',
+			storage: 'setting',
+			cloudonly: false,
+			// Badged EE because only the EE proxy captures spans, but deliberately no
+			// `ceMaxSeconds`: a CE build still sweeps rows an EE-era instance left behind, and
+			// the backend accepts the same range on either edition.
+			ee_only: 'HTTP Request Tracing is an EE feature',
+			error:
+				'HTTP Request Tracing retention must be between 1 second and 100 years, leave it empty for the default',
+			isValid: (value: any) =>
+				value == undefined ||
+				(typeof value === 'number' && value > 0 && value <= 60 * 60 * 24 * 365 * 100)
+		},
+		{
 			label: 'Prometheus',
 			description:
 				'Expose Prometheus metrics for workers and servers on port 8001 at /metrics. <a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#expose-metrics">Learn more</a>',
@@ -952,6 +1031,23 @@ export const settings: Record<string, Setting[]> = {
 			triggersRestart: true
 		}
 	],
+	'Service logs': [
+		{
+			label: 'Retention in secs',
+			key: 'service_log_retention_secs',
+			description:
+				'How long a service log is kept, across every copy of it: the entry in the database, the file on the disk of the process that wrote it, and — once instance object storage is configured and the indexer has ingested it — its line in the columnar store that search and the log viewer read. Search reaches back at most this far, and less when the indexer time window under Indexer is shorter. Defaults to 14 days. There is no keep-forever setting here — leave it empty for the default.',
+			fieldType: 'seconds',
+			storage: 'setting',
+			cloudonly: false,
+			error:
+				'Service log retention must be between 1 second and 100 years — leave it empty for the default',
+			isValid: (value: any) =>
+				value == undefined ||
+				(typeof value === 'number' && value > 0 && value <= 60 * 60 * 24 * 365 * 100)
+		}
+	],
+
 	Indexer: [
 		{
 			label: '',
@@ -984,9 +1080,11 @@ export const settings: Record<string, Setting[]> = {
 	],
 	'GitHub App': [
 		{
-			label: 'GitHub App',
+			// The category header above already names the section; this labels the
+			// card that holds the app credentials, next to the webhook base url one.
+			label: 'App configuration',
 			description:
-				'Configure a self-managed GitHub App to enable git sync without stats.windmill.dev.',
+				'Use your own GitHub App instead of the Windmill-managed one on stats.windmill.dev.',
 			key: 'github_enterprise_app',
 			fieldType: 'github_enterprise_app',
 			storage: 'setting',
@@ -1142,6 +1240,12 @@ export const instanceSettingsNavigationGroups = [
 				isEE: true
 			},
 			{
+				id: 'service_logs',
+				label: 'Service logs',
+				aiId: 'instance-settings-service-logs',
+				aiDescription: 'Service log retention settings'
+			},
+			{
 				id: 'indexer',
 				label: 'Indexer',
 				aiId: 'instance-settings-indexer',
@@ -1224,6 +1328,7 @@ export const tabToCategoryMap: Record<string, string> = {
 	webhooks: 'Webhooks',
 	otel_prom: 'OTEL/Prom',
 	indexer: 'Indexer',
+	service_logs: 'Service logs',
 	telemetry: 'Telemetry',
 	secret_storage: 'Secret Storage',
 	object_storage: 'Object Storage',
@@ -1259,6 +1364,7 @@ export const categoryToTabMap: Record<string, string> = {
 	Webhooks: 'webhooks',
 	'OTEL/Prom': 'otel_prom',
 	Indexer: 'indexer',
+	'Service logs': 'service_logs',
 	Telemetry: 'telemetry',
 	'Secret Storage': 'secret_storage',
 	'Object Storage': 'object_storage',
@@ -1291,6 +1397,13 @@ export function extractMarkedLabel(marked: string | undefined, labelLength: numb
 		if (marked[markedIdx] === '<') {
 			while (markedIdx < marked.length && marked[markedIdx] !== '>') markedIdx++
 			markedIdx++
+		} else if (marked[markedIdx] === '&') {
+			// SearchItems escapes the haystack, so one plain character can arrive
+			// as an entity. Skipping the whole entity keeps this offset walk in
+			// step with `labelLength`, which counts unescaped characters.
+			const end = marked.indexOf(';', markedIdx)
+			markedIdx = end === -1 ? markedIdx + 1 : end + 1
+			plainIdx++
 		} else {
 			plainIdx++
 			markedIdx++

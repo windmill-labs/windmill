@@ -147,14 +147,17 @@ pub fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
     Ok(())
 }
 
-/// Two-tier cache load: check local disk first, then fall back to instance object store.
+/// Two-tier cache load: check local disk first, then fall back to the shared object store.
+///
+/// "Shared" is the worker group's own store when its config overrides one, the instance store
+/// otherwise — see [`windmill_object_store::get_cache_object_store`].
 /// Returns `(hit, log_message)`.
 pub async fn load_cache(bin_path: &str, _remote_path: &str, is_dir: bool) -> (bool, String) {
     if tokio::fs::metadata(&bin_path).await.is_ok() {
         (true, format!("loaded from local cache: {}\n", bin_path))
     } else {
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(os) = windmill_object_store::get_object_store().await {
+        if let Some(os) = windmill_object_store::get_cache_object_store().await {
             let started = std::time::Instant::now();
 
             if let Ok(mut x) = windmill_object_store::attempt_fetch_bytes(os, _remote_path).await {
@@ -200,13 +203,61 @@ pub async fn load_cache(bin_path: &str, _remote_path: &str, is_dir: bool) -> (bo
     }
 }
 
-/// Check whether a binary/bundle exists in local cache or instance object store.
+/// Whether this worker can push to the shared object store at all — the features are
+/// compiled in and a store is loaded. False on builds without them, where `save_cache`
+/// only ever writes to the worker's own disk.
+pub async fn object_store_available() -> bool {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    {
+        windmill_object_store::get_cache_object_store()
+            .await
+            .is_some()
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+    {
+        false
+    }
+}
+
+/// Whether a binary/bundle is in the shared object store, ignoring the local cache.
+///
+/// The deploy-time prebuild asks this rather than [`exists_in_cache`]: a copy on the
+/// building worker's own disk is exactly the state the prebuild exists to fix, so
+/// answering from it would latch a failed upload into a permanent skip.
+pub async fn exists_in_object_store(_remote_path: &str) -> bool {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if let Some(os) = windmill_object_store::get_cache_object_store().await {
+        return os
+            .head(&windmill_object_store::object_store_reexports::Path::from(
+                _remote_path,
+            ))
+            .await
+            .is_ok();
+    }
+    false
+}
+
+/// Fail a deploy-time prebuild whose artifact never reached the object store. `save_cache`
+/// logs and swallows a failed upload, which is right for a run that has the binary locally
+/// anyway — but for a prebuild the upload *is* the result, and a silent miss would be
+/// latched by the next build's existence check.
+pub async fn ensure_pushed_to_object_store(remote_path: &str) -> error::Result<()> {
+    if exists_in_object_store(remote_path).await {
+        return Ok(());
+    }
+    Err(error::Error::ExecutionErr(format!(
+        "the binary was built but did not reach the object store at {remote_path}, \
+         so no other worker can load it"
+    )))
+}
+
+/// Check whether a binary/bundle exists in local cache or the shared object store.
 pub async fn exists_in_cache(bin_path: &str, _remote_path: &str) -> bool {
     if tokio::fs::metadata(&bin_path).await.is_ok() {
         return true;
     } else {
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(os) = windmill_object_store::get_object_store().await {
+        if let Some(os) = windmill_object_store::get_cache_object_store().await {
             return os
                 .get(&windmill_object_store::object_store_reexports::Path::from(
                     _remote_path,
@@ -218,7 +269,7 @@ pub async fn exists_in_cache(bin_path: &str, _remote_path: &str) -> bool {
     }
 }
 
-/// Two-tier cache write: upload to instance object store, then copy to local disk.
+/// Two-tier cache write: upload to the shared object store, then copy to local disk.
 pub async fn save_cache(
     local_cache_path: &str,
     _remote_cache_path: &str,
@@ -229,7 +280,7 @@ pub async fn save_cache(
 
     let mut _cached_to_s3 = false;
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    if let Some(os) = windmill_object_store::get_object_store().await {
+    if let Some(os) = windmill_object_store::get_cache_object_store().await {
         use windmill_object_store::object_store_reexports::Path;
         let file_to_cache = if is_dir {
             let tar_path = format!(

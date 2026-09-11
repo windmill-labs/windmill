@@ -4,7 +4,7 @@ import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { Table } from "@cliffy/table";
 import * as log from "../../core/log.ts";
-import { dirname, sep as SEP } from "node:path";
+import { dirname, sep as SEP, resolve as pathResolve } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import { readTextFile, validateRequiredArgs } from "../../utils/utils.ts";
@@ -13,14 +13,24 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { buildFolderPath, getMetadataFileName, loadNonDottedPathsSetting } from "../../utils/resource_folders.ts";
 
 import { requireLogin } from "../../core/auth.ts";
-import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import {
+  assertRemotePath,
+  resolveWorkspace,
+  toSyncRootRelativePath,
+  validatePath,
+} from "../../core/context.ts";
 import { resolve, track_job, pollForJobResult } from "../script/script.ts";
 import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
-import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
+import {
+  SyncOptions,
+  mergeConfigWithConfigFile,
+  readEffectiveSyncBehavior,
+} from "../../core/conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
 import { Flow } from "../../../gen/types.gen.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import {
   collectPathScriptPaths,
   replaceInlineScripts,
@@ -322,10 +332,20 @@ async function push(opts: Options & { message?: string }, filePath: string, remo
   if (!validatePath(remotePath)) {
     return;
   }
+  // Reading the config moves the cwd to the wmill.yaml root when it sits in a
+  // parent directory, so pin the file against the invocation cwd first.
+  filePath = pathResolve(filePath);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  const syncBehavior = await readEffectiveSyncBehavior(opts, workspace);
 
-  await pushFlow(workspace.workspaceId, remotePath, filePath, opts.message);
+  await pushFlow(
+    workspace.workspaceId,
+    remotePath,
+    filePath,
+    opts.message,
+    await buildPermissionedAsContext(workspace.workspaceId, syncBehavior)
+  );
   log.info(colors.bold.underline.green("Flow pushed"));
 }
 
@@ -605,12 +625,17 @@ async function preview(
     log.setSilent(true);
   }
   const useLocalPathScripts = !opts.remote;
+  // Captured before the config read, which chdirs to the wmill.yaml root.
+  const cwdBeforeConfig = process.cwd();
   if (useLocalPathScripts) {
     opts = await mergeConfigWithConfigFile(opts);
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const codebases = useLocalPathScripts ? listSyncCodebases(opts) : [];
+
+  const argPath = flowPath;
+  flowPath = toSyncRootRelativePath(flowPath, cwdBeforeConfig);
 
   // Normalize path - ensure it's a directory path to a .flow or __flow folder
   const isFlowDir = flowPath.endsWith(".flow") || flowPath.endsWith(".flow" + SEP)
@@ -632,6 +657,14 @@ async function preview(
   if (!flowPath.endsWith(SEP)) {
     flowPath += SEP;
   }
+
+  // The flow's windmill path (e.g. "f/cli_smoke/myrelflow"). It is what the
+  // preview job runs under, and the anchor for relative-import resolution:
+  // inline scripts in this flow are treated as living at
+  // "<flow_wm_path>/<step_id>", so "./util" resolves to
+  // "<flow_wm_path_parent>/util" — matching the keys in temp_script_refs.
+  const flowWmPath = stripFlowSuffix(flowPath).replaceAll(SEP, "/");
+  assertRemotePath(flowWmPath, argPath);
 
   // Read and parse the flow definition
   const localFlow = (await yamlParseFile(flowPath + "flow.yaml")) as FlowFile;
@@ -703,12 +736,6 @@ async function preview(
   // too — PathScript modules have already been rewritten to inline rawscript
   // when `useLocalPathScripts` is set, and tempScriptRefs covers relative
   // imports in inline scripts.
-  // Compute the flow's windmill path (e.g. "f/cli_smoke/myrelflow"). Used as
-  // the anchor for relative-import resolution: inline scripts in this flow are
-  // treated as living at "<flow_wm_path>/<step_id>", so "./util" resolves to
-  // "<flow_wm_path_parent>/util" — matching the keys in temp_script_refs.
-  const flowWmPath = stripFlowSuffix(flowPath).replaceAll(SEP, "/");
-
   if (opts.step) {
     await previewStep(opts.step, localFlow, flowWmPath, workspace, input, tempScriptRefs, opts.silent, opts.tag);
     return;
@@ -1132,7 +1159,7 @@ const command = new Command()
   .arguments("<path:string>")
   .option(
     "-d --data <data:string>",
-    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path."
   )
   .option(
     "-s --silent",
@@ -1150,7 +1177,7 @@ const command = new Command()
   .arguments("<flow_path:string>")
   .option(
     "-d --data <data:string>",
-    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path."
   )
   .option(
     "-s --silent",

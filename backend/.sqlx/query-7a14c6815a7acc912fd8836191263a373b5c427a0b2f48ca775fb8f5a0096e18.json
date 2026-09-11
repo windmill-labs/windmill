@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO eval_case\n                    (workspace_id, dataset_path, input, expected, created_by, created_at)\n                 VALUES ($1, $2, $3, $4, $5, clock_timestamp())\n                 RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Jsonb",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7a14c6815a7acc912fd8836191263a373b5c427a0b2f48ca775fb8f5a0096e18"
+}

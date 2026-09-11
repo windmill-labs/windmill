@@ -246,6 +246,34 @@ A caught failure reads the same whether it came from a task or from a `step()`, 
 Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getApprovalUrls, getResumeUrls, parallel } from "windmill-client"`
 
 ```typescript
+/**
+ * Re-dispatch policy for a failed task.
+ *
+ * Every attempt is a step of its own (`fetch`, `fetch#2`, `fetch#3`), and the
+ * wait between two of them is a durable sleep, so a retrying task holds no
+ * worker while it backs off.
+ *
+ * A workflow sleeps once per round, so tasks backing off in the same fan-out
+ * wait one after another rather than together: the delay before a fan-out
+ * retries is the sum of every backoff pending in it, not the longest one, and
+ * it grows with both the width of the fan-out and `attempts`. Retries with no
+ * `delay` all go out in a single round.
+ */
+export interface TaskRetry {
+  /** Attempts after the first failure: `2` runs the task at most 3 times.
+  *  A whole number from 0 to 100; anything else is rejected where the policy
+  *  is written. */
+  attempts: number;
+  /** Seconds to wait before the first retry. Default 0, retry immediately.
+  *  Sub-second delays are dropped — a durable sleep resolves to the second. */
+  delay?: number;
+  /** Applied to the delay after each attempt: 1 (the default) keeps it
+  *  constant, 2 doubles it. */
+  multiplier?: number;
+  /** Ceiling for the delay in seconds, for a `multiplier` above 1. */
+  max_delay?: number;
+}
+
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
@@ -254,6 +282,7 @@ export interface TaskOptions {
   concurrency_limit?: number;
   concurrency_key?: string;
   concurrency_time_window_s?: number;
+  retry?: TaskRetry;
 }
 
 /**
@@ -271,9 +300,11 @@ export async function getResumeUrls(approver?: string, flowLevel?: boolean): Pro
  * @example
  * const extract_data = task(async (url: string) => { ... });
  * const run_external = task("f/external_script", async (x: number) => { ... });
+ * const call_api = task(fetchOrders, { retry: { attempts: 3, delay: 30, multiplier: 2 } });
  *
  * Inside a `workflow()`, calling a task dispatches it as a step.
- * Outside a workflow, the function body executes directly.
+ * Outside a workflow, the function body executes directly and
+ * {@link TaskOptions} — retry included — does not apply.
  *
  * A task runs as its own job, so its result is always encoded as JSON and
  * decoded back before the caller sees it: a `Date` comes back as a string, a
@@ -329,12 +360,16 @@ export async function sleep(seconds: number): Promise<void>
  * resume exactly this approval — route them through your own channel. Without a
  * key the steps are named `approval`, `approval_2`, ...
  *
+ * `skin: "minimal"` shows approvers only the request (form and approve/reject)
+ * instead of the detailed page with the workflow's details. `description` is
+ * shown above the form: a string, or a rich value such as `{ markdown: "..." }`.
+ *
  * @example
  * const urls = await step("urls", () => getApprovalUrls("manager"));
  * await step("notify", () => sendEmail(urls.resume, urls.cancel));
  * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
-export function waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+export function waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; skin?: "detailed" | "minimal"; description?: string | object; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
 
 /**
  * Resume/cancel/approval-page URLs bound to one `waitForApproval` step.
@@ -417,6 +452,22 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 # decoded back before the caller sees it: a ``datetime`` comes back as a
 # string, a tuple as a list.
 #
+# ``retry`` re-dispatches the task after a failure, inside ``@workflow`` only.
+# Every attempt is a step of its own (``call_api``, ``call_api#2``, ...) and
+# the wait between two of them is a durable sleep, so a retrying task holds no
+# worker while it backs off. Keys: ``attempts`` (retries after the first
+# failure, a whole number from 0 to 100), ``delay`` (seconds before the first
+# retry, sub-second delays dropped), ``multiplier`` (applied to the delay
+# after each attempt, 1 keeps it constant), ``max_delay`` (ceiling in
+# seconds). ``attempts`` is required, and an out-of-range or unknown key is
+# rejected where the policy is written.
+#
+# A workflow sleeps once per round, so tasks backing off in the same fan-out
+# wait one after another rather than together: the delay before a fan-out
+# retries is the sum of every backoff pending in it, not the longest one, and
+# it grows with both the width of the fan-out and ``attempts``. Retries with
+# no ``delay`` all go out in a single round.
+#
 # Usage::
 #
 #     @task
@@ -424,9 +475,14 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 #
 #     @task(path="f/external_script", timeout=600, tag="gpu")
 #     async def run_external(x: int): ...
-def task(_func = None, *, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+#
+#     @task(retry={"attempts": 3, "delay": 30, "multiplier": 2})
+#     async def call_api(payload: dict): ...
+def task(_func = None, *, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill script.
+#
+# ``retry`` takes the same policy as :func:`task`.
 #
 # Usage::
 #
@@ -435,9 +491,11 @@ def task(_func = None, *, path: Optional[str] = None, tag: Optional[str] = None,
 #     @workflow
 #     async def main():
 #         data = await extract(url="https://...")
-def task_script(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+def task_script(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill flow.
+#
+# ``retry`` takes the same policy as :func:`task`.
 #
 # Usage::
 #
@@ -446,7 +504,7 @@ def task_script(path: str, *, timeout: Optional[int] = None, tag: Optional[str] 
 #     @workflow
 #     async def main():
 #         result = await pipeline(input=data)
-def task_flow(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+def task_flow(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Decorator marking an async function as a workflow-as-code entry point.
 #
@@ -487,13 +545,17 @@ async def sleep(seconds: int)
 #     form: Optional form schema for the approval page.
 #     self_approval: Whether the user who triggered the flow can approve it (default True).
 #     key: Optional checkpoint key naming this approval step.
+#     skin: ``"minimal"`` shows approvers only the request (form and approve/reject)
+#         instead of the detailed page with the workflow's details.
+#     description: Shown to approvers above the form: a string, or a rich value such as
+#         ``{"markdown": "..."}``.
 #
 # Example::
 #
 #     urls = await step("urls", lambda: get_approval_urls("manager"))
 #     await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
 #     result = await wait_for_approval(key="manager", timeout=3600)
-async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None) -> dict
+async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None, skin: Literal['detailed', 'minimal'] | None = None, description: str | dict | None = None) -> dict
 
 # Get the resume/cancel/approval-page URLs bound to one ``wait_for_approval`` step.
 #

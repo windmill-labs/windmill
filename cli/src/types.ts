@@ -35,6 +35,7 @@ import {
   buildFolderPath,
   isScriptModulePath,
 } from "./utils/resource_folders.ts";
+import { isSharedLockPath } from "./utils/script_common.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -188,6 +189,8 @@ export interface PushObjOptions {
   keyPushOpts?: PushWorkspaceKeyOptions;
   /** TypeScript runtime a bare `.ts` denotes, for raw-app runnables */
   defaultTs?: "bun" | "deno";
+  /** schedule push into a fork: the file's `enabled` is the parent's */
+  enabledOwnedByParent?: boolean;
 }
 
 /**
@@ -216,6 +219,7 @@ export async function pushObj(
     wsSpecific,
     keyPushOpts,
     defaultTs,
+    enabledOwnedByParent,
   } = opts;
   const typeEnding = getTypeStrFromPath(p);
 
@@ -230,7 +234,7 @@ export async function pushObj(
     if (!rawAppName) {
       throw new Error(`Could not extract raw app name from path: ${p}`);
     }
-    await pushRawApp(workspace, rawAppName, buildFolderPath(rawAppName, "raw_app"), message, defaultTs);
+    await pushRawApp(workspace, rawAppName, buildFolderPath(rawAppName, "raw_app"), message, defaultTs, permissionedAsContext);
   } else if (typeEnding === "folder") {
     await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
@@ -244,12 +248,12 @@ export async function pushObj(
   } else if (typeEnding === "resource") {
     if (!alreadySynced.includes(p)) {
       alreadySynced.push(p);
-      await pushResource(workspace, p, befObj, newObj, originalLocalPath || p, wsSpecific);
+      await pushResource(workspace, p, befObj, newObj, originalLocalPath || p, wsSpecific, true);
     }
   } else if (typeEnding === "resource-type") {
     await pushResourceType(workspace, p, befObj, newObj);
   } else if (typeEnding === "schedule") {
-    await pushSchedule(workspace, p, befObj, newObj, permissionedAsContext);
+    await pushSchedule(workspace, p, befObj, newObj, permissionedAsContext, enabledOwnedByParent);
   } else if (typeEnding === "http_trigger") {
     await pushTrigger("http", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "websocket_trigger") {
@@ -366,6 +370,7 @@ export function getTypeStrFromPath(
   | "group"
   | "settings"
   | "encryption_key"
+  | "shared_lock"
   | "workspace_dependencies" {
   if (isDatatableMigrationPath(p)) {
     return "datatable_migration";
@@ -381,6 +386,10 @@ export function getTypeStrFromPath(
   }
   if (isRawAppPath(p)) {
     return "raw_app";
+  }
+  // A repo-side artifact of `dedupeLockfiles`: it has no object on the server.
+  if (isSharedLockPath(p)) {
+    return "shared_lock";
   }
   if (p.startsWith("dependencies" + SEP)) {
     return "workspace_dependencies";

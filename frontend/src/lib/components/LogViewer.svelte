@@ -367,7 +367,9 @@
 			>
 				{#if isLoading}
 					<div class="flex gap-2 items-center">
-						<Loader2 class="animate-spin" />
+						<!-- Same size as the Timer icon this swaps out for: an unsized (24px) spinner makes
+						     this header taller than the settled state and shoves the logs down while queued -->
+						<Loader2 size={small ? 10 : 12} class="animate-spin" />
 						{#if tag}
 							<div class="flex flex-row items-center gap-1">
 								<div class="text-secondary text-2xs">{tagLabel ?? 'tag'}: {tag}</div>

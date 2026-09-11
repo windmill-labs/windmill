@@ -36,7 +36,7 @@
 <Popover
 	bind:this={popover}
 	portal={portalTarget()}
-	contentClasses="p-2 max-w-lg h-[400px] !resize bg-surface"
+	contentClasses="p-2 max-w-lg h-[480px] bg-surface"
 	class="inline-block"
 	usePointerDownOutside
 	floatingConfig={{

@@ -25,16 +25,20 @@ jobs:
               REMAINDER_FIRST_LINE=${FIRST_LINE#"$FIRST_WORD"}
               REMAINDER_FIRST_LINE=${REMAINDER_FIRST_LINE# }
               REST=$(printf '%s' "$BODY" | tail -n +2)
+              # The value is the comment body, which anyone can write. A fixed delimiter lets a
+              # comment close the block early and have the rest of itself read as further step
+              # outputs, so the delimiter has to be unguessable.
+              delimiter="EXTRA_EOF_$(openssl rand -hex 16)"
               {
                 echo "command=$COMMAND"
-                echo 'extra_prompt<<EXTRA_EOF'
+                echo "extra_prompt<<$delimiter"
                 if [ -n "$REMAINDER_FIRST_LINE" ]; then
                   printf '%s\n' "$REMAINDER_FIRST_LINE"
                 fi
                 if [ -n "$REST" ]; then
                   printf '%s\n' "$REST"
                 fi
-                echo 'EXTRA_EOF'
+                echo "$delimiter"
               } >> "$GITHUB_OUTPUT"
               ;;
             *)

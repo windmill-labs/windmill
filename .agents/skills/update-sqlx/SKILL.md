@@ -28,8 +28,10 @@ delete only those.
 1. **Back the cache up.** `prepare` deletes `.sqlx/` *before* regenerating, so any compile
    failure leaves it gutted (observed: 2350 → 142 entries).
    ```bash
-   cp -r backend/.sqlx /tmp/sqlx_backup    # restore with: rm -rf backend/.sqlx && cp -r /tmp/sqlx_backup backend/.sqlx
+   bash .agents/skills/update-sqlx/sqlx-cache.sh backup
    ```
+   Its state is per-worktree, so a sibling worktree running `prepare` at the same time
+   cannot overwrite your backup.
 2. **Point `DATABASE_URL` at THIS worktree's database.** `prepare` compiles every
    `sqlx::query!` against the **live** database. Another worktree's DB lacks your
    migrations, so every new-table query fails and takes the cache down with it. The
@@ -52,24 +54,21 @@ Do not fight it — the abort is a pre-existing EE gap, not something your chang
 Take the entries you need and put the backup back:
 
 ```bash
-cd backend
-cp -r .sqlx /tmp/sqlx_backup
-ls /tmp/sqlx_backup | sort > /tmp/before.txt
+bash .agents/skills/update-sqlx/sqlx-cache.sh backup
 
+cd backend
 DATABASE_URL=<this worktree's db> \
   cargo sqlx prepare --workspace -- --workspace --features all_sqlx_features --all-targets
 # expected to fail; it still wrote the entries it got to before dying
+cd ..
 
-ls .sqlx | sort > /tmp/after.txt
-mkdir -p /tmp/newq
-comm -13 /tmp/before.txt /tmp/after.txt | while read f; do cp ".sqlx/$f" /tmp/newq/; done
-
-rm -rf .sqlx && cp -r /tmp/sqlx_backup .sqlx && cp /tmp/newq/*.json .sqlx/
+bash .agents/skills/update-sqlx/sqlx-cache.sh newq      # prints each added query
+bash .agents/skills/update-sqlx/sqlx-cache.sh restore   # backup back, added entries grafted on
 ```
 
-**Read every file in `/tmp/newq` before copying it in** — print each one's `query` field and
-confirm it is one of yours. The set is small (one per new test query), and anything else in
-there means the run got further than you think.
+**Read what `newq` prints before running `restore`** — it shows each added entry's `query`
+field, and every one should be yours. The set is small (one per new test query); anything
+else in there means the run got further than you think.
 
 Then verify both targets, since the lib passing says nothing about the tests:
 

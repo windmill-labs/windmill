@@ -19,6 +19,76 @@ INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, sc
     ARRAY['jobs:read', 'if_jobs:filter_tags:deno']
 );
 
+-- A path-scoped run token for test-user-2, as the trigger UI mints per runnable for a
+-- webhook caller. test-user-2 created every job this token is asserted against, so the
+-- `created_by` grant would otherwise hand it all of them; it must reach only jobs of
+-- `f/shared/flow1`.
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES (
+    encode(sha256('RUN_SCOPED_TOKEN'::bytea), 'hex'), 'RUN_SCOPE', 'RUN_SCOPED_TOKEN',
+    'test2@windmill.dev', 'flow webhook token', false,
+    ARRAY['jobs:run:flows:f/shared/flow1']
+);
+
+-- Same, scoped to a script. The two jobs below both run through a `singlestepflow`
+-- wrapper (native retry / scheduled runs produce these) — one wrapping a script, one
+-- wrapping a flow — so the confinement has to project each onto the runnable it wraps
+-- rather than onto the wrapper's own `kind`.
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES (
+    encode(sha256('RUN_SCOPED_SCRIPT_TOKEN'::bytea), 'hex'), 'RUN_SCRIP', 'RUN_SCOPED_SCRIPT_TOKEN',
+    'test2@windmill.dev', 'script webhook token', false,
+    ARRAY['jobs:run:scripts:u/test-user-2/wrapped_script']
+);
+
+INSERT INTO public.v2_job (
+    id, workspace_id, created_by, created_at, permissioned_as, permissioned_as_email,
+    kind, script_lang, runnable_path, tag, visible_to_owner, raw_flow
+) VALUES (
+    '14141414-1414-1414-1414-141414141414', 'test-workspace', 'test-user-2',
+    '2023-01-01 00:00:00', 'u/test-user-2', 'test2@windmill.dev',
+    'singlestepflow', 'deno', 'u/test-user-2/wrapped_script', 'deno', true,
+    '{"modules": [{"id": "a", "value": {"type": "script", "path": "u/test-user-2/wrapped_script"}}]}'
+);
+INSERT INTO public.v2_job_completed (id, workspace_id, duration_ms, status, result) VALUES
+    ('14141414-1414-1414-1414-141414141414', 'test-workspace', 1000, 'success'::job_status,
+     '{"wrapped": "WRAPPED_RESULT"}');
+
+INSERT INTO public.v2_job (
+    id, workspace_id, created_by, created_at, permissioned_as, permissioned_as_email,
+    kind, script_lang, runnable_path, tag, visible_to_owner, raw_flow
+) VALUES (
+    '15151515-1515-1515-1515-151515151515', 'test-workspace', 'test-user-2',
+    '2023-01-01 00:00:00', 'u/test-user-2', 'test2@windmill.dev',
+    'singlestepflow', 'deno', 'f/shared/flow1', 'flow', true,
+    '{"modules": [{"id": "a", "value": {"type": "flow", "path": "f/shared/flow1"}}]}'
+);
+INSERT INTO public.v2_job_completed (id, workspace_id, duration_ms, status, result) VALUES
+    ('15151515-1515-1515-1515-151515151515', 'test-workspace', 1000, 'success'::job_status,
+     '{"wrapped": "WRAPPED_FLOW_RESULT"}');
+
+-- A token pairing an app scope with a run scope, as someone driving an app's components
+-- programmatically would build. `APP_INLINE_JOB` is an inline-script component run: no
+-- `jobs:run` scope can name its kind, so only the `apps:run` half puts it in reach.
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES (
+    encode(sha256('APP_RUNNER_TOKEN'::bytea), 'hex'), 'APP_RUNNE', 'APP_RUNNER_TOKEN',
+    'test2@windmill.dev', 'app runner token', false,
+    ARRAY['apps:run:u/test-user-2/dash', 'jobs:run:scripts:u/test-user-2/wrapped_script']
+);
+
+-- An inline-script component run of app `u/test-user-2/dash`, stamped with the
+-- app provenance `execute_component` sets (`trigger_kind = 'app'`).
+INSERT INTO public.v2_job (
+    id, workspace_id, created_by, created_at, permissioned_as, permissioned_as_email,
+    kind, script_lang, runnable_path, tag, visible_to_owner, trigger_kind, trigger, args
+) VALUES (
+    '16161616-1616-1616-1616-161616161616', 'test-workspace', 'test-user-2',
+    '2023-01-01 00:00:00', 'u/test-user-2', 'test2@windmill.dev',
+    'appscript', 'deno', NULL, 'deno', false, 'app', 'u/test-user-2/dash',
+    '{"component": "arg"}'
+);
+INSERT INTO public.v2_job_completed (id, workspace_id, duration_ms, status, result) VALUES
+    ('16161616-1616-1616-1616-161616161616', 'test-workspace', 1000, 'success'::job_status,
+     '{"inline": "APP_INLINE_RESULT"}');
+
 -- App embed token for the admin viewer (test-user). Mirrors a minted sandboxed
 -- low-code app token: carries the `app_embed` sentinel plus the embed scope set.
 -- Used to assert the token is confined to jobs the viewer LAUNCHED, not every job

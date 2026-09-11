@@ -49,6 +49,10 @@ export class MessageDraft {
 		)
 	}
 
+	get hasAttachments(): boolean {
+		return this.images.length > 0 || this.files.length > 0
+	}
+
 	/** Files joining a draft always fold (dedupe by source identity, courtesy
 	 * rename) and respect the slot cap. `byteBudget`, when given, admits the
 	 * folded entries by their decoded size — the fold must run first because

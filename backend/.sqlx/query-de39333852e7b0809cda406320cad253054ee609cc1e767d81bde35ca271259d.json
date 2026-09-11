@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO app (workspace_id, path, summary, policy, versions)\n             VALUES ('test-workspace', $1, 'original', $2, '{}')\n             RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "de39333852e7b0809cda406320cad253054ee609cc1e767d81bde35ca271259d"
+}

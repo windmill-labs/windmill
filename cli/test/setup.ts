@@ -10,6 +10,12 @@
  *    bear the startup cost inside their per-test timeout window.
  */
 
+// esbuild's node API pins the cwd it spawns its service with to process.cwd() at
+// module import, and test files chdir into temp dirs they later delete. Import it
+// here, from a cwd that outlives the run, or the first file to bundle pins the
+// service to a directory that stops existing and every later build fails ENOENT.
+import "esbuild";
+
 if (process.env["UNIT_ONLY"]) {
   // Nothing to do — unit tests don't need backend setup
 } else {

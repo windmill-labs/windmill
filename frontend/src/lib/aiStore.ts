@@ -3,7 +3,13 @@
 // import aiStore back, and such a cycle crashes the app once the bundler splits it across
 // chunks (docs/frontend-import-cycles.md; the build fails on the chunk cycle, not on this).
 import { writable, get } from 'svelte/store'
-import { type AIProviderModel, type AIProvider, type AIConfig } from './gen'
+import {
+	type AIProviderModel,
+	type AIProvider,
+	type AIConfig,
+	type FreeTierInfo,
+	type ModelPriceOverride
+} from './gen'
 import {
 	aiUserDisabled,
 	COPILOT_SESSION_MODEL_SETTING_NAME,
@@ -35,21 +41,33 @@ export const copilotSessionModel = writable<ReasoningProviderModel | undefined>(
 
 export const copilotInfo = writable<{
 	enabled: boolean
+	// The workspace hid the assistant (`ai_config.copilot_disabled`). `enabled` is then false
+	// whatever the providers say, and the AI entry points that nudge "configure AI" when
+	// `enabled` is off render nothing at all instead.
+	workspaceDisabled: boolean
 	codeCompletionModel?: AIProviderModel
 	defaultModel?: AIProviderModel
 	metadataModel?: AIProviderModel
 	aiModels: AIProviderModel[]
 	customPrompts?: Record<string, string>
 	maxTokensPerModel?: Record<string, number>
+	/** Negotiated rates per `provider:model`, overriding the built-in price table. */
+	modelPricing?: Record<string, ModelPriceOverride>
 	webSearchEnabledProviders?: Partial<Record<AIProvider, boolean>>
+	// Set only when the workspace has no AI provider of its own and is running on
+	// Windmill's free tier. `exhausted` means the grant is spent: there is no model, but
+	// that is a different state from "never configured" and the UI must say so.
+	freeTier?: FreeTierInfo
 }>({
 	enabled: false,
+	workspaceDisabled: false,
 	codeCompletionModel: undefined,
 	defaultModel: undefined,
 	metadataModel: undefined,
 	aiModels: [],
 	customPrompts: {},
 	maxTokensPerModel: {},
+	modelPricing: {},
 	webSearchEnabledProviders: {}
 })
 
@@ -58,7 +76,7 @@ export const copilotInfo = writable<{
 aiUserDisabled.subscribe((disabled) => {
 	copilotInfo.update((info) => ({
 		...info,
-		enabled: info.aiModels.length > 0 && !disabled
+		enabled: info.aiModels.length > 0 && !disabled && !info.workspaceDisabled
 	}))
 })
 
@@ -113,9 +131,11 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			return model
 		})
 
+		const workspaceDisabled = aiConfig.copilot_disabled === true
 		copilotInfo.set({
-			// Providers are configured; the per-user opt-out is the only thing that can gate it off.
-			enabled: !get(aiUserDisabled),
+			// Providers are configured; only the workspace or per-user opt-outs can gate it off.
+			enabled: !workspaceDisabled && !get(aiUserDisabled),
+			workspaceDisabled,
 			// Strip the deprecated /thinking suffix from the configured model slots too,
 			// otherwise a workspace whose default still carries it sends an invalid model id.
 			codeCompletionModel: stripModelSuffix(aiConfig.code_completion_model),
@@ -124,20 +144,27 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			aiModels: aiModels,
 			customPrompts: aiConfig.custom_prompts ?? {},
 			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {},
-			webSearchEnabledProviders
+			webSearchEnabledProviders,
+			modelPricing: aiConfig.model_pricing ?? {},
+			freeTier: aiConfig.free_tier
 		})
 	} else {
 		copilotSessionModel.set(undefined)
 
 		copilotInfo.set({
 			enabled: false,
+			workspaceDisabled: aiConfig.copilot_disabled === true,
 			codeCompletionModel: undefined,
 			defaultModel: undefined,
 			metadataModel: undefined,
 			aiModels: [],
 			customPrompts: {},
 			maxTokensPerModel: {},
-			webSearchEnabledProviders: {}
+			webSearchEnabledProviders: {},
+			modelPricing: {},
+			// An exhausted free grant lands here — no providers, but the reason AI is off
+			// is "you used it up", not "you never set it up".
+			freeTier: aiConfig.free_tier
 		})
 	}
 }

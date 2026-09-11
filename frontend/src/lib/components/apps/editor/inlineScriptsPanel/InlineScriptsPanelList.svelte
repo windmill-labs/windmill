@@ -7,10 +7,6 @@
 	import { getAllScriptNames } from '../../utils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import { getAppScripts } from './utils'
-	import AppTutorials from '$lib/components/AppTutorials.svelte'
-	import { tutorialsToDo } from '$lib/stores'
-	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
-	import { tutorialInProgress } from '$lib/tutorialUtils'
 	import DocLink from '../settingsPanel/DocLink.svelte'
 	import HideButton from '../settingsPanel/HideButton.svelte'
 	import { BG_PREFIX } from '../appUtilsCore'
@@ -37,10 +33,6 @@
 	}
 
 	function createBackgroundScript() {
-		if ($tutorialsToDo.includes(5) && !$ignoredTutorials?.includes(5) && !tutorialInProgress()) {
-			appTutorials?.runTutorialById('backgroundrunnables', { skipStepsCount: 2 })
-		}
-
 		for (const [index, script] of $app.hiddenInlineScripts.entries()) {
 			if (script.hidden) {
 				delete script.hidden
@@ -75,7 +67,6 @@
 		selectScript(`${BG_PREFIX}${$app.hiddenInlineScripts.length - 1}`)
 	}
 
-	let appTutorials: AppTutorials | undefined = $state(undefined)
 	const dispatch = createEventDispatcher()
 	let runnables = $derived(getAppScripts($app.grid, $app.subgrids))
 	// When selected component changes, update selectedScriptComponentId
@@ -248,5 +239,3 @@
 		</div>
 	</div>
 </PanelSection>
-
-<AppTutorials bind:this={appTutorials} on:reload />

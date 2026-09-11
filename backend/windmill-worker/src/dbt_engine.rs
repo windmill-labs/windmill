@@ -28,6 +28,14 @@ use crate::handle_child::{get_mem_peak, run_future_with_polling_update_job_polle
 
 lazy_static::lazy_static! {
     pub static ref DBT_CACHE_DIR: String = format!("{}dbt", *ROOT_CACHE_NOMOUNT_DIR);
+    /// Adapters an operator vouches for beyond `PUBLISHED_ADAPTERS`, comma-separated — so a
+    /// brand-new adapter needs an admin's decision, not a Windmill release.
+    static ref DBT_EXTRA_ADAPTERS: Vec<String> = std::env::var("DBT_EXTRA_ADAPTERS")
+        .unwrap_or_default()
+        .split(',')
+        .map(|a| a.trim().to_ascii_lowercase())
+        .filter(|a| !a.is_empty())
+        .collect();
     /// Where an operator may pre-stage an Apache-2.0 engine in a derived image.
     /// A persistent image path, unlike the runtime caches, which are a fresh
     /// volume at start — which is the whole reason it is a separate directory.
@@ -141,6 +149,36 @@ fn checked_version<'a>(v: Option<&'a str>, field: &str) -> error::Result<Option<
     Ok(v)
 }
 
+/// dbt adapters whose package this worker installs unasked. A PUBLISHED-PACKAGE list, not a
+/// capability one: an adapter absent from it still renders a profile and still runs under an
+/// engine that already carries it. See `ensure_adapter_installable`.
+const PUBLISHED_ADAPTERS: &[&str] = &[
+    "athena", "clickhouse", "databricks", "decodable", "doris", "dremio", "duckdb", "exasol",
+    "extrica", "fabric", "fabricspark", "firebolt", "glue", "greenplum", "hive", "ibmdb2",
+    "impala", "materialize", "mysql", "oracle", "postgres", "redshift", "risingwave", "rockset",
+    "singlestore", "snowflake", "spark", "sqlite", "sqlserver", "starrocks", "synapse", "teradata",
+    "tidb", "trino", "vertica", "yellowbrick",
+];
+
+/// Refuse to install a package nobody vouched for. `dbt-<name>` comes from an adapter name a
+/// SCRIPT AUTHOR chooses, `dbt-` is not a reserved PyPI prefix, and this install runs outside
+/// the nsjail ordinary dependency installation uses — so an unbounded name would run a PEP
+/// 517 backend as the worker. The admin decides what is trusted, via `DBT_EXTRA_ADAPTERS`.
+fn ensure_adapter_installable(adapter: &DbtAdapter) -> error::Result<()> {
+    let name = adapter.name();
+    if adapter.known().is_some()
+        || PUBLISHED_ADAPTERS.contains(&name)
+        || DBT_EXTRA_ADAPTERS.iter().any(|a| a == name)
+    {
+        return Ok(());
+    }
+    Err(Error::BadRequest(format!(
+        "`{name}` is not an adapter this instance installs: the dbt-core 1.x engine would have \
+         to fetch `dbt-{name}` from PyPI, and `dbt-` is not a reserved name there. An admin adds \
+         it to DBT_EXTRA_ADAPTERS, or use an engine that ships its adapters (`engine: fusion`)"
+    )))
+}
+
 /// A uv venv per (dbt version, adapter): the adapter is a separate pip package
 /// and installing every adapter into one venv would make their transitive
 /// dependency sets fight.
@@ -153,6 +191,7 @@ async fn provision_core_1x(
     conn: &Connection,
     ctx: &mut JobCtx<'_>,
 ) -> error::Result<ProvisionedEngine> {
+    ensure_adapter_installable(&adapter)?;
     if adapter.pip_package().is_empty() {
         return Err(Error::BadRequest(format!(
             "the {} adapter has no dbt-core 1.x package: it exists only inside the Fusion \
@@ -722,6 +761,7 @@ async fn run_tool(
 #[cfg(test)]
 mod core1x_tests {
     use super::*;
+    use crate::dbt_profiles::KnownAdapter;
 
     // Several adapters cap dbt-core below what this runtime would ask for
     // (dbt-mysql ~=1.7, dbt-oracle and dbt-databricks below 1.12) and
@@ -729,8 +769,8 @@ mod core1x_tests {
     // those projects fail at provisioning. The install names a ceiling instead.
     #[test]
     fn every_adapter_either_names_a_package_or_is_fusion_only() {
-        for a in DbtAdapter::ALL {
-            if matches!(a, DbtAdapter::Salesforce) {
+        for a in KnownAdapter::ALL {
+            if matches!(a, KnownAdapter::Salesforce) {
                 continue;
             }
             assert!(
@@ -740,8 +780,21 @@ mod core1x_tests {
             );
         }
         // Fusion has it built in, and there is no package to install.
-        assert!(DbtAdapter::Salesforce.pip_package().is_empty());
-        assert_eq!(DbtAdapter::Salesforce.name(), "salesforce");
+        assert!(KnownAdapter::Salesforce.pip_package().is_empty());
+        assert_eq!(KnownAdapter::Salesforce.name(), "salesforce");
+    }
+
+    // `dbt-` is not a reserved prefix on PyPI and this install is not sandboxed,
+    // so the name a script author picks decides which package runs its build
+    // backend as the worker.
+    #[test]
+    fn an_unvouched_adapter_is_not_installed() {
+        let known = DbtAdapter::from_dbt_type("postgres").unwrap();
+        assert!(ensure_adapter_installable(&known).is_ok());
+        let published = DbtAdapter::from_dbt_type("trino").unwrap();
+        assert!(ensure_adapter_installable(&published).is_ok());
+        let squatted = DbtAdapter::from_dbt_type("totally-legit-adapter").unwrap();
+        assert!(ensure_adapter_installable(&squatted).is_err());
     }
 
     /// A preview submits its own lockfile, so this string reaches a path join

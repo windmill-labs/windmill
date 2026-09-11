@@ -1,6 +1,7 @@
 import { get } from 'svelte/store'
 import { OpenAPI } from '$lib/gen'
-import { workspaceStore } from '$lib/stores'
+import { hubBaseUrlKnown, hubBaseUrlStore, workspaceStore } from '$lib/stores'
+import { DEFAULT_HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
 
 // Anonymous product-usage counters (e.g. AI session activity), batched into the
 // backend `feature_usage` accumulator. Only aggregated counts ever leave the
@@ -134,4 +135,86 @@ if (typeof document !== 'undefined') {
  */
 export function logFeatureUsage(feature: string, kind: string, opts: FeatureUsageOpts = {}): void {
 	buffer.log(feature, kind, opts)
+}
+
+/**
+ * Record a hub script the user or the AI settled on.
+ *
+ * Takes the structured fields the hub API returned rather than a
+ * `hub/<version>/<app>/<slug>` path. A path stored in a flow is workspace-authored
+ * text that nothing validates against the hub, so its segments could hold any name
+ * a user wrote; these fields came from the hub itself and are safe to report.
+ *
+ * `considered` rather than `picked` for the AI: the AI pulls a handful of
+ * candidates' content before choosing between them, and nothing downstream records
+ * which one it went on to use.
+ *
+ * A script from a private hub is still the customer's own content, so at or above
+ * `PRIVATE_HUB_MIN_VERSION` only the fact that one was used is recorded.
+ */
+export function logHubScriptPick(
+	script: { version_id: number; app: string; summary: string },
+	origin: 'picker' | 'ai'
+): void {
+	logFeatureUsage('hub_script', origin === 'ai' ? 'considered_ai' : 'picked', {
+		key: hubScriptUsageKey(script)
+	})
+}
+
+const PRIVATE_HUB_KEY = 'private'
+
+/** Lowercase, with every run of other characters collapsed to a single `_`. */
+function slugify(value: string): string {
+	return value
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '_')
+		.replace(/^_+|_+$/g, '')
+}
+
+export function hubScriptUsageKey(script: {
+	version_id: number
+	app: string
+	summary: string
+}): string {
+	if (!Number.isInteger(script.version_id) || script.version_id >= PRIVATE_HUB_MIN_VERSION) {
+		return PRIVATE_HUB_KEY
+	}
+	// Slugified rather than shape-checked: hub summaries carry commas, apostrophes
+	// and parentheses, and rejecting those would file real public scripts under
+	// `private` and undercount exactly the integrations this is meant to surface.
+	const app = slugify(script.app)
+	const summary = slugify(script.summary)
+	if (!app) return PRIVATE_HUB_KEY
+	return (summary ? `${app}/${summary}` : app).slice(0, 100)
+}
+
+/**
+ * A hub project's slug is only reportable when it names something on the public hub. An
+ * instance pointed at its own hub imports its own projects, whose names are the customer's
+ * content — the same reason `hubScriptUsageKey` collapses a private script to `private`,
+ * and what the disclosure means by "the name of any public hub project".
+ *
+ * Compared by host, so the port, scheme and trailing slash an operator may have typed do
+ * not decide it. Anything unparseable, and anything not yet read, answers private.
+ */
+export function hubProjectUsageKey(slug: string): string {
+	// `hubBaseUrlKnown` and not the URL alone: the store is seeded with the public hub, so an
+	// instance whose setting could not be read would otherwise report its own project names.
+	if (!get(hubBaseUrlKnown) || !isPublicHub(get(hubBaseUrlStore))) return PRIVATE_HUB_KEY
+	return slug.slice(0, 100)
+}
+
+function isPublicHub(hub: string): boolean {
+	const host = (url: string): string | undefined => {
+		try {
+			const parsed = new URL(url.trim())
+			return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+				? parsed.hostname.replace(/\.$/, '').toLowerCase()
+				: undefined
+		} catch {
+			return undefined
+		}
+	}
+	const configured = host(hub)
+	return configured !== undefined && configured === host(DEFAULT_HUB_BASE_URL)
 }

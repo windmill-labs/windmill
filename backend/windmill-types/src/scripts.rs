@@ -16,7 +16,7 @@ use crate::{
     runnable_settings::{ConcurrencySettings, DebouncingSettings},
 };
 
-#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ScriptModule {
     pub content: String,
     pub language: ScriptLang,
@@ -612,6 +612,7 @@ impl Hash for NewScript {
         self.priority.hash(state);
         self.timeout.hash(state);
         self.delete_after_use.hash(state);
+        self.delete_after_secs.hash(state);
         self.restart_unless_cancelled.hash(state);
         self.deployment_message.hash(state);
         self.visible_to_runner_only.hash(state);

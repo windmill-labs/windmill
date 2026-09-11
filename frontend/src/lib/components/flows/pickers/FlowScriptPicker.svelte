@@ -32,9 +32,6 @@
 				<LanguageIcon {lang} />
 			{/if}
 			<span class="text-xs">{label}</span>
-			{#if lang === 'claudesandbox'}
-				<span class="text-primary !text-xs">(new)</span>
-			{/if}
 		</div>
 	</Button>
 	{#snippet text()}

@@ -197,6 +197,20 @@ describe('Anthropic Messages API routing', () => {
 		expect(headers['X-Resource-Path']).toBe('u/admin/foundry')
 	})
 
+	it('raises the Claude output budget only from Opus 4.5 on', async () => {
+		const { getModelMaxTokens } = await import('./lib')
+		// 4.5+ matches Sonnet's budget...
+		for (const model of ['claude-opus-4-5', 'claude-opus-4-8', 'claude-opus-5']) {
+			expect(getModelMaxTokens('anthropic', model)).toBe(64000)
+		}
+		expect(getModelMaxTokens('openrouter', 'anthropic/claude-opus-4.5')).toBe(64000)
+		expect(getModelMaxTokens('aws_bedrock', 'anthropic.claude-opus-4-5-20251101-v1:0')).toBe(64000)
+		// ...while Opus 4.1 and older cap at 32K and must not be raised.
+		expect(getModelMaxTokens('anthropic', 'claude-opus-4-1')).toBe(32000)
+		expect(getModelMaxTokens('aws_bedrock', 'anthropic.claude-opus-4-1-20250805-v1:0')).toBe(32000)
+		expect(getModelMaxTokens('aws_bedrock', 'anthropic.claude-opus-4-20250514-v1:0')).toBe(32000)
+	})
+
 	it('caps max_tokens for metadata completions so the Anthropic SDK stays non-streaming', async () => {
 		const { getNonStreamingCompletion, getNonStreamingMetadataCompletion, METADATA_MAX_TOKENS } =
 			await import('./lib')
@@ -259,25 +273,31 @@ describe('OpenRouter prompt caching', () => {
 		{ role: 'tool', tool_call_id: 't1', content: 'tool output' }
 	]
 
-	it('breaks on the system prompt and the newest user turn for Anthropic models', async () => {
-		const { getCompletion } = await import('./lib')
-		h.currentModel = { provider: 'openrouter', model: 'anthropic/claude-sonnet-5' }
+	// The `~` form is OpenRouter's own floating alias for the same vendor, so it has
+	// to reach the same gate — a prefix match on the raw id silently misses it and
+	// puts the chat back on full price every turn.
+	it.each(['anthropic/claude-sonnet-5', '~anthropic/claude-sonnet-latest'])(
+		'breaks on the system prompt and the newest user turn for %s',
+		async (model) => {
+			const { getCompletion } = await import('./lib')
+			h.currentModel = { provider: 'openrouter', model }
 
-		await getCompletion([...conversation], new AbortController(), undefined, {
-			promptCaching: true
-		})
+			await getCompletion([...conversation], new AbortController(), undefined, {
+				promptCaching: true
+			})
 
-		const sent = openaiCreate.mock.calls[0][0].messages
-		const ephemeral = { type: 'ephemeral' }
-		expect(sent[0].content).toEqual([
-			{ type: 'text', text: 'system prompt', cache_control: ephemeral }
-		])
-		expect(sent[1].content).toEqual([{ type: 'text', text: 'first', cache_control: ephemeral }])
-		expect(sent[3].content).toBe('tool output')
-		// The chat replays this same history through the Anthropic path, which rejects
-		// unknown fields on its own blocks, so the originals must come back untouched.
-		expect(conversation[0].content).toBe('system prompt')
-	})
+			const sent = openaiCreate.mock.calls[0][0].messages
+			const ephemeral = { type: 'ephemeral' }
+			expect(sent[0].content).toEqual([
+				{ type: 'text', text: 'system prompt', cache_control: ephemeral }
+			])
+			expect(sent[1].content).toEqual([{ type: 'text', text: 'first', cache_control: ephemeral }])
+			expect(sent[3].content).toBe('tool output')
+			// The chat replays this same history through the Anthropic path, which rejects
+			// unknown fields on its own blocks, so the originals must come back untouched.
+			expect(conversation[0].content).toBe('system prompt')
+		}
+	)
 
 	it('leaves other OpenRouter upstreams alone', async () => {
 		const { getCompletion } = await import('./lib')

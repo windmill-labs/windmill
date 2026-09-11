@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT (\n                    SELECT elem\n                    FROM jsonb_array_elements(git_credentials) AS elem\n                    WHERE elem->>'repo_identity' = $2\n                )\n                FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "elem",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f3a27f7781d986d9917a7022e1118313f0434758413dbf83f8575d09de98fc25"
+}

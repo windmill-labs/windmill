@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT 'schedule' AS \"kind!\", COUNT(*)::BIGINT AS \"count!\" FROM schedule\n        UNION ALL SELECT 'http', COUNT(*)::BIGINT FROM http_trigger\n        UNION ALL SELECT 'websocket', COUNT(*)::BIGINT FROM websocket_trigger\n        UNION ALL SELECT 'kafka', COUNT(*)::BIGINT FROM kafka_trigger\n        UNION ALL SELECT 'nats', COUNT(*)::BIGINT FROM nats_trigger\n        UNION ALL SELECT 'postgres', COUNT(*)::BIGINT FROM postgres_trigger\n        UNION ALL SELECT 'mqtt', COUNT(*)::BIGINT FROM mqtt_trigger\n        UNION ALL SELECT 'sqs', COUNT(*)::BIGINT FROM sqs_trigger\n        UNION ALL SELECT 'gcp', COUNT(*)::BIGINT FROM gcp_trigger\n        UNION ALL SELECT 'azure', COUNT(*)::BIGINT FROM azure_trigger\n        UNION ALL SELECT 'amqp', COUNT(*)::BIGINT FROM amqp_trigger\n        UNION ALL SELECT 'email', COUNT(*)::BIGINT FROM email_trigger\n        -- Grouped, not a single 'native' key: these fire as nextcloud/google/github,\n        -- so a lone key would not line up with the `trigger`/`fired` series.\n        UNION ALL SELECT service_name::text, COUNT(*)::BIGINT FROM native_trigger GROUP BY service_name\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "1d346a14ad5586af347b8e7ac413500a39efa20e4915ffa56fd40537597db36e"
+}

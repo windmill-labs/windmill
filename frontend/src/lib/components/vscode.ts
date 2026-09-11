@@ -1,6 +1,6 @@
 import '@codingame/monaco-vscode-standalone-typescript-language-features'
 
-import { editor as meditor, Uri as mUri } from 'monaco-editor'
+import { editor as meditor, KeyCode, KeyMod, Uri as mUri } from 'monaco-editor'
 import { getAppliedDarkModeVariant } from '$lib/darkModeVariant'
 
 export let isInitialized = false
@@ -157,6 +157,15 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 			await apiWrapper.start()
 
 			isInitialized = true
+
+			// vscode-api ships VS Code's keybindings, including Ctrl/Cmd+Shift+S
+			// (Save As) which has no meaning here. Left bound, every Monaco
+			// instance swallows the shortcut and the browser/OS one never fires.
+			meditor.addKeybindingRule({
+				keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyS,
+				command: null
+			})
+
 			meditor.defineTheme('nord', {
 				base: 'vs-dark',
 				inherit: true,

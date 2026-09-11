@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.ordinal, c.job_id AS \"job_id!\", d.status::text AS status,\n                (j.id IS NOT NULL) AS \"job_exists!\"\n         FROM eval_experiment_case c\n         LEFT JOIN v2_job j ON j.id = c.job_id AND j.workspace_id = $2\n         LEFT JOIN v2_job_completed d ON d.id = c.job_id AND d.workspace_id = $2\n         WHERE c.experiment_id = $1 AND c.job_id IS NOT NULL AND c.status IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ordinal",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "job_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "job_exists!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "e72d71852b6c5998b8d46407d164fcee17400a0ffc172d2a257c3fc15617fbd9"
+}

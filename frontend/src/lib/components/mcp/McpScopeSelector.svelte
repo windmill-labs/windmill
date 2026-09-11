@@ -8,6 +8,13 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { FlowService, FolderService, IntegrationService, ScriptService } from '$lib/gen'
 	import { mcpEndpointTools } from '$lib/mcpEndpointTools'
+	import {
+		endpointPathPolicy,
+		isEndpointExposed,
+		matchesAnyPattern,
+		parseMcpScopeState,
+		pruneEndpointSelection
+	} from '$lib/components/mcp/endpointScopePolicy'
 	import InfoIcon from 'lucide-svelte/icons/info'
 	import { SvelteMap } from 'svelte/reactivity'
 
@@ -32,12 +39,16 @@
 		readOnly ? mcpEndpointTools.filter((e) => e.method === 'GET') : mcpEndpointTools
 	)
 
-	// When read-only flips on, prune already-selected non-GET endpoints so the
-	// scope string doesn't keep references to tools the server will reject.
+	// Endpoints the "API Endpoints" list actually governs. The run-by-path tools
+	// are gated by the script/flow selection instead, so listing them here would
+	// offer a checkbox the server ignores; they get their own section.
+	const selectableEndpointTools = $derived(
+		visibleEndpointTools.filter((e) => endpointPathPolicy(e.name)?.kind !== 'runByPath')
+	)
+
 	$effect(() => {
-		if (!readOnly || selectedEndpoints.length === 0) return
-		const allowed = new Set(visibleEndpointTools.map((e) => e.name))
-		const filtered = selectedEndpoints.filter((n) => allowed.has(n))
+		if (selectedEndpoints.length === 0) return
+		const filtered = pruneEndpointSelection(selectedEndpoints, readOnly)
 		if (filtered.length !== selectedEndpoints.length) {
 			selectedEndpoints = filtered
 		}
@@ -169,8 +180,10 @@
 		}
 	}
 
-	// Compute scope string from selections
-	$effect(() => {
+	// Compute scope string from selections. Derived rather than assigned straight
+	// to `scope` so the exposure previews below can read it in the same pass as
+	// the selection that changed it.
+	const computedScope = $derived.by(() => {
 		let scopeParts: string[] = []
 
 		if (selectedMode === 'custom') {
@@ -206,7 +219,11 @@
 			scopeParts.push(`mcp:hub:${newMcpApps.join(',')}`)
 		}
 
-		scope = scopeParts.join(' ')
+		return scopeParts.join(' ')
+	})
+
+	$effect(() => {
+		scope = computedScope
 	})
 
 	// Clear pattern inputs when not in custom scope
@@ -444,21 +461,6 @@
 	let exposedScriptCount = $state<number | undefined>(undefined)
 	let exposedFlowCount = $state<number | undefined>(undefined)
 
-	// Mirror the backend's is_resource_allowed: `*`, an exact path, or an `x/*`
-	// subtree (matching the folder itself or anything beneath it).
-	function matchesAnyPattern(path: string, patterns: string[]): boolean {
-		for (const p of patterns) {
-			if (p === '*' || p === path) return true
-			if (p.endsWith('/*')) {
-				const prefix = p.slice(0, -2)
-				if (path === prefix || (path.startsWith(prefix) && path[prefix.length] === '/')) {
-					return true
-				}
-			}
-		}
-		return false
-	}
-
 	// Custom-mode counts are computed synchronously from the already-loaded
 	// allScripts/allFlows plus the current selections/patterns — no extra fetch.
 	$effect(() => {
@@ -485,6 +487,39 @@
 		return `This scope matches ${parts.join(' and ')}. Only the ${MCP_TOOL_FETCH_LIMIT} most recent of each type are exposed as MCP tools; the rest are omitted. Narrow the scope to avoid overloading the assistant's context.`
 	})
 
+	// Parsed from the emitted scope string rather than from the selections, so the
+	// previews below answer "what will the server expose for this token" with the
+	// same input the server gets.
+	const scopeState = $derived(
+		parseMcpScopeState(computedScope.split(/\s+/).filter((s) => s.length > 0))
+	)
+
+	const exposedEndpointTools = $derived(
+		visibleEndpointTools.filter((e) => isEndpointExposed(scopeState, e.name))
+	)
+
+	const runByPathTools = $derived(
+		visibleEndpointTools.flatMap((e) => {
+			const policy = endpointPathPolicy(e.name)
+			return policy?.kind === 'runByPath'
+				? [
+						{
+							name: e.name,
+							resource: policy.resource,
+							exposed: isEndpointExposed(scopeState, e.name)
+						}
+					]
+				: []
+		})
+	)
+
+	// Endpoints the user picked that the server will still withhold: the ones
+	// that cannot be confined to a path (run-preview, delete-by-hash) once the
+	// token is limited to specific script paths.
+	const withheldEndpoints = $derived(
+		selectedEndpoints.filter((name) => !isEndpointExposed(scopeState, name))
+	)
+
 	function selectAllScripts() {
 		selectedScripts = [...allScripts]
 	}
@@ -498,7 +533,7 @@
 		selectedFlows = []
 	}
 	function selectAllEndpoints() {
-		selectedEndpoints = [...visibleEndpointTools.map((e) => e.name)]
+		selectedEndpoints = [...selectableEndpointTools.map((e) => e.name)]
 	}
 	function clearAllEndpoints() {
 		selectedEndpoints = []
@@ -623,11 +658,46 @@
 				<div class="flex flex-col gap-2 mt-2">
 					{@render sectionHeader('API Endpoints', selectAllEndpoints, clearAllEndpoints)}
 					<MultiSelect
-						items={safeSelectItems(visibleEndpointTools.map((e) => e.name))}
+						items={safeSelectItems(selectableEndpointTools.map((e) => e.name))}
 						placeholder="Select endpoints"
 						bind:value={selectedEndpoints}
 					/>
 				</div>
+
+				{#if withheldEndpoints.length > 0}
+					<Alert type="warning" size="xs" title="Some selected endpoints will not be exposed">
+						<span class="text-xs">
+							Endpoints that cannot be limited to specific script paths are withheld from a token
+							restricted to a script selection: {withheldEndpoints.join(', ')}. Widening the script
+							wildcard pattern to <code>*</code> exposes them, and keeps the run tools below available.
+						</span>
+					</Alert>
+				{/if}
+
+				{#if runByPathTools.length > 0}
+					<div class="flex flex-col gap-2 mt-2">
+						<span class="block text-xs font-semibold">Run tools</span>
+						<p class="text-xs text-tertiary">
+							Running a script or flow by path is granted by the Scripts and Flows selections above,
+							not by the endpoint list, so a token can never run something outside its scope.
+						</p>
+						<div class="flex flex-col gap-1">
+							{#each runByPathTools as tool (tool.name)}
+								<div class="flex items-center gap-2">
+									<Badge rounded small color={tool.exposed ? 'green' : 'gray'}>{tool.name}</Badge>
+									<span class="text-xs text-tertiary">
+										{#if tool.exposed}
+											exposed
+										{:else}
+											not exposed — select at least one {tool.resource} above, or add a {tool.resource}
+											wildcard pattern
+										{/if}
+									</span>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
 
 				<div class="text-xs text-primary mt-2">
 					Selected: {selectedScripts.length} scripts, {selectedFlows.length} flows, {selectedEndpoints.length}
@@ -716,7 +786,7 @@
 
 				<span class="block text-xs mt-2">API endpoint tools that will be available via MCP</span>
 				<div class="flex flex-wrap gap-1">
-					{#each visibleEndpointTools as endpoint (endpoint.name)}
+					{#each exposedEndpointTools as endpoint (endpoint.name)}
 						<Popover notClickable>
 							{#snippet text()}
 								<div class="flex flex-col gap-1">

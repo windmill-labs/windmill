@@ -39,8 +39,8 @@ use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
-use windmill_dep_map::process_relative_imports;
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
+use windmill_dep_map::{lock_hash::record_lock_hashes, process_relative_imports};
 
 use windmill_common::{
     assets::{
@@ -107,6 +107,7 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_scripts))
         .route("/list_search", get(list_search_scripts))
         .route("/create", post(create_script))
+        .route("/update/{*path}", post(update_script))
         .route("/create_snapshot", post(create_snapshot_script))
         .route("/archive/p/{*path}", post(archive_script_by_path))
         .route("/get/p/{*path}", get(get_script_by_path))
@@ -215,12 +216,15 @@ async fn list_scripts(
             // a member of has no `usr` row, so fall back to their instance-derived username
             // (`password.username`), or their email when derivation is disabled — this keeps the
             // raw email out of the payload whenever a derived username exists. The genuine
-            // NULL-email legacy row stays None (no `usr`/`password` match, `d.email` is NULL).
+            // NULL-email legacy row stays None (no `usr`/`password` match, `d.email` is NULL),
+            // which is why an owner that resolves to no name at all — an external JWT's subject
+            // has neither row — is dropped: None is read as "legacy" downstream.
             "(SELECT json_agg(json_build_object('username', COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END)) ORDER BY COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END) NULLS LAST) \
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
               LEFT JOIN password p ON p.email = d.email AND p.super_admin = true \
-              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'script') as draft_users",
+              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'script' \
+                AND (d.email IS NULL OR u.username IS NOT NULL OR p.email IS NOT NULL)) as draft_users",
             "folder_labels(o.workspace_id, o.path) as inherited_labels"
         ])
         .left()
@@ -289,7 +293,9 @@ async fn list_scripts(
         sqlb.and_where_eq("parent_hashes[array_upper(parent_hashes, 1)]", &ph.0);
     }
     if let Some(ph) = &lq.parent_hash {
-        sqlb.and_where_eq("any(parent_hashes)", &ph.0);
+        // ANY() only ever sits on the right of the comparison; `and_where_eq` would
+        // emit it on the left and Postgres rejects that as a syntax error.
+        sqlb.and_where("? = ANY(parent_hashes)".bind(&ph.0));
     }
     if let Some(it) = &lq.is_template {
         sqlb.and_where_eq("is_template", it);
@@ -544,6 +550,7 @@ async fn create_snapshot_script(
     let mut uploaded = false;
     let mut handle_deployment_metadata = None;
     let mut moved_native_triggers = Vec::new();
+    let mut deployed_path = None;
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().unwrap().to_string();
         let data = field.bytes().await.unwrap();
@@ -551,6 +558,7 @@ async fn create_snapshot_script(
             let ns: NewScript = Some(serde_json::from_slice(&data).map_err(to_anyhow)?).unwrap();
             let is_tar = ns.codebase.as_ref().is_some_and(|x| x.ends_with(".tar"));
             let use_esm = ns.codebase.as_ref().is_some_and(|x| x.contains(".esm"));
+            deployed_path = Some(ns.path.clone());
             let (new_hash, ntx, hdm, moved) = create_script_internal(
                 ns,
                 w_id.clone(),
@@ -559,6 +567,7 @@ async fn create_snapshot_script(
                 user_db.clone(),
                 webhook.clone(),
                 query.skip_if_noop,
+                None,
             )
             .await?;
             let mut nh = new_hash.to_string();
@@ -602,6 +611,9 @@ async fn create_snapshot_script(
     }
 
     tx.unwrap().commit().await?;
+    if let Some(script_path) = deployed_path.as_deref() {
+        invalidate_script_path_caches(&w_id, script_path);
+    }
     reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
     if let Some(hdm) = handle_deployment_metadata {
         hdm.handle(&db).await?;
@@ -646,6 +658,70 @@ async fn create_script(
     Query(query): Query<CreateScriptQuery>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
+    deploy_script(
+        authed,
+        user_db,
+        webhook,
+        db,
+        w_id,
+        query.skip_if_noop,
+        ns,
+        None,
+    )
+    .await
+}
+
+/// Deploy a new version of the script at `path`, which must already hold one.
+///
+/// The URL names the version being superseded, so the body needs no `parent_hash`: a
+/// caller that cannot read one (an MCP client, whose tool schema has no hash field)
+/// still gets a version chained onto the history rather than a fork of it. The body's
+/// own `path` is where the script should end up: the URL's again to leave it there,
+/// another to move it.
+async fn update_script(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<CreateScriptQuery>,
+    Json(mut ns): Json<NewScript>,
+) -> Result<(StatusCode, String)> {
+    let path = path.to_path();
+    // Superseding the version at this path is a write to it, checked before anything
+    // reads the row so a path outside the token's scope answers the same whether or
+    // not a script is there.
+    check_scopes(&authed, || format!("scripts:write:{}", path))?;
+
+    // Lineage comes from the URL, resolved in the deploying transaction; letting a body
+    // field name a parent, or a body flag re-derive one from the destination, would fork
+    // the history or turn a move into a copy.
+    ns.parent_hash = None;
+    ns.auto_parent = None;
+
+    deploy_script(
+        authed,
+        user_db,
+        webhook,
+        db,
+        w_id,
+        query.skip_if_noop,
+        ns,
+        Some(path.to_string()),
+    )
+    .await
+}
+
+async fn deploy_script(
+    authed: ApiAuthed,
+    user_db: UserDB,
+    webhook: WebhookShared,
+    db: DB,
+    w_id: String,
+    skip_if_noop: bool,
+    ns: NewScript,
+    supersede_head_at: Option<String>,
+) -> Result<(StatusCode, String)> {
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -668,10 +744,12 @@ async fn create_script(
         db.clone(),
         user_db,
         webhook,
-        query.skip_if_noop,
+        skip_if_noop,
+        supersede_head_at,
     )
     .await?;
     tx.commit().await?;
+    invalidate_script_path_caches(&w_id, &script_path);
     reregister_moved_native_triggers(&db, &authed_for_triggers, &w_id, moved_native_triggers);
     if let Some(hdm) = hdm {
         // Only a script that needed no lock generation is deployed and runnable by
@@ -699,6 +777,14 @@ async fn create_script(
         }
     }
     Ok((StatusCode::CREATED, format!("{}", hash)))
+}
+
+/// Drop the path -> hash entries a just-committed deploy made stale, so this process resolves the
+/// path to the new version straight away instead of at the next `notify_event` poll. Must run
+/// after the commit, or a concurrent resolution repopulates them from the pre-deploy state.
+fn invalidate_script_path_caches(w_id: &str, script_path: &str) {
+    windmill_common::invalidate_latest_script_hash_caches(w_id, script_path);
+    RAW_SCRIPT_LATEST_HASH_CACHE.remove(&format!("{w_id}:{script_path}"));
 }
 
 /// What a script deploy still has to do once its transaction has committed.
@@ -987,6 +1073,65 @@ fn modules_eq(
     }
 }
 
+/// Recorded for the empty lock a codebase or a language with no lock generation carries as well as
+/// for a real one: the worker writes `hash_script("")` in the same situation, and a path going from
+/// a real lock to an empty one has to stop matching what its importers recorded, or they wrongly
+/// skip rather than merely relock too often.
+fn lock_hash_entry(path: &str, lock: &str) -> [(String, i64); 1] {
+    [(path.to_string(), hash_script(lock))]
+}
+
+/// The `dbt://` relation both halves of a deploy have to agree on: a whole
+/// `<warehouse>/<schema>/<name>`, under a warehouse this workspace configures.
+///
+/// Every producer is held to exactly this — a `// materialize` target here, a
+/// descriptor's `profile.warehouse` in the worker — so a subscription to anything
+/// else names a relation nothing can ever write. No later deploy fixes that and
+/// no dormant-edge warning reports it, since the warning fires on a dbt project's
+/// ingest and no project can claim a relation under a warehouse that isn't there.
+/// Asking here rather than at each site is what keeps the two from drifting into
+/// refusing and accepting the same string.
+async fn validate_dbt_relation(
+    db: &sqlx::Pool<Postgres>,
+    w_id: &str,
+    relation: &str,
+    what: &str,
+) -> Result<()> {
+    if !windmill_parser::asset_parser::is_full_relation_path(relation) {
+        return Err(Error::BadRequest(format!(
+            "{what} `dbt://{relation}` is not a whole warehouse relation \
+             (`dbt://<warehouse>/<schema>/<name>`)."
+        )));
+    }
+    // `asset.path` is VARCHAR(255) and the manifest ingest drops a relation that
+    // outgrows it rather than failing the whole graph, so past the column no
+    // producer row can exist on either side — a write would be rejected by
+    // Postgres mid-deploy, and `script_trigger.trigger_ref` is unbounded text
+    // that would take the subscription and keep it dormant for good.
+    let max = windmill_common::dbt_manifest::MAX_ASSET_PATH_LEN;
+    if relation.chars().count() > max {
+        return Err(Error::BadRequest(format!(
+            "{what} `dbt://{relation}` is longer than the {max} characters an asset path \
+             holds, so it cannot be recorded."
+        )));
+    }
+    let warehouse = relation.split('/').next().unwrap_or_default();
+    // Only the resolver's own "no such warehouse" is the annotation's fault. Its
+    // other failures — the query, and a setting entry with no `resource_path` —
+    // keep their own error: blaming the warehouse name for those misdescribes
+    // them, and flattening the malformed-setting one to a 400 hides a server
+    // fault behind a client one.
+    windmill_common::workspaces::dbt_warehouse_exists(db, w_id, warehouse)
+        .await
+        .map_err(|e| match e {
+            Error::NotFound(_) => Error::BadRequest(format!(
+                "{what} `dbt://{relation}` names a warehouse this workspace does not \
+                 configure: {e}"
+            )),
+            other => other,
+        })
+}
+
 async fn create_script_internal<'c>(
     mut ns: NewScript,
     w_id: String,
@@ -995,6 +1140,9 @@ async fn create_script_internal<'c>(
     user_db: UserDB,
     webhook: WebhookShared,
     skip_if_noop: bool,
+    // When set, the parent is the live head at this path rather than anything the body
+    // named, resolved against the deploying transaction.
+    supersede_head_at: Option<String>,
 ) -> Result<(
     ScriptHash,
     Transaction<'c, Postgres>,
@@ -1052,7 +1200,6 @@ async fn create_script_internal<'c>(
     // Caller-intent: CLI / git-sync deploys ask us to preserve any existing
     // user draft at this path instead of wiping it as part of the deploy.
     let skip_draft_deletion = ns.skip_draft_deletion.unwrap_or(false);
-    let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
@@ -1099,21 +1246,6 @@ async fn create_script_internal<'c>(
     let legacy_on_behalf_of_email =
         windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
             .await?;
-    if sqlx::query_scalar!(
-        "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
-        hash.0,
-        &w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .is_some()
-    {
-        return Err(Error::BadRequest(
-            "A script with same hash (hence same path, description, summary, content) already \
-             exists!"
-                .to_owned(),
-        ));
-    };
     // When auto_parent is set, serialize concurrent creates for the same (workspace, path)
     // so the clashing_script query always sees the latest committed head.
     if ns.auto_parent.unwrap_or(false) {
@@ -1124,6 +1256,43 @@ async fn create_script_internal<'c>(
         )
         .fetch_one(&mut *tx)
         .await?;
+    }
+    if let Some(source) = supersede_head_at.as_deref() {
+        // Locked, or this is a head it once was: nothing below re-checks `archived`, so
+        // an archive slipping in leaves the deploy chaining onto the version it retired
+        // and reviving it.
+        let head = sqlx::query_scalar::<_, i64>(
+            "SELECT hash FROM script WHERE path = $1 AND archived = false AND workspace_id = $2 \
+             FOR UPDATE",
+        )
+        .bind(source)
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(head) = head else {
+            // A live version here now means this deploy lost the lock to one that
+            // superseded the version it set out to supersede. Calling that "not found",
+            // of a path the caller can see holds a script, sends them after the wrong
+            // problem — the answer is to read it again and redeploy.
+            let superseded = sqlx::query_scalar::<_, i64>(
+                "SELECT hash FROM script WHERE path = $1 AND archived = false \
+                 AND workspace_id = $2",
+            )
+            .bind(source)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .is_some();
+            return Err(if superseded {
+                Error::BadRequest(format!(
+                    "The script at {source} was deployed to concurrently; read it again \
+                     and redeploy"
+                ))
+            } else {
+                Error::NotFound(format!("Script not found at path {source}"))
+            });
+        };
+        ns.parent_hash = Some(ScriptHash(head));
     }
     let clashing_script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(&format!(
         "SELECT {} FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
@@ -1149,6 +1318,68 @@ async fn create_script_internal<'c>(
         }
     }
 
+    // A retired path keeps its versions, and the newest is where a redeploy belongs: hashed
+    // as a first deploy instead, unchanged content lands on the row the path's own first
+    // version already holds. A deleted version still counts — its row keeps the hash it was
+    // deployed under even once the content is wiped, so skipping it is what collides.
+    //
+    // Any parentless deploy, not only an `auto_parent` one: the CLI names no parent for a
+    // path its listing no longer shows, which is where a retried push lands. Gated on
+    // nothing being live there, so a parentless deploy onto a live path still meets the
+    // path conflict the match below raises.
+    let mut parent_adopted_from_retired_path = false;
+    if ns.parent_hash.is_none() && clashing_script.is_none() {
+        // Locked, not merely read: a competing deploy chaining onto this same candidate
+        // takes `FOR UPDATE` on it before inserting, so holding the row is what serializes
+        // the two. Probe first and the child still uncommitted reads as absent.
+        let candidate = sqlx::query_scalar::<_, i64>(
+            "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 \
+             ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+        )
+        .bind(&ns.path)
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        // Adoptable only if nothing already descends from it: a rename leaves its source
+        // path holding a version whose child lives at the destination, and a second child
+        // forks a lineage the guard below requires to be linear. Nothing adoptable means a
+        // fresh lineage, which has no parent to vary its hash and can still collide.
+        ns.parent_hash = match candidate {
+            Some(hash) => sqlx::query_scalar!(
+                "SELECT 1 FROM script WHERE parent_hashes[1] = $1 AND workspace_id = $2",
+                hash,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?
+            .is_none()
+            .then_some(ScriptHash(hash)),
+            None => None,
+        };
+        parent_adopted_from_retired_path = ns.parent_hash.is_some();
+    }
+
+    // Must stay below the parent resolution above: an auto_parent deploy hashed before
+    // it carries a first deploy's lineage, so redeploying content the path has held
+    // before collides with that archived version instead of superseding it. The
+    // folder-derived `on_behalf_of` set further up is likewise covered by the hash.
+    let hash = ScriptHash(hash_script(&ns));
+    if sqlx::query_scalar!(
+        "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
+        hash.0,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .is_some()
+    {
+        return Err(Error::BadRequest(
+            "A script with same hash (hence same path, description, summary, content) already \
+             exists!"
+                .to_owned(),
+        ));
+    };
+
     let parent_hashes_and_perms: Option<ParentInfo> = match (&ns.parent_hash, clashing_script) {
         (None, None) => Ok(None),
         (None, Some(s)) => Err(Error::BadRequest(format!(
@@ -1172,20 +1403,42 @@ async fn create_script_internal<'c>(
                 ));
             };
 
+            // Unscoped, and sound only under the lock above: linearity is a property of the
+            // lineage, not of what this caller may read. A child can sit where they cannot
+            // see it — a folder they renamed it into, or grants an adopting deploy reset —
+            // and asked through `tx` it reads as absent, letting the fork through.
             let clashing_hash_o = sqlx::query_scalar!(
                 "SELECT hash FROM script WHERE parent_hashes[1] = $1 AND workspace_id = $2",
                 p_hash.0,
                 &w_id
             )
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&db)
             .await?;
 
             if let Some(clashing_hash) = clashing_hash_o {
-                return Err(Error::BadRequest(format!(
-                    "A script with hash {} with same parent_hash has been found. However, the \
-                         lineage must be linear: no 2 scripts can have the same parent",
-                    ScriptHash(clashing_hash)
-                )));
+                // Named only when the caller could already read it. The probe above has to be
+                // unscoped to be correct, but a hash alone reads a script's content back
+                // through `raw/h/{hash}`, which authorizes nothing per script — so echoing one
+                // the caller cannot see hands them a way to fetch it.
+                let visible_to_caller = sqlx::query_scalar!(
+                    "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
+                    clashing_hash,
+                    &w_id
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+                .is_some();
+                return Err(Error::BadRequest(if visible_to_caller {
+                    format!(
+                        "A script with hash {} with same parent_hash has been found. However, \
+                         the lineage must be linear: no 2 scripts can have the same parent",
+                        ScriptHash(clashing_hash)
+                    )
+                } else {
+                    "A script with the same parent_hash has been found. However, the lineage \
+                     must be linear: no 2 scripts can have the same parent"
+                        .to_owned()
+                }));
             };
 
             let ScriptWithStarred { script: ps, .. } =
@@ -1209,6 +1462,12 @@ async fn create_script_internal<'c>(
                     parent_hash = %p_hash.0,
                     "Skipping no-op script deploy (identical to parent)"
                 );
+                // The version is unchanged, but the row recording its lock's hash may never have
+                // been written — nothing else writes it for a supplied lock, and a path only ever
+                // pushed unchanged would otherwise keep its importers relocking forever.
+                if let Some(lock) = ps.lock.as_deref() {
+                    record_lock_hashes(&mut tx, &w_id, &lock_hash_entry(&ns.path, lock)).await?;
+                }
                 return Ok((p_hash.clone(), tx, None, Vec::new()));
             }
 
@@ -1242,7 +1501,15 @@ async fn create_script_internal<'c>(
                 }
                 Some(_) | None => Ok(Some(ParentInfo {
                     p_hashes: ph,
-                    perms: ps.extra_perms,
+                    // A version adopted above was taken for its lineage, not its grants: a
+                    // retired path may be reused by a different script, which must not start
+                    // life holding an ACL nobody gave it — including one `delete/h` purged.
+                    // A parent the caller named still carries them, as unarchive expects.
+                    perms: if parent_adopted_from_retired_path {
+                        json!({})
+                    } else {
+                        ps.extra_perms
+                    },
                     p_path: ps.path,
                 })),
             };
@@ -1420,34 +1687,90 @@ async fn create_script_internal<'c>(
     // membership; parsed writes tell us what is produced (we don't record
     // them in auto_kind itself).
     let pipeline_annotations = parse_pipeline_annotations(&ns.content);
-    // `// materialize` materializes a `ducklake://<name>/<table>` target from a
-    // DuckDB script. These two constraints hold for *both* modes: a non-DuckLake
-    // target would otherwise deploy, register a producer in the asset graph, then
-    // silently no-op at run time (`build_materialized_query` returns `Ok(None)`),
-    // and a non-DuckDB script never reaches the executor that records state. The
-    // managed-only checks (single trailing SELECT, no SQL args) come after — a
-    // `manual` script owns its DDL and skips them.
+    // `// materialize` names what this script produces. Two target kinds, and the
+    // runtime behind each is what constrains the annotation:
+    //   • `ducklake://<name>/<table>` — the DuckDB executor generates the write
+    //     (or, in `manual` mode, records the state the script wrote itself), so
+    //     the script has to be a DuckDB one and the target has to name a table.
+    //     A non-DuckDB script never reaches that executor.
+    //   • `dbt://<warehouse>/<schema>/<name>` — a warehouse relation. Nothing
+    //     generates warehouse DDL, so the declaration is track-only (`manual`)
+    //     and any language but dbt's own may make it: the script writes the
+    //     relation, the worker records the materialization, and the relation's
+    //     asset node is shared with whatever dbt model reads it. A dbt project's
+    //     own writes are read from its manifest, so it may not declare one.
+    // Any other kind would deploy, register a producer in the asset graph, then
+    // silently no-op at run time (`build_materialized_query` returns `Ok(None)`).
+    // The managed-only checks (single trailing SELECT, no SQL args) come after —
+    // a `manual` script owns its DDL and skips them.
     if let Some(m) = pipeline_annotations.materialize.as_ref() {
-        if ns.language != ScriptLang::DuckDb {
-            return Err(Error::BadRequest(format!(
-                "`// materialize` is only supported for DuckDB scripts, not {}. Use the \
-                 wmll.ducklake helpers to materialize from other languages.",
-                ns.language.as_str()
-            )));
-        }
-        if m.target_kind != windmill_parser::asset_parser::AssetKind::Ducklake {
+        use windmill_parser::asset_parser::AssetKind as PAssetKind;
+        // The producer half of the rule the trigger loop below applies to `// on`:
+        // a dbt project's writes come from its manifest, and the graph ingest
+        // republishes this path's asset rows wholesale, so a declared one would be
+        // wiped by the very deploy that accepted it while its runs kept stamping
+        // the relation.
+        if ns.language == ScriptLang::Dbt {
             return Err(Error::BadRequest(
-                "`// materialize` only supports a DuckLake target \
-                 (`ducklake://<name>/<table>`); other asset kinds aren't materializable."
+                "a dbt script cannot declare `// materialize`: what a project builds is read \
+                 from its manifest and published by the graph ingest, not annotated."
                     .to_string(),
             ));
         }
-        if !m.target_path.contains('/') {
-            return Err(Error::BadRequest(format!(
-                "`// materialize` needs a table in the target: \
-                 `ducklake://{0}/<table>` (got `ducklake://{0}`).",
-                m.target_path
-            )));
+        match m.target_kind {
+            PAssetKind::Ducklake => {
+                if ns.language != ScriptLang::DuckDb {
+                    return Err(Error::BadRequest(format!(
+                        "`// materialize` is only supported for DuckDB scripts, not {}. Use the \
+                         wmll.ducklake helpers to materialize from other languages, or declare a \
+                         warehouse relation with `// materialize manual dbt://…`.",
+                        ns.language.as_str()
+                    )));
+                }
+                if !m.target_path.contains('/') {
+                    return Err(Error::BadRequest(format!(
+                        "`// materialize` needs a table in the target: \
+                         `ducklake://{0}/<table>` (got `ducklake://{0}`).",
+                        m.target_path
+                    )));
+                }
+            }
+            PAssetKind::Dbt => {
+                // `// data_test` runs as verifier probes the DuckDB executor
+                // splices around a MANAGED write. Nothing generates a warehouse
+                // write, so nothing would run them — and unlike the DuckLake
+                // `manual` case, which at least fails loudly in that executor, a
+                // declarer in another language would deploy green with its
+                // data-quality assertions silently never executed.
+                if !pipeline_annotations.data_tests.is_empty() {
+                    return Err(Error::BadRequest(
+                        "`// data_test` is not supported with a `dbt://` target: the checks run \
+                         against a managed materialization, and a warehouse relation is \
+                         written by the script itself. Assert on the relation with a dbt \
+                         test in the project that reads it."
+                            .to_string(),
+                    ));
+                }
+                if !m.manual {
+                    return Err(Error::BadRequest(
+                        "`// materialize dbt://…` must be `manual`: Windmill generates no \
+                         warehouse DDL, so the script issues its own write and only the outcome \
+                         is recorded. Write \
+                         `// materialize manual dbt://<warehouse>/<schema>/<name>`."
+                            .to_string(),
+                    ));
+                }
+                validate_dbt_relation(&db, &w_id, &m.target_path, "`// materialize` target")
+                    .await?;
+            }
+            _ => {
+                return Err(Error::BadRequest(
+                    "`// materialize` only supports a DuckLake (`ducklake://<name>/<table>`) or \
+                     warehouse-relation (`dbt://<warehouse>/<schema>/<name>`) target; other asset \
+                     kinds aren't materializable."
+                        .to_string(),
+                ));
+            }
         }
         if !m.manual {
             if let Err(e) = windmill_parser::sql_materialize::classify_wrap(&ns.content) {
@@ -1755,6 +2078,13 @@ async fn create_script_internal<'c>(
     )
     .execute(&mut *tx)
     .await?;
+
+    // A lock that is not left to a dependency job queues none, so this is the only place its hash
+    // can be recorded. `try_skip_relock` treats a missing hash for an imported script as changed,
+    // so leaving the row out makes every importer of this path relock on every deploy of it.
+    if let Some(lock) = lock.as_deref() {
+        record_lock_hashes(&mut tx, &w_id, &lock_hash_entry(&ns.path, lock)).await?;
+    }
 
     // Update ci_test_reference table for test scripts
     // Delete by both new and old path to handle renames
@@ -2195,27 +2525,28 @@ async fn create_script_internal<'c>(
     // while its own finished runs still render from them. Clearing by path
     // would empty those run pages for good.
     if ns.language != ScriptLang::Dbt {
-        // The saved retry state does go: nothing regenerates it, it is keyed by
-        // path alone, and it carries one user's failed invocation and its
-        // arguments. No dbt version is live at this path any more to resume it.
-        windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, &ns.path).await?;
+        // The saved run and environment state do go: nothing regenerates them,
+        // both are keyed by path alone, and they carry one user's failed
+        // invocation with its arguments and the project's own manifest. No dbt
+        // version is live at this path any more to resume or defer to.
+        windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, &ns.path).await?;
     }
     if let Some(ref old) = p_path_opt {
         if old != &ns.path {
             clear_script_triggers(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
             clear_static_asset_usage(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
-            // The saved retry state travels rather than being cleared: nothing
+            // The saved state travels rather than being cleared: nothing
             // regenerates it, so dropping it would throw away a resumable
-            // failure for what is only a rename. Only while the destination is
-            // still dbt — a rename that also converts the language would
-            // otherwise reinstate at the new path the state the branch above
-            // just cleared, leaving one user's arguments and results under a
-            // path no dbt script occupies.
+            // failure and every deferral until the next full run, for what is
+            // only a rename. Only while the destination is still dbt — a rename
+            // that also converts the language would otherwise reinstate at the
+            // new path the state the branch above just cleared, leaving one
+            // user's arguments and results under a path no dbt script occupies.
             if ns.language == ScriptLang::Dbt {
-                windmill_common::dbt_manifest::move_dbt_run_state(&mut tx, &w_id, old, &ns.path)
+                windmill_common::dbt_manifest::move_dbt_script_state(&mut tx, &w_id, old, &ns.path)
                     .await?;
             } else {
-                windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, old).await?;
+                windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, old).await?;
             }
         }
     }
@@ -2223,16 +2554,43 @@ async fn create_script_internal<'c>(
         let Some((trigger_kind, trigger_ref)) = trigger_spec_to_row(spec) else {
             continue;
         };
-        // A `dbt://` subscription can never fire: dbt is the only producer of a
-        // warehouse relation (`// materialize` takes DuckLake targets only) and a
-        // dbt run does not dispatch. Refusing beats persisting a row that draws a
-        // cascade arrow on the canvas and then never wakes anything.
-        if trigger_ref.starts_with("dbt://") {
-            return Err(Error::BadRequest(format!(
-                "`{trigger_ref}` cannot be subscribed to: a dbt run does not trigger downstream \
-                 runs, and nothing else writes a warehouse relation. Declare the read without \
-                 `on` to keep the lineage edge, or schedule this script."
-            )));
+        // A `dbt://` subscription fires only when a NON-dbt job materialized the
+        // relation: `// materialize manual dbt://…` declares such a write, while a
+        // dbt run records its models and does not dispatch. So refuse exactly the
+        // edge that cannot fire — one whose relation is already claimed by dbt and
+        // by nothing else — rather than every `dbt://` edge (`sole_dbt_producer`,
+        // which takes the workspace pool: under RLS an unreadable native producer
+        // would refuse a live subscription).
+        if let Some(relation) = trigger_ref.strip_prefix("dbt://") {
+            // The subscriber side of the same rule: a dbt project is not woken by
+            // the asset cascade. Its graph ingest clears these rows for its own
+            // path, so accepting one here would deploy an edge the dependency job
+            // then silently removes.
+            if ns.language == ScriptLang::Dbt {
+                return Err(Error::BadRequest(format!(
+                    "a dbt script cannot subscribe to `{trigger_ref}`: dbt orders its own DAG \
+                     and a project is run on its schedule, not woken by an asset cascade."
+                )));
+            }
+            validate_dbt_relation(&db, &w_id, relation, "subscription target").await?;
+            // Both paths under a rename: the old one's committed write row is
+            // still there and this transaction is about to remove it.
+            let deploying_paths = match p_path_opt.as_deref().filter(|old| *old != ns.path) {
+                Some(old) => vec![ns.path.clone(), old.to_string()],
+                None => vec![ns.path.clone()],
+            };
+            if let Some(dbt_owner) =
+                windmill_common::assets::sole_dbt_producer(&db, &w_id, relation, &deploying_paths)
+                    .await?
+            {
+                return Err(Error::BadRequest(format!(
+                    "`{trigger_ref}` cannot be subscribed to: it is built by the dbt project at \
+                     `{dbt_owner}`, and a dbt run does not trigger downstream runs. Declare the \
+                     read without `on` to keep the lineage edge, or schedule this script. A \
+                     relation written by a `// materialize manual {trigger_ref}` script can be \
+                     subscribed to."
+                )));
+            }
         }
         // Effective debounce for this edge: per-`// on debounce=` wins,
         // else the script-level `// debounce` default. Debounce only
@@ -2486,6 +2844,58 @@ async fn create_script_internal<'c>(
         //     false,
         // )
         // .await?;
+
+        // A caller-supplied lock (CLI, git-sync) queues no dependency job, so this is the
+        // only place a deploy of one can also queue the binary build. Pushed on the deploy's
+        // own transaction: the build reads the script version back by hash, which an
+        // independently pushed job could reach before this commit lands.
+        let tx = match windmill_queue::binary_prebuild::binary_prebuild_job(
+            &db,
+            &script_path,
+            hash,
+            ns.language,
+            lock.as_deref(),
+        )
+        .await?
+        {
+            Some(prebuild) => {
+                let (job_id, new_tx) = windmill_queue::push(
+                    &db,
+                    PushIsolationLevel::Transaction(tx),
+                    &w_id,
+                    prebuild.payload,
+                    windmill_queue::PushArgs { args: &prebuild.args, extra: None },
+                    &authed.username,
+                    &authed.email,
+                    permissioned_as,
+                    authed.token_prefix.as_deref(),
+                    authed.username_override.as_deref(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    false,
+                    false,
+                    None,
+                    true,
+                    prebuild.tag,
+                    None,
+                    None,
+                    None,
+                    Some(&authed.clone().into()),
+                    false,
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
+                tracing::info!("pushed auto-build binary job {job_id} for {script_path}");
+                new_tx
+            }
+            None => tx,
+        };
 
         Ok((
             hash,
@@ -2775,6 +3185,7 @@ async fn toggle_workspace_error_handler(
 async fn toggle_workspace_error_handler(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(req): Json<ToggleWorkspaceErrorHandler>,
 ) -> Result<String> {
@@ -2790,7 +3201,7 @@ async fn toggle_workspace_error_handler(
 
     match error_handler_maybe {
         Some(_) => {
-            sqlx::query_scalar!(
+            let updated = sqlx::query_scalar!(
                 "UPDATE script 
                 SET ws_error_handler_muted = $3 
                 WHERE ctid = (
@@ -2807,6 +3218,38 @@ async fn toggle_workspace_error_handler(
             .execute(&mut *tx)
             .await?;
             tx.commit().await?;
+
+            // `ws_error_handler_muted` is part of the synced script metadata, so
+            // the toggle is a deploy like any other edit of it. The hash is a
+            // placeholder: git sync keys off the path and kind alone. The update
+            // runs under RLS against an unchecked path, so it can match nothing —
+            // deploy only what it actually wrote.
+            if updated.rows_affected() > 0 {
+                handle_deployment_metadata(
+                    &authed.email,
+                    &authed.username,
+                    &db,
+                    &w_id,
+                    DeployedObject::Script {
+                        hash: ScriptHash(0),
+                        path: path.to_path().to_string(),
+                        parent_path: None,
+                    },
+                    Some(format!(
+                        "Script '{}' {} the workspace error handler",
+                        path.to_path(),
+                        if req.muted.unwrap_or(false) {
+                            "muted"
+                        } else {
+                            "unmuted"
+                        }
+                    )),
+                    true,
+                    None,
+                )
+                .await?;
+            }
+
             Ok("".to_string())
         }
         None => {
@@ -3341,7 +3784,11 @@ async fn archive_script_by_path(
         path,
         &w_id
     )
-    .fetch_one(&db)
+    // In the SAME transaction as the cleanup below, as the by-hash routes are:
+    // committed on its own, a cleanup that then fails leaves dbt state at a path
+    // no live version occupies, for whatever is created there next to defer
+    // through.
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
@@ -3349,9 +3796,10 @@ async fn archive_script_by_path(
     // The graph stays: the pinned read resolves versions through a CTE that
     // already skips archived rows, so it stops answering for current relations
     // either way, while deleting it would empty the Models panel of every
-    // completed run of the project. Retry state does go — nothing may resume a
-    // script that is no longer live.
-    windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, path).await?;
+    // completed run of the project. The saved run and environment state do go —
+    // nothing may resume a script that is no longer live, and nothing may defer
+    // through what it last built.
+    windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, path).await?;
     // Pipeline event hygiene: an archived script must not be triggered by
     // anything. Wipe declared `// on ...` edges (asset-event subscribers
     // look these up).
@@ -3436,7 +3884,7 @@ async fn archive_script_by_hash(
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
     // The version's graph stays: its finished runs still render from it, and
     // the live-version CTE already skips archived rows. Deletion clears it.
-    windmill_common::dbt_manifest::clear_dbt_run_state_if_path_retired(
+    windmill_common::dbt_manifest::clear_dbt_script_state_if_path_retired(
         &mut tx,
         &w_id,
         &script.path,
@@ -3499,7 +3947,12 @@ async fn delete_script_by_hash(
     )
     .bind(&hash.0)
     .bind(&w_id)
-    .fetch_one(&db)
+    // In the SAME transaction as the cleanup below, as `archive_script_by_hash`
+    // already does. Committed on its own, it opens a window where the path has
+    // no live version and a concurrent deploy can take it — and the retirement
+    // guard below then finds that new script live, keeps the old project's dbt
+    // state, and leaves the replacement able to defer through its manifest.
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("deleting script by hash {w_id}: {e:#}")))?;
 
@@ -3512,7 +3965,7 @@ async fn delete_script_by_hash(
     windmill_common::dbt_manifest::clear_dbt_manifest_version(&mut tx, &w_id, &script.path, hash.0)
         .await?;
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
-    windmill_common::dbt_manifest::clear_dbt_run_state_if_path_retired(
+    windmill_common::dbt_manifest::clear_dbt_script_state_if_path_retired(
         &mut tx,
         &w_id,
         &script.path,
@@ -3613,11 +4066,11 @@ async fn delete_script_by_path(
 
     // After the DELETE, never before: every dbt writer locks the `script` row
     // first, so taking a sidecar ahead of it deadlocks one of the pair. The
-    // VERSIONED graph needs no clear at all, cascading off `script`; the retry
-    // state does, being keyed by path alone and so inherited by whatever is
-    // created here next, and so do the editor's own graphs, whose NULL
+    // VERSIONED graph needs no clear at all, cascading off `script`; the saved
+    // run and environment state do, being keyed by path alone and so inherited
+    // by whatever is created here next, and so do the editor's own graphs, whose NULL
     // `script_hash` satisfies that foreign key without riding its cascade.
-    windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, path).await?;
+    windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, path).await?;
     windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, path).await?;
 
     if !trash_scripts.is_empty() {
@@ -3786,7 +4239,7 @@ async fn delete_scripts_bulk(
     // Same reason as the single-path delete, over every requested path rather
     // than the deleted ones: a path that had no script left can still hold state.
     for p in &request.paths {
-        windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, p).await?;
+        windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, p).await?;
         windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, p).await?;
     }
 

@@ -8,7 +8,7 @@
 	import ScriptRecordingReplay from './ScriptRecordingReplay.svelte'
 	import PipelineRecordingReplay from './PipelineRecordingReplay.svelte'
 	import RawAppRecordingReplay from './RawAppRecordingReplay.svelte'
-	import { setActiveReplay } from './flowRecording.svelte'
+	import { setActiveReplay } from './replay.svelte'
 	import type { LoadedRecording } from './rawAppRecordingLoad'
 	import { Button } from '$lib/components/common'
 	import { TriangleAlert, Upload } from 'lucide-svelte'

@@ -305,30 +305,84 @@ export async function formatGraphqlSchema(schema: IntrospectionQuery): Promise<s
 	return printSchema(buildClientSchema(schema))
 }
 
-export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
-	// Filter out hidden columns to avoid counting the wrong number of rows
-	return columnDefs
-		.filter((columnDef: ColumnDef) => columnDef && columnDef.ignored !== true)
-		.map((column) => renderDbQuotedIdentifier(column?.field, dbType))
+// Filter out hidden columns to avoid counting the wrong number of rows
+function visibleColumnDefs(columnDefs: ColumnDef[]): ColumnDef[] {
+	return columnDefs.filter((columnDef: ColumnDef) => columnDef && columnDef.ignored !== true)
 }
 
+export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
+	return visibleColumnDefs(columnDefs).map((column) =>
+		renderDbQuotedIdentifier(column?.field, dbType)
+	)
+}
+
+/**
+ * DuckDB's `concat` doubles as list concatenation, so a LIST or ARRAY beside a
+ * VARCHAR is a binder error rather than an implicit cast, and quicksearch
+ * concatenates every visible column, so one of them makes the table
+ * unpreviewable. Everything else concatenates as text and stays uncast: this
+ * query is digested into the policy of every deployed Database Studio app, and
+ * a changed string invalidates it until the app is redeployed.
+ */
+export function duckdbQuicksearchColumns(columnDefs: ColumnDef[]): string {
+	return visibleColumnDefs(columnDefs)
+		.map((column) => {
+			const quoted = renderDbQuotedIdentifier(column?.field, 'duckdb')
+			return column?.datatype?.trimEnd().endsWith(']') ? `CAST(${quoted} AS VARCHAR)` : quoted
+		})
+		.join(', ')
+}
+
+/** Mirrors the backend's `render_db_quoted_identifier`, including doubling an
+ * embedded delimiter. */
 export function renderDbQuotedIdentifier(identifier: string, dbType: DbType): string {
 	switch (dbType) {
 		case 'postgresql':
-			return `"${identifier}"` // PostgreSQL uses double quotes for identifiers
-		case 'ms_sql_server':
-			return `[${identifier}]` // MSSQL uses square brackets for identifiers
-		case 'mysql':
-			return `\`${identifier}\`` // MySQL uses backticks
 		case 'snowflake':
-			return `"${identifier}"` // Snowflake uses double quotes for identifiers
-		case 'bigquery':
-			return `\`${identifier}\`` // BigQuery uses backticks
 		case 'duckdb':
-			return `"${identifier}"` // DuckDB uses double quotes for identifiers
+			return `"${identifier.replace(/"/g, '""')}"`
+		case 'ms_sql_server':
+			return `[${identifier.replace(/]/g, ']]')}]`
+		case 'mysql':
+		case 'bigquery':
+			return `\`${identifier.replace(/`/g, '``')}\``
 		default:
 			throw new Error('Unsupported database type: ' + dbType)
 	}
+}
+
+/** Renders a cell value as a SQL literal. Returns undefined for values that
+ * have no safe literal form (null, objects, non-finite numbers). */
+export function renderDbLiteral(value: unknown, dbType: DbType): string | undefined {
+	if (value === null || value === undefined) return undefined
+	if (typeof value === 'number') return Number.isFinite(value) ? String(value) : undefined
+	if (typeof value === 'bigint') return value.toString()
+	if (typeof value === 'boolean') {
+		if (dbType === 'ms_sql_server') return value ? '1' : '0'
+		return value ? 'TRUE' : 'FALSE'
+	}
+	if (typeof value !== 'string') return undefined
+	let escaped = value.replace(/'/g, "''")
+	// MySQL, Snowflake and BigQuery treat a backslash inside a string literal as
+	// an escape character.
+	if (dbType === 'mysql' || dbType === 'snowflake' || dbType === 'bigquery') {
+		escaped = escaped.replace(/\\/g, '\\\\')
+	}
+	// A plain constant is varchar on SQL Server and goes through the database
+	// code page; the N prefix keeps it Unicode against nvarchar columns.
+	return dbType === 'ms_sql_server' ? `N'${escaped}'` : `'${escaped}'`
+}
+
+/** `"column" = <literal>` predicate, or undefined when the value can't be
+ * rendered as a literal. */
+export function renderDbEqualityFilter(
+	column: string,
+	value: unknown,
+	dbType: DbType
+): string | undefined {
+	const literal = renderDbLiteral(value, dbType)
+	if (literal === undefined) return undefined
+	return `${renderDbQuotedIdentifier(column, dbType)} = ${literal}`
 }
 
 export function getLanguageByResourceType(name: string): ScriptLang {

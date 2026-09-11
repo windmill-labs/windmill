@@ -17,6 +17,7 @@ import type { ModulesTestStates } from '../modulesTest.svelte'
 import type { ButtonProp } from '$lib/components/diffEditorTypes'
 
 import type { SelectionManager } from '../graph/selectionUtils.svelte'
+import type { FlowPanelPreference } from './panelPlacement'
 import type { InferAssetsSqlQueryDetails } from '$lib/infer'
 
 export type FlowInput = Record<
@@ -106,6 +107,10 @@ export type FlowEditorContext = {
 	// $workspaceStore inside a fork-scoped session; worker-tag pickers read it so
 	// their tag list and availability match the deploy target. Getter for reactivity.
 	opWorkspace?: () => string | undefined
+	// The agent whose editor hosts this flow, when one does. An agent editor hosts its flow under
+	// that agent's own path, so `pathStore` alone cannot say whether a step belongs to a flow or to
+	// an agent being edited — a flow and a resource may share a path string.
+	agentEditorHost?: () => string | undefined
 }
 
 export type FlowGraphAssetContext = StateStore<{
@@ -135,3 +140,21 @@ export type OutputViewerJob =
 			  }
 	  ) & { result_stream?: string; result?: unknown })
 	| undefined
+
+/** Set by FlowEditor so a panel's card header can host the panel's own chrome inline.
+ *  A mounted host calls `claim` (keeping the returned unregister for teardown), which
+ *  hides FlowEditor's fallback strip. */
+export type FlowPanelDetachContext = {
+	claim: () => () => void
+	/** True while the detached modal is open. Its chrome lives in the panel's card header,
+	 *  so the modal draws no header of its own. */
+	modalOpen: () => boolean
+	close: () => void
+	/** False for whitelabel embeds that keep the classic always-docked pane — they get no
+	 *  panel-position control at all, in the graph or anywhere else. */
+	enabled: () => boolean
+	/** The Auto/Attached/Detached choice, picked from the graph's control bar. Distinct
+	 *  from where the panel currently is: `auto` resolves against the editor's width. */
+	preference: () => FlowPanelPreference
+	setPreference: (preference: FlowPanelPreference) => void
+}

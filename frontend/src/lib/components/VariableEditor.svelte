@@ -5,6 +5,13 @@
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
+	import {
+		clearPageDrawerAnchor,
+		pageDrawerSessionSource,
+		setPageDrawerAnchor
+	} from './sessions/pageDrawerSession'
+	import { VARIABLES_PATH } from './sessions/previewPaths'
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite } from '$lib/utils'
@@ -92,6 +99,12 @@
 	const MAX_VARIABLE_LENGTH = 10000
 	const edit = $derived(editPath !== undefined)
 	const initialPath = $derived(editPath ?? '')
+	// `selected`, not `curWs`: WsSpecificVersions re-points this drawer at another
+	// workspace's version of the variable, and the session must act on the one the
+	// user is looking at.
+	const sessionSource = $derived(
+		pageDrawerSessionSource(VARIABLES_PATH, editPath, selected ?? curWs)
+	)
 	const current = $derived(selected ? states[selected]?.draft : undefined)
 	const can_write = $derived.by(() => {
 		if (!selected || !edit) return true
@@ -221,6 +234,7 @@
 		editPath = edit_path
 		selected = curWs!
 		drawer?.openDrawer()
+		setPageDrawerAnchor(VARIABLES_PATH, edit_path)
 	}
 
 	async function loadSecret(): Promise<void> {
@@ -293,7 +307,7 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="50rem">
+<Drawer bind:this={drawer} size="50rem" on:close={() => clearPageDrawerAnchor(VARIABLES_PATH)}>
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
 		bannerReserved={edit}
@@ -347,6 +361,7 @@
 			{/if}
 		</div>
 		{#snippet actions()}
+			<OpenInSessionButton source={sessionSource} />
 			{#if edit && curWs}
 				<WsSpecificVersions kind="variable" workspaceId={curWs} {initialPath} bind:selected />
 			{/if}

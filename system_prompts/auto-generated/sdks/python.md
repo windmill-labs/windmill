@@ -2,6 +2,17 @@
 
 Import: import wmill
 
+The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs.
+
+The functions below are the surface to prefer. For an endpoint none of them covers,
+wmill.Windmill().get(endpoint) and .post(endpoint) issue an authenticated request against this
+instance. What does not exist is a function name you guessed at: if it is not listed below, do
+not call it.
+
 To know who is running the script, read the contextual variables rather than calling the API:
 `os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`. WM_END_USER_EMAIL is the app
 viewer when the run was triggered from an app and empty otherwise (both variables are always
@@ -302,19 +313,23 @@ def delete_s3_object(s3object: S3Object | str, s3_resource_path: str | None = No
 # 
 # Args:
 #     s3_objects: List of S3 objects to sign
+#     expiry_secs: How long the signature stays valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     List of signed S3 objects
-def sign_s3_objects(s3_objects: list[S3Object | str]) -> list[S3Object]
+def sign_s3_objects(s3_objects: list[S3Object | str], expiry_secs: int | None = None) -> list[S3Object]
 
 # Sign a single S3 object for use by anonymous users in public apps.
 # 
 # Args:
 #     s3_object: S3 object to sign
+#     expiry_secs: How long the signature stays valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     Signed S3 object
-def sign_s3_object(s3_object: S3Object | str) -> S3Object
+def sign_s3_object(s3_object: S3Object | str, expiry_secs: int | None = None) -> S3Object
 
 # Generate presigned public URLs for an array of S3 objects.
 # If an S3 object is not signed yet, it will be signed first.
@@ -322,6 +337,8 @@ def sign_s3_object(s3_object: S3Object | str) -> S3Object
 # Args:
 #     s3_objects: List of S3 objects to sign
 #     base_url: Optional base URL for the presigned URLs (defaults to WM_BASE_URL)
+#     expiry_secs: How long the signatures stay valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     List of signed public URLs
@@ -329,7 +346,7 @@ def sign_s3_object(s3_object: S3Object | str) -> S3Object
 # Example:
 #     >>> s3_objs = [S3Object(s3="/path/to/file1.txt"), S3Object(s3="/path/to/file2.txt")]
 #     >>> urls = client.get_presigned_s3_public_urls(s3_objs)
-def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str | None = None) -> list[str]
+def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str | None = None, expiry_secs: int | None = None) -> list[str]
 
 # Generate a presigned public URL for an S3 object.
 # If the S3 object is not signed yet, it will be signed first.
@@ -337,6 +354,8 @@ def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str
 # Args:
 #     s3_object: S3 object to sign
 #     base_url: Optional base URL for the presigned URL (defaults to WM_BASE_URL)
+#     expiry_secs: How long the signature stays valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     Signed public URL
@@ -344,7 +363,7 @@ def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str
 # Example:
 #     >>> s3_obj = S3Object(s3="/path/to/file.txt")
 #     >>> url = client.get_presigned_s3_public_url(s3_obj)
-def get_presigned_s3_public_url(s3_object: S3Object | str, base_url: str | None = None) -> str
+def get_presigned_s3_public_url(s3_object: S3Object | str, base_url: str | None = None, expiry_secs: int | None = None) -> str
 
 # Get the current user information.
 # 
@@ -637,6 +656,22 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # decoded back before the caller sees it: a ``datetime`` comes back as a
 # string, a tuple as a list.
 # 
+# ``retry`` re-dispatches the task after a failure, inside ``@workflow`` only.
+# Every attempt is a step of its own (``call_api``, ``call_api#2``, ...) and
+# the wait between two of them is a durable sleep, so a retrying task holds no
+# worker while it backs off. Keys: ``attempts`` (retries after the first
+# failure, a whole number from 0 to 100), ``delay`` (seconds before the first
+# retry, sub-second delays dropped), ``multiplier`` (applied to the delay
+# after each attempt, 1 keeps it constant), ``max_delay`` (ceiling in
+# seconds). ``attempts`` is required, and an out-of-range or unknown key is
+# rejected where the policy is written.
+# 
+# A workflow sleeps once per round, so tasks backing off in the same fan-out
+# wait one after another rather than together: the delay before a fan-out
+# retries is the sum of every backoff pending in it, not the longest one, and
+# it grows with both the width of the fan-out and ``attempts``. Retries with
+# no ``delay`` all go out in a single round.
+# 
 # Usage::
 # 
 #     @task
@@ -644,9 +679,14 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # 
 #     @task(path="f/external_script", timeout=600, tag="gpu")
 #     async def run_external(x: int): ...
-def task(_func = None, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+# 
+#     @task(retry={"attempts": 3, "delay": 30, "multiplier": 2})
+#     async def call_api(payload: dict): ...
+def task(_func = None, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill script.
+# 
+# ``retry`` takes the same policy as :func:`task`.
 # 
 # Usage::
 # 
@@ -655,9 +695,11 @@ def task(_func = None, path: Optional[str] = None, tag: Optional[str] = None, ti
 #     @workflow
 #     async def main():
 #         data = await extract(url="https://...")
-def task_script(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+def task_script(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill flow.
+# 
+# ``retry`` takes the same policy as :func:`task`.
 # 
 # Usage::
 # 
@@ -666,7 +708,7 @@ def task_script(path: str, timeout: Optional[int] = None, tag: Optional[str] = N
 #     @workflow
 #     async def main():
 #         result = await pipeline(input=data)
-def task_flow(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+def task_flow(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Decorator marking an async function as a workflow-as-code entry point.
 # 
@@ -707,13 +749,17 @@ async def sleep(seconds: int)
 #     form: Optional form schema for the approval page.
 #     self_approval: Whether the user who triggered the flow can approve it (default True).
 #     key: Optional checkpoint key naming this approval step.
+#     skin: ``"minimal"`` shows approvers only the request (form and approve/reject)
+#         instead of the detailed page with the workflow's details.
+#     description: Shown to approvers above the form: a string, or a rich value such as
+#         ``{"markdown": "..."}``.
 # 
 # Example::
 # 
 #     urls = await step("urls", lambda: get_approval_urls("manager"))
 #     await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
 #     result = await wait_for_approval(key="manager", timeout=3600)
-async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None) -> dict
+async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None, skin: Literal['detailed', 'minimal'] | None = None, description: str | dict | None = None) -> dict
 
 # Process items in parallel with optional concurrency control.
 # 

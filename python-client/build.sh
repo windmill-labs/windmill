@@ -22,11 +22,18 @@ sed -z "
 
 npx @redocly/openapi-cli@latest bundle openapi/openapi.yaml > openapi-bundled.yaml
 
-sed -z 's/FlowModuleValue:/FlowModuleValue2:/;s/RestartedFrom:/RestartedFrom2:/' openapi-bundled.yaml > openapi-decycled.yaml
+# The dereferenced JSON below cannot express a cycle, so every self-referencing schema
+# must be renamed and left with an empty stub under its original name: the refs pointing
+# back at it then resolve to the stub. A new recursive schema fails the bundle step with
+# "Detected circular reference which can't be converted to JSON" until it is listed here.
+sed -z 's/FlowModuleValue:/FlowModuleValue2:/;s/RestartedFrom:/RestartedFrom2:/;s/TriggerFilter:/TriggerFilter2:/' openapi-bundled.yaml > openapi-decycled.yaml
 
 echo "    FlowModuleValue: {}" >> openapi-decycled.yaml
 echo "    RestartedFrom: {}" >> openapi-decycled.yaml
+echo "    TriggerFilter: {}" >> openapi-decycled.yaml
 npx @redocly/openapi-cli@latest bundle openapi-decycled.yaml --ext json -d > openapi-deref.json
+# redocly reports a bundling error on stderr but still exits 0, leaving the file empty
+[ -s openapi-deref.json ] || { echo "openapi-deref.json is empty: bundling failed" >&2; exit 1; }
 
 sed '$d' .gitignore > .gitignore2
 mv .gitignore2 .gitignore

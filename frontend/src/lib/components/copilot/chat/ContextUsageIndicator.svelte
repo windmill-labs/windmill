@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
-	import { getKnownModelContextWindow } from '../modelConfig'
+	import { getKnownModelContextWindow, getModelContextWindow } from '../modelConfig'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { AIMode } from './AIChatManager.svelte'
-	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
+	import UsageMeter from './UsageMeter.svelte'
+	import { formatTokenCount } from './tokenUsage'
 
 	const aiChatManager = getAiChatManager()
 
@@ -14,8 +15,14 @@
 	let providerModel = $derived(
 		$copilotSessionModel ?? $copilotInfo.defaultModel ?? $copilotInfo.aiModels[0]
 	)
+	// The same number the compaction trigger uses: the known window when the
+	// model is listed, otherwise the conservative window the trigger assumes.
+	// The tooltip marks the assumed case so the guess never reads as a spec.
 	let contextWindow = $derived(
-		providerModel ? getKnownModelContextWindow(providerModel.model) : undefined
+		providerModel ? getModelContextWindow(providerModel.model) : undefined
+	)
+	let windowIsAssumed = $derived(
+		providerModel !== undefined && getKnownModelContextWindow(providerModel.model) === undefined
 	)
 	// The same number the compaction trigger uses: the provider's report when
 	// one describes the current history (one turn stale by nature), otherwise
@@ -39,42 +46,19 @@
 					? 'bg-amber-500'
 					: 'bg-surface-accent-primary'
 	)
-
-	function formatTokenCount(tokens: number): string {
-		if (tokens >= 1_000_000) {
-			return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
-		}
-		if (tokens >= 1000) {
-			return `${Math.round(tokens / 1000)}k`
-		}
-		return `${tokens}`
-	}
 </script>
 
 {#if visible}
-	<Tooltip small placement="top">
-		<!-- Only a meter when we know the window: it's a 0–100% reading. With an unknown
-		     window there's no max to measure against, so it's a plain labeled indicator
-		     (the bar is decorative/full and the token count lives in the tooltip). -->
-		<div
-			class="flex items-center h-5"
-			aria-label="Context window usage"
-			role={fillPct !== undefined ? 'meter' : undefined}
-			aria-valuenow={fillPct}
-			aria-valuemin={fillPct !== undefined ? 0 : undefined}
-			aria-valuemax={fillPct !== undefined ? 100 : undefined}
-		>
-			<div class="w-8 h-1.5 rounded-full bg-surface-secondary overflow-hidden">
-				<div class="h-full rounded-full transition-all {fillClass}" style="width: {fillPct ?? 100}%"
-				></div>
-			</div>
-		</div>
-		{#snippet text()}
+	<!-- Only a meter when we know the window: it's a 0–100% reading. With an unknown
+	     window there's no max to measure against, so it's a plain labeled indicator
+	     (the bar is decorative/full and the token count lives in the tooltip). -->
+	<UsageMeter {fillPct} {fillClass} ariaLabel="Context window usage">
+		{#snippet tooltip()}
 			<div class="text-xs whitespace-nowrap">
 				<p class="font-semibold">Context usage</p>
 				<p class="mt-1 tabular-nums">
 					~{formatTokenCount(usedTokens)}{contextWindow
-						? ` / ${formatTokenCount(contextWindow)}`
+						? ` / ${formatTokenCount(contextWindow)}${windowIsAssumed ? ' assumed' : ''}`
 						: ''}{fillPct !== undefined ? ` (${fillPct}%)` : ''}
 				</p>
 				{#if ratio !== undefined && ratio >= COMPACTION_TRIGGER_RATIO}
@@ -87,5 +71,5 @@
 				{/if}
 			</div>
 		{/snippet}
-	</Tooltip>
+	</UsageMeter>
 {/if}

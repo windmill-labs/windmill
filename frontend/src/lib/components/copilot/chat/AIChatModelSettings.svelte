@@ -25,12 +25,20 @@
 	import { base } from '$lib/base'
 	import AIPromptsModal from '$lib/components/settings/AIPromptsModal.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
+	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import {
 		getReasoningCapability,
 		resolveEffectiveReasoning,
 		REASONING_OFF,
 		type ReasoningProviderModel
 	} from '../reasoningRegistry'
+
+	let {
+		/** Whether this dropdown carries the custom-prompt entries. Off where the surface
+		 * has an assistant settings modal — its Instructions section owns them there, and
+		 * two ways in would drift. The home composer has no such modal, so it keeps them. */
+		promptSettings = true
+	}: { promptSettings?: boolean } = $props()
 
 	const aiChatManager = getAiChatManager()
 	const AI_SETTINGS_HREF = `${base}/workspace_settings?tab=ai`
@@ -44,6 +52,13 @@
 			}) as ReasoningProviderModel
 	)
 	let models = $derived($copilotInfo.aiModels)
+
+	// Free tier: the workspace has no key of its own and is spending Windmill's one-time
+	// grant. Label it so the user knows whose budget this is, and warn before it runs out
+	// rather than letting the grant die mid-task.
+	let freeTier = $derived($copilotInfo.freeTier)
+	let freeUsedPct = $derived(Math.min(100, Math.round((freeTier?.used_ratio ?? 0) * 100)))
+	let freeRunningLow = $derived(!!freeTier && !freeTier.exhausted && freeUsedPct >= 80)
 
 	let capability = $derived(
 		getReasoningCapability(providerModel.provider as AIProvider, providerModel.model)
@@ -311,6 +326,13 @@
 					{#if effortLabel}
 						<span class="shrink-0 text-tertiary">· {effortLabel}</span>
 					{/if}
+					{#if freeTier && !freeTier.exhausted}
+						<span
+							class="shrink-0 rounded-full px-1.5 text-2xs {freeRunningLow
+								? 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900/40'
+								: 'bg-surface-secondary text-tertiary'}">Free</span
+						>
+					{/if}
 				</span>
 			</Button>
 		</div>
@@ -320,7 +342,9 @@
 			class="bg-surface-tertiary dark:border w-64 origin-top-right rounded-lg shadow-lg focus:outline-none py-1 text-xs"
 		>
 			<!-- Melt submenu: hover-opens and is floating-positioned (flips on screen edges). -->
-			<DropdownSubmenuItem item={paramItems(close)} {builders} meltItem={item} />
+			{#if promptSettings}
+				<DropdownSubmenuItem item={paramItems(close)} {builders} meltItem={item} />
+			{/if}
 
 			<div class="my-1 border-t border-border-light"></div>
 			<div class="px-3 pt-1.5 pb-1 text-2xs uppercase tracking-wide text-secondary">Model</div>
@@ -377,25 +401,41 @@
 					<div class="text-2xs text-tertiary mt-0.5">Not supported by this model</div>
 				</div>
 			{/if}
+
+			<!-- A reading preference rather than a model parameter: it applies to every
+			     chat in this browser, including thinking already in the transcript. -->
+			<MenuItem
+				{item}
+				class="w-full flex items-center gap-2 px-3 py-1.5 text-left font-normal hover:bg-surface-hover data-[highlighted]:bg-surface-hover rounded-sm transition-colors cursor-pointer"
+				onClick={() => (thinkingPreferences.expandByDefault = !thinkingPreferences.expandByDefault)}
+			>
+				<span class="truncate grow min-w-0 text-2xs text-secondary">Always expand thinking</span>
+				{#if thinkingPreferences.expandByDefault}
+					<Check size={14} class="shrink-0 text-primary" />
+				{/if}
+			</MenuItem>
 		</div>
 	{/snippet}
 </DropdownV2>
 
-<AIPromptsModal
-	bind:open={modalOpen}
-	bind:customPrompts
-	scope={modalScope}
-	modes={[activeMode]}
-	readOnly={modalReadOnly}
-	{readOnlyReason}
-	onSave={modalReadOnly ? undefined : save}
-	onReset={reset}
-	{hasChanges}
-	title={modalScope === 'user' ? 'User AI prompt' : 'Workspace AI prompt'}
-	target="body"
-	fixedHeight="sm"
-	settingsHref={isAdmin ? AI_SETTINGS_HREF : undefined}
-/>
+<!-- Only where the entries that open it are rendered. -->
+{#if promptSettings}
+	<AIPromptsModal
+		bind:open={modalOpen}
+		bind:customPrompts
+		scope={modalScope}
+		modes={[activeMode]}
+		readOnly={modalReadOnly}
+		{readOnlyReason}
+		onSave={modalReadOnly ? undefined : save}
+		onReset={reset}
+		{hasChanges}
+		title={modalScope === 'user' ? 'User AI prompt' : 'Workspace AI prompt'}
+		target="body"
+		fixedHeight="sm"
+		settingsHref={isAdmin ? AI_SETTINGS_HREF : undefined}
+	/>
+{/if}
 
 <style>
 	/* Lean reasoning slider: a thin track and a small, borderless accent thumb. Native range

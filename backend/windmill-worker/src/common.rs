@@ -18,8 +18,8 @@ use windmill_common::flows::Step;
 use windmill_common::global_settings::NSJAIL_TMP_BACKING_DISK;
 use windmill_common::variables::{build_crypt_with_key_suffix, decrypt};
 use windmill_common::worker::{
-    to_raw_value, update_ping_for_failed_init_script_query, write_file, Connection, Ping, PingType,
-    CLOUD_HOSTED, ROOT_CACHE_DIR, WORKER_CONFIG,
+    max_job_duration_secs, to_raw_value, update_ping_for_failed_init_script_query, write_file,
+    Connection, Ping, PingType, CLOUD_HOSTED, ROOT_CACHE_DIR, WORKER_CONFIG,
 };
 use windmill_common::workspace_dependencies::WorkspaceDependenciesPrefetched;
 use windmill_common::{
@@ -49,8 +49,7 @@ use tokio::{io::AsyncWriteExt, time::Instant};
 
 use crate::agent_workers::UPDATE_PING_URL;
 use crate::{
-    JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION, NSJAIL_TMPFS_SIZE_MB,
-    NSJAIL_TMP_BACKING, PATH_ENV,
+    JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, NSJAIL_TMPFS_SIZE_MB, NSJAIL_TMP_BACKING, PATH_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -67,6 +66,20 @@ mount {
 
 #[cfg(not(debug_assertions))]
 pub const DEV_CONF_NSJAIL: &str = "";
+
+/// Tells a `spawn_blocking` task to stop when the future awaiting it goes away.
+///
+/// Dropping a `JoinHandle` detaches the task rather than cancelling it, so a
+/// cancelled or timed-out phase otherwise leaves the blocking pool working on an
+/// answer nobody will read. Hold one of these beside the handle and have the
+/// blocking loop check the flag.
+pub(crate) struct AbortOnDrop(pub(crate) std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
 
 /// Turn a JSON value into the string a shell/CLI arg should receive: a JSON string
 /// becomes its inner value, anything else is re-serialized compactly.
@@ -528,7 +541,9 @@ pub async fn get_reserved_variables(
     };
 
     let tested_runnable = match (&job.trigger_kind, &job.trigger) {
-        (Some(k), Some(t)) if k.is(windmill_common::jobs::JobTriggerKind::CiTest) => Some(t.clone()),
+        (Some(k), Some(t)) if k.is(windmill_common::jobs::JobTriggerKind::CiTest) => {
+            Some(t.clone())
+        }
         _ => None,
     };
 
@@ -1074,12 +1089,8 @@ pub async fn resolve_job_timeout(
     #[cfg(not(feature = "cloud"))]
     let cloud_premium_workspace = false;
 
-    // compute global max timeout
-    let global_max_timeout_duration = if cloud_premium_workspace {
-        *MAX_TIMEOUT_DURATION * 6 //30mins
-    } else {
-        *MAX_TIMEOUT_DURATION
-    };
+    let global_max_timeout_duration =
+        Duration::from_secs(max_job_duration_secs(cloud_premium_workspace));
 
     // A `custom_timeout_secs <= 0` is not a 0-second limit but "unset": fall through to the
     // default/global-max timeout instead of killing the job immediately.
@@ -1587,7 +1598,11 @@ pub(crate) async fn get_workspace_s3_resource_path(
     use windmill_object_store::job_s3_helpers_oss::get_s3_resource_internal;
     use windmill_types::s3::StorageResourceType;
 
-    let raw_lfs_opt = if let Some(storage) = storage {
+    // `_default_` names the primary storage, never a secondary one (see `DEFAULT_STORAGE`), so
+    // it resolves below rather than being looked up among storages that cannot carry the name.
+    let raw_lfs_opt = if let Some(storage) =
+        storage.filter(|s| s.as_str() != windmill_types::s3::DEFAULT_STORAGE)
+    {
         sqlx::query_scalar!(
             "SELECT large_file_storage->'secondary_storage'->$2 FROM workspace_settings WHERE workspace_id = $1",
             workspace_id,
@@ -1639,6 +1654,7 @@ pub(crate) async fn get_workspace_s3_resource_path(
             )
         }
         Some(LargeFileStorage::FilesystemStorage(fs)) => {
+            windmill_common::workspaces::ensure_filesystem_storage_allowed()?;
             return Ok(Some(
                 windmill_object_store::ObjectStoreResource::Filesystem(
                     windmill_object_store::FilesystemSettings { root_path: fs.root_path.clone() },

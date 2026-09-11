@@ -116,7 +116,7 @@
 
 <div class="h-full flex flex-col">
 	<FlowCard {noEditor} title="Settings">
-		<div class="grow min-h-0 p-4 h-full flex flex-col gap-6">
+		<div class="grow min-h-0 p-4 h-full flex flex-col gap-6 overflow-y-auto">
 			<!-- Metadata Section -->
 			<div class="gap-6 flex flex-col">
 				<Label label="Summary">
@@ -188,7 +188,7 @@
 				label="Advanced"
 				collapsable={true}
 				small={true}
-				class="h-full grow mt-2 min-h-0 flex flex-col gap-6"
+				class="h-full grow mt-2 min-h-0 flex flex-col gap-6 pb-2"
 			>
 				<!-- Worker Group Section -->
 				{#if customUi?.settingsTabs?.workerGroup != false}
@@ -626,11 +626,10 @@
 							flowStore.val.value.priority = 100
 						}
 					}}
+					eeOnly={true}
 					options={{
 						right: `Label as high priority`,
-						rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. Higher priority numbers are executed first. ${
-							!$enterpriseLicense ? 'This is a feature only available on enterprise edition.' : ''
-						}`,
+						rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. Higher priority numbers are executed first.`,
 						rightDocumentationLink: 'https://www.windmill.dev/docs/flows/priority'
 					}}
 				>
@@ -653,9 +652,6 @@
 								}
 							}}
 						/>
-						{#if !$enterpriseLicense || isCloudHosted()}
-							<EEOnly />
-						{/if}
 					{/snippet}
 				</Toggle>
 
@@ -673,7 +669,7 @@
 					}}
 					options={{
 						right: 'Delete all step results after completion',
-						rightTooltip: `When enabled, the logs, arguments and results of all flow steps will be deleted after the specified delay once the flow completes. Set to 0 for immediate deletion. The deletion is irreversible. ${!$enterpriseLicense ? 'This is a feature only available on enterprise edition.' : ''}`
+						rightTooltip: `When enabled, the logs, arguments and results of all flow steps will be deleted after the specified delay once the flow completes. Set to 0 for immediate deletion. The deletion is irreversible.`
 					}}
 					eeOnly={true}
 				/>

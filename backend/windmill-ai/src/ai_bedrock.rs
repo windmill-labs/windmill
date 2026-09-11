@@ -109,6 +109,19 @@ const BEDROCK_PROMPT_CACHING_SUPPORTED_MODEL_IDS: &[&str] = &[
     "anthropic.claude-3-5-sonnet-20241022-v2:0",
 ];
 
+/// Claude 4.6 and later are published under several id spellings for the same
+/// model (`anthropic.claude-sonnet-4-6`, `...-4-6-v1`, `...-4-6-v1:0`), so they
+/// are matched by family prefix rather than by exact id.
+const BEDROCK_PROMPT_CACHING_SUPPORTED_MODEL_PREFIXES: &[&str] = &[
+    "anthropic.claude-fable-5",
+    "anthropic.claude-opus-4-6",
+    "anthropic.claude-opus-4-7",
+    "anthropic.claude-opus-4-8",
+    "anthropic.claude-opus-5",
+    "anthropic.claude-sonnet-4-6",
+    "anthropic.claude-sonnet-5",
+];
+
 fn build_default_cache_point() -> aws_sdk_bedrockruntime::types::CachePointBlock {
     aws_sdk_bedrockruntime::types::CachePointBlock::builder()
         .r#type(aws_sdk_bedrockruntime::types::CachePointType::Default)
@@ -123,7 +136,7 @@ fn normalize_bedrock_model_id(model: &str) -> String {
         .unwrap_or(model)
         .to_ascii_lowercase();
 
-    for prefix in ["global.", "us.", "eu.", "apac."] {
+    for prefix in ["global.", "us.", "eu.", "apac.", "au."] {
         if let Some(normalized_model) = model.strip_prefix(prefix) {
             return normalized_model.to_string();
         }
@@ -135,6 +148,9 @@ fn normalize_bedrock_model_id(model: &str) -> String {
 pub fn bedrock_model_supports_prompt_caching(model: &str) -> bool {
     let normalized_model = normalize_bedrock_model_id(model);
     BEDROCK_PROMPT_CACHING_SUPPORTED_MODEL_IDS.contains(&normalized_model.as_str())
+        || BEDROCK_PROMPT_CACHING_SUPPORTED_MODEL_PREFIXES
+            .iter()
+            .any(|prefix| normalized_model.starts_with(prefix))
 }
 
 fn append_cache_point_to_system_prompts(system_prompts: &mut Vec<SystemContentBlock>) {
@@ -1241,6 +1257,27 @@ mod tests {
         ));
     }
 
+    /// Claude 4.6+ ships under bare, `-v1` and `-v1:0` spellings of the same id,
+    /// so every one of them has to reach the prefix match.
+    #[test]
+    fn bedrock_prompt_caching_supports_claude_4_6_and_later_id_spellings() {
+        for model in [
+            "anthropic.claude-sonnet-4-6",
+            "anthropic.claude-sonnet-4-6-v1:0",
+            "us.anthropic.claude-opus-4-6-v1",
+            "global.anthropic.claude-opus-4-8",
+            "anthropic.claude-opus-5",
+            "eu.anthropic.claude-sonnet-5-v1:0",
+            "au.anthropic.claude-sonnet-5",
+            "anthropic.claude-fable-5",
+        ] {
+            assert!(
+                bedrock_model_supports_prompt_caching(model),
+                "{model} must support prompt caching"
+            );
+        }
+    }
+
     #[test]
     fn bedrock_prompt_caching_rejects_unsupported_or_opaque_model_ids() {
         assert!(!bedrock_model_supports_prompt_caching(
@@ -1248,6 +1285,10 @@ mod tests {
         ));
         assert!(!bedrock_model_supports_prompt_caching(
             "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/my-profile"
+        ));
+        // Opus 4.5 is dated-id only — the 4.6+ prefixes must not swallow it.
+        assert!(!bedrock_model_supports_prompt_caching(
+            "anthropic.claude-opus-4-5-20251101-v2:0"
         ));
     }
 }

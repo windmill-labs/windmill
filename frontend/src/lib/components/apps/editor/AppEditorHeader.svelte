@@ -7,25 +7,13 @@
 	import { redo, undo } from '$lib/history.svelte'
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import {
-		enterpriseLicense,
-		tutorialsToDo,
-		userStore,
-		userWorkspaces,
-		workspaceStore
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { isMac, type Item, userPathPrefix } from '$lib/utils'
-	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
-	import { getTutorialIndex } from '$lib/tutorials/config'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import {
 		AlignHorizontalSpaceAround,
 		BellOff,
-		BookOpen,
 		Bug,
-		CheckCheck,
-		CheckCircle,
-		Circle,
 		DiffIcon,
 		Expand,
 		FileJson,
@@ -33,7 +21,6 @@
 		FormInput,
 		History,
 		Laptop2,
-		RefreshCw,
 		Save,
 		Smartphone,
 		FileClock,
@@ -61,7 +48,6 @@
 	import Awareness from '$lib/components/Awareness.svelte'
 	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
-	import AppEditorTutorial from './AppEditorTutorial.svelte'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
@@ -79,7 +65,7 @@
 	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
 	import { updatePolicy } from './appPolicy'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
@@ -465,6 +451,28 @@
 		}
 	}
 
+	/** Flush the pending autosave (also covers the toggle-off parked case).
+	 * Returns whether there was a draft to flush — false in the AI session pane,
+	 * which owns no handle. */
+	function flushDraft(): boolean {
+		if (inSessionPane || !$workspaceStore || !userDraftPath) return false
+		void UserDraftDbSyncer.flush({
+			workspace: $workspaceStore,
+			itemKind: 'app',
+			path: userDraftPath
+		})
+		return true
+	}
+
+	// Monaco swallows the keydown, so an inline script or template editor with
+	// focus never reaches the window handler below; Editor/SimpleEditor/
+	// TemplateEditor re-broadcast it (untyped event, hence the manual listener).
+	$effect(() => {
+		const onMonacoSave = () => void flushDraft()
+		window.addEventListener('wm-monaco-save-shortcut', onMonacoSave)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', onMonacoSave)
+	})
+
 	let lock = false
 	function onKeyDown(event: KeyboardEvent) {
 		if (lock) return
@@ -492,17 +500,12 @@
 				}
 				break
 			case 's':
-				if (event.ctrlKey || event.metaKey) {
+				// Shift excluded: the switch lowercases so Ctrl+Shift+S lands here
+				// too, and swallowing it would steal the browser/OS shortcut.
+				// Swallowed only when there is a draft to flush, so the contexts
+				// that can't act on it (AI session pane) leave the key alone.
+				if ((event.ctrlKey || event.metaKey) && !event.shiftKey && flushDraft()) {
 					event.preventDefault()
-					// Flush the pending autosave (also covers the toggle-off parked
-					// case); no-op in the AI session pane (no handle there).
-					if (!inSessionPane && $workspaceStore && userDraftPath) {
-						void UserDraftDbSyncer.flush({
-							workspace: $workspaceStore,
-							itemKind: 'app',
-							path: userDraftPath
-						})
-					}
 				}
 				break
 			// case 'ArrowDown': {
@@ -662,48 +665,8 @@
 			action: () => {
 				appExport?.open(toStatic($app, $staticExporter, $summary).app)
 			}
-		},
-		{
-			displayName: 'Tutorials',
-			icon: BookOpen,
-			separatorTop: true,
-			submenuItems: [
-				{
-					displayName: 'Background runnables',
-					action: () => appEditorTutorial?.runTutorialById('backgroundrunnables'),
-					icon: $tutorialsToDo.includes(getTutorialIndex('backgroundrunnables'))
-						? Circle
-						: CheckCircle,
-					iconColor: $tutorialsToDo.includes(getTutorialIndex('backgroundrunnables'))
-						? undefined
-						: 'green'
-				},
-				{
-					displayName: 'Connection',
-					action: () => appEditorTutorial?.runTutorialById('connection'),
-					icon: $tutorialsToDo.includes(getTutorialIndex('connection')) ? Circle : CheckCircle,
-					iconColor: $tutorialsToDo.includes(getTutorialIndex('connection')) ? undefined : 'green'
-				},
-				{
-					displayName: 'Reset tutorials',
-					action: () => resetAllTodos(),
-					icon: RefreshCw,
-					separatorTop: true
-				},
-				{
-					displayName: 'Skip tutorials',
-					action: () => skipAllTodos(),
-					icon: CheckCheck
-				}
-			]
 		}
 	]) as Item[]
-
-	let appEditorTutorial: AppEditorTutorial | undefined = $state(undefined)
-
-	export function runTutorialById(id: string, options?: { skipStepsCount?: number }) {
-		appEditorTutorial?.runTutorialById(id, options)
-	}
 
 	let appReportingDrawerOpen = $state(false)
 
@@ -1073,15 +1036,7 @@
 		</div>
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible shrink-0">
-		<div class="relative">
-			<Dropdown items={moreItems} />
-			{#if $tutorialsToDo.includes(getTutorialIndex('backgroundrunnables')) || $tutorialsToDo.includes(getTutorialIndex('connection'))}
-				<span
-					class="absolute top-0.5 right-0.5 block w-2 h-2 rounded-full bg-surface-accent-primary pointer-events-none"
-				></span>
-			{/if}
-		</div>
-		<AppEditorTutorial bind:this={appEditorTutorial} />
+		<Dropdown items={moreItems} />
 
 		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible shrink-0">
 			{#if hasErrors}
@@ -1142,7 +1097,7 @@
 									{
 										label: editInForkLabel($workspaceStore, $userWorkspaces),
 										onClick: () => {
-											window.open(buildForkEditUrl('app', $appPath))
+											openEditInFork('app', $appPath, $workspaceStore)
 										}
 									}
 								]

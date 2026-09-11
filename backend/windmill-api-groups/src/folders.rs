@@ -851,6 +851,7 @@ async fn delete_folder(
 async fn add_owner(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
     Json(Owner { owner, .. }): Json<Owner>,
@@ -905,6 +906,18 @@ async fn add_owner(
 
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Folder { path: format!("f/{}", name) },
+        Some(format!("Folder '{}' changed permissions", name)),
+        true,
+        None,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateFolder { workspace: w_id, name: name.clone() },
@@ -916,6 +929,7 @@ async fn add_owner(
 async fn remove_owner(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
     Json(Owner { owner, write }): Json<Owner>,
@@ -998,6 +1012,18 @@ async fn remove_owner(
     .await?;
 
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Folder { path: format!("f/{}", name) },
+        Some(format!("Folder '{}' changed permissions", name)),
+        true,
+        None,
+    )
+    .await?;
 
     webhook.send_message(
         w_id.clone(),

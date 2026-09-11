@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { Alert, Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import WorkspaceDeployLayout from '$lib/components/WorkspaceDeployLayout.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -13,7 +13,8 @@
 		canRecordSession,
 		sanitizeSlug,
 		isValidSlug,
-		type DeployItem
+		type DeployItem,
+		type DeployToHubSession
 	} from './deployToHubSession.svelte'
 	import { TRIGGER_KINDS, triggerDetails } from '$lib/components/triggers/workspaceTriggersList'
 	import Toggle from '../Toggle.svelte'
@@ -40,6 +41,7 @@
 		Zap
 	} from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 
 	// Folder name (no `f/`) this project is scoped to; provided by the /folders launcher.
@@ -61,6 +63,12 @@
 	// Inline pipeline graph above the item list, collapsed by default so the
 	// selection list stays the first thing in view.
 	let pipelineGraphOpen = $state(false)
+	// Discarding throws away every item pushed for the update and any recording made
+	// for it, none of which can be recovered. The session that opened the dialog is
+	// held rather than a boolean: a workspace or folder switch (browser history, say)
+	// replaces the session underneath an open dialog, and confirming must never
+	// discard a different folder's update.
+	let discardTarget = $state<DeployToHubSession | undefined>(undefined)
 	let resourceDrawer = $state<Drawer | undefined>()
 	let triggerDrawer = $state<Drawer | undefined>()
 	let bundleDrawer = $state<Drawer | undefined>()
@@ -105,18 +113,17 @@
 		// Browser-reported type wins over the extension: a PNG misnamed *.svg
 		// must be treated as PNG or the Hub's content sniff rejects it later.
 		const lower = file.name.toLowerCase()
-		const mime =
-			file.type
-				? file.type === 'image/png'
-					? 'image/png'
-					: file.type === 'image/svg+xml'
-						? 'image/svg+xml'
-						: undefined
-				: lower.endsWith('.png')
-					? 'image/png'
-					: lower.endsWith('.svg')
-						? 'image/svg+xml'
-						: undefined
+		const mime = file.type
+			? file.type === 'image/png'
+				? 'image/png'
+				: file.type === 'image/svg+xml'
+					? 'image/svg+xml'
+					: undefined
+			: lower.endsWith('.png')
+				? 'image/png'
+				: lower.endsWith('.svg')
+					? 'image/svg+xml'
+					: undefined
 		if (!mime) {
 			sendUserToast('Logo must be a PNG or SVG file', true)
 			return
@@ -144,10 +151,25 @@
 		logoDragOver = false
 		await handleLogoFile(e.dataTransfer?.files?.[0])
 	}
-
 </script>
 
 {#if deployHub.session}
+	<ConfirmationModal
+		open={discardTarget !== undefined}
+		title="Discard update"
+		confirmationText="Discard"
+		onConfirmed={async () => {
+			const target = discardTarget
+			discardTarget = undefined
+			if (target && target === deployHub.session) await target.discardUpdate()
+		}}
+		onCanceled={() => (discardTarget = undefined)}
+	>
+		<span>
+			Discard this update? Everything pushed for it, including recordings made for it, is deleted
+			and cannot be recovered. Your published project is unaffected.
+		</span>
+	</ConfirmationModal>
 	{#key deployHub.session}
 		{@const s = deployHub.session}
 		<div>
@@ -180,8 +202,10 @@
 							</span>
 							<li class={stepNum === 1 ? 'text-primary' : stepNum > 1 ? 'opacity-60' : ''}>
 								<span class="font-mono text-emphasis">{stepNum > 1 ? '✓' : '1.'}</span>
-								<span class="font-semibold text-primary">Bundle your project</span> — creates a draft
-								on the Hub with every selected script, flow, app and resource from this folder.
+								<span class="font-semibold text-primary">Bundle your project</span> — sends every
+								selected script, flow, app and resource from this folder to the Hub{s.liveOnHub
+									? ' as an update'
+									: ' as a draft'}.
 							</li>
 							<li
 								class={stepNum === 2 ? 'text-primary' : stepNum > 2 ? 'opacity-60' : 'opacity-40'}
@@ -237,7 +261,7 @@
 										startIcon={{ icon: Cloud }}
 										onclick={openBundle}
 									>
-										Create Hub draft ({s.selectedItems.length})
+										{s.liveOnHub ? 'Bundle update' : 'Create Hub draft'} ({s.selectedItems.length})
 									</Button>
 								{:else if s.phase === 'draft'}
 									<Button
@@ -249,6 +273,17 @@
 										Submit for review
 									</Button>
 								{:else if s.phase === 'under_review'}
+									{#if s.hubSupportsUpdates}
+										<Button
+											variant="default"
+											unifiedSize="sm"
+											loading={s.withdrawing}
+											startIcon={{ icon: X }}
+											onclick={s.cancelSubmission}
+										>
+											Cancel submission
+										</Button>
+									{/if}
 									<Button
 										size="xs"
 										variant="subtle"
@@ -264,7 +299,19 @@
 										startIcon={{ icon: RotateCcw }}
 										onclick={s.startNewDraft}
 									>
-										New draft
+										{s.liveOnHub ? 'Publish an update' : 'New draft'}
+									</Button>
+								{/if}
+								{#if s.liveOnHub && s.phase === 'draft'}
+									<Button
+										variant="default"
+										destructive
+										unifiedSize="sm"
+										loading={s.discardingUpdate}
+										startIcon={{ icon: X }}
+										onclick={() => (discardTarget = s)}
+									>
+										Discard update
 									</Button>
 								{/if}
 							</div>
@@ -272,8 +319,10 @@
 						{#if s.phase === 'predeploy'}
 							<div class="flex flex-col gap-1 pb-3">
 								<span class="text-xs text-secondary">
-									Bundling creates a draft project on the Hub from the selected scripts, flows and
-									apps of <span class="font-mono">{s.selectedFolder}/</span>.
+									Bundling creates {s.liveOnHub
+										? 'an update to your Hub project'
+										: 'a draft project on the Hub'} from the selected scripts, flows and apps of
+									<span class="font-mono">{s.selectedFolder}/</span>.
 									{s.selectedItems.length} of {s.filteredWorkspaceItems.length} items selected.
 								</span>
 							</div>
@@ -352,6 +401,31 @@
 									{/each}
 								{/if}
 							</div>
+						{/if}
+						{#if s.liveOnHub && s.phase !== 'live' && s.phase !== 'under_review'}
+							<Alert
+								type="info"
+								size="xs"
+								title={s.phase === 'predeploy'
+									? 'Your published project stays live'
+									: 'This is an update — your published project is still live'}
+							>
+								Visitors keep seeing the published version, with its stars, forks and comments,
+								until this update is approved. Approving replaces it in place; discarding leaves it
+								exactly as it is.
+							</Alert>
+						{/if}
+						{#if s.pipelineReplayMayBeStale && s.phase === 'draft'}
+							<Alert type="warning" size="xs" title="The data pipeline replay is the published one">
+								This update carries the cascade recorded for the version that is live, and at least
+								one item has changed since. Record it again below, or visitors will replay the old
+								run as though it were this version.
+							</Alert>
+						{/if}
+						{#if s.rejectionReason && s.phase === 'draft'}
+							<Alert type="error" size="xs" title="Changes requested">
+								{s.rejectionReason}
+							</Alert>
 						{/if}
 						{#if s.phase === 'draft'}
 							<div class="flex flex-col gap-1 pb-3">
@@ -479,18 +553,21 @@
 							</div>
 						{/if}
 						{#if s.phase === 'under_review'}
-							<div
-								class="flex items-start gap-2 rounded-md border border-blue-300 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100"
+							<Alert
+								type="info"
+								size="xs"
+								title={s.liveOnHub
+									? 'Update under review — your published project is still live'
+									: 'Under review'}
 							>
-								<TriangleAlert size={14} class="mt-0.5 shrink-0 text-blue-600 dark:text-blue-400" />
-								<div class="flex flex-col gap-1">
-									<span class="font-semibold">Locked while under review</span>
-									<span>
-										The Windmill team is reviewing this submission. Editing, recording, and sharing
-										actions are disabled. Estimated turnaround: 1-2 business days.
-									</span>
-								</div>
-							</div>
+								The Windmill team is reviewing your project. Submission is locked until they answer
+								— no new version can be sent to the Hub, and no recording added to this one.
+								Estimated turnaround: 1-2 business days{#if s.hubSupportsUpdates}; cancel the
+									submission to get back to it sooner{/if}.{#if s.liveOnHub}
+									Visitors keep seeing the published version meanwhile, with its stars, forks and
+									comments; approving replaces it in place.{/if} Your folder itself is untouched — keep
+								editing your scripts and flows as usual.
+							</Alert>
 						{/if}
 						{#if s.phase === 'draft'}
 							{@const recordedCount = s.recordableItems.filter((i) => i.rec === 'recorded').length}
@@ -670,7 +747,11 @@
 								Waiting for the Windmill team to review the submission.
 							</span>
 						{:else}
-							<span class="text-[11px] text-hint"> Iterate further by starting a new draft. </span>
+							<span class="text-[11px] text-hint">
+								{s.liveOnHub
+									? 'Publish an update to change it — this stays live until the update is approved.'
+									: 'Iterate further by starting a new draft.'}
+							</span>
 						{/if}
 					</div>
 				{/snippet}
@@ -763,6 +844,40 @@
 							bind:isValid={s.recordValid}
 							schema={s.recordSchema}
 						/>
+					{/if}
+
+					{#if s.pastRuns.length > 0 && s.runState !== 'running'}
+						<div class="flex flex-col gap-1 rounded-md border p-3">
+							<span class="text-xs font-semibold text-primary">Or pick an existing run</span>
+							<span class="text-[11px] text-hint">
+								A recording is built from the completed run, so any recent successful run works.
+							</span>
+							<div class="mt-1 flex flex-col divide-y">
+								{#each s.pastRuns as run}
+									<div class="flex items-center justify-between gap-2 py-1.5">
+										<a
+											href={`/run/${run.id}?workspace=${s.workspace}`}
+											target="_blank"
+											rel="noopener noreferrer"
+											class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+										>
+											<ExternalLink size={12} />
+											{run.started_at ? new Date(run.started_at).toLocaleString() : run.id}
+										</a>
+										<div class="flex items-center gap-2">
+											{#if run.duration_ms !== undefined}
+												<span class="text-[11px] text-hint"
+													>{(run.duration_ms / 1000).toFixed(1)}s</span
+												>
+											{/if}
+											<Button size="xs" variant="default" onclick={() => s.useExistingRun(run.id)}>
+												Use this run
+											</Button>
+										</div>
+									</div>
+								{/each}
+							</div>
+						</div>
 					{/if}
 				</div>
 				{#snippet actions()}
@@ -1133,9 +1248,7 @@
 							</span>
 							<div class="mt-1 flex flex-col items-center gap-2">
 								<div class="w-64 overflow-hidden rounded-2xl border shadow-sm">
-									<div
-										class="flex h-32 items-center justify-center bg-surface-secondary/50 px-4"
-									>
+									<div class="flex h-32 items-center justify-center bg-surface-secondary/50 px-4">
 										<img
 											src={`data:${s.hubLogo.mime};base64,${s.hubLogo.b64}`}
 											alt="Project logo preview"
@@ -1147,7 +1260,9 @@
 											{s.hubName.trim() || 'Project name'}
 										</div>
 										<p class="mt-0.5 line-clamp-2 text-[11px] text-secondary">
-											{s.hubSummary.trim() || s.hubName.trim() || 'Short one-liner shown on the Hub card'}
+											{s.hubSummary.trim() ||
+												s.hubName.trim() ||
+												'Short one-liner shown on the Hub card'}
 										</p>
 									</div>
 								</div>

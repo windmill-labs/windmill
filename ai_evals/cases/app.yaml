@@ -324,3 +324,32 @@
     - reuses the existing datatable configuration rather than creating new tables
     - presents a read-only dashboard or summary of available analytics data
     - keeps the configured datatable references available in the app artifact
+
+# GIT-967, app mode: asked to track a long-running job, the agent hand-wrote a
+# runnable that fetched the jobs REST API — guessing at WM_TOKEN and a base URL
+# until it fell back to localhost — instead of using backendAsync + getJob/waitJob,
+# which the generated ./wmill bindings already provide.
+- id: app-long-job-progress
+  prompt: |-
+    Add a "Generate report" button. Building the report takes a few minutes, so as soon
+    as the user clicks it the app should show the run's job id and keep updating its
+    status until it finishes, then display the result.
+  runtime:
+    maxTurns: 22
+  validate:
+    forbiddenAppContent:
+      - BASE_INTERNAL_URL
+      - WM_BASE_URL
+      - WM_TOKEN
+      - localhost:8000
+      - getResultMaybe
+      - jobs/list
+      - getWorkspaceToken
+      - getBaseUrl
+  judgeChecklist:
+    - adds a Generate report button that starts the report
+    - shows the run's job id as soon as the run starts
+    - keeps the status updating while the run is in flight and shows the result when it completes
+    - starts the run with backendAsync and tracks it with getJob, waitJob or streamJob — all three are real exports of the generated ./wmill module, alongside backend and backendAsync
+    - does not write a backend runnable that polls job status or lists jobs itself
+    - does not call the Windmill API with fetch from the frontend, and does not read WM_TOKEN, BASE_INTERNAL_URL or WM_BASE_URL anywhere

@@ -30,9 +30,14 @@ import { copilotWorkspace } from '$lib/aiStore'
 import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { emptySchema, type StateStore } from '$lib/utils'
 import {
+	localRunEnded,
+	localRunStarted,
+	onRemoteTurnEnd,
+	runHeldElsewhere
+} from './sessionSync.svelte'
+import {
 	commitSessionWorkspace,
 	deleteSession as deleteSessionState,
-	ensureChatIdsSeeded,
 	getEffectiveWorkspaceId,
 	materializeTransient,
 	sessionState,
@@ -48,12 +53,15 @@ import {
 	describePreview,
 	hydratePreviewTabs,
 	previewTargetForSessionTarget,
-	selectPreviewTabsToClose
+	selectPreviewTabsToClose,
+	whereIs
 } from './sessionPreviewTabs.svelte'
 import {
-	matchReusablePage,
 	parsePreviewItemRoute,
+	previewLocationContext,
 	previewLocationLabel,
+	promptSafe,
+	parseRunFormRoute,
 	resolvePreviewTab
 } from './previewRouter'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
@@ -336,6 +344,15 @@ function createRuntime(session: Session): SessionRuntime {
 	// Carried into the tool helpers so this session's preview/deploy tool calls
 	// dispatch to THIS session even when another session is the UI-active one.
 	manager.sessionId = session.id
+	// Cross-tab awareness: heartbeat while this tab runs a turn, composer lock
+	// (and send refusal) while another tab does. The chat id is read at turn
+	// end, not captured at start — the turn may have rotated it, and the other
+	// tabs re-read whichever record it ended on.
+	manager.runHeldElsewhereResolver = () => runHeldElsewhere(session.id)
+	manager.onRunningChanged = (running) => {
+		if (running) localRunStarted(session.id, manager.historyManager.getCurrentChatId())
+		else localRunEnded(session.id, manager.historyManager.getCurrentChatId())
+	}
 	// The chat targets the session's OWN (possibly forked) workspace without
 	// switching the global workspaceStore. Resolved live from the session record
 	// so it tracks the pending → committed (and staged-fork) transitions.
@@ -360,6 +377,20 @@ function createRuntime(session: Session): SessionRuntime {
 			forkParentUnknown: !ws && !!s.workspace_id,
 			pendingForkOf: s.pending_fork?.parent_workspace_id
 		}
+	}
+	// What the side panel is showing, stamped on each user message so the chat
+	// knows the page (and the row whose drawer is open) without spending a
+	// get_preview_status round-trip. Live editors are skipped: they register
+	// themselves as the ACTIVE EDITOR through UserDraft's live-draft registry.
+	manager.activePreviewResolver = () => {
+		const owner = getRuntime(session.id)?.previewTabs
+		// What is on screen, not merely which tab is selected: the rule tells the model
+		// to resolve "this page" and "it" against this block, and a collapsed panel would
+		// point those at a page the user cannot see.
+		const tab = owner?.displayedTab
+		if (!tab) return undefined
+		if (resolvePreviewTab(tab.url).kind !== 'iframe') return undefined
+		return previewLocationContext(whereIs(tab))
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
@@ -463,7 +494,13 @@ function createRuntime(session: Session): SessionRuntime {
 			const slot = resolvePreviewTab(url)
 			logFeatureUsage('ai_session', 'tab', {
 				key:
-					slot.kind === 'editor' ? slot.editorKind : slot.kind === 'artifact' ? 'artifact' : 'page',
+					slot.kind === 'editor'
+						? slot.editorKind
+						: slot.kind === 'artifact'
+							? 'artifact'
+							: slot.kind === 'runform'
+								? 'run_form'
+								: 'page',
 				entityId: session.id,
 				workspace: getEffectiveWorkspaceId(session)
 			})
@@ -481,19 +518,35 @@ function createRuntime(session: Session): SessionRuntime {
 		})
 	}
 
-	manager.openArtifact = (id, name) => {
-		// Capture before open() un-collapses / re-activates: flash only when the tab
-		// was already the displayed one (nothing else visibly changes).
-		const wasDisplayed = !previewTabs.collapsed
-		const prevActive = previewTabs.activeId
-		const { status } = previewTabs.open({ type: 'artifact', id, name })
-		if (status === 'focused' && wasDisplayed && previewTabs.activeId === prevActive) {
-			previewTabs.pulseFocus(previewTabs.activeId)
-		}
+	// Not a page: the tab mounts the chat's own form on the same tool call, so Run in the
+	// panel is Run in the chat, and the two share one draft rather than being two forms
+	// proposing two jobs.
+	manager.openRunForm = ({ toolCallId, label }) => {
+		previewTabs.open({ type: 'runform', toolCallId, label })
+	}
+	manager.closeRunForm = (toolCallId) => previewTabs.closeRunForm(toolCallId)
+	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
+		previewTabs.retargetRunForm(toolCallId, `${base}/run/${jobId}?workspace=${workspace}`)
+	}
+	// Read off the tab list rather than the slot's lifecycle: a tab the user has switched
+	// away from is unmounted but still open, and the card must keep its form hidden until it
+	// is closed. A resolver, like activePreviewResolver: the reader's own $derived subscribes
+	// to `tabs` through it, and the runtime is not inside an effect root to push from.
+	manager.isRunFormInPreview = (toolCallId) =>
+		previewTabs.tabs.some((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)
+
+	manager.openArtifact = (id, name, version) => {
+		previewTabs.open({ type: 'artifact', id, name, version })
 	}
 	manager.closeArtifact = (id) => previewTabs.closeArtifact(id)
 	// Key the store before any configureGlobalMode runs, so a new session's first create shows at once.
 	void manager.artifacts.setSession(session.id)
+
+	// Assigning `manager.mode` above only records the mode; this builds the tool set
+	// and system prompt from it. Keep it here, after the resolvers and the artifact
+	// store it reads, and not on `changeMode`: a runtime exists per session the
+	// picker lists, so changeMode's network refreshes would fire once per listing.
+	manager.configureGlobalMode()
 
 	// Pipeline target state lives on the runtime (not the PipelineEditorView
 	// component) so the in-session drafts survive hide/show of the editor pane —
@@ -897,7 +950,6 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// Restore linked files persisted for this session (live handles re-grant on send;
 	// snapshots restore directly). Non-transient sessions persist immediately.
 	await manager.attachedFiles.restore(session.id, !session.transient)
-	await ensureChatIdsSeeded(manager.historyManager)
 
 	// Keep the session record's chatId following the manager's active chat: a
 	// "/clear" rotation or a history switch would otherwise leave it pointing at
@@ -947,6 +999,65 @@ export function listRuntimes(): SessionRuntime[] {
 
 export function getRuntime(sessionId: string): SessionRuntime | undefined {
 	return runtimes.get(sessionId)
+}
+
+// ---------------------------------------------------------------------------
+// Cross-tab catch-up
+// ---------------------------------------------------------------------------
+
+// Chained per session so two turn-ends close together (a turn plus its queued
+// follow-up) re-read sequentially: the later read starts after the earlier
+// one's loadPastChat, so the newest record is what ends up on screen.
+const catchUps = new Map<string, Promise<void>>()
+
+onRemoteTurnEnd((sessionId, chatId) => {
+	const next = (catchUps.get(sessionId) ?? Promise.resolve())
+		.then(() => applyRemoteTurnEnd(sessionId, chatId))
+		.catch((e) => console.error('Failed to catch up on a turn from another tab', e))
+	catchUps.set(sessionId, next)
+	void next.finally(() => {
+		if (catchUps.get(sessionId) === next) catchUps.delete(sessionId)
+	})
+	// Awaited by the caller: the composer unlock rides on this settling.
+	return next
+})
+
+async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<void> {
+	const runtime = runtimes.get(sessionId)
+	if (!runtime) return
+	const m = runtime.manager
+	// Two transient states get a short retry rather than a skip, because the
+	// composer unlocks when this promise settles and a skip would unlock it on
+	// stale history: a send of this tab's own still in preflight (it may yet be
+	// refused, leaving no turn to converge on), and a store that failed to
+	// open. A turn actually running here owns the transcript instead — its own
+	// end converges — and the pruner caps the whole hold at STALE_MS anyway.
+	for (let attempt = 0; ; attempt++) {
+		if (m.loading) return
+		if (!m.sendInFlight) {
+			const res = await m.historyManager.reloadChat(chatId)
+			if (res === 'missing') return
+			if (res === 'loaded') break
+		}
+		if (attempt >= 7) return
+		await new Promise((r) => setTimeout(r, 500))
+		if (runtimes.get(sessionId) !== runtime) return
+	}
+	// Disposed (session deleted, teardown) while the read was in flight.
+	if (runtimes.get(sessionId) !== runtime) return
+	// Adopts the driver's chat unconditionally, current view included: watching
+	// a session means following where its activity is, and it is also how tabs
+	// converge after an unsynced /clear rotation. A watcher browsing an older
+	// conversation is pulled along — deliberate, and the price of not syncing
+	// rotation as its own message.
+	//
+	// preserveQueue: this reload is a catch-up, not a conversation switch — a
+	// draft queued here (a refused send's kept message, a failed turn's card)
+	// is unsent user input the re-read must not destroy.
+	await m.loadPastChat(chatId, { preserveQueue: true })
+	// loadPastChat's own artifact sync no-ops for an unchanged session id, so
+	// artifacts the driver wrote during the turn need this forced re-read.
+	await m.artifacts.resyncFromStore()
 }
 
 // Point a session's preview at a single seed tab. For re-pointing an existing
@@ -1039,40 +1150,18 @@ setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) 
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	if (!session) return undefined
 	const owner = getOrCreateRuntime(session).previewTabs
-	// Re-point the tab already showing this page (matched ignoring query/hash) so a
-	// filter change updates it in place instead of spawning a duplicate — unless the
-	// user asked for a separate tab. open() dedupes on the exact URL, so differing
-	// filters would otherwise always open a new tab.
-	const targetPage = matchReusablePage(href)
-	if (!newTab && targetPage) {
-		const existing = owner.tabs.find(
-			(t) => matchReusablePage(t.loc || t.url)?.path === targetPage.path
-		)
-		if (existing) {
-			// A target identical to what the tab already shows produces no navigation
-			// signal at all, so a drawer-opening hash (an edit drawer the user closed)
-			// would silently not re-fire — force a load. Hashless targets need no
-			// reload: focusing the already-correct view is enough.
-			const unchanged = href.includes('#') && (existing.loc || existing.url) === href
-			owner.select(existing.id)
-			owner.navigate({ type: 'page', href, label })
-			owner.setCollapsed(false)
-			if (unchanged) {
-				owner.pulseReload(existing.id)
-				return `Re-opened the ${label} preview tab on the requested view.`
-			}
-			return `Updated the ${label} preview tab with the new filters.`
-		}
-	}
-	const result = owner.open({ type: 'page', href, label })
+	// open() owns the whole decision — which tab already shows this page, whether the
+	// requested view differs from what it shows, and whether a forced load is needed to
+	// re-fire a drawer. Deciding any of that again here means two predicates for one
+	// question, and the report going out of step with what actually happened.
+	const result = owner.open({ type: 'page', href, label }, { forceNewTab: newTab })
 	if (result.status === 'focused') {
-		// Same no-signal situation as above: open() only reports 'focused' when a
-		// tab already shows this exact URL.
-		if (href.includes('#')) {
-			const shown = owner.tabs.find((t) => (t.loc || t.url) === href)
-			if (shown) owner.pulseReload(shown.id)
-		}
-		return `A preview tab is already showing ${label} — focused it and applied the filters.`
+		return `A preview tab is already showing ${label} — focused it.`
+	}
+	// The tab count did not change: saying "opened a new tab" would leave the model
+	// believing in a tab that does not exist, and offering to close it.
+	if (result.status === 'retargeted') {
+		return `Updated the ${label} preview tab with the requested view.`
 	}
 	return `Opened ${label} in a new preview tab in the side panel.`
 })
@@ -1086,7 +1175,9 @@ setGetPreviewStatusHandler((callerSessionId) => {
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	if (!session) return 'No active session; the preview panel is unavailable.'
 	const owner = getOrCreateRuntime(session).previewTabs
-	return describePreview(owner.tabs, owner.activeId)
+	// `displayedTab` is the one place that decides what the user can see; the ACTIVE
+	// PREVIEW block reads it too, so the two descriptions cannot contradict each other.
+	return describePreview(owner.tabs, owner.activeId, !!owner.displayedTab)
 })
 
 // close_page dispatches here to close preview tabs in the calling session's
@@ -1100,7 +1191,7 @@ setClosePreviewTabsHandler(({ sessionId: callerSessionId, all, match }) => {
 	const owner = getOrCreateRuntime(session).previewTabs
 	if (owner.tabs.length === 0) return 'The preview panel has no open tabs.'
 
-	const labelFor = (t: (typeof owner.tabs)[number]) => previewLocationLabel(t.loc || t.url)
+	const labelFor = (t: (typeof owner.tabs)[number]) => promptSafe(previewLocationLabel(whereIs(t)))
 	// Resolve the doomed tabs to ids up front — close() re-indexes on each call.
 	const doomed = selectPreviewTabsToClose(owner.tabs, { all, match })
 	if (doomed.length === 0) {

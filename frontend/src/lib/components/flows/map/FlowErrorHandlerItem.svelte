@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { FlowDiffManager } from '../flowDiffManager.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { Bug, X } from 'lucide-svelte'
@@ -7,7 +8,6 @@
 	import { insertNewFailureModule } from '$lib/components/flows/flowStateUtils.svelte'
 	import type { RawScript, ScriptLang } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
-	import { refreshFlowStateStore } from '$lib/components/flows/flowStoreRefresh.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DiffActionBar from './DiffActionBar.svelte'
 	import { getNodeColorClasses, aiActionToNodeState } from '$lib/components/graph'
@@ -58,7 +58,14 @@
 		}
 
 		selectionManager.selectId('failure')
-		refreshFlowStateStore(flowStore)
+		refreshStateStore(flowStore)
+	}
+
+	function deleteFailureModule() {
+		flowStore.val.value.failure_module = undefined
+		// The panel has to land somewhere once the error handler is gone, but that is a
+		// consequence of the delete — not a request to see the flow's settings.
+		selectionManager.selectId('settings-metadata', { openPanel: false })
 	}
 
 	const smallFailureModule = $derived(!(failureModuleId && diffManager && moduleAction) && compact)
@@ -103,10 +110,7 @@
 					title="Delete failure script"
 					type="button"
 					class="ml-1"
-					onclick={() => {
-						flowStore.val.value.failure_module = undefined
-						selectionManager.selectId('settings-metadata')
-					}}
+					onclick={deleteFailureModule}
 				>
 					<X size={12} />
 				</button>
@@ -117,17 +121,13 @@
 				title="Delete failure script"
 				type="button"
 				class="absolute -top-1.5 -right-1.5 rounded-full bg-surface border border-border p-0.5 hover:bg-surface-hover"
-				onclick={() => {
-					flowStore.val.value.failure_module = undefined
-					selectionManager.selectId('settings-metadata')
-				}}
+				onclick={deleteFailureModule}
 			>
 				<X size={10} />
 			</button>
 		{/if}
 	</div>
 {:else}
-	<!-- Index 0 is used by the tutorial to identify the first "Add step" -->
 	<InsertModulePopover
 		{disableAi}
 		placement={'bottom'}

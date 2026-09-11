@@ -69,7 +69,7 @@ export const httpTriggerRequestSchema = z.object({
 	"wrap_body": z.boolean().describe("If true, wraps the request body in a 'body' parameter").optional(),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
 	"raw_string": z.boolean().describe("If true, passes the request body as a raw string instead of parsing as JSON").optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({
@@ -97,11 +97,20 @@ export const websocketTriggerRequestSchema = z.object({
 	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
 	"url": z.string().describe("The WebSocket URL to connect to (can be a static URL or computed by a runnable)"),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
-	"filters": z.array(z.object({
+	"filters": z.array(z.union([z.object({
 		"key": z.string(),
 		"value": z.any()
-	})).describe("Array of key-value filters to match incoming messages (only matching messages trigger the script)"),
-	"filter_logic": z.enum(["and", "or"]).describe("Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match.").default("and").optional(),
+	}), z.object({
+		"path": z.string().describe("Dotted path into nested objects, e.g. `a.b.c`. Does not traverse arrays."),
+		"value": z.any()
+	}), z.object({
+		"any_of": z.array(z.record(z.string(), z.any()))
+	}), z.object({
+		"all_of": z.array(z.record(z.string(), z.any()))
+	}), z.object({
+		"none_of": z.array(z.record(z.string(), z.any()))
+	})]).describe("Either a leaf filter, matching a field of the message (parsed as JSON) against a value by equality (or superset, when the value is an object or array) \u2014 addressed by `key` for a top-level field or `path` for a dotted path into nested objects \u2014 or a group nesting sub-filters under a boolean operator (`none_of` matches when none of its sub-filters do).\n")).describe("Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."),
+	"filter_logic": z.enum(["and", "or"]).describe("Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic.").default("and").optional(),
 	"initial_messages": z.array(z.union([z.object({
 		"raw_message": z.string()
 	}), z.object({
@@ -119,7 +128,7 @@ export const websocketTriggerRequestSchema = z.object({
 		"message": z.string().describe("Message to send as heartbeat. Use {{state}} as a placeholder for a value extracted from incoming messages (see state_field)."),
 		"state_field": z.string().describe("Optional. Top-level JSON field to extract from incoming messages. The extracted value replaces {{state}} in the heartbeat message.").optional()
 	}).describe("Optional periodic heartbeat message configuration").nullable().optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({
@@ -148,15 +157,24 @@ export const kafkaTriggerRequestSchema = z.object({
 	"kafka_resource_path": z.string().describe("Path to the Kafka resource containing connection configuration"),
 	"group_id": z.string().describe("Kafka consumer group ID for this trigger"),
 	"topics": z.array(z.string()).describe("Array of Kafka topic names to subscribe to"),
-	"filters": z.array(z.object({
+	"filters": z.array(z.union([z.object({
 		"key": z.string(),
 		"value": z.any()
-	})),
-	"filter_logic": z.enum(["and", "or"]).describe("Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match.").default("and").optional(),
+	}), z.object({
+		"path": z.string().describe("Dotted path into nested objects, e.g. `a.b.c`. Does not traverse arrays."),
+		"value": z.any()
+	}), z.object({
+		"any_of": z.array(z.record(z.string(), z.any()))
+	}), z.object({
+		"all_of": z.array(z.record(z.string(), z.any()))
+	}), z.object({
+		"none_of": z.array(z.record(z.string(), z.any()))
+	})]).describe("Either a leaf filter, matching a field of the message (parsed as JSON) against a value by equality (or superset, when the value is an object or array) \u2014 addressed by `key` for a top-level field or `path` for a dotted path into nested objects \u2014 or a group nesting sub-filters under a boolean operator (`none_of` matches when none of its sub-filters do).\n")).describe("Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."),
+	"filter_logic": z.enum(["and", "or"]).describe("Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic.").default("and").optional(),
 	"auto_offset_reset": z.enum(["latest", "earliest"]).describe("Initial offset behavior when consumer group has no committed offset.").default("latest").optional(),
 	"auto_commit": z.boolean().describe("When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint.").default(true).optional(),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({
@@ -188,7 +206,7 @@ export const natsTriggerRequestSchema = z.object({
 	"consumer_name": z.string().describe("JetStream consumer name (required when use_jetstream is true)").nullable().optional(),
 	"subjects": z.array(z.string()).describe("Array of NATS subjects to subscribe to"),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({
@@ -229,7 +247,7 @@ export const postgresTriggerRequestSchema = z.object({
 		})).optional(),
 		"transaction_to_track": z.array(z.string())
 	}).describe("Configuration for creating/managing the publication (tables, operations)").optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({
@@ -271,7 +289,7 @@ export const mqttTriggerRequestSchema = z.object({
 	"script_path": z.string().describe("Path to the script or flow to execute when a message is received"),
 	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({
@@ -308,7 +326,7 @@ export const amqpTriggerRequestSchema = z.object({
 	"script_path": z.string().describe("Path to the script or flow to execute when a message is received"),
 	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({
@@ -339,7 +357,7 @@ export const sqsTriggerRequestSchema = z.object({
 	"script_path": z.string().describe("Path to the script or flow to execute when a message is received"),
 	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({
@@ -362,10 +380,11 @@ export const sqsTriggerRequestSchema = z.object({
 })
 
 export const gcpTriggerRequestSchema = z.object({
-	"gcp_resource_path": z.string().describe("Path to the GCP resource containing service account credentials for authentication."),
+	"gcp_resource_path": z.string().describe("Path to the GCP resource containing service account credentials for authentication. Omit to authenticate with the instance's application default credentials, which only workspace admins may select.").optional(),
+	"project_id": z.string().describe("GCP project the client operates in. Defaults to the project of the credentials. Topics and subscriptions given as fully qualified names are reached whatever it is.").optional(),
 	"subscription_mode": z.enum(["existing", "create_update"]).describe("The mode of subscription. 'existing' means using an existing GCP subscription, while 'create_update' involves creating or updating a new subscription."),
-	"topic_id": z.string().describe("Google Cloud Pub/Sub topic ID to subscribe to."),
-	"subscription_id": z.string().describe("Google Cloud Pub/Sub subscription ID.").optional(),
+	"topic_id": z.string().describe("Google Cloud Pub/Sub topic ID to subscribe to. Accepts a bare ID or a fully qualified name (projects/<project>/topics/<id>)."),
+	"subscription_id": z.string().describe("Google Cloud Pub/Sub subscription ID. Accepts a bare ID or a fully qualified name (projects/<project>/subscriptions/<id>).").optional(),
 	"base_endpoint": z.string().describe("Base URL for push delivery endpoint.").optional(),
 	"delivery_type": z.enum(["push", "pull"]).describe("Delivery mode for messages. 'push' for HTTP push delivery where messages are sent to a webhook endpoint, 'pull' for polling where the trigger actively fetches messages.").optional(),
 	"delivery_config": z.object({

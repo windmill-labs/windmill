@@ -1,6 +1,9 @@
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
-import { mergeConfigWithConfigFile } from "../../core/conf.ts";
+import {
+  mergeConfigWithConfigFile,
+  readEffectiveSyncBehavior,
+} from "../../core/conf.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
@@ -15,9 +18,24 @@ import { readdir } from "node:fs/promises";
 import { GlobalOptions, isSuperset } from "../../types.ts";
 import { deepEqual, readTextFile } from "../../utils/utils.ts";
 
-import { replaceInlineScripts, repopulateFields } from "./app.ts";
+import {
+  type AppExecutionMode,
+  basePolicy,
+  executionModeForPush,
+  finalizeDerivedPolicy,
+  markAccessFromPolicy,
+  preserveOnBehalfOfFields,
+  replaceInlineScripts,
+  repopulateFields,
+} from "./app.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
 import { APP_BACKEND_FOLDER, RECORDINGS_FOLDER } from "./app_metadata.ts";
+import {
+  NEVER_DEPLOYED_DIRS,
+  NEVER_DEPLOYED_FILES,
+} from "../../utils/app_files.ts";
 import { writeIfChanged } from "../../utils/utils.ts";
 import { yamlOptions } from "../sync/sync.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
@@ -27,6 +45,7 @@ import {
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
 export interface AppFile {
+  guests?: boolean;
   runnables?: any;
   custom_path?: string;
   public?: boolean;
@@ -309,13 +328,11 @@ async function collectAppFiles(
       const relativePath = basePath + entry.name;
 
       if (entry.isDirectory()) {
-        // Skip the runnables, node_modules, and sql_to_apply subfolders
+        // The backend folder deploys as `value.runnables`, not as a bundled
+        // file; the rest reach the server through no channel at all.
         if (
           entry.name === APP_BACKEND_FOLDER ||
-          entry.name === "node_modules" ||
-          entry.name === "dist" ||
-          entry.name === ".claude" ||
-          entry.name === "sql_to_apply"
+          NEVER_DEPLOYED_DIRS.has(entry.name)
         ) {
           continue;
         }
@@ -327,13 +344,11 @@ async function collectAppFiles(
         }
         await readDirRecursive(fullPath + SEP, relativePath + "/");
       } else if (entry.isFile()) {
-        // Skip generated/metadata files that shouldn't be part of the app
+        // `raw_app.yaml` deploys as the request's metadata rather than as a
+        // bundled file; the rest reach the server through no channel at all.
         if (
           entry.name === "raw_app.yaml" ||
-          entry.name === "package-lock.json" ||
-          entry.name === "DATATABLES.md" ||
-          entry.name === "AGENTS.md" ||
-          entry.name === "wmill.d.ts"
+          NEVER_DEPLOYED_FILES.has(entry.name)
         ) {
           continue;
         }
@@ -353,6 +368,7 @@ export async function pushRawApp(
   localPath: string,
   message?: string,
   defaultTs: "bun" | "deno" = "bun",
+  permissionedAsContext?: PermissionedAsContext,
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -369,9 +385,11 @@ export async function pushRawApp(
   } catch {
     //ignore
   }
-  if (app?.["policy"]?.["execution_mode"] == "anonymous") {
-    app.public = true;
-  }
+  // `app.policy` is cleared a few lines down, so capture it first. `raw_app.yaml`
+  // records none of the policy, so anything the deploy drawer set is only here.
+  const deployedPolicy: Policy | undefined = app?.policy;
+
+  markAccessFromPolicy(app);
   // console.log(app);
   if (app) {
     app.policy = undefined;
@@ -419,10 +437,21 @@ export async function pushRawApp(
 
   // Create a temporary app object for policy generation
   const appForPolicy = { ...localApp, runnables };
+  // On create the backend applies folder defaults, so there is nothing to preserve.
+  const preserveFields = preserveOnBehalfOfFields(
+    remotePath,
+    deployedPolicy,
+    permissionedAsContext,
+  );
   await generatingPolicy(
     appForPolicy,
     remotePath,
-    localApp?.["public"] ?? false,
+    executionModeForPush(localApp, deployedPolicy),
+    basePolicy(
+      localApp,
+      deployedPolicy,
+      !!preserveFields.preserve_on_behalf_of,
+    ),
   );
 
   const files = await collectAppFiles(localPath);
@@ -477,6 +506,7 @@ export async function pushRawApp(
             path: remotePath,
             summary: localApp.summary,
             policy: appForPolicy.policy,
+            ...preserveFields,
             deployment_message: message,
             // Preserve any user draft at this path (see backend skip_draft_deletion).
             skip_draft_deletion: true,
@@ -526,15 +556,13 @@ export async function pushRawApp(
 export async function generatingPolicy(
   app: any,
   path: string,
-  publicApp: boolean,
+  executionMode: AppExecutionMode,
+  base: Policy | undefined,
 ) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
-    app.policy = await windmillUtils.updateRawAppPolicy(
-      app.runnables,
-      app.policy,
-    );
-    app.policy.execution_mode = publicApp ? "anonymous" : "publisher";
+    app.policy = await windmillUtils.updateRawAppPolicy(app.runnables, base);
+    finalizeDerivedPolicy(app.policy, executionMode);
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
     throw e;
@@ -559,6 +587,10 @@ async function pushRawAppCommand(
     filePath,
     undefined,
     merged.defaultTs,
+    await buildPermissionedAsContext(
+      workspace.workspaceId,
+      await readEffectiveSyncBehavior(opts, workspace),
+    ),
   );
   log.info(colors.bold.underline.green("Raw app pushed"));
 }

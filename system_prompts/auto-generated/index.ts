@@ -49,9 +49,19 @@ export function getResourcePrompt(): string {
   return prompts.RESOURCES_BASE;
 }
 
-// Helper for raw app authoring (chat consumers)
-export function getRawAppPrompt(): string {
-  return prompts.RAW_APP_BASE;
+// Helper for raw app authoring (chat consumers). Inline backend runnables are
+// ordinary Windmill jobs, so the reference has to carry the SDK the runnable
+// calls — without it an agent invents client functions and hand-rolls HTTP.
+// Only one SDK is returned: both would double an already large tool result.
+export function getRawAppPrompt(language?: string): string {
+  const sdkPrompt = PY_SDK_LANGUAGES.includes(language ?? '')
+    ? prompts.SDK_PYTHON
+    : prompts.SDK_TYPESCRIPT;
+
+  return [
+    prompts.RAW_APP_BASE,
+    sdkPrompt
+  ].filter(Boolean).join('\n\n');
 }
 
 // Helper for data pipeline authoring (chat consumers)

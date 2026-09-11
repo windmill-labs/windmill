@@ -14,7 +14,7 @@
  *    are JobLoader's (short-circuited by `getActiveReplay`) and the recorder's.
  */
 import { OpenAPI } from '$lib/gen'
-import { getActiveReplay } from './flowRecording.svelte'
+import { getActiveReplay } from './replay.svelte'
 
 let offline = $state(false)
 

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO eval_score (experiment_id, ordinal, scorer_id, definition)\n         SELECT $1, ordinal, scorer_id, definition\n         FROM UNNEST($2::int[], $3::text[], $4::text[]) AS t(ordinal, scorer_id, definition)\n         ON CONFLICT (experiment_id, ordinal, scorer_id)\n         DO UPDATE SET definition = EXCLUDED.definition, score = NULL, reason = NULL,\n                       checks = NULL, error = NULL, not_applicable = false",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4Array",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e719e98cceef1383f882632c9398dd950ad0b1f30cde9c0392384c9a490290b9"
+}

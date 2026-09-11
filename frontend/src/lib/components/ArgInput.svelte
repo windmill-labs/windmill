@@ -719,7 +719,8 @@
 							onkeydown: () => (ignoreValueUndefined = true),
 							placeholder: placeholder ?? defaultValue ?? '',
 							min: extra['min'],
-							max: extra['max']
+							max: extra['max'],
+							step: extra['step']
 						}}
 						{error}
 						bind:value
@@ -840,6 +841,7 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
+							{workspace}
 							{schema}
 							bind:args={value}
 						/>
@@ -982,6 +984,7 @@
 															{disablePortal}
 															{disabled}
 															{prettifyHeader}
+															{workspace}
 															schema={getSchemaFromProperties(itemsType?.properties)}
 															bind:args={value[i]}
 														/>
@@ -1075,6 +1078,7 @@
 				{otherArgs}
 				{helperScript}
 				{workspace}
+				{disabled}
 				bind:value
 				format={format ?? ''}
 			/>
@@ -1149,6 +1153,7 @@
 											{disablePortal}
 											{disabled}
 											{prettifyHeader}
+											{workspace}
 											bind:schema={
 												() => ({
 													properties: obj.properties ?? {},
@@ -1185,6 +1190,7 @@
 											{disabled}
 											{prettifyHeader}
 											{chatInputEnabled}
+											{workspace}
 											hiddenArgs={['label', 'kind']}
 											schema={{
 												properties: obj.properties,
@@ -1269,6 +1275,7 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
+							{workspace}
 							schema={{
 								properties,
 								$schema: '',
@@ -1300,6 +1307,7 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
+							{workspace}
 							schema={{
 								properties,
 								order,
@@ -1440,7 +1448,7 @@
 				{showSchemaExplorer}
 			/>
 		{:else if inputCat == 'ai-provider'}
-			<AIProviderPicker bind:value {disabled} {actions} />
+			<AIProviderPicker bind:value {disabled} {actions} {workspace} />
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}
@@ -1470,7 +1478,7 @@
 								/>
 							{/if}
 						{:else}
-							<PasswordArgInput {disabled} minRows={extra?.['minRows']} bind:value />
+							<PasswordArgInput {disabled} minRows={extra?.['minRows']} {workspace} bind:value />
 						{/if}
 					{:else}
 						{#key extra?.['minRows']}

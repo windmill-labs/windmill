@@ -63,6 +63,15 @@ mount {
     rw: true
 }
 
+# Private scratch, one instance per jail. `windmill prepare-deps` writes the registry
+# credentials here rather than into its install directory under the shared /tmp above, so no
+# other session can read them, and they go away with the jail even when it is killed.
+mount {
+    dst: "/var/tmp"
+    fstype: "tmpfs"
+    rw: true
+}
+
 # Debugger scripts directory (for Python debugger server)
 mount {
     src: "/debugger"

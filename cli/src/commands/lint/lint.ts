@@ -26,14 +26,23 @@ import {
   inferContentTypeFromFilePath,
   languageNeedsLock,
   ScriptLanguage,
+  isSharedLockPath,
 } from "../../utils/script_common.ts";
 import {
   isFlowInlineScriptPath,
   isAppInlineScriptPath,
-  isRawAppPath,
+  isFolderResourcePathAnyFormat,
   getFolderSuffix,
+  getScriptBasePathFromModulePath,
 } from "../../utils/resource_folders.ts";
-import { exts } from "../script/script.ts";
+import { isFilesetResource } from "../../utils/utils.ts";
+import {
+  exts,
+  findContentFile,
+  hasScriptExt,
+  isModuleEntryMetadata,
+  UnresolvableScriptContentFileError,
+} from "../script/script.ts";
 
 interface LintOptions extends GlobalOptions {
   json?: boolean;
@@ -66,6 +75,9 @@ export interface LintReport {
 
 const YAML_FILE_REGEX = /\.ya?ml$/i;
 const NATIVE_TRIGGER_REGEX = /\.[^.]+_native_trigger\.ya?ml$/i;
+// The metadata suffixes `findContentFile` resolves a flat script from. `.yml` is
+// deliberately absent, since the push does not accept it there either.
+const FLAT_SCRIPT_METADATA_REGEX = /\.script\.(yaml|json|lock)$/;
 
 function normalizePath(p: string): string {
   return p.replaceAll(SEP, "/");
@@ -133,6 +145,7 @@ function formatYamlDiagnostics(parsed: { diagnostics?: Array<{ message?: string 
 async function isLockResolved(
   lockValue: string | string[] | undefined,
   baseDir: string,
+  sharedLockBase?: string,
 ): Promise<boolean> {
   if (lockValue === undefined) return false;
 
@@ -141,7 +154,11 @@ async function isLockResolved(
     const joined = lockValue.join("\n");
     if (joined === "") return false;
     if (joined.startsWith("!inline ")) {
-      return await checkInlineFile(joined.substring("!inline ".length), baseDir);
+      return await checkInlineFile(
+        joined.substring("!inline ".length),
+        baseDir,
+        sharedLockBase,
+      );
     }
     return true;
   }
@@ -150,7 +167,11 @@ async function isLockResolved(
 
   // Inline file reference
   if (lockValue.startsWith("!inline ")) {
-    return await checkInlineFile(lockValue.substring("!inline ".length), baseDir);
+    return await checkInlineFile(
+      lockValue.substring("!inline ".length),
+      baseDir,
+      sharedLockBase,
+    );
   }
 
   // Embedded lock content
@@ -160,13 +181,37 @@ async function isLockResolved(
 async function checkInlineFile(
   relativePath: string,
   baseDir: string,
+  sharedLockBase?: string,
 ): Promise<boolean> {
-  const fullPath = path.join(baseDir, relativePath.trim());
+  const trimmed = relativePath.trim();
+  // A shared lockfile (`dedupeLockfiles`) is referenced from the sync root, not
+  // from the directory being linted. Only a standalone script's metadata passes
+  // a base for it: a flow or app inline lock is folder-relative even when its
+  // name happens to look like one.
+  const fullPath =
+    sharedLockBase !== undefined && isSharedLockPath(trimmed)
+      ? path.resolve(sharedLockBase, trimmed)
+      : path.join(baseDir, trimmed);
   try {
     const s = await stat(fullPath);
     return s.size > 0;
   } catch {
     return false;
+  }
+}
+
+/** Where a repo-root-relative reference resolves from: the directory holding
+ *  wmill.yaml at or above the linted one, and that directory itself when there
+ *  is none. */
+async function findSyncRoot(dir: string): Promise<string> {
+  let current = path.resolve(dir);
+  while (true) {
+    if (await stat(path.join(current, "wmill.yaml")).then(() => true).catch(() => false)) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return path.resolve(dir);
+    current = parent;
   }
 }
 
@@ -481,6 +526,7 @@ export async function checkMissingLocks(
   }
 
   // Check standalone scripts
+  const syncRoot = await findSyncRoot(targetDirectory);
   for (const yamlPath of scriptYamls) {
     const basePath = yamlPath.replace(/\.script\.yaml$/, "");
 
@@ -506,6 +552,7 @@ export async function checkMissingLocks(
         const lockResolved = await isLockResolved(
           metadata?.lock,
           targetDirectory,
+          syncRoot,
         );
         if (!lockResolved) {
           issues.push({
@@ -607,6 +654,83 @@ export async function checkMissingLocks(
   return issues;
 }
 
+/**
+ * Whether a path is a script's own metadata, as opposed to metadata the push
+ * deploys through some parent: a folder resource's inline scripts, a fileset's
+ * children (arbitrarily named, so one may be spelled exactly like a script's
+ * metadata) and the files of a module or dbt bundle all belong to that parent.
+ *
+ * Takes the path as the SYNC ROOT spells it, like the push. Relative to the
+ * lint target the enclosing folder is gone whenever the target IS that folder;
+ * absolute, the classifiers match their suffixes ANYWHERE in the string, so a
+ * checkout under `acme.app` reads as one app and nothing is ever reported.
+ */
+function isStandaloneScriptMetadata(rootedPath: string): boolean {
+  // Both suffix formats, because the dotted/non-dotted setting is read from the
+  // invocation directory and an explicit lint target may not share it.
+  if (
+    isFolderResourcePathAnyFormat(rootedPath) ||
+    isFilesetResource(rootedPath)
+  ) {
+    return false;
+  }
+  // A module folder keeps its metadata inside itself (`<base>__mod/script.yaml`),
+  // which is standalone even though every other path under `__mod/` is not.
+  if (isModuleEntryMetadata(rootedPath)) return true;
+  if (getScriptBasePathFromModulePath(rootedPath) !== undefined) return false;
+  return FLAT_SCRIPT_METADATA_REGEX.test(rootedPath);
+}
+
+/**
+ * `findContentFile` quotes the paths it was given back in its errors, so the
+ * lint target's own prefix comes off them again. Anchored at a path start: a
+ * plain substring replace of `f/` also eats the one inside `conf/`, mangling
+ * the very filename the message is telling the reader to delete.
+ */
+function relativizeMessage(message: string, prefix: string): string {
+  if (!prefix) return message;
+  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return message.replaceAll(new RegExp(`(^|[\\s(])${escaped}/`, "g"), "$1");
+}
+
+/**
+ * Script metadata files that cannot be paired with exactly one content file:
+ * the push refuses those, and no metadata format makes them deployable, so the
+ * inactive twin of a format switch (`foo.script.json` in a yaml repo) is dead
+ * weight worth reporting even though the push skips it rather than refusing it.
+ *
+ * Resolved through `findContentFile` rather than by probing `exts` directly, so
+ * lint and push agree on what counts as paired: a dbt project's descriptor is
+ * optional and its absence is not an orphan, while two content files beside one
+ * metadata file is just as undeployable as none. It classifies what it is given
+ * and looks under `syncRoot`, so where the command was invoked from is not part
+ * of the answer.
+ */
+async function checkOrphanScriptMetadata(
+  syncRoot: string,
+  prefix: string,
+  metadataPaths: string[],
+): Promise<FileIssue[]> {
+  const issues: FileIssue[] = [];
+  for (const metadataPath of metadataPaths) {
+    const rootedPath = prefix ? `${prefix}/${metadataPath}` : metadataPath;
+    try {
+      await findContentFile(rootedPath, syncRoot);
+    } catch (e) {
+      if (!(e instanceof UnresolvableScriptContentFileError)) {
+        log.debug(`Failed to resolve content file for ${rootedPath}: ${e}`);
+        continue;
+      }
+      issues.push({
+        path: metadataPath,
+        target: "script",
+        errors: [relativizeMessage(e.message, prefix)],
+      });
+    }
+  }
+  return issues;
+}
+
 export async function runLint(
   opts: LintOptions,
   directory?: string,
@@ -638,8 +762,16 @@ export async function runLint(
   const root = await FSFSElement(targetDirectory, [], false);
   const validator = new WindmillYamlValidator();
 
+  // Walked paths are relative to the lint target; this puts them back the way
+  // the sync root spells them, which is what the two below are written against.
+  const syncRoot = await findSyncRoot(targetDirectory);
+  const metadataPrefix = normalizePath(
+    path.relative(syncRoot, targetDirectory),
+  );
+
   const warnings: LintWarning[] = [];
   const issues: FileIssue[] = [];
+  const scriptMetadataPaths: string[] = [];
   let scannedFiles = 0;
   let validatedFiles = 0;
   let validFiles = 0;
@@ -653,6 +785,17 @@ export async function runLint(
     const normalizedPath = normalizePath(entry.path);
 
     scannedFiles += 1;
+
+    // Collected before the YAML filter below: `.script.lock` and `.script.json`
+    // are metadata too, and both fail the push when nothing pairs with them.
+    if (
+      isStandaloneScriptMetadata(
+        metadataPrefix ? `${metadataPrefix}/${normalizedPath}` : normalizedPath,
+      )
+    ) {
+      scriptMetadataPaths.push(normalizedPath);
+    }
+
     if (!YAML_FILE_REGEX.test(normalizedPath)) {
       continue;
     }
@@ -690,6 +833,16 @@ export async function runLint(
       validFiles += 1;
     }
   }
+
+  // Unconditional: unlike a missing lock, metadata with no content file fails
+  // every push, so there is no mode in which it is acceptable.
+  issues.push(
+    ...(await checkOrphanScriptMetadata(
+      syncRoot,
+      metadataPrefix,
+      scriptMetadataPaths,
+    )),
+  );
 
   // Check for missing locks if --locks-required is set
   if (opts.locksRequired) {
@@ -784,6 +937,15 @@ async function lint(opts: LintOptions & { watch?: boolean }, directory?: string)
   }
 }
 
+/**
+ * Whether a changed file can change what a lint run reports: metadata in any of
+ * its formats, and the content files whose presence is what keeps that metadata
+ * from being an orphan.
+ */
+function affectsLint(filename: string): boolean {
+  return /\.(ya?ml|json|lock)$/i.test(filename) || hasScriptExt(filename);
+}
+
 async function lintWatch(opts: LintOptions, directory?: string) {
   const { watch } = await import("node:fs");
   const targetDir = directory ? path.resolve(process.cwd(), directory) : process.cwd();
@@ -806,7 +968,7 @@ async function lintWatch(opts: LintOptions, directory?: string) {
 
   let debounce: ReturnType<typeof setTimeout> | null = null;
   watch(targetDir, { recursive: true }, (_event, filename) => {
-    if (!filename || !filename.toString().endsWith(".yaml") && !filename.toString().endsWith(".yml")) return;
+    if (!filename || !affectsLint(filename.toString())) return;
     if (debounce) clearTimeout(debounce);
     debounce = setTimeout(runAndReport, 300);
   });
@@ -817,7 +979,7 @@ async function lintWatch(opts: LintOptions, directory?: string) {
 
 const command = new Command()
   .description(
-    "Validate Windmill flow, schedule, and trigger YAML files in a directory",
+    "Validate Windmill flow, schedule, and trigger YAML files in a directory, and report script metadata that has no deployable content file",
   )
   .arguments("[directory:string]")
   .option("--json", "Output results in JSON format")

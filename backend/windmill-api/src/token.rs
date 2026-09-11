@@ -99,7 +99,12 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
         ("configs", "Configs", "Configuration management", false),
         ("oauth", "OAuth", "OAuth management", false),
         ("ai", "AI", "AI feature management", false),
-        ("ai_skills", "AI Skills", "AI skill management", false),
+        (
+            "ai_evals",
+            "AI Evals",
+            "AI agent eval datasets and standalone runs",
+            false,
+        ),
         (
             "agent_workers",
             "Agent Workers",
@@ -231,6 +236,26 @@ lazy_static! {
             description: Some("Read-only access to declared measures and dimensions".to_string()),
             scopes: vec![ScopeOption {
                 value: "data_metrics:read".to_string(),
+                label: "Read".to_string(),
+                requires_resource_path: true,
+            }],
+        });
+
+        // Read-only: `trigger_history` is append-only and written by the server
+        // alone, so there is no `triggers_history:write`. Its own domain rather
+        // than a `schedules`/`*_triggers` alias: one listing spans every kind,
+        // and a history row quotes the whole trigger row (a schedule's `args`
+        // included), so reading it is an explicit grant rather than a side
+        // effect of being able to read the trigger. Path-selectable because the
+        // route filters rows by the caller's path grants.
+        groups.push(ScopeDomain {
+            name: "Trigger History".to_string(),
+            description: Some(
+                "Read-only access to the modification history of schedules and triggers"
+                    .to_string(),
+            ),
+            scopes: vec![ScopeOption {
+                value: "triggers_history:read".to_string(),
                 label: "Read".to_string(),
                 requires_resource_path: true,
             }],

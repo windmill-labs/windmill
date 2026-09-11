@@ -21,7 +21,9 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde::Deserialize;
-use windmill_api_auth::{forbid_superadmin_job_token, require_super_admin};
+use windmill_api_auth::{
+    forbid_elevated_job_token, forbid_superadmin_job_token, require_super_admin,
+};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
@@ -53,6 +55,7 @@ pub fn global_service() -> Router {
         .route("/rename/{user}", post(rename_user))
         .route("/onboarding", post(submit_onboarding_data))
         .route("/ext_jwt_tokens", get(list_ext_jwt_tokens))
+        .route("/guests", get(list_guests))
         .route(
             "/offboard_preview/{user}",
             get(crate::offboarding::global_offboard_preview),
@@ -115,7 +118,7 @@ async fn list_ext_jwt_tokens(
     Extension(db): Extension<DB>,
     Query(query): Query<ListExtJwtTokensQuery>,
 ) -> Result<Json<Vec<ExternalJwtToken>>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let (per_page, offset) = windmill_common::utils::paginate(windmill_common::utils::Pagination {
         page: query.page,
@@ -139,6 +142,58 @@ async fn list_ext_jwt_tokens(
     Ok(Json(rows))
 }
 
+#[derive(serde::Serialize, sqlx::FromRow)]
+pub struct GuestActivity {
+    pub email: String,
+    pub workspaces: Vec<String>,
+    pub first_seen: chrono::NaiveDate,
+    pub last_seen: chrono::NaiveDate,
+}
+
+#[derive(serde::Serialize)]
+pub struct GuestList {
+    pub usage: windmill_common::workspaces::GuestUsage,
+    pub guests: Vec<GuestActivity>,
+}
+
+#[derive(serde::Deserialize)]
+struct ListGuestsQuery {
+    page: Option<usize>,
+    per_page: Option<usize>,
+}
+
+/// The distinct guests of the trailing window, the set the allowance is counted on,
+/// most recently seen first.
+async fn list_guests(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<ListGuestsQuery>,
+) -> Result<Json<GuestList>> {
+    require_super_admin(&db, &authed).await?;
+
+    let (per_page, offset) = windmill_common::utils::paginate(windmill_common::utils::Pagination {
+        page: query.page,
+        per_page: query.per_page,
+    });
+    let usage = windmill_common::workspaces::guest_usage(&db).await?;
+    let guests = sqlx::query_as::<_, GuestActivity>(
+        "SELECT email, array_agg(DISTINCT workspace_id) AS workspaces,
+                MIN(day) AS first_seen, MAX(day) AS last_seen
+         FROM guest_activity
+         WHERE day > CURRENT_DATE - $3
+         GROUP BY email
+         ORDER BY MAX(day) DESC, email
+         LIMIT $1 OFFSET $2",
+    )
+    .bind(per_page as i64)
+    .bind(offset as i64)
+    .bind(windmill_common::workspaces::GUEST_WINDOW_DAYS)
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(GuestList { usage, guests }))
+}
+
 async fn set_password(
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
@@ -146,7 +201,10 @@ async fn set_password(
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
-    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+    // Choosing the password of the elevated account this job runs as is a credential
+    // mint by another name: logging in with it yields a session with no `job_id`
+    // (GHSA-hfh4-cx4h-3fcr).
+    forbid_elevated_job_token(&db, &authed.email, job_id).await?;
     let email = authed.email.clone();
     crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
@@ -159,7 +217,7 @@ async fn set_password_of_user(
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
@@ -176,7 +234,7 @@ async fn rename_user(
     Extension(db): Extension<DB>,
     Json(ru): Json<RenameUser>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
     let mut tx = db.begin().await?;
@@ -402,6 +460,87 @@ async fn update_username_in_workpsace<'c>(
         w_id
     )
     .execute(&mut **tx)
+    .await?;
+
+    // Eval datasets are path-addressed like every other object, so a username change moves them
+    // too. The foreign keys cascade the rename onto their cases and experiments; the experiment
+    // subject (the agent a run was of) is a `u/<user>/` path of its own inside JSONB, so it is
+    // rewritten separately or a user's own runs would detach from their renamed agent.
+    sqlx::query!(
+        r#"UPDATE eval_dataset SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    ).execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE eval_dataset SET extra_perms = extra_perms - ('u/' || $2) || jsonb_build_object(('u/' || $1), extra_perms->('u/' || $2)) WHERE extra_perms ? ('u/' || $2) AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE eval_experiment SET subject = jsonb_set(subject, '{path}', to_jsonb(REGEXP_REPLACE(subject->>'path','u/' || $2 || '/(.*)','u/' || $1 || '/\1'))) WHERE subject->>'path' LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    ).execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE eval_dataset SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE eval_dataset SET edited_by = $1 WHERE edited_by = $2 AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE eval_case SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE eval_experiment SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // A dataset's scorers name scripts and agents by path in a JSONB array, which the rewrites
+    // above do not reach; those runnables are renamed elsewhere in this transaction, so each
+    // scorer path under the old username is rewritten too or the dataset points at a runnable that
+    // no longer exists.
+    sqlx::query!(
+        r#"UPDATE eval_dataset SET scorers = COALESCE((
+                SELECT jsonb_agg(
+                    CASE WHEN elem->>'path' LIKE ('u/' || $2 || '/%')
+                    THEN jsonb_set(elem, '{path}', to_jsonb(REGEXP_REPLACE(elem->>'path','u/' || $2 || '/(.*)','u/' || $1 || '/\1')))
+                    ELSE elem END)
+                FROM jsonb_array_elements(scorers) elem), '[]'::jsonb)
+           WHERE workspace_id = $3
+             AND EXISTS (SELECT 1 FROM jsonb_array_elements(scorers) e WHERE e->>'path' LIKE ('u/' || $2 || '/%'))"#,
+        new_username,
+        old_username,
+        w_id
+    ).execute(&mut **tx)
     .await?;
 
     // ---- variables ----

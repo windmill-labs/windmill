@@ -15,6 +15,7 @@
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
+	import { watch } from 'runed'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
@@ -82,6 +83,7 @@
 		extraTab?: import('svelte').Snippet
 		schemaFormClassName?: string
 		onChange?: (args: Record<string, any>) => void
+		workspace?: string | undefined
 	}
 
 	let {
@@ -119,8 +121,11 @@
 		runButton,
 		extraTab,
 		schemaFormClassName = undefined,
-		onChange = undefined
+		onChange = undefined,
+		workspace = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	$effect.pre(() => {
 		if (args == undefined) {
@@ -168,6 +173,11 @@
 	let pickForField: string | undefined
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
+
+	watch(
+		() => ws,
+		() => itemPicker?.reloadItems()
+	)
 
 	let keys: string[] = $state(
 		(Array.isArray(schema?.order)
@@ -437,6 +447,7 @@
 							{hiddenArgs}
 							{disableDnd}
 							{onlyMaskPassword}
+							{workspace}
 							bind:args
 							on:click={(e) => {
 								opened = e.detail
@@ -682,6 +693,7 @@
 															{isFlowInput}
 															{isAppInput}
 															{showSensitiveToggle}
+															{workspace}
 														>
 															{#snippet typeeditor()}
 																{#if isFlowInput || isAppInput}
@@ -809,6 +821,7 @@
 
 															{#if isFlowInput || isAppInput}
 																<FlowPropertyEditor
+																	{workspace}
 																	onDrawerClose={() => {
 																		dndType = generateRandomString()
 																	}}
@@ -909,7 +922,7 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 		extraField="path"
 		loadItems={async () =>
-			(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
+			(await VariableService.listVariable({ workspace: ws ?? '' })).map((x) => ({
 				name: x.path,
 				...x
 			}))}
@@ -928,11 +941,14 @@
 		{/snippet}
 	</ItemPicker>
 
-	<VariableEditor bind:this={variableEditor} />
+	<VariableEditor bind:this={variableEditor} workspace={ws} />
 {/if}
 
 <style>
-	:global(.splitter-hidden .splitpanes__splitter) {
+	/* Direct child only: a descendant selector leaks into nested Splitpanes (e.g. the
+	   sessions preview reuses `.splitter-hidden`, which would otherwise hide the flow
+	   editor / modal splitters too). */
+	:global(.splitter-hidden > .splitpanes__splitter) {
 		background-color: transparent !important;
 		border: none !important;
 		opacity: 0 !important;

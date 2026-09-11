@@ -11,6 +11,7 @@ use crate::worker_flow::{get_previous_job_result, get_transform_context};
 use async_recursion::async_recursion;
 use regex::Regex;
 use serde_json::value::RawValue;
+use sha2::Digest;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 #[cfg(feature = "bedrock")]
@@ -450,9 +451,9 @@ pub async fn handle_ai_agent_job(
         (args, tools)
     } else {
         let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&local_args)?)?;
-        // "Edit" on a linked step clears `agent` but keeps the host's `tool_inputs` until Save or
-        // Cancel folds them back, so overlay them here too: a flow persisted mid-edit must still
-        // bind its tools to this flow's context rather than the agent author's.
+        // "Edit" on a linked step clears `agent` but keeps the host's `tool_inputs`, so overlay them
+        // here too: a flow persisted mid-edit must still bind its tools to this flow's context
+        // rather than the agent author's.
         let mut tools = module_tools;
         overlay_tool_inputs(&mut tools, &tool_inputs);
         (args, tools)
@@ -620,7 +621,7 @@ pub async fn handle_ai_agent_job(
                     (schema, input_transforms, derived_description)
                 }
                 FlowModuleValue::RawScript { content, language, input_transforms, .. } => {
-                    let schema = Some(parse_raw_script_schema(&content, &language)?);
+                    let schema = Some(parse_raw_script_schema(&content, &language).await?);
                     (schema, input_transforms, None)
                 }
                 FlowModuleValue::AIAgent { input_transforms, .. } => {
@@ -799,6 +800,24 @@ pub async fn handle_ai_agent_job(
     }
 }
 
+/// OpenAI rejects a `prompt_cache_key` over 64 characters
+/// (`Invalid 'prompt_cache_key': string too long`), and a runnable path alone can pass
+/// that. Fold an over-long key into a digest of itself: same step still yields the same
+/// key across runs, which is the whole property that routes them to one cache.
+fn bounded_prompt_cache_key(raw: &str) -> String {
+    const MAX_LEN: usize = 64;
+    if raw.len() <= MAX_LEN {
+        return raw.to_string();
+    }
+    let suffix = hex::encode(&sha2::Sha256::digest(raw.as_bytes())[..16]);
+    // Keep a readable head so a key stays traceable to its workspace in provider logs.
+    let mut head = MAX_LEN - suffix.len() - 1;
+    while head > 0 && !raw.is_char_boundary(head) {
+        head -= 1;
+    }
+    format!("{}:{}", &raw[..head], suffix)
+}
+
 #[async_recursion]
 pub async fn run_agent(
     // connection
@@ -844,9 +863,10 @@ pub async fn run_agent(
     {
         query_builder = create_chat_completions_query_builder(&credentials);
     }
-    // Both outlive the iteration that discovers them: a request shape or a route the
+    // These outlive the iteration that discovers them: a request shape or a route the
     // endpoint rejected once stays rejected for the whole step.
     let mut include_usage = true;
+    let mut include_prompt_cache_key = true;
 
     // Initialize messages
     let mut messages =
@@ -863,6 +883,17 @@ pub async fn run_agent(
     // Effective flow_step_id: override for nested agents, otherwise from job
     let effective_flow_step_id: Option<&str> =
         flow_step_id_override.or(job.flow_step_id.as_deref());
+
+    // Keyed on the step, not the run: every run of this step opens with the same system
+    // prompt and tool definitions, and each agent-loop iteration extends the previous
+    // one's prefix. Above ~15 requests/minute one key starts missing again, which is a
+    // reason to split it further, never to make it per-run.
+    let prompt_cache_key = bounded_prompt_cache_key(&format!(
+        "{}:{}:{}",
+        job.workspace_id,
+        job.runnable_path(),
+        effective_flow_step_id.unwrap_or_default()
+    ));
 
     // Fetch flow context for input transforms context, chat and memory
     let mut flow_context = get_flow_context(db, job).await;
@@ -1068,7 +1099,7 @@ pub async fn run_agent(
         // For non-Anthropic providers, response_format is handled by the query builder
     }
 
-    let user_wants_streaming = args.streaming.unwrap_or(false);
+    let user_wants_streaming = streaming_requested(args.streaming);
     *has_stream = user_wants_streaming && is_text_output;
 
     let mut final_events_str = String::new();
@@ -1146,7 +1177,7 @@ pub async fn run_agent(
             }
         } else {
             // For all other providers, use the HTTP client approach
-            let build_args = BuildRequestArgs {
+            let mut build_args = BuildRequestArgs {
                 messages: &messages,
                 tools: tool_defs.as_deref(),
                 model: args.provider.get_model(),
@@ -1159,6 +1190,7 @@ pub async fn run_agent(
                 user_message: args.user_message.as_deref().unwrap_or(""),
                 attachments: args.user_attachments.as_deref(),
                 has_websearch,
+                prompt_cache_key: include_prompt_cache_key.then_some(prompt_cache_key.as_str()),
             };
 
             // A worker cannot run the client credentials exchange, so an OAuth resource
@@ -1208,9 +1240,10 @@ pub async fn run_agent(
                 };
 
             // An endpoint can reject the request shape rather than the model:
-            // `stream_options`, which not every OpenAI-compatible provider accepts, and
-            // the route itself, when an Azure resource is outside the Responses API's
-            // model/region matrix. Each is retried once with that part dropped.
+            // `stream_options` and `prompt_cache_key`, which not every OpenAI-compatible
+            // gateway accepts, and the route itself, when an Azure resource is outside
+            // the Responses API's model/region matrix. Each is retried once with that
+            // part dropped.
             // Set where the route is found to be absent, and read once the fallback has
             // answered: a rejection it did not resolve says nothing about the deployment.
             let mut rerouted_by_a_route_rejection = false;
@@ -1258,6 +1291,13 @@ pub async fn run_agent(
                                 || text.contains("include_usage")
                                 || text.contains("Additional properties are not allowed"));
 
+                        // An OpenAI-compatible gateway that validates the body strictly
+                        // names the offending field, whether it calls it an unrecognized
+                        // argument or an unexpected additional property.
+                        let rejects_prompt_cache_key = build_args.prompt_cache_key.is_some()
+                            && status.as_u16() == 400
+                            && text.contains("prompt_cache_key");
+
                         // Only the first call of the step may re-route: an endpoint that
                         // does not serve this API rejects that one already, whereas a
                         // rejection once the conversation is under way is about the
@@ -1272,6 +1312,15 @@ pub async fn run_agent(
                                 "Retrying request without stream_options due to provider incompatibility"
                             );
                             include_usage = false;
+                        } else if rejects_prompt_cache_key {
+                            // Checked before the route fallback: the endpoint serves this
+                            // route, it just refuses one optional field, and re-routing
+                            // the whole step over that would give up far more.
+                            tracing::info!(
+                                "Retrying request without prompt_cache_key due to provider incompatibility"
+                            );
+                            include_prompt_cache_key = false;
+                            build_args.prompt_cache_key = None;
                         } else if route_unserved {
                             tracing::info!(
                                 "Endpoint rejected the request ({}), falling back to chat/completions",
@@ -1652,6 +1701,17 @@ pub async fn run_agent(
     }))
 }
 
+/// Whether the step asked for its answer as it is generated. Absence means on, matching the
+/// schema's own default: a step that never wrote the key never had an opinion, and an answer
+/// arriving as it is written is what people expect. Only an explicit `false` holds it back.
+///
+/// The chat surfaces decide whether to open a stream from their own reading of the same config,
+/// and a surface that opens one for an answer sent in a single piece re-runs the flow when the
+/// connection times out. So this default is half of a contract, not a local preference.
+fn streaming_requested(streaming: Option<bool>) -> bool {
+    streaming.unwrap_or(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1662,6 +1722,48 @@ mod tests {
             content: Some(OpenAIContent::Text(content.to_string())),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn an_unwritten_streaming_field_streams() {
+        assert!(streaming_requested(None));
+        assert!(streaming_requested(Some(true)));
+        assert!(!streaming_requested(Some(false)));
+    }
+
+    /// Over 64 characters OpenAI rejects the key outright, which costs a wasted round
+    /// trip per run and silently leaves that step with no prompt caching at all.
+    #[test]
+    fn prompt_cache_key_stays_within_the_provider_bound() {
+        let long = format!("my-workspace:f/{}/agent:step_12", "nested_folder".repeat(8));
+        assert!(long.len() > 64);
+
+        let bounded = bounded_prompt_cache_key(&long);
+
+        assert!(
+            bounded.len() <= 64,
+            "got {} chars: {bounded}",
+            bounded.len()
+        );
+        // Stable for the same step, or every run would land on a different cache.
+        assert_eq!(bounded, bounded_prompt_cache_key(&long));
+        assert_ne!(
+            bounded,
+            bounded_prompt_cache_key(&long.replace("step_12", "step_13"))
+        );
+    }
+
+    #[test]
+    fn prompt_cache_key_passes_short_keys_through_unchanged() {
+        let short = "admins:f/agent/step:a";
+        assert_eq!(bounded_prompt_cache_key(short), short);
+    }
+
+    /// Truncation on a byte index would panic mid-character.
+    #[test]
+    fn prompt_cache_key_truncates_on_a_char_boundary() {
+        let long = format!("workspace:f/{}/agent:step", "é".repeat(80));
+        assert!(bounded_prompt_cache_key(&long).len() <= 64);
     }
 
     #[test]

@@ -33,6 +33,9 @@ export interface EvalCaseRuntimeSpec {
   appContext?: EvalCaseRuntimeAppContextSpec;
   // Global mode: run as a session chat (preview tools + session prompt) vs the standalone chat.
   sessionChat?: boolean;
+  // Global session chats: start the case in plan mode, so the workspace-changing tools are
+  // refused until the model hands over a plan with exit_plan_mode.
+  planMode?: boolean;
 }
 
 export interface FlowValidationSpec {
@@ -158,6 +161,13 @@ export interface ToolCallArgumentRule {
   stringStartsWithAnyOf?: string[];
   stringMustNotStartWithAnyOf?: string[];
   /**
+   * Universal over calls: every recorded call to `tool` must carry `field` as
+   * exactly one of these strings. Use when a near-miss would still satisfy a
+   * prefix — a resource reference like `$res:f/a/b` shares its prefix with the
+   * wrong `$res:f/a/b_backup`, and the mock never resolves it to catch that.
+   */
+  stringEqualsAnyOf?: string[];
+  /**
    * Case-insensitive "contains", existential over calls: at least one recorded
    * call to `tool` must have `field` containing one of these substrings. Other
    * calls to the same tool may do anything. Use instead of `stringStartsWithAnyOf`
@@ -166,6 +176,29 @@ export interface ToolCallArgumentRule {
    * tool — e.g. SQL where a mutation is mixed with verification SELECTs.
    */
   stringIncludesAnyOf?: string[];
+  /**
+   * Universal over calls: every recorded call to `tool` must carry `field` as a
+   * non-blank string. Use for a required argument whose value is free text, where
+   * the point is that the model filled it in at all rather than what it said.
+   */
+  nonEmpty?: boolean;
+  /**
+   * Universal over calls: no recorded call to `tool` may pass `field` at all.
+   * For partial-update tools, where supplying a field the model could not have
+   * read is itself the failure — e.g. `write_variable.value` on a secret.
+   */
+  fieldMustBeAbsent?: boolean;
+}
+
+/**
+ * Several field constraints that must hold on the *same* call, where separate
+ * calls each satisfying one of them would not be the requested behavior — e.g.
+ * opening one Runs page filtered by both a label and a worker, rather than two
+ * pages each carrying one filter.
+ */
+export interface ToolCallSameCallRule {
+  tool: string;
+  args: { field: string; stringIncludesAnyOf: string[] }[];
 }
 
 export interface ToolValidationSpec {
@@ -179,12 +212,31 @@ export interface ToolValidationSpec {
   requiredToolsAnyOf?: string[][];
   forbiddenToolsUsed?: string[];
   toolCallArgs?: ToolCallArgumentRule[];
+  toolCallArgsSameCall?: ToolCallSameCallRule[];
 }
 
 export type EvalValidationSpec =
   | FlowValidationSpec
   | AppValidationSpec
   | GlobalValidationSpec;
+
+/**
+ * Expectations on what the assistant SAID, for cases where the deliverable is
+ * partly a warning to the user. The `global` judge only ever sees the resulting
+ * drafts, so "tells the user X" is invisible to it and has to be checked here.
+ * Needs a mode whose runner reports `assistantText`.
+ */
+export interface AssistantValidationSpec {
+  /** Each entry: at least one of its phrases appears somewhere in the assistant's text. */
+  requiredMentionsAnyOf?: string[][];
+  /**
+   * Plain case-insensitive substring test, so it cannot see negation: a phrase the correct
+   * answer might use in the negative ("you don't need to deploy the app") is not a valid
+   * entry. Use it for tokens that never legitimately appear, and leave nuanced "did the
+   * assistant say the right thing" expectations to the judge checklist.
+   */
+  forbiddenMentions?: string[];
+}
 
 export interface EvalCase {
   id: string;
@@ -194,6 +246,7 @@ export interface EvalCase {
   validate?: EvalValidationSpec;
   toolExpect?: ToolValidationSpec;
   cliExpect?: CliValidationSpec;
+  assistantExpect?: AssistantValidationSpec;
   judgeChecklist?: string[];
   skipJudge?: boolean;
   runtime?: EvalCaseRuntimeSpec;
@@ -260,6 +313,8 @@ export interface ModeRunOutput<TActual> {
   toolsUsed: string[];
   toolCallDetails?: ToolCallDetail[];
   skillsInvoked: string[];
+  /** Concatenated assistant-visible text of the run, when the mode reports it. */
+  assistantText?: string;
   tokenUsage?: BenchmarkTokenUsage | null;
   /**
    * Total input tokens occupying the context window on the LAST model request

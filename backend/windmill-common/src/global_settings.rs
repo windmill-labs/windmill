@@ -15,6 +15,7 @@ pub const OAUTH_SETTING: &str = "oauths";
 pub const AI_CONFIG_SETTING: &str = "ai_config";
 pub const RETENTION_PERIOD_SECS_SETTING: &str = "retention_period_secs";
 pub const RETENTION_PERIOD_SECS_OVERRIDES_SETTING: &str = "retention_period_secs_overrides";
+pub const SERVICE_LOG_RETENTION_SECS_SETTING: &str = "service_log_retention_secs";
 /// Upper bound on how many per-workspace retention overrides may be configured. The periodic monitor
 /// sweeps each override workspace in its own transaction every pass, so this keeps a pass bounded
 /// (and the feature is a targeted escape hatch for a handful of special workspaces, not a bulk knob).
@@ -64,6 +65,10 @@ pub const EXPOSE_METRICS_SETTING: &str = "expose_metrics";
 pub const EXPOSE_DEBUG_METRICS_SETTING: &str = "expose_debug_metrics";
 pub const KEEP_JOB_DIR_SETTING: &str = "keep_job_dir";
 pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexisting_user_for_oauth";
+/// Superadmin switch over guest sessions for the whole instance, above the per-workspace
+/// one. Read from the table, uncached, by the same gates that read the workspace switch;
+/// the superadmin Guests list writes it through `/settings/global/{key}` by this name.
+pub const GUEST_ACCESS_DISABLED_SETTING: &str = "guest_access_disabled";
 pub const JOB_ISOLATION_SETTING: &str = "job_isolation";
 pub const NSJAIL_TMPFS_SIZE_MB_SETTING: &str = "nsjail_tmpfs_size_mb";
 pub const NSJAIL_TMP_BACKING_SETTING: &str = "nsjail_tmp_backing";
@@ -79,12 +84,23 @@ pub const SANDBOX_REGISTRY_AUTH_SETTING: &str = "sandbox_registry_auth";
 // windmill-worker/src/ssh_executor_ee.rs.
 pub const SSH_EXECUTION_SETTING: &str = "ssh_execution_enabled";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
+/// Compile a newly deployed script's binary right after its dependency job and push it
+/// to the instance object store, so the first run does not pay the compile. Inert unless
+/// instance object storage is configured — without it the binary would only ever land in
+/// the building worker's local cache, which is not where the next run looks.
+pub const AUTO_BUILD_BINARY_ON_DEPLOY_SETTING: &str = "auto_build_binary_on_deploy";
+/// Worker tag the auto-build jobs are queued on. Unset means the script's language tag,
+/// which is where its dependency job already runs.
+pub const AUTO_BUILD_BINARY_TAG_SETTING: &str = "auto_build_binary_tag";
 pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
 pub const DISABLE_WORKSPACE_INVITE_EMAILS_SETTING: &str = "disable_workspace_invite_emails";
 pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
 pub const AUTO_LOGIN_PROVIDER_SETTING: &str = "auto_login_provider";
+/// Name of the SAML attribute or OIDC userinfo claim carrying the user's IdP groups. Unset or
+/// empty leaves instance-group membership entirely to SCIM.
+pub const SSO_GROUPS_CLAIM_SETTING: &str = "sso_groups_claim";
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
 pub const HUB_ACCESSIBLE_URL_SETTING: &str = "hub_accessible_url";
 pub const DISABLE_HUB_SETTING: &str = "disable_hub";
@@ -92,11 +108,14 @@ pub const CRITICAL_ERROR_CHANNELS_SETTING: &str = "critical_error_channels";
 pub const CRITICAL_ALERT_MUTE_UI_SETTING: &str = "critical_alert_mute_ui";
 pub const CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING: &str = "critical_alerts_on_db_oversize";
 pub const CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING: &str = "critical_alerts_on_token_expiry";
+pub const CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING: &str =
+    "critical_alert_mute_zombie_job_restart";
 pub const DEV_INSTANCE_SETTING: &str = "dev_instance";
 pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 pub const OTEL_SETTING: &str = "otel";
 pub const OTEL_TRACING_PROXY_SETTING: &str = "otel_tracing_proxy";
+pub const OTEL_TRACES_RETENTION_SECS_SETTING: &str = "otel_traces_retention_secs";
 pub const APP_WORKSPACED_ROUTE_SETTING: &str = "app_workspaced_route";
 pub const HTTP_ROUTE_WORKSPACED_ROUTE_SETTING: &str = "http_route_workspaced_route";
 pub const SECRET_BACKEND_SETTING: &str = "secret_backend";
@@ -106,6 +125,112 @@ pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
 /// `base_url` when unset; set it when the browser-facing URL is not reachable
 /// from GitHub and a separate ingress fronts the API for inbound webhooks.
 pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_url";
+/// Instance-wide announcement rendered above every page of the app (maintenance
+/// windows, incidents). Readable by any authenticated user, unlike most settings:
+/// the banner exists to be shown to everyone, so it must never hold anything the
+/// whole instance may not see.
+pub const INSTANCE_BANNER_SETTING: &str = "instance_banner";
+
+/// Ceiling on the banner message. The banner is a one-or-two-line strip above every
+/// page, so anything longer is a layout accident rather than an announcement.
+pub const INSTANCE_BANNER_MESSAGE_MAX_LEN: usize = 500;
+
+/// Ceiling on the banner's link label, which renders as a button inside that same strip.
+pub const INSTANCE_BANNER_LINK_LABEL_MAX_LEN: usize = 60;
+
+/// Validate an [`INSTANCE_BANNER_SETTING`] value.
+///
+/// The banner is the one setting rendered to every user of the instance, so its
+/// shape is checked at the boundary rather than trusted from the writer: a value
+/// that reaches the browser malformed breaks the layout for everyone at once.
+///
+/// The link is restricted to http(s) so a stored `javascript:`/`data:` URL can
+/// never become the href of an anchor every user sees.
+///
+/// Only shapes that would *misrender* are rejected. An enabled banner with no message
+/// is left alone deliberately: it renders as nothing, and every write path here runs
+/// under the bulk settings save, so rejecting it would fail an admin's whole settings
+/// edit — retention, SMTP and all — over a half-typed announcement.
+pub fn validate_instance_banner(value: &serde_json::Value) -> Result<(), String> {
+    let obj = value
+        .as_object()
+        .ok_or_else(|| "must be a JSON object".to_string())?;
+
+    // Field types are checked before their contents. Every read below is an `as_str`/
+    // `as_bool`, which reports a wrong-typed field as absent — so without this a
+    // `"link": 123` would skip the URL checks entirely and be stored, and the settings
+    // form would then throw on it (`link.trim()` on a number) instead of rendering.
+    for (field, expected, ok) in [
+        (
+            "enabled",
+            "a boolean",
+            obj.get("enabled").is_none_or(|v| v.is_boolean()),
+        ),
+        (
+            "dismissible",
+            "a boolean",
+            obj.get("dismissible").is_none_or(|v| v.is_boolean()),
+        ),
+        (
+            "message",
+            "a string",
+            obj.get("message").is_none_or(|v| v.is_string()),
+        ),
+        (
+            "severity",
+            "a string",
+            obj.get("severity").is_none_or(|v| v.is_string()),
+        ),
+        (
+            "link",
+            "a string",
+            obj.get("link").is_none_or(|v| v.is_string()),
+        ),
+        (
+            "link_label",
+            "a string",
+            obj.get("link_label").is_none_or(|v| v.is_string()),
+        ),
+    ] {
+        if !ok {
+            return Err(format!("{field} must be {expected}"));
+        }
+    }
+
+    for (field, max) in [
+        ("message", INSTANCE_BANNER_MESSAGE_MAX_LEN),
+        ("link_label", INSTANCE_BANNER_LINK_LABEL_MAX_LEN),
+    ] {
+        let len = obj
+            .get(field)
+            .and_then(|v| v.as_str())
+            .map_or(0, |s| s.chars().count());
+        if len > max {
+            return Err(format!("{field} must be at most {max} characters"));
+        }
+    }
+
+    if let Some(severity) = obj.get("severity").and_then(|v| v.as_str()) {
+        if !matches!(severity, "info" | "warning" | "error") {
+            return Err("severity must be one of info, warning, error".to_string());
+        }
+    }
+
+    if let Some(link) = obj.get("link").and_then(|v| v.as_str()) {
+        if !link.trim().is_empty() {
+            let url = url::Url::parse(link.trim())
+                .map_err(|e| format!("link must be an absolute http(s) URL: {e}"))?;
+            if !matches!(url.scheme(), "http" | "https") {
+                return Err("link must use the http or https scheme".to_string());
+            }
+            if !url.has_host() {
+                return Err("link must include a host".to_string());
+            }
+        }
+    }
+
+    Ok(())
+}
 
 /// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] value.
 ///
@@ -294,6 +419,8 @@ pub const ENV_SETTINGS: &[&str] = &[
     "WAIT_RESULT_SLOW_POLL_INTERVAL_MS",
     "WAIT_RESULT_FAST_POLL_INTERVAL_MS",
     "EXIT_AFTER_NO_JOB_FOR_SECS",
+    "EXIT_AFTER_N_JOBS",
+    "WORKER_SUFFIX",
     "REQUEST_SIZE_LIMIT",
     "CREATE_WORKSPACE_REQUIRE_SUPERADMIN",
     "GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE",
@@ -306,17 +433,98 @@ pub const ENV_SETTINGS: &[&str] = &[
     "OTEL_METRICS",
     "OTEL_TRACING",
     "OTEL_LOGS",
+    // The OTEL_EXPORTER_OTLP_*HEADERS variables are left out: they carry exporter API keys, and
+    // this list is logged at startup and returned to superadmins by `get_local_settings`.
+    "OTEL_METRICS_ENABLED",
+    "OTEL_TRACING_ENABLED",
+    "OTEL_LOGS_ENABLED",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_COMPRESSION",
+    "OTEL_EXPORTER_OTLP_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
+    "OTEL_METRIC_EXPORT_INTERVAL",
+    "OTEL_SERVICE_NAME",
+    "OTEL_SERVICE_VERSION",
+    "OTEL_HOST_NAME",
+    "OTEL_ENVIRONMENT",
+    "OTEL_RESOURCE_ATTRIBUTES",
+    "OTEL_JOB_LOGS",
+    "OTEL_TRACES_RETENTION_SECS",
     "DISABLE_S3_STORE",
     "PG_SCHEMA",
     "PG_LISTENER_REFRESH_PERIOD_SECS",
     "AI_REQUEST_TIMEOUT_SECONDS",
     "JOB_CLEANUP_BATCH_SIZE",
     "JOB_CLEANUP_MAX_BATCHES",
+    "AUTO_BUILD_BINARY_ON_DEPLOY",
+    "AUTO_BUILD_BINARY_TAG",
 ];
 
+use crate::ee_oss::LicensePlan;
 use crate::error;
 use sqlx::postgres::Postgres;
 use sqlx::Pool;
+
+/// Read several settings in one round trip. Names with no row are simply absent from the
+/// result, exactly as [`load_value_from_global_settings`] returns `None` for them.
+pub async fn load_values_from_global_settings(
+    db: &Pool<Postgres>,
+    names: &[&str],
+) -> error::Result<std::collections::HashMap<String, serde_json::Value>> {
+    // Listing the names keeps this on the primary key. `global_settings` also holds
+    // `workspace_dependencies_map_rebuilt:<workspace_id>`, one row per workspace with no
+    // cleanup path, so a predicate that scanned the table would grow with workspace count.
+    let rows = sqlx::query!(
+        "SELECT name, value FROM global_settings WHERE name = ANY($1)",
+        names as &[&str]
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(|r| (r.name, r.value)).collect())
+}
+
+/// Return the instance's JWT secret, generating one only if the row holds nothing usable.
+///
+/// The write has to be conditional rather than a plain upsert, for two reasons. A usable
+/// secret must never be overwritten: replicas booting together would each install their own
+/// and reject each other's tokens. And `notify_global_setting_change` fires on every write to
+/// this table, so an unconditional upsert would make each startup trigger a cluster-wide
+/// settings reload. An empty `RETURNING` is how a caller learns another process's secret
+/// stands, and reads that one instead.
+///
+/// Safe to call with a value read earlier: the statement, not the caller's read, decides.
+pub async fn get_or_create_jwt_secret(db: &Pool<Postgres>) -> error::Result<String> {
+    let candidate = crate::utils::rd_string(32);
+    let stored = sqlx::query_scalar!(
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2)
+         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value
+         WHERE jsonb_typeof(global_settings.value) <> 'string'
+         RETURNING value",
+        JWT_SECRET_SETTING,
+        serde_json::to_value(&candidate)?
+    )
+    .fetch_optional(db)
+    .await?;
+
+    match stored {
+        Some(_) => Ok(candidate),
+        None => load_value_from_global_settings(db, JWT_SECRET_SETTING)
+            .await?
+            .and_then(|v| serde_json::from_value::<String>(v).ok())
+            .ok_or_else(|| {
+                error::Error::InternalErr(
+                    "jwt_secret conflicted but holds no usable value".to_string(),
+                )
+            }),
+    }
+}
 
 pub async fn load_value_from_global_settings(
     db: &Pool<Postgres>,
@@ -330,6 +538,85 @@ pub async fn load_value_from_global_settings(
     .await?
     .map(|x| x.value);
     Ok(r)
+}
+
+lazy_static::lazy_static! {
+    static ref AUTO_BUILD_BINARY_ON_DEPLOY_ENV: bool = std::env::var("AUTO_BUILD_BINARY_ON_DEPLOY")
+        .ok()
+        .and_then(|x| x.trim().parse::<bool>().ok())
+        .unwrap_or(false);
+    static ref AUTO_BUILD_BINARY_TAG_ENV: Option<String> = std::env::var("AUTO_BUILD_BINARY_TAG")
+        .ok()
+        .map(|x| x.trim().to_string())
+        .filter(|x| !x.is_empty());
+}
+
+/// Whether newly deployed scripts should have their binary built and pushed to the
+/// instance object store, and on which worker tag.
+///
+/// `None` = off. `Some(tag_override)` = on, where `None` inside means "use the script's
+/// language tag". Read per deployment rather than cached: deploys of a compiled language
+/// are rare, and a stale cache here silently skips builds for as long as it lives.
+///
+/// The env fallbacks are read in whichever process decides — a server for a deploy that
+/// brings its own lock, a worker for one that generates it — so on a split deployment they
+/// belong on both. The instance setting has no such caveat; prefer it.
+pub async fn auto_build_binary_on_deploy(
+    db: &Pool<Postgres>,
+) -> error::Result<Option<Option<String>>> {
+    let enabled =
+        match load_value_from_global_settings(db, AUTO_BUILD_BINARY_ON_DEPLOY_SETTING).await? {
+            Some(serde_json::Value::Bool(b)) => b,
+            // An unset (or cleared) setting falls back to the env var, matching how the
+            // instance-settings UI leaves a never-touched toggle absent from the table.
+            None | Some(serde_json::Value::Null) => *AUTO_BUILD_BINARY_ON_DEPLOY_ENV,
+            Some(other) => {
+                tracing::error!(
+                    "{AUTO_BUILD_BINARY_ON_DEPLOY_SETTING} is not a boolean: {other}, ignoring"
+                );
+                false
+            }
+        };
+    if !enabled {
+        return Ok(None);
+    }
+    // Without an instance object store the artifact never leaves the building worker's own
+    // disk, so every other worker would still compile it on first run.
+    if !instance_object_store_configured(db).await? {
+        tracing::warn!(
+            "{AUTO_BUILD_BINARY_ON_DEPLOY_SETTING} is enabled but no instance object storage is \
+             configured, not building anything"
+        );
+        return Ok(None);
+    }
+    let tag = match load_value_from_global_settings(db, AUTO_BUILD_BINARY_TAG_SETTING).await? {
+        Some(serde_json::Value::String(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
+        Some(serde_json::Value::Null) | Some(serde_json::Value::String(_)) | None => {
+            AUTO_BUILD_BINARY_TAG_ENV.clone()
+        }
+        Some(other) => {
+            tracing::error!("{AUTO_BUILD_BINARY_TAG_SETTING} is not a string: {other}, ignoring");
+            None
+        }
+    };
+    Ok(Some(tag))
+}
+
+/// Whether an instance object store is configured, mirroring every condition
+/// `windmill_object_store::reload_object_store_setting` needs to actually load one —
+/// including its refusal on the Pro plan, without which a Pro instance holding an
+/// object-store row would queue a build per deploy that can only ever skip.
+///
+/// Reads config rather than the loaded client so callers outside the worker (which may be
+/// built without the object-store features) reach the same answer.
+async fn instance_object_store_configured(db: &Pool<Postgres>) -> error::Result<bool> {
+    if matches!(crate::ee_oss::get_license_plan().await, LicensePlan::Pro) {
+        return Ok(false);
+    }
+    Ok(!matches!(
+        load_value_from_global_settings(db, OBJECT_STORE_CONFIG_SETTING).await?,
+        None | Some(serde_json::Value::Null)
+    ) || std::env::var("S3_CACHE_BUCKET").is_ok())
 }
 
 /// Read OAuth client_id and client_secret from instance-level global settings.
@@ -431,6 +718,61 @@ mod tests {
                 "'{bad}' leaked its credential into: {err}"
             );
         }
+    }
+
+    #[test]
+    fn instance_banner_rejects_unsafe_and_malformed_values() {
+        // The link becomes the href of an anchor shown to every user of the instance,
+        // so a non-http(s) scheme must not survive a write.
+        for link in [
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "vbscript:msgbox(1)",
+            "not-a-url",
+            "https://",
+        ] {
+            let banner = serde_json::json!({ "enabled": true, "message": "down", "link": link });
+            assert!(
+                validate_instance_banner(&banner).is_err(),
+                "link '{link}' should be rejected"
+            );
+        }
+        // A wrong-typed field reads as absent to every accessor here, so without an
+        // explicit type check it would skip validation and be stored.
+        for bad in [
+            serde_json::json!({ "enabled": true, "message": "down", "link": 123 }),
+            serde_json::json!({ "enabled": true, "message": "down", "link_label": ["a"] }),
+            serde_json::json!({ "enabled": true, "message": { "text": "down" } }),
+            serde_json::json!({ "enabled": true, "message": "down", "severity": 2 }),
+            serde_json::json!({ "enabled": "yes", "message": "down" }),
+            serde_json::json!({ "enabled": true, "message": "down", "dismissible": "no" }),
+        ] {
+            assert!(
+                validate_instance_banner(&bad).is_err(),
+                "{bad} should be rejected"
+            );
+        }
+        // The strip is one or two lines tall; both of its texts are bounded.
+        for (field, over) in [
+            ("message", INSTANCE_BANNER_MESSAGE_MAX_LEN + 1),
+            ("link_label", INSTANCE_BANNER_LINK_LABEL_MAX_LEN + 1),
+        ] {
+            let mut banner = serde_json::json!({ "enabled": true, "message": "down" });
+            banner[field] = serde_json::Value::String("x".repeat(over));
+            assert!(
+                validate_instance_banner(&banner).is_err(),
+                "an over-long {field} should be rejected"
+            );
+        }
+        // Enabled with no message renders as nothing and must stay writable: every path
+        // into this validator is a bulk settings save, so rejecting it would fail an
+        // admin's unrelated edits over a half-typed announcement.
+        assert!(validate_instance_banner(&serde_json::json!({ "enabled": true })).is_ok());
+        let ok = serde_json::json!({
+            "enabled": true, "message": "down", "severity": "warning",
+            "link": "https://status.example.com", "dismissible": false
+        });
+        assert!(validate_instance_banner(&ok).is_ok());
     }
 
     #[test]

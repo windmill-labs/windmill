@@ -8,6 +8,8 @@
 //!   cargo test -p windmill-queue --test tag_workspace_test
 
 use sqlx::{Pool, Postgres};
+use windmill_common::worker::Connection;
+use windmill_common::workspaces::root_workspace_id;
 use windmill_queue::tags::{
     apply_fork_lineage_change, invalidate_fork_parent_cache, tag_workspace_id,
 };
@@ -81,4 +83,41 @@ async fn reclaimed_fork_id_follows_its_new_parent(db: Pool<Postgres>) {
 
     apply_fork_lineage_change("wm-fork-rc");
     assert_eq!(tag_workspace_id("wm-fork-rc", &db).await, "rc-second");
+}
+
+/// `WM_ROOT_WORKSPACE` answers the same walk up the ancestor chain as the tag workspace, so its
+/// cache rides these two sweeps instead of carrying call sites of its own. That is only true while
+/// they actually drop it: dropping either line below leaves a job reporting an environment its
+/// workspace left minutes earlier, and no test in `windmill-common` can catch it — that crate
+/// cannot depend on this one.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn the_sweeps_here_also_drop_the_root_workspace(db: Pool<Postgres>) {
+    let conn = Connection::Sql(db.clone());
+    insert_ws(&db, "rwx-prod", None, false).await;
+    insert_ws(&db, "rwx-mid", Some("rwx-prod"), false).await;
+    insert_ws(&db, "wm-fork-rwx", Some("rwx-mid"), false).await;
+
+    // Warm both caches the way pushing and then starting a job would.
+    assert_eq!(root_workspace_id(&conn, "wm-fork-rwx").await, "rwx-prod");
+
+    // Promoting a mid-chain workspace to a dev workspace is the mutation that moves the answer for
+    // its whole subtree. Done in SQL because the handler that does it lives in the API crate.
+    sqlx::query("UPDATE workspace SET is_dev_workspace = true WHERE id = 'rwx-mid'")
+        .execute(&db)
+        .await
+        .expect("promote to dev workspace");
+
+    invalidate_fork_parent_cache("wm-fork-rwx");
+    assert_eq!(root_workspace_id(&conn, "wm-fork-rwx").await, "rwx-mid");
+
+    // And again through the broadcast leg, which is the only one a replica ever sees. Only the
+    // single-id payload is exercised: `"*"` clears the process-global caches, which would yank the
+    // warmed entries out from under the other tests running in this same process.
+    sqlx::query("UPDATE workspace SET is_dev_workspace = false WHERE id = 'rwx-mid'")
+        .execute(&db)
+        .await
+        .expect("demote dev workspace");
+
+    apply_fork_lineage_change("wm-fork-rwx");
+    assert_eq!(root_workspace_id(&conn, "wm-fork-rwx").await, "rwx-prod");
 }

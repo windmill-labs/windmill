@@ -130,13 +130,21 @@ export async function detectDatatableTables(
 // still references the missing one.
 function resolveTable(
 	schema: DatabaseSchema,
-	tableRef: string
+	tableRef: string,
+	declaringSchema?: string
 ): { schemaName: string; tableName: string } | undefined {
 	const dot = tableRef.indexOf('.')
 	if (dot !== -1) {
 		const schemaName = tableRef.slice(0, dot)
 		const tableName = tableRef.slice(dot + 1)
 		return schema[schemaName]?.[tableName] ? { schemaName, tableName } : undefined
+	}
+	// A bare foreign-key target means a table in the declaring table's own schema —
+	// that is the only case the schema API drops the schema for — so resolve there
+	// first. Without it a same-named table in another schema wins, and the closure
+	// creates that one while the FK points at it.
+	if (declaringSchema && schema[declaringSchema]?.[tableRef]) {
+		return { schemaName: declaringSchema, tableName: tableRef }
 	}
 	// Bare name: find it across every schema, first match wins.
 	for (const schemaName of Object.keys(schema)) {
@@ -161,7 +169,7 @@ function expandFkClosure(schema: DatabaseSchema, seed: ResolvedTable[]): Resolve
 		const t = queue.shift()!
 		const fks = schema[t.schemaName]?.[t.tableName]?.foreignKeys ?? []
 		for (const fk of fks) {
-			const target = resolveTable(schema, fk.targetTable ?? '')
+			const target = resolveTable(schema, fk.targetTable ?? '', t.schemaName)
 			if (target && !inSet.has(tableKey(target))) {
 				inSet.set(tableKey(target), target)
 				queue.push(target)
@@ -184,7 +192,7 @@ function pruneSchemaForTables(schema: DatabaseSchema, tables: ResolvedTable[]): 
 		;(pruned[t.schemaName] ??= {})[t.tableName] = {
 			...orig,
 			foreignKeys: (orig.foreignKeys ?? []).filter((fk) => {
-				const target = resolveTable(schema, fk.targetTable ?? '')
+				const target = resolveTable(schema, fk.targetTable ?? '', t.schemaName)
 				return target != null && inSet.has(tableKey(target))
 			})
 		}
@@ -203,7 +211,7 @@ function orderByFkDependency(schema: DatabaseSchema, tables: ResolvedTable[]): R
 		const fks = schema[t.schemaName]?.[t.tableName]?.foreignKeys ?? []
 		const targets = new Set<string>()
 		for (const fk of fks) {
-			const target = resolveTable(schema, fk.targetTable ?? '')
+			const target = resolveTable(schema, fk.targetTable ?? '', t.schemaName)
 			if (target && tableKey(target) !== tableKey(t) && inSet.has(tableKey(target))) {
 				targets.add(tableKey(target))
 			}

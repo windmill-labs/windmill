@@ -33,6 +33,10 @@
 		datatableAsPgResource?: boolean
 		workspace?: string | undefined
 		disableChatOffset?: boolean
+		/** Fires when this picker sets a resource, with the type it carries, and with `undefined` on
+		 *  clear. Unlike an effect on `valueType` it never fires for the value the picker was opened
+		 *  on, but `selectFirst` choosing the only candidate during a load does count as setting one. */
+		onValueChange?: (path: string | undefined, type: string | undefined) => void
 	}
 
 	let {
@@ -54,7 +58,8 @@
 		excludedValues = undefined,
 		datatableAsPgResource = false,
 		workspace = undefined,
-		disableChatOffset = false
+		disableChatOffset = false,
+		onValueChange = undefined
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
@@ -155,6 +160,7 @@
 			if (collection.length == 1 && selectFirst && (value == undefined || value == '')) {
 				value = collection[0].value
 				valueType = collection[0].type
+				onValueChange?.(value, valueType)
 			}
 		} catch (e) {
 			sendUserToast('Failed to load resource types', true)
@@ -196,6 +202,7 @@
 		await loadResources(resourceType)
 		value = e.detail
 		valueType = collection.find((x) => x?.value == value)?.type
+		onValueChange?.(value, valueType)
 	}}
 	bind:this={appConnect}
 	{expressOAuthSetup}
@@ -211,6 +218,7 @@
 		if (e.detail) {
 			value = e.detail
 			valueType = collection.find((x) => x?.value == value)?.type
+			onValueChange?.(value, valueType)
 			// valueSelect = { value: e.detail, label: e.detail, type: valueType ?? '' }
 		}
 	}}
@@ -237,12 +245,14 @@
 				(v) => {
 					value = v
 					valueType = collection.find((x) => x?.value == v)?.type
+					onValueChange?.(value, valueType)
 				}
 			}
 			onClear={() => {
 				initialValue = undefined
 				value = undefined
 				valueType = undefined
+				onValueChange?.(undefined, undefined)
 				onClear?.()
 			}}
 			items={collection}
@@ -281,6 +291,7 @@
 				<div class="flex bg-surface border-t divide-x">
 					{#if resourceType?.includes(',')}
 						<DropdownV2
+							class="flex-1 justify-stretch"
 							enableFlyTransition
 							items={resourceType?.split(',').map((rt) => ({
 								displayName: `${rt} resource`,
@@ -294,7 +305,7 @@
 									color="light"
 									variant="contained"
 									wrapperClasses="flex-1"
-									btnClasses="rounded-none mt-0.5"
+									btnClasses="rounded-none"
 									size="sm"
 									startIcon={{ icon: Plus }}
 								>

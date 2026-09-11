@@ -6,14 +6,16 @@
 	import type { FailureModuleN } from '../../graphBuilder.svelte'
 	import { getNodeColorClasses, NODE } from '$lib/components/graph'
 	import { msToSec } from '$lib/utils'
+	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 
 	interface Props {
 		data: FailureModuleN['data']
 	}
 
 	let { data }: Props = $props()
+	const flowRunStatus = getFlowRunStatusContext()
 
-	let state = $derived(data.flowModuleState)
+	let state = $derived(flowRunStatus?.getModuleState(data.id))
 	let colorClasses = $derived(getNodeColorClasses(state?.skipped ? '_Skipped' : state?.type, false))
 </script>
 

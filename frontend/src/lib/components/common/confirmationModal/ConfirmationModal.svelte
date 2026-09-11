@@ -13,6 +13,8 @@
 		confirmationText: string
 		keyListen?: boolean
 		loading?: boolean
+		/** Blocks confirming (button and Enter) while a required choice in `children` is unmade. */
+		confirmDisabled?: boolean
 		open?: boolean
 		type?: 'danger' | 'reload' | 'info'
 		showIcon?: boolean
@@ -21,6 +23,12 @@
 		/** Tailwind z-index class for the modal root. Override to stack this modal
 		 * above another modal that's already open (both default to `z-[9999]`). */
 		zIndexClass?: string
+		/** Render into `body` instead of where this component sits. Needed when an ancestor
+		 * creates a stacking context the dialog has to escape — a drawer paints over the page
+		 * whatever the dialog's z-index, and a `transform`, `filter` or `overflow` on the way
+		 * up confines it. Off by default: it moves the dialog out of its DOM position, so opt
+		 * in per call site rather than assuming every caller wants it. */
+		alwaysPortal?: boolean
 		children?: Snippet
 		onConfirmed?: () => void | Promise<void>
 		onCanceled?: () => void
@@ -31,12 +39,14 @@
 		confirmationText,
 		keyListen = true,
 		loading = false,
+		confirmDisabled = false,
 		open = false,
 		type: _type,
 		showIcon = true,
 		id,
 		trashbin = false,
 		zIndexClass = 'z-[9999]',
+		alwaysPortal = false,
 		children,
 		onConfirmed,
 		onCanceled
@@ -64,16 +74,35 @@
 			if (event.metaKey || event.ctrlKey || event.altKey) {
 				return
 			}
+			const popover = (event.target as HTMLElement | null)?.closest?.('[data-popover]')
+			// Content carries no `aria-controls`; a trigger's resolves only while its content is
+			// mounted, which is the only reliable open/closed signal — the trigger's own aria state
+			// is stale because visibility is driven outside melt.
+			const controls = popover?.getAttribute('aria-controls')
+			const popoverOpen = !!popover && (!controls || !!document.getElementById(controls))
+
 			switch (event.key) {
+				// Both keys are gated on the same state as the button they stand for, which is why
+				// they swallow the event first and only then decide. Ungated, Enter re-enters an
+				// in-flight confirm and Escape dismisses the modal out from under one — leaving the
+				// action to finish against a caller that believes it was cancelled.
 				case 'Enter':
+					// A popover needs Enter both to open from its trigger and to choose from its
+					// content, so leave it alone whether or not it is open.
+					if (popover) return
 					event.stopPropagation()
 					event.preventDefault()
+					if (loading || confirmDisabled) break
 					dispatch('confirmed')
 					onConfirmed?.()
 					break
 				case 'Escape':
+					// Only an open popover has something to dismiss; on a closed trigger Escape is
+					// still the dialog's.
+					if (popoverOpen) return
 					event.stopPropagation()
 					event.preventDefault()
+					if (loading) break
 					dispatch('canceled')
 					onCanceled?.()
 					break
@@ -119,7 +148,11 @@
 
 <svelte:window onkeydowncapture={onKeyDown} />
 
-<ConditionalPortal condition={!!hostEl} target={hostEl} class="contents">
+<ConditionalPortal
+	condition={alwaysPortal || !!hostEl}
+	target={hostEl}
+	class={hostEl ? 'contents' : undefined}
+>
 	{#if open}
 		<div
 			transition:fadeFast|local
@@ -170,7 +203,7 @@
 						</div>
 						<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
 							<Button
-								disabled={loading}
+								disabled={loading || confirmDisabled}
 								on:click={() => (dispatch('confirmed'), onConfirmed?.())}
 								color={theme[type].color}
 								size="sm"

@@ -7,6 +7,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { chatState } from './sharedChatState.svelte'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
+	import { copilotInfo } from '$lib/aiStore'
 	import { aiChatManager } from './AIChatManager.svelte'
 	import { onDestroy } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -22,6 +23,13 @@
 		children: any
 		onMenuOpen?: () => void
 		disableAi?: boolean
+		// Whether this layout loads the workspace AI config. It gates far more than
+		// the docked pane (code completion, metadata generation, the "open in AI
+		// session" buttons), so it must not be tied to `disableAi`. Pass false where
+		// another component owns the load for a different workspace — on the sessions
+		// route SessionWrapper loads the session's acting workspace, and both writing
+		// the global store would race.
+		loadAiConfig?: boolean
 		// Only the root layout's docked chat is the "legacy" counterpart of AI
 		// Sessions — SDK wrappers reuse this layout for script/flow chats where
 		// the sessions beta banner would make no sense.
@@ -35,6 +43,7 @@
 		children,
 		onMenuOpen,
 		disableAi,
+		loadAiConfig = true,
 		showSessionsBetaBanner = false
 	}: Props = $props()
 
@@ -43,14 +52,26 @@
 	let contentPadLeft = $derived(noBorder || $userStore?.operator || isMobile ? 0 : sidebarWidth)
 
 	$effect(() => {
+		chatState.dockedChatAvailable = !disableAi
 		if (disableAi) {
 			chatState.size = 0
+		}
+		return () => {
+			chatState.dockedChatAvailable = false
 		}
 	})
 
 	$effect(() => {
-		if ($workspaceStore && !disableAi) {
+		if ($workspaceStore && loadAiConfig) {
 			loadCopilot($workspaceStore)
+		}
+	})
+
+	// The pane restores its last open state from localStorage before the config can say
+	// the workspace hid the assistant; close it as soon as that is known.
+	$effect(() => {
+		if ($copilotInfo.workspaceDisabled && chatState.size > 0) {
+			aiChatManager.closeChat()
 		}
 	})
 

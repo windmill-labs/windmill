@@ -13,6 +13,7 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { userWorkspaces } from '$lib/stores'
+	import { childWorkspaceNoun } from '$lib/utils/devWorkspaceLabel'
 	import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 	import { writingJobOptions } from '$lib/components/jobs/writingJob'
 	import YAML from 'yaml'
@@ -34,6 +35,11 @@
 
 	let { currentWorkspaceId, parentWorkspaceId }: Props = $props()
 
+	let currentNoun = $derived(
+		childWorkspaceNoun($userWorkspaces.find((w) => w.id === currentWorkspaceId))
+	)
+	let currentNounCap = $derived(currentNoun.charAt(0).toUpperCase() + currentNoun.slice(1))
+
 	let loading = $state(true)
 	let error: string | undefined = $state(undefined)
 	let diffs: DatatableDiff[] = $state([])
@@ -42,6 +48,9 @@
 	// migrations, its changes flow through the normal item diff instead, so it is
 	// excluded here and the whole section hides once none remain.
 	let applicableCount = $state(0)
+	let applicableLabel = $derived(
+		applicableCount === 1 ? 'this data table has' : 'these data tables have'
+	)
 	let expandedDatatables: Set<string> = $state(new Set())
 
 	// Drawer state
@@ -287,6 +296,12 @@
 {#if applicableCount > 0}
 	<div class="bg-surface-tertiary p-4 rounded-md border">
 		<h3 class="text-sm font-semibold">Datatable schema changes</h3>
+		<Alert type="warning" size="xs" title="Legacy schema comparison" class="mt-2">
+			This section diffs data table schemas directly because {applicableLabel} not opted in to migrations.
+			With migrations enabled, schema changes are tracked as migrations and deployed like any other item.
+			Opt in from the parent workspace's data table settings — a fork only inherits the flag when it
+			is created, so this fork keeps using the legacy diff.
+		</Alert>
 		{#if loading}
 			<div class="flex items-center gap-2 text-xs text-tertiary py-2">
 				<Loader2 class="w-4 h-4 animate-spin" /> Loading datatable diffs...
@@ -321,8 +336,9 @@
 							<div class="border-t divide-y">
 								{#if diff.aheadChanges.length > 0}
 									<div class="px-3 py-1.5">
-										<div class="text-2xs font-semibold text-blue-500 mb-1">Fork changes (ahead)</div
-										>
+										<div class="text-2xs font-semibold text-blue-500 mb-1">
+											{currentNounCap} changes (ahead)
+										</div>
 										{#each diff.aheadChanges as change}
 											<div class="flex items-center gap-2 text-xs py-0.5">
 												{#if change.kind === 'added'}
@@ -393,8 +409,8 @@
 		<DrawerContent
 			on:close={() => (drawerOpen = false)}
 			title="{drawerChange.schemaName}.{drawerChange.tableName} ({drawerDirection === 'ahead'
-				? 'Fork → Parent'
-				: 'Parent → Fork'})"
+				? `${currentNounCap} → Parent`
+				: `Parent → ${currentNounCap}`})"
 		>
 			{#snippet actions()}
 				<Button
@@ -422,7 +438,7 @@
 				<!-- Diff section -->
 				<div style="height: 45%;">
 					<div class="py-1.5 text-2xs font-semibold text-secondary">
-						Schema diff (parent ↔ fork)
+						Schema diff (parent ↔ {currentNoun})
 					</div>
 					<div class="h-[calc(100%-28px)] border rounded-md overflow-clip">
 						{#await import('$lib/components/DiffEditor.svelte')}

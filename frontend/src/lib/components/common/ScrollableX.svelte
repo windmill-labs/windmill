@@ -4,7 +4,9 @@
 	// Subtle horizontal scroll: native overflow (so wheel/trackpad/drag always
 	// work) with the shared `.scrollbar-subtle` thumb (thin, hover-revealed). Bar
 	// thickness is tunable via the `--wm-scrollbar-size` CSS var (pass through
-	// `style`), so denser callers (e.g. the tab strip) can shrink it.
+	// `style`) — WebKit only, so Firefox spends its own ~11px of the box on the
+	// bar whatever this says. Not for a height-constrained row: draw the thumb
+	// yourself there, the way the tab strip does.
 	let {
 		class: c = '',
 		style = '',

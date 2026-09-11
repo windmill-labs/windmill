@@ -173,7 +173,6 @@
 				{#if isFlow}
 					<FlowExecutionStatus
 						{job}
-						workspaceId={job?.workspace_id}
 						{isOwner}
 						innerModules={job?.flow_status?.modules}
 						{suspendStatus}

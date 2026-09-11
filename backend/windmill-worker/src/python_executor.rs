@@ -37,8 +37,9 @@ use windmill_common::{
     scripts::ScriptLang,
     utils::calculate_hash,
     worker::{
-        copy_dir_recursively, is_allowed_file_location, pad_string, split_python_requirements,
-        write_file, Connection, PyVAlias, PythonAnnotations, WORKER_CONFIG,
+        copy_dir_recursively, is_allowed_file_location, lockfile_line_has_continuation, pad_string,
+        requirement_from_lockfile_line, split_python_requirements, write_file, Connection,
+        PyVAlias, PythonAnnotations, WORKER_CONFIG,
     },
 };
 
@@ -62,19 +63,7 @@ lazy_static::lazy_static! {
     static ref PY_CONCURRENT_DOWNLOADS: usize =
     var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
 
-    // uv's HTTP request timeout (seconds). spawn_uv_install uses env_clear(), so a
-    // UV_HTTP_TIMEOUT set on the worker is dropped unless forwarded explicitly.
-    // Only forwarded when set; otherwise uv keeps its own default. Lets operators
-    // raise it for slow/contended private registries ("operation timed out").
-    static ref UV_HTTP_TIMEOUT: Option<String> =
-    var("UV_HTTP_TIMEOUT").ok().filter(|v| !v.is_empty());
-
-
     static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
-
-    static ref TRUSTED_HOST: Option<String> = var("PY_TRUSTED_HOST").ok().or(var("PIP_TRUSTED_HOST").ok());
-    pub static ref INDEX_CERT: Option<String> = var("PY_INDEX_CERT").ok().or(var("PIP_INDEX_CERT").ok());
-    pub static ref NATIVE_CERT: bool = var("PY_NATIVE_CERT").ok().or(var("UV_NATIVE_TLS").ok()).map(|flag| flag == "true").unwrap_or(false);
 
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 
@@ -103,10 +92,10 @@ struct PiptarUploadTask {
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<PiptarUploadTask>) {
     use crate::global_cache::build_tar_and_push;
-    use windmill_object_store::get_object_store;
+    use windmill_object_store::get_cache_object_store;
 
     while let Some(task) = rx.recv().await {
-        if let Some(os) = get_object_store().await {
+        if let Some(os) = get_cache_object_store().await {
             match build_tar_and_push(os, task.venv_path.clone(), task.cache_dir, None, false).await
             {
                 Ok(()) => {
@@ -129,6 +118,12 @@ const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
+/// Every file exchanged with a job is UTF-8 by construction, so the interpreter
+/// must agree. A job env carries no locale: Linux then picks UTF-8 on its own
+/// (PEP 540), Windows picks the ANSI code page. Applied after the whitelisted
+/// envs so the protocol is not the user's to opt out of.
+pub const PYTHON_UTF8_ENVS: [(&str, &str); 1] = [("PYTHONUTF8", "1")];
+
 /// Render loader.py with the TEMP_SCRIPT_REFS placeholder substituted by a
 /// Python dict literal. Preview jobs pass a path -> temp-hash map so relative
 /// imports resolve from not-yet-deployed local content; deployed runs pass
@@ -150,7 +145,7 @@ pub fn has_relative_imports(content: &str) -> bool {
 use crate::global_cache::pull_from_tar;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-use windmill_object_store::OBJECT_STORE_SETTINGS;
+use windmill_object_store::get_cache_object_store;
 
 use crate::{
     common::{
@@ -163,9 +158,10 @@ use crate::{
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry_with_workspace_override,
     worker_utils::ping_job_status,
-    PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, NSJAIL_PY_RLIMIT_AS_MB, PATH_ENV,
-    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH,
-    TZ_ENV, UV_CACHE_DIR, UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR,
+    PyV, DISABLE_NUSER, HOME_ENV, INDEX_CERT, NATIVE_CERT, NSJAIL_AVAILABLE, NSJAIL_PATH,
+    NSJAIL_PY_RLIMIT_AS_MB, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS,
+    PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TRUSTED_HOST, TZ_ENV, UV_CACHE_DIR,
+    UV_EXCLUDE_NEWER, UV_HTTP_TIMEOUT, UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR,
 };
 use windmill_common::client::AuthedClient;
 
@@ -232,9 +228,9 @@ fn filter_pip_local_dependencies(lines: Vec<String>) -> (Vec<String>, Vec<String
 /// `(kept, ignored)`. A line is ignored when it is not a `#` comment and matches any of
 /// `compiled_deps`. Kept separate from config/regex loading so it can be unit-tested.
 fn filter_lines_by_deps(lines: Vec<String>, compiled_deps: &[Regex]) -> (Vec<String>, Vec<String>) {
-    let (ignored, kept): (Vec<String>, Vec<String>) = lines
-        .into_iter()
-        .partition(|s| !s.starts_with('#') && compiled_deps.iter().any(|dep| dep.is_match(s)));
+    let (ignored, kept): (Vec<String>, Vec<String>) = lines.into_iter().partition(|s| {
+        !s.trim_start().starts_with('#') && compiled_deps.iter().any(|dep| dep.is_match(s))
+    });
 
     (kept, ignored)
 }
@@ -328,6 +324,11 @@ pub async fn uv_pip_compile(
             "compile",
             "-q",
             "--no-header",
+            // The `#`-line filter applied to the output below only catches whole-line
+            // annotations, and uv's annotation style is configurable: `[pip]
+            // annotation-style = "line"` in the worker HOME's uv.toml emits them inline
+            // ("anyio==4.15.1  # via httpx"), which that filter keeps.
+            "--no-annotate",
             file,
             "--strip-extras",
             "-o",
@@ -829,7 +830,7 @@ pub async fn handle_python_job(
                 del pre_args[k]
         kwargs = inner_script.preprocessor(**pre_args)
         kwrags_json = res_to_json(kwargs, type(kwargs))
-        with open("args.json", 'w') as f:
+        with open("args.json", 'w', encoding="utf-8") as f:
             f.write(kwrags_json)"#
         )
     } else {
@@ -864,7 +865,7 @@ pub async fn handle_python_job(
         _pre_result = asyncio.run(_pre_result)
     kwargs = _pre_result if _pre_result is not None else {{}}
     _pre_json = json.dumps(kwargs, separators=(',', ':'), default=str)
-    with open("args.json", 'w') as f:
+    with open("args.json", 'w', encoding="utf-8") as f:
         f.write(_pre_json)
     sys.stdout.write("wm_res[preprocessed_args]:" + _pre_json + "\n")
     sys.stdout.flush()"#
@@ -885,11 +886,11 @@ import sys
 from {module_dir_dot} import {last} as inner_script
 from wmill.client import _run_workflow
 
-with open("args.json") as f:
+with open("args.json", encoding="utf-8") as f:
     kwargs = json.load(f, strict=False)
 {transforms}
 
-with open("checkpoint.json") as f:
+with open("checkpoint.json", encoding="utf-8") as f:
     checkpoint = json.load(f, strict=False)
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
@@ -915,12 +916,12 @@ try:
         print("")
         print("--- WAC: complete ---")
     output_json = json.dumps(output, separators=(',', ':'), default=str)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         f.write(output_json)
 except BaseException as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.format_tb(exc_traceback)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
         extra = e.__dict__
         if extra and len(extra) > 0:
@@ -947,7 +948,7 @@ import sys
 from {module_dir_dot} import {last} as inner_script
 import re
 
-with open("args.json") as f:
+with open("args.json", encoding="utf-8") as f:
     kwargs = json.load(f, strict=False)
 args = {{}}
 {transforms}
@@ -983,12 +984,12 @@ try:
             print("WM_STREAM: " + chunk.replace('\n', '\\n'))
         res = None
     res_json = res_to_json(res, typ)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         f.write(res_json)
 except BaseException as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.format_tb(exc_traceback)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
         extra = e.__dict__
         if extra and len(extra) > 0:
@@ -1128,6 +1129,7 @@ mount {{
                 )
                 .await?,
             )
+            .envs(PYTHON_UTF8_ENVS)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -1163,6 +1165,7 @@ mount {{
                 )
                 .await?,
             )
+            .envs(PYTHON_UTF8_ENVS)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -1234,6 +1237,7 @@ mount {{
             result,
             job,
             conn,
+            canceled_by,
             modules,
             new_args.as_ref(),
         ))
@@ -2451,7 +2455,7 @@ pub async fn handle_python_reqs(
         }
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if OBJECT_STORE_SETTINGS.read().await.is_none() {
+        if get_cache_object_store().await.is_none() {
             (s3_pull, s3_push) = (false, false);
         }
 
@@ -2522,11 +2526,23 @@ pub async fn handle_python_reqs(
     // Find out if there is already cached dependencies
     // If so, skip them
     let mut in_cache = vec![];
+    if requirements
+        .iter()
+        .any(|r| lockfile_line_has_continuation(r))
+    {
+        tracing::warn!(workspace_id = %w_id, job_id = %job_id, "lockfile continues entries across lines; the continued lines are dropped");
+        append_logs(
+            job_id,
+            w_id,
+            "\n[!] lockfile continues entries across lines and the continued lines are dropped: `--hash=` pins, extras and markers written that way do not apply\n".to_string(),
+            conn,
+        )
+        .await;
+    }
     for req in &requirements {
-        // Ignore python version annotation backed into lockfile
-        if req.starts_with('#') || req.starts_with('-') || req.trim().is_empty() {
+        let Some(req) = requirement_from_lockfile_line(req) else {
             continue;
-        }
+        };
         let py_prefix = &py_version.to_cache_dir(false);
 
         let venv_p = format!(
@@ -2909,7 +2925,7 @@ pub async fn handle_python_reqs(
 
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if is_not_pro {
-                if let Some(os) = windmill_object_store::get_object_store().await {
+                if let Some(os) = windmill_object_store::get_cache_object_store().await {
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(Error::from(anyhow::anyhow!("S3 pull was canceled"))),
@@ -3441,7 +3457,10 @@ pub async fn start_worker(
     )
     .await;
 
-    let mut proc_envs = HashMap::new();
+    let mut proc_envs: HashMap<String, String> = PYTHON_UTF8_ENVS
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
     proc_envs.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
     proc_envs.insert("PATH".to_string(), PATH_ENV.to_string());

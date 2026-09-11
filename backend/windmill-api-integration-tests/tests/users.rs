@@ -308,14 +308,17 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let auth_base = format!("http://localhost:{port}/api/auth");
 
     // --- login (will fail: password hash in fixture is fake) ---
+    // An unparseable stored hash must read as a failed login, not as a server error
+    // relaying the hash parser's message to an unauthenticated caller.
     let resp = client()
         .post(format!("{auth_base}/login"))
         .json(&json!({"email": "test@windmill.dev", "password": "wrong-password"}))
         .send()
         .await
         .unwrap();
-    assert!(
-        resp.status() == 400 || resp.status() == 401 || resp.status() == 500,
+    assert_eq!(
+        resp.status(),
+        400,
         "login: unexpected status {}",
         resp.status()
     );
@@ -508,6 +511,84 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
     let usernames = resp.json::<Vec<String>>().await?;
     assert!(!usernames.contains(&"test-user-3".to_string()));
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_list_addable_instance_users(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/users/list_addable");
+
+    // The three fixture accounts are all members of test-workspace already.
+    sqlx::query(
+        "INSERT INTO password(email, password_hash, login_type, verified, username, disabled) VALUES
+         ('addable@windmill.dev', 'x', 'password', true, 'addable-user', false),
+         ('with_underscore@windmill.dev', 'x', 'password', true, 'underscored', false),
+         ('gone@windmill.dev', 'x', 'password', true, 'gone-user', true)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO usr(workspace_id, email, username, is_admin, role, is_service_account)
+         VALUES ('test-workspace', 'sa@creator.test-workspace.sa.wm.dev', 'sa', false, 'User', true)"
+    )
+    .execute(&db)
+    .await?;
+
+    let emails = |query: &str| {
+        let url = format!("{base}?{query}");
+        async move {
+            let resp = authed(client().get(url)).send().await.unwrap();
+            assert_eq!(resp.status(), 200);
+            resp.json::<Vec<serde_json::Value>>()
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|u| u["email"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        }
+    };
+
+    // Members, disabled accounts and service accounts are all out; a service account has no
+    // `password` row at all, so it can never reach the picker.
+    assert_eq!(
+        emails("").await,
+        vec![
+            "addable@windmill.dev",
+            // seeded by the migrations, not a member of test-workspace
+            "admin@windmill.dev",
+            "with_underscore@windmill.dev"
+        ]
+    );
+
+    // The exclusions are part of the query, so the limit counts addable accounts only — a
+    // workspace whose members sort first must not swallow the whole page.
+    assert_eq!(emails("per_page=1").await, vec!["addable@windmill.dev"]);
+
+    // Search matches the instance username as well as the email.
+    assert_eq!(
+        emails("search=addable-user").await,
+        vec!["addable@windmill.dev"]
+    );
+
+    // Wildcards in the search are matched literally rather than expanded.
+    assert_eq!(
+        emails("search=_").await,
+        vec!["with_underscore@windmill.dev"]
+    );
+    assert!(emails("search=%25").await.is_empty());
+
+    // Listing instance-wide accounts is superadmin-only, workspace admin is not enough.
+    let resp = client()
+        .get(&base)
+        .header("Authorization", "Bearer SECRET_TOKEN_3")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
 
     Ok(())
 }
@@ -726,12 +807,16 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
     let server = ApiServer::start(db.clone()).await?;
     let global_base = format!("http://localhost:{}/api/users", server.addr.port());
 
-    sqlx::query!("UPDATE password SET email = 'group-ops@windmill.dev' WHERE email = 'test2@windmill.dev'")
-        .execute(&db)
-        .await?;
-    sqlx::query!("UPDATE usr SET email = 'group-ops@windmill.dev' WHERE email = 'test2@windmill.dev'")
-        .execute(&db)
-        .await?;
+    sqlx::query!(
+        "UPDATE password SET email = 'group-ops@windmill.dev' WHERE email = 'test2@windmill.dev'"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "UPDATE usr SET email = 'group-ops@windmill.dev' WHERE email = 'test2@windmill.dev'"
+    )
+    .execute(&db)
+    .await?;
     sqlx::query!(
         "INSERT INTO group_(workspace_id, name, summary, extra_perms) VALUES ('test-workspace', 'ops', '', '{}')"
     )
@@ -828,6 +913,82 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
             ),
         ],
         "a draft's pair moves as a whole or not at all — either half left behind is a 400 on deploy"
+    );
+
+    Ok(())
+}
+
+/// An address with no `password` row can own a draft, and the account paths carry the delete and
+/// rename that no foreign key does any more.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_drafts_follow_their_owner_without_a_fkey(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let global_base = format!("http://localhost:{port}/api/users");
+
+    // The destination of the rename below already holds a draft of the same item — it belongs to
+    // an accountless principal, so `change_email`'s "address is free" check does not see it.
+    sqlx::query!(
+        "INSERT INTO draft(workspace_id, path, typ, value, email) VALUES
+            ('test-workspace', 'u/ext/s', 'script', '{}'::json, 'ext-jwt@windmill.dev'),
+            ('test-workspace', 'u/two/s', 'script', '{\"summary\": \"moving\"}'::json, 'test2@windmill.dev'),
+            ('test-workspace', 'u/two/s', 'script', '{\"summary\": \"displaced\"}'::json, 'renamed@windmill.dev'),
+            ('test-workspace', 'u/three/s', 'script', '{}'::json, 'test3@windmill.dev')"
+    )
+    .execute(&db)
+    .await?;
+
+    // A null username is how the legacy workspace-level row is encoded, so an owner nobody can
+    // name must be absent from the owner circles rather than pose as one.
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/w/test-workspace/drafts/list?all_users=true"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    let listed = resp.json::<serde_json::Value>().await?;
+    let ext = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["path"] == "u/ext/s")
+        .expect("the accountless owner's draft is listed");
+    assert_eq!(ext.get("draft_users"), None);
+
+    let resp = authed(client().post(format!("{global_base}/change_email/test2@windmill.dev")))
+        .json(&json!({ "new_email": "renamed@windmill.dev" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "change_email: {}", resp.text().await?);
+    let moved = sqlx::query!(
+        "SELECT email, value->>'summary' AS summary FROM draft WHERE path = 'u/two/s'"
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        moved
+            .iter()
+            .map(|r| (r.email.as_deref(), r.summary.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![(Some("renamed@windmill.dev"), Some("moving"))],
+        "the moving account's draft wins the unique index it now collides on"
+    );
+
+    let resp = authed(client().delete(format!("{global_base}/delete/test3@windmill.dev")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "delete_user: {}", resp.text().await?);
+    let remaining = sqlx::query_scalar!("SELECT path FROM draft ORDER BY path")
+        .fetch_all(&db)
+        .await?;
+    assert_eq!(
+        remaining,
+        vec!["u/ext/s".to_string(), "u/two/s".to_string()],
+        "the deleted account's draft goes, the accountless owner's stays"
     );
 
     Ok(())

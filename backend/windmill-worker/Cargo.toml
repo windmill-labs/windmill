@@ -23,7 +23,7 @@ benchmark = ["windmill-queue/benchmark", "windmill-common/benchmark"]
 parquet = ["windmill-common/parquet", "windmill-object-store/parquet"]
 flow_testing = []
 failpoints = []
-cloud = []
+cloud = ["windmill-queue/cloud", "windmill-common/cloud"]
 sqlx = []
 deno_core = ["dep:windmill-runtime-nativets"]
 libffi_mac = ["dep:libffi-sys"]
@@ -114,6 +114,10 @@ rust_decimal.workspace = true
 jsonwebtoken.workspace = true
 sha2.workspace = true
 hmac.workspace = true
+# Reads the dbt engine's `target/index/*.parquet`, which is where column-level
+# lineage lives. Unconditional rather than behind the `parquet` FEATURE: that one
+# is object storage, and a build without it still runs dbt jobs.
+parquet.workspace = true
 pem = { workspace = true, optional = true }
 rsa = { workspace = true, optional = true }
 urlencoding.workspace = true
@@ -131,6 +135,7 @@ hex.workspace = true
 tiberius = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 tar.workspace = true
+flate2.workspace = true
 convert_case.workspace = true
 yaml-rust.workspace = true
 backon.workspace = true

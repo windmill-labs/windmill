@@ -9,6 +9,9 @@ use windmill_common::{
     db::UserDB,
     error::{Error, Result},
     trashbin::{self, TrashItem, TrashItemWithData},
+    trigger_history::{
+        self, TriggerHistoryEvent, TriggerOperation, TriggerSource, SCHEDULE_TRIGGER_KIND,
+    },
     utils::require_admin,
 };
 
@@ -87,6 +90,31 @@ async fn restore_trash_item(
     sqlx::query!("DELETE FROM trashbin WHERE id = $1", item.id)
         .execute(&mut *tx)
         .await?;
+
+    // A restore puts the trigger back, so the history has to say so: otherwise
+    // the last thing it records for a live trigger is its own deletion. The
+    // trashed row is the snapshot, so this needs no extra read.
+    let restored_trigger_kind = match item.item_kind.as_str() {
+        SCHEDULE_TRIGGER_KIND => Some(SCHEDULE_TRIGGER_KIND),
+        // `<type>_trigger` is what `delete_trigger` trashes it under, and the
+        // stem is the `TRIGGER_TYPE` the history records against.
+        kind => kind.strip_suffix("_trigger"),
+    };
+    if let Some(trigger_kind) = restored_trigger_kind {
+        trigger_history::record(
+            &mut *tx,
+            TriggerHistoryEvent {
+                workspace_id: &w_id,
+                trigger_kind,
+                path: &item.item_path,
+                operation: TriggerOperation::Create,
+                source: TriggerSource::of_request(authed.is_session_token),
+                username: Some(&authed.username),
+                changes: trigger_history::summarize_changes(None, item.item_data.get("row")),
+            },
+        )
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

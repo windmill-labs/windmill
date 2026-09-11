@@ -8,6 +8,38 @@ pub mod other;
 
 use std::time::{Duration, Instant};
 
+/// The effort token the chat and agent surfaces send to turn reasoning off.
+/// It is not a provider-native level — each provider translates it to its own
+/// disable (Anthropic and Bedrock to `thinking: {type: "disabled"}`, DeepSeek to
+/// its `thinking` param, Gemini to a zero budget or the model's floor).
+pub(crate) const REASONING_OFF_SENTINEL: &str = "none";
+
+/// Whether a Claude model removed the sampling params (`temperature`, `top_p`,
+/// `top_k`). On these, any value is a hard 400 — `temperature is deprecated for
+/// this model` — whatever the thinking mode, so the param has to be dropped on
+/// the reasoning-off and no-reasoning paths too, not only under adaptive
+/// thinking.
+///
+/// Probed against the Messages API: `claude-opus-5`, `claude-sonnet-5` and
+/// `claude-opus-4-8` reject them; `claude-sonnet-4-6` still accepts them. Opus
+/// 4.7, Fable and Mythos are included from Anthropic's migration guide, which
+/// documents the same removal, rather than from a probe.
+///
+/// Matching is on the model name, so a Bedrock *application* inference profile —
+/// whose id is opaque (`k1c3lwu20lem`) rather than derived from the model —
+/// cannot be classified and keeps its sampling params. Resolving the backing
+/// model would need a per-request AWS lookup; `bedrock_model_supports_prompt_caching`
+/// degrades on the same ids for the same reason.
+pub(crate) fn anthropic_model_rejects_sampling_params(model: &str) -> bool {
+    let model = model.to_lowercase().replace('.', "-");
+    model.contains("claude-opus-4-7")
+        || model.contains("claude-opus-4-8")
+        || model.contains("claude-opus-5")
+        || model.contains("claude-sonnet-5")
+        || model.contains("claude-fable")
+        || model.contains("claude-mythos")
+}
+
 use windmill_common::cache::Cache;
 
 use crate::{

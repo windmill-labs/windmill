@@ -21,7 +21,6 @@ use windmill_audit::ActionKind;
 use windmill_common::worker::CLOUD_HOSTED;
 
 use windmill_common::{
-    auth::is_super_admin_email,
     db::UserDB,
     error::{Error, Result},
     utils::require_admin,
@@ -43,19 +42,25 @@ pub(crate) async fn change_workspace_id(
     Extension(db): Extension<DB>,
     Json(rw): Json<ChangeWorkspaceId>,
 ) -> Result<String> {
-    if *CLOUD_HOSTED && !is_super_admin_email(&db, &authed.email).await? {
+    if *CLOUD_HOSTED && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         return Err(Error::BadRequest(
             "This feature is not available on the cloud".to_string(),
         ));
     }
 
     if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
-        require_super_admin(&db, &authed.email).await?;
+        require_super_admin(&db, &authed).await?;
     } else {
         require_admin(authed.is_admin, &authed.username)?;
     }
 
     let mut tx = db.begin().await?;
+
+    // A rename rewrites the workspace's dev flag and reparents its children, so it decides on the
+    // same state the pairing handlers do: without this lock a concurrent create/attach could commit
+    // an active dev workspace under the shell this rename is about to archive. Both ids, since the
+    // rename moves the chain from one to the other.
+    crate::workspaces::lock_dev_pairing(&mut tx, &[&old_id, &rw.new_id]).await?;
 
     check_w_id_conflict(&mut tx, &rw.new_id).await?;
 
@@ -108,7 +113,7 @@ pub(crate) async fn change_workspace_id(
     // Duplicate workspace settings (keep copy in old workspace for reference)
     info!("Duplicating workspace_settings table");
     sqlx::query!(
-        "INSERT INTO workspace_settings (workspace_id, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, ducklake, dbt_warehouses, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts) SELECT $1, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, ducklake, dbt_warehouses, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts FROM workspace_settings WHERE workspace_id = $2",
+        "INSERT INTO workspace_settings (workspace_id, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, git_credentials, ducklake, dbt_warehouses, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts, guest_access_enabled, guest_jwt_public_key, guest_jwt_jwks_url) SELECT $1, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, git_credentials, ducklake, dbt_warehouses, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts, guest_access_enabled, guest_jwt_public_key, guest_jwt_jwks_url FROM workspace_settings WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -181,6 +186,13 @@ pub(crate) async fn change_workspace_id(
     )
     .execute(&mut *tx)
     .await?;
+
+    info!("Updating guest_activity table");
+    sqlx::query("UPDATE guest_activity SET workspace_id = $1 WHERE workspace_id = $2")
+        .bind(&rw.new_id)
+        .bind(&old_id)
+        .execute(&mut *tx)
+        .await?;
 
     info!("Updating workspace_invite table");
     sqlx::query!(
@@ -923,7 +935,7 @@ pub(crate) async fn delete_workspace(
 
     let mut tx = db.begin().await?;
     if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?)
-        && !is_super_admin_email(&db, &authed.email).await?
+        && !windmill_api_auth::is_super_admin_authed(&db, &authed).await?
     {
         return Err(Error::PermissionDenied(
             "Deleting this workspace requires being the fork's owner or a superadmin".to_string(),
@@ -1106,6 +1118,13 @@ pub(crate) async fn delete_workspace(
     )
     .execute(&mut *tx)
     .await?;
+
+    // Unlike the rest of this list, this also moves an instance-wide figure: the guest
+    // allowance and the seats past it are counted over every workspace's rows.
+    sqlx::query("DELETE FROM guest_activity WHERE workspace_id = $1")
+        .bind(&w_id)
+        .execute(&mut *tx)
+        .await?;
 
     sqlx::query!("DELETE FROM token WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
@@ -1291,7 +1310,7 @@ pub async fn drop_forked_datatable_databases(
     let is_fork = workspace_is_fork(&db, &w_id).await?;
     let mut tx = db.begin().await?;
     if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?)
-        && !is_super_admin_email(&db, &authed.email).await?
+        && !windmill_api_auth::is_super_admin_authed(&db, &authed).await?
     {
         return Err(Error::PermissionDenied(
             "Dropping forked datatable databases requires being the fork's owner or a superadmin"
@@ -1448,7 +1467,7 @@ pub async fn drop_forked_ducklake_namespaces(
     let is_fork = workspace_is_fork(&db, &w_id).await?;
     let mut tx = db.begin().await?;
     if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?)
-        && !is_super_admin_email(&db, &authed.email).await?
+        && !windmill_api_auth::is_super_admin_authed(&db, &authed).await?
     {
         return Err(Error::PermissionDenied(
             "Dropping forked ducklake namespaces requires being the fork's owner or a superadmin"
@@ -1953,7 +1972,7 @@ async fn require_prod_admin_for_dev_workspace(
         .fetch_optional(db)
         .await?
         .unwrap_or(false);
-        if !is_prod_admin && !is_super_admin_email(db, &authed.email).await? {
+        if !is_prod_admin && !windmill_api_auth::is_super_admin_authed(db, &authed).await? {
             return Err(Error::PermissionDenied(format!(
                 "Destroying dev workspace '{w_id}' or its data requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
             )));

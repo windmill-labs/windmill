@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { workspaceStore, userStore } from '$lib/stores'
+	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import { base } from '$lib/base'
 	import { page } from '$app/state'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -32,9 +33,13 @@
 	import MacroExplorerDrawer from '$lib/components/assets/AssetGraph/MacroExplorerDrawer.svelte'
 	import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 	import {
+		assetColumnNodes,
 		buildColumnGraph,
-		type ColumnLineageGraph
+		connectedComponent,
+		EMPTY_COLUMN_GRAPH,
+		mergeColumnGraphs
 	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
+	import { useDbtColumnLineage } from '$lib/components/assets/AssetGraph/dbtColumnLineage.svelte'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
 	import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 	import { hideDbtRunnables } from '$lib/components/assets/AssetGraph/hideDbtRunnables'
@@ -255,7 +260,7 @@
 
 	// Draft autosave (the data_pipeline DraftService bundle) lives inside
 	// PipelineGraphEditor now; the route just supplies its path to the indicator.
-	let pipelineDraftPath = $derived(`f/${folder}/data_pipeline`)
+	let pipelineDraftPath = $derived(pipelineBundlePath(folder))
 
 	// The live editor overlays (annotations / body assets / content for the open
 	// script) now live in `pe`. The canonical "empty" literals stay here — they
@@ -463,6 +468,10 @@
 			lines.push('No output asset is expected.')
 		}
 		const instructions = lines.join('\n')
+		// Still the docked chat, which AI Sessions leaves unmounted — sendRequest
+		// refuses rather than running the turn off-screen. Handing this off to a
+		// session needs the just-staged draft flushed to its DB bundle first (the
+		// preview hydrates from there), and PipelineGraphEditor exposes no flush.
 		aiChatManager.openChat()
 		aiChatManager.sendRequest({ instructions })
 	}
@@ -1415,12 +1424,12 @@
 	// other's storage writes.
 	let cascadeRunningRoot = $state<string | undefined>(undefined)
 
-	// Recorder: when armed, the next cascade run captures the resolved graph, the
-	// per-node status timeline and each node's job stream into a downloadable
-	// recording that the /pipeline_replay player can rerun offline (parity with the
-	// flow/script recorders). Job capture (`watchJob`) and status capture
-	// (`recordStatuses`) no-op unless the store is active, so the cascade run
-	// paths call them unconditionally.
+	// Recorder: when armed, the next cascade run captures the resolved graph and
+	// the per-node status timeline into a downloadable recording that the
+	// /pipeline_replay player can rerun offline (parity with the flow/script
+	// recorders); each node's completed job is fetched when the run finalizes.
+	// Status capture (`recordStatuses`) no-ops unless the store is active, so
+	// the cascade run paths call it unconditionally.
 	let pipelineRecording = createPipelineRecording()
 	let recordingMode = $state(false)
 	let lastPipelineRecording = $state<PipelineRecording | undefined>(undefined)
@@ -1790,8 +1799,6 @@
 				launch: async (path) => {
 					const jobId = await launchCascadeScript(path)
 					activeRunnables.arm(`script:${path}`)
-					// No-op unless a recording is active; captures the node's stream.
-					if ($workspaceStore) pipelineRecording.watchJob(jobId, $workspaceStore)
 					if (firstJobId === undefined) {
 						firstJobId = jobId
 						runsPendingJobId = jobId
@@ -1977,26 +1984,59 @@
 			?.dbt
 	})
 
-	// Empty graph reused when the trace isn't shown (no ducklake-asset selection,
-	// or a draft is actively edited) so the pane blanks out like the other
-	// selection overlays and `buildColumnGraph` doesn't run.
-	const EMPTY_COLUMN_GRAPH: ColumnLineageGraph = {
-		nodes: new Map(),
-		up: new Map(),
-		down: new Map()
-	}
 	// Pipeline-wide column-lineage graph, stitched across every producer's
 	// (inferred + annotated) `column_lineage` and the asset write-edges. Drives
 	// the transitive column trace in the details pane. Built from `displayGraph`
 	// — the exact graph the canvas renders — so the trace matches it: draft
-	// overlays in edit / show-drafts, deployed-only in plain View. Gated to a
-	// ducklake-asset selection so it isn't rebuilt on every editor keystroke when
-	// the trace UI isn't even shown.
-	let columnGraph = $derived(
-		pe.selection?.kind === 'asset' && pe.selection.asset_kind === 'ducklake'
+	// overlays in edit / show-drafts, deployed-only in plain View. Gated to the
+	// two asset kinds that can carry column lineage so it isn't rebuilt on every
+	// editor keystroke when the trace UI isn't even shown.
+	let producerColumnGraph = $derived(
+		pe.selection?.kind === 'asset' &&
+			(pe.selection.asset_kind === 'ducklake' || pe.selection.asset_kind === 'dbt')
 			? buildColumnGraph(displayGraph)
 			: EMPTY_COLUMN_GRAPH
 	)
+	// dbt's half comes from its own request instead: a project's static analysis
+	// is stored per relation and only exists if the descriptor asked for it, so
+	// the folder-wide graph does not carry it. A draft is never asked about —
+	// nothing has parsed it, so there is nothing to fetch.
+	//
+	// The relations to ask about are the selected one when it IS a dbt relation,
+	// and otherwise every dbt relation a producer feeding this selection names as
+	// a source — the boundary nodes above. Asking at all of them at once is what
+	// lets a ducklake selection trace back up the dbt projects that fed it, and
+	// why one selection is one request however many boundaries it crosses.
+	let dbtSeedPaths = $derived.by(() => {
+		const sel = pe.selection
+		if (pe.activeDraft || sel?.kind !== 'asset') return []
+		if (sel.asset_kind === 'dbt') return [sel.path]
+		const seeds = assetColumnNodes(producerColumnGraph, sel.asset_kind, sel.path)
+		const paths = new Set<string>()
+		for (const id of connectedComponent(seeds, producerColumnGraph)) {
+			const node = producerColumnGraph.nodes.get(id)
+			if (node?.kind === 'dbt') paths.add(node.path)
+		}
+		return [...paths]
+	})
+	// Which fetch of the folder graph is on screen. `graphRes.current` is a new
+	// object per fetch, so this moves on a Refresh, a deploy and a folder switch
+	// — and on nothing else, which is what keeps a keystroke in the editor from
+	// re-asking. Without it a redeploy would leave the pane pairing the new
+	// version's SQL and columns with the old version's edges, since the relation,
+	// the pin and the seeds are all unchanged by one.
+	let graphGeneration = $state(0)
+	$effect(() => {
+		if (graphRes.current) untrack(() => graphGeneration++)
+	})
+	const dbtColumnLineage = useDbtColumnLineage({
+		workspace: () => $workspaceStore,
+		assetPaths: () => dbtSeedPaths,
+		generation: () => graphGeneration
+	})
+	// One graph across both, so a trace crosses the dbt/ducklake boundary in
+	// either direction rather than stopping at it.
+	let columnGraph = $derived(mergeColumnGraphs(producerColumnGraph, dbtColumnLineage.graph))
 
 	// Producer-side facts for the editor's live schema-contract diagnostics:
 	// which assets are muted (`on_schema_change=ignore`) and which `_current`
@@ -2500,7 +2540,7 @@
 				{#if $workspaceStore}
 					<AutosaveIndicator
 						workspace={$workspaceStore}
-						itemKind="data_pipeline"
+						itemKind={PIPELINE_DRAFT_KIND}
 						path={pipelineDraftPath}
 						draftOnly
 						loadedFromDraft={pe.loadedFromDbDraft}
@@ -2599,6 +2639,9 @@
 				{selectionProducers}
 				{selectionDbt}
 				selectionColumnGraph={pe.activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
+				selectionColumnLoading={dbtColumnLineage.loading}
+				selectionColumnTruncated={dbtColumnLineage.truncated}
+				selectionColumnFailed={dbtColumnLineage.failed}
 				{schemaCanEvolve}
 				{selectionForkMaterialization}
 				{schemaContractContext}

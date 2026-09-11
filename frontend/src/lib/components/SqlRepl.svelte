@@ -28,13 +28,16 @@
 		/** Workspace the REPL queries and DDL migrations run against; defaults to
 		 * the nav workspace. */
 		workspace?: string | undefined
+		/** Worker tag the queries run on instead of the language's native one. */
+		tag?: string | undefined
 	}
 	let {
 		input,
 		onData,
 		placeholderTableName,
 		onSchemaChange,
-		workspace = undefined
+		workspace = undefined,
+		tag = undefined
 	}: Props = $props()
 	let ws = $derived(workspace ?? $workspaceStore)
 	let dbType = $derived(getDbType(input))
@@ -121,7 +124,8 @@
 					requestBody: {
 						language: getLanguageByResourceType(dbType),
 						content: transformedCode,
-						args: dbArg
+						args: dbArg,
+						tag
 					}
 				},
 				// The user types arbitrary SQL here, so treat every run as a write.

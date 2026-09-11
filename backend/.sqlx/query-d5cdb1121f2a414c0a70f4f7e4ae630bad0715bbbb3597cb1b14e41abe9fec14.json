@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_experiment_case SET status = $2, answered = false\n         WHERE experiment_id = $1 AND job_id IS NULL AND status IS NULL\n         RETURNING ordinal",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ordinal",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d5cdb1121f2a414c0a70f4f7e4ae630bad0715bbbb3597cb1b14e41abe9fec14"
+}

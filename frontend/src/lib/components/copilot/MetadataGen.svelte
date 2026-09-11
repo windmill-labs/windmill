@@ -12,7 +12,7 @@
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
-	import { getToolNameError } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
+	import { getToolNameError } from '$lib/components/flows/agentToolUtils'
 	import {
 		inputBaseClass,
 		inputBorderClass,

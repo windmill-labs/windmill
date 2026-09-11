@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT email, scopes, workspace_id, super_admin, owner FROM token WHERE token_hash = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "scopes",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "super_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "owner",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "676405f5ba49c1c711646bd0882fb888d53c5e4aa53bfc43ca296863bc61813f"
+}

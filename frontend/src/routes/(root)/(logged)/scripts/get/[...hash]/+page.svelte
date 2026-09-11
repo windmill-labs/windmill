@@ -91,7 +91,12 @@
 	import TriggersEditor from '$lib/components/triggers/TriggersEditor.svelte'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 	import { page } from '$app/state'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import {
+		buildForkEditUrl,
+		editInForkAllowed,
+		editInForkLabel,
+		onEditInForkClick
+	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
@@ -383,7 +388,7 @@
 				if (!held || !current || block?.label !== 'retry' || block['dbt_retry_job']) return
 				args = { ...current, command: { ...block, dbt_retry_job: held } }
 				if (jsonView) {
-					runForm?.setCode(JSON.stringify(args, null, '\t'))
+					runForm?.syncJsonEditor()
 				}
 			})
 			.catch(() => {})
@@ -425,7 +430,7 @@
 			}
 		}
 		if (jsonView) {
-			runForm?.setCode(JSON.stringify(args, null, '\t'))
+			runForm?.syncJsonEditor()
 		}
 	}
 
@@ -465,9 +470,11 @@
 				label: editInForkLabel($workspaceStore, $userWorkspaces),
 				buttonProps: {
 					href: buildForkEditUrl('script', script.path),
+					onClick: (e: Event | undefined) =>
+						onEditInForkClick(e, 'script', script.path, { hasHref: true }),
 					unifiedSize: 'md',
 					variant: !showEditButtons ? 'default' : 'subtle',
-					startIcon: GitFork
+					startIcon: Pen
 				}
 			})
 		}
@@ -927,9 +934,6 @@
 												rightTooltip: 'Fill args from JSON'
 											}}
 											lightMode
-											on:change={(e) => {
-												runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-											}}
 										/>
 									{/if}
 								</div>
@@ -963,6 +967,7 @@
 										goto(`/scripts/edit/${script?.path}?metadata_open=true`)
 									}}
 									runnableType="script"
+									path={script?.path}
 								/>
 							{/if}
 
@@ -1043,7 +1048,7 @@
 						const nargs = JSON.parse(JSON.stringify(e.detail))
 						args = nargs
 						if (jsonView) {
-							runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+							runForm?.syncJsonEditor()
 						}
 					}}
 				/>

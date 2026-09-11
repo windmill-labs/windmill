@@ -88,6 +88,8 @@ pub struct OAuthConfig {
     #[serde(default = "empty_string")]
     pub token_url: String,
     pub userinfo_url: Option<String>,
+    /// The registry JSON may also carry `scope_options`, a frontend-only pick
+    /// list for the connect dialog; it is deliberately not modelled here.
     pub scopes: Option<Vec<String>>,
     /// Default scopes for the client-credentials (2-legged) flow. These differ
     /// from the authorization-code `scopes` for most providers (member/consent
@@ -1177,6 +1179,18 @@ mod tests {
     fn test_slack_verifier() {
         let verifier = SlackVerifier::new("test_secret").unwrap();
         assert!(verifier.verify("123", "body", "wrong_sig").is_err());
+    }
+
+    // Sage Intacct's token endpoint rejects HTTP Basic client authentication on the
+    // refresh_token grant (`invalid_client`), so its credentials must go in the form body.
+    #[test]
+    fn sage_intacct_registry_entry_uses_request_body_client_auth() {
+        let registry: HashMap<String, OAuthConfig> =
+            serde_json::from_str(include_str!("../../oauth_connect.json")).unwrap();
+        assert_eq!(
+            registry.get("sage_intacct").unwrap().req_body_auth,
+            Some(true)
+        );
     }
 
     #[test]

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace SET parent_workspace_id = $1, is_dev_workspace = true WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "84cbf9623a989dc16be1f8681c95eed9ae3e8d9c1552f396b6773767087bcfec"
+}

@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// Whether `label` denotes a user-created token rather than a system token
-/// (`session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`). System-token
+/// (`session`, `guest_session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`). System-token
 /// labels are load-bearing — session cleanup, super_admin propagation, expiry
 /// notifications and username overrides all key off them — so they must not be
 /// user-editable. `None` (no label) is treated as a user token.
@@ -36,6 +36,7 @@ pub fn is_user_token(label: Option<&str>) -> bool {
             // frontend mirror (`label.toLowerCase().startsWith('ephemeral')`) and
             // the SQL `lower(label) NOT LIKE 'ephemeral%'` guard.
             l != "session"
+                && l != GUEST_SESSION_LABEL
                 && !l.to_lowercase().starts_with("ephemeral")
                 && l != "debugger-token"
                 && !l.starts_with("mcp-oauth-")
@@ -56,7 +57,38 @@ pub fn is_server_minted_label(label: &str) -> bool {
         || label.starts_with("ephemeral-script-end-user-")
         || label == "ephemeral-script"
         || label == "session"
+        || label == GUEST_SESSION_LABEL
         || label.starts_with("mcp-oauth-")
+}
+
+/// Label on a guest session (the `guest` app execution mode). This is the *grant*:
+/// `AuthCache` will resolve a token carrying it into an identity with no account behind
+/// it, which nothing else can do. It must therefore stay unforgeable, which is what
+/// listing it in [`is_server_minted_label`] buys — `/users/tokens/create` refuses it.
+///
+/// Do not move this test onto the token's scopes. Scopes on a user-minted token are
+/// caller-supplied and only ever *narrow* (`app_embed`, `raw_app_sdk`), so a scope
+/// that granted non-member access would be free for anyone to declare.
+pub const GUEST_SESSION_LABEL: &str = "guest_session";
+
+/// Whether `label` marks a guest session. See [`GUEST_SESSION_LABEL`].
+///
+/// Reserved in [`is_user_token`] as well as [`is_server_minted_label`]: the former
+/// gates relabelling, and a user token that could be relabelled *into* this
+/// namespace would become a guest session with no workspace pin — one that
+/// authenticates everywhere.
+pub fn is_guest_session_label(label: Option<&str>) -> bool {
+    label == Some(GUEST_SESSION_LABEL)
+}
+
+/// Whether `path` can be spliced into a scope as one literal resource. The scope
+/// grammar reserves three characters: `:` separates the parts, `,` separates
+/// resources, `*` is a wildcard. App paths are otherwise free-form (spaces, `@`). A
+/// leading `/` is refused too: routes strip it, so the scope would never match.
+pub fn is_scope_literal_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.chars().any(|c| matches!(c, ':' | ',' | '*'))
 }
 
 /// Whether `label` is the one minted for a browser session at login. [`is_server_minted_label`]
@@ -325,6 +357,49 @@ pub async fn is_super_admin_email<'c>(db: impl sqlx::PgExecutor<'c>, email: &str
     Ok(is_admin)
 }
 
+/// The three reserved internal identities that grant instance-superadmin at
+/// execution: `superadmin_secret@` / `superadmin_notification@` (matched on the
+/// email) and `superadmin_sync@` (matched on `permissioned_as`). They belong to
+/// no real user, so a stored `on_behalf_of` (app policy, flow/script,
+/// schedule, trigger) must never carry one as either field — it would be a
+/// forged superadmin run identity. Mirror of the `is_super_admin` derivation in
+/// [`fetch_authed_from_permissioned_as_inner`].
+pub fn is_reserved_on_behalf_of_identity(
+    permissioned_as: Option<&str>,
+    on_behalf_of_email: Option<&str>,
+) -> bool {
+    const RESERVED: [&str; 3] = [
+        SUPERADMIN_SECRET_EMAIL,
+        SUPERADMIN_NOTIFICATION_EMAIL,
+        SUPERADMIN_SYNC_EMAIL,
+    ];
+    [permissioned_as, on_behalf_of_email]
+        .into_iter()
+        .flatten()
+        .any(|v| RESERVED.contains(&v))
+}
+
+/// Guard a caller-supplied `on_behalf_of` before it is persisted on a deployable
+/// object (app policy, flow/script, schedule, trigger): reject the reserved
+/// internal sentinels, which no legitimate deploy ever carries. The actual
+/// escalation is closed at execution by the job-token cap in
+/// [`require_super_admin`] — even a superadmin `on_behalf_of` yields a token
+/// capped at workspace admin — so this is a cheap, non-breaking early guard, not
+/// the primary defense. It deliberately does *not* restrict deploying on behalf
+/// of a real user (including a real superadmin, e.g. git-sync of
+/// superadmin-authored content), which is the intended `wm_deployers` capability.
+pub fn validate_on_behalf_of(
+    permissioned_as: Option<&str>,
+    on_behalf_of_email: Option<&str>,
+) -> Result<()> {
+    if is_reserved_on_behalf_of_identity(permissioned_as, on_behalf_of_email) {
+        return Err(Error::BadRequest(
+            "on_behalf_of cannot be a reserved internal identity".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn is_devops_email(db: &DB, email: &str) -> Result<bool> {
     if is_super_admin_email(db, email).await? {
         return Ok(true);
@@ -573,6 +648,46 @@ pub fn ephemeral_script_token_label(permissioned_as: &str, created_by: &str) -> 
     }
 }
 
+/// Lifetime to mint an ephemeral job token with, resolved per workspace: a token narrower than
+/// the run it serves 401s the job mid-flight, and one wider is a credential nothing revokes.
+pub async fn job_token_expiry_secs(_db: &DB, _w_id: &str) -> u64 {
+    if let Some(override_secs) = *crate::worker::SCRIPT_TOKEN_EXPIRY_OVERRIDE {
+        return override_secs;
+    }
+    #[cfg(feature = "cloud")]
+    let premium = *crate::worker::CLOUD_HOSTED
+        && crate::workspaces::get_team_plan_status(_db, _w_id)
+            .await
+            .inspect_err(|err| {
+                tracing::error!(
+                    "Failed to get team plan status to size the job token for {_w_id}: {err:#}"
+                )
+            })
+            .map(|s| s.premium)
+            // Matches resolve_job_timeout: on a lookup failure assume the wider ceiling, so the
+            // token cannot come out shorter than the timeout the job is actually held to.
+            .unwrap_or(true);
+    #[cfg(not(feature = "cloud"))]
+    let premium = false;
+
+    job_token_expiry_from_premium(premium)
+}
+
+/// Cap on the setup slack below. Where the ceiling is already days, slack buys nothing and only
+/// widens the credential; an hour is what a dependency install realistically needs.
+const JOB_TOKEN_SETUP_SLACK_CAP_SECS: u64 = 3600;
+
+fn job_token_expiry_from_premium(cloud_premium_workspace: bool) -> u64 {
+    // The token's clock starts at pull, but resolve_job_timeout runs per handle_child, so setup
+    // (lock, install, bundle) spends a budget of its own before the run phase gets one. Slack
+    // covers the realistic case; pull-to-finish is not bounded by the ceiling at all.
+    let max_run = crate::worker::max_job_duration_secs(cloud_premium_workspace);
+    max_run
+        .saturating_add(max_run.min(JOB_TOKEN_SETUP_SLACK_CAP_SECS))
+        // create_jwt_token casts this to i64; a saturated value there mints an expired token.
+        .min(u32::MAX as u64)
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_token_for_owner(
     db: &DB,
@@ -755,8 +870,13 @@ pub mod aws {
 
 #[cfg(test)]
 mod tests {
-    use super::is_user_token;
-    use super::{job_token_remaining_lifetime_secs, JWTAuthClaims, JOB_TOKEN_REFRESH_MARGIN_SECS};
+    use super::{is_reserved_on_behalf_of_identity, is_user_token};
+    use super::{job_token_expiry_from_premium, job_token_remaining_lifetime_secs};
+    use super::{JWTAuthClaims, JOB_TOKEN_REFRESH_MARGIN_SECS};
+    use crate::users::{
+        SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL,
+    };
+    use crate::worker::max_job_duration_secs;
 
     fn job_jwt(exp_offset_secs: i64) -> String {
         let claims = JWTAuthClaims {
@@ -798,6 +918,36 @@ mod tests {
     }
 
     #[test]
+    fn reserved_on_behalf_of_identity_matches_every_sentinel_in_either_field() {
+        // Matched on the email (secret / notification) or on permissioned_as (sync).
+        assert!(is_reserved_on_behalf_of_identity(
+            None,
+            Some(SUPERADMIN_SECRET_EMAIL)
+        ));
+        assert!(is_reserved_on_behalf_of_identity(
+            None,
+            Some(SUPERADMIN_NOTIFICATION_EMAIL)
+        ));
+        assert!(is_reserved_on_behalf_of_identity(
+            Some(SUPERADMIN_SYNC_EMAIL),
+            None
+        ));
+        // A sentinel smuggled as a raw-email permissioned_as (schedules/triggers
+        // derive the email from it) is caught too.
+        assert!(is_reserved_on_behalf_of_identity(
+            Some(SUPERADMIN_SECRET_EMAIL),
+            None
+        ));
+        // Ordinary identities pass.
+        assert!(!is_reserved_on_behalf_of_identity(None, None));
+        assert!(!is_reserved_on_behalf_of_identity(
+            Some("u/alice"),
+            Some("alice@example.com")
+        ));
+        assert!(!is_reserved_on_behalf_of_identity(Some("g/team"), None));
+    }
+
+    #[test]
     fn user_tokens_are_editable() {
         assert!(is_user_token(None)); // no label
         assert!(is_user_token(Some("")));
@@ -822,5 +972,15 @@ mod tests {
         assert!(!is_user_token(Some("Ephemeral-test")));
         assert!(!is_user_token(Some("ePhemeral-test")));
         assert!(!is_user_token(Some("EPHEMERAL-test")));
+    }
+
+    #[test]
+    fn job_token_outlives_the_longest_job_it_may_serve() {
+        for premium in [false, true] {
+            assert!(
+                job_token_expiry_from_premium(premium) > max_job_duration_secs(premium),
+                "token expiry must exceed the job ceiling (premium: {premium})"
+            );
+        }
     }
 }

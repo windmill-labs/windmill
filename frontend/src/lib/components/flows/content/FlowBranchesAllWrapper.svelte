@@ -1,20 +1,26 @@
 <script lang="ts">
-	import { Alert, Badge, Tab } from '$lib/components/common'
-	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
+	import { Badge, Tab, Tabs } from '$lib/components/common'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { GripVertical, Plus, Trash2 } from 'lucide-svelte'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from '../types'
+	import {
+		addBranch as addBranchOp,
+		removeBranch as removeBranchOp,
+		reorderBranches as reorderBranchesOp,
+		graphBranchIndex
+	} from '../branchOps'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
+	import { randomUUID } from '$lib/utils/uuid'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import StepSettingsBadges from './StepSettingsBadges.svelte'
+	import { tick, untrack } from 'svelte'
 
 	import type { BranchAll, FlowModule } from '$lib/gen'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import SplitPanesWrapper from '../../splitPanes/SplitPanesWrapper.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
-	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
-	import FlowModuleSleep from './FlowModuleSleep.svelte'
-	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
-	import FlowModuleMock from './FlowModuleMock.svelte'
-	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
-	import { enterpriseLicense } from '$lib/stores'
-	import FlowModuleSkip from './FlowModuleSkip.svelte'
-	import TabsV2 from '$lib/components/common/tabs/TabsV2.svelte'
+	import FlowRunSettings from './FlowRunSettings.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 
 	interface Props {
@@ -31,110 +37,193 @@
 		value = flowModule.value as BranchAll
 	})
 
-	let selected = $state('early-stop')
+	// dnd needs a stable id per item; branches have none and must not gain one (it would
+	// land in the saved flow), so ids are held beside them, keyed by object identity.
+	const branchIds = new WeakMap<object, string>()
+	function idFor(branch: object): string {
+		let id = branchIds.get(branch)
+		if (!id) {
+			id = randomUUID()
+			branchIds.set(branch, id)
+		}
+		return id
+	}
+
+	let items = $state(value.branches.map((b) => ({ id: idFor(b), branch: b })))
+	// dnd owns `items` for the length of a gesture: mid-drag it holds a shadow placeholder
+	// alongside the real entries, so rebuilding from `value.branches` there would splice a
+	// second copy of the dragged branch into the list (duplicate keys).
+	let dragging = false
+
+	$effect(() => {
+		const next = value.branches.map((b) => ({ id: idFor(b), branch: b }))
+		// untrack: this reads and writes `items`, which would otherwise re-invalidate itself.
+		untrack(() => {
+			if (dragging) return
+			const same = next.length === items.length && next.every((it, i) => it.id === items[i].id)
+			if (!same) items = next
+		})
+	})
+
+	function handleConsider(e: CustomEvent<{ items: typeof items }>) {
+		dragging = true
+		items = e.detail.items
+	}
+	function handleFinalize(e: CustomEvent<{ items: typeof items }>) {
+		items = e.detail.items
+		reorderBranchesOp(
+			flowModule.id,
+			items.map((it) => it.branch),
+			{ flowStore, history }
+		)
+		dragging = false
+	}
+
+	const { flowStore, flowStateStore, history } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	function addBranch() {
+		addBranchOp(flowModule.id, { flowStore, history })
+		refreshStateStore(flowStore)
+	}
+	function removeBranch(arrayIndex: number) {
+		// The shared op counts branches the way the graph does; see graphBranchIndex.
+		removeBranchOp(flowModule.id, graphBranchIndex(value.type, arrayIndex), {
+			flowStore,
+			flowStateStore,
+			history
+		})
+		refreshStateStore(flowStore)
+	}
+
+	let runSettings: FlowRunSettings | undefined = $state(undefined)
+	let selectedTab = $state('branches')
 
 	useUiIntent(`branchall-${flowModule.id}`, {
-		openTab: (tab) => {
-			selected = tab
+		openTab: async (tab) => {
+			// Every setting the intent can name lives in the other tab, which only mounts
+			// `runSettings` once selected.
+			selectedTab = 'settings'
+			await tick()
+			runSettings?.openSetting(tab)
 		}
 	})
 </script>
 
 <div class="h-full flex flex-col w-full" id="flow-editor-branch-all-wrapper">
-	<FlowCard {noEditor} title={value.type == 'branchall' ? 'Run all branches' : 'Run one branch'}>
-		<SplitPanesWrapper>
-			<Splitpanes horizontal>
-				<Pane size={flowModule ? 60 : 100}>
-					{#if !noEditor}
-						<Alert
-							type="info"
-							title="All branches will be run"
-							tooltip="Branch all"
-							documentationLink="https://www.windmill.dev/docs/flows/flow_branches#branch-all"
-							class="m-4"
-						>
-							The result of this step is the list of the result of each branch.
-						</Alert>
-					{/if}
-					<div class="p-4 mt-4 w-full">
-						<h3 class="mb-4"
-							>{value.branches.length} branch{value.branches.length > 1 ? 'es' : ''}</h3
-						>
-						<div class="flex flex-col gap-y-4 py-2 w-full">
-							{#each value.branches as branch, i}
-								<div class="flex flex-row gap-x-4 w-full items-center">
-									<div class="grow flex gap-2">
-										<Badge large={true} color="blue">Branch {i + 1}</Badge>
-										<input type="text" bind:value={branch.summary} placeholder="Summary" />
-									</div>
-									<div class="w-min-sm">
-										<Toggle
-											bind:checked={branch.skip_failure}
-											options={{
-												right: 'Skip failure'
-											}}
+	<FlowCard
+		{noEditor}
+		title={value.type == 'branchall' ? 'Run all branches' : 'Run one branch'}
+		subtitle="Every branch runs. The result of this step is the list of each branch's result."
+		subtitleDocLink="https://www.windmill.dev/docs/flows/flow_branches#branch-all"
+	>
+		<div class="flex h-full min-h-0 flex-col">
+			<Tabs bind:selected={selectedTab} wrapperClass="shrink-0">
+				<Tab value="branches" label="Branches" />
+				<Tab value="settings" label="Run settings">
+					{#snippet extra()}
+						<StepSettingsBadges {flowModule} />
+					{/snippet}
+				</Tab>
+			</Tabs>
+
+			<div
+				class="flex min-h-0 flex-1 flex-col gap-6 overflow-auto p-4"
+				style="scrollbar-gutter: stable"
+			>
+				{#if selectedTab === 'branches'}
+					<section class="flex w-full flex-col gap-4">
+						<div>
+							<section
+								class="flex flex-col gap-3"
+								use:dragHandleZone={{ items, flipDurationMs: 150, dropTargetStyle: {} }}
+								onconsider={handleConsider}
+								onfinalize={handleFinalize}
+							>
+								{#each items as item, i (item.id)}
+									<!-- The handle and the delete button each own a column, so the row below
+									     lines up with the summary instead of running under them. -->
+									<div
+										class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0 rounded-md bg-surface-tertiary p-3 shadow-sm"
+									>
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
+										<div
+											class="cursor-move text-tertiary hover:text-primary"
+											use:dragHandle
+											aria-label="Reorder branch"
+										>
+											<GripVertical size={16} />
+										</div>
+										<div class="flex min-w-0 items-center gap-2">
+											<Badge color="blue" class="text-xs">Branch {i + 1}</Badge>
+											<TextInput
+												size="sm"
+												class="grow"
+												bind:value={
+													() => item.branch.summary ?? '', (v) => (item.branch.summary = String(v))
+												}
+												inputProps={{ placeholder: 'Summary' }}
+											/>
+										</div>
+										<Button
+											unifiedSize="sm"
+											variant="subtle"
+											destructive
+											iconOnly
+											startIcon={{ icon: Trash2 }}
+											title="Delete branch"
+											on:click={() => removeBranch(i)}
 										/>
+										<div class="col-start-2 py-2">
+											<Toggle
+												size="xs"
+												textClass="text-xs font-normal text-primary"
+												bind:checked={item.branch.skip_failure}
+												options={{
+													right: 'Skip failure'
+												}}
+											/>
+										</div>
 									</div>
-								</div>
-							{/each}
+								{/each}
+							</section>
+							<Button
+								unifiedSize="sm"
+								variant="default"
+								startIcon={{ icon: Plus }}
+								wrapperClasses="mt-4 self-start"
+								on:click={addBranch}
+							>
+								Add branch
+							</Button>
 						</div>
-						<p class="text-sm">Add branches and steps directly on the graph.</p>
-						<div class="mt-6 mb-2 text-sm font-bold">Run in parallel</div>
-						<Toggle
-							bind:checked={value.parallel}
-							options={{
-								right: 'All branches run in parallel'
-							}}
-						/>
-					</div>
-				</Pane>
-				{#if flowModule}
-					<Pane size={40}>
-						<TabsV2 bind:selected>
-							<Tab value="early-stop" label="Early Stop/Break" />
-							<Tab value="skip" label="Skip" />
-							<Tab value="suspend" label="Suspend/Approval/Prompt" />
-							<Tab value="sleep" label="Sleep" />
-							<Tab value="mock" label="Mock" />
-							<Tab value="lifetime" label="Lifetime" />
-							{#snippet content()}
-								<div class="overflow-hidden bg-surface">
-									<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
-										<div class="p-4 overflow-y-auto">
-											<FlowModuleEarlyStop bind:flowModule />
-										</div>
-									</TabContent>
-									<TabContent value="skip" class="flex flex-col flex-1 h-full">
-										<div class="p-4 overflow-y-auto">
-											<FlowModuleSkip bind:flowModule {parentModule} {previousModule} />
-										</div>
-									</TabContent>
-									<TabContent value="suspend" class="flex flex-col flex-1 h-full">
-										<div class="p-4 overflow-y-auto">
-											<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
-										</div>
-									</TabContent>
-									<TabContent value="sleep" class="flex flex-col flex-1 h-full">
-										<div class="p-4 overflow-y-auto">
-											<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
-										</div>
-									</TabContent>
-									<TabContent value="mock" class="flex flex-col flex-1 h-full">
-										<div class="p-4 overflow-y-auto">
-											<FlowModuleMock bind:flowModule />
-										</div>
-									</TabContent>
-									<TabContent value="lifetime" class="flex flex-col flex-1 h-full">
-										<div class="p-4 overflow-y-auto">
-											<FlowModuleDeleteAfterUse bind:flowModule disabled={!$enterpriseLicense} />
-										</div>
-									</TabContent>
-								</div>
-							{/snippet}
-						</TabsV2>
-					</Pane>
+						<div>
+							<label
+								for="branchall-parallel-{flowModule.id}"
+								class="mb-2 block w-fit cursor-pointer text-xs font-semibold text-emphasis"
+							>
+								Run in parallel
+							</label>
+							<Toggle
+								id="branchall-parallel-{flowModule.id}"
+								bind:checked={value.parallel}
+								options={{
+									right: 'All branches run in parallel'
+								}}
+							/>
+						</div>
+					</section>
+				{:else}
+					<FlowRunSettings
+						embedded
+						loopSubset
+						bind:this={runSettings}
+						bind:flowModule
+						{parentModule}
+						{previousModule}
+						selectedId={flowModule.id}
+					/>
 				{/if}
-			</Splitpanes>
-		</SplitPanesWrapper>
+			</div>
+		</div>
 	</FlowCard>
 </div>

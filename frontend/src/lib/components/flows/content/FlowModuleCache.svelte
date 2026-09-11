@@ -1,12 +1,12 @@
 <script lang="ts">
 	import Label from '$lib/components/Label.svelte'
-	import Section from '$lib/components/Section.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	import type { FlowModule } from '$lib/gen'
+	import { stepSettingDefaults } from '../flowStepSettings'
 	import { SecondsInput } from '../../common'
 	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
+	import { slideDynamic } from '$lib/transitions'
 
 	interface Props {
 		flowModule: FlowModule
@@ -30,18 +30,12 @@
 		onEditWorkspaceScript
 	}: Props = $props()
 
-	let isCacheEnabled = $derived(Boolean(flowModule.cache_ttl))
+	// Presence, not truthiness: SecondsInput passes through 0 while a segment is being
+	// retyped, and reading that as off would disable the field mid-edit.
+	let isCacheEnabled = $derived(flowModule.cache_ttl !== undefined)
 </script>
 
-<Section label="Cache" class="flex flex-col gap-4">
-	{#snippet header()}
-		<Tooltip documentationLink="https://www.windmill.dev/docs/flows/cache">
-			If defined, the result of the step will be cached for the number of seconds defined such that
-			if this step were to be re-triggered with the same input it would retrieve and return its
-			cached value instead of recomputing it.
-		</Tooltip>
-	{/snippet}
-
+<div class="flex flex-col gap-2">
 	{#if flowModule.value.type == 'script'}
 		<WorkspaceScriptSettingInfo
 			label="Cache"
@@ -61,34 +55,41 @@
 		</p>
 	{:else}
 		<Toggle
+			size="xs"
+			textClass="text-xs font-normal text-primary"
 			checked={isCacheEnabled}
 			on:change={() => {
-				if (isCacheEnabled && flowModule.cache_ttl != undefined) {
+				if (isCacheEnabled) {
 					flowModule.cache_ttl = undefined
 				} else {
-					flowModule.cache_ttl = 600
+					flowModule.cache_ttl = stepSettingDefaults('cache')
 				}
 			}}
 			options={{
-				right: 'Cache the results for each possible inputs'
+				right: 'Cache results',
+				rightTooltip:
+					'The result of the step is cached for the configured number of seconds; a re-trigger with the same input returns the cached value instead of recomputing it.',
+				rightDocumentationLink: 'https://www.windmill.dev/docs/flows/cache'
 			}}
 		/>
-		{#if flowModule.cache_ttl}
-			<Label label="How long to keep cache valid">
-				<SecondsInput bind:seconds={flowModule.cache_ttl} />
-			</Label>
-			<Toggle
-				size="2xs"
-				bind:checked={
-					() => flowModule.cache_ignore_s3_path,
-					(v) => (flowModule.cache_ignore_s3_path = v || undefined)
-				}
-				options={{
-					right: 'Ignore S3 Object paths for caching purposes',
-					rightTooltip:
-						'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
-				}}
-			/>
+		{#if isCacheEnabled}
+			<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
+				<Label label="How long to keep cache valid">
+					<SecondsInput bind:seconds={flowModule.cache_ttl} />
+				</Label>
+				<Toggle
+					size="2xs"
+					bind:checked={
+						() => flowModule.cache_ignore_s3_path,
+						(v) => (flowModule.cache_ignore_s3_path = v || undefined)
+					}
+					options={{
+						right: 'Ignore S3 object paths',
+						rightTooltip:
+							'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
+					}}
+				/>
+			</div>
 		{/if}
 	{/if}
-</Section>
+</div>

@@ -10,7 +10,7 @@
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Badge, Button, Skeleton } from '$lib/components/common'
+	import { Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
@@ -21,6 +21,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
 	import {
+		Calendar,
 		Circle,
 		Copy,
 		Eye,
@@ -30,12 +31,14 @@
 		Pen,
 		Play,
 		Plus,
+		SearchX,
 		Shield,
 		Trash
 	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import FilterSearchbar, {
+		hasActiveFilters,
 		useUrlSyncedFilterInstance
 	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildSchedulesFilterSchema } from '$lib/components/schedules/schedulesFilter'
@@ -245,6 +248,8 @@
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => schedulesFilterSchema))
+
+	let activeFilters = $derived(hasActiveFilters(filters.val))
 	let allFolders = $derived(
 		Array.from(
 			new Set(
@@ -373,7 +378,26 @@
 					<Skeleton layout={[[6], 0.4]} />
 				{/each}
 			{:else if !schedules?.length}
-				<div class="text-center text-xs font-semibold text-emphasis mt-2"> No schedules </div>
+				{#if activeFilters}
+					<EmptyState
+						icon={SearchX}
+						title="No schedules found"
+						description="No schedule matches the current filters. Try clearing or widening them."
+					/>
+				{:else}
+					<EmptyState
+						icon={Calendar}
+						title="No schedules yet"
+						description="Schedules run a script or flow automatically on a cron expression."
+						action={{
+							label: 'Add a schedule',
+							icon: Plus,
+							onClick: () => scheduleEditor?.openNew(false),
+							aiId: 'schedules-empty-add',
+							aiDescription: 'Add schedule'
+						}}
+					/>
+				{/if}
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}

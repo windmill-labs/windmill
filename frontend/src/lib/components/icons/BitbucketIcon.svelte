@@ -1,24 +1,23 @@
 <script lang="ts">
-    interface Props {
-        height?: string;
-        width?: string;
-    }
+	interface Props {
+		height?: string
+		width?: string
+	}
 
-    let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" {width} {height} viewBox="0 0 62.42 62.42">
-    <defs>
-        <linearGradient id="New_Gradient_Swatch_1" x1="64.01" y1="30.27" x2="32.99" y2="54.48" gradientUnits="userSpaceOnUse">
-            <stop offset="0.18" stop-color="#0052cc" />
-            <stop offset="1" stop-color="#2684ff" />
-        </linearGradient>
-    </defs>
-    <title>Bitbucket-blue</title>
-    <g id="Layer_2" data-name="Layer 2" >
-        <g id="Blue" transform="translate(0 -3.13)">
-            <path d="M2,6.26A2,2,0,0,0,0,8.58L8.49,60.12a2.72,2.72,0,0,0,2.66,2.27H51.88a2,2,0,0,0,2-1.68L62.37,8.59a2,2,0,0,0-2-2.32ZM37.75,43.51h-13L21.23,25.12H40.9Z" fill="#2684ff" />
-            <path d="M59.67,25.12H40.9L37.75,43.51h-13L9.4,61.73a2.71,2.71,0,0,0,1.75.66H51.89a2,2,0,0,0,2-1.68Z" fill="url(#New_Gradient_Swatch_1)"/>
-        </g>
-    </g>
+<!-- #1868DB / #FFFFFF per atlassian.design/foundations/logos (Bitbucket mark, brand and inverse).
+	Atlassian ships brand/neutral/inverse only: "don't use unapproved color combinations". -->
+<svg
+	class="text-[#1868DB] dark:text-[#FFFFFF]"
+	{width}
+	{height}
+	viewBox="6.205 7.236 35.591 35.591"
+	fill="currentColor"
+	xmlns="http://www.w3.org/2000/svg"
+>
+	<path
+		d="M38.3789 23.417L35.9515 38.2453C35.7932 39.1424 35.16 39.6701 34.2629 39.6701H13.6827C12.7856 39.6701 12.1523 39.1424 11.994 38.2453L7.71967 11.8076C7.56136 10.9105 8.03629 10.3301 8.88061 10.3301H39.0649C39.9092 10.3301 40.3842 10.9105 40.2259 11.8076L39.0649 18.7732C38.9066 19.7759 38.3262 20.198 37.3763 20.198H19.2235C18.9596 20.198 18.8013 20.3563 18.8541 20.673L20.2789 29.4327C20.3317 29.6438 20.49 29.8021 20.701 29.8021H27.2445C27.4556 29.8021 27.6139 29.6438 27.6667 29.4327L28.6693 23.1004C28.7748 22.3088 29.3025 21.9922 30.0413 21.9922H37.1652C38.2206 21.9922 38.5372 22.5199 38.3789 23.417Z"
+	/>
 </svg>

@@ -2,7 +2,12 @@ import { ResourceService, type Flow, type ListResourceResponse, type ScriptLang 
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { SQLSchemaLanguages, type DBSchemas } from '$lib/stores'
 import { diffLines } from 'diff'
-import { createAppDomSelectorElement, type ContextElement, type FlowModuleElement } from './context'
+import {
+	createAppDomSelectorElement,
+	isMentionContext,
+	type ContextElement,
+	type FlowModuleElement
+} from './context'
 import type { FlowModule } from '$lib/gen'
 
 import type { DisplayMessage } from './shared'
@@ -328,6 +333,13 @@ export default class ContextManager {
 
 	setSelectedContext(newSelectedContext: ContextElement[]) {
 		this.selectedContext = newSelectedContext
+	}
+
+	/** Callers must gate on mode: only a GLOBAL send owns its mentions. Outside
+	 * GLOBAL these are chips the user removes by hand, and dropping them here
+	 * would delete a selection they still expect to see. */
+	consumeMentionContext() {
+		this.selectedContext = this.selectedContext.filter((c) => !isMentionContext(c))
 	}
 
 	getAvailableContext() {

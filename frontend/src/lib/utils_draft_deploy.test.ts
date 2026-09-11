@@ -7,7 +7,7 @@ vi.mock('$lib/gen', () => ({
 	DraftService: { deleteDraft: vi.fn() },
 	AppService: {},
 	VariableService: {},
-	ResourceService: {},
+	ResourceService: { getResource: vi.fn(), updateResource: vi.fn(), createResource: vi.fn() },
 	ScheduleService: {},
 	HttpTriggerService: {},
 	WebsocketTriggerService: {},
@@ -21,7 +21,9 @@ vi.mock('$lib/gen', () => ({
 	AzureTriggerService: {},
 	EmailTriggerService: {}
 }))
-vi.mock('$lib/userDraftDbSyncer.svelte', () => ({ UserDraftDbSyncer: { save: vi.fn() } }))
+vi.mock('$lib/userDraftDbSyncer.svelte', () => ({
+	UserDraftDbSyncer: { save: vi.fn(), recordRemoteSync: vi.fn() }
+}))
 vi.mock('$lib/workspaceDrafts.svelte', () => ({ invalidateWorkspaceDrafts: vi.fn() }))
 vi.mock('$lib/workspaceComparison', () => ({ invalidateWorkspaceComparison: vi.fn() }))
 vi.mock('$lib/localDraftHints.svelte', () => ({ setLocalDraftHint: vi.fn() }))
@@ -30,7 +32,8 @@ vi.mock('$lib/components/raw_apps/utils', () => ({ canonicalRawAppDiffValue: vi.
 vi.mock('$lib/appDiffSides', () => ({ classicAppDraftParts: vi.fn() }))
 vi.mock('$lib/utils_deployable', () => ({ TRIGGER_RUNTIME_IGNORE: [] }))
 
-import { ScriptService, FlowService } from '$lib/gen'
+import { ScriptService, FlowService, ResourceService } from '$lib/gen'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 // draftBaseIsStale compares a draft's base pointer against the deployed head
 // of the item it was fetched with (`get_draft=true`). Shared by CompareDrafts
@@ -121,6 +124,68 @@ describe('deployDraft preserves on_behalf_of', () => {
 					preserve_on_behalf_of: true
 				})
 			})
+		)
+	})
+})
+
+// The resource branch reads the item again when the deploy lands, and falls back to the deployed
+// row when the draft has gone. That row keeps its value under `value` and carries no `args` at
+// all, so reading it as a draft (`value: d.args ?? {}`) would replace a live resource with `{}`.
+describe('deployDraft: resource with no draft', () => {
+	beforeEach(() => vi.clearAllMocks())
+
+	it('writes nothing rather than `{}` over the deployed value', async () => {
+		vi.mocked(ResourceService.getResource).mockResolvedValueOnce({
+			path: 'f/support/triage_agent',
+			resource_type: 'ai_agent',
+			value: { system_prompt: 'deployed' }
+		} as any)
+
+		// `noop` is what lets a caller deploying one specific draft tell "nothing to promote" apart
+		// from "deployed", instead of reporting an agent as deployed that was never written.
+		expect(await deployDraft('resource', 'f/support/triage_agent', 'ws')).toEqual({
+			success: true,
+			noop: true
+		})
+		expect(ResourceService.updateResource).not.toHaveBeenCalled()
+		expect(ResourceService.createResource).not.toHaveBeenCalled()
+		// Nor does it touch the draft row. There was none of this user's to delete, so the only row
+		// the cleanup could reach is one written after the read: an edit destroyed without ever
+		// having been deployed. Clearing the baseline would be the same bug by another route, since
+		// a delete with no baseline is the unconditional one.
+		expect(UserDraftDbSyncer.save).not.toHaveBeenCalled()
+		expect(UserDraftDbSyncer.recordRemoteSync).not.toHaveBeenCalled()
+	})
+
+	it('still deploys normally when the draft is there, and keys the cleanup to the row it read', async () => {
+		vi.mocked(ResourceService.getResource).mockResolvedValueOnce({
+			path: 'f/support/triage_agent',
+			resource_type: 'ai_agent',
+			value: { system_prompt: 'deployed' },
+			draft_saved_at: '2026-01-01T00:00:00Z',
+			draft: { path: 'f/support/triage_agent', args: { system_prompt: 'drafted' } }
+		} as any)
+
+		expect(await deployDraft('resource', 'f/support/triage_agent', 'ws')).toEqual({ success: true })
+		expect(ResourceService.updateResource).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({ value: { system_prompt: 'drafted' } })
+			})
+		)
+		// The draft delete that follows is conditional on this baseline. With no baseline the backend
+		// deletes unconditionally, destroying a draft saved between the read and the delete without
+		// ever having deployed it, so the timestamp has to be the one from the row just promoted.
+		expect(UserDraftDbSyncer.recordRemoteSync).toHaveBeenCalledWith(
+			{ workspace: 'ws', itemKind: 'resource', path: 'f/support/triage_agent' },
+			'2026-01-01T00:00:00Z'
+		)
+		expect(UserDraftDbSyncer.save).toHaveBeenCalledWith(
+			expect.objectContaining({ path: 'f/support/triage_agent', value: null, immediate: true })
+		)
+		// Order is the whole point: a delete issued before the seed carries whatever baseline the tab
+		// happened to hold, which for a caller that only read through a listing is none at all.
+		expect(vi.mocked(UserDraftDbSyncer.recordRemoteSync).mock.invocationCallOrder[0]).toBeLessThan(
+			vi.mocked(UserDraftDbSyncer.save).mock.invocationCallOrder[0]
 		)
 	})
 })

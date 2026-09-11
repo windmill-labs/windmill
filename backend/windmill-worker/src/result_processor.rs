@@ -52,7 +52,7 @@ use crate::{
     otel_oss::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
     JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, SendResultPayload,
-    UpdateFlow, SAME_WORKER_REQUIREMENTS,
+    StepFailureKind, UpdateFlow, SAME_WORKER_REQUIREMENTS,
 };
 use windmill_common::client::AuthedClient;
 
@@ -378,10 +378,13 @@ pub fn start_background_processor(
                     time,
                 }) => {
                     let is_init_script = jc.job.tag.as_str() == INIT_SCRIPT_TAG;
+                    // A binary build shares the `dependencies` kind but deploys no new
+                    // version, so it must not bounce the dedicated workers below — its tag
+                    // can point at a pool that hosts them.
                     let is_dependency_job = matches!(
                         jc.job.kind,
                         JobKind::Dependencies | JobKind::FlowDependencies
-                    );
+                    ) && !jc.job.build_binary_only;
                     let jc_id = jc.job.id;
                     #[cfg(feature = "benchmark")]
                     let bench_job_id = jc.job.id;
@@ -465,6 +468,7 @@ pub fn start_background_processor(
                             worker_dir,
                             stop_early_override,
                             token,
+                            step_failure,
                         }),
                     time,
                 }) => {
@@ -485,7 +489,7 @@ pub fn start_background_processor(
                         None,
                         Arc::new(result),
                         None,
-                        true,
+                        step_failure,
                         &same_worker_tx,
                         &worker_dir,
                         stop_early_override,
@@ -708,7 +712,7 @@ pub async fn handle_receive_completed_job(
                 &jc.job.workspace_id,
                 &jc.job.permissioned_as,
                 &label,
-                *windmill_common::worker::SCRIPT_TOKEN_EXPIRY,
+                windmill_common::auth::job_token_expiry_secs(db, &jc.job.workspace_id).await,
                 &jc.job.permissioned_as_email,
                 &jc.job.id,
                 Some(perms),
@@ -791,7 +795,7 @@ pub async fn handle_receive_completed_job(
                 mem_peak,
                 canceled_by,
                 err,
-                false,
+                StepFailureKind::Normal,
                 same_worker_tx.clone(),
                 &worker_dir,
                 worker_name,
@@ -812,8 +816,19 @@ pub async fn handle_receive_completed_job(
 #[cfg(all(feature = "enterprise", feature = "private"))]
 #[derive(serde::Deserialize)]
 struct GitSyncCheck {
-    check_run_id: i64,
-    repo_url: String,
+    /// Absent when the repository's host has no check surface (GitLab): the
+    /// result then reaches the pull request through the managed comment alone.
+    #[serde(default)]
+    check_run_id: Option<i64>,
+    /// Only markers written before the repository URL moved out of job args
+    /// carry one; the resource path on the job is what is used now.
+    #[serde(default)]
+    repo_url: Option<String>,
+    /// Host and path of the repository the check was created on, with no
+    /// credential in it. The resource path is mutable, so this is what proves
+    /// the resource still points where the check lives.
+    #[serde(default)]
+    repo: Option<String>,
     #[serde(default)]
     pr_number: Option<i64>,
     #[serde(default)]
@@ -866,6 +881,28 @@ fn parse_git_sync_changes(result_raw: &str) -> Option<(Vec<(String, String)>, bo
     ))
 }
 
+/// The pull script reports an unmergeable PR as a top-level `pr_check_error`
+/// sentinel field. Matched as an exact field, never a substring: a successful
+/// diff lists user-controlled repo paths that could embed the sentinel text.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn parse_pr_check_error(result_raw: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(result_raw)
+        .ok()
+        .and_then(|v| {
+            v.get("pr_check_error")
+                .and_then(|e| e.as_str())
+                .map(|s| s.to_string())
+        })
+}
+
+/// The run page for `job_id`, or `None` when the instance has no `BASE_URL` set
+/// (it defaults to empty) — a check must not carry a link that goes nowhere.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn job_run_url(base_url: &str, job_id: &uuid::Uuid, workspace_id: &str) -> Option<String> {
+    let base = base_url.trim_end_matches('/');
+    (!base.is_empty()).then(|| format!("{base}/run/{job_id}?workspace={workspace_id}"))
+}
+
 #[cfg(all(feature = "enterprise", feature = "private"))]
 fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
     let mut lines = Vec::new();
@@ -880,7 +917,31 @@ fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
 
 #[cfg(all(test, feature = "enterprise", feature = "private"))]
 mod git_sync_check_tests {
-    use super::{format_change_list, parse_git_sync_changes};
+    use super::{format_change_list, job_run_url, parse_git_sync_changes, parse_pr_check_error};
+
+    #[test]
+    fn job_run_url_is_none_without_a_base_url() {
+        let id = uuid::Uuid::nil();
+        assert_eq!(
+            job_run_url("https://app.windmill.dev/", &id, "w").as_deref(),
+            Some("https://app.windmill.dev/run/00000000-0000-0000-0000-000000000000?workspace=w")
+        );
+        // BASE_URL defaults to empty; a link built from it would 404 the reader.
+        assert_eq!(job_run_url("", &id, "w"), None);
+        assert_eq!(job_run_url("/", &id, "w"), None);
+    }
+
+    #[test]
+    fn pr_check_error_is_a_field_not_a_substring() {
+        // A diff whose paths embed the sentinel text must not trip the verdict.
+        let diff = r#"{"changes":[{"type":"edited","path":"f/team/PR_MERGE_CONFLICTS.ts"}]}"#;
+        assert_eq!(parse_pr_check_error(diff), None);
+        let sentinel = r#"{"pr_check_error":"PR_MERGE_CONFLICTS","message":"m"}"#;
+        assert_eq!(
+            parse_pr_check_error(sentinel).as_deref(),
+            Some("PR_MERGE_CONFLICTS")
+        );
+    }
 
     #[test]
     fn parse_empty_changes_is_in_sync() {
@@ -972,7 +1033,7 @@ async fn maybe_reconcile_git_sync_auto_pull(
 
 /// Branch a git-sync push job deployed to, mirroring the hub script's
 /// derivation: a dev workspace deploys to its environment-label branch
-/// (`dev`/`staging`), other fork workspaces to `wm-fork/<base>/<id-suffix>`,
+/// (`dev`, `staging`, ...), other fork workspaces to `wm-fork/<base>/<id-suffix>`,
 /// else the promotion `wm_deploy/**` formula (per-folder or per-item form).
 /// A dev workspace in promotion mode is the exception: it takes the promotion
 /// `wm_deploy/**` formula (per-item PRs into the parent) instead of its label
@@ -1112,18 +1173,18 @@ async fn maybe_open_git_sync_deploy_pr(
     };
 
     // Base = the tracked branch (resource branch, else the repo default). Also
-    // acts as the app-backed gate: PR creation needs the installation token.
-    let base = match windmill_common::git_sync_ee::get_app_repo_head_for_autopull(
+    // acts as the gate: PR creation needs a credential the server itself holds.
+    let base = match windmill_common::git_sync_ee::managed_pr_base_branch(
         db,
         workspace_id,
         &repo_path,
     )
     .await
     {
-        Ok(Some((branch, _))) => branch,
+        Ok(Some(branch)) => branch,
         Ok(None) => {
             tracing::warn!(
-                "git sync PR: repo {repo_path} in {workspace_id} has a PR-on-deploy toggle set but is not GitHub-App-backed; skipping (connect the repo through the GitHub App, or use the open-pr-on-commit workflow)"
+                "git sync PR: repo {repo_path} in {workspace_id} has a PR-on-deploy toggle set but the server holds no credential for it; skipping (connect the repo through the GitHub App or a GitLab token, or use the open-pr-on-commit workflow)"
             );
             return;
         }
@@ -1323,22 +1384,59 @@ async fn maybe_post_git_sync_check(
         (None, Some(deploy)) => (true, deploy),
         (None, None) => return,
     };
-    let Ok(mut check) = serde_json::from_value::<GitSyncCheck>(marker) else {
+    let Ok(check) = serde_json::from_value::<GitSyncCheck>(marker) else {
         return;
     };
-    // Markers carry the literal resource URL (job args are persisted, so a
-    // `$var:`-resolved URL must not land there); interpolate before calling
-    // GitHub.
-    check.repo_url =
-        match windmill_common::variables::get_variable_or_self(check.repo_url, db, workspace_id)
-            .await
-        {
-            Ok(u) => u,
-            Err(e) => {
-                tracing::error!("git sync-check: cannot interpolate repo url: {e:#}");
-                return;
-            }
-        };
+    // Job args are persisted, so the repository URL is not among them: it is
+    // re-resolved here from the resource path the pull job carries. A marker
+    // written before that change still has the URL, and is honoured until the
+    // last such job has drained.
+    // The resource path is mutable, so it is only trusted when the marker also
+    // carries the identity to check it against. A marker written before that
+    // identity existed keeps using the URL it captured at enqueue, which cannot
+    // have been repointed since.
+    let repo_url = match (
+        check.repo.is_some(),
+        row.repo_path.as_deref(),
+        check.repo_url.clone(),
+    ) {
+        // The resource path is mutable, so following it is only safe when the
+        // marker also carries the identity to check the result against.
+        (true, Some(path), _) => {
+            windmill_common::git_sync_ee::resolve_repo_url_interpolated(db, workspace_id, path)
+                .await
+        }
+        // A marker written before that identity existed captured the URL itself,
+        // which cannot have been repointed since.
+        (_, _, Some(url)) => {
+            windmill_common::variables::get_variable_or_self(url, db, workspace_id).await
+        }
+        // Neither: nothing here can prove which repository this check belongs to,
+        // and resolving the path anyway is how a preview reaches the wrong one.
+        // Leaving the check unfinished is the safe failure.
+        _ => {
+            tracing::error!(
+                "git sync-check: the marker carries neither a repository identity nor a url; not acting on it"
+            );
+            return;
+        }
+    };
+    let repo_url = match repo_url {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::error!("git sync-check: cannot resolve repo url: {e:#}");
+            return;
+        }
+    };
+    // A resource repointed while the diff was running would otherwise close a
+    // check, or post a preview, on a repository that has nothing to do with it.
+    if check.repo.is_some() && windmill_common::git_sync_ee::repo_identity(&repo_url) != check.repo
+    {
+        tracing::warn!(
+            "git sync-check: the repository moved since the check was created; leaving it alone"
+        );
+        return;
+    }
     // "In sync" on a PR that visibly changes files reads as a bug when those
     // files are outside the repo's sync filters — say what the scope is.
     let scope_note = if !is_deploy && success {
@@ -1346,6 +1444,10 @@ async fn maybe_post_git_sync_check(
     } else {
         None
     };
+    // The creating call could only link the check to the workspace's run list —
+    // the check predates the job fulfilling it. Now that the job is known, point
+    // both the summary and the check's "Details" link at its logs.
+    let job_url = job_run_url(&windmill_common::BASE_URL.load(), job_id, workspace_id);
 
     let (conclusion, title, summary): (&str, String, String) = if is_deploy {
         // Phase 6: real deploy pull -> "Deployed N changes" / "In sync" / failure.
@@ -1353,8 +1455,7 @@ async fn maybe_post_git_sync_check(
             (
                 "failure",
                 format!("Deploy to {} failed", workspace_id),
-                "Deploying the latest commit failed. See the job in Windmill for details."
-                    .to_string(),
+                "Deploying the latest commit failed.".to_string(),
             )
         } else {
             match parse_git_sync_changes(result_raw) {
@@ -1390,13 +1491,40 @@ async fn maybe_post_git_sync_check(
             }
         }
     } else {
-        // Phase 4: dry-run diff preview for a PR.
-        if !success {
+        // Phase 4: dry-run diff preview for a PR. An unmergeable PR has no
+        // diff; the pull script reports which sentinel applies (returned as a
+        // result — thrown bun errors reach the job result as truncated log tails).
+        let pr_check_error = parse_pr_check_error(result_raw);
+        if pr_check_error.as_deref() == Some("PR_MERGE_CONFLICTS") {
+            (
+                "failure",
+                "Merge conflicts with the base branch".to_string(),
+                "This branch cannot be merged cleanly, so there is no deploy diff to compute. Resolve the conflicts and push again to re-run this check."
+                    .to_string(),
+            )
+        } else if pr_check_error.as_deref() == Some("PR_HEAD_REF_UNAVAILABLE") {
+            // Neutral, not failure: a transient fetch problem is Windmill-side
+            // and, unlike conflicts, has no fixing push that would re-run the
+            // check on its own — it must not hard-block the PR.
+            (
+                "neutral",
+                "Could not compute the deploy diff".to_string(),
+                "Windmill could not fetch this branch's head, or enough history, to compute its merge with the base. Push again to re-run this check."
+                    .to_string(),
+            )
+        } else if pr_check_error.is_some() {
+            // Unknown sentinel (script newer than this backend): an explicit
+            // error signal must not degrade into a "diff computed" verdict.
             (
                 "failure",
                 "Windmill diff failed".to_string(),
-                "The dry-run pull to compute the diff failed. See the job in Windmill for details."
-                    .to_string(),
+                "The dry-run pull reported an unrecognized error.".to_string(),
+            )
+        } else if !success {
+            (
+                "failure",
+                "Windmill diff failed".to_string(),
+                "The dry-run pull to compute the diff failed.".to_string(),
             )
         } else {
             match parse_git_sync_changes(result_raw) {
@@ -1404,20 +1532,20 @@ async fn maybe_post_git_sync_check(
                     "success",
                     "In sync".to_string(),
                     format!(
-                        "Merging this PR would make no changes to the workspace.{}",
+                        "Merging this branch would make no changes to the workspace.{}",
                         scope_note.as_deref().unwrap_or_default()
                     ),
                 ),
                 Some((changes, settings_changed)) => {
                     let mut lines = vec![format!(
-                        "Merging this PR would apply {} change(s) to the workspace:\n",
+                        "Merging this branch would apply {} change(s) to the workspace:\n",
                         changes.len()
                     )];
                     lines.extend(format_change_list(&changes));
                     if settings_changed {
                         lines.push(match check.wmill_yaml_changed {
-                            Some(true) => "\nThis PR changes wmill.yaml: pulling also applies the updated workspace settings.".to_string(),
-                            Some(false) => "\nIndependent of this PR, the workspace's git-sync settings differ from the repo's wmill.yaml and a pull updates them to match.".to_string(),
+                            Some(true) => "\nThis branch changes wmill.yaml: pulling also applies the updated workspace settings.".to_string(),
+                            Some(false) => "\nIndependent of this branch, the workspace's git-sync settings differ from the repo's wmill.yaml and a pull updates them to match.".to_string(),
                             None => "\nA pull also updates the workspace's git-sync settings to match the repo's wmill.yaml.".to_string(),
                         });
                     }
@@ -1436,18 +1564,25 @@ async fn maybe_post_git_sync_check(
         }
     };
 
-    if let Err(e) = windmill_common::git_sync_ee::update_check_run(
-        db,
-        workspace_id,
-        &check.repo_url,
-        check.check_run_id,
-        conclusion,
-        &title,
-        &summary,
-    )
-    .await
-    {
-        tracing::error!("git sync-check: failed to update check run: {e:#}");
+    let check_summary = match job_url.as_deref() {
+        Some(url) => format!("{summary}\n\n[See the job in Windmill]({url})"),
+        None => summary.clone(),
+    };
+    if let Some(check_run_id) = check.check_run_id {
+        if let Err(e) = windmill_common::git_sync_ee::update_check_run(
+            db,
+            workspace_id,
+            &repo_url,
+            check_run_id,
+            conclusion,
+            &title,
+            &check_summary,
+            job_url.as_deref(),
+        )
+        .await
+        {
+            tracing::error!("git sync-check: failed to update check run: {e:#}");
+        }
     }
 
     // Phase 4 also maintains ONE managed comment on the PR (Cloudflare
@@ -1461,13 +1596,17 @@ async fn maybe_post_git_sync_check(
                 .as_deref()
                 .map(|s| &s[..s.len().min(7)])
                 .unwrap_or("latest");
+            let job_row = job_url
+                .as_deref()
+                .map(|url| format!("\n| **Job** | [See the logs]({url}) |"))
+                .unwrap_or_default();
             let body = format!(
-                "{marker}\n### Windmill deploy preview\n\n| | |\n|---|---|\n| **Workspace** | `{workspace_id}` |\n| **Status** | {title} |\n| **Commit** | `{head}` |\n\n<details><summary>Details</summary>\n\n{summary}\n\n</details>"
+                "{marker}\n### Windmill deploy preview\n\n| | |\n|---|---|\n| **Workspace** | `{workspace_id}` |\n| **Status** | {title} |\n| **Commit** | `{head}` |{job_row}\n\n<details><summary>Details</summary>\n\n{summary}\n\n</details>"
             );
             if let Err(e) = windmill_common::git_sync_ee::upsert_pr_comment(
                 db,
                 workspace_id,
-                &check.repo_url,
+                &repo_url,
                 pr_number,
                 marker,
                 &body,
@@ -1593,7 +1732,7 @@ pub async fn process_completed_job(
                     canceled_by,
                     result,
                     started_at.map(|x| FlowJobDuration { started_at: x, duration_ms: duration }),
-                    false,
+                    StepFailureKind::Normal,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
                     None,
@@ -1700,7 +1839,7 @@ pub async fn process_completed_job(
                             duration_ms: d,
                         })
                     }),
-                    false,
+                    StepFailureKind::Normal,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
                     None,
@@ -1978,7 +2117,7 @@ pub async fn handle_job_error(
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     err: Error,
-    unrecoverable: bool,
+    step_failure: StepFailureKind,
     same_worker_tx: Option<&SameWorkerSender>,
     worker_dir: &str,
     worker_name: &str,
@@ -2028,7 +2167,7 @@ pub async fn handle_job_error(
             canceled_by.clone(),
             Arc::new(serde_json::value::to_raw_value(&wrapped_error).unwrap()),
             None,
-            unrecoverable,
+            step_failure,
             &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).clone(),
             worker_dir,
             None,

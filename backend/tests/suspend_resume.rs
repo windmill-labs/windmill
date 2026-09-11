@@ -235,6 +235,88 @@ mod suspend_resume {
         Ok(())
     }
 
+    /// A suspend gate that ends without approval leaves the worker that ran the approval step
+    /// alive, so the error handler it routes to must stay pinned to that worker rather than
+    /// being unpinned and routed by tag — which would break the `./shared` contract of a
+    /// `same_worker` flow.
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base"))]
+    async fn disapproved_suspend_keeps_same_worker_pin(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let value: FlowValue = serde_json::from_value(json!({
+            "same_worker": true,
+            "modules": [{
+                "id": "a",
+                "value": {
+                    "input_transforms": {
+                        "port": { "type": "javascript", "expr": "flow_input.port" },
+                    },
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "\
+                        export async function main(port) {\
+                            const job = Deno.env.get('WM_JOB_ID');\
+                            const token = Deno.env.get('WM_TOKEN');\
+                            const secret = await (await fetch(\
+                                `http://localhost:${port}/api/w/test-workspace/jobs/job_signature/${job}/0?token=${token}&approver=ruben`,\
+                                { headers: { 'Authorization': `Bearer ${token}` } }\
+                            )).text();\
+                            await fetch(\
+                                `http://localhost:${port}/api/w/test-workspace/jobs_u/cancel/${job}/0/${secret}?approver=ruben`,\
+                                { method: 'POST', body: JSON.stringify('from job'), headers: { 'content-type': 'application/json' } }\
+                            );\
+                            return 'a ran';\
+                        }",
+                },
+                "suspend": { "required_events": 1 },
+            }, {
+                "id": "b",
+                "value": {
+                    "input_transforms": {},
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'b ran' }",
+                },
+                // The gate holds `b` back, so `b` never runs and its error policy describes
+                // nothing: honouring it here would skip `b` instead of reaching the handler.
+                "continue_on_error": true,
+            }],
+            "failure_module": {
+                "id": "failure",
+                "value": {
+                    "input_transforms": {},
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'handled' }",
+                },
+            },
+        }))?;
+
+        let completed =
+            RunJob::from(JobPayload::RawFlow { value, path: None, restarted_from: None })
+                .arg("port", json!(port))
+                .run_until_complete(&db, false, port)
+                .await;
+
+        server.close().await.unwrap();
+
+        assert_eq!(json!("handled"), completed.json_result().unwrap());
+
+        let same_worker: Option<bool> = sqlx::query_scalar(
+            "SELECT same_worker FROM v2_job WHERE parent_job = $1 AND flow_step_id = 'failure'",
+        )
+        .bind(completed.id)
+        .fetch_one(&db)
+        .await?;
+        assert_eq!(Some(true), same_worker);
+
+        Ok(())
+    }
+
     /// Test that self-approval is blocked when self_approval_disabled is true.
     ///
     /// This test verifies that when a flow has an approval step with self_approval_disabled=true,

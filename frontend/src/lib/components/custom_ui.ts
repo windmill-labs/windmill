@@ -1,13 +1,14 @@
 import type { SupportedLanguage } from '$lib/common'
 
 export type FlowBuilderWhitelabelCustomUi = {
+	/** Opt out of FlowEditor's `modalPanel` to keep the classic always-docked pane. */
+	modalPanel?: boolean
 	topBar?: {
 		path?: boolean
 		editablePath?: boolean
 		export?: boolean
 		history?: boolean
 		aiBuilder?: boolean
-		tutorials?: boolean
 		diff?: boolean
 		extraDeployOptions?: boolean
 		editableSummary?: boolean

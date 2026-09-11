@@ -19,10 +19,12 @@
 	import { page } from '$app/state'
 	import { replaceState } from '$app/navigation'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
+	import { argsToJsonPayload } from '$lib/schema'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import { untrack } from 'svelte'
 	import { processSecretArgs } from './secretArgUtils'
+	import { enforceDisabledDefaults, resetKeysToast } from './job_args'
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
 
 	let reloadArgs = $state(0)
@@ -53,15 +55,18 @@
 		args = scriptArgs
 		psCommonParams = commonParams
 		reloadArgs++
+		// `reloadArgs` only keys the form; the JSON editor reads its payload once, at mount.
+		syncJsonEditor()
 	}
 
 	export async function run(overrideScheduledForStr?: string | undefined | null) {
 		let processedArgs: Record<string, any>
+		const { args: withDefaults, resetKeys } = enforceDisabledDefaults(args ?? {}, runnable?.schema)
+		if (resetKeys.length > 0) {
+			sendUserToast(resetKeysToast(resetKeys))
+		}
 		try {
-			processedArgs = await processSecretArgs(
-				enforceDisabledDefaults(args ?? {}, true),
-				runnable?.schema
-			)
+			processedArgs = await processSecretArgs(withDefaults, runnable?.schema)
 		} catch (e) {
 			sendUserToast('Failed to process sensitive args: ' + e, true)
 			return
@@ -175,32 +180,10 @@
 		}
 	}
 
-	function enforceDisabledDefaults(
-		args: Record<string, any>,
-		notify: boolean = false
-	): Record<string, any> {
-		const schema = runnable?.schema
-		if (!schema?.properties) return args
-		const result = { ...args }
-		const resetKeys: string[] = []
-		for (const [key, prop] of Object.entries(schema.properties) as [string, any][]) {
-			if (prop?.disabled && 'default' in prop) {
-				if (notify && result[key] !== prop.default) {
-					resetKeys.push(key)
-				}
-				result[key] = prop.default
-			}
-		}
-		if (resetKeys.length > 0) {
-			sendUserToast(
-				`Disabled field${resetKeys.length > 1 ? 's' : ''} ${resetKeys.map((k) => `'${k}'`).join(', ')} reset to default value${resetKeys.length > 1 ? 's' : ''}`
-			)
-		}
-		return result
-	}
-
-	export function setCode(code: string) {
-		jsonEditor?.setCode(code)
+	/** Rewrite the open JSON editor from the current args. Only for args replaced from outside
+	 * the editor: entering the JSON view already starts from whatever `args` holds. */
+	export function syncJsonEditor() {
+		jsonEditor?.setCode(argsToJsonPayload(runnable?.schema, args))
 	}
 	$effect(() => {
 		overrideTag
@@ -317,9 +300,10 @@
 					bind:this={jsonEditor}
 					on:select={(e) => {
 						if (e.detail) {
-							args = enforceDisabledDefaults(e.detail)
+							args = enforceDisabledDefaults(e.detail, runnable?.schema).args
 						}
 					}}
+					initialCode={argsToJsonPayload(runnable.schema, args)}
 					updateOnBlur={false}
 					placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
 				/>

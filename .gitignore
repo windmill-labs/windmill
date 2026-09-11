@@ -22,6 +22,10 @@ rust-client/Cargo.toml
 .claude/settings.local.json
 .claude/worktrees/
 
+# Personal agent notes, not shared with the team
+AGENTS.local.md
+CLAUDE.local.md
+
 # Symlinked cache directories (for git worktrees)
 backend/target
 node_modules/

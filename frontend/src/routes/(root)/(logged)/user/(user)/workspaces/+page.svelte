@@ -24,8 +24,19 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import { GitFork, Settings, User, Search, ChevronsDownUp, ChevronsUpDown } from 'lucide-svelte'
+	import {
+		GitFork,
+		Settings,
+		User,
+		Search,
+		ChevronsDownUp,
+		ChevronsUpDown,
+		LogOut
+	} from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
+	import { canCreateWorkspace } from '$lib/workspaceCreation'
+	import SimpleCreateWorkspace from '$lib/components/workspaceSettings/SimpleCreateWorkspace.svelte'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import { emptyString } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
@@ -35,6 +46,7 @@
 	import type { UserWorkspace } from '$lib/stores'
 
 	let invites: WorkspaceInvite[] = $state([])
+	let invitesLoaded = $state(false)
 	let list_all_as_super_admin: boolean = $state(false)
 	let workspaces: UserWorkspace[] | undefined = $state(undefined)
 	let showAllForks: boolean = $state(false)
@@ -48,7 +60,20 @@
 	let userSettings: UserSettings | undefined = $state()
 	let superadminSettings: SuperadminSettings | undefined = $state()
 
-	let rd = $derived($page.url.searchParams.get('rd'))
+	// Sanitized here rather than at each hand-off below: all four send an absolute `rd` to
+	// `window.location.href`, which unlike `goto` leaves the origin, and a fourth weaker copy
+	// of the check is how one of them gets missed. Absolute targets keep the allowance the
+	// OAuth callback uses (`isValidLogoutRedirect`: same origin, `*.windmill.dev`, the hub),
+	// since honouring one is why those branches exist. Anything else falls back to '/'.
+	let rd = $derived.by(() => {
+		const raw = $page.url.searchParams.get('rd')
+		if (!raw) return null
+		// Truthy for a safe relative path and for a same-origin URL; null for `//host`,
+		// `/\host` and control characters, which read as relative but are not.
+		if (toSameOriginRelativePath(raw)) return raw
+		if (!raw.startsWith('http')) return null
+		return isValidLogoutRedirect(raw) ? raw : null
+	})
 
 	run(() => {
 		if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
@@ -60,6 +85,7 @@
 	async function loadInvites() {
 		try {
 			invites = await UserService.listWorkspaceInvites()
+			invitesLoaded = true
 		} catch {}
 	}
 
@@ -101,12 +127,11 @@
 
 	let allWorkspaces = $derived.by(() => workspaces || [])
 	let noWorkspaces = $derived($superadmin && allWorkspaces.length == 0)
+
 	let onlyAdminsWorkspace = $derived(allWorkspaces.length === 1 && allWorkspaces[0].id === 'admins')
 
 	async function getCreateWorkspaceRequireSuperadmin() {
-		const r = await fetch(base + '/api/workspaces/create_workspace_require_superadmin')
-		const t = await r.text()
-		createWorkspace = t != 'true'
+		createWorkspace = await canCreateWorkspace(false)
 	}
 
 	let createWorkspace = $state($superadmin || isCloudHosted())
@@ -121,11 +146,73 @@
 		getCreateWorkspaceRequireSuperadmin()
 	}
 
-	refreshSuperadmin()
+	// Forced: this page hands the superadmin their instance settings and the list-all toggle,
+	// and stands the picker down entirely for a user who has nothing to pick — so a `false`
+	// left over from a logged-out load in this session (see `refreshSuperadmin`) does not just
+	// hide a button, it decides what the page is.
+	refreshSuperadmin({ force: true })
 	loadInvites()
 	loadWorkspaces()
 
 	let loading = $state(false)
+
+	// Nothing to pick and nothing to accept: the page's only action is the one button under
+	// the empty list, so it *is* that action. Shown as the creation form rather than a page
+	// asking you to choose between one thing. Held back until the invites have loaded, or a
+	// user with an invite waiting would see a form for a workspace they do not need.
+	// Both halves, the way the markup below tests it: `workspaces` is assigned from
+	// `$userWorkspaces` by the legacy pre-effect, and that derives to `[]` while
+	// `usersWorkspaceStore` is still undefined — so `workspaces !== undefined` alone is true
+	// from the first flush of a hard load, with an empty list behind it. Since `showCreate`
+	// latches, one such frame would swap a member's picker for the create form until reload.
+	// `$derived.by` because a plain `$derived` reading `workspaces` narrows it to `never`
+	// here, the same reason `allWorkspaces` is written that way above.
+	let workspacesLoaded = $derived.by(
+		() => workspaces !== undefined && $usersWorkspaceStore !== undefined
+	)
+	// Not for a superadmin: this page is also where they reach the instance settings and the
+	// list-all toggle, and standing the picker down takes both away — a superadmin with no
+	// membership of their own has business here besides creating a workspace. Waiting for the
+	// store to answer rather than reading `!$superadmin`, which is true while `globalWhoami`
+	// is still in flight.
+	let nothingToChoose = $derived(
+		workspacesLoaded &&
+			invitesLoaded &&
+			createWorkspace &&
+			$superadmin !== undefined &&
+			!$superadmin &&
+			!list_all_as_super_admin &&
+			allWorkspaces.length === 0 &&
+			invites.length === 0
+	)
+
+	/**
+	 * Where to go once a workspace exists. `rd` can be absolute — a login flow persists the page
+	 * URL it interrupted — and `goto` refuses those, which would strand the caller on its
+	 * "Creating …" screen with the workspace already made. Same hand-off every other `rd` path
+	 * on this page makes, over the value sanitized where `rd` is derived.
+	 */
+	function leaveForWorkspace() {
+		if (rd?.startsWith('http')) {
+			window.location.href = rd
+			return
+		}
+		void goto(rd ?? '/')
+	}
+
+	// Once this page has become the create form it stays it, until it navigates away. Creating
+	// a workspace refreshes the workspace list, which answers `nothingToChoose` with a no
+	// mid-creation — and the form, along with whatever it was showing, would be replaced by the
+	// picker for the workspace it had just made.
+	let showCreate = $state(false)
+	$effect(() => {
+		if (nothingToChoose) showCreate = true
+		// Except for a superadmin, whom `nothingToChoose` excludes — so this only ever undoes a
+		// latch that should not have happened: one taken on a stale `false` before the forced
+		// `refreshSuperadmin` above answered. Without it that superadmin would be stuck on the
+		// create form, instance settings and the list-all toggle gone with it, until a reload.
+		else if ($superadmin) showCreate = false
+	})
 
 	async function speakFriendAndEnterWorkspace(workspaceId: string) {
 		loading = true
@@ -186,267 +273,287 @@
 {/if}
 
 <CenteredModal
-	title="Select a workspace"
-	subtitle="Logged in as {$usersWorkspaceStore?.email}"
+	title={showCreate ? 'Create your workspace' : 'Select a workspace'}
 	centerVertically={false}
 >
+	{#snippet subtitleSnippet()}
+		<!-- The way out belongs on the line that says who you are, not in a footer as the page's
+		     accent action: leaving is not what anyone came here to do. Shown in both states; the
+		     picker also carries it in the settings menu below, which the create state hides. -->
+		<span class="text-xs text-tertiary">
+			Logged in as <span class="text-secondary">{$usersWorkspaceStore?.email}</span>
+			·
+			<!-- A bare <button> for a link inside the sentence, signed off by design: <Button>
+			     cannot sit inline in running text. Inline links take `text-accent`. -->
+			<button class="text-accent hover:underline" onclick={() => logout()}>Log out</button>
+		</span>
+	{/snippet}
 	{@const nonForkInvites = invites.filter((invite) => invite.parent_workspace_id == undefined)}
 	<div class="flex flex-col">
-		<div class="flex flex-row items-center gap-2 justify-between mb-4">
-			<h2 class="inline-flex gap-2 text-sm font-semibold text-emphasis flex-shrink-0">
-				Workspaces{#if loading}<WindmillIcon spin="fast" />{/if}
-			</h2>
-
-			{#if allWorkspaces.length > 1}
-				<div class="flex gap-2 items-center">
-					<div class="relative text-primary flex-1 max-w-48">
-						<TextInput
-							inputProps={{
-								placeholder: 'Search workspaces...'
-							}}
-							size="sm"
-							bind:value={workspaceSearchFilter}
-							class="!pr-8"
-						/>
-						<Search size={14} class="text-secondary absolute right-2 top-0 mt-2" />
-					</div>
-					{#if workspaceHasForks}
-						<Button
-							onClick={() => workspaceExpandCollapseAll?.()}
-							title={workspaceAllExpanded ? 'Collapse all' : 'Expand all'}
-							startIcon={{ icon: workspaceAllExpanded ? ChevronsDownUp : ChevronsUpDown }}
-							size="xs2"
-							variant="default"
-						>
-							{workspaceAllExpanded ? 'Collapse' : 'Expand'}
-						</Button>
-					{/if}
-				</div>
-			{/if}
-		</div>
-
-		{#if $superadmin}
-			<div class="flex justify-end mb-2">
-				<Toggle
-					bind:checked={list_all_as_super_admin}
-					options={{ right: 'List all workspaces as superadmin' }}
-					size="xs"
-				/>
-			</div>
-		{/if}
-
-		{#if workspaces && $usersWorkspaceStore}
-			{#if workspaces.length == 0}
-				<p class="text-xs text-secondary mt-2">
-					You are not a member of any workspace yet. Accept an invitation {#if createWorkspace}or
-						create your own{/if}
-					workspace.
-				</p>
-			{:else}
-				<WorkspaceTreeView
-					workspaces={allWorkspaces}
-					onEnterWorkspace={speakFriendAndEnterWorkspace}
-					onUnarchive={async (_workspaceId) => {
-						if (list_all_as_super_admin) {
-							loadWorkspacesAsAdmin()
-						} else {
-							loadWorkspaces()
-						}
-					}}
-					bind:searchFilter={workspaceSearchFilter}
-					bind:allExpanded={workspaceAllExpanded}
-					bind:hasForks={workspaceHasForks}
-					bind:this={workspaceTreeView}
-				/>
-			{/if}
+		<!-- The picker stands down when it has nothing to offer: no workspace to enter and no
+		     invite to accept leaves one action on the page, so the page is that action. -->
+		{#if showCreate}
+			<SimpleCreateWorkspace onCreated={leaveForWorkspace} />
 		{:else}
-			{#each new Array(3) as _, i (i)}
-				<Skeleton layout={[[2], 0.5]} />
-			{/each}
-		{/if}
+			<div class="flex flex-row items-center gap-2 justify-between mb-4">
+				<h2 class="inline-flex gap-2 text-sm font-semibold text-emphasis flex-shrink-0">
+					Workspaces{#if loading}<WindmillIcon spin="fast" />{/if}
+				</h2>
 
-		{#if createWorkspace}
-			<div class="flex flex-row-reverse pt-4 w-full">
-				<AnimatedButton
-					animate={onlyAdminsWorkspace}
-					baseRadius="6px"
-					animationDuration="2s"
-					marginWidth="2px"
-					wrapperClasses="w-full"
-				>
-					<Button
-						unifiedSize="sm"
-						href="{base}/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
-						variant={onlyAdminsWorkspace || noWorkspaces ? 'accent' : 'default'}
-						wrapperClasses="w-full"
-						>+&nbsp;Create a new workspace
-					</Button>
-				</AnimatedButton>
+				{#if allWorkspaces.length > 1}
+					<div class="flex gap-2 items-center">
+						<div class="relative text-primary flex-1 max-w-48">
+							<TextInput
+								inputProps={{
+									placeholder: 'Search workspaces...'
+								}}
+								size="sm"
+								bind:value={workspaceSearchFilter}
+								class="!pr-8"
+							/>
+							<Search size={14} class="text-secondary absolute right-2 top-0 mt-2" />
+						</div>
+						{#if workspaceHasForks}
+							<Button
+								onClick={() => workspaceExpandCollapseAll?.()}
+								title={workspaceAllExpanded ? 'Collapse all' : 'Expand all'}
+								startIcon={{ icon: workspaceAllExpanded ? ChevronsDownUp : ChevronsUpDown }}
+								size="xs2"
+								variant="default"
+							>
+								{workspaceAllExpanded ? 'Collapse' : 'Expand'}
+							</Button>
+						{/if}
+					</div>
+				{/if}
 			</div>
-		{/if}
 
-		<div class="flex flex-row items-center justify-between mt-8">
-			<h2 class="text-sm font-semibold text-emphasis">Invites to join a Workspace</h2>
-			{#if workspaces}
-				<Toggle size="xs" bind:checked={showAllForks} options={{ right: 'Show workspace forks' }} />
+			{#if $superadmin}
+				<div class="flex justify-end mb-2">
+					<Toggle
+						bind:checked={list_all_as_super_admin}
+						options={{ right: 'List all workspaces as superadmin' }}
+						size="xs"
+					/>
+				</div>
 			{/if}
-		</div>
 
-		<div class="mt-4"></div>
+			{#if workspaces && $usersWorkspaceStore}
+				{#if workspaces.length == 0}
+					<p class="text-xs text-secondary mt-2">
+						You are not a member of any workspace yet. Accept an invitation {#if createWorkspace}or
+							create your own{/if}
+						workspace.
+					</p>
+				{:else}
+					<WorkspaceTreeView
+						workspaces={allWorkspaces}
+						onEnterWorkspace={speakFriendAndEnterWorkspace}
+						onUnarchive={async (_workspaceId) => {
+							if (list_all_as_super_admin) {
+								loadWorkspacesAsAdmin()
+							} else {
+								loadWorkspaces()
+							}
+						}}
+						bind:searchFilter={workspaceSearchFilter}
+						bind:allExpanded={workspaceAllExpanded}
+						bind:hasForks={workspaceHasForks}
+						bind:this={workspaceTreeView}
+					/>
+				{/if}
+			{:else}
+				{#each new Array(3) as _, i (i)}
+					<Skeleton layout={[[2], 0.5]} />
+				{/each}
+			{/if}
 
-		{#if nonForkInvites.length == 0}
-			<p class="text-xs text-secondary"> You don't have new invites at the moment. </p>
-		{/if}
+			{#if createWorkspace}
+				<div class="flex flex-row-reverse pt-4 w-full">
+					<AnimatedButton
+						animate={onlyAdminsWorkspace}
+						baseRadius="6px"
+						animationDuration="2s"
+						marginWidth="2px"
+						wrapperClasses="w-full"
+					>
+						<Button
+							unifiedSize="md"
+							href="{base}/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
+							variant={onlyAdminsWorkspace || noWorkspaces ? 'accent' : 'default'}
+							wrapperClasses="w-full"
+							>+&nbsp;Create a new workspace
+						</Button>
+					</AnimatedButton>
+				</div>
+			{/if}
 
-		{#each nonForkInvites as invite}
-			<div
-				class="w-full mx-auto py-1 px-2 rounded-md border border-border-light
-			text-xs mt-1 flex flex-row justify-between items-center"
-			>
-				<div class="grow">
-					<span class="font-mono font-semibold text-emphasis">{invite.workspace_id}</span>
-					{#if invite.is_admin}
-						<span class="text-xs text-primary">as an admin</span>
-					{:else if invite.operator}
-						<span class="text-xs text-primary">as an operator</span>
+			{#if invites.length > 0}
+				<div class="flex flex-row items-center justify-between mt-8">
+					<h2 class="text-sm font-semibold text-emphasis">Invites to join a Workspace</h2>
+					{#if workspaces}
+						<Toggle
+							size="xs"
+							bind:checked={showAllForks}
+							options={{ right: 'Show workspace forks' }}
+						/>
 					{/if}
 				</div>
-				<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
-					<Button
-						variant="accent"
-						size="xs2"
-						href="{base}/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
-							? `&rd=${encodeURIComponent(rd)}`
-							: ''}"
+
+				<div class="mt-4"></div>
+
+				{#if nonForkInvites.length == 0}
+					<p class="text-xs text-secondary"> You don't have new invites at the moment. </p>
+				{/if}
+
+				{#each nonForkInvites as invite}
+					<div
+						class="w-full mx-auto py-1 px-2 rounded-md border border-border-light
+				text-xs mt-1 flex flex-row justify-between items-center"
 					>
-						Accept
-					</Button>
-
-					<Button
-						variant="subtle"
-						size="xs2"
-						onClick={async () => {
-							await UserService.declineInvite({
-								requestBody: { workspace_id: invite.workspace_id }
-							})
-							sendUserToast(`Declined invite to ${invite.workspace_id}`)
-							loadInvites()
-						}}
-						destructive
-					>
-						Decline
-					</Button>
-				</div>
-			</div>
-		{/each}
-
-		{#if showAllForks}
-			{@const allWorkspacesList = workspaces || []}
-			{@const filteredInvites = invites.filter((invite) => invite.parent_workspace_id)}
-
-			<div class="mt-4"></div>
-			{#if filteredInvites.length == 0}
-				<p class="text-xs text-secondary"
-					>There are no invites to join the forks of any workspace you're in.</p
-				>
-			{:else}
-				<span class="mb-2 text-xs font-normal text-secondary"
-					>Forks of the workspaces you're in</span
-				>
-			{/if}
-
-			{#each filteredInvites as invite}
-				{@const inviteWorkspace = allWorkspacesList.find((w) => w.id === invite.workspace_id)}
-				<div
-					class="w-full mx-auto py-1 px-2 rounded-md border border-border-light
-			text-xs mt-1 flex flex-row justify-between items-center"
-				>
-					<div class="grow">
-						<div class="flex items-center gap-2">
-							{#if inviteWorkspace?.parent_workspace_id}
-								<GitFork size={12} class="text-secondary flex-shrink-0" />
-							{/if}
+						<div class="grow">
 							<span class="font-mono font-semibold text-emphasis">{invite.workspace_id}</span>
+							{#if invite.is_admin}
+								<span class="text-xs text-primary">as an admin</span>
+							{:else if invite.operator}
+								<span class="text-xs text-primary">as an operator</span>
+							{/if}
 						</div>
-						{#if invite.is_admin}
-							<span class="text-xs text-primary">as an admin</span>
-						{:else if invite.operator}
-							<span class="text-xs text-primary">as an operator</span>
-						{/if}
-						{#if invite.parent_workspace_id}
-							<div class="text-secondary text-2xs mt-1">
-								Fork of {invite.parent_workspace_id}
-							</div>
-						{/if}
-					</div>
-					<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
-						<Button
-							variant="accent"
-							unifiedSize="xs"
-							href="{base}/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
-								? `&rd=${encodeURIComponent(rd)}`
-								: ''}"
-						>
-							Accept
-						</Button>
+						<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
+							<Button
+								variant="accent"
+								size="xs2"
+								href="{base}/user/accept_invite?workspace={encodeURIComponent(
+									invite.workspace_id
+								)}{rd ? `&rd=${encodeURIComponent(rd)}` : ''}"
+							>
+								Accept
+							</Button>
 
-						<Button
-							variant="subtle"
-							unifiedSize="xs"
-							destructive
-							onClick={async () => {
-								await UserService.declineInvite({
-									requestBody: { workspace_id: invite.workspace_id }
-								})
-								sendUserToast(`Declined invite to ${invite.workspace_id}`)
-								loadInvites()
-							}}
-						>
-							Decline
-						</Button>
+							<Button
+								variant="subtle"
+								size="xs2"
+								onClick={async () => {
+									await UserService.declineInvite({
+										requestBody: { workspace_id: invite.workspace_id }
+									})
+									sendUserToast(`Declined invite to ${invite.workspace_id}`)
+									loadInvites()
+								}}
+								destructive
+							>
+								Decline
+							</Button>
+						</div>
 					</div>
-				</div>
-			{/each}
+				{/each}
+
+				{#if showAllForks}
+					{@const allWorkspacesList = workspaces || []}
+					{@const filteredInvites = invites.filter((invite) => invite.parent_workspace_id)}
+
+					<div class="mt-4"></div>
+					{#if filteredInvites.length == 0}
+						<p class="text-xs text-secondary"
+							>There are no invites to join the forks of any workspace you're in.</p
+						>
+					{:else}
+						<span class="mb-2 text-xs font-normal text-secondary"
+							>Forks of the workspaces you're in</span
+						>
+					{/if}
+
+					{#each filteredInvites as invite}
+						{@const inviteWorkspace = allWorkspacesList.find((w) => w.id === invite.workspace_id)}
+						<div
+							class="w-full mx-auto py-1 px-2 rounded-md border border-border-light
+				text-xs mt-1 flex flex-row justify-between items-center"
+						>
+							<div class="grow">
+								<div class="flex items-center gap-2">
+									{#if inviteWorkspace?.parent_workspace_id}
+										<GitFork size={12} class="text-secondary flex-shrink-0" />
+									{/if}
+									<span class="font-mono font-semibold text-emphasis">{invite.workspace_id}</span>
+								</div>
+								{#if invite.is_admin}
+									<span class="text-xs text-primary">as an admin</span>
+								{:else if invite.operator}
+									<span class="text-xs text-primary">as an operator</span>
+								{/if}
+								{#if invite.parent_workspace_id}
+									<div class="text-secondary text-2xs mt-1">
+										Fork of {invite.parent_workspace_id}
+									</div>
+								{/if}
+							</div>
+							<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
+								<Button
+									variant="accent"
+									unifiedSize="xs"
+									href="{base}/user/accept_invite?workspace={encodeURIComponent(
+										invite.workspace_id
+									)}{rd ? `&rd=${encodeURIComponent(rd)}` : ''}"
+								>
+									Accept
+								</Button>
+
+								<Button
+									variant="subtle"
+									unifiedSize="xs"
+									destructive
+									onClick={async () => {
+										await UserService.declineInvite({
+											requestBody: { workspace_id: invite.workspace_id }
+										})
+										sendUserToast(`Declined invite to ${invite.workspace_id}`)
+										loadInvites()
+									}}
+								>
+									Decline
+								</Button>
+							</div>
+						</div>
+					{/each}
+				{/if}
+			{/if}
 		{/if}
 
-		<div class="flex justify-between items-center mt-10 flex-wrap gap-2">
-			{#if $superadmin}
-				<Button
-					variant="default"
-					unifiedSize="md"
-					onClick={superadminSettings?.openDrawer}
-					startIcon={{ icon: Settings }}
-					dropdownItems={[
-						{
-							label: 'User settings',
-							onClick: () => userSettings?.openDrawer(),
-							icon: User
-						}
-					]}
-				>
-					Instance settings
-				</Button>
-			{:else}
-				<Button
-					variant="default"
-					unifiedSize="md"
-					onClick={() => userSettings?.openDrawer()}
-					startIcon={{ icon: Settings }}
-				>
-					User settings
-				</Button>
-			{/if}
-
-			<Button
-				variant="accent"
-				unifiedSize="md"
-				onClick={async () => {
-					logout()
-				}}
-			>
-				Log out
-			</Button>
-		</div>
+		<!-- Settings are for someone who lives here; a user with no workspace yet has one thing
+		     to do, so this row stands down for the create state. Logging out is in this menu as
+		     well as on the subtitle line, which is the only one of the two the create state has. -->
+		{#if !showCreate}
+			<div class="flex items-center mt-10 flex-wrap gap-2">
+				{#if $superadmin}
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						onClick={superadminSettings?.openDrawer}
+						startIcon={{ icon: Settings }}
+						dropdownItems={[
+							{
+								label: 'User settings',
+								onClick: () => userSettings?.openDrawer(),
+								icon: User
+							},
+							{ label: 'Log out', onClick: () => logout(), icon: LogOut }
+						]}
+					>
+						Instance settings
+					</Button>
+				{:else}
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						onClick={() => userSettings?.openDrawer()}
+						startIcon={{ icon: Settings }}
+						dropdownItems={[{ label: 'Log out', onClick: () => logout(), icon: LogOut }]}
+					>
+						User settings
+					</Button>
+				{/if}
+			</div>
+		{/if}
 	</div>
 </CenteredModal>
 <!-- <div class="center-center min-h-screen p-4">

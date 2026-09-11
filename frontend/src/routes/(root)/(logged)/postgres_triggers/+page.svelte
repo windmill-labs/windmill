@@ -22,7 +22,7 @@
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -414,7 +414,18 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-primary mt-2"> No postgres triggers </div>
+			<EmptyState
+				icon={Database}
+				title="No Postgres triggers yet"
+				description="Windmill can listen to database transactions — inserts, updates and deletes — and trigger scripts or flows in response."
+				action={{
+					label: 'Add a Postgres trigger',
+					icon: Plus,
+					onClick: () => postgresTriggerEditor?.openNew(false),
+					aiId: 'postgres-triggers-empty-add',
+					aiDescription: 'Add Postgres trigger'
+				}}
+			/>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { postgres_resource_path, publication_name, replication_slot_name, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}

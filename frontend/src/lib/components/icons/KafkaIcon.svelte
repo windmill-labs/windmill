@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { twMerge } from 'tailwind-merge'
 	interface Props {
 		size?: number
 		color?: string | undefined
@@ -8,13 +9,14 @@
 	let { size = 16, color = undefined, class: clazz = '' }: Props = $props()
 </script>
 
+<!-- #000000 / #FFFFFF per apache/kafka. -->
 <svg
 	width={`${size}px`}
 	height={`${size}px`}
 	preserveAspectRatio="xMidYMid"
-	viewBox="0 0 256 413"
+	viewBox="-97.273 -18.773 450.545 450.545"
 	xmlns="http://www.w3.org/2000/svg"
-	class={clazz}
+	class={twMerge('text-[#000000] dark:text-[#FFFFFF]', clazz)}
 	fill={color ?? 'currentColor'}
 >
 	<path

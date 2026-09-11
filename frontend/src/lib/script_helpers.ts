@@ -1370,6 +1370,11 @@ test_behavior: build
 vars: {}
 threads: 4
 full_refresh: false
+# Resolve a ref() this run does not build through the state the last successful
+# run of this environment published, instead of through the schema it writes
+# into. The default for the run form's toggle: the run that publishes the state
+# and the run that defers to it are two invocations of this one script.
+defer: false
 # Rebuild the nodes a failed build left failed or skipped, in this same job,
 # before reporting failure. dbt confines a failure to its own subtree, so a
 # transient warehouse error costs those nodes rather than the whole project.
@@ -1381,6 +1386,12 @@ full_refresh: false
 # resolved to that Windmill variable, so secrets stay out of this file.
 # env:
 #   DBT_PASSWORD: $var:u/user/my_warehouse_password
+# Real column schemas — every column typed and in the order the model produces
+# it — from the engine's static analysis, which also records column-level
+# lineage for a later view. Opt-in because it runs a separate dbt compile under
+# --static-analysis strict, which rejects SQL the default accepts; a project it
+# cannot analyze keeps the graph it has. Needs an engine that computes it.
+# column_lineage: true
 `
 // for related places search: ADD_NEW_LANG
 export const INITIAL_CODE = {
@@ -1703,6 +1714,11 @@ export function getResetCode(
 		| 'ci_test_python'
 		| undefined
 ) {
+	// Every *_INIT_CODE_CLEAR below is a `main` stub, which cannot run under the preprocessor
+	// entrypoint. Preprocessors must go through initialCode to keep theirs.
+	if (kind === 'preprocessor') {
+		return initialCode(language, kind, subkind)
+	}
 	if (language === 'deno') {
 		return DENO_INIT_CODE_CLEAR
 	} else if (language === 'python3') {
