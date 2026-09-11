@@ -1576,20 +1576,22 @@ pub async fn refresh_expiring_oauth_tokens(
     .fetch_all(db)
     .await?;
     for (path, account) in linked {
-        // Every linked token, fresh-looking or not, waits on the account's lock and only
+        // Every linked token, fresh-looking or not, takes the account's lock and only
         // then reads its expiry. `_refresh_token` commits the new expiry before it stores
         // the token, so a caller that checked first would take the old token during
         // another job's refresh. Serialized, two jobs also never exchange one refresh
         // token twice, which a provider that rotates refresh tokens punishes.
-        let mut lock = db.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('oauth_refresh:' || $1::text))")
-            .bind(account)
-            .execute(&mut *lock)
-            .await?;
+        let Some(mut lock) = oauth_refresh_lock(db, account).await? else {
+            tracing::warn!(
+                "the OAuth token at {path} is being refreshed elsewhere; using it as is"
+            );
+            continue;
+        };
+        // `clock_timestamp()`: `now()` is this transaction's start, before the wait.
         let expiring: Option<i32> = sqlx::query_scalar(
             "SELECT id FROM account
               WHERE workspace_id = $1 AND id = $2
-                AND expires_at < now() + make_interval(secs => $3)",
+                AND expires_at < clock_timestamp() + make_interval(secs => $3)",
         )
         .bind(w_id)
         .bind(account)
@@ -1597,16 +1599,49 @@ pub async fn refresh_expiring_oauth_tokens(
         .fetch_optional(&mut *lock)
         .await?;
         if expiring.is_some() {
-            let tx = db.begin().await?;
-            if let Err(e) =
-                crate::oauth_refresh_oss::_refresh_token(tx, &path, w_id, account, db).await
-            {
+            let refreshed = match db.begin().await {
+                Ok(tx) => {
+                    crate::oauth_refresh_oss::_refresh_token(tx, &path, w_id, account, db).await
+                }
+                Err(e) => Err(e.into()),
+            };
+            if let Err(e) = refreshed {
                 tracing::warn!("refreshing the OAuth token at {path} ahead of expiry: {e:#}");
             }
         }
         lock.commit().await?;
     }
     Ok(())
+}
+
+/// The transaction holding `account`'s refresh lock, or `None` after ten seconds of
+/// another holder: a worker gives its API request twenty, and a still-valid token
+/// beats a request that times out. Polled rather than waited on, so a waiter holds no
+/// pooled connection between attempts: the holder needs a second one to store the
+/// token it is refreshing.
+#[cfg(feature = "oauth2")]
+async fn oauth_refresh_lock(
+    db: &DB,
+    account: i32,
+) -> Result<Option<Transaction<'static, Postgres>>> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let mut tx = db.begin().await?;
+        let locked: bool = sqlx::query_scalar(
+            "SELECT pg_try_advisory_xact_lock(hashtext('oauth_refresh:' || $1::text))",
+        )
+        .bind(account)
+        .fetch_one(&mut *tx)
+        .await?;
+        if locked {
+            return Ok(Some(tx));
+        }
+        tx.rollback().await?;
+        if std::time::Instant::now() >= deadline {
+            return Ok(None);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
 }
 
 /// Deleting a resource cascades into the `$var:` variables its value references. A

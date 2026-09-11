@@ -304,7 +304,8 @@ although its credential is an access token that lasts ten minutes:
   (`PreparedProject::refresh_profile`), and resolving it refreshes any of its
   OAuth tokens with less than five minutes left. So the build, the `after_all`
   tests, a node retry and the column-lineage pass each start with at least five
-  minutes of token.
+  minutes of token, unless that refresh fails: the token is then still valid, so
+  the process takes it as it is rather than failing.
 - Run identity masks credentials (`RenderedProfile::identity`), so a token
   refreshed between a failure and its retry still matches.
 - The OAuth connect flow asks for `database`, `warehouse`, `role` and `schema`
