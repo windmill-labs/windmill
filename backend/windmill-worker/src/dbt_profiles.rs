@@ -20,8 +20,9 @@ const MASKED_CREDENTIAL: &str = "$CREDENTIAL";
 /// Whether a target key holds a credential rather than part of the address. By
 /// name, because a `dbt_profile` block's keys are its adapter's own: `password`,
 /// dbt-postgres's `pass`, `token`, `private_key_passphrase`, `client_secret`,
-/// `aws_secret_access_key`, … An endpoint is address even when its name says
-/// otherwise: BigQuery's `token_uri` is where the token comes from.
+/// `aws_secret_access_key` and the `key_id` rotated with it, … An endpoint is
+/// address even when its name says otherwise: BigQuery's `token_uri` is where the
+/// token comes from.
 fn is_credential_key(key: &str) -> bool {
     let key = key.to_ascii_lowercase();
     if key.ends_with("_uri") || key.ends_with("_url") || key.contains("endpoint") {
@@ -35,6 +36,8 @@ fn is_credential_key(key: &str) -> bool {
             "token",
             "private_key",
             "api_key",
+            "access_key",
+            "key_id",
         ]
         .iter()
         .any(|c| key.contains(c))
@@ -1367,11 +1370,13 @@ mod tests {
         assert_ne!(bq("p", "k1", "t"), bq("q", "k1", "t"));
         assert_ne!(bq("p", "k1", "t"), bq("p", "k1", "elsewhere"));
         // Only scalars are masked: a `secrets:` entry still names its endpoint.
+        // A rotated access key changes its id with its secret.
         let duck = |endpoint: &str, secret: &str| {
             block(
                 KnownAdapter::Duckdb,
                 json!({"type": "duckdb", "path": "x.duckdb",
-                       "secrets": [{"type": "s3", "endpoint": endpoint, "secret": secret}]}),
+                       "secrets": [{"type": "s3", "endpoint": endpoint,
+                                    "key_id": format!("id-{secret}"), "secret": secret}]}),
             )
         };
         assert_eq!(duck("s3.a", "k1"), duck("s3.a", "k2"));
