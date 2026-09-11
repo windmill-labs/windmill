@@ -162,6 +162,37 @@ describe('item store: commands', () => {
 		expect(a.writes).toHaveLength(1)
 	})
 
+	it('saves items in turn, all busy from the call, and stops at the first failure', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const written: string[] = []
+		const a = adapter({ deployed: deployedRes }, async (ctx) => {
+			written.push(ctx.workspace)
+			if (ctx.workspace === 'w1') throw new Error('refused')
+		})
+		const acquire = (ws: string) =>
+			store.acquire(
+				{ workspace: ws, kind: 'resource', path: 'u/me/r' },
+				{ workspace: ws, path: 'u/me/r' },
+				a
+			).handle
+		const [first, second] = [acquire('w1'), acquire('w2')]
+		await settle()
+		first.value = { ...deployedRes, description: 'one' }
+		second.value = { ...deployedRes, description: 'two' }
+
+		const saving = store.saveEach([first, second])
+		expect([first.busy, second.busy]).toEqual([true, true])
+		const outcomes = await saving
+
+		expect(outcomes).toEqual([
+			{ ok: false, error: 'refused' },
+			{ ok: false, error: 'Not saved', skipped: true }
+		])
+		expect(written).toEqual(['w1'])
+		expect([first.dirty, second.dirty, second.busy]).toEqual([true, true, false])
+	})
+
 	it('holds a toggle behind a save, and keeps an unrelated edit through the toggle', async () => {
 		type Sched = { path: string; enabled: boolean; summary: string }
 		const rows = fakeRows()
