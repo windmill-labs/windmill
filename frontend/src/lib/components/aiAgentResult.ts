@@ -187,21 +187,30 @@ export function summarizeAgentResult(result: AgentResult): AgentResultSummary {
 	}
 }
 
-export type AgentStreamTool = { callId: string; name: string; running: boolean; success?: boolean }
+export type AgentStreamEntry =
+	| { kind: 'assistant'; content: string }
+	| { kind: 'tool'; callId: string; name: string; running: boolean; success?: boolean }
 
 export type AgentStream = {
-	answer: string
+	/**
+	 * What the run has finished doing, in order — the same rows the completed
+	 * trace will show, so nothing on screen moves when the result lands.
+	 */
+	entries: AgentStreamEntry[]
+	/**
+	 * The text of the turn being written. It is not yet the output: a turn that
+	 * goes on to call a tool was narration, and only the run ending decides which
+	 * this was. So it stays unlabelled here and becomes one or the other.
+	 */
+	current: string
 	reasoning: string
-	/** Every tool the run has touched, in order, so a stream shows the same rows
-	 *  the finished trace will. */
-	tools: AgentStreamTool[]
 }
 
 /** How much of the stream has been folded in, so the next poll starts there. */
 export type AgentStreamProgress = { consumed: number; stream: AgentStream }
 
 export function emptyAgentStreamProgress(): AgentStreamProgress {
-	return { consumed: 0, stream: { answer: '', reasoning: '', tools: [] } }
+	return { consumed: 0, stream: { entries: [], current: '', reasoning: '' } }
 }
 
 /**
@@ -276,7 +285,7 @@ export function advanceAgentStream(
 	if (complete <= previous.consumed) {
 		return previous
 	}
-	const stream: AgentStream = { ...previous.stream, tools: [...previous.stream.tools] }
+	const stream: AgentStream = { ...previous.stream, entries: [...previous.stream.entries] }
 	for (const line of raw.slice(previous.consumed, complete).split('\n')) {
 		if (line.trim() === '') {
 			continue
@@ -286,28 +295,33 @@ export function advanceAgentStream(
 			continue
 		}
 		if (event.type === 'token_delta' && typeof event.content === 'string') {
-			stream.answer += event.content
+			stream.current += event.content
 		} else if (event.type === 'reasoning_token_delta' && typeof event.content === 'string') {
 			stream.reasoning += event.content
 		} else if (typeof event.function_name === 'string') {
-			if (TOOL_TURN_STARTED.includes(event.type)) {
-				// A model can narrate and request a tool in the same turn, and the loop
-				// then runs again. That narration is not part of the answer — the
-				// finished result keeps the text of the last turn that produced any — so
-				// a starting call resets rather than appending to what came before.
-				stream.answer = ''
+			if (TOOL_TURN_STARTED.includes(event.type) && stream.current !== '') {
+				// A model can narrate and request a tool in the same turn. The call
+				// settles what that text was: narration, not the output. It becomes a
+				// row rather than being dropped, so nothing vanishes from the screen
+				// only to reappear when the result lands.
+				stream.entries.push({ kind: 'assistant', content: stream.current })
+				stream.current = ''
 				stream.reasoning = ''
 			}
 			// The same call is announced, then argued, then executed, then answered.
 			// Keyed on `call_id` so those four events are one row rather than four.
 			const callId = typeof event.call_id === 'string' ? event.call_id : event.function_name
-			const existing = stream.tools.find((t) => t.callId === callId)
+			const existing = stream.entries.find(
+				(e): e is Extract<AgentStreamEntry, { kind: 'tool' }> =>
+					e.kind === 'tool' && e.callId === callId
+			)
 			const settled = event.type === 'tool_result'
 			if (existing) {
 				existing.running = !settled
 				existing.success = settled ? event.success === true : existing.success
 			} else {
-				stream.tools.push({
+				stream.entries.push({
+					kind: 'tool',
 					callId,
 					name: event.function_name,
 					running: !settled,
