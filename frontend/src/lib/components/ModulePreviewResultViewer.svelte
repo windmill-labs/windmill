@@ -8,10 +8,10 @@
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import type { FlowEditorContext, OutputViewerJob } from './flows/types'
-	import type { AgentTool } from './flows/agentToolUtils'
 	import { getContext } from 'svelte'
 	import { getStringError } from './copilot/chat/utils'
-	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
+	import AgentTranscript from './AgentTranscript.svelte'
+	import { parseAgentResult } from './aiAgentResult'
 
 	interface Props {
 		lang: Script['language']
@@ -27,9 +27,6 @@
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		loadingJob?: boolean
 		tagLabel?: string
-		// A linked agent persists no tools of its own; its resolved resource tools are passed here so
-		// the log viewer can label each tool_call with the definition that ran.
-		linkedAgentTools?: AgentTool[]
 	}
 
 	let {
@@ -45,8 +42,7 @@
 		disableHistory = false,
 		onUpdateMock,
 		loadingJob = false,
-		tagLabel = undefined,
-		linkedAgentTools = undefined
+		tagLabel = undefined
 	}: Props = $props()
 
 	const { stepsInputArgs, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -61,6 +57,10 @@
 	)
 	const logJob = $derived(testJob ?? selectedJob)
 	const preview = $derived.by(() => outputPickerInner?.getPreview?.())
+	// The trace of an agent step is its conversation, which its own result carries.
+	const agentResult = $derived(
+		logJob?.type === 'CompletedJob' ? parseAgentResult(logJob.result) : undefined
+	)
 </script>
 
 <Splitpanes horizontal>
@@ -105,15 +105,10 @@
 				customEmptyMessage="Using pinned data"
 				{tagLabel}
 			/>
-		{:else if mod.value.type === 'aiagent' && logJob?.type === 'CompletedJob'}
-			<AiAgentLogViewer
-				tools={linkedAgentTools ?? mod.value.tools ?? []}
-				agentJob={{
-					...logJob,
-					type: 'CompletedJob'
-				}}
-				workspaceId={logJob.workspace_id}
-			/>
+		{:else if agentResult}
+			<div class="h-full overflow-auto p-2">
+				<AgentTranscript messages={agentResult.messages} workspaceId={logJob?.workspace_id} />
+			</div>
 		{:else}
 			<LogViewer
 				small
