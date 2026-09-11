@@ -8,7 +8,8 @@
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { type DynamicInput } from '$lib/utils'
-	import { type FlowModule } from '$lib/gen'
+	import { type AIProvider, type FlowModule } from '$lib/gen'
+	import { getReasoningCapability } from '$lib/components/copilot/reasoningRegistry'
 	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import FlowChatModelSettings from './FlowChatModelSettings.svelte'
@@ -72,6 +73,21 @@
 	// An agent with nothing to call cannot answer, and the composer cannot fix it, so the
 	// chat says what to go and do instead of offering controls that write nowhere.
 	const modelGap = $derived(agentModelGap(modelWiring))
+
+	// Whether the reasoning registry has rules for the model in use. Only then does the
+	// model button show a thinking control and own the effort input; on a provider it cannot
+	// speak for — `customai` fronting any OpenAI-compatible endpoint, say — the field stays
+	// in the Configure-inputs modal rather than being hidden behind a control never drawn.
+	const effortKnown = $derived.by(() => {
+		if (!modelWiring || modelWiring.whole) return false
+		const pick = (field: 'model' | 'kind') => {
+			const name = modelWiring.fields[field]
+			return name ? effectiveInputs[name] : modelWiring.fixed[field]
+		}
+		const [kind, model] = [pick('kind'), pick('model')]
+		if (typeof kind !== 'string' || !kind || typeof model !== 'string' || !model) return false
+		return getReasoningCapability(kind as AIProvider, model).known
+	})
 
 	// LocalStorage helpers
 	const STORAGE_KEY_PREFIX = 'windmill_flow_chat_inputs_'
@@ -144,7 +160,7 @@
 		attachmentsTarget: () => attachmentsTarget,
 		workspace: () => chatWorkspace,
 		canAttach: () => workspaceStorage.current,
-		inputsShownInComposer: () => agentModelWiringInputs(modelWiring),
+		inputsShownInComposer: () => agentModelWiringInputs(modelWiring, effortKnown),
 		inputsSchema: () => additionalInputsSchema
 	})
 	setChatViewHost(chatHost)
@@ -162,7 +178,7 @@
 			// The paperclip's own condition, not half of it: an attachments input the composer
 			// has no editor for — no object storage in the workspace, say — stays askable here.
 			...(chatHost.supportsMessageAttachments && attachmentsTarget ? [attachmentsTarget.name] : []),
-			...agentModelWiringInputs(modelWiring)
+			...agentModelWiringInputs(modelWiring, effortKnown)
 		])
 		const properties = Object.fromEntries(
 			Object.entries(additionalInputsSchema.properties ?? {}).filter(([key]) => !promoted.has(key))

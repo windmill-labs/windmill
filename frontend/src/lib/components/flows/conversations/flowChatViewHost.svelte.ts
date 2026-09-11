@@ -135,16 +135,24 @@ function toDisplayMessage(
 }
 
 /**
- * Whether the turn a user message started came back unsuccessful. The answer is on
- * the messages that follow it, up to the next user message: an AI agent step or the
- * flow itself writes one with `success` false.
+ * Whether the turn a user message started ended without an answer.
+ *
+ * Read from the turn's last row and no other. A tool that fails mid-turn is handed back to
+ * the agent, which routinely recovers and answers, so an unsuccessful tool row says nothing
+ * about the turn — and this drives the Retry button, which in the copilot means "the request
+ * never went through" rather than "something inside it went wrong". Offering it for a turn
+ * that answered would invite running the whole flow a second time, side effects and all.
  */
 function turnFailed(messages: ChatMessage[], userIndex: number): boolean {
+	let last: ChatMessage | undefined
 	for (let i = userIndex + 1; i < messages.length; i++) {
-		if (messages[i].message_type === 'user') return false
-		if (messages[i].success === false) return true
+		const message = messages[i]
+		if (message.message_type === 'user') break
+		// Still going, so the turn has no outcome to report yet.
+		if (message.streaming || message.loading) return false
+		last = message
 	}
-	return false
+	return last?.success === false
 }
 
 /**

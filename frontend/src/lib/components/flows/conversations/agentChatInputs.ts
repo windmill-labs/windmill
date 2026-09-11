@@ -294,18 +294,24 @@ export function agentModelGap(wiring: AgentModelWiring | undefined): string | un
  * resource leaves the button nothing to write it with, and hiding it would leave the run
  * without a provider kind and no way to supply one.
  *
- * `reasoning_effort` is unconditional by contrast. Once a model is chosen the button has a
- * control for it — the slider, or the row saying the model cannot think — and on a model
- * that cannot, the value is not a choice but a fact the button writes itself. Offering it in
- * the modal as well would invite setting a level the provider then rejects. Before a model
- * is chosen it is offered nowhere, which is the honest answer: an effort means nothing
- * until there is something to spend it on, and picking a model writes one.
+ * `reasoning_effort` follows the same shape, keyed on whether the reasoning registry can
+ * speak for the model in use. Where it can, the button owns the field — the slider, or the
+ * row saying the model cannot think, on which the value is not a choice but a fact the
+ * button writes itself — and offering it in the modal too would invite setting a level the
+ * provider rejects. Where it cannot (a `customai` endpoint, say, which may well serve a
+ * thinking model), the button shows no thinking control at all, so the modal has to keep
+ * asking. Before a model is chosen nothing is known either, which is the same answer.
  */
-export function agentModelWiringInputs(wiring: AgentModelWiring | undefined): string[] {
+export function agentModelWiringInputs(
+	wiring: AgentModelWiring | undefined,
+	/** Whether the registry can answer for the model in use. False when it cannot be told. */
+	effortKnown: boolean = false
+): string[] {
 	if (!wiring) return []
 	if (wiring.whole) return [wiring.whole]
-	const driven: ProviderField[] = ['resource', 'model', 'reasoning_effort']
+	const driven: ProviderField[] = ['resource', 'model']
 	if (wiring.fields.resource !== undefined) driven.push('kind')
+	if (effortKnown) driven.push('reasoning_effort')
 	return driven.map((field) => wiring.fields[field]).filter((name): name is string => !!name)
 }
 

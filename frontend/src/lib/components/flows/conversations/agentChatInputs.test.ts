@@ -142,11 +142,24 @@ describe('agentModelWiringInputs', () => {
 		expect(agentModelWiringInputs(wiring)).toEqual(['m'])
 	})
 
+	// The registry has rules per provider family and shrugs at the rest, so a `customai`
+	// endpoint — which may well serve a thinking model — must keep its effort input askable
+	// rather than hidden behind a slider the button never draws.
+	it('keeps a reasoning_effort input where the registry cannot speak for the model', () => {
+		const wiring = resolveAgentModelWiring([
+			agent(
+				`({ "kind": "customai", "resource": "$res:u/admin/custom", model: flow_input.m, reasoning_effort: flow_input.thinking })`
+			)
+		])
+		expect(agentModelWiringInputs(wiring, false)).toEqual(['m'])
+		expect(agentModelWiringInputs(wiring, true)?.sort()).toEqual(['m', 'thinking'])
+	})
+
 	it('hides a kind input it writes with the resource', () => {
 		const wiring = resolveAgentModelWiring([
 			agent(`({ kind: flow_input.k, resource: flow_input.r, model: flow_input.m })`)
 		])
-		expect(agentModelWiringInputs(wiring)?.sort()).toEqual(['k', 'm', 'r'])
+		expect(agentModelWiringInputs(wiring, true)?.sort()).toEqual(['k', 'm', 'r'])
 	})
 })
 

@@ -31,7 +31,7 @@
 	const capability = $derived(
 		reasoning
 			? getReasoningCapability(reasoning.provider, reasoning.model)
-			: { supported: false, levels: [] as string[], canDisable: false }
+			: { supported: false, levels: [] as string[], canDisable: false, known: false }
 	)
 	// Effective effort accounts for the default-on level on capable models.
 	const effective = $derived(

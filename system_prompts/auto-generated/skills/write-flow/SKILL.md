@@ -203,8 +203,9 @@ input, read by the agent.
 
 **Wire the provider field by field, or the chat cannot change its model.** Each `provider` field fed
 by a flow input becomes a control in the composer — a provider picker, a model list, a thinking
-slider — while a field left static is fixed and shown read-only. `user_attachments` works the same
-way: point it at an s3-object input and the composer gets a paperclip.
+slider — while a field left static is fixed, and the composer draws no control for it.
+`user_attachments` works the same way: point it at an s3-object input and the composer gets a
+paperclip.
 
 ```json
 {

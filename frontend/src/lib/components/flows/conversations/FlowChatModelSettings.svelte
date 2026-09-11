@@ -148,21 +148,32 @@
 		}
 	})
 
+	/** Whether the registry can speak for this model at all. On a provider it has no rules
+	 * for the answer is "we do not know", and the composer neither shows a thinking control
+	 * nor touches the stored effort — the Configure-inputs modal keeps asking for it. */
+	const effortKnown = $derived(
+		!!provider &&
+			typeof model === 'string' &&
+			!!model &&
+			getReasoningCapability(provider, model).known
+	)
+
 	/**
-	 * The effort to write alongside a new model, which is `''` — the agent's "no effort" —
-	 * wherever that model has no such level. The composer owns this input, so it keeps it
-	 * runnable rather than leaving behind a level the provider would reject; the slider
-	 * shows the model cannot think, and the reader has nothing to clear by hand.
+	 * The effort to write alongside a new model: `''` — the agent's "no effort" — wherever
+	 * that model has no such level, so the composer never leaves behind a level the provider
+	 * would reject. Writes nothing where the registry cannot speak for the model, since
+	 * clearing a value on a guess would destroy the author's own default.
 	 */
-	function effortFor(nextModel: string | undefined): string {
-		if (!provider || !nextModel) return ''
-		return (
-			carriedReasoning(
-				typeof effort === 'string' ? effort : undefined,
-				explicitOffToken(provider, nextModel) ?? '',
-				getReasoningCapability(provider, nextModel)
-			) ?? ''
+	function effortPatch(nextModel: string | undefined): Partial<Record<ProviderField, any>> {
+		if (!provider || !nextModel) return {}
+		const capability = getReasoningCapability(provider, nextModel)
+		if (!capability.known) return {}
+		const carried = carriedReasoning(
+			typeof effort === 'string' ? effort : undefined,
+			explicitOffToken(provider, nextModel) ?? '',
+			capability
 		)
+		return { reasoning_effort: carried ?? '' }
 	}
 
 	function selectResource(path: string, picked: AIProvider) {
@@ -171,9 +182,10 @@
 			resource: `$res:${path}`,
 			// The models of one provider mean nothing to another, and the new list only
 			// arrives async, so there is nothing to carry the current one against — nor the
-			// effort, which only means something against a model.
+			// effort, which only means something against a model. Cleared only where the
+			// registry can speak for the new provider, for the same reason as `effortPatch`.
 			model: undefined,
-			reasoning_effort: ''
+			...(getReasoningCapability(picked, '').known ? { reasoning_effort: '' } : {})
 		})
 	}
 
@@ -222,7 +234,7 @@
 							key: m,
 							label: m,
 							selected: m === model,
-							onSelect: () => setFields({ model: m, reasoning_effort: effortFor(m) })
+							onSelect: () => setFields({ model: m, ...effortPatch(m) })
 						})),
 						loading: models.loading,
 						emptyMessage: provider ? 'No model available' : 'Pick a provider first'
@@ -232,7 +244,7 @@
 		// Offered as a slider only where the flow exposed it. When nothing is editable the
 		// menu never opens, so passing it there only names the effort on the button.
 		reasoning:
-			(effortEditable || readOnly) && provider && typeof model === 'string' && model
+			(effortEditable || readOnly) && effortKnown && provider && typeof model === 'string' && model
 				? {
 						provider,
 						model,
