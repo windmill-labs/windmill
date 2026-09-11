@@ -50,12 +50,14 @@ after the walk completes:
 ```ts
 const UPLOAD_CONCURRENCY = 16
 const CLONE_MARKER_FILE = ".windmill_clone_complete"
+const MAX_SYMLINKED_ENTRIES = 20_000
+const MAX_SYMLINKED_BYTES = 512 * 1024 * 1024
 
 async function uploadDirectoryToS3(
   directoryPath: string,
   s3BasePath: string,
   workspace: string,
-) {
+): Promise<number> {
   console.log(`Uploading ${directoryPath} -> ${s3BasePath}`)
 
   // Walk the directory once, producing a flat list of (localPath, s3Key) pairs.
@@ -63,44 +65,56 @@ async function uploadDirectoryToS3(
   const root = fs.realpathSync(directoryPath)
   // Real paths of the directories being descended through.
   const ancestors = new Set<string>()
-  function walk(dir: string, relDir: string) {
+  // What entries reached through a link have cost so far; see Symlinks below.
+  let symlinkedEntries = 0
+  let symlinkedBytes = 0
+  let symlinkBudgetSpent = false
+  function walk(dir: string, relDir: string, viaLink: boolean) {
     ancestors.add(dir)
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const relPath = relDir ? `${relDir}/${entry.name}` : entry.name
+      const linked = viaLink || entry.isSymbolicLink()
+      if (linked && symlinkBudgetSpent) continue
       let localPath = join(dir, entry.name)
-      let isDirectory = entry.isDirectory()
-      let isFile = entry.isFile()
       if (entry.isSymbolicLink()) {
         const link = fs.readlinkSync(localPath)
-        let target: string
         try {
-          target = fs.realpathSync(localPath)
+          localPath = fs.realpathSync(localPath)
         } catch (e: any) {
           console.log(`Skipping symlink ${relPath} -> ${link}: cannot resolve target (${e.code})`)
           continue
         }
-        if (target !== root && !target.startsWith(root + sep)) {
+        if (localPath !== root && !localPath.startsWith(root + sep)) {
           console.log(`Skipping symlink ${relPath} -> ${link}: target is outside the repository`)
           continue
         }
-        const stat = fs.statSync(target)
-        isDirectory = stat.isDirectory()
-        isFile = stat.isFile()
-        localPath = target
       }
-      if (isDirectory) {
-        if (ancestors.has(localPath)) {
-          console.log(`Skipping ${relPath}: links back to a directory it is inside`)
+      const stat = fs.statSync(localPath)
+      if (stat.isDirectory() && ancestors.has(localPath)) {
+        console.log(`Skipping ${relPath}: links back to a directory it is inside`)
+        continue
+      }
+      if (linked) {
+        symlinkedEntries++
+        if (stat.isFile()) symlinkedBytes += stat.size
+        if (symlinkedEntries > MAX_SYMLINKED_ENTRIES || symlinkedBytes > MAX_SYMLINKED_BYTES) {
+          symlinkBudgetSpent = true
+          console.log(
+            `Skipping ${relPath} and every symlinked entry after it: symlinks reach more than ` +
+            `${MAX_SYMLINKED_ENTRIES} entries or ${MAX_SYMLINKED_BYTES / 2 ** 20} MiB`
+          )
           continue
         }
-        walk(localPath, relPath)
-      } else if (isFile) {
+      }
+      if (stat.isDirectory()) {
+        walk(localPath, relPath, linked)
+      } else if (stat.isFile()) {
         tasks.push({ localPath, s3Key: `${s3BasePath}/${relPath}` })
       }
     }
     ancestors.delete(dir)
   }
-  walk(root, "")
+  walk(root, "", false)
 
   console.log(`Discovered ${tasks.length} files to upload`)
 
@@ -150,6 +164,8 @@ async function uploadDirectoryToS3(
     requestBody: new Blob([markerBody], { type: "application/json" }),
   })
   console.log(`Wrote completion marker: ${markerKey}`)
+
+  return tasks.length
 }
 ```
 
@@ -174,6 +190,13 @@ its target:
   `up -> ..`). The guard holds the real paths of the current descent only, as
   `find -L` does, not every directory seen so far: a directory reachable
   through two links is uploaded under both paths, as the checkout presents it.
+- **Anything reached through a link once the budget is spent.** Because a
+  directory can be reached along many paths, two links to the next directory
+  at each level double the tree, and a repository a few dozen links deep would
+  expand past what the job can hold in memory. Entries reached through a link
+  count against a budget of 20,000 entries and 512 MiB. Past it, the rest of
+  them are skipped with one log line. The checkout's own files are always
+  uploaded.
 
 ## Notes for review
 
