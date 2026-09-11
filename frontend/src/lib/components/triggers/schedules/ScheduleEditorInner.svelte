@@ -226,6 +226,9 @@
 	const schedulePath = $derived(
 		item.current && !isTemporaryPath(item.key.path) ? item.key.path : initialPath
 	)
+	// A deployed schedule's path is fixed, whatever the form's `path` drifted to while it was
+	// still being chosen (typing a summary derives it, even during the create request).
+	const configPath = $derived(item.origin === 'deployed' ? schedulePath : path)
 	const hasBaseline = $derived(
 		item.loaded && (item.origin === 'deployed' || item.origin === 'draft')
 	)
@@ -555,7 +558,7 @@
 
 	function getScheduleCfg(): ScheduleCfg {
 		return scheduleCfgOf({
-			path,
+			path: configPath,
 			cronVersion,
 			schedule,
 			timezone,
@@ -652,7 +655,7 @@
 							variant="default"
 							startIcon={{ icon: List }}
 							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
-							href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
+							href={`${base}/runs/?schedule_path=${configPath}&job_trigger_kind=schedule&show_future_jobs=true`}
 						>
 							View runs
 						</Button>
@@ -661,7 +664,7 @@
 							variant="default"
 							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
 							on:click={() => {
-								runScheduleNow(script_path, path, is_flow, wsId!)
+								runScheduleNow(script_path, configPath, is_flow, wsId!)
 							}}
 						>
 							Run now
@@ -687,7 +690,7 @@
 		{/if}
 		<PermissionedAsLine
 			{permissionedAs}
-			{path}
+			path={configPath}
 			onPermissionedAsChange={(pa, preserve) => {
 				selectedPermissionedAs = pa
 				preservePermissionedAs = preserve
@@ -752,8 +755,8 @@
 								<input
 									type="text"
 									readonly
-									value={path}
-									size={path?.length || 50}
+									value={configPath}
+									size={configPath?.length || 50}
 									class={twMerge(
 										'font-mono !text-2xs grow shrink overflow-x-auto !py-0 !border-l-0 !rounded-l-none',
 										ButtonType.UnifiedMinHeightClasses['md']
