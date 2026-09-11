@@ -2,10 +2,9 @@
 	import { Loader2 } from 'lucide-svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import LogViewer from './LogViewer.svelte'
-	import type { CompletedJob, Job } from '$lib/gen'
-	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AgentTool } from './flows/agentToolUtils'
+	import AgentTranscript from './AgentTranscript.svelte'
+	import { parseAgentResult } from './aiAgentResult'
 
 	interface Props {
 		waitingForExecutor?: boolean
@@ -21,12 +20,6 @@
 		refreshLog?: boolean
 		downloadLogs?: boolean
 		tagLabel?: string | undefined
-		aiAgentStatus?: {
-			tools: AgentTool[]
-			agentJob: Partial<CompletedJob> & Pick<CompletedJob, 'id'> & { type: 'CompletedJob' }
-			storedToolCallJobs?: Record<number, Job>
-			onToolJobLoaded?: (job: Job, idx: number) => void
-		}
 	}
 
 	let {
@@ -41,9 +34,12 @@
 		tag = undefined,
 		workspaceId = undefined,
 		downloadLogs = true,
-		tagLabel = undefined,
-		aiAgentStatus = undefined
+		tagLabel = undefined
 	}: Props = $props()
+
+	// An agent step's own logs are worker chatter; what happened is its conversation.
+	// Derived from the result rather than passed in, so every caller gets it.
+	let agentResult = $derived(parseAgentResult(result))
 </script>
 
 <div
@@ -69,9 +65,11 @@
 		</div>
 	</div>
 	<div class="relative flex flex-col gap-1">
-		<span class="text-emphasis text-xs font-semibold">Logs</span>
-		{#if aiAgentStatus}
-			<AiAgentLogViewer {...aiAgentStatus} {workspaceId} noPadding />
+		<span class="text-emphasis text-xs font-semibold">{agentResult ? 'Transcript' : 'Logs'}</span>
+		{#if agentResult}
+			<div class="rounded-md grow min-h-0 border bg-surface-tertiary overflow-auto p-2">
+				<AgentTranscript messages={agentResult.messages} {workspaceId} />
+			</div>
 		{:else}
 			<div class="rounded-md grow min-h-0 border bg-surface-tertiary overflow-hidden">
 				<LogViewer
