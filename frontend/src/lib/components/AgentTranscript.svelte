@@ -19,8 +19,15 @@
 
 	let { messages, workspaceId }: Props = $props()
 
-	let entries = $derived(buildTranscript(messages))
+	const all = $derived(buildTranscript(messages))
+	// The prompt is the run's configuration, not its opening line: it is the same
+	// on every run of the step, and reading the conversation from it buries what
+	// the user actually asked. Kept reachable, at the end.
+	const entries = $derived(all.filter((entry) => entry.kind !== 'system'))
+	const systemPrompt = $derived(all.find((entry) => entry.kind === 'system'))
 
+	// Out of the entry index space, since the prompt is rendered outside the list.
+	const SYSTEM_PROMPT_KEY = -1
 	let expanded = new SvelteSet<number>()
 	// A tool's own job holds what the envelope does not: its logs, how long it
 	// took, and whether it succeeded. Fetched when a row is opened rather than
@@ -89,16 +96,6 @@
 					</div>
 				{/if}
 			</div>
-		{:else if entry.kind === 'system'}
-			<div class="px-2 mb-1">
-				<ChatCollapsibleCard
-					label="System prompt"
-					expanded={expanded.has(index)}
-					onToggle={() => toggle(index, entry)}
-				>
-					<div class="whitespace-pre-wrap text-2xs text-primary">{entry.content}</div>
-				</ChatCollapsibleCard>
-			</div>
 		{:else if entry.kind === 'search'}
 			<div class="px-2 mb-1">
 				<ChatCollapsibleCard
@@ -153,4 +150,15 @@
 			</div>
 		{/if}
 	{/each}
+	{#if systemPrompt}
+		<div class="px-2 pt-2">
+			<ChatCollapsibleCard
+				label="System prompt"
+				expanded={expanded.has(SYSTEM_PROMPT_KEY)}
+				onToggle={() => toggle(SYSTEM_PROMPT_KEY, systemPrompt)}
+			>
+				<div class="whitespace-pre-wrap text-2xs text-primary">{systemPrompt.content}</div>
+			</ChatCollapsibleCard>
+		</div>
+	{/if}
 </div>

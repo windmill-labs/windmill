@@ -3,8 +3,6 @@
 	import DisplayResult from './DisplayResult.svelte'
 	import LogViewer from './LogViewer.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import AgentTranscript from './AgentTranscript.svelte'
-	import { parseAgentResult } from './aiAgentResult'
 
 	interface Props {
 		waitingForExecutor?: boolean
@@ -36,10 +34,6 @@
 		downloadLogs = true,
 		tagLabel = undefined
 	}: Props = $props()
-
-	// An agent step's own logs are worker chatter; what happened is its conversation.
-	// Derived from the result rather than passed in, so every caller gets it.
-	let agentResult = $derived(parseAgentResult(result))
 </script>
 
 <div
@@ -65,22 +59,16 @@
 		</div>
 	</div>
 	<div class="relative flex flex-col gap-1">
-		<span class="text-emphasis text-xs font-semibold">{agentResult ? 'Transcript' : 'Logs'}</span>
-		{#if agentResult}
-			<div class="rounded-md grow min-h-0 border bg-surface-tertiary overflow-auto p-2">
-				<AgentTranscript messages={agentResult.messages} {workspaceId} />
-			</div>
-		{:else}
-			<div class="rounded-md grow min-h-0 border bg-surface-tertiary overflow-hidden">
-				<LogViewer
-					{tagLabel}
-					download={downloadLogs}
-					content={logs ?? ''}
-					{jobId}
-					isLoading={waitingForExecutor}
-					{tag}
-				/>
-			</div>
-		{/if}
+		<span class="text-emphasis text-xs font-semibold">Logs</span>
+		<div class="rounded-md grow min-h-0 border bg-surface-tertiary overflow-hidden">
+			<LogViewer
+				{tagLabel}
+				download={downloadLogs}
+				content={logs ?? ''}
+				{jobId}
+				isLoading={waitingForExecutor}
+				{tag}
+			/>
+		</div>
 	</div>
 </div>

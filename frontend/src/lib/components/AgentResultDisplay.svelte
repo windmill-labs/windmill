@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Bot } from 'lucide-svelte'
 	import type { Snippet } from 'svelte'
 	import { Badge } from '$lib/components/common'
 	import GfmMarkdown from './GfmMarkdown.svelte'
@@ -27,11 +26,26 @@
 	let textOutput = $derived(typeof result.output === 'string' ? result.output : undefined)
 </script>
 
-<!-- pt-2 clears the toggle group and control bar the result viewer puts directly
-     above this, which otherwise sit on the meta line. -->
-<div class="flex flex-col gap-2 w-full pt-2">
+<div class="flex flex-col gap-2 w-full pt-1">
+	{#if view === 'transcript'}
+		<AgentTranscript messages={result.messages} {workspaceId} />
+	{:else if textOutput !== undefined}
+		{#if textOutput === ''}
+			<span class="text-tertiary text-xs">The agent returned no answer</span>
+		{:else}
+			<!-- A model writes this answer, and what it writes is steerable by whatever
+			     reached its context — a user message, a tool's output. So it is
+			     untrusted input and goes through the shared sanitizing chain, which is
+			     also what makes it inert on the public replay page. -->
+			<GfmMarkdown md={textOutput} noPadding />
+		{/if}
+	{:else}
+		{@render structuredOutput(result.output)}
+	{/if}
+
+	<!-- What the run cost sits under what it produced: it is the footnote to the
+	     answer, not the heading above it. -->
 	<div class="flex items-center gap-2 flex-wrap text-xs">
-		<Bot size={14} class="text-tertiary shrink-0" />
 		{#if summary.toolCalls > 0}
 			<Badge color="blue">
 				{summary.toolCalls}
@@ -51,20 +65,4 @@
 			<Badge color="gray">{formatTokenCount(summary.cachedTokens)} cached</Badge>
 		{/if}
 	</div>
-
-	{#if view === 'transcript'}
-		<AgentTranscript messages={result.messages} {workspaceId} />
-	{:else if textOutput !== undefined}
-		{#if textOutput === ''}
-			<span class="text-tertiary text-xs">The agent returned no answer</span>
-		{:else}
-			<!-- A model writes this answer, and what it writes is steerable by whatever
-			     reached its context — a user message, a tool's output. So it is
-			     untrusted input and goes through the shared sanitizing chain, which is
-			     also what makes it inert on the public replay page. -->
-			<GfmMarkdown md={textOutput} noPadding />
-		{/if}
-	{:else}
-		{@render structuredOutput(result.output)}
-	{/if}
 </div>
