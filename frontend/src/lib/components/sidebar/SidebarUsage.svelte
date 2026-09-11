@@ -2,7 +2,7 @@
 	import { resource } from 'runed'
 	import { goto } from '$lib/navigation'
 	import { isCloudHosted } from '$lib/cloud'
-	import { Sparkles } from 'lucide-svelte'
+	import { AlertTriangle, Sparkles } from 'lucide-svelte'
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import {
 		isPremiumStore,
@@ -248,15 +248,38 @@
 {/if}
 
 {#if trialRefusal}
+	<!-- The refusal replaces the button it answers, in the button's own shape: a
+	     collapsed rail gets the icon with the explanation in its tooltip, an expanded one
+	     the sentence and the way to the portal. -->
 	<div class="px-2 pt-2">
-		<p class="rounded-md border border-border-light px-2.5 py-2 text-2xs text-secondary">
-			The trial could not be started: {trialRefusal.reason}.
-			<a
-				href={trialRefusal.location}
-				class="text-accent hover:underline"
-				referrerpolicy="no-referrer">The customer portal has the details.</a
-			>
-		</p>
+		<Tooltip placement="right" class="w-full">
+			{#snippet text()}
+				The trial could not be started: {trialRefusal?.reason}. The customer portal has the
+				details.
+			{/snippet}
+			{#if isCollapsed}
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					iconOnly
+					startIcon={{ icon: AlertTriangle }}
+					onclick={() => window.location.assign(trialRefusal!.location)}
+					aria-label="The trial could not be started; open the customer portal"
+				/>
+			{:else}
+				<p class="mb-1.5 text-2xs text-secondary">
+					The trial could not be started: {trialRefusal.reason}.
+				</p>
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: AlertTriangle }}
+					onclick={() => window.location.assign(trialRefusal!.location)}
+				>
+					Open the customer portal
+				</Button>
+			{/if}
+		</Tooltip>
 	</div>
 {/if}
 
