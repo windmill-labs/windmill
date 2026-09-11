@@ -1941,9 +1941,6 @@ async fn write_profiles(
         .or(workspace_target.as_deref())
         .unwrap_or("default");
     let dir = PathBuf::from(job_dir).join("dbt_profiles");
-    fresh_dir(&dir)
-        .await
-        .map_err(|e| Error::internal_err(format!("creating the profiles dir: {e}")))?;
     let rendered = if is_dbt_profile {
         let block = value.as_object().ok_or_else(|| {
             Error::BadRequest(
@@ -1973,6 +1970,10 @@ async fn write_profiles(
             &dir,
         )?
     };
+    // After the render, so a render that fails leaves the previous profile whole.
+    fresh_dir(&dir)
+        .await
+        .map_err(|e| Error::internal_err(format!("creating the profiles dir: {e}")))?;
     write_file(dir.to_str().unwrap(), "profiles.yml", &rendered.yaml)?;
     if let Some(pem) = rendered.root_certificate_pem.as_deref() {
         write_file(

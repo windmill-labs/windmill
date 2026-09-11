@@ -1544,6 +1544,9 @@ fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
 /// `margin_secs`. A read refreshes a token only once it has expired, which is too late
 /// for a caller that logs in with it well after resolving it. A refresh that fails
 /// leaves the token as it was: it is still valid, so reading it must not fail.
+///
+/// No permission check happens here. The caller must already be entitled to resolve
+/// this resource's credentials, as the dbt warehouse route is for the job it serves.
 #[cfg(feature = "oauth2")]
 pub async fn refresh_expiring_oauth_tokens(
     db: &DB,
@@ -1576,7 +1579,24 @@ pub async fn refresh_expiring_oauth_tokens(
     .fetch_all(db)
     .await?;
     for (path, account) in expiring {
-        let tx = db.begin().await?;
+        // Locked and rechecked: two jobs resolving the same warehouse would otherwise
+        // exchange one refresh token twice, and a provider that rotates refresh tokens
+        // invalidates one of them. The second waits here, then finds it fresh.
+        let mut tx = db.begin().await?;
+        let still_expiring: Option<i32> = sqlx::query_scalar(
+            "SELECT id FROM account
+              WHERE workspace_id = $1 AND id = $2
+                AND expires_at < now() + make_interval(secs => $3)
+              FOR UPDATE",
+        )
+        .bind(w_id)
+        .bind(account)
+        .bind(margin_secs)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if still_expiring.is_none() {
+            continue;
+        }
         if let Err(e) = crate::oauth_refresh_oss::_refresh_token(tx, &path, w_id, account, db).await
         {
             tracing::warn!("refreshing the OAuth token at {path} ahead of expiry: {e:#}");

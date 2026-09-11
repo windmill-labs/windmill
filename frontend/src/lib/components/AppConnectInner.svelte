@@ -1599,13 +1599,13 @@
 		<!-- Not for express or `fillPath`, which save as soon as the token arrives: the fields
 		     are then filled by editing the resource. -->
 		{#if step == 4 && !manual && !express && !fillPath && resourceFields.length > 0}
-			<div class="flex flex-col gap-1 mt-6">
-				<h3 class="text-xs font-semibold text-emphasis">Connection details</h3>
-				<div class="text-xs text-secondary font-normal">
-					Optional. Saved on the resource with the token, and editable later.
-				</div>
+			<Label
+				label="Connection details"
+				tooltip="Saved on the resource with the token, and editable later"
+				class="mt-6"
+			>
 				<SchemaForm onlyMaskPassword noDelete schema={resourceFieldsSchema} bind:args />
-			</div>
+			</Label>
 		{/if}
 		{#if apiTokenApps[resourceType] || !manual}
 			<ul class="mt-6">
