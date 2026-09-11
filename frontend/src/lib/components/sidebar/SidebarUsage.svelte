@@ -55,7 +55,11 @@
 				sendUserToast(
 					`The trial could not be started: ${reason}. The customer portal has the details.`,
 					true,
-					[{ label: 'Open the portal', callback: () => window.location.assign(location) }]
+					[{ label: 'Open the portal', callback: () => window.location.assign(location) }],
+					undefined,
+					// The refusal spent the offer for good; the only record of why must not fade out
+					// (a toast lives `duration` ms unless closed; there is no "forever" value).
+					24 * 60 * 60 * 1000
 				)
 				return
 			}

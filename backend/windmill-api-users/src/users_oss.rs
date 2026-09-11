@@ -28,7 +28,7 @@ pub async fn impersonate_service_account(
 }
 
 #[cfg(not(feature = "private"))]
-pub async fn portal_cloud_trial_login(
+pub(crate) async fn portal_cloud_trial_login(
     _email: &str,
 ) -> windmill_common::error::Result<crate::users::PortalTrialLogin> {
     Err(windmill_common::error::Error::FeatureUnavailable(

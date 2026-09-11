@@ -523,6 +523,9 @@
 	function finishOauthFlow(via: 'postMessage' | 'storage' | 'poll', win?: Window) {
 		if (oauthFlowDone) return
 		oauthFlowDone = true
+		// The popup replaced the session under this still-mounted page; whatever the
+		// previous account had cached must not be served to the new one.
+		noteSessionEmail(undefined)
 		confirmPendingLoginMethod()
 		console.log(`oauth: signaled via ${via}`)
 		if (win && !win.closed) win.close()
