@@ -20,7 +20,7 @@
 		Highlighter,
 		ArrowDownFromLine,
 		Bot,
-		MessagesSquare,
+		ListTree,
 		Database,
 		Loader2
 	} from 'lucide-svelte'
@@ -58,7 +58,7 @@
 	import type { MarkupTrust } from './apps/markupTrust'
 	import AgentResultDisplay from './AgentResultDisplay.svelte'
 	import AgentStreamDisplay from './AgentStreamDisplay.svelte'
-	import AgentTranscript from './AgentTranscript.svelte'
+	import AgentActions from './AgentActions.svelte'
 	import { isAgentStream, parseAgentErrorMessages, parseAgentResult } from './aiAgentResult'
 
 	const TABLE_MAX_SIZE = 5000000
@@ -165,7 +165,7 @@
 	}: Props = $props()
 	let s3FileDisplayRawMode = $state(false)
 	/** Which half of an agent result is showing; JSON is `forceJson`, as for any kind. */
-	let agentView: 'answer' | 'transcript' = $state('answer')
+	let agentView: 'answer' | 'actions' = $state('answer')
 	/** The partial conversation a max-iterations failure carries, if this is one. */
 	let agentErrorMessages = $derived(parseAgentErrorMessages(result))
 
@@ -308,7 +308,7 @@
 				}
 
 				// Classified before the size caps below: an agent's answer stays small
-				// however long its conversation grows, so a run with a big transcript
+				// however long its conversation grows, so a run with many actions
 				// must not fall back to the JSON tree that hides the answer inside it.
 				// `largeObject` is still set honestly, so switching to JSON gets the
 				// same too-big handling as any other oversized result.
@@ -818,15 +818,15 @@
 					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
 							selected={forceJson
 								? 'json'
-								: agentView === 'transcript' && resultKind === 'aiagent'
-									? 'transcript'
+								: agentView === 'actions' && resultKind === 'aiagent'
+									? 'actions'
 									: resultKind?.startsWith('table-')
 										? 'table'
 										: 'pretty'}
 							on:selected={(ev) => {
 								forceJson = ev.detail === 'json'
-								if (ev.detail === 'transcript' || ev.detail === 'pretty') {
-									agentView = ev.detail === 'transcript' ? 'transcript' : 'answer'
+								if (ev.detail === 'actions' || ev.detail === 'pretty') {
+									agentView = ev.detail === 'actions' ? 'actions' : 'answer'
 								}
 							}}
 						>
@@ -835,13 +835,7 @@
 									<ToggleButton size="sm" value="table" label="Table" icon={Table2} {item} />
 								{:else if resultKind === 'aiagent'}
 									<ToggleButton size="sm" value="pretty" label="Answer" icon={Bot} {item} />
-									<ToggleButton
-										size="sm"
-										value="transcript"
-										label="Transcript"
-										icon={MessagesSquare}
-										{item}
-									/>
+									<ToggleButton size="sm" value="actions" label="Actions" icon={ListTree} {item} />
 								{:else}
 									<ToggleButton size="sm" value="pretty" label="Pretty" icon={Highlighter} {item} />
 								{/if}
@@ -1024,12 +1018,12 @@
 					</div>
 					{#if agentErrorMessages}
 						<!-- A run stopped by max_iterations fails, so the error above is what it
-						     returned. The conversation it got through rides inside that error and
-						     is the whole reason to look at such a run, so it is added under the
-						     error rather than replacing it. -->
+						     returned. What it managed to do rides inside that error and is the
+						     whole reason to look at such a run, so it is added under the error
+						     rather than replacing it. -->
 						<div class="flex flex-col gap-1 pt-4 w-full min-w-0">
-							<span class="text-emphasis text-xs font-semibold">Transcript</span>
-							<AgentTranscript messages={agentErrorMessages} {workspaceId} />
+							<span class="text-emphasis text-xs font-semibold">Actions</span>
+							<AgentActions messages={agentErrorMessages} {workspaceId} />
 						</div>
 					{/if}
 					{#if !isTest && language === 'bun'}
