@@ -70,12 +70,26 @@ async function uploadDirectoryToS3(
   let symlinkedEntries = 0
   let symlinkedBytes = 0
   let symlinkBudgetSpent = false
+  function chargeSymlinkBudget(relPath: string, entries: number, bytes: number): boolean {
+    if (symlinkBudgetSpent) return false
+    symlinkedEntries += entries
+    symlinkedBytes += bytes
+    if (symlinkedEntries <= MAX_SYMLINKED_ENTRIES && symlinkedBytes <= MAX_SYMLINKED_BYTES) {
+      return true
+    }
+    symlinkBudgetSpent = true
+    console.log(
+      `Skipping ${relPath} and every symlinked entry after it: symlinks reach more than ` +
+      `${MAX_SYMLINKED_ENTRIES} entries or ${MAX_SYMLINKED_BYTES / 2 ** 20} MiB`
+    )
+    return false
+  }
   function walk(dir: string, relDir: string, viaLink: boolean) {
     ancestors.add(dir)
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const relPath = relDir ? `${relDir}/${entry.name}` : entry.name
       const linked = viaLink || entry.isSymbolicLink()
-      if (linked && symlinkBudgetSpent) continue
+      if (linked && !chargeSymlinkBudget(relPath, 1, 0)) continue
       let localPath = join(dir, entry.name)
       if (entry.isSymbolicLink()) {
         const link = fs.readlinkSync(localPath)
@@ -95,18 +109,7 @@ async function uploadDirectoryToS3(
         console.log(`Skipping ${relPath}: links back to a directory it is inside`)
         continue
       }
-      if (linked) {
-        symlinkedEntries++
-        if (stat.isFile()) symlinkedBytes += stat.size
-        if (symlinkedEntries > MAX_SYMLINKED_ENTRIES || symlinkedBytes > MAX_SYMLINKED_BYTES) {
-          symlinkBudgetSpent = true
-          console.log(
-            `Skipping ${relPath} and every symlinked entry after it: symlinks reach more than ` +
-            `${MAX_SYMLINKED_ENTRIES} entries or ${MAX_SYMLINKED_BYTES / 2 ** 20} MiB`
-          )
-          continue
-        }
-      }
+      if (linked && stat.isFile() && !chargeSymlinkBudget(relPath, 0, stat.size)) continue
       if (stat.isDirectory()) {
         walk(localPath, relPath, linked)
       } else if (stat.isFile()) {
@@ -193,10 +196,11 @@ with its files. Everything else is skipped and logged:
 - **Anything reached through a link once the budget is spent.** Because a
   directory can be reached along many paths, two links to the next directory
   at each level double the tree, and a repository a few dozen links deep would
-  expand past what the job can hold in memory. Entries reached through a link
-  count against a budget of 20,000 entries and 512 MiB. Past it, the rest of
-  them are skipped with one log line. The checkout's own files are always
-  uploaded.
+  expand past what the job can hold in memory. Every entry reached through a
+  link counts against a budget of 20,000 entries and 512 MiB. It is charged
+  before the link is resolved, so links that end up skipped count too, and
+  neither their work nor their log lines can multiply. Past the budget, the rest
+  are skipped with one log line. The checkout's own files are always uploaded.
 
 ## Notes for review
 
