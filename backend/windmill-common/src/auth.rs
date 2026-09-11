@@ -472,18 +472,14 @@ async fn fetch_authed_from_permissioned_as_inner(
     let resolved_email;
     let email = match member.as_ref() {
         Some(m) => m.email.as_str(),
-        // No `usr` row: the principal names an account only `password` knows, so validate against
-        // the same fallback `resolve_username_to_email` uses. Reached only for a superadmin acting
-        // outside their workspaces, which is why it is worth a query the member path does not pay.
+        // No enabled `usr` row. Resolve as `resolve_username_to_email` does: a disabled member's
+        // own row still wins over the `password` superadmin fallback, so it can never resolve to
+        // an unrelated superadmin who shares the username (workspace usernames are only unique per
+        // workspace). Off the member path, which is why it is worth a query that path skips.
         None => match permissioned_as.split_once('/') {
             Some(("u", name)) => {
-                resolved_email = sqlx::query_scalar!(
-                    "SELECT email FROM password WHERE (username = $1 OR email = $1) \
-                     AND super_admin = true ORDER BY email LIMIT 1",
-                    name
-                )
-                .fetch_optional(&mut *conn)
-                .await?;
+                resolved_email =
+                    crate::users::resolve_username_to_email(w_id, name, &mut *conn).await?;
                 // No live binding at all: the supplied address stands. A cached one is at most one
                 // notify poll stale; accepted, see `users::get_email_from_permissioned_as`.
                 resolved_email.as_deref().unwrap_or(email)

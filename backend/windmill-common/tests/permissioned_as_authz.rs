@@ -48,3 +48,34 @@ async fn test_stale_address_cannot_carry_the_previous_holders_privileges(db: Poo
         "the new holder must not inherit the previous holder's superadmin"
     );
 }
+
+/// A disabled member still holds its username in the workspace. Workspace usernames are only
+/// unique per workspace, so an unrelated instance superadmin can share it, and falling through to
+/// the `password` fallback would run the disabled member's jobs as that superadmin.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_disabled_member_never_resolves_to_a_same_named_superadmin(db: Pool<Postgres>) {
+    sqlx::query(
+        "UPDATE usr SET disabled = true WHERE workspace_id = 'test-workspace' AND username = 'test-user-2'",
+    )
+    .execute(&db)
+    .await
+    .expect("disable the member");
+    sqlx::query(
+        "INSERT INTO password(email, password_hash, login_type, super_admin, verified, name, username)
+         VALUES ('other-superadmin@windmill.dev', 'x', 'password', true, true, 'Other', 'test-user-2')",
+    )
+    .execute(&db)
+    .await
+    .expect("create the same-named superadmin");
+
+    for supplied in ["test2@windmill.dev", "other-superadmin@windmill.dev"] {
+        let authed =
+            fetch_authed_from_permissioned_as("u/test-user-2", supplied, "test-workspace", &db)
+                .await;
+        assert!(
+            authed.is_err(),
+            "a disabled member must not authenticate (supplied {supplied}): {:?}",
+            authed.map(|a| (a.email, a.is_admin))
+        );
+    }
+}
