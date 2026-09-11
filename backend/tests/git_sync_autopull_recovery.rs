@@ -11,8 +11,17 @@ use windmill_git_sync::{clear_auto_pull_failure, persist_auto_pull_state};
 
 const WS: &str = "ap-ws";
 const REPO: &str = "$res:u/admin/repo";
-/// `at` of the failure the fixture records.
-const FIXTURE_FAILED_AT: i64 = 1;
+
+/// The failure the fixture records, as the poller would have read it.
+fn fixture_failure() -> AutoPullStatus {
+    AutoPullStatus {
+        synced_sha: None,
+        at: 1,
+        job_id: None,
+        success: false,
+        error: Some("head check failed: x".to_string()),
+    }
+}
 
 fn recovered(head: &str) -> AutoPullStatus {
     AutoPullStatus {
@@ -33,18 +42,25 @@ async fn stored_auto_pull(db: &Pool<Postgres>) -> anyhow::Result<serde_json::Val
     Ok(git_sync["repositories"][0]["auto_pull"].clone())
 }
 
-#[sqlx::test(fixtures("git_sync_autopull_recovery"))]
-async fn recovery_clears_the_failure_at_the_synced_head(db: Pool<Postgres>) -> anyhow::Result<()> {
+/// The stale recovery every test below runs: decided on the fixture's failure at
+/// head "aaa".
+async fn stale_recovery(db: &Pool<Postgres>) -> anyhow::Result<()> {
     clear_auto_pull_failure(
-        &db,
+        db,
         WS,
         REPO,
         "main",
         "aaa",
-        FIXTURE_FAILED_AT,
+        &fixture_failure(),
         &recovered("aaa"),
     )
     .await?;
+    Ok(())
+}
+
+#[sqlx::test(fixtures("git_sync_autopull_recovery"))]
+async fn recovery_clears_the_failure_at_the_synced_head(db: Pool<Postgres>) -> anyhow::Result<()> {
+    stale_recovery(&db).await?;
 
     let auto_pull = stored_auto_pull(&db).await?;
     assert_eq!(auto_pull["last_pull_status"]["success"], true);
@@ -80,16 +96,7 @@ async fn stale_recovery_leaves_a_newer_state_alone(db: Pool<Postgres>) -> anyhow
     )
     .await?;
 
-    clear_auto_pull_failure(
-        &db,
-        WS,
-        REPO,
-        "main",
-        "aaa",
-        FIXTURE_FAILED_AT,
-        &recovered("aaa"),
-    )
-    .await?;
+    stale_recovery(&db).await?;
 
     let auto_pull = stored_auto_pull(&db).await?;
     assert_eq!(auto_pull["last_synced_sha"]["main"], "bbb");
@@ -101,44 +108,35 @@ async fn stale_recovery_leaves_a_newer_state_alone(db: Pool<Postgres>) -> anyhow
 
 /// The head can stay at "aaa" while a newer failure is recorded (a later head
 /// check, a pull job that failed). A recovery decided on the older failure must
-/// not paper over the newer one.
+/// not paper over the newer one, whether it differs by timestamp or, within the
+/// same second, only by its error.
 #[sqlx::test(fixtures("git_sync_autopull_recovery"))]
 async fn stale_recovery_keeps_a_newer_failure_at_the_same_head(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
-    let newer_failure = AutoPullStatus {
-        synced_sha: None,
-        at: 5,
-        job_id: None,
-        success: false,
-        error: Some("head check failed: newer".to_string()),
-    };
-    persist_auto_pull_state(
-        &db,
-        WS,
-        REPO,
-        &HashMap::from([("main".to_string(), "aaa".to_string())]),
-        &newer_failure,
-    )
-    .await?;
+    let same_sha = HashMap::from([("main".to_string(), "aaa".to_string())]);
+    for newer in [
+        AutoPullStatus {
+            at: 5,
+            error: Some("head check failed: later".to_string()),
+            ..fixture_failure()
+        },
+        AutoPullStatus {
+            error: Some("head check failed: same second".to_string()),
+            ..fixture_failure()
+        },
+    ] {
+        persist_auto_pull_state(&db, WS, REPO, &same_sha, &newer).await?;
 
-    clear_auto_pull_failure(
-        &db,
-        WS,
-        REPO,
-        "main",
-        "aaa",
-        FIXTURE_FAILED_AT,
-        &recovered("aaa"),
-    )
-    .await?;
+        stale_recovery(&db).await?;
 
-    let auto_pull = stored_auto_pull(&db).await?;
-    assert_eq!(auto_pull["last_pull_status"]["success"], false);
-    assert_eq!(auto_pull["last_pull_status"]["at"], 5);
-    assert_eq!(
-        auto_pull["last_pull_status"]["error"],
-        "head check failed: newer"
-    );
+        let auto_pull = stored_auto_pull(&db).await?;
+        assert_eq!(auto_pull["last_pull_status"]["success"], false);
+        assert_eq!(auto_pull["last_pull_status"]["at"], newer.at);
+        assert_eq!(
+            auto_pull["last_pull_status"]["error"],
+            newer.error.as_deref().unwrap()
+        );
+    }
     Ok(())
 }
