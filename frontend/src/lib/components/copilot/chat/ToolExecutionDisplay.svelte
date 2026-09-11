@@ -52,7 +52,7 @@
 	// Recorded by the call itself, from the connected-server list rather than from the
 	// model's arguments — which is what lets a reloaded transcript still resolve it, and
 	// what keeps a path the model made up from being read as a workspace resource.
-	const mcpServerPath = $derived(message.mcpServer)
+	const mcpServer = $derived(message.mcpServer)
 
 	const isPlanReview = $derived(message.toolName === EXIT_PLAN_MODE_TOOL)
 	const isPlanCard = $derived(isPlanCardTool(message.toolName))
@@ -253,8 +253,8 @@
 	     is marked before its label. Awaited rather than drawn immediately: the MCP logo
 	     appearing first and being replaced would flicker on every row. -->
 	{#snippet serverMark()}
-		{#if mcpServerPath && aiChatManager.operatingWorkspace}
-			{#await resolveMcpServerMark(aiChatManager.operatingWorkspace, mcpServerPath) then mark}
+		{#if mcpServer?.workspace && mcpServer.path}
+			{#await resolveMcpServerMark(mcpServer.workspace, mcpServer.path) then mark}
 				<McpServerIcon icon={mark.icon} size={14} />
 			{/await}
 		{/if}
@@ -276,7 +276,7 @@
 		labelClass={showPreviewChip ? 'truncate' : ''}
 		contentClass="space-y-3"
 		headerRight={showPreviewChip ? previewChip : undefined}
-		headerLeft={mcpServerPath ? serverMark : undefined}
+		headerLeft={mcpServer?.workspace ? serverMark : undefined}
 	>
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
 		{#snippet belowHeader()}

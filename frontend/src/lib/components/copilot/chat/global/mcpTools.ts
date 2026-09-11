@@ -285,13 +285,16 @@ function boundedSearch(payload: { matches: unknown[]; [k: string]: unknown }): s
 	let out = JSON.stringify(payload)
 	if (out.length <= MAX_RESULT_CHARS) return out
 
-	const { unavailable, ...rest } = payload
+	// The caller's note says how many matches the score cut off, which truncating
+	// only adds to.
+	const { unavailable, note: scoreNote, ...rest } = payload
 	const dropped = Array.isArray(unavailable) ? { unavailableCount: unavailable.length } : {}
 	const found = payload.matches.length
 	const matches = payload.matches.map((m) => ({ ...(m as object) })) as Record<string, unknown>[]
 	const build = () => {
 		const schemaless = matches.filter((m) => !m.inputSchema).length
-		const note = [`Truncated to ${MAX_RESULT_CHARS} characters.`]
+		const note = typeof scoreNote === 'string' ? [scoreNote] : []
+		note.push(`Truncated to ${MAX_RESULT_CHARS} characters.`)
 		if (schemaless > 0) {
 			note.push(
 				`${schemaless} lower-ranked match(es) are listed without their inputSchema; calling one returns the schema if the arguments are wrong.`
@@ -364,7 +367,7 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> 
 			// model could point anywhere.
 			const named = servers.find((s) => s.path === parsed.server)
 			if (named) {
-				toolCallbacks.setToolStatus(toolId, { mcpServer: named.path })
+				toolCallbacks.setToolStatus(toolId, { mcpServer: { workspace, path: named.path } })
 			}
 			// Listing is a live call to a third party: a server that has gone away
 			// must fail this tool, not the chat loop around it.

@@ -350,6 +350,27 @@ describe('result size cap', () => {
 		expect(result.truncated).toBe(true)
 	})
 
+	// Truncating must not swallow the count of matches the score cut off: those
+	// tools are not in the result at all, so the model has to know to ask again.
+	it('keeps the more-matches hint when truncation strips schemas', async () => {
+		getMcpToolsMock.mockResolvedValue(
+			Array.from({ length: 12 }, (_, i) => ({
+				name: `issue_${i}`,
+				description: 'An issue tool',
+				inputSchema: {
+					type: 'object',
+					properties: { body: { type: 'string', description: 'x'.repeat(3_000) } }
+				},
+				annotations: { readOnlyHint: true }
+			}))
+		)
+		const result = await run('search_mcp_tools', { query: 'issue' })
+
+		expect(result.matches).toHaveLength(10)
+		expect(result.note).toContain('2 more match(es)')
+		expect(result.note).toContain('inputSchema')
+	})
+
 	it('holds the cap when every server failed and nothing matched', async () => {
 		getMcpToolsMock.mockRejectedValue(new Error('x'.repeat(500)))
 		const servers = Array.from({ length: 50 }, (_, i) => ({ path: `u/hugo/mcp_${i}` }))
