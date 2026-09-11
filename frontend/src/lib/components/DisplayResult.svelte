@@ -1278,7 +1278,7 @@
 				{:else if !forceJson && resultKind === 'aiagent'}
 					{@const agentResult = parseAgentResult(result)}
 					{#if agentResult}
-						<AgentResultDisplay result={agentResult} {workspaceId}>
+						<AgentResultDisplay result={agentResult} {workspaceId} runKey={jobId}>
 							{#snippet structuredOutput(output)}
 								<DisplayResult
 									noControls

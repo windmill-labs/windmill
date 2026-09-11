@@ -2,7 +2,8 @@
 	import { untrack } from 'svelte'
 	import ChatCollapsibleCard from './copilot/chat/ChatCollapsibleCard.svelte'
 	import GfmMarkdown from './GfmMarkdown.svelte'
-	import { isFollowingEnd, runPane, scrollRunToEnd } from './agentScroll'
+	import { runPane } from './agentScroll'
+	import { createBottomSticker } from './stickToBottom'
 	import {
 		advanceAgentStream,
 		emptyAgentStreamProgress,
@@ -38,6 +39,7 @@
 	// Carry the reader along as the text is written, unless they have scrolled up
 	// to read something — then the pane is theirs until they come back to the end.
 	let following = true
+	const sticker = createBottomSticker()
 
 	// The listener goes on the pane, not on this element: a scroll event fires on
 	// whatever actually scrolled and does not bubble, so a handler here would never
@@ -47,7 +49,11 @@
 		if (!pane) {
 			return
 		}
-		const onScroll = () => (following = isFollowingEnd(anchor))
+		const onScroll = () => {
+			if (!sticker.isOwnScroll()) {
+				following = sticker.isAtEnd(pane)
+			}
+		}
 		pane.addEventListener('scroll', onScroll, { passive: true })
 		return () => pane.removeEventListener('scroll', onScroll)
 	})
@@ -57,7 +63,7 @@
 		stream.reasoning
 		stream.entries.length
 		if (following) {
-			scrollRunToEnd(anchor)
+			sticker.scrollToEnd(runPane(anchor))
 		}
 	})
 

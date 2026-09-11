@@ -5,11 +5,15 @@
 	import AgentTrace from './AgentTrace.svelte'
 	import LabeledDivider from './LabeledDivider.svelte'
 	import { buildAgentTrace } from './agentTrace'
+	import { runPane } from './agentScroll'
+	import { createBottomSticker } from './stickToBottom'
 	import { formatTokenCount, summarizeAgentResult, type AgentResult } from './aiAgentResult'
 
 	interface Props {
 		result: AgentResult
 		workspaceId?: string
+		/** Identifies the run, so a reused viewer lands on the new one's output. */
+		runKey?: string
 		/**
 		 * How to render an output that is not text. An `output_schema` makes `output`
 		 * an object, and the right rendering for it is whatever the result viewer
@@ -20,7 +24,7 @@
 		structuredOutput: Snippet<[unknown]>
 	}
 
-	let { result, workspaceId, structuredOutput }: Props = $props()
+	let { result, workspaceId, runKey, structuredOutput }: Props = $props()
 
 	let summary = $derived(summarizeAgentResult(result))
 	let textOutput = $derived(typeof result.output === 'string' ? result.output : undefined)
@@ -32,9 +36,19 @@
 		const entries = buildAgentTrace(result.messages)
 		return entries.at(-1)?.kind === 'assistant' ? entries.slice(0, -1) : entries
 	})
+
+	let anchor: HTMLElement | undefined = $state()
+	const sticker = createBottomSticker()
+	$effect(() => {
+		// Also on arrival from a stream: the run finishing adds the output separator,
+		// so the end has moved from wherever the stream had the reader parked.
+		runKey
+		trace.length
+		sticker.scrollToEnd(runPane(anchor))
+	})
 </script>
 
-<div class="flex flex-col w-full py-3">
+<div bind:this={anchor} class="flex flex-col w-full py-3">
 	{#if trace.length > 0}
 		<AgentTrace entries={trace} {workspaceId} />
 		<LabeledDivider class="my-3">
