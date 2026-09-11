@@ -39,7 +39,7 @@
      nothing moves when the result lands. The text at the bottom is deliberately
      unlabelled: a turn that goes on to call a tool was narration, and only the end
      of the run settles which this one is. -->
-<div class="flex flex-col w-full pt-3">
+<div class="flex flex-col w-full py-3">
 	{#each stream.entries as entry, index (entry.kind === 'tool' ? entry.callId : index)}
 		{#if entry.kind === 'tool'}
 			<ChatCollapsibleCard
