@@ -1,10 +1,10 @@
 -- Add up migration script here
--- Emit a notify_event so every server evicts its cached `permissioned_as` -> address mapping
--- (windmill-common EMAIL_CACHE). That address is derived at job dispatch and feeds the
--- instance-superadmin check and `email_to_igroup`, so a replica serving a stale one runs jobs
--- with the wrong authorization until the TTL expires. SECURITY DEFINER so the INSERT runs as the
--- function owner rather than the invoking windmill_user/windmill_admin role, matching the other
--- notify_* triggers.
+-- Emit a notify_event so every process evicts its cached `permissioned_as` -> address mapping
+-- (windmill-common EMAIL_CACHE) at its next notify-event poll, rather than serving the old
+-- address for the rest of the TTL. Authorization does not rest on this:
+-- `fetch_authed_from_permissioned_as` re-resolves the address from the principal's live binding.
+-- SECURITY DEFINER so the INSERT runs as the function owner rather than the invoking
+-- windmill_user/windmill_admin role, matching the other notify_* triggers.
 CREATE OR REPLACE FUNCTION notify_usr_email_change()
 RETURNS TRIGGER AS $$
 BEGIN

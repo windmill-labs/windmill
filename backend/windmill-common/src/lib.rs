@@ -288,10 +288,10 @@ pub fn check_on_behalf_of_preservation(
 /// a function of it, so the two can never name different accounts. For a script or flow the
 /// address is derived at read time; an app still stores it, as a compatibility copy written
 /// through from the principal on every save and returned verbatim by the app reads (see
-/// `docs/app-policy-email-removal.md`). Callers may supply either: a bare email (every client written before the
-/// principal existed) is resolved to the principal it names, and an email that names
-/// nobody is rejected rather than recorded, since it could only produce a runnable that
-/// cannot authenticate.
+/// `docs/app-policy-email-removal.md`). Callers may supply either: a bare email (every client
+/// written before the principal existed) is resolved to the principal it names, and an email
+/// that names nobody is rejected rather than recorded, since it could only produce a runnable
+/// that cannot authenticate.
 ///
 /// Returns `None` when the runnable has no on-behalf-of identity, and the caller's own
 /// identity when they are not allowed to preserve someone else's.

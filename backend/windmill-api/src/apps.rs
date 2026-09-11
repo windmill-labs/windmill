@@ -3401,9 +3401,9 @@ async fn update_app_internal<'a>(
     }
 
     // Resolved on the (non-RLS) pool before the RLS transaction opens, for the reason
-    // `create_app` states, with the same accepted rename race. Submitting a policy is how a deployer claims the app's execution
-    // identity; a source deploy that sent none claims nothing, so whoever the app already runs
-    // as stays.
+    // `create_app` states, with the same accepted rename race. Submitting a policy is how a
+    // deployer claims the app's execution identity; a source deploy that sent none claims
+    // nothing, so whoever the app already runs as stays.
     let mut preserved_on_behalf_of: Option<String> = None;
     if let Some(npolicy) = ns.policy.as_mut() {
         let should_preserve = ns.preserve_on_behalf_of.unwrap_or(false)
