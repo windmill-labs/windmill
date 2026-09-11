@@ -771,6 +771,69 @@ class TestGitSync(GitSyncTestBase):
             f"Expected folder-grouped branch name containing '{expected_folder_part}', got: {deploy_branch}",
         )
 
+    def _new_sync_job_results(self, seen: set, path: str) -> list:
+        """Results of the deploy callbacks not in `seen` that pushed `path`."""
+        results = []
+        for listed in self._client.get_completed_jobs(job_kinds="deploymentcallback"):
+            if listed["id"] in seen:
+                continue
+            job = self._client._client.get(
+                f"/api/w/{self._client._workspace}/jobs_u/get/{listed['id']}"
+            ).json()
+            items = (job.get("args") or {}).get("items") or []
+            if any(item.get("path") == path for item in items):
+                results.append(job.get("result"))
+        return results
+
+    def test_promotion_push_reports_whether_it_pushed(self):
+        """The push job's result says whether a commit was pushed, and the
+        PR-on-deploy hook relies on it: on `pushed: false` it skips, otherwise
+        it asks the host for a PR on the deploy branch, which for a push that
+        committed nothing was never created (GitHub: 422 "head invalid")."""
+        repo_name, _ = self._create_test_repo()
+        resource_path = self._setup_git_sync_resource(repo_name)
+
+        # Saving the config is itself a settings deploy, and it commits nothing:
+        # the repo has no wmill.yaml including settings, so none are pulled.
+        seen = {j["id"] for j in self._client.get_completed_jobs(job_kinds="deploymentcallback")}
+        self._configure_single_repo_sync(
+            resource_path,
+            include_type=["script", "settings"],
+            use_individual_branch=True,
+            group_by_folder=True,
+        )
+        self._wait_until(
+            lambda: self._new_sync_job_results(seen, "settings.yaml"),
+            timeout=90,
+            message="no push job for the settings deploy",
+        )
+        results = self._new_sync_job_results(seen, "settings.yaml")
+        self.assertEqual(
+            [(r or {}).get("pushed") for r in results],
+            [False],
+            f"a settings deploy that committed nothing must report pushed: false, got: {results}",
+        )
+
+        folder_name = unique_name("pushed")
+        self._create_folder(folder_name)
+        seen = {j["id"] for j in self._client.get_completed_jobs(job_kinds="deploymentcallback")}
+        script_path = f"f/{folder_name}/{unique_name('script')}"
+        self._client.create_script(
+            path=script_path,
+            content=ts_script("return 'pushed'"),
+            language="bun",
+        )
+        self._wait_until(
+            lambda: self._new_sync_job_results(seen, script_path),
+            timeout=90,
+            message=f"no push job for {script_path}",
+        )
+        results = self._new_sync_job_results(seen, script_path)
+        self.assertTrue(
+            all((r or {}).get("pushed") is True for r in results),
+            f"a deploy that committed must report pushed: true, got: {results}",
+        )
+
     # ──────────────────────────────────────────────────
     # Exclude path filtering
     # ──────────────────────────────────────────────────

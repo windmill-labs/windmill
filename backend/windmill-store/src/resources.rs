@@ -3501,25 +3501,26 @@ async fn validate_git_url(url: &str) -> Result<()> {
     let host = extract_host_from_git_url(url)
         .ok_or_else(|| Error::BadRequest("Could not parse hostname from git URL".to_string()))?;
 
-    // CI/dev escape hatch: integration tests run their git remote (a Gitea
-    // container) on localhost, which the network-target checks below reject.
-    // Scheme and option-injection validation above still applies.
-    if std::env::var("ALLOW_LOCAL_GIT_REMOTES").is_ok_and(|v| v == "true" || v == "1") {
+    // The opt-in for a git server on the instance's own network (and for the CI
+    // Gitea container on localhost). Scheme and option-injection validation above
+    // still applies.
+    if windmill_common::ssrf::allow_local_git_remotes() {
         return Ok(());
     }
+    let hint = windmill_common::ssrf::local_git_remote_hint();
 
     if host == "localhost" || host.ends_with(".local") || host == "[::1]" {
-        return Err(Error::BadRequest(
-            "Git URLs targeting localhost or local network are not allowed".to_string(),
-        ));
+        return Err(Error::BadRequest(format!(
+            "Git URLs targeting localhost or local network are not allowed. {hint}"
+        )));
     }
 
     // Check literal IP addresses
     if let Ok(ip) = host.parse::<IpAddr>() {
         if is_private_or_reserved_ip(&ip) {
-            return Err(Error::BadRequest(
-                "Git URLs targeting private or reserved IP addresses are not allowed".to_string(),
-            ));
+            return Err(Error::BadRequest(format!(
+                "Git URLs targeting private or reserved IP addresses are not allowed. {hint}"
+            )));
         }
     } else {
         // Hostname — resolve via DNS and reject if any address is private. Fail
@@ -3540,9 +3541,9 @@ async fn validate_git_url(url: &str) -> Result<()> {
         }
         for addr in addrs {
             if is_private_or_reserved_ip(&addr.ip()) {
-                return Err(Error::BadRequest(
-                    "Git URL hostname resolves to a private or reserved IP address".to_string(),
-                ));
+                return Err(Error::BadRequest(format!(
+                    "Git URL hostname resolves to a private or reserved IP address. {hint}"
+                )));
             }
         }
     }
@@ -4848,7 +4849,10 @@ mod tests {
         assert!(validate_git_url("http://169.254.169.254/latest/meta-data/")
             .await
             .is_err());
-        assert!(validate_git_url("http://10.0.0.1/repo.git").await.is_err());
+        let err = validate_git_url("http://10.0.0.1/repo.git")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("ALLOW_LOCAL_GIT_REMOTES"), "{err}");
         assert!(validate_git_url("http://172.16.0.1/repo.git")
             .await
             .is_err());

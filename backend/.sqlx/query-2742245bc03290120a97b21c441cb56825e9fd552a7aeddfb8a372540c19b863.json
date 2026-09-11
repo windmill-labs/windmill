@@ -1,0 +1,73 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH slots AS (\n            SELECT id, slot, min(t) AS first, max(t) AS last, max(v) AS peak,\n                (min(ARRAY[t, v]))[2] AS first_value, (max(ARRAY[t, v]))[2] AS last_value,\n                (max(ARRAY[t, climbing]))[2] = 1 AS last_climbing,\n                COALESCE(bool_and(climbing = 1) AND max(since) - min(since) < $4, false) AS ramp,\n                max(ARRAY[t, since]) FILTER (WHERE climbing = 1) AS last_climb\n            FROM (\n                SELECT id, t,\n                    CASE jsonb_typeof(value)\n                        WHEN 'number' THEN value::double precision\n                        WHEN 'object' THEN t - (value->>'since')::double precision\n                    END AS v,\n                    (value->>'since')::double precision AS since,\n                    (jsonb_typeof(value) = 'object')::int::double precision AS climbing,\n                    greatest(floor((t - $1::double precision) / $2::double precision), -1)::int\n                        AS slot\n                FROM (\n                    SELECT id, value, EXTRACT(EPOCH FROM created_at)::double precision AS t\n                    FROM metrics\n                    WHERE id LIKE 'queue_%'\n                        AND created_at > to_timestamp($1::double precision - $3::double precision)\n                ) m\n            ) s\n            WHERE v IS NOT NULL\n            GROUP BY id, slot\n        )\n        SELECT id AS \"id!\", slot AS \"slot!\", first AS \"first!\", last AS \"last!\",\n            greatest(peak, CASE WHEN last_climb[1] < last THEN (\n                SELECT EXTRACT(EPOCH FROM min(n.created_at))::double precision\n                FROM metrics n\n                WHERE n.id = slots.id AND n.id LIKE 'queue_%'\n                    AND n.created_at > to_timestamp(last_climb[1] + 0.001)\n                    AND n.created_at <= to_timestamp(last + 0.001)\n            ) - last_climb[2] END) AS \"peak!\",\n            first_value AS \"first_value!\", last_value AS \"last_value!\",\n            last_climbing AS \"last_climbing!\", ramp AS \"ramp!\"\n        FROM slots\n        ORDER BY id, slot",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "slot!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "first!",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 3,
+        "name": "last!",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 4,
+        "name": "peak!",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 5,
+        "name": "first_value!",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_value!",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_climbing!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "ramp!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8",
+        "Float8",
+        "Float8",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "2742245bc03290120a97b21c441cb56825e9fd552a7aeddfb8a372540c19b863"
+}

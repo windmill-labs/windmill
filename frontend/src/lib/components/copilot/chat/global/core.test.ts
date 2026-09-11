@@ -4806,10 +4806,12 @@ describe('global AI tools', () => {
 		})
 	})
 
-	it('test_run_flow uses the live flow editor test hook when the active editor matches the path', async () => {
+	// The editor is driven by the key its draft is stored under, which reads and edits of the
+	// path resolve through too: a staged rename leaves that key where it was.
+	it('test_run_flow drives the live flow editor by its storage path', async () => {
 		seedBackendDraft(
 			'flow',
-			'',
+			'u/admin/live_flow_storage',
 			{
 				path: 'u/admin/live_flow',
 				summary: 'Live flow',
@@ -4825,7 +4827,7 @@ describe('global AI tools', () => {
 		UserDraft.setLiveEditorDraft({
 			workspace: WORKSPACE,
 			itemKind: 'flow',
-			storagePath: '',
+			storagePath: 'u/admin/live_flow_storage',
 			effectivePath: 'u/admin/live_flow'
 		})
 		const testActiveFlow = vi.fn(async () => 'job-live-flow')
@@ -4842,7 +4844,7 @@ describe('global AI tools', () => {
 			)
 		)
 
-		expect(testActiveFlow).toHaveBeenCalledWith({ name: 'Ada' })
+		expect(testActiveFlow).toHaveBeenCalledWith('u/admin/live_flow_storage', { name: 'Ada' })
 		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
 		expect(JobService.runFlowPreview).not.toHaveBeenCalled()
 		expect(result).toContain('Result (SUCCESS)')
@@ -4851,7 +4853,7 @@ describe('global AI tools', () => {
 	it('test_run_flow falls back to preview when the live flow editor test hook returns undefined', async () => {
 		seedBackendDraft(
 			'flow',
-			'',
+			'u/admin/live_flow_fallback',
 			{
 				path: 'u/admin/live_flow_fallback',
 				summary: 'Live flow fallback',
@@ -4867,7 +4869,7 @@ describe('global AI tools', () => {
 		UserDraft.setLiveEditorDraft({
 			workspace: WORKSPACE,
 			itemKind: 'flow',
-			storagePath: '',
+			storagePath: 'u/admin/live_flow_fallback',
 			effectivePath: 'u/admin/live_flow_fallback'
 		})
 		const testActiveFlow = vi.fn(async () => undefined)
@@ -4884,13 +4886,59 @@ describe('global AI tools', () => {
 			)
 		)
 
-		expect(testActiveFlow).toHaveBeenCalledWith({ name: 'Ada' })
+		expect(testActiveFlow).toHaveBeenCalledWith('u/admin/live_flow_fallback', { name: 'Ada' })
 		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
 		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
 			requestBody: {
 				path: 'u/admin/live_flow_fallback',
 				value: { modules: [{ id: 'fallback_step', value: { type: 'identity' } }] },
+				args: { name: 'Ada' }
+			}
+		})
+	})
+
+	// The flow may be open in a session tab that isn't the one on screen: driving its editor
+	// would paint the run into a tab the user is not looking at.
+	it('test_run_flow previews rather than driving an editor the user is not looking at', async () => {
+		seedBackendDraft(
+			'flow',
+			'u/admin/background_flow',
+			{
+				path: 'u/admin/background_flow',
+				summary: 'Background flow',
+				value: { modules: [{ id: 'background_step', value: { type: 'identity' } }] },
+				schema: {},
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {}
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: 'u/admin/flow_on_screen',
+			effectivePath: 'u/admin/flow_on_screen'
+		})
+		const testActiveFlow = vi.fn(async () => 'job-live-flow')
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_flow',
+				{ path: 'u/admin/background_flow', args: { name: 'Ada' } },
+				toolCallbacks,
+				{ testActiveFlow }
+			)
+		)
+
+		expect(testActiveFlow).not.toHaveBeenCalled()
+		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'u/admin/background_flow',
+				value: { modules: [{ id: 'background_step', value: { type: 'identity' } }] },
 				args: { name: 'Ada' }
 			}
 		})
