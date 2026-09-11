@@ -232,6 +232,14 @@ export function advanceAgentStream(
 		} else if (event.type === 'reasoning_token_delta' && typeof event.content === 'string') {
 			stream.reasoning += event.content
 		} else if (typeof event.function_name === 'string') {
+			if (event.type === 'tool_call') {
+				// A model can narrate and request a tool in the same turn, and the loop
+				// then runs again. That narration is not part of the answer — the
+				// finished result keeps only the last turn's text — so a new call
+				// starts the answer over rather than appending to what came before.
+				stream.answer = ''
+				stream.reasoning = ''
+			}
 			stream.tool = {
 				name: event.function_name,
 				running: event.type !== 'tool_result',
