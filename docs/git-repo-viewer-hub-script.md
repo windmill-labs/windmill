@@ -1,7 +1,9 @@
 # Git repo viewer — hub script
 
 The hub script `clone_repo_and_upload_to_instance_storage` is published from
-`windmill-integrations` and pinned in `frontend/src/lib/hubPaths.json` as
+`windmill-integrations`
+(`hub/windmill/scripts/action/13968_clone_repo_and_upload_to_instance_storage/script.ts`)
+and pinned in `frontend/src/lib/hubPaths.json` as
 `cloneRepoToS3forGitRepoViewer`. Hub paths are exact version pins, so editing
 the script means publishing a new version and repointing that entry.
 
@@ -23,6 +25,11 @@ The repo viewer in the Windmill app expects the hub script to:
 3. **Write a completion marker** as the very last action of a successful run,
    so the API and frontend can distinguish a fully-populated S3 directory from
    a partial / interrupted upload.
+4. **Follow symlinks that stay inside the checkout.** Both the git clone and
+   the archive extraction keep a repository's symlinks as links, and
+   `Dirent.isFile()` / `isDirectory()` are both false for a link, so a walk
+   that only checks those drops every linked file and directory from the
+   viewer. See [Symlinks](#symlinks).
 
 The marker file the frontend looks for is `.windmill_clone_complete` at the
 root of the per-commit directory:
@@ -53,18 +60,47 @@ async function uploadDirectoryToS3(
 
   // Walk the directory once, producing a flat list of (localPath, s3Key) pairs.
   const tasks: { localPath: string; s3Key: string }[] = []
-  function walk(dir: string, s3Path: string) {
+  const root = fs.realpathSync(directoryPath)
+  // Real paths of the directories being descended through.
+  const ancestors = new Set<string>()
+  function walk(dir: string, relDir: string) {
+    ancestors.add(dir)
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const fullPath = join(dir, entry.name)
-      const s3Key = s3Path ? `${s3Path}/${entry.name}` : entry.name
-      if (entry.isDirectory()) {
-        walk(fullPath, s3Key)
-      } else if (entry.isFile()) {
-        tasks.push({ localPath: fullPath, s3Key })
+      const relPath = relDir ? `${relDir}/${entry.name}` : entry.name
+      let localPath = join(dir, entry.name)
+      let isDirectory = entry.isDirectory()
+      let isFile = entry.isFile()
+      if (entry.isSymbolicLink()) {
+        const link = fs.readlinkSync(localPath)
+        let target: string
+        try {
+          target = fs.realpathSync(localPath)
+        } catch (e: any) {
+          console.log(`Skipping symlink ${relPath} -> ${link}: cannot resolve target (${e.code})`)
+          continue
+        }
+        if (target !== root && !target.startsWith(root + sep)) {
+          console.log(`Skipping symlink ${relPath} -> ${link}: target is outside the repository`)
+          continue
+        }
+        const stat = fs.statSync(target)
+        isDirectory = stat.isDirectory()
+        isFile = stat.isFile()
+        localPath = target
+      }
+      if (isDirectory) {
+        if (ancestors.has(localPath)) {
+          console.log(`Skipping ${relPath}: links back to a directory it is inside`)
+          continue
+        }
+        walk(localPath, relPath)
+      } else if (isFile) {
+        tasks.push({ localPath, s3Key: `${s3BasePath}/${relPath}` })
       }
     }
+    ancestors.delete(dir)
   }
-  walk(directoryPath, s3BasePath)
+  walk(root, "")
 
   console.log(`Discovered ${tasks.length} files to upload`)
 
@@ -116,6 +152,28 @@ async function uploadDirectoryToS3(
   console.log(`Wrote completion marker: ${markerKey}`)
 }
 ```
+
+## Symlinks
+
+A link is resolved with `realpathSync` and followed only when its target lies
+inside the checkout's real path. A file target is uploaded under the link's own
+path; a directory target is walked as if it sat there, so
+`inventories/prod/group_vars -> ../../shared/group_vars` shows up in the viewer
+with its files. Everything else is skipped, with a log line naming the link and
+its target:
+
+- **A target outside the checkout.** The repository chooses the target, and the
+  checkout sits in the job's working directory next to the ssh key
+  `get_git_ssh_cmd` writes (`../ssh_id_priv_0`) and the job's `args.json`. A
+  link to one of those, or to `/proc/self/environ` with the caller's
+  `WM_TOKEN`, would put it in storage for every reader of the resource. This
+  is why the walk does not follow links the way `aws s3 sync` does.
+- **A target that cannot be resolved**: a dangling link, or a link loop
+  (`ELOOP`).
+- **A directory that is already being walked higher up** (`loop -> .`,
+  `up -> ..`). The guard holds the real paths of the current descent only, as
+  `find -L` does, not every directory seen so far: a directory reachable
+  through two links is uploaded under both paths, as the checkout presents it.
 
 ## Notes for review
 
