@@ -212,6 +212,12 @@ with its files. Everything else is skipped and logged:
   paths on retry, so a partial upload + retry naturally heals. Old commit
   directories from before this patch are unreachable through the UI but still
   consume storage; an instance admin can prune them manually if desired.
+- **A new pin doesn't refresh commits already uploaded**: the viewer keys
+  storage on the commit hash (`gitrepos/{workspace}/{resource_path}/{commit_hash}/`)
+  and only checks that the marker exists. So a commit uploaded by an earlier
+  script version keeps that version's tree (hub/28905's had no symlinks) until
+  the repository's head moves to a new commit, or an admin deletes that
+  commit's directory.
 - **Error propagation**: keep the existing `try/catch` in `main` so an upload
   failure surfaces in the job result and is shown in the new viewer error
   banner.
