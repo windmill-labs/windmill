@@ -240,12 +240,37 @@ describe('item store: commands', () => {
 			{ load: async () => ({ deployed: { path: 's', enabled: true } }) } as ItemAdapter<Sched>
 		)
 		await settle()
-		const outcome = await item.patch({ enabled: false }, async () => {
-			throw new Error('refused')
-		})
-		expect(outcome).toEqual({ ok: false, error: 'refused' })
-		expect(item.value).toEqual({ path: 's', enabled: true })
+		const refusal = deferred()
+		const toggling = item.patch({ enabled: false }, () => refusal.promise)
+		// In flight the toggle is the server's to hold, not a draft of the user's.
 		expect(item.dirty).toBe(false)
+		expect(rows.writes).toEqual([])
+
+		refusal.reject(new Error('refused'))
+		expect(await toggling).toEqual({ ok: false, error: 'refused' })
+		expect(item.value).toEqual({ path: 's', enabled: true })
+		expect(item.deployed).toEqual({ path: 's', enabled: true })
+		expect(rows.writes).toEqual([])
+	})
+
+	it('saves a change the draft comparison ignores', async () => {
+		type Sched = { path: string; permissioned_as?: string }
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const writes: unknown[] = []
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'trigger_schedule', path: 's' },
+			{ workspace: 'w', path: 's' },
+			{
+				load: async () => ({ deployed: { path: 's', permissioned_as: 'u/a' } }),
+				write: async (ctx) => void writes.push(ctx.value)
+			} as ItemAdapter<Sched>
+		)
+		await settle()
+		item.value = { path: 's', permissioned_as: 'u/b' }
+		expect(item.dirty).toBe(false)
+		expect(await item.save()).toMatchObject({ ok: true })
+		expect(writes).toEqual([{ path: 's', permissioned_as: 'u/b' }])
 	})
 })
 
@@ -323,7 +348,7 @@ describe('item store: origins', () => {
 		expect(rows.writes).toEqual([{ path: 'u/me/r', value: null }])
 	})
 
-	it('creates under a temporary path, then moves to the real one with no row at either', async () => {
+	it('creates under a temporary path, then moves to the real one and clears any row there', async () => {
 		const rows = fakeRows()
 		const temp = newItemPath()
 		const a = adapter({})
@@ -340,12 +365,13 @@ describe('item store: origins', () => {
 		expect(item.key.path).toBe('u/me/created')
 		expect(item.origin).toBe('deployed')
 		expect(item.dirty).toBe(false)
-		expect(rows.writes).toEqual([])
+		// Nothing under the temporary path; a draft left at the real one predates the create.
+		expect(rows.writes).toEqual([{ path: 'u/me/created', value: null }])
 		expect(store.bridge.read('w', 'resource', 'u/me/created')).toEqual({ value: undefined })
 		expect(store.bridge.read('w', 'resource', temp)).toBeUndefined()
 	})
 
-	it('moves a renamed item and deletes the row it left behind', async () => {
+	it('moves a renamed item and clears the rows at both paths', async () => {
 		const rows = fakeRows()
 		const { item } = await open(rows, adapter({ deployed: deployedRes }))
 		item.value = { ...deployedRes, path: 'u/me/renamed' }
@@ -354,8 +380,10 @@ describe('item store: origins', () => {
 		])
 
 		expect(await item.save()).toEqual({ ok: true, path: 'u/me/renamed', moved: true })
-		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: null })
-		expect(rows.writes.some((w) => w.path === 'u/me/renamed')).toBe(false)
+		expect(rows.writes.slice(1)).toEqual([
+			{ path: 'u/me/r', value: null },
+			{ path: 'u/me/renamed', value: null }
+		])
 	})
 })
 

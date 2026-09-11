@@ -175,8 +175,9 @@ class Entry<V> {
 	stopWatch: (() => void) | undefined
 	/** The value as last observed, serialized: `touch` acts only on a real change. */
 	private seen: string | undefined
-	/** The row last handed to the syncer (`null`: none). What `reconcile` diffs against. */
-	private row: string | null = null
+	/** The row last handed to the syncer (`null`: none, `undefined`: not known — the next
+	 *  reconcile writes whatever the rule says). What `reconcile` diffs against. */
+	private row: string | null | undefined = null
 	/** Counts value changes, so a load can tell whether one landed while it was in flight. */
 	private changes = 0
 	private queue: Promise<unknown> = Promise.resolve()
@@ -338,7 +339,9 @@ class Entry<V> {
 			const from = this.key
 			// A create or a draft-only item is always a write; anything else already deployed is
 			// saved — which is also what makes a second click behind an in-flight save a no-op.
-			if (this.origin === 'deployed' && draftValuesEqual(sent, this.deployed)) {
+			// Compared exactly, not as drafts are: a field the draft comparison ignores (a
+			// schedule's run-as) is still one an explicit save must send.
+			if (this.origin === 'deployed' && serialize(sent) === serialize(this.deployed)) {
 				return { ok: true, path: from.path, moved: false }
 			}
 			const to = (adapter.pathOf ?? ((v: V) => (v as { path: string }).path))(sent)
@@ -397,52 +400,62 @@ class Entry<V> {
 		await Promise.all(keys.filter((k) => !isTemporaryPath(k.path)).map((k) => this.ports.flush(k)))
 	}
 
-	/** Re-key to `path`. The row at the path left behind follows from nothing living there. */
+	/**
+	 * Re-key to `path`. The row at the path left behind follows from nothing living there. The
+	 * one at `path` was never read: whatever it holds predates the write that just landed there,
+	 * so it is reconciled like any other.
+	 */
 	private moveTo(path: string): void {
 		const from = this.key
 		if (!isTemporaryPath(from.path)) {
 			this.ports.hint(from, false)
 			if (this.row !== null) this.ports.write(from, null)
 		}
-		this.row = null
+		this.row = undefined
 		this.key = { ...from, path }
 		this.store.rekey(this, from)
 	}
 
 	/**
-	 * Run `write`, then fold `fields` into the deployed side: the server holds them now. The
-	 * value takes them at once; on failure it gives back those it still holds.
+	 * Write `fields` to the server through `write`. Both sides take them at once — the value
+	 * because the user asked, the baseline because the server is about to hold them — so the
+	 * request never reads as a draft. On failure each side gives back those it still holds.
 	 */
 	patch(fields: Partial<V>, write: (key: ItemKey) => Promise<unknown>): Promise<CommandOutcome> {
 		this.pristine = false
+		const baseKey = this.origin === 'new' ? 'template' : 'deployed'
+		const before = snapshot(this[baseKey]) as Record<string, unknown> | undefined
+		const sent = snapshot(fields) as Record<string, unknown>
+		if (before !== undefined) this[baseKey] = { ...before, ...sent } as V
 		if (this.value !== undefined) Object.assign(this.value as object, fields)
 		this.touch()
 		return this.run(async () => {
 			try {
 				await write(this.key)
 			} catch (e) {
-				const base = (this.origin === 'new' ? this.template : this.deployed) as
-					| Record<string, unknown>
-					| undefined
-				if (this.value !== undefined && base !== undefined) {
-					const reverted = snapshot(this.value) as Record<string, unknown>
+				const giveBack = (side: V | undefined): V | undefined => {
+					if (side === undefined || before === undefined) return undefined
+					const out = snapshot(side) as Record<string, unknown>
 					let changed = false
-					for (const [k, v] of Object.entries(fields)) {
-						if (deepEqual(reverted[k], v)) {
-							reverted[k] = base[k]
+					for (const [k, v] of Object.entries(sent)) {
+						if (deepEqual(out[k], v)) {
+							out[k] = before[k]
 							changed = true
 						}
 					}
-					if (changed) this.replaceValue(reverted as V)
+					return changed ? (out as V) : undefined
 				}
+				const base = giveBack(this[baseKey])
+				if (base !== undefined) this[baseKey] = base
+				const value = giveBack(this.value)
+				if (value !== undefined) this.replaceValue(value)
 				this.error = errorMessage(e)
 				this.reconcile()
 				return { ok: false, error: this.error }
 			}
 			this.error = undefined
-			if (this.origin === 'deployed' && this.deployed !== undefined) {
-				this.deployed = { ...this.deployed, ...snapshot(fields) }
-			}
+			// A save that landed while this waited set the baseline to what it sent.
+			if (this[baseKey] !== undefined) this[baseKey] = { ...this[baseKey], ...sent } as V
 			this.touch()
 			this.reconcile()
 			return { ok: true }
@@ -696,8 +709,10 @@ export function createItemStore(ports: ItemRowPort) {
 	 */
 	function saveEach<V>(items: ItemHandle<V>[]): Promise<SaveOutcome[]> {
 		const pending = items.map((item) => {
-			if (!(item instanceof Handle)) throw new Error('saveEach takes the handles useItems returns')
-			const { entry, adapter } = item as Handle<V>
+			// `useItem` hands out a forwarder; the item it forwards to is its `current`.
+			const handle = item instanceof Handle ? item : (item as { current?: unknown }).current
+			if (!(handle instanceof Handle)) throw new Error('saveEach takes handles from useItem(s)')
+			const { entry, adapter } = handle as Handle<V>
 			return { entry, adapter, started: entry.begin(), asked: entry.ask() }
 		})
 		return (async () => {
