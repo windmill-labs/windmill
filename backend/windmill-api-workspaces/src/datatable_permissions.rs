@@ -481,23 +481,28 @@ async fn ensure_no_streams_reaching(db: &DB, governing: &GoverningDatatable) -> 
     for (w_id, name) in reached {
         let reference = format!("datatable://{name}");
         let with_query = format!("{reference}?");
-        // A suspended trigger keeps its listener, so only a disabled one is not streaming; a
-        // capture streams for as long as its client keeps pinging.
+        // A suspended trigger keeps its listener, and a capture streams while its client pings. A
+        // listener also outlives its trigger being disabled, or its capture's client going quiet,
+        // until its next heartbeat notices; one that pinged within the 15 seconds a server holds a
+        // listener for may still be dispatching.
         streams.extend(
-            sqlx::query_scalar!(
-                r#"SELECT workspace_id || '/' || path AS "stream!" FROM postgres_trigger
-                   WHERE workspace_id = $1 AND mode <> 'disabled'::TRIGGER_MODE
+            sqlx::query_scalar::<_, String>(
+                r#"SELECT workspace_id || '/' || path FROM postgres_trigger
+                   WHERE workspace_id = $1
+                     AND (mode <> 'disabled'::TRIGGER_MODE
+                          OR last_server_ping > now() - interval '15 seconds')
                      AND (postgres_resource_path = $2 OR starts_with(postgres_resource_path, $3))
                    UNION ALL
                    SELECT workspace_id || '/' || path || ' (capture)' FROM capture_config
                    WHERE workspace_id = $1 AND trigger_kind = 'postgres'
-                     AND last_client_ping > now() - interval '10 seconds'
+                     AND (last_client_ping > now() - interval '10 seconds'
+                          OR last_server_ping > now() - interval '15 seconds')
                      AND (trigger_config->>'postgres_resource_path' = $2
                           OR starts_with(trigger_config->>'postgres_resource_path', $3))"#,
-                &w_id,
-                &reference,
-                &with_query,
             )
+            .bind(&w_id)
+            .bind(&reference)
+            .bind(&with_query)
             .fetch_all(db)
             .await?,
         );
@@ -505,8 +510,8 @@ async fn ensure_no_streams_reaching(db: &DB, governing: &GoverningDatatable) -> 
     if !streams.is_empty() {
         return Err(Error::BadRequest(format!(
             "Data table '{}' cannot be put under roles while a Postgres trigger or capture streams \
-             it: a replication stream reads every row whatever the roles grant. Disable them \
-             first: {}",
+             it: a replication stream reads every row whatever the roles grant. Disable them, then \
+             allow their listeners up to 15 seconds to stop: {}",
             governing.name,
             streams.join(", ")
         )));

@@ -786,8 +786,27 @@ async fn roles_cannot_be_turned_on_while_a_trigger_streams_the_data_table(
         "the refusal does not name the trigger to disable"
     );
 
+    // Disabled, but its listener pinged just now and stops only at its next heartbeat.
     sqlx::query(
-        "UPDATE postgres_trigger SET mode = 'disabled' WHERE path = 'u/test-user-2/fork_stream'",
+        "UPDATE postgres_trigger SET mode = 'disabled', server_id = NULL, last_server_ping = now()
+         WHERE path = 'u/test-user-2/fork_stream'",
+    )
+    .execute(&db)
+    .await?;
+    let resp = authed(client().post(&url), "SECRET_TOKEN")
+        .json(&turn_on)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "roles went on while a disabled trigger's listener was still attached: {}",
+        resp.text().await?
+    );
+
+    sqlx::query(
+        "UPDATE postgres_trigger SET last_server_ping = now() - interval '20 seconds'
+         WHERE path = 'u/test-user-2/fork_stream'",
     )
     .execute(&db)
     .await?;
@@ -849,6 +868,39 @@ async fn roles_going_on_wait_for_a_trigger_being_enabled(db: Pool<Postgres>) -> 
             .await?
             .contains("wm-fork-dt/u/test-user-2/racing_stream"),
         "the roles save missed the trigger enabled while it waited"
+    );
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn a_stored_name_containing_a_question_mark_resolves_as_itself(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    // Names could contain `?` before they were restricted, and such an entry is still stored.
+    sqlx::query(
+        "UPDATE workspace_settings
+         SET datatable = jsonb_set(datatable, '{datatables,legacy?dt}', datatable->'datatables'->'main')
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .execute(&db)
+    .await?;
+
+    let resolve = |reference: &'static str| {
+        let db = db.clone();
+        async move {
+            windmill_common::workspaces::parse_datatable_ref_for(&db, "test-workspace", reference)
+                .await
+        }
+    };
+    assert_eq!(resolve("legacy?dt").await?, ("legacy?dt".to_string(), None));
+    assert_eq!(
+        resolve("main?role=analytics").await?,
+        ("main".to_string(), Some("analytics".to_string()))
+    );
+    assert!(
+        resolve("main?dt").await.is_err(),
+        "an unknown parameter was ignored"
     );
     Ok(())
 }
