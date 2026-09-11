@@ -19,7 +19,6 @@
 		Braces,
 		Highlighter,
 		ArrowDownFromLine,
-		Bot,
 		Database,
 		Loader2
 	} from 'lucide-svelte'
@@ -830,8 +829,6 @@
 							{#snippet children({ item })}
 								{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
 									<ToggleButton size="sm" value="table" label="Table" icon={Table2} {item} />
-								{:else if resultKind === 'aiagent'}
-									<ToggleButton size="sm" value="pretty" label="Pretty" icon={Bot} {item} />
 								{:else}
 									<ToggleButton size="sm" value="pretty" label="Pretty" icon={Highlighter} {item} />
 								{/if}
