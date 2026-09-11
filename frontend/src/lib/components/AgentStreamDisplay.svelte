@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte'
 	import ChatCollapsibleCard from './copilot/chat/ChatCollapsibleCard.svelte'
 	import GfmMarkdown from './GfmMarkdown.svelte'
+	import { isFollowingEnd, runPane, scrollRunToEnd } from './agentScroll'
 	import {
 		advanceAgentStream,
 		emptyAgentStreamProgress,
@@ -33,13 +34,40 @@
 
 	let stream = $derived(progress.stream)
 
+	let anchor: HTMLElement | undefined = $state()
+	// Carry the reader along as the text is written, unless they have scrolled up
+	// to read something — then the pane is theirs until they come back to the end.
+	let following = true
+
+	// The listener goes on the pane, not on this element: a scroll event fires on
+	// whatever actually scrolled and does not bubble, so a handler here would never
+	// run and the reader would be dragged back on every poll.
+	$effect(() => {
+		const pane = runPane(anchor)
+		if (!pane) {
+			return
+		}
+		const onScroll = () => (following = isFollowingEnd(anchor))
+		pane.addEventListener('scroll', onScroll, { passive: true })
+		return () => pane.removeEventListener('scroll', onScroll)
+	})
+
+	$effect(() => {
+		stream.current
+		stream.reasoning
+		stream.entries.length
+		if (following) {
+			scrollRunToEnd(anchor)
+		}
+	})
+
 </script>
 
 <!-- The same order a finished run uses — what it did, then what it is saying — so
      nothing moves when the result lands. The text at the bottom is deliberately
      unlabelled: a turn that goes on to call a tool was narration, and only the end
      of the run settles which this one is. -->
-<div class="flex flex-col w-full py-3">
+<div bind:this={anchor} class="flex flex-col w-full py-3">
 	{#each stream.entries as entry, index (entry.kind === 'tool' ? entry.callId : index)}
 		{#if entry.kind === 'tool'}
 			<ChatCollapsibleCard
