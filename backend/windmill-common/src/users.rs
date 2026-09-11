@@ -200,6 +200,14 @@ pub fn invalidate_email_cache_for_username(username: &str) {
 /// not a superadmin's, or a group that no longer exists. Callers then leave the identity
 /// unrecorded rather than storing a principal that cannot authenticate.
 ///
+/// Known, accepted consequence of a real account winning the synthetic `group-*@windmill.dev`
+/// namespace: a group identity sent as its address alone, as a "keep target identity" workspace
+/// deploy sends it for scripts, flows and apps, comes back as the account holding that address
+/// when one exists, not as `g/*`. Such an account takes an admin to exist: a superadmin or an
+/// admin-configured identity provider to create it (the public OAuth providers only assert a
+/// `@windmill.dev` address to that domain's owner) and an admin of the target workspace to admit
+/// it, so no member can steer a group's runnables to themselves this way.
+///
 /// Reads through the non-RLS pool and authorizes nothing: callers must already be authorized
 /// for `workspace_id`.
 pub async fn permissioned_as_from_email(

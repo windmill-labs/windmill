@@ -512,7 +512,9 @@ export async function deployItem(
       });
       // See the flow branch: a source-workspace principal is never valid here, and the
       // policy carries the app's in `on_behalf_of`. Clearing it lets the backend derive
-      // the target's own from the address.
+      // the target's own from the address. A group travels as its synthetic
+      // `group-*@windmill.dev` address, which an admin-created account holding it would
+      // win: known and accepted, see `users::permissioned_as_from_email` in the backend.
       const app = {
         ...rawApp,
         policy: {

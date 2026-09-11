@@ -192,6 +192,10 @@ export type DeployConflict = { hit: boolean }
  * An app carries both halves inside its `policy` instead, so it needs both stamped here:
  * the published package leaves the policy untouched, and a source principal beside a
  * target address is rejected as a pair naming two different accounts.
+ *
+ * A group kept as the target identity travels as its synthetic `group-*@windmill.dev`
+ * address, which an admin-created account holding it would win on the backend: known and
+ * accepted, see `users::permissioned_as_from_email`.
  */
 function makeProvider(
 	onBehalfOfPrincipal?: string,
