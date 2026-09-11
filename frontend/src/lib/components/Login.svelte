@@ -1,4 +1,5 @@
 <script module lang="ts">
+	import LabeledDivider from './LabeledDivider.svelte'
 	import type { LastLoginMethod } from '$lib/lastLoginMethod'
 
 	/** Feeds the login card a fixed instance configuration instead of the live one.
@@ -731,11 +732,9 @@
 {/snippet}
 
 {#snippet orDivider()}
-	<div class="flex items-center gap-3 my-6">
-		<div class="h-px flex-1 bg-border-light"></div>
+	<LabeledDivider class="gap-3 my-6">
 		<span class="text-2xs uppercase text-secondary">or</span>
-		<div class="h-px flex-1 bg-border-light"></div>
-	</div>
+	</LabeledDivider>
 {/snippet}
 
 <div class="bg-surface px-4 py-8 border sm:rounded-lg sm:px-10">

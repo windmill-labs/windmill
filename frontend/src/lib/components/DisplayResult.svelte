@@ -54,6 +54,11 @@
 	import DOMPurify from 'dompurify'
 	import MarkupApprovalGate from './MarkupApprovalGate.svelte'
 	import type { MarkupTrust } from './apps/markupTrust'
+	import AgentResultDisplay from './AgentResultDisplay.svelte'
+	import AgentStreamDisplay from './AgentStreamDisplay.svelte'
+	import AgentTrace from './AgentTrace.svelte'
+	import { isAgentStream, parseAgentErrorMessages, parseAgentResult } from './aiAgentResult'
+	import { buildAgentTrace } from './agentTrace'
 
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
@@ -85,6 +90,7 @@
 		| 'map'
 		| 'nondisplayable'
 		| 'pdf'
+		| 'aiagent'
 		| undefined
 	let resultKind: ResultKind = $state()
 	/** Kinds whose renderer leaves the page: S3/ducklake previews fetch the file or
@@ -94,7 +100,10 @@
 	const REPLAY_INERT_KINDS: ResultKind[] = ['s3object', 's3object-list', 'materialized', 'approval']
 	/** Kinds whose markup pulls subresources: DOMPurify stops scripting but keeps
 	 * `<img src>` and SVG `<image href>`, and `map` tiles are requests by
-	 * construction. Kinds absent here carry their bytes as `data:` and reach nothing.
+	 * construction. Kinds absent here carry their bytes as `data:` and reach nothing,
+	 * or render through a component that is itself inert on the public page —
+	 * `aiagent` is the second case, via `GfmMarkdown`, which is why it renders
+	 * markdown yet is not listed while `markdown` still is.
 	 * Inert only on the public page, which promises to issue no requests. */
 	const OFFLINE_INERT_KINDS: ResultKind[] = ['markdown', 'html', 'svg', 'map']
 	let length = $state(1)
@@ -154,6 +163,16 @@
 		growVertical = false
 	}: Props = $props()
 	let s3FileDisplayRawMode = $state(false)
+	/** What a max-iterations failure got through before it gave up, if this is one.
+	 *  Empty for a run that failed before the worker tagged anything, and for one
+	 *  that predates the tags reaching this payload at all — in which case the
+	 *  section is not rendered rather than heading an empty box. */
+	let agentErrorTrace = $derived.by(() => {
+		const messages = parseAgentErrorMessages(result)
+		if (!messages) return undefined
+		const entries = buildAgentTrace(messages)
+		return entries.length > 0 ? entries : undefined
+	})
 
 	// Build the image/PDF source URL for an S3 object. When `appPath` is set
 	// (deployed app view) the read is authorized on-behalf of the app author via
@@ -291,6 +310,17 @@
 					largeObject = false
 					is_render_all = false
 					return 'materialized'
+				}
+
+				// Classified before the size caps below: an agent's answer stays small
+				// however long its conversation grows, so a run with a long trace
+				// must not fall back to the JSON tree that hides the answer inside it.
+				// `largeObject` is still set honestly, so switching to JSON gets the
+				// same too-big handling as any other oversized result.
+				if (parseAgentResult(result)) {
+					is_render_all = false
+					largeObject = roughSizeOfObject(result) > DISPLAY_MAX_SIZE
+					return 'aiagent'
 				}
 
 				is_render_all =
@@ -731,7 +761,13 @@
 		<div class="flex items-center gap-2 text-secondary text-xs">
 			<Loader2 class="animate-spin" size={14} /> Streaming result
 		</div>
-		<ResultStreamDisplay {result_stream} />
+		{#if isAgentStream(result_stream)}
+			<!-- An agent streams one JSON event per line, so the raw stream is a wall of
+			     event objects rather than the answer being written. -->
+			<AgentStreamDisplay raw={result_stream} streamKey={jobId} />
+		{:else}
+			<ResultStreamDisplay {result_stream} />
+		{/if}
 	</div>
 {:else if is_render_all}
 	<div class="flex flex-col w-full gap-2">
@@ -973,6 +1009,16 @@
 						{/if}
 						{@render children?.()}
 					</div>
+					{#if agentErrorTrace}
+						<!-- A run stopped by max_iterations fails, so the error above is what it
+						     returned. What it managed to do rides inside that error and is the
+						     whole reason to look at such a run, so it is added under the error
+						     rather than replacing it. -->
+						<div class="flex flex-col gap-1 pt-4 w-full min-w-0">
+							<span class="text-emphasis text-xs font-semibold">Trace</span>
+							<AgentTrace entries={agentErrorTrace} {workspaceId} />
+						</div>
+					{/if}
 					{#if !isTest && language === 'bun'}
 						<div class="pt-20"></div>
 						<Alert size="xs" type="info" title="Seeing an odd error?">
@@ -1229,6 +1275,27 @@
 							{/each}
 						</div>
 					</div>
+				{:else if !forceJson && resultKind === 'aiagent'}
+					{@const agentResult = parseAgentResult(result)}
+					{#if agentResult}
+						<AgentResultDisplay result={agentResult} {workspaceId} runKey={jobId}>
+							{#snippet structuredOutput(output)}
+								<DisplayResult
+									noControls
+									hideAsJson
+									result={output}
+									{markupTrust}
+									{filename}
+									{disableExpand}
+									{jobId}
+									{nodeId}
+									{workspaceId}
+									{appPath}
+									growVertical
+								/>
+							{/snippet}
+						</AgentResultDisplay>
+					{/if}
 				{:else if !forceJson && resultKind === 'markdown'}
 					<div class={markdownProse.sm}>
 						<Markdown md={result?.md ?? result?.markdown} />

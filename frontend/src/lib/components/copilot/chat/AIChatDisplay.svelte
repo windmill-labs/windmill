@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { createBottomSticker } from '$lib/components/stickToBottom'
 	import AIChatMessage from './AIChatMessage.svelte'
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
 	import ChatContextPicker from './ChatContextPicker.svelte'
@@ -247,21 +248,11 @@
 	})
 
 	let scrollEl: HTMLDivElement | undefined = $state()
-	// Programmatic-scroll guard. `scrollDown()` triggers an async `scroll`
-	// event; if a token-append between the scrollTo and the dispatch makes
-	// scrollHeight grow, the gap can briefly exceed STICK_TO_BOTTOM_PX and
-	// disengage auto-scroll mid-stream. A short cooldown after our own
-	// scroll swallows that spurious event without affecting genuine user
-	// scrolls (wheel/touch/keyboard are reaction-time orders of magnitude
-	// slower than the cooldown).
-	const PROGRAMMATIC_SCROLL_COOLDOWN_MS = 120
-	let programmaticScrollAt: number | undefined
-	// Instant scroll — smooth would animate every token append, racing with
-	// the next scrollDown and confusing the onscroll bottom-detection below.
+	// Shared with the agent run viewer, which needs the same programmatic-scroll
+	// guard for the same reason.
+	const sticker = createBottomSticker()
 	function scrollDown() {
-		if (!scrollEl) return
-		programmaticScrollAt = Date.now()
-		scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: 'auto' })
+		sticker.scrollToEnd(scrollEl)
 	}
 
 	let height = $state(0)
@@ -279,10 +270,6 @@
 		}
 	})
 
-	// Pixel distance from the bottom under which we treat the user as
-	// "stuck to the bottom" and re-enable automatic scroll. 8px allows for
-	// sub-pixel rounding from scrollTo + the occasional overscroll bounce.
-	const STICK_TO_BOTTOM_PX = 8
 	// Show the "scroll to latest" arrow only once the user has scrolled
 	// meaningfully away from the tail — a couple of message-heights up. Avoids
 	// flicker when the auto-scroll lags by a few px during streaming.
@@ -296,13 +283,10 @@
 		// whose only event would otherwise be swallowed, leaving the arrow
 		// stuck visible after we already reached the bottom.
 		showScrollToLatest = distance > SCROLL_TO_LATEST_THRESHOLD_PX
-		if (
-			programmaticScrollAt !== undefined &&
-			Date.now() - programmaticScrollAt < PROGRAMMATIC_SCROLL_COOLDOWN_MS
-		) {
+		if (sticker.isOwnScroll()) {
 			return
 		}
-		if (distance <= STICK_TO_BOTTOM_PX) {
+		if (sticker.isAtEnd(scrollEl)) {
 			aiChatManager.enableAutomaticScroll()
 		} else {
 			aiChatManager.disableAutomaticScroll()
