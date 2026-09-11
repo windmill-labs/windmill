@@ -678,8 +678,8 @@ lazy_static::lazy_static! {
 }
 
 /// Spans of the string literals naming a loaded module: `import`/`export … from` sources and the
-/// first argument of `import()`, `require()` and bun's bundled `__require()`, the specifiers the
-/// bun lock builder reads versions from.
+/// argument of a dynamic `import()`. A `require()` call is left out: `require` is an ordinary
+/// binding a script can shadow, so its argument is not known to be a module.
 struct ImportSpecifierSpans(Vec<Span>);
 
 impl Visit for ImportSpecifierSpans {
@@ -700,15 +700,7 @@ impl Visit for ImportSpecifierSpans {
     }
 
     fn visit_call_expr(&mut self, n: &swc_ecma_ast::CallExpr) {
-        let loads_module = match &n.callee {
-            swc_ecma_ast::Callee::Import(_) => true,
-            swc_ecma_ast::Callee::Expr(callee) => matches!(
-                &**callee,
-                Expr::Ident(id) if matches!(id.sym.as_ref(), "require" | "__require")
-            ),
-            swc_ecma_ast::Callee::Super(_) => false,
-        };
-        if let (true, Some(arg)) = (loads_module, n.args.first()) {
+        if let (swc_ecma_ast::Callee::Import(_), Some(arg)) = (&n.callee, n.args.first()) {
             if let (None, Expr::Lit(Lit::Str(s))) = (arg.spread, &*arg.expr) {
                 self.0.push(s.span);
             }
@@ -732,24 +724,33 @@ pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
     specifiers.0.sort_by_key(|s| s.lo);
 
     // Spans index the parsed source, which the source map stripped of any UTF-8 BOM.
-    let bom = code.len() - fm.src.len();
+    let bom = if code.starts_with('\u{feff}') {
+        '\u{feff}'.len_utf8()
+    } else {
+        0
+    };
+    let offset =
+        |pos: swc_common::BytePos| pos.0.checked_sub(fm.start_pos.0).map(|o| bom + o as usize);
     let mut content = String::with_capacity(code.len());
     let mut copied = 0;
     for span in specifiers.0 {
-        // The literal's span includes its quotes.
-        let (Some(lo), Some(hi)) = (
-            span.lo
-                .0
-                .checked_sub(fm.start_pos.0)
-                .map(|o| bom + o as usize + 1),
-            span.hi
-                .0
-                .checked_sub(fm.start_pos.0 + 1)
-                .map(|o| bom + o as usize),
+        // A span covers the literal's quotes. One that does not land on a matching pair is left
+        // as written rather than risk rewriting the wrong bytes.
+        let (Some(open), Some(close)) = (
+            offset(span.lo),
+            offset(span.hi).and_then(|e| e.checked_sub(1)),
         ) else {
             continue;
         };
-        let Some(specifier) = code.get(lo..hi).filter(|_| lo >= copied) else {
+        let quote = code.as_bytes().get(open);
+        if open >= close
+            || open < copied
+            || !matches!(quote, Some(b'"' | b'\''))
+            || code.as_bytes().get(close) != quote
+        {
+            continue;
+        }
+        let Some(specifier) = code.get(open + 1..close) else {
             continue;
         };
         let unpinned = IMPORTS_VERSION.captures(specifier).and_then(|x| {
@@ -757,9 +758,9 @@ pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
                 .map(|y| format!("{}{}", y.as_str(), x.get(2).map_or("", |z| z.as_str())))
         });
         if let Some(unpinned) = unpinned.filter(|u| u != specifier) {
-            content.push_str(&code[copied..lo]);
+            content.push_str(&code[copied..open + 1]);
             content.push_str(&unpinned);
-            copied = hi;
+            copied = close;
         }
     }
     content.push_str(&code[copied..]);

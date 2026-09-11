@@ -41,6 +41,7 @@ import b from "@scope/pkg@^2/sub";
 export * from "other@3";
 import rel from "./helper";
 const c = await import("dyn@4");
+const require = (v: string) => v;
 const d = require("req@5");
 // pkg@1.2.3
 export const label = "pkg@1.2.3";
@@ -53,7 +54,8 @@ import b from "@scope/pkg/sub";
 export * from "other";
 import rel from "./helper";
 const c = await import("dyn");
-const d = require("req");
+const require = (v: string) => v;
+const d = require("req@5");
 // pkg@1.2.3
 export const label = "pkg@1.2.3";
 "#
@@ -61,6 +63,13 @@ export const label = "pkg@1.2.3";
         assert_eq!(
             remove_pinned_imports("\u{feff}import a from 'pkg@1';").unwrap(),
             "\u{feff}import a from 'pkg';"
+        );
+        assert_eq!(
+            remove_pinned_imports(
+                "// a\r\n// b\r\nimport a from \"pkg@1\";\r\nimport b from 'x@2';"
+            )
+            .unwrap(),
+            "// a\r\n// b\r\nimport a from \"pkg\";\r\nimport b from 'x';"
         );
     }
 
