@@ -31,6 +31,13 @@ export const accountSetup = {
 				.then((me) => {
 					noteSessionEmail(me.email)
 					pending = me.login_type === 'pending_oauth'
+					// The finish-setup marker is set for one provider round trip; a SAML one
+					// never comes back through the page that clears it, so it is dropped as
+					// soon as the account is known to be adopted, not left to refuse a later
+					// sign-in as a mismatch.
+					if (!pending) {
+						document.cookie = 'finish_setup=; path=/; max-age=0; SameSite=Lax'
+					}
 				})
 				.catch(() => {
 					pending = false

@@ -249,38 +249,41 @@
 
 <!-- The refusal replaces the button it answers, in the button's own shape: a
      collapsed rail gets the icon with the explanation in its tooltip, an expanded one
-     the sentence and the way to the portal. The status region is always in the tree so
-     assistive technology announces the refusal arriving in it. -->
-<div class="px-2 pt-2" role="status" hidden={!trialRefusal}>
+     the sentence and the way to the portal. The status region is always present and empty
+     until then, since assistive technology announces what arrives in a live region but not
+     a region that appears already filled; the spacing sits inside so an empty one is 0px. -->
+<div role="status">
 	{#if trialRefusal}
-		{#if isCollapsed}
-			<Tooltip placement="right">
-				{#snippet text()}
-					The trial could not be started: {trialRefusal?.reason}. The customer portal has the
-					details.
-				{/snippet}
+		<div class="px-2 pt-2">
+			{#if isCollapsed}
+				<Tooltip placement="right">
+					{#snippet text()}
+						The trial could not be started: {trialRefusal?.reason}. The customer portal has the
+						details.
+					{/snippet}
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						iconOnly
+						startIcon={{ icon: AlertTriangle }}
+						onclick={() => window.location.assign(trialRefusal!.location)}
+						aria-label="The trial could not be started; open the customer portal"
+					/>
+				</Tooltip>
+			{:else}
+				<p class="mb-1.5 text-2xs text-secondary">
+					The trial could not be started: {trialRefusal.reason}.
+				</p>
 				<Button
 					variant="default"
 					unifiedSize="sm"
-					iconOnly
 					startIcon={{ icon: AlertTriangle }}
 					onclick={() => window.location.assign(trialRefusal!.location)}
-					aria-label="The trial could not be started; open the customer portal"
-				/>
-			</Tooltip>
-		{:else}
-			<p class="mb-1.5 text-2xs text-secondary">
-				The trial could not be started: {trialRefusal.reason}.
-			</p>
-			<Button
-				variant="default"
-				unifiedSize="sm"
-				startIcon={{ icon: AlertTriangle }}
-				onclick={() => window.location.assign(trialRefusal!.location)}
-			>
-				Open the customer portal
-			</Button>
-		{/if}
+				>
+					Open the customer portal
+				</Button>
+			{/if}
+		</div>
 	{/if}
 </div>
 
