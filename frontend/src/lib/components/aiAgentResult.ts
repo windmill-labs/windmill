@@ -85,6 +85,25 @@ export function parseAgentResult(result: unknown): AgentResult | undefined {
 	}
 }
 
+/**
+ * A run stopped by `max_iterations` fails, so it returns an error rather than an
+ * envelope — but the worker attaches the conversation so far to it. That partial
+ * transcript is the whole reason to look at a run that hit the cap.
+ */
+export function parseAgentErrorMessages(result: unknown): AgentMessage[] | undefined {
+	if (!isRecord(result) || !isRecord(result.error)) {
+		return undefined
+	}
+	const inner = result.error.result
+	if (!isRecord(inner) || !Array.isArray(inner.messages)) {
+		return undefined
+	}
+	if (inner.messages.length === 0 || !inner.messages.every(hasRole)) {
+		return undefined
+	}
+	return inner.messages as AgentMessage[]
+}
+
 export type AgentResultSummary = {
 	toolCalls: number
 	webSearches: number

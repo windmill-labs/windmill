@@ -20,6 +20,7 @@
 		Highlighter,
 		ArrowDownFromLine,
 		Bot,
+		MessagesSquare,
 		Database,
 		Loader2
 	} from 'lucide-svelte'
@@ -162,6 +163,8 @@
 		growVertical = false
 	}: Props = $props()
 	let s3FileDisplayRawMode = $state(false)
+	/** Which half of an agent result is showing; JSON is `forceJson`, as for any kind. */
+	let agentView: 'answer' | 'transcript' = $state('answer')
 
 	// Build the image/PDF source URL for an S3 object. When `appPath` is set
 	// (deployed app view) the read is authorized on-behalf of the app author via
@@ -810,9 +813,18 @@
 					bind:clientHeight={resultHeaderHeight}
 				>
 					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
-							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
+							selected={forceJson
+								? 'json'
+								: agentView === 'transcript' && resultKind === 'aiagent'
+									? 'transcript'
+									: resultKind?.startsWith('table-')
+										? 'table'
+										: 'pretty'}
 							on:selected={(ev) => {
 								forceJson = ev.detail === 'json'
+								if (ev.detail === 'transcript' || ev.detail === 'pretty') {
+									agentView = ev.detail === 'transcript' ? 'transcript' : 'answer'
+								}
 							}}
 						>
 							{#snippet children({ item })}
@@ -820,6 +832,13 @@
 									<ToggleButton size="sm" value="table" label="Table" icon={Table2} {item} />
 								{:else if resultKind === 'aiagent'}
 									<ToggleButton size="sm" value="pretty" label="Answer" icon={Bot} {item} />
+									<ToggleButton
+										size="sm"
+										value="transcript"
+										label="Transcript"
+										icon={MessagesSquare}
+										{item}
+									/>
 								{:else}
 									<ToggleButton size="sm" value="pretty" label="Pretty" icon={Highlighter} {item} />
 								{/if}
@@ -1259,7 +1278,7 @@
 				{:else if !forceJson && resultKind === 'aiagent'}
 					{@const agentResult = parseAgentResult(result)}
 					{#if agentResult}
-						<AgentResultDisplay result={agentResult}>
+						<AgentResultDisplay result={agentResult} view={agentView} {workspaceId}>
 							{#snippet structuredOutput(output)}
 								<DisplayResult
 									noControls

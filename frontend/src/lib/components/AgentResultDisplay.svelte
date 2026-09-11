@@ -3,10 +3,14 @@
 	import type { Snippet } from 'svelte'
 	import { Badge } from '$lib/components/common'
 	import GfmMarkdown from './GfmMarkdown.svelte'
+	import AgentTranscript from './AgentTranscript.svelte'
 	import { formatTokenCount, summarizeAgentResult, type AgentResult } from './aiAgentResult'
 
 	interface Props {
 		result: AgentResult
+		/** Answer or the conversation behind it; JSON is the viewer's own toggle. */
+		view: 'answer' | 'transcript'
+		workspaceId?: string
 		/**
 		 * How to render an answer that is not text. An `output_schema` makes `output`
 		 * an object, and the right rendering for it is whatever the result viewer
@@ -17,7 +21,7 @@
 		structuredOutput: Snippet<[unknown]>
 	}
 
-	let { result, structuredOutput }: Props = $props()
+	let { result, view, workspaceId, structuredOutput }: Props = $props()
 
 	let summary = $derived(summarizeAgentResult(result))
 	let textOutput = $derived(typeof result.output === 'string' ? result.output : undefined)
@@ -48,7 +52,9 @@
 		{/if}
 	</div>
 
-	{#if textOutput !== undefined}
+	{#if view === 'transcript'}
+		<AgentTranscript messages={result.messages} {workspaceId} />
+	{:else if textOutput !== undefined}
 		{#if textOutput === ''}
 			<span class="text-tertiary text-xs">The agent returned no answer</span>
 		{:else}
