@@ -545,18 +545,14 @@ async fn edit_schedule(
     reject_reserved_schedule_path(path)?;
 
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
-    let mut tx = user_db.begin(&authed).await?;
 
     // Check schedule for error
     ScheduleType::from_str(&es.schedule, es.cron_version.as_deref(), true)?;
 
-    // Validate dynamic_skip if provided
-    if let Some(handler_path) = &es.dynamic_skip {
-        validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
-    }
-
     let resolved_edited_by = resolve_edited_by(&authed);
 
+    // Resolved on the (non-RLS) pool before the RLS transaction opens: the lookup mid-transaction
+    // would hold a second connection while `tx` is checked out.
     let resolved_permissioned_as = resolve_permissioned_as(
         es.permissioned_as.as_ref(),
         es.preserve_permissioned_as,
@@ -584,6 +580,13 @@ async fn edit_schedule(
         Some(&resolved_permissioned_as),
         Some(&resolved_email),
     )?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    // Validate dynamic_skip if provided
+    if let Some(handler_path) = &es.dynamic_skip {
+        validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
+    }
 
     let before = trigger_history::snapshot_row(&mut *tx, "schedule", &w_id, path).await?;
 
