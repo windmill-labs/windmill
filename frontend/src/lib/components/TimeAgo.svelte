@@ -52,6 +52,10 @@
 	$effect(() => {
 		if (!compact && !noSeconds) return
 		const at = date
+		// An absent or unparsable date has no boundary to wait for: the delay below would
+		// be NaN, which setTimeout runs immediately, and the tick would re-arm itself in
+		// a tight loop.
+		if (Number.isNaN(new Date(at).getTime())) return
 		let handle: ReturnType<typeof setTimeout> | undefined
 		const tick = () => {
 			computeDate()
