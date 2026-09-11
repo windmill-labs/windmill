@@ -3699,7 +3699,7 @@ export const globalTools: Tool<{}>[] = [
 		// No requiresConfirmation, for the reason test_run_script carries.
 		bypassedByAutoAccept: true,
 		streamingLabel: 'Preparing the test form...',
-		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the flow')}`,
+		confirmationMessage: 'Run a test of a flow',
 		queuedLabel: (args) => `Test ${args?.path ?? 'the flow'}`,
 		showDetails: true,
 		autoCollapseDetails: false
