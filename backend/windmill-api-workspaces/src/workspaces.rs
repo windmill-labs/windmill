@@ -3820,6 +3820,18 @@ async fn edit_datatable_config(
         }
     }
 
+    // Worked out from the locked entries rather than taken from `deleted_datatables`: a settings
+    // sync sends the whole map without that list, and dropping a governing entry strands every
+    // fork pointing at it all the same.
+    let removed: Vec<String> = old_datatables
+        .keys()
+        .filter(|name| {
+            !new_config.settings.datatables.contains_key(*name)
+                && !new_config.renames.iter().any(|r| &r.from == *name)
+        })
+        .cloned()
+        .collect();
+
     let config: serde_json::Value = serde_json::to_value(new_config.settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
 
@@ -3859,7 +3871,7 @@ async fn edit_datatable_config(
     // A deletion cannot be followed the same way — there is nothing to point at any more. Read who
     // is left stranded so the caller is told, the way deleting a workspace does.
     let mut stranded: Vec<StrandedReference> = Vec::new();
-    for name in &new_config.deleted_datatables {
+    for name in &removed {
         let rows = sqlx::query!(
             r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "datatable!"
                FROM workspace_settings ws

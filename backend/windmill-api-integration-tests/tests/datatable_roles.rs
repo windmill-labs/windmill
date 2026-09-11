@@ -904,3 +904,33 @@ async fn a_stored_name_containing_a_question_mark_resolves_as_itself(
     );
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn a_settings_save_dropping_a_governing_entry_names_the_forks_it_strands(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    // The whole map and no `deleted_datatables`, as a settings sync sends it.
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{}/api/w/test-workspace/workspaces/edit_datatable_config",
+            server.addr.port()
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "settings": { "datatables": {} } }))
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(status, 200, "{body}");
+    let result: Value = serde_json::from_str(&body)?;
+    assert!(
+        result["stranded_references"]
+            .as_array()
+            .is_some_and(|refs| refs.iter().any(|r| r["workspace_id"] == "wm-fork-dt")),
+        "the fork left pointing at nothing was not named: {body}"
+    );
+    Ok(())
+}

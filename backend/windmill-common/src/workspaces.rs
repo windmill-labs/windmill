@@ -1575,8 +1575,9 @@ pub async fn get_datatable_resource_from_db_unchecked(
 /// datatables resolve to the user's own resource unchanged; configuring it for
 /// replication there is the user's responsibility.
 ///
-/// Authorization: a replication connection reads every row whatever the roles grant, so callers
-/// must gate it with [`ensure_datatable_admin_access`] rather than a role check.
+/// Authorization: a replication connection reads every row whatever the roles grant, so no role or
+/// admin check makes it safe. Callers MUST refuse a data table under roles outright — the Postgres
+/// trigger crate's `ensure_not_under_roles` — and turning roles on is refused while one streams.
 pub async fn get_datatable_replication_resource_from_db_unchecked(
     db: &DB,
     w_id: &str,
@@ -1880,8 +1881,9 @@ pub async fn ensure_can_use_datatable_role(
     )))
 }
 
-/// Gate the operations that see the whole database whatever the roles grant: replication streams,
-/// a migration that declares no role, exports, and editing the permissions themselves. Passing
+/// Gate the operations that see the whole database whatever the roles grant: a migration that
+/// declares no role, exports, and editing the permissions themselves. Not replication, which a
+/// data table under roles refuses whoever asks (see `ensure_not_under_roles`). Passing
 /// means the caller could have connected as `admin` anyway.
 pub async fn ensure_datatable_admin_access(
     db: &DB,
