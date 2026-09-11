@@ -102,9 +102,10 @@ pub fn validate_role_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// SAFETY: every caller must have run [`validate_role_name`] first — the charset it enforces is
-/// what makes this quoting sufficient.
-fn quote_ident(name: &str) -> String {
+/// A double-quoted Postgres identifier. Doubling `"` is Postgres's own escaping inside one, so this
+/// quotes any name — schema, table or role. Role names are validated as well
+/// ([`validate_role_name`]) because they also travel unquoted, in `-- role <name>` and `?role=`.
+pub fn quote_ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
 

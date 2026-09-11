@@ -990,6 +990,20 @@ impl Future for TokioPgConnection {
     }
 }
 
+impl TokioPgConnection {
+    /// Drive the connection and hand back what the server sends outside of a query's response —
+    /// notices above all, which driving it as a future silently discards.
+    pub fn poll_message(
+        &mut self,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Option<Result<tokio_postgres::AsyncMessage, tokio_postgres::Error>>> {
+        match self {
+            TokioPgConnection::Tls(conn) => conn.poll_message(cx),
+            TokioPgConnection::NoTls(conn) => conn.poll_message(cx),
+        }
+    }
+}
+
 impl PgDatabase {
     /// The role the connection logs in as, whichever way it authenticates.
     pub fn login_name(&self) -> &str {
