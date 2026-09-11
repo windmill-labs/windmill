@@ -28,9 +28,10 @@ export type FlowBuilderProps = {
 	disabledFlowInputs?: boolean
 	savedPrimarySchedule?: ScheduleTrigger | undefined // used to set the primary schedule in the legacy primaryScheduleStore
 	version?: number | undefined
-	/** flow_version the draft was forked from; when set, the deploy-time staleness
-	 *  check compares it (not the load-time head `version`) against the latest. */
-	draftBaseVersion?: number | undefined
+	/** flow_version the draft was forked from (as text, like `draft_base`); when
+	 *  set, the deploy-time staleness check compares it (not the load-time head
+	 *  `version`) against the latest. */
+	draftBaseVersion?: string | undefined
 	draftTriggersFromUrl?: Trigger[] | undefined
 	selectedTriggerIndexFromUrl?: number | undefined
 	children?: import('svelte').Snippet

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT value as \"value!: sqlx::types::Json<Box<serde_json::value::RawValue>>\",\n                  created_at\n           FROM draft\n           WHERE workspace_id = $1\n             AND (email = $2 OR email IS NULL)\n             AND path = $3\n             AND typ = $4\n           ORDER BY email NULLS LAST\n           LIMIT 1",
+  "query": "SELECT value as \"value!: sqlx::types::Json<Box<serde_json::value::RawValue>>\",\n                  created_at, base\n           FROM draft\n           WHERE workspace_id = $1\n             AND (email = $2 OR email IS NULL)\n             AND path = $3\n             AND typ = $4\n           ORDER BY email NULLS LAST\n           LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -12,6 +12,11 @@
         "ordinal": 1,
         "name": "created_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "base",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -58,8 +63,9 @@
     },
     "nullable": [
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "d4e0da9f9653d532770066310f85e59e5edda1faea72f39603814afb6a3cd596"
+  "hash": "0cc6770a81ecaecafe0d9b7100f94b329c4ec7978b016af4c964415e0c38396c"
 }

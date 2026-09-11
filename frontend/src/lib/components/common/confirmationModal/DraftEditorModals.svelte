@@ -40,15 +40,14 @@
 		draftSavedAt?: string | undefined
 		/** ISO timestamp of the latest deploy at this path. */
 		deployedAt?: string | undefined
-		/** Precise staleness inputs: the deployed version the draft is pinned to, and
-		 *  the current deployed head. When both are set they drive `isStale` and the
-		 *  dedup key instead of the timestamps, which drift past `deployedAt` as you
-		 *  keep editing. Flows/apps pass version ids and pin the true fork point;
-		 *  scripts pass hashes and re-pin to the head on each load, so one edit after
-		 *  a dismissed stale prompt stops it recurring — the same self-healing the
-		 *  timestamps had. Absent (pre-feature drafts) ⇒ timestamp fallback. */
-		draftBaseVersion?: number | string | undefined
-		deployedHeadVersion?: number | string | undefined
+		/** Precise staleness inputs: the deployed version the draft forked from
+		 *  (`draft_base` on the get-by-path response) and the current deployed head,
+		 *  both as text whatever the kind. When both are set they drive `isStale` and
+		 *  the dedup key instead of the timestamps, which drift past `deployedAt` as
+		 *  you keep editing. Absent (a draft never forked from a deploy) ⇒ timestamp
+		 *  fallback. */
+		draftBaseVersion?: string | undefined
+		deployedHeadVersion?: string | undefined
 		/** Discard the draft and reload deployed (same as "Reset to deployed"). */
 		onLoadLatestDeploy?: () => void | Promise<void>
 		/** Opens the editor's Deployed↔Current diff from the stale prompt, so the
@@ -85,9 +84,7 @@
 
 	// Prefer the version comparison over the timestamp for every kind that supplies
 	// one: `draftSavedAt` advances past `deployedAt` as you keep editing, hiding the
-	// staleness outright. What the version pins differs — flows/apps hold the fork
-	// point, scripts the head of their last load — so see `draftBaseVersion` above
-	// before reasoning about when this stops firing.
+	// staleness outright.
 	const useVersion = $derived(draftBaseVersion != null && deployedHeadVersion != null)
 	const isStale = $derived(
 		!!onLoadLatestDeploy &&

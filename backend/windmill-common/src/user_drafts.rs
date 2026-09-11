@@ -188,7 +188,6 @@ impl UserDraftItemKind {
         }
     }
 
-
     /// Whether OTHER users' drafts at a path are visible to a viewer (the
     /// "others are editing" list, owner circles, and the `get_draft_for_user`
     /// View JSON / Fork endpoint). Enabled only for the full-page editor items
@@ -241,6 +240,12 @@ pub struct WithDraftOverlay {
     pub is_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_saved_at: Option<DateTime<Utc>>,
+    /// The deployed version the draft forked from (`draft.base`), as text
+    /// whatever the kind. The editor compares it to the head it loaded to tell
+    /// a draft that is behind. Absent when there is no draft or it was never
+    /// forked from a deploy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_base: Option<String>,
     /// True when no deployed row exists at this path: `inner` is only a
     /// best-effort stand-in synthesized from the draft and only `draft` is
     /// canonical. Frontend uses this to disable "diff/reset vs deployed" and
@@ -326,6 +331,7 @@ where
             inner: Box::new(deployed),
             is_draft: false,
             draft_saved_at: None,
+            draft_base: None,
             no_deployed: false,
             draft: None,
             other_drafts_users: Vec::new(),
@@ -346,7 +352,7 @@ where
     // row when an owned one exists.
     let row = sqlx::query!(
         r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
-                  created_at
+                  created_at, base
            FROM draft
            WHERE workspace_id = $1
              AND (email = $2 OR email IS NULL)
@@ -367,6 +373,7 @@ where
             inner: Box::new(deployed),
             is_draft: false,
             draft_saved_at: None,
+            draft_base: None,
             no_deployed: false,
             draft: None,
             other_drafts_users,
@@ -379,6 +386,7 @@ where
         inner: Box::new(deployed),
         is_draft: true,
         draft_saved_at: Some(row.created_at),
+        draft_base: row.base,
         no_deployed: false,
         draft: Some(draft_json),
         other_drafts_users,
@@ -676,7 +684,7 @@ pub async fn fetch_draft_only(
     // Own draft first, legacy NULL-email row as fallback (see `maybe_overlay_draft`).
     let row = sqlx::query!(
         r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
-                  created_at
+                  created_at, base
            FROM draft
            WHERE workspace_id = $1
              AND (email = $2 OR email IS NULL)
@@ -707,6 +715,7 @@ pub async fn fetch_draft_only(
         inner: Box::new(draft_json.clone()),
         is_draft: true,
         draft_saved_at: Some(row.created_at),
+        draft_base: row.base,
         no_deployed: true,
         draft: Some(draft_json),
         other_drafts_users,

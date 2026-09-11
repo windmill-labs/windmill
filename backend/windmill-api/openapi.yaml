@@ -9301,6 +9301,9 @@ paths:
                     created_at:
                       type: string
                       format: date-time
+                    base:
+                      type: string
+                      description: The deployed version this draft forked from (script hash, flow version id or app version id, as text). Absent when the draft was never forked from a deploy.
                     can_write:
                       type: boolean
                       description: Whether the current user may deploy/discard this draft (same check the deploy/discard endpoints enforce).
@@ -26102,6 +26105,13 @@ components:
         draft_saved_at:
           type: string
           format: date-time
+        draft_base:
+          type: string
+          description: |
+            The deployed version the draft forked from, as text whatever the
+            kind (script hash, flow version id, app version id). Compare to the
+            deployed head to tell a draft that is behind. Absent when there is
+            no draft or it was never forked from a deploy.
         no_deployed:
           type: boolean
         draft:

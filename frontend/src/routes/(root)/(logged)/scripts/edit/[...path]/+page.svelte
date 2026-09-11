@@ -333,7 +333,7 @@
 			// Exact staleness, preferred over the timestamps: a draft carried across
 			// a move keeps its old save time while the move mints a fresh deploy, so
 			// the timestamps alone would call every carried draft stale.
-			draftBaseHash = draftFromBackend?.parent_hash as string | undefined
+			draftBaseHash = backendScript.draft_base
 			deployedHeadHash = backendScript.hash as string | undefined
 			const effectiveScript: EditableScript = draftFromBackend
 				? { ...deployedScript, ...draftFromBackend }
@@ -343,7 +343,7 @@
 			// it (by discarding or rebasing). Seeding it from the head here would let
 			// the next autosave persist the head as the base, so a draft behind the
 			// deploy reads as up to date after one open.
-			const parentHash = topHash ?? draftFromBackend?.parent_hash ?? backendScript.hash
+			const parentHash = topHash ?? backendScript.draft_base ?? backendScript.hash
 			// Baseline for the autosave `discardIf`: the deployed script with the
 			// same `parent_hash` graft the seed below applies, so the unedited draft
 			// compares equal. `undefined` when there's no deployed row.

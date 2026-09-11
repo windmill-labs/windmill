@@ -292,7 +292,7 @@
 		// a draft, else the load-time head. This catches both a concurrent deploy
 		// (head moved since open) AND a stale draft reopened after a deploy (head ==
 		// load-time head, but the draft was forked from an older version).
-		const base = draftBaseVersion ?? version
+		const base = draftBaseVersion ?? (version != null ? String(version) : undefined)
 		if (base === undefined) {
 			return
 		}
@@ -303,7 +303,7 @@
 					path: initialPath
 				})
 
-				onLatest = base === flowVersion?.id
+				onLatest = flowVersion != null && base === String(flowVersion.id)
 			} else {
 				onLatest = true
 			}

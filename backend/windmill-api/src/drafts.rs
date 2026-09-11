@@ -57,6 +57,11 @@ pub struct DraftListItem {
     /// row exists at this (path, kind) — the DISTINCT ON prefers an owned row.
     pub legacy_draft: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// The deployed version this draft forked from (`draft.base`): a script
+    /// hash, a flow version id or an app version id, always as text. `None` for
+    /// a draft that was never forked from a deploy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
     /// All draft authors at this `(path, kind)`, for the shared full-page-editor
     /// kinds (script/flow/app/raw_app) only — feeds the home-page-style owner
     /// circles on the review page. `None` for drawer kinds, which keep their
@@ -245,6 +250,7 @@ fn list_drafts_query(all_users: bool) -> String {
                   d.path,
                   d.typ AS kind,
                   d.created_at,
+                  d.base,
                   d.value ->> 'summary' AS summary,
                   {draft_users} AS draft_users,
                   -- Friendly typed path, by kind (mirrors the home-page list
@@ -355,6 +361,20 @@ struct DraftBaseVersion {
     /// Apps / raw apps: `app_version.id`.
     #[serde(default)]
     parent_version: Option<i64>,
+}
+
+impl DraftBaseVersion {
+    /// The base as the `draft.base` column stores it: one opaque text id whatever
+    /// the kind, so a reader compares it to the head without knowing the kind's
+    /// own field name or type.
+    fn as_text(&self, kind: UserDraftItemKind) -> Option<String> {
+        use UserDraftItemKind::*;
+        match kind {
+            Script => self.parent_hash.clone(),
+            Flow => self.version_id.map(|v| v.to_string()),
+            _ => self.parent_version.map(|v| v.to_string()),
+        }
+    }
 }
 
 /// The version this draft forked from, or `None` when it has no lineage to
@@ -705,11 +725,15 @@ async fn update_draft(
             Some(_) => None,
             None => Some(db.acquire().await?),
         };
+        // `base` is derived here from the value's per-kind field rather than sent
+        // by the client, so every writer (editors, chat, CLI) fills it the same way.
+        let base = lineage.as_ref().and_then(|l| l.as_text(kind));
         let applied = sqlx::query_scalar!(
-            r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
-               VALUES ($1, $2, $3, $4, $5::text::json, COALESCE($8::timestamptz, now()))
+            r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at, base)
+               VALUES ($1, $2, $3, $4, $5::text::json, COALESCE($8::timestamptz, now()), $9)
                ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
-               DO UPDATE SET value = EXCLUDED.value, created_at = EXCLUDED.created_at
+               DO UPDATE SET value = EXCLUDED.value, created_at = EXCLUDED.created_at,
+                             base = EXCLUDED.base
                WHERE $7::bool = true
                   OR $6::timestamptz IS NULL
                   OR draft.created_at <= $6::timestamptz
@@ -722,6 +746,7 @@ async fn update_draft(
             req.last_sync,
             req.force,
             req.created_at,
+            base.as_deref(),
         )
         .fetch_optional(match (tx.as_mut(), plain.as_mut()) {
             (Some(tx), _) => &mut **tx as &mut sqlx::PgConnection,
