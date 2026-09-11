@@ -71,10 +71,15 @@ describe('summarizeAgentBrain', () => {
 	})
 
 	it('summarizes structured fields compactly', () => {
+		// memory is serialized with a `kind` tag (serde tag = "kind")
 		const rows = summarizeAgentBrain({
+			memory: { kind: 'auto', context_length: 20 } as any,
 			output_schema: { type: 'object' } as any
 		})
-		expect(rows).toEqual([{ label: 'Output schema', value: 'configured' }])
+		expect(rows).toEqual([
+			{ label: 'Memory', value: 'auto' },
+			{ label: 'Output schema', value: 'configured' }
+		])
 	})
 })
 
@@ -144,16 +149,13 @@ describe('flowLocalInputs', () => {
 				provider: { type: 'static', value: {} },
 				user_message: { type: 'static', value: 'hi' },
 				user_attachments: { type: 'static', value: [] },
-				// Both belong to the use, not to the reused agent: history is keyed by a memory_id
-				// minted per step, and the enabled set narrows one flow's use of a shared roster.
-				// Saving either into the resource would share it across every flow linking it.
-				memory: { type: 'static', value: { kind: 'auto', context_length: 20 } },
+				// The roster it narrows belongs to the agent, but which of it one flow may call does
+				// not: saving this into the resource would impose it on every flow linking the agent.
 				enabled_tools: { type: 'javascript', expr: 'flow_input.tools' }
 			} as any)
 		).toEqual({
 			user_message: { type: 'static', value: 'hi' },
 			user_attachments: { type: 'static', value: [] },
-			memory: { type: 'static', value: { kind: 'auto', context_length: 20 } },
 			enabled_tools: { type: 'javascript', expr: 'flow_input.tools' }
 		})
 	})

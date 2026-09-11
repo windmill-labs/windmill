@@ -357,10 +357,6 @@ fn config_to_draft(value: serde_json::Value) -> Result<AgentDraft> {
         Some(serde_json::Value::Array(tools)) => tools,
         _ => vec![],
     };
-    // Conversation history belongs to the flow running the agent, not to the agent, and an agent
-    // saved before that was true still carries one. Every case must start from the same blank
-    // state, so it is dropped here rather than replayed into each of them.
-    config.remove("memory");
     // Every brain key becomes a static transform: `$res:`/`$var:` in them are resolved by the
     // same argument machinery a linked step's resource goes through.
     let input_transforms = config

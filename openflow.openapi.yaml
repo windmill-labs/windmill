@@ -1064,10 +1064,12 @@ components:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
               description: |
-                Array of strings naming the tools the agent may call this run, out of the ones
-                configured in `tools`. Every tool when unset, none when empty.
-                An MCP server named here enables all of the tools it exposes.
-                Example: ['get_user', 'send_email']
+                Which of the tools configured in `tools` the agent may call this run, as a tagged
+                object: { kind: 'all' } carries every one of them, as leaving this unset does, and
+                { kind: 'only', tools: [...] } carries only the ones named — none when that list is
+                empty. Tools are named as the model is shown them, so an MCP tool is
+                `mcp_<server>_<tool>`; naming the MCP server instead enables every tool it exposes.
+                Example: { kind: 'only', tools: ['get_user', 'send_email'] }
             max_completion_tokens:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
@@ -1115,7 +1117,7 @@ components:
             Path of a reusable `ai_agent` resource (hybrid linking). When set, the agent brain
             config (provider/model/system prompt/etc.) and tool set are resolved at runtime from
             that resource; the module's input_transforms then only carry the flow-local inputs
-            (user_message/user_attachments/memory/enabled_tools).
+            (user_message/user_attachments/enabled_tools).
         tool_inputs:
           type: object
           description: |

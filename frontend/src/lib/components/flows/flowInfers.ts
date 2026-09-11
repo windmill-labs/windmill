@@ -151,15 +151,47 @@ export const AI_AGENT_SCHEMA: Schema = {
 				resourceType: 's3object'
 			}
 		},
-		// The step's own roster fills `items.enum` in, so the static editor offers the tools this
-		// agent actually has (`AiAgentStepInputs`).
+		// Tagged like `memory` so the form reads the same way: the variant says whether a run carries
+		// the whole roster or a list, and an empty list under `only` is a choice rather than a field
+		// nobody filled in. The step's own roster fills the list's `items.enum` in, so the static
+		// editor offers the tools this agent actually has (`AiAgentStepInputs`).
 		// Shown for image output as the roster it narrows is, even though neither is used there.
 		enabled_tools: {
-			type: 'array',
-			description: 'The tools the agent may call, by name. All of them when unset.',
-			items: {
-				type: 'string'
-			}
+			type: 'object',
+			description: 'Which of the agent tools a run may call.',
+			oneOf: [
+				{
+					type: 'object',
+					title: 'all',
+					properties: {
+						kind: {
+							type: 'string',
+							enum: ['all'],
+							description: 'Carry every tool the agent has'
+						}
+					}
+				},
+				{
+					type: 'object',
+					title: 'only',
+					properties: {
+						kind: {
+							type: 'string',
+							enum: ['only'],
+							description: 'Carry only the tools listed'
+						},
+						tools: {
+							type: 'array',
+							description:
+								'Tools by the name the model is shown. An MCP server enables every tool it exposes.',
+							items: {
+								type: 'string'
+							}
+						}
+					},
+					required: ['kind']
+				}
+			]
 		},
 		max_completion_tokens: {
 			type: 'number',

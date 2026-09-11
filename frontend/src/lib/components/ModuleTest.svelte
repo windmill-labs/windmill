@@ -173,14 +173,8 @@
 			// `args` is built from the whole AI agent schema whatever the step is, so on a linked step
 			// it carries every brain key as undefined even though the form renders only the flow-local
 			// ones (`flowLocalAgentSchema`). Overlaying those would shadow the brain the draft just
-			// supplied with nothing, so an inlined step takes only the inputs its form actually offers
-			// — and of those, only the ones it was given a value for. An unfilled field must inherit
-			// what the agent carries, the way a deployed run does: an agent saved before `memory`
-			// became a step input still holds one, and a test that blanked it would answer without the
-			// history the same step answers with when the flow runs.
-			const formKeys = draft
-				? AGENT_FLOW_LOCAL_KEYS.filter((key) => args?.[key] !== undefined)
-				: Object.keys(args)
+			// supplied with nothing, so an inlined step takes only the inputs its form actually offers.
+			const formKeys = draft ? (AGENT_FLOW_LOCAL_KEYS as readonly string[]) : Object.keys(args)
 
 			// The test form only covers the schema it was given, and for a standalone agent that may be
 			// the flow-local one (the agent editor shows the brain in its own form, not here). Take the

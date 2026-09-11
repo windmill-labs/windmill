@@ -252,34 +252,6 @@ fn overlay_tool_inputs(
 /// `build_args_map` has already resolved them, so passing them through it again would expand
 /// contextual values — `$WM_TOKEN` in a user message would reach the model provider.
 ///
-/// `user_message`/`user_attachments` are the step's whatever it holds, blank included. The two
-/// below them are only an override when the step actually holds a value: an unfilled field arrives
-/// as null, and writing that through would drop the `memory` of an agent saved back when memory was
-/// part of the brain, ending the conversations it holds without saying so.
-fn overlay_flow_local_args(
-    brain: &mut serde_json::Map<String, serde_json::Value>,
-    local_args: &HashMap<String, Box<RawValue>>,
-) {
-    for key in ["user_message", "user_attachments"] {
-        if let Some(v) = local_args.get(key) {
-            brain.insert(
-                key.to_string(),
-                serde_json::from_str(v.get()).unwrap_or(serde_json::Value::Null),
-            );
-        }
-    }
-    for key in ["memory", "enabled_tools"] {
-        let Some(v) = local_args
-            .get(key)
-            .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
-            .filter(|v| !v.is_null())
-        else {
-            continue;
-        };
-        brain.insert(key.to_string(), v);
-    }
-}
-
 /// The roster a run advertises, given the tool names it enabled, plus the resource paths of the
 /// MCP entries it named outright — those enable every tool of that server, which only
 /// `load_mcp_tools` can enumerate.
@@ -565,7 +537,17 @@ pub async fn handle_ai_agent_job(
                 )))
             }
         };
-        overlay_flow_local_args(&mut brain, &local_args);
+        // Only after interpolating the resource: these are caller-controlled and already resolved by
+        // build_args_map, so passing them through it again would expand contextual values —
+        // `$WM_TOKEN` in a user message would reach the model provider.
+        for key in ["user_message", "user_attachments", "enabled_tools"] {
+            if let Some(v) = local_args.get(key) {
+                brain.insert(
+                    key.to_string(),
+                    serde_json::from_str(v.get()).unwrap_or(serde_json::Value::Null),
+                );
+            }
+        }
         let args = serde_json::from_value::<AIAgentArgs>(serde_json::Value::Object(brain))
             .map_err(|e| {
                 Error::internal_err(format!(
@@ -602,8 +584,12 @@ pub async fn handle_ai_agent_job(
     };
 
     // Narrow the roster to the tools this run enabled, before the loop below pays a script or hub
-    // fetch per tool.
-    let enabled_tools = args.enabled_tools.as_deref();
+    // fetch per tool. Everything downstream works on the names alone: `All` and an absent field
+    // are the same run.
+    let enabled_tools = match args.enabled_tools.as_ref() {
+        Some(EnabledTools::Only { tools }) => Some(tools.as_slice()),
+        Some(EnabledTools::All) | None => None,
+    };
     let roster_names: Vec<String> = tools.iter().filter_map(|t| t.summary.clone()).collect();
     let (tools, enabled_mcp_paths) = narrow_roster(tools, enabled_tools);
 
@@ -2111,45 +2097,6 @@ mod tests {
             &[],
             &paths
         ));
-    }
-
-    /// The rule the whole back-compat story rests on: an unfilled step field arrives as null, and
-    /// writing it through would end the conversations a legacy agent's own `memory` holds.
-    #[test]
-    fn flow_local_args_override_the_agent_only_when_set() {
-        fn raw(json: &str) -> Box<RawValue> {
-            RawValue::from_string(json.to_string()).unwrap()
-        }
-        let mut brain = serde_json::Map::new();
-        brain.insert("system_prompt".to_string(), serde_json::json!("from agent"));
-        brain.insert("memory".to_string(), serde_json::json!({ "kind": "auto" }));
-
-        let local_args = HashMap::from([
-            (
-                "user_message".to_string(),
-                raw("\"ask the flow's question\""),
-            ),
-            ("memory".to_string(), raw("null")),
-            ("enabled_tools".to_string(), raw("null")),
-        ]);
-        overlay_flow_local_args(&mut brain, &local_args);
-
-        assert_eq!(
-            brain["user_message"],
-            serde_json::json!("ask the flow's question")
-        );
-        assert_eq!(brain["system_prompt"], serde_json::json!("from agent"));
-        // Unfilled, so the agent's own is what runs.
-        assert_eq!(brain["memory"], serde_json::json!({ "kind": "auto" }));
-        assert!(!brain.contains_key("enabled_tools"));
-
-        let local_args = HashMap::from([
-            ("memory".to_string(), raw("{\"kind\":\"off\"}")),
-            ("enabled_tools".to_string(), raw("[\"get_user\"]")),
-        ]);
-        overlay_flow_local_args(&mut brain, &local_args);
-        assert_eq!(brain["memory"], serde_json::json!({ "kind": "off" }));
-        assert_eq!(brain["enabled_tools"], serde_json::json!(["get_user"]));
     }
 
     #[test]

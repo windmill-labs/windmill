@@ -15,6 +15,15 @@
 			openFieldsByStep.delete(oldest)
 		}
 	}
+
+	/**
+	 * The rows this step's form has open, for the run form, which has no add-field control of its
+	 * own and would otherwise not offer a field that was added here and left at its default: to a
+	 * reader of the stored transforms alone, that is indistinguishable from a field nobody touched.
+	 */
+	export function openAgentFields(key: string | undefined): string[] {
+		return (key ? openFieldsByStep.get(key) : undefined) ?? []
+	}
 </script>
 
 <script lang="ts">
@@ -162,9 +171,10 @@
 		const names = tools.map((tool) => tool.summary).filter((name): name is string => !!name)
 		const properties = schemaProperties
 		untrack(() => {
-			const property = properties['enabled_tools']
-			if (property && !deepEqual(property.items?.enum, names)) {
-				property.items = { ...(property.items ?? { type: 'string' }), enum: names }
+			const list = properties['enabled_tools']?.oneOf?.find((variant) => variant.title === 'only')
+				?.properties?.tools
+			if (list && !deepEqual(list.items?.enum, names)) {
+				list.items = { ...(list.items ?? { type: 'string' }), enum: names }
 			}
 		})
 	})

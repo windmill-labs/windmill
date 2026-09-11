@@ -44,10 +44,6 @@ export interface AgentFieldSpec {
 	defaultHint?: string
 	/** Ignored for image output, so the field hides while `output_type` is `'image'`. */
 	textOnly?: boolean
-	/** Filled in per run rather than configured on the step, so a form that is collecting a run's
-	 *  inputs shows it whether or not the step wrote anything for it. The step's own form still
-	 *  treats it as optional: there it is one of the fields the add menu offers. */
-	runInput?: boolean
 }
 
 export const AGENT_FIELDS: AgentFieldSpec[] = [
@@ -105,8 +101,7 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		label: 'Attachments',
 		tooltip: 'Images or PDFs sent along with the user message. Needs S3 storage on the workspace.',
 		implicit: [],
-		defaultHint: 'Default: none',
-		runInput: true
+		defaultHint: 'Default: none'
 	},
 	{
 		key: AGENT_TOOLS_ROW,
@@ -120,7 +115,8 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		group: 'tools',
 		label: 'Enabled tools',
 		tooltip:
-			'Narrows the tools above to the ones named here, so a run only carries what it needs. Leave it empty for no tools at all, or set it to an expression to decide per run. An MCP server named here enables every tool it exposes; an expression can name one of them on its own, as mcp_<server>_<tool>.',
+			'Whether a run carries every tool above or only the ones listed, so it costs no more than it needs. Listing none at all leaves the agent with no tools. Set it to an expression to decide per run. An MCP server listed here enables every tool it exposes, and an expression can name a single one of them as mcp_<server>_<tool>.',
+		implicit: { kind: 'all' },
 		defaultHint: 'Default: all of them'
 	},
 	{
@@ -163,6 +159,16 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 export const AGENT_FIELD_BY_KEY: Record<string, AgentFieldSpec> = Object.fromEntries(
 	AGENT_FIELDS.map((f) => [f.key, f])
 )
+
+/**
+ * Fields the agent editor's test form has to offer whatever the agent holds, rather than only the
+ * ones a step wrote: a saved agent stores no flow-local input, so its own form cannot open a row
+ * for one and the test form is the only place left to supply it.
+ *
+ * `enabled_tools` stays out because narrowing a roster belongs to the step that reuses the agent,
+ * not to a run of the agent itself.
+ */
+export const AGENT_EDITOR_RUN_INPUTS: readonly string[] = ['user_attachments']
 
 /**
  * Whether a transform holds something a run would do differently from an absent key. Core fields
