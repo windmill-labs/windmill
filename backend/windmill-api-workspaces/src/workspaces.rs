@@ -45,12 +45,12 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_deploy_rules, check_user_against_rule, datatable_ref_name,
-    get_datatable_resource_from_db, get_datatable_resource_from_db_unchecked,
-    resolve_governing_datatable, validate_dev_workspace_id, validate_fork_workspace_id,
-    validate_workspace_name, DataTable, DataTableCatalogResourceType, DataTableForkBehavior,
-    DatatableAccess, GoverningDatatable, ProtectionRuleKind, ProtectionRules, ProtectionRuleset,
-    RuleCheckResult, WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
+    check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db,
+    get_datatable_resource_from_db_unchecked, parse_datatable_ref_for, resolve_governing_datatable,
+    validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
+    DataTableCatalogResourceType, DataTableForkBehavior, DatatableAccess, GoverningDatatable,
+    ProtectionRuleKind, ProtectionRules, ProtectionRuleset, RuleCheckResult,
+    WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -3262,8 +3262,8 @@ async fn create_pg_database(
     // database that no data table entry names. Refuse here too, so the clone stops before one
     // exists rather than leaving an empty registered `wm_fork_…` behind.
     if let Some(reference) = req.source.strip_prefix("datatable://") {
-        let name = datatable_ref_name(reference);
-        ensure_datatable_is_clonable(&db, &w_id, name).await?;
+        let (name, _) = parse_datatable_ref_for(&db, &w_id, reference).await?;
+        ensure_datatable_is_clonable(&db, &w_id, &name).await?;
     }
 
     // Non-superadmin: restrict dbname to wm_fork_ prefix
@@ -3406,8 +3406,8 @@ async fn import_pg_database(
     }
 
     if let Some(reference) = req.source.strip_prefix("datatable://") {
-        let name = datatable_ref_name(reference);
-        ensure_datatable_is_clonable(&db, &w_id, name).await?;
+        let (name, _) = parse_datatable_ref_for(&db, &w_id, reference).await?;
+        ensure_datatable_is_clonable(&db, &w_id, &name).await?;
     }
 
     if req.fork_behavior == DataTableForkBehavior::SchemaAndData {

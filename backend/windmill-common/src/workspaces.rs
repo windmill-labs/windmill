@@ -2099,13 +2099,30 @@ pub fn strip_datatable_permissions(
     Some(datatable)
 }
 
-/// The data table a `datatable://` reference names, ignoring its query string. For callers that
-/// only need to find the entry; use [`parse_datatable_ref`] wherever the role is acted on.
-pub fn datatable_ref_name(reference: &str) -> &str {
-    reference
-        .split_once('?')
-        .map(|(name, _)| name)
-        .unwrap_or(reference)
+/// As [`parse_datatable_ref`], except that an entry whose stored name itself contains `?` — which
+/// names could before they were restricted — resolves by that exact name, without a role. It is
+/// looked up first, so `sales?role=x` never reaches a different entry than the one stored so.
+pub async fn parse_datatable_ref_for(
+    db: &DB,
+    w_id: &str,
+    reference: &str,
+) -> Result<(String, Option<String>)> {
+    if reference.contains('?') {
+        let exists = sqlx::query_scalar::<_, Option<bool>>(
+            "SELECT (datatable->'datatables') ? $2 FROM workspace_settings WHERE workspace_id = $1",
+        )
+        .bind(w_id)
+        .bind(reference)
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or(false);
+        if exists {
+            return Ok((reference.to_string(), None));
+        }
+    }
+    let (name, role) = parse_datatable_ref(reference)?;
+    Ok((name.to_string(), role.map(str::to_string)))
 }
 
 /// Split a `datatable://` reference into its name and the role its query string names.
@@ -3382,9 +3399,6 @@ mod tests {
                 "silently ignored: {malformed}"
             );
         }
-
-        // The name-only helper stays lenient — it is used where the role is never acted on.
-        assert_eq!(datatable_ref_name("sales?role="), "sales");
     }
 
     #[test]
