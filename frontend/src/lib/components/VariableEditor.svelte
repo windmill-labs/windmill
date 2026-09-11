@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { VariableService, WorkspaceService } from '$lib/gen'
 	import { createEventDispatcher, untrack } from 'svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -20,8 +20,7 @@
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
 	import { resource } from 'runed'
-	import { getUserExt } from '$lib/user'
-	import type { UserExt } from '$lib/stores'
+	import { useActingUser } from '$lib/actingUser.svelte'
 	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
@@ -38,8 +37,10 @@
 
 	// The "current" workspace this editor defaults New/Edit actions to. Session
 	// editors pass their acting workspace so secrets are created/updated there
-	// rather than in the navigation workspace. Defaults to $workspaceStore.
+	// rather than in the navigation workspace.
 	let { workspace = undefined }: { workspace?: string } = $props()
+	// Sole ambient read in this file: the acting workspace is an input, and only its
+	// default comes from the navigation store.
 	let curWs = $derived(workspace ?? $workspaceStore)
 
 	let editPath: string | undefined = $state(undefined)
@@ -50,12 +51,15 @@
 	// releasing them on component teardown. `states` indexes the resulting
 	// handles by workspace ID for ergonomic lookup downstream.
 	let workspaceSpecs = $state<Array<{ ws: string; defaultValue: VariableState }>>([])
+	// Plain objects keyed by workspace id, so an id that is also an `Object.prototype` key
+	// (`constructor`, …) reads as already present and the variable never loads. Such ids are
+	// deliberately unsupported: too unlikely to be worth guarding every read.
 	let initialStates: Record<string, VariableState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let extraPerms: Record<string, Record<string, boolean>> = $state({})
-	let perWsUser: Record<string, UserExt | undefined> = $state({})
 	let selected: string | undefined = $state(undefined)
 	let pathError = $state('')
+	const acting = useActingUser(() => selected)
 
 	const handlesArray = UserDraft.useMany<VariableState>(() =>
 		workspaceSpecs.map((s) => ({
@@ -106,11 +110,14 @@
 		pageDrawerSessionSource(VARIABLES_PATH, editPath, selected ?? curWs)
 	)
 	const current = $derived(selected ? states[selected]?.draft : undefined)
-	const can_write = $derived.by(() => {
+	// `undefined` until the selected workspace's permissions and acting user have both
+	// landed — a pending verdict is neither a grant nor the denial the read-only alert
+	// announces, so the two must stay distinguishable.
+	const can_write: boolean | undefined = $derived.by(() => {
 		if (!selected || !edit) return true
 		const perms = extraPerms[selected]
-		if (!perms) return true
-		return canWrite(editPath ?? '', perms, perWsUser[selected] ?? $userStore)
+		if (!perms || !acting.resolved(selected)) return undefined
+		return canWrite(editPath ?? '', perms, acting.in(selected))
 	})
 	const dirtyWorkspaces = $derived(
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
@@ -154,7 +161,7 @@
 	const dirtyCanWrite = $derived(
 		dirtyWorkspaces.every((ws) => {
 			const perms = extraPerms[ws]
-			return !perms || canWrite(editPath ?? '', perms, perWsUser[ws] ?? $userStore)
+			return !perms || canWrite(editPath ?? '', perms, acting.in(ws))
 		})
 	)
 
@@ -165,15 +172,12 @@
 		if (!ws || !p) return
 		if (ws in states) return
 		untrack(() => {
-			Promise.all([
-				VariableService.getVariable({
-					workspace: ws,
-					path: p,
-					decryptSecret: false,
-					getDraft: true
-				}),
-				getUserExt(ws)
-			]).then(([v, user]) => {
+			VariableService.getVariable({
+				workspace: ws,
+				path: p,
+				decryptSecret: false,
+				getDraft: true
+			}).then((v) => {
 				// `.draft` already holds the editor's `VariableState` shape.
 				const savedDraftState = (v as any).draft as VariableState | undefined
 				// Deployed baseline as the dirty-check reference, so the banner
@@ -196,7 +200,6 @@
 				// CREATE, not update (update 404s).
 				existedInitially[ws] = !(v as any).no_deployed
 				extraPerms[ws] = v.extra_perms ?? {}
-				perWsUser[ws] = user
 			})
 		})
 	})
@@ -208,8 +211,8 @@
 		initialStates = {}
 		existedInitially = {}
 		extraPerms = {}
-		perWsUser = {}
 		pathError = ''
+		acting.forgetFailures()
 	}
 
 	export function initNew(): void {
@@ -329,7 +332,7 @@
 			/>
 		{/snippet}
 		<div class="flex flex-col gap-8 pb-2">
-			{#if !can_write}
+			{#if can_write === false}
 				<Alert type="warning" title="Only read access">
 					You only have read access to this resource and cannot edit it
 				</Alert>
@@ -341,7 +344,9 @@
 				</Alert>
 			{/if}
 
-			{#if current}
+			<!-- Held back until there is a verdict: rendering the form against a pending `can_write`
+			would flash read-only controls at someone who can in fact write. -->
+			{#if current && can_write !== undefined}
 				{#key current}
 					<VariableForm
 						bind:this={form}
@@ -352,10 +357,11 @@
 						bind:wsSpecific={current.wsSpecific}
 						{initialPath}
 						deployTo={deployTo.current}
-						{can_write}
+						can_write={can_write === true}
 						{edit}
 						onLoadSecret={loadSecret}
-						{workspace}
+						workspace={selected}
+						actingUser={acting.in(selected) ?? null}
 					/>
 				{/key}
 			{/if}

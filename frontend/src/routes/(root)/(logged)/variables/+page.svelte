@@ -316,7 +316,11 @@
 		</PageHeader>
 		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
-		<VariableEditor bind:this={variableEditor} on:create={loadVariables} />
+		<VariableEditor
+			bind:this={variableEditor}
+			workspace={$workspaceStore}
+			on:create={loadVariables}
+		/>
 		<ContextualVariableEditor
 			bind:this={contextualVariableEditor}
 			on:update={loadContextualVariables}
