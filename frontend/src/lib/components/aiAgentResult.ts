@@ -173,7 +173,7 @@ const STREAM_EVENT_TYPES = [
 	'tool_result'
 ]
 
-function parseStreamEvent(line: string): Record<string, unknown> | undefined {
+function parseStreamEvent(line: string): (Record<string, unknown> & { type: string }) | undefined {
 	let event: unknown
 	try {
 		event = JSON.parse(line)
@@ -183,7 +183,9 @@ function parseStreamEvent(line: string): Record<string, unknown> | undefined {
 	if (!isRecord(event) || typeof event.type !== 'string') {
 		return undefined
 	}
-	return STREAM_EVENT_TYPES.includes(event.type) ? event : undefined
+	return STREAM_EVENT_TYPES.includes(event.type)
+		? (event as Record<string, unknown> & { type: string })
+		: undefined
 }
 
 /**
