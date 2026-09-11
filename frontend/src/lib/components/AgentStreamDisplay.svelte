@@ -36,45 +36,49 @@
 
 	let anchor: HTMLElement | undefined = $state()
 	$effect(() => {
-		// Follow the text as it is written, the same way the finished run opens on
-		// its output: both put what you came for at the bottom.
-		stream.answer
+		// Follow the text as it is written, the same way a finished run opens on its
+		// output: both put what you came for at the bottom.
+		stream.current
 		stream.reasoning
-		stream.tools.length
+		stream.entries.length
 		scrollPaneToEnd(anchor)
 	})
 </script>
 
-<!-- Deliberately the same order the finished run uses — what it did, then what it
-     produced — so the view does not rearrange itself when the result lands. -->
-<div class="flex flex-col w-full pt-1">
-	{#each stream.tools as tool (tool.callId)}
-		<ChatCollapsibleCard
-			label={tool.name}
-			expanded={false}
-			toggleable={false}
-			shimmer={tool.running}
-			onToggle={() => {}}
-			labelClass={tool.success === false ? 'text-red-500' : ''}
-		/>
+<!-- The same order a finished run uses — what it did, then what it is saying — so
+     nothing moves when the result lands. The text at the bottom is deliberately
+     unlabelled: a turn that goes on to call a tool was narration, and only the end
+     of the run settles which this one is. -->
+<div class="flex flex-col w-full pt-3">
+	{#each stream.entries as entry, index (entry.kind === 'tool' ? entry.callId : index)}
+		{#if entry.kind === 'tool'}
+			<ChatCollapsibleCard
+				label={entry.name}
+				expanded={false}
+				toggleable={false}
+				shimmer={entry.running}
+				onToggle={() => {}}
+				labelClass={entry.success === false ? 'text-red-500' : ''}
+			/>
+		{:else}
+			<div class="mb-1">
+				<GfmMarkdown md={entry.content} noPadding />
+			</div>
+		{/if}
 	{/each}
 
-	<div class={stream.tools.length > 0 ? 'mt-4 pt-3 border-t border-border-light' : ''}>
-		<span class="text-2xs text-hint">Output</span>
-		<div class="mt-1">
-			<!-- Same sanitizing chain as the finished output: a partial answer is
-			     written by the same model and is no more trusted for arriving in
-			     pieces. -->
-			{#if stream.answer !== ''}
-				<GfmMarkdown md={stream.answer} noPadding />
-			{:else if stream.reasoning !== ''}
-				<!-- Reasoning arrives before the answer, so on its own it means the model
-				     is still thinking rather than that this run has no answer. -->
-				<div class="text-secondary">
-					<GfmMarkdown md={stream.reasoning} prose="xs" noPadding />
-				</div>
-			{/if}
+	{#if stream.current !== ''}
+		<div class="mt-2">
+			<!-- Same sanitizing chain as a finished output: a partial answer is written
+			     by the same model and is no more trusted for arriving in pieces. -->
+			<GfmMarkdown md={stream.current} noPadding />
 		</div>
-	</div>
+	{:else if stream.reasoning !== ''}
+		<!-- Reasoning arrives before the text, so on its own it means the model is
+		     still thinking rather than that this run has nothing to say. -->
+		<div class="text-secondary mt-2">
+			<GfmMarkdown md={stream.reasoning} prose="xs" noPadding />
+		</div>
+	{/if}
 	<div bind:this={anchor}></div>
 </div>

@@ -82,10 +82,10 @@ describe('agent stream', () => {
 
 	it('folds the token deltas into the answer so far', () => {
 		const { stream } = advanceAgentStream(events, emptyAgentStreamProgress())
-		expect(stream.answer).toBe('eu-central-1 is down')
+		expect(stream.current).toBe('eu-central-1 is down')
 		expect(stream.reasoning).toBe('checking')
-		expect(stream.tools).toEqual([
-			{ callId: 'c1', name: 'query_metrics', running: false, success: true }
+		expect(stream.entries).toEqual([
+			{ kind: 'tool', callId: 'c1', name: 'query_metrics', running: false, success: true }
 		])
 	})
 
@@ -95,22 +95,22 @@ describe('agent stream', () => {
 		const firstPoll = advanceAgentStream(lines.slice(0, 3).join('\n') + '\n', emptyAgentStreamProgress())
 		const secondPoll = advanceAgentStream(events, firstPoll)
 		expect(secondPoll.consumed).toBe(events.length)
-		expect(secondPoll.stream.answer).toBe('eu-central-1 is down')
+		expect(secondPoll.stream.current).toBe('eu-central-1 is down')
 		expect(secondPoll.stream.reasoning).toBe('checking')
 	})
 
 	it('leaves a half-written trailing line for the next poll', () => {
 		const partial = advanceAgentStream(`${events}{"type":"token_de`, emptyAgentStreamProgress())
-		expect(partial.stream.answer).toBe('eu-central-1 is down')
+		expect(partial.stream.current).toBe('eu-central-1 is down')
 		const completed = advanceAgentStream(`${events}{"type":"token_delta","content":"!"}\n`, partial)
-		expect(completed.stream.answer).toBe('eu-central-1 is down!')
+		expect(completed.stream.current).toBe('eu-central-1 is down!')
 	})
 
 	it('marks a tool still running, and a failed one', () => {
 		const started = '{"type":"tool_execution","call_id":"c1","function_name":"fetch"}\n'
 		const running = advanceAgentStream(started, emptyAgentStreamProgress())
-		expect(running.stream.tools).toEqual([
-			{ callId: 'c1', name: 'fetch', running: true, success: undefined }
+		expect(running.stream.entries).toEqual([
+			{ kind: 'tool', callId: 'c1', name: 'fetch', running: true, success: undefined }
 		])
 		const failed = advanceAgentStream(
 			started +
@@ -118,8 +118,8 @@ describe('agent stream', () => {
 			running
 		)
 		// One row for the call, not one per event about it.
-		expect(failed.stream.tools).toEqual([
-			{ callId: 'c1', name: 'fetch', running: false, success: false }
+		expect(failed.stream.entries).toEqual([
+			{ kind: 'tool', callId: 'c1', name: 'fetch', running: false, success: false }
 		])
 	})
 })
@@ -144,20 +144,22 @@ describe('a stream that narrates before calling a tool', () => {
 			'{"type":"token_delta","content":"eu-central-1 is down."}',
 			''
 		].join('\n')
-		expect(advanceAgentStream(raw, emptyAgentStreamProgress()).stream.answer).toBe(
-			'eu-central-1 is down.'
-		)
+		const { stream } = advanceAgentStream(raw, emptyAgentStreamProgress())
+		expect(stream.current).toBe('eu-central-1 is down.')
+		// The narration became a row rather than disappearing.
+		expect(stream.entries[0]).toEqual({ kind: 'assistant', content: 'Let me check the metrics.' })
 	})
 
 	it('drops the narration at the boundary even across polls', () => {
 		const first = '{"type":"token_delta","content":"Let me check."}\n'
 		const afterCall = first + '{"type":"tool_call","call_id":"c1","function_name":"q"}\n'
 		const poll1 = advanceAgentStream(first, emptyAgentStreamProgress())
-		expect(poll1.stream.answer).toBe('Let me check.')
+		expect(poll1.stream.current).toBe('Let me check.')
 		const poll2 = advanceAgentStream(afterCall, poll1)
-		expect(poll2.stream.answer).toBe('')
+		expect(poll2.stream.current).toBe('')
+		expect(poll2.stream.entries[0]).toEqual({ kind: 'assistant', content: 'Let me check.' })
 		const poll3 = advanceAgentStream(afterCall + '{"type":"token_delta","content":"Done."}\n', poll2)
-		expect(poll3.stream.answer).toBe('Done.')
+		expect(poll3.stream.current).toBe('Done.')
 	})
 
 	// Bedrock has its own streaming implementation rather than the shared SSE
@@ -173,9 +175,10 @@ describe('a stream that narrates before calling a tool', () => {
 			'{"type":"token_delta","content":"eu-central-1 is down."}',
 			''
 		].join('\n')
-		expect(advanceAgentStream(raw, emptyAgentStreamProgress()).stream.answer).toBe(
-			'eu-central-1 is down.'
-		)
+		const { stream } = advanceAgentStream(raw, emptyAgentStreamProgress())
+		expect(stream.current).toBe('eu-central-1 is down.')
+		// The narration became a row rather than disappearing.
+		expect(stream.entries[0]).toEqual({ kind: 'assistant', content: 'Let me check the metrics.' })
 	})
 })
 
