@@ -1,6 +1,6 @@
-<!-- A horizontal rule with something centred in it: the chat's boundary markers and
-	the agent run's output separator. Takes a snippet rather than a string because
-	the middle is sometimes a button, not a label. -->
+<!-- A horizontal rule with something centred in it: the login page's "or" and the
+	agent run's output separator. Takes a snippet rather than a string because the
+	middle is sometimes a button, not a label. -->
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 
@@ -13,7 +13,7 @@
 </script>
 
 <div class={twMerge('flex items-center gap-2', clazz)}>
-	<div class="h-px flex-1 bg-surface-selected"></div>
+	<div class="h-px flex-1 bg-border-light"></div>
 	{@render children()}
-	<div class="h-px flex-1 bg-surface-selected"></div>
+	<div class="h-px flex-1 bg-border-light"></div>
 </div>
