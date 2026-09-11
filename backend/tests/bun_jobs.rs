@@ -939,6 +939,57 @@ export function main() { return midValue(); }"#,
     Ok(())
 }
 
+/// A run with local modules and no lock executes the bundle its lock generation built, which
+/// kept the imported script's pin; the run must still load the one copy in node_modules, and
+/// leave the script's own data alone even where it matches the pinned specifier.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_modules_run_loads_imported_pin_from_node_modules(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    insert_deployed_bun_script(
+        &db,
+        "f/pinned_import_modules/module",
+        41240002,
+        r#"import * as isNumber from "is-number@6.0.0";
+export const ns = isNumber;
+export const label = "is-number@6.0.0";"#,
+    )
+    .await;
+
+    let job = JobPayload::Code(RawCode {
+        content: r#"import * as isNumber from "is-number";
+import { ns, label } from "/f/pinned_import_modules/module";
+import { local } from "./helper";
+export function main() { return [ns === isNumber, label, local()]; }"#
+            .into(),
+        path: Some("f/pinned_import_modules/main".into()),
+        language: ScriptLang::Bun,
+        modules: Some(std::collections::HashMap::from([(
+            "helper.ts".to_string(),
+            windmill_common::scripts::ScriptModule {
+                content: "export const local = () => 'local';".into(),
+                language: ScriptLang::Bun,
+                lock: None,
+            },
+        )])),
+        ..RawCode::default()
+    });
+
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
+        .await
+        .json_result()
+        .unwrap();
+    assert_eq!(
+        result,
+        serde_json::json!([true, "is-number@6.0.0", "local"])
+    );
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base", "bun_edge_cases"))]
 async fn test_bun_shared_imports_both_styles(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
