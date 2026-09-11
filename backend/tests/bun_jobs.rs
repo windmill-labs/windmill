@@ -731,6 +731,46 @@ export function main() {
     Ok(())
 }
 
+/// A pinned import in a script the entry imports must keep its version in the generated lock,
+/// the same as a pinned import in the entry itself.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_lockfile_keeps_pin_of_imported_script(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query(
+        "INSERT INTO script (workspace_id, created_by, content, schema, summary, description, path, hash, language, lock)
+         VALUES ('test-workspace', 'test-user', $1, '{}', '', '', 'f/system/pinned_module', 12350, 'bun', '')",
+    )
+    .bind(
+        r#"
+import _ from "lodash@4.17.20";
+export function helper() { return _.VERSION; }
+"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let result = RunJob::from(JobPayload::RawScriptDependencies {
+        script_path: "f/system/pinned_consumer".into(),
+        content: r#"
+import { helper } from "/f/system/pinned_module";
+export function main() { return helper(); }
+"#
+        .into(),
+        language: ScriptLang::Bun,
+    })
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    let lock = result["lock"].as_str().unwrap_or_default();
+    assert!(lock.contains(r#""lodash": "4.17.20""#), "{result}");
+    Ok(())
+}
+
 // ============================================================================
 // Deeply Nested Import Tests
 // ============================================================================
