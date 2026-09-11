@@ -94,7 +94,7 @@ import {
 import { searchNpmPackagesTool } from '../script/core'
 import type { McpServer } from './mcpTools'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
-import { enabledSkillPaths } from '../skills/enabledSkills'
+import { isSkillEnabled } from '../skills/enabledSkills'
 import {
 	listSkillResources,
 	readSkillBody,
@@ -1399,7 +1399,7 @@ Data Tables:
 			? `
 
 Skills:
-- Skills are reusable instruction sets the user selected for this chat, each covering a specific kind of task. The available skills are listed below by resource path and description.
+- Skills are reusable instruction sets available in this workspace, each covering a specific kind of task. The available skills are listed below by resource path and description.
 - When a user's request matches a skill's description, call read_skill with its exact path to load the full instructions BEFORE acting, then follow them.
 ${skills.map((s) => `- ${s.path}: ${s.description}`).join('\n')}`
 			: ''
@@ -2366,23 +2366,17 @@ export type ChatCommandItem = {
 }
 
 /**
- * The skills this user turned on in this workspace, for the global system prompt.
- * A readable `ai_skill` resource is only a candidate — enabling one is a personal
- * choice, since each enabled skill spends context on every turn.
+ * The skills in play in this workspace, for the global system prompt: every
+ * readable `ai_skill` resource except the ones this user turned off.
  */
 export async function loadWorkspaceSkills(workspace: string): Promise<AiSkillListItem[]> {
 	if (!workspace) return []
 	try {
-		const enabled = new Set(enabledSkillPaths(workspace))
-		if (enabled.size === 0) return []
-		// Filtered against what is actually readable now, so a skill that was
-		// deleted or whose folder access was revoked drops out instead of being
-		// advertised to the model as something read_skill can load.
 		// A truncated listing still carries most of the workspace, and the drawer is
 		// where that is surfaced; dropping everything here would silently empty the
 		// Skills section instead.
 		return (await listSkillResources(workspace)).skills
-			.filter((s) => enabled.has(s.path))
+			.filter((s) => isSkillEnabled(workspace, s.path))
 			.map(({ path, name, description }) => ({
 				path,
 				name,
@@ -2408,24 +2402,28 @@ export const readSkillTool: Tool<{}> = {
 	def: createToolDef(
 		readSkillSchema,
 		'read_skill',
-		'Load the full instructions for a selected AI skill by resource path. Skills are listed in the system prompt under "Skills"; call this before acting on a task a skill covers, then follow its instructions.'
+		'Load the full instructions for an AI skill by resource path. Skills are listed in the system prompt under "Skills"; call this before acting on a task a skill covers, then follow its instructions.'
 	),
 	planModeSafe: true,
 	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 		const parsed = readSkillSchema.parse(args)
 		const name = skillNameFromPath(parsed.path)
-		// The prompt lists only selected skills, but the tool takes a path the model
-		// composed, so the selection is enforced here too rather than assumed. Without
-		// it the tool reads any resource holding a string `content` — the user's own
-		// access, but not what "load a selected skill" says it does.
-		if (!enabledSkillPaths(workspace).includes(parsed.path)) {
-			toolCallbacks.setToolStatus(toolId, { content: `Skill "${name}" is not selected` })
-			return `"${parsed.path}" is not one of the skills selected for this chat. Only the paths listed under "Skills" in the system prompt can be read.`
-		}
 		toolCallbacks.setToolStatus(toolId, { content: `Reading skill "${name}"...` })
 		try {
-			// Bounded here rather than in the reader: any `ai_skill` resource can be
-			// selected, including ones written through git sync or the resource editor
+			// The prompt lists the skills in play, but the tool takes a path the model
+			// composed, so what may be read is checked here rather than assumed. Against
+			// the listing, not just the off-switch: any other path is now enabled too,
+			// and without this the tool reads any resource holding a string `content` —
+			// the user's own access, but not what "load a skill" says it does.
+			const isSkill = (await listSkillResources(workspace)).skills.some(
+				(s) => s.path === parsed.path
+			)
+			if (!isSkill || !isSkillEnabled(workspace, parsed.path)) {
+				toolCallbacks.setToolStatus(toolId, { content: `Skill "${name}" is not available` })
+				return `"${parsed.path}" is not one of the skills available to this chat. Only the paths listed under "Skills" in the system prompt can be read.`
+			}
+			// Bounded here rather than in the reader: any `ai_skill` resource is in play,
+			// including ones written through git sync or the resource editor
 			// that never passed the authoring form's limits, and an unbounded body
 			// would exhaust the context on one tool call. The editor reads the same
 			// resource untruncated, so opening a long skill cannot rewrite it short.
@@ -2434,7 +2432,7 @@ export const readSkillTool: Tool<{}> = {
 				MAX_SKILL_INSTRUCTIONS_LENGTH
 			)
 			toolCallbacks.setToolStatus(toolId, { content: `Read skill "${name}"` })
-			// Whether a selected skill is actually reached for. No key: the path is
+			// Whether a skill is actually reached for. No key: the path is
 			// workspace-authored text.
 			logFeatureUsage('ai_session', 'skill_read', { workspace })
 			return `Skill: ${parsed.path}\n\nInstructions:\n${instructions}`

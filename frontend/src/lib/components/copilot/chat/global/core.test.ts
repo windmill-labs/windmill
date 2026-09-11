@@ -220,6 +220,9 @@ vi.mock('$lib/gen', async () => {
 			createResource: vi.fn(async () => 'created'),
 			updateResource: vi.fn(async () => 'updated'),
 			deleteResource: vi.fn(async () => 'deleted'),
+			// A workspace with no skills, which is what makes `read_skill` refuse a path
+			// the model composed: the gate is membership in the listing.
+			listResource: vi.fn(async () => []),
 			getResourceValue: vi.fn(async () => ({ content: 'skill body' }))
 		}),
 		VariableService: wrapService(actual.VariableService, {
@@ -6195,13 +6198,16 @@ describe('session-only preview tools gating', () => {
 })
 
 describe('read_skill', () => {
-	it('refuses a path the user has not selected, without reading it', async () => {
+	// Every path is enabled by default now, so the listing is what keeps the tool to
+	// skills: without it the model could name any resource holding a string `content`
+	// and have it read back.
+	it('refuses a path that is not a skill in the workspace, without reading it', async () => {
 		localStorage.clear()
 		userStore.set({ username: 'bob', email: 'bob@windmill.dev', workspace_id: WORKSPACE } as any)
 
 		const res = await callGlobalTool('read_skill', { path: 'u/someone/private-notes' })
 
-		expect(res).toContain('not one of the skills selected')
+		expect(res).toContain('not one of the skills available')
 		expect(vi.mocked(ResourceService.getResourceValue)).not.toHaveBeenCalled()
 	})
 })
