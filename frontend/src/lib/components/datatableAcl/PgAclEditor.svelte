@@ -206,7 +206,7 @@
 								<Cell wrap
 									><span class="font-mono text-2xs">{grant.privileges.join(', ')}</span></Cell
 								>
-								<Cell>
+								<Cell wrap>
 									{grantScopeLabel(grant)}
 									{#if blocked.length > 0}
 										<span

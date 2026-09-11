@@ -152,10 +152,11 @@ export function blockingSources(grant: GroupedGrant, privileges: string[]): stri
 		.map((s) => s.role)
 }
 
-/** Which of `roles` a "created later" row does not cover. A default privilege binds only the
- * creating roles it was granted for, so what the others create stays out of it. */
+/** Which of `roles` a "created later" row granted for some of them does not cover. A default
+ * privilege binds only the creating roles it was granted for, so what the others create stays out
+ * of it. One no role of `roles` set — the instance's own, say — was never meant to cover them. */
 export function uncoveredCreators(grant: GroupedGrant, roles: string[]): string[] {
-	if (!grant.future) return []
+	if (!grant.future || !grant.sources.some((s) => roles.includes(s.role))) return []
 	return roles.filter((r) => !grant.sources.some((s) => s.role === r))
 }
 

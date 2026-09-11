@@ -164,5 +164,12 @@ describe('uncoveredCreators', () => {
 		}
 		expect(uncoveredCreators(future, ['admin', 'analytics', 'late'])).toEqual(['late'])
 		expect(uncoveredCreators({ ...future, future: undefined }, ['late'])).toEqual([])
+		// Set by a role outside the catalog, it was never meant to cover the catalog's roles.
+		expect(
+			uncoveredCreators({ ...future, sources: [by('postgres', ['SELECT'], false)] }, [
+				'admin',
+				'late'
+			])
+		).toEqual([])
 	})
 })
