@@ -1,17 +1,15 @@
 <script lang="ts">
+	import ResourceDescriptionField from '$lib/components/ResourceDescriptionField.svelte'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Label from '$lib/components/Label.svelte'
-	import Required from '$lib/components/Required.svelte'
 	import ResourcePathHint from '$lib/components/ResourcePathHint.svelte'
-	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
-	import autosize from '$lib/autosize'
 	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Bot, ChevronDown, ChevronUp, Pen, Save, Unlink, Pencil } from 'lucide-svelte'
+	import { Bot, ChevronDown, ChevronUp, Save, Unlink, Pencil } from 'lucide-svelte'
 	import {
 		AGENT_BRAIN_KEYS,
 		AGENT_FLOW_LOCAL_KEYS,
@@ -88,7 +86,6 @@
 	let newPath = $state('')
 	let pathError = $state('')
 	let description = $state('')
-	let editDescription = $state(false)
 	let saving = $state(false)
 
 	type LinkedInfo = {
@@ -630,33 +627,11 @@
 					workspaceOverride={ws}
 				/>
 			</Label>
-			<div class="flex flex-col gap-1">
-				<h4 class="inline-flex items-center gap-2 text-xs text-emphasis font-semibold"
-					>Description <Required required={false} />
-					<Button
-						variant="subtle"
-						unifiedSize="xs"
-						btnClasses={editDescription ? 'bg-surface-hover' : ''}
-						startIcon={{ icon: Pen }}
-						on:click={() => (editDescription = !editDescription)}
-					/>
-				</h4>
-				{#if editDescription}
-					<div class="relative">
-						<div class="text-2xs text-primary absolute -top-4 right-0">GH Markdown</div>
-						<textarea
-							class="text-xs text-primary font-normal"
-							use:autosize
-							bind:value={description}
-							placeholder="Describe what this agent does"
-						></textarea>
-					</div>
-				{:else if description == undefined || description == ''}
-					<div class="text-xs text-secondary font-normal">No description provided</div>
-				{:else}
-					<GfmMarkdown md={description} prose="sm" noPadding />
-				{/if}
-			</div>
+			<ResourceDescriptionField
+				bind:description
+				label="Description"
+				placeholder="Describe what this agent does"
+			/>
 			{#if providerSaveError}
 				<p class="text-2xs text-red-600 dark:text-red-400">
 					{providerSaveError}

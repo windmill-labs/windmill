@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ResourceDescriptionField from './ResourceDescriptionField.svelte'
 	import type { Schema } from '$lib/common'
 	import type { Resource, ResourceType } from '$lib/gen'
 	import { onDestroy } from 'svelte'
@@ -7,20 +8,16 @@
 	import { Alert, Skeleton } from './common'
 	import Path from './Path.svelte'
 	import LabelsInput from './LabelsInput.svelte'
-	import Required from './Required.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import FilesetEditor from './FilesetEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
-	import { Pen } from 'lucide-svelte'
-	import autosize from '$lib/autosize'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
 	import GitLabIntegration from './GitLabIntegration.svelte'
-	import Button from './common/button/Button.svelte'
 	import ResourceGen from './copilot/ResourceGen.svelte'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
 	import Label from './Label.svelte'
@@ -78,7 +75,6 @@
 
 	let ws = $derived(workspace ?? $workspaceStore)
 
-	let editDescription = $state(false)
 	let rawCode: string | undefined = $state(undefined)
 	let textFileContent: string = $state('')
 
@@ -184,36 +180,7 @@
 	</Label>
 {/if}
 
-<div class="flex flex-col gap-1">
-	<h4 class="inline-flex items-center gap-2 text-xs text-emphasis font-semibold"
-		>Resource description <Required required={false} />
-		{#if can_write}
-			<Button
-				variant="subtle"
-				unifiedSize="xs"
-				btnClasses={editDescription ? 'bg-surface-hover' : ''}
-				startIcon={{ icon: Pen }}
-				on:click={() => (editDescription = !editDescription)}
-			/>
-		{/if}
-	</h4>
-	{#if can_write && editDescription}
-		<div class="relative">
-			<div class="text-2xs text-primary absolute -top-4 right-0">GH Markdown</div>
-			<textarea
-				class="text-xs text-primary font-normal"
-				disabled={!can_write}
-				use:autosize
-				bind:value={description}
-				placeholder="Describe what this resource is for"
-			></textarea>
-		</div>
-	{:else if description == undefined || description == ''}
-		<div class="text-xs text-secondary font-normal">No description provided</div>
-	{:else}
-		<GfmMarkdown md={description} prose="sm" noPadding />
-	{/if}
-</div>
+<ResourceDescriptionField bind:description canWrite={can_write} />
 
 <div class="flex flex-col gap-1">
 	<div class="w-full flex gap-4 flex-row-reverse items-center">

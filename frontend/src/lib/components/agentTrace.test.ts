@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildAgentTrace } from './agentTrace'
+import { parseAgentErrorMessages } from './aiAgentResult'
 import type { AgentMessage } from './aiAgentResult'
 
 // The worker splits one tool call across two messages: the assistant message
@@ -73,18 +74,27 @@ describe('buildAgentTrace', () => {
 		])
 	})
 
-	it('carries web search citations onto the entry', () => {
+	// The worker splits a search the same way: a `tool` message tagged web_search
+	// carrying a constant sentence, then the assistant turn that carries the
+	// citations. The search row therefore has nothing of its own to show.
+	it('records the search and puts its citations on the turn that follows', () => {
 		const entries = buildAgentTrace([
+			{
+				role: 'tool',
+				content: 'Used websearch tool successfully',
+				agent_action: { type: 'web_search' }
+			},
 			{
 				role: 'assistant',
 				content: 'Postgres 17 changed the default.',
 				annotations: [{ url: 'https://postgresql.org/docs', title: 'Release notes' }],
-				agent_action: { type: 'web_search' }
+				agent_action: { type: 'message' }
 			}
 		])
 		expect(entries).toEqual([
+			{ kind: 'search' },
 			{
-				kind: 'search',
+				kind: 'assistant',
 				content: 'Postgres 17 changed the default.',
 				sources: [{ url: 'https://postgresql.org/docs', title: 'Release notes' }]
 			}
@@ -104,5 +114,33 @@ describe('buildAgentTrace', () => {
 				{ role: 'assistant', content: '', agent_action: { type: 'message' } }
 			])
 		).toEqual([])
+	})
+})
+
+// A run stopped by max_iterations serializes its partial messages itself rather
+// than reusing the success envelope's writer. `agent_action` is `skip_serializing`
+// on `OpenAIMessage`, so if that path ever stops wrapping them the tags vanish and
+// this trace silently empties — which is the one run worth reading.
+describe('the max-iterations path', () => {
+	it('traces the partial messages the error carries', () => {
+		const partial = parseAgentErrorMessages({
+			error: {
+				name: 'ExecutionErr',
+				message: 'AI agent reached max iterations (10)',
+				step_id: 'd',
+				result: { messages }
+			}
+		})
+		expect(partial).toBeDefined()
+		expect(buildAgentTrace(partial!)).toEqual([
+			{
+				kind: 'tool',
+				name: 'query_metrics',
+				args: '{"w":"30m"}',
+				result: '{"eu-central-1":0.184}',
+				jobId: '0199-job'
+			},
+			{ kind: 'assistant', content: 'eu-central-1 is down.', sources: undefined }
+		])
 	})
 })

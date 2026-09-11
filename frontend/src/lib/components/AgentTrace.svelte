@@ -82,17 +82,14 @@
 				{/if}
 			</div>
 		{:else if entry.kind === 'search'}
+			<!-- Nothing to reveal: the worker records only that a search ran, and its
+			     citations render under the assistant turn that follows. -->
 			<ChatCollapsibleCard
 				label="Web search"
-				expanded={expanded.has(index)}
-				onToggle={() => toggle(index, entry)}
-			>
-				{#if entry.sources}
-					<WebSearchSourcesDisplay sources={entry.sources} />
-				{:else}
-					<ToolContentDisplay title="Result" content={entry.content} />
-				{/if}
-			</ChatCollapsibleCard>
+				expanded={false}
+				toggleable={false}
+				onToggle={() => {}}
+			/>
 		{:else}
 			{@const job = jobOf(entry.jobId)}
 			<ChatCollapsibleCard
