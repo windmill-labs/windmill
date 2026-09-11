@@ -102,6 +102,19 @@ const CATALOG = [
 		body_schema: { type: 'object', additionalProperties: true }
 	},
 	{
+		name: 'cancelQueuedJob',
+		description: 'Cancel a queued job',
+		instructions: '',
+		path: '/w/{workspace}/jobs_u/queue/cancel/{id}',
+		method: 'POST',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' }, id: { type: 'string' } },
+			required: ['workspace', 'id']
+		},
+		body_schema: { type: 'object', additionalProperties: true }
+	},
+	{
 		name: 'runFlowByPath',
 		description: 'Run flow by path',
 		instructions: 'Trigger a run of a deployed flow',
@@ -179,7 +192,7 @@ describe('call_api_get', () => {
 		const unknown = await run('call_api_get', { name: 'nope' })
 		expect(unknown.error).toContain('search_api_endpoints')
 
-		const mutating = await run('call_api_get', { name: 'runFlowByPath' })
+		const mutating = await run('call_api_get', { name: 'cancelQueuedJob' })
 		expect(mutating.error).toContain('call_api_endpoint')
 
 		const deleting = await run('call_api_endpoint', { name: 'deleteSchedule' })
@@ -191,17 +204,22 @@ describe('call_api_get', () => {
 		expect(search.matches.map((m: any) => m.name)).not.toContain('deleteScriptByHash')
 	})
 
-	// Left reachable, this endpoint is the way around the argument form: it runs the
-	// deployed script on the model's arguments, unstripped and unshown.
-	it('refuses a deployed script run, pointing at run_script', async () => {
-		const called = await run('call_api_endpoint', { name: 'runScriptByPath' })
-		expect(called.error).toContain('run_script')
-		expect(called.success).toBe(false)
+	// Left reachable, these endpoints are the way around the argument form: they run the
+	// deployed runnable on the model's arguments, unstripped and unshown.
+	it('refuses a deployed run, pointing at run_script and run_flow', async () => {
+		for (const [name, tool, query] of [
+			['runScriptByPath', 'run_script', 'run deployed script'],
+			['runFlowByPath', 'run_flow', 'run deployed flow']
+		]) {
+			const called = await run('call_api_endpoint', { name })
+			expect(called.error).toContain(tool)
+			expect(called.success).toBe(false)
 
-		// And it is gone from search, so the model is redirected before it ever calls.
-		const search = await run('search_api_endpoints', { query: 'run deployed script' })
-		expect(search.matches.map((m: any) => m.name)).not.toContain('runScriptByPath')
-		expect(search.covered_by_dedicated_tools?.join(' ')).toContain('run_script')
+			// And it is gone from search, so the model is redirected before it ever calls.
+			const search = await run('search_api_endpoints', { query })
+			expect(search.matches.map((m: any) => m.name)).not.toContain(name)
+			expect(search.covered_by_dedicated_tools?.join(' ')).toContain(tool)
+		}
 	})
 
 	it('refuses draft-blind item reads and lists, pointing at the draft-aware tools', async () => {
@@ -259,11 +277,11 @@ describe('call_api_endpoint', () => {
 		})
 		vi.stubGlobal('fetch', fetchMock)
 		const result = await run('call_api_endpoint', {
-			name: 'runFlowByPath',
-			params: { path: 'u/me/myflow' },
+			name: 'cancelQueuedJob',
+			params: { id: 'job/1' },
 			body: { args: { n: 1 } }
 		})
-		expect(fetchMock).toHaveBeenCalledWith('/api/w/test-ws/jobs/run/f/u%2Fme%2Fmyflow', {
+		expect(fetchMock).toHaveBeenCalledWith('/api/w/test-ws/jobs_u/queue/cancel/job%2F1', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ args: { n: 1 } })
