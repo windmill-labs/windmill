@@ -20,7 +20,6 @@
 		Highlighter,
 		ArrowDownFromLine,
 		Bot,
-		ListTree,
 		Database,
 		Loader2
 	} from 'lucide-svelte'
@@ -165,8 +164,6 @@
 		growVertical = false
 	}: Props = $props()
 	let s3FileDisplayRawMode = $state(false)
-	/** Which half of an agent result is showing; JSON is `forceJson`, as for any kind. */
-	let agentView: 'answer' | 'trace' = $state('answer')
 	/** What a max-iterations failure got through before it gave up, if this is one.
 	 *  Empty for a run that failed before the worker tagged anything, and for one
 	 *  that predates the tags reaching this payload at all — in which case the
@@ -175,7 +172,7 @@
 		const messages = parseAgentErrorMessages(result)
 		if (!messages) return undefined
 		const entries = buildAgentTrace(messages)
-		return entries.length > 0 ? messages : undefined
+		return entries.length > 0 ? entries : undefined
 	})
 
 	// Build the image/PDF source URL for an S3 object. When `appPath` is set
@@ -825,26 +822,16 @@
 					bind:clientHeight={resultHeaderHeight}
 				>
 					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
-							selected={forceJson
-								? 'json'
-								: agentView === 'trace' && resultKind === 'aiagent'
-									? 'trace'
-									: resultKind?.startsWith('table-')
-										? 'table'
-										: 'pretty'}
+							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
 							on:selected={(ev) => {
 								forceJson = ev.detail === 'json'
-								if (ev.detail === 'trace' || ev.detail === 'pretty') {
-									agentView = ev.detail === 'trace' ? 'trace' : 'answer'
-								}
 							}}
 						>
 							{#snippet children({ item })}
 								{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
 									<ToggleButton size="sm" value="table" label="Table" icon={Table2} {item} />
 								{:else if resultKind === 'aiagent'}
-									<ToggleButton size="sm" value="pretty" label="Answer" icon={Bot} {item} />
-									<ToggleButton size="sm" value="trace" label="Trace" icon={ListTree} {item} />
+									<ToggleButton size="sm" value="pretty" label="Run" icon={Bot} {item} />
 								{:else}
 									<ToggleButton size="sm" value="pretty" label="Pretty" icon={Highlighter} {item} />
 								{/if}
@@ -1032,7 +1019,7 @@
 						     rather than replacing it. -->
 						<div class="flex flex-col gap-1 pt-4 w-full min-w-0">
 							<span class="text-emphasis text-xs font-semibold">Trace</span>
-							<AgentTrace messages={agentErrorTrace} {workspaceId} />
+							<AgentTrace entries={agentErrorTrace} {workspaceId} />
 						</div>
 					{/if}
 					{#if !isTest && language === 'bun'}
@@ -1294,7 +1281,7 @@
 				{:else if !forceJson && resultKind === 'aiagent'}
 					{@const agentResult = parseAgentResult(result)}
 					{#if agentResult}
-						<AgentResultDisplay result={agentResult} view={agentView} {workspaceId}>
+						<AgentResultDisplay result={agentResult} {workspaceId}>
 							{#snippet structuredOutput(output)}
 								<DisplayResult
 									noControls
