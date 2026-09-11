@@ -21,7 +21,7 @@ use windmill_common::{
 use windmill_git_sync::DeployedObject;
 
 use windmill_api_auth::{check_scopes, ApiAuthed};
-use windmill_trigger::{Trigger, TriggerCrud, TriggerData};
+use windmill_trigger::{Trigger, TriggerCrud, TriggerData, TriggerMode};
 
 use super::{
     check_if_valid_publication_for_postgres_version, create_logical_replication_slot,
@@ -74,6 +74,20 @@ impl TriggerCrud for PostgresTrigger {
         ensure_not_under_roles(db, workspace_id, &config.postgres_resource_path).await
     }
 
+    async fn authorize_set_trigger_mode(
+        &self,
+        _authed: &ApiAuthed,
+        tx: &mut PgConnection,
+        _workspace_id: &str,
+        _path: &str,
+        mode: &TriggerMode,
+    ) -> Result<()> {
+        if *mode != TriggerMode::Disabled {
+            windmill_common::datatable_roles::lock_datatable_streams(tx, false).await?;
+        }
+        Ok(())
+    }
+
     async fn create_trigger(
         &self,
         db: &DB,
@@ -82,6 +96,7 @@ impl TriggerCrud for PostgresTrigger {
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
+        windmill_common::datatable_roles::lock_datatable_streams(&mut *tx, false).await?;
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let Self::TriggerConfigRequest {
@@ -171,6 +186,7 @@ impl TriggerCrud for PostgresTrigger {
         path: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
+        windmill_common::datatable_roles::lock_datatable_streams(&mut *tx, false).await?;
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let Self::TriggerConfigRequest {

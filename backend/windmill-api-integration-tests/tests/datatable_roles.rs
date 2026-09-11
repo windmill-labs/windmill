@@ -798,3 +798,57 @@ async fn roles_cannot_be_turned_on_while_a_trigger_streams_the_data_table(
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn roles_going_on_wait_for_a_trigger_being_enabled(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::query(
+        "UPDATE workspace_settings SET datatable = datatable #- '{datatables,main,permissions}'
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .execute(&db)
+    .await?;
+
+    // A trigger enable in flight: it holds the stream lock and its row is not committed yet, so a
+    // roles save that looked for streams now would miss it and its listener would connect to a
+    // data table it is about to be refused.
+    let mut enabling = db.begin().await?;
+    windmill_common::datatable_roles::lock_datatable_streams(&mut *enabling, false).await?;
+    sqlx::query(
+        r#"INSERT INTO postgres_trigger (path, script_path, is_flow, workspace_id, edited_by,
+             postgres_resource_path, replication_slot_name, publication_name, permissioned_as, mode)
+           VALUES ('u/test-user-2/racing_stream', 'u/test-user-2/s', false, 'wm-fork-dt',
+                   'test-user-2', 'datatable://main', 'slot_race', 'pub_race', 'u/test-user-2',
+                   'enabled')"#,
+    )
+    .execute(&mut *enabling)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let url = format!(
+        "http://localhost:{}/api/w/test-workspace/workspaces/datatable_permissions/main",
+        server.addr.port()
+    );
+    let save = tokio::spawn(
+        authed(client().post(&url), "SECRET_TOKEN")
+            .json(&json!({"permissioned": true, "default_role": "admin",
+                          "roles": [{"id": "admin", "tenants": ["*"]}]}))
+            .send(),
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(
+        !save.is_finished(),
+        "roles went on while a trigger was being enabled"
+    );
+    enabling.commit().await?;
+
+    let resp = save.await??;
+    assert_eq!(resp.status(), 400);
+    assert!(
+        resp.text()
+            .await?
+            .contains("wm-fork-dt/u/test-user-2/racing_stream"),
+        "the roles save missed the trigger enabled while it waited"
+    );
+    Ok(())
+}
