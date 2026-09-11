@@ -3,8 +3,8 @@
 	import { Badge } from '$lib/components/common'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import AgentTrace from './AgentTrace.svelte'
+	import LabeledDivider from './LabeledDivider.svelte'
 	import { buildAgentTrace } from './agentTrace'
-	import { scrollPaneToEnd } from './agentScroll'
 	import { formatTokenCount, summarizeAgentResult, type AgentResult } from './aiAgentResult'
 
 	interface Props {
@@ -32,37 +32,29 @@
 		const entries = buildAgentTrace(result.messages)
 		return entries.at(-1)?.kind === 'assistant' ? entries.slice(0, -1) : entries
 	})
-
-	let anchor: HTMLElement | undefined = $state()
-	$effect(() => {
-		// Opening a run lands on its output rather than on how it got there.
-		anchor
-		scrollPaneToEnd(anchor)
-	})
 </script>
 
 <div class="flex flex-col w-full pt-3">
 	{#if trace.length > 0}
 		<AgentTrace entries={trace} {workspaceId} />
+		<LabeledDivider class="my-3">
+			<span class="text-2xs text-hint">Output</span>
+		</LabeledDivider>
 	{/if}
-
-	<div class={trace.length > 0 ? 'mt-4 pt-3 border-t border-border-light' : ''}>
-		<span class="text-2xs text-hint">Output</span>
-		<div class="mt-1">
-			{#if textOutput !== undefined}
-				{#if textOutput === ''}
-					<span class="text-tertiary text-xs">The agent returned no answer</span>
-				{:else}
-					<!-- A model writes this, and what it writes is steerable by whatever
+	<div>
+		{#if textOutput !== undefined}
+			{#if textOutput === ''}
+				<span class="text-tertiary text-xs">The agent returned no answer</span>
+			{:else}
+				<!-- A model writes this, and what it writes is steerable by whatever
 					     reached its context — a user message, a tool's output. So it is
 					     untrusted input and goes through the shared sanitizing chain, which
 					     is also what makes it inert on the public replay page. -->
-					<GfmMarkdown md={textOutput} noPadding />
-				{/if}
-			{:else}
-				{@render structuredOutput(result.output)}
+				<GfmMarkdown md={textOutput} noPadding />
 			{/if}
-		</div>
+		{:else}
+			{@render structuredOutput(result.output)}
+		{/if}
 	</div>
 
 	<!-- What the run cost, as a footnote to what it produced. -->
@@ -86,5 +78,4 @@
 			<Badge color="gray">{formatTokenCount(summary.cachedTokens)} cached</Badge>
 		{/if}
 	</div>
-	<div bind:this={anchor}></div>
 </div>
