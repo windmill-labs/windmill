@@ -13,7 +13,7 @@ use itertools::Itertools;
 use serde_json::value::RawValue;
 
 use uuid::Uuid;
-use windmill_parser_ts::remove_pinned_imports;
+use windmill_parser_ts::{remove_pinned_import_specifiers, remove_pinned_imports};
 
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInfo};
 
@@ -1786,9 +1786,16 @@ pub async fn handle_bun_job(
             if bundle_path.exists() {
                 // The lock-generation build kept every `pkg@version` specifier, and bun resolves
                 // a pinned specifier outside node_modules, loading a second copy of the package.
-                // A bundle the parser rejects still runs as built, pins and all.
+                // The bundle holds the user's code too, so only the specifiers are rewritten, and
+                // a bundle the parser rejects still runs as built, pins and all.
                 let bundled = std::fs::read_to_string(&bundle_path)?;
-                let unpinned = remove_pinned_imports(&bundled).unwrap_or(bundled);
+                let unpinned = remove_pinned_import_specifiers(&bundled).unwrap_or_else(|e| {
+                    tracing::warn!(
+                        job_id = %job.id,
+                        "could not unpin the modules bundle, running it as built: {e:#}"
+                    );
+                    bundled
+                });
                 write_file(job_dir, "main.ts", &unpinned)?;
             }
         }
