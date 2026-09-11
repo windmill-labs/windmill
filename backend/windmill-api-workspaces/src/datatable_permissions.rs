@@ -346,6 +346,12 @@ async fn set_datatable_permissions(
         )));
     }
 
+    // Turning roles on is refused while a replication stream reads this data table. One already
+    // under roles cannot have any: the listener refuses to open a stream on it.
+    if req.permissioned && governing.datatable.permissions.is_none() {
+        ensure_no_streams_reaching(&db, &governing).await?;
+    }
+
     let permissions = if req.permissioned {
         let catalog = windmill_common::datatable_roles::read_role_catalog_tx(&mut tx).await?;
         let mut roles: BTreeMap<String, DataTableRoleTenants> = BTreeMap::new();
@@ -436,15 +442,6 @@ async fn set_datatable_permissions(
         }
     }
 
-    // A live replication stream holds a connection it opened under the old decision. Bouncing the
-    // rows makes every listener reconnect and re-authorize.
-    restart_streams_reaching(
-        &mut *db.acquire().await?,
-        &governing.workspace_id,
-        &governing.name,
-    )
-    .await?;
-
     windmill_common::feature_usage::log_feature_usage(
         "datatable",
         "roles_toggled",
@@ -458,75 +455,61 @@ async fn set_datatable_permissions(
     })
 }
 
-/// Make every Postgres trigger and capture reading this data table reconnect, so a revoked tenant
-/// stops streaming rather than living on inside an already-open replication connection.
-pub(crate) async fn restart_streams_reaching(
-    conn: &mut sqlx::PgConnection,
-    governing_workspace_id: &str,
-    governing_name: &str,
-) -> Result<()> {
+/// Refuse to put a data table under roles while a Postgres trigger or capture streams it. A
+/// replication stream reads every row whatever the roles grant, so a data table carries one or the
+/// other; the listener side refuses a data table already under roles.
+async fn ensure_no_streams_reaching(db: &DB, governing: &GoverningDatatable) -> Result<()> {
     // Every workspace holding an entry that resolves here, under the name it calls it: the
     // governing one, plus each fork pointing at it. A fork's trigger names its own local entry, so
-    // filtering on the governing workspace alone would leave its stream running on the connection
-    // it already opened under the old decision — which is the one window this function exists to
-    // close.
-    let mut reached = vec![(
-        governing_workspace_id.to_string(),
-        governing_name.to_string(),
-    )];
+    // looking in the governing workspace alone would miss every stream a fork opened.
+    let mut reached = vec![(governing.workspace_id.clone(), governing.name.clone())];
     let pointers = sqlx::query!(
         r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "datatable!"
            FROM workspace_settings ws
            CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
            WHERE dt.value->'reference'->>'workspace_id' = $1
              AND dt.value->'reference'->>'datatable' = $2"#,
-        governing_workspace_id,
-        governing_name,
+        &governing.workspace_id,
+        &governing.name,
     )
-    .fetch_all(&mut *conn)
+    .fetch_all(db)
     .await?;
     reached.extend(pointers.into_iter().map(|r| (r.workspace_id, r.datatable)));
-    restart_streams_named(conn, reached).await
-}
 
-/// Make every Postgres trigger and capture reading one of `entries` — each a workspace and the name
-/// that workspace gives the data table — drop its connection and re-resolve the data table as it
-/// now stands. A caller deciding inside a transaction passes it, so the bounce and the decision
-/// become visible together and no listener reconnects in between.
-pub(crate) async fn restart_streams_named(
-    conn: &mut sqlx::PgConnection,
-    entries: Vec<(String, String)>,
-) -> Result<()> {
-    for (w_id, name) in entries {
+    let mut streams = Vec::new();
+    for (w_id, name) in reached {
         let reference = format!("datatable://{name}");
-        let prefix = format!("{reference}?%");
-
-        sqlx::query!(
-            "UPDATE postgres_trigger SET server_id = NULL, last_server_ping = NULL
-             WHERE workspace_id = $1
-               AND (postgres_resource_path = $2 OR postgres_resource_path LIKE $3)",
-            &w_id,
-            &reference,
-            &prefix,
-        )
-        .execute(&mut *conn)
-        .await?;
-
-        // A capture keeps the reference inside its `trigger_config` blob rather than in a column
-        // of its own, and only a postgres capture has one there at all.
-        sqlx::query!(
-            "UPDATE capture_config SET server_id = NULL, last_server_ping = NULL
-             WHERE workspace_id = $1 AND trigger_kind = 'postgres'
-               AND (trigger_config->>'postgres_resource_path' = $2
-                    OR trigger_config->>'postgres_resource_path' LIKE $3)",
-            &w_id,
-            &reference,
-            &prefix,
-        )
-        .execute(&mut *conn)
-        .await?;
+        let with_query = format!("{reference}?");
+        // A suspended trigger keeps its listener, so only a disabled one is not streaming; a
+        // capture streams for as long as its client keeps pinging.
+        streams.extend(
+            sqlx::query_scalar!(
+                r#"SELECT workspace_id || '/' || path AS "stream!" FROM postgres_trigger
+                   WHERE workspace_id = $1 AND mode <> 'disabled'::TRIGGER_MODE
+                     AND (postgres_resource_path = $2 OR starts_with(postgres_resource_path, $3))
+                   UNION ALL
+                   SELECT workspace_id || '/' || path || ' (capture)' FROM capture_config
+                   WHERE workspace_id = $1 AND trigger_kind = 'postgres'
+                     AND last_client_ping > now() - interval '10 seconds'
+                     AND (trigger_config->>'postgres_resource_path' = $2
+                          OR starts_with(trigger_config->>'postgres_resource_path', $3))"#,
+                &w_id,
+                &reference,
+                &with_query,
+            )
+            .fetch_all(db)
+            .await?,
+        );
     }
-
+    if !streams.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "Data table '{}' cannot be put under roles while a Postgres trigger or capture streams \
+             it: a replication stream reads every row whatever the roles grant. Disable them \
+             first: {}",
+            governing.name,
+            streams.join(", ")
+        )));
+    }
     Ok(())
 }
 

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace_id || '/' || path AS \"stream!\" FROM postgres_trigger\n                   WHERE workspace_id = $1 AND mode <> 'disabled'::TRIGGER_MODE\n                     AND (postgres_resource_path = $2 OR starts_with(postgres_resource_path, $3))\n                   UNION ALL\n                   SELECT workspace_id || '/' || path || ' (capture)' FROM capture_config\n                   WHERE workspace_id = $1 AND trigger_kind = 'postgres'\n                     AND last_client_ping > now() - interval '10 seconds'\n                     AND (trigger_config->>'postgres_resource_path' = $2\n                          OR starts_with(trigger_config->>'postgres_resource_path', $3))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stream!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "bc87664b87a84e1033589f729148961cfbd0171f835faa756762919c021bfd2b"
+}

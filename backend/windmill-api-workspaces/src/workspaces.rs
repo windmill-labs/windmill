@@ -3820,18 +3820,6 @@ async fn edit_datatable_config(
         }
     }
 
-    // Every entry this save removes, derived rather than taken from `deleted_datatables`: that list
-    // is a hint the settings-sync CLI never sends, and the stranded-pointer warning and the stream
-    // bounce below must run for a removal whether or not the caller named it.
-    let removed: Vec<String> = old_datatables
-        .keys()
-        .filter(|name| {
-            !new_config.settings.datatables.contains_key(*name)
-                && !new_config.renames.iter().any(|r| &r.from == *name)
-        })
-        .cloned()
-        .collect();
-
     let config: serde_json::Value = serde_json::to_value(new_config.settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
 
@@ -3871,7 +3859,7 @@ async fn edit_datatable_config(
     // A deletion cannot be followed the same way — there is nothing to point at any more. Read who
     // is left stranded so the caller is told, the way deleting a workspace does.
     let mut stranded: Vec<StrandedReference> = Vec::new();
-    for name in &removed {
+    for name in &new_config.deleted_datatables {
         let rows = sqlx::query!(
             r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "datatable!"
                FROM workspace_settings ws
@@ -3890,23 +3878,6 @@ async fn edit_datatable_config(
             }),
         );
     }
-
-    // A stream reading a deleted entry keeps the connection it opened while the entry resolved —
-    // this workspace's own, and every fork's through its pointer. Bounced in this transaction, so
-    // a listener that reconnects finds the entry gone instead of streaming on.
-    crate::datatable_permissions::restart_streams_named(
-        &mut *tx,
-        removed
-            .iter()
-            .map(|name| (w_id.clone(), name.clone()))
-            .chain(
-                stranded
-                    .iter()
-                    .map(|s| (s.workspace_id.clone(), s.datatable.clone())),
-            )
-            .collect(),
-    )
-    .await?;
 
     tx.commit().await?;
 
