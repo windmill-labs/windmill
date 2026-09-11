@@ -12,6 +12,19 @@
 -- sent it; reads return that pair and a redeploy that keeps the identity sends it back, where the
 -- pair check rejects it. So once every policy has a principal, rewrite its address from it.
 
+-- Mirrors `users::username_to_permissioned_as`: an email-shaped username is its own principal
+-- unless it contains a slash, which a reader would split on, and a legacy `group-*` username is
+-- the group it names.
+CREATE OR REPLACE FUNCTION pg_temp.username_to_permissioned_as(name VARCHAR)
+RETURNS VARCHAR AS $$
+    SELECT CASE
+        WHEN $1 LIKE '%@%' AND $1 LIKE '%/%' THEN 'u/' || $1
+        WHEN $1 LIKE '%@%' THEN $1
+        WHEN $1 LIKE 'group-%' THEN 'g/' || substr($1, 7)
+        ELSE 'u/' || $1
+    END;
+$$ LANGUAGE SQL IMMUTABLE;
+
 -- Mirrors `users::permissioned_as_from_email`: a real account wins over the synthetic group
 -- namespace, which is not reserved and may be a user's own address. `pg_temp` lives for the
 -- whole session and migrations share one connection, so an identically-named helper from an
@@ -19,16 +32,10 @@
 CREATE OR REPLACE FUNCTION pg_temp.permissioned_as_from_email(w_id VARCHAR, email VARCHAR)
 RETURNS VARCHAR AS $$
     SELECT COALESCE(
-        -- `username_to_permissioned_as`: an email-shaped username is its own principal unless
-        -- it contains a slash, which a reader would split on.
-        (SELECT CASE WHEN u.username LIKE '%@%' AND u.username NOT LIKE '%/%' THEN u.username
-                     ELSE 'u/' || u.username END
+        (SELECT pg_temp.username_to_permissioned_as(u.username)
            FROM usr u WHERE u.workspace_id = $1 AND u.email = $2),
         -- A superadmin acting outside their workspaces has no usr row.
-        (SELECT CASE WHEN COALESCE(p.username, p.email) LIKE '%@%'
-                      AND COALESCE(p.username, p.email) NOT LIKE '%/%'
-                     THEN COALESCE(p.username, p.email)
-                     ELSE 'u/' || COALESCE(p.username, p.email) END
+        (SELECT pg_temp.username_to_permissioned_as(COALESCE(p.username, p.email))
            FROM password p WHERE p.email = $2 AND p.super_admin),
         (SELECT 'g/' || g.name FROM group_ g
           WHERE g.workspace_id = $1
@@ -90,3 +97,4 @@ UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_
 
 DROP FUNCTION pg_temp.permissioned_as_from_email(VARCHAR, VARCHAR);
 DROP FUNCTION pg_temp.email_from_permissioned_as(VARCHAR, VARCHAR);
+DROP FUNCTION pg_temp.username_to_permissioned_as(VARCHAR);
