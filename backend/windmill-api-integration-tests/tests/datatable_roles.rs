@@ -408,6 +408,76 @@ async fn concurrent_role_creations_both_survive(db: Pool<Postgres>) -> anyhow::R
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn a_role_delete_that_fails_part_way_leaves_the_role_disabled(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let suffix: String = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
+    let name = format!("wmtest_del_{suffix}");
+
+    let outcome = async {
+        let created: Value = authed(
+            client().post(format!(
+                "http://localhost:{port}/api/settings/datatable_roles"
+            )),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({ "name": name }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+        let id = created["id"].as_str().unwrap().to_string();
+
+        // Each database's pass commits on its own, so one that cannot be reached fails the delete
+        // after the others may already have stripped the role.
+        sqlx::query(
+            "UPDATE global_settings SET value = jsonb_set(value, '{databases,wm_unreachable}', '{}')
+             WHERE name = 'custom_instance_pg_databases'",
+        )
+        .execute(&db)
+        .await?;
+
+        let resp = authed(
+            client().delete(format!(
+                "http://localhost:{port}/api/settings/datatable_roles/{id}"
+            )),
+            "SECRET_TOKEN",
+        )
+        .send()
+        .await?;
+        let status = resp.status();
+        let body = resp.text().await?;
+        assert_eq!(status, 400, "{body}");
+
+        let catalog = windmill_common::datatable_roles::read_role_catalog(&db).await?;
+        let role = catalog
+            .get(&id)
+            .expect("a failed delete keeps the entry to retry");
+        assert!(
+            !role.enabled,
+            "a half-deleted role is still enabled in the catalog"
+        );
+        let can_login: bool =
+            sqlx::query_scalar("SELECT rolcanlogin FROM pg_roles WHERE rolname = $1")
+                .bind(&name)
+                .fetch_one(&db)
+                .await?;
+        assert!(!can_login, "a half-deleted role can still log in");
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+
+    let _ = sqlx::query(&format!("DROP ROLE IF EXISTS \"{name}\""))
+        .execute(&db)
+        .await;
+    outcome
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
 async fn renaming_a_governing_data_table_carries_its_forks(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
