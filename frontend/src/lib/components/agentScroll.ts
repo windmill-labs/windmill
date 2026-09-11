@@ -21,27 +21,3 @@ export function runPane(node: HTMLElement | undefined | null): HTMLElement | und
 	}
 	return undefined
 }
-
-/** Scroll the run's pane to its end, where its output is. */
-export function scrollRunToEnd(node: HTMLElement | undefined | null) {
-	const pane = runPane(node)
-	if (pane) {
-		pane.scrollTop = pane.scrollHeight
-	}
-}
-
-/** Within this many pixels of the end, a reader is still following along. */
-const FOLLOWING_PX = 32
-
-/**
- * Whether the reader is still at the end and so wants new content to carry them
- * with it. Someone who has scrolled up to read an earlier row is reading it, and
- * must not be dragged back on the next poll.
- */
-export function isFollowingEnd(node: HTMLElement | undefined | null): boolean {
-	const pane = runPane(node)
-	if (!pane) {
-		return false
-	}
-	return pane.scrollHeight - pane.scrollTop - pane.clientHeight <= FOLLOWING_PX
-}
