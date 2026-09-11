@@ -5786,10 +5786,9 @@ async function testRunFlowByPath(
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace } = ctx
-	// The schema must be in hand before the form is built. The value rides along from the same
-	// read so the fields and the previewed flow are one version, as a script test run previews
-	// the content it loaded; an editor-run ignores it. With an editor open on this path, this
-	// reads its in-memory cell.
+	// The schema must be in hand before the form is built, and the value rides along from the
+	// same read so the fields and the previewed flow are one version. With an editor open on
+	// this path this reads its in-memory cell rather than the network.
 	const flow = await loadFlowDraftValue(args.path, workspace)
 	const schema = (flow.flow.schema as Record<string, any> | null | undefined) ?? {}
 
@@ -5810,16 +5809,14 @@ async function testRunFlowByPath(
 			proposed: args.args,
 			startMessage: `Starting flow test run for "${args.path}"...`,
 			contextName: 'flow',
-			// Its own loop, as a script test run is: the model is told to test and iterate, so the
-			// posture answers the form rather than parking the loop on a card.
+			// The model is told to test and iterate, so the bypass posture answers the form.
 			autoAcceptable: true,
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 			startJob: async (submitted) => {
-				// The open editor runs its own in-memory flow, and shows the run in its graph — so
-				// the form collects the arguments and the editor still executes them. Resolved here
-				// rather than before the form: the form waits as long as the user does, and the
-				// editor on screen when they press Run is the one the run belongs in.
+				// An open editor runs its own in-memory flow and paints the run in its graph.
+				// Resolved here rather than before the form: the form waits as long as the user
+				// does, and the editor on screen when they press Run is the one it belongs in.
 				const jobId = await liveFlowTestHookFromCtx(ctx, args.path)?.(submitted)
 				if (jobId) {
 					return jobId

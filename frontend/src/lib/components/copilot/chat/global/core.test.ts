@@ -4920,7 +4920,6 @@ describe('global AI tools', () => {
 			})
 		})
 
-		let opened: Record<string, any> | undefined
 		let form: any
 		await withCompletedTestJob(() =>
 			callGlobalTool(
@@ -4929,7 +4928,6 @@ describe('global AI tools', () => {
 				{
 					...toolCallbacks,
 					requestRunArgs: async (_toolId, f) => {
-						opened = f.args
 						form = f
 						return { name: 'Grace' }
 					}
@@ -4937,7 +4935,7 @@ describe('global AI tools', () => {
 			)
 		)
 
-		expect(opened).toEqual({ name: 'Ada' })
+		expect(form.args).toEqual({ name: 'Ada' })
 		expect(form.runnableKind).toBe('flow')
 		expect(form.schema?.properties).toEqual(FLOW_NAME_SCHEMA.properties)
 		// The flow's own dynselect script, which the schema carries rather than a step.

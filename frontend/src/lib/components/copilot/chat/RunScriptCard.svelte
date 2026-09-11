@@ -27,7 +27,6 @@
 	let { message }: Props = $props()
 
 	const runForm = $derived(message.runForm!)
-	// A card recorded before flows had a form is a script, which is what it always was.
 	const runnableKind = $derived(runForm.runnableKind ?? 'script')
 	// The loop is parked on the form and nothing has run yet: the card is the form.
 	const pending = $derived(isActiveRunForm(message))

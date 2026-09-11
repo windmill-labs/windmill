@@ -37,8 +37,9 @@
 	// it would discard those edits.
 	const draft = untrack(() => aiChatManager.runFormDraft(toolCallId, runForm))
 
-	// A form recorded before flows had one is a script, which is what it always was.
 	const runnableKind = $derived(runForm.runnableKind ?? 'script')
+	const staleFormToast = () =>
+		sendUserToast(`This run form is no longer active — ask again to run the ${runnableKind}.`, true)
 
 	const properties = $derived(draft.schema?.properties ?? {})
 	const hasArgs = $derived(Object.keys(properties).length > 0)
@@ -74,10 +75,7 @@
 		// manager that opened it, so submitting would mint an ephemeral secret variable
 		// per click and still run nothing.
 		if (!aiChatManager.isRunFormPending(toolCallId)) {
-			sendUserToast(
-				`This run form is no longer active — ask again to run the ${runnableKind}.`,
-				true
-			)
+			staleFormToast()
 			return
 		}
 		// Ahead of processSecretArgs, which writes ephemeral variables to the workspace: the
@@ -108,10 +106,7 @@
 		// then the ephemeral variables exist — say so rather than leaving a dead button.
 		if (!aiChatManager.handleRunFormSubmit(toolCallId, processed)) {
 			aiChatManager.endRunFormSubmit(toolCallId)
-			sendUserToast(
-				`This run form is no longer active — ask again to run the ${runnableKind}.`,
-				true
-			)
+			staleFormToast()
 		}
 	}
 </script>
