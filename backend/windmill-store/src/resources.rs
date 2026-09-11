@@ -12,8 +12,8 @@ use std::net::IpAddr;
 use std::sync::LazyLock;
 
 use windmill_api_auth::{
-    build_scope_path_predicate, check_scopes, is_effectively_unscoped, maybe_refresh_folders,
-    require_owner_of_path, require_super_admin_email, ApiAuthed, Tokened,
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
+    require_super_admin_email, ApiAuthed, Tokened,
 };
 use windmill_common::db::DB;
 use windmill_common::per_minute_counter::PerMinuteCounter;
@@ -3629,11 +3629,7 @@ async fn get_git_commit_hash(
         .map_err(|e| {
         Error::BadRequest(format!("Invalid git repository resource format: {}", e))
     })?;
-    // A read-only or scoped token cannot run code even when its user could.
-    let caller = if authed.is_admin
-        && !authed.read_only
-        && is_effectively_unscoped(authed.scopes.as_deref())
-    {
+    let caller = if authed.is_admin {
         GitRemoteCaller::AdminOrSystem
     } else {
         GitRemoteCaller::NonAdmin
@@ -3777,9 +3773,14 @@ const GIT_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60
 /// only vets the host in the URL; git's default (`http.followRedirects=initial`)
 /// would let a validated public remote 302 the probe onto a private or link-local
 /// address that no check ever sees. Build every probe through this.
+///
+/// The transports are pinned too: an SCP-shaped remote-helper string such as
+/// `ext::<command>@host:path` passes the URL check for a caller allowed private
+/// hosts, and only git's own config would stop it from running the command.
 fn git_probe_command() -> Command {
     let mut git_cmd = Command::new("git");
     git_cmd.args(["-c", "http.followRedirects=false"]);
+    git_cmd.env("GIT_ALLOW_PROTOCOL", "http:https:ssh:git");
     git_cmd
 }
 

@@ -220,20 +220,27 @@ pub enum GitRemoteCaller {
     /// A workspace admin's request, or Windmill's own work (polling, webhook and
     /// token upkeep, the merge request after a deploy), whose errors only admins read.
     AdminOrSystem,
-    /// Anyone else, including an admin through a scoped or read-only token.
+    /// A request from anyone who is not a workspace admin.
     NonAdmin,
 }
 
 /// Whether a git call made for `caller` may reach a host on a private network.
 ///
-/// The refusal is for callers who may not be able to run code, such as operators
-/// or a token scoped to resources: git's error output, returned to them, would
-/// let them probe the server's network. Anyone who can run code reaches those
-/// hosts from a worker already. On a cloud instance, where a workspace admin is
-/// anyone who signed up, every caller is refused.
+/// The refusal is for non-admins, who may not be able to run code (operators)
+/// and would read git's error output back as a probe of the server's network.
+/// An admin can run code, which reaches those hosts from a worker already. On a
+/// cloud instance, where a workspace admin is anyone who signed up, every caller
+/// is refused.
 pub fn private_git_host_allowed(caller: GitRemoteCaller) -> bool {
-    allow_local_git_remotes()
-        || (caller == GitRemoteCaller::AdminOrSystem && !*crate::worker::CLOUD_HOSTED)
+    git_host_policy_allows(
+        caller,
+        allow_local_git_remotes(),
+        *crate::worker::CLOUD_HOSTED,
+    )
+}
+
+fn git_host_policy_allows(caller: GitRemoteCaller, opted_in: bool, cloud_hosted: bool) -> bool {
+    opted_in || (caller == GitRemoteCaller::AdminOrSystem && !cloud_hosted)
 }
 
 /// Appended to a refusal of a private git host, naming what would let `caller`
@@ -241,9 +248,9 @@ pub fn private_git_host_allowed(caller: GitRemoteCaller) -> bool {
 pub fn private_git_host_hint(caller: GitRemoteCaller) -> Option<String> {
     (caller == GitRemoteCaller::NonAdmin && !*crate::worker::CLOUD_HOSTED).then(|| {
         format!(
-            "Only workspace admins can reach a git server on a private network, and not \
-             through a scoped or read-only token. To allow every user, set the \
-             {ALLOW_LOCAL_GIT_REMOTES_ENV}=true environment variable on the Windmill servers"
+            "Only workspace admins can reach a git server on a private network. To allow \
+             every user, set the {ALLOW_LOCAL_GIT_REMOTES_ENV}=true environment variable on \
+             the Windmill servers"
         )
     })
 }
@@ -675,6 +682,15 @@ mod tests {
             validate_saml_metadata_url("not-a-url").await,
             Err(SsrfValidationError::InvalidUrl(_))
         ));
+    }
+
+    #[test]
+    fn private_git_hosts_are_refused_to_non_admins_and_on_cloud() {
+        use GitRemoteCaller::{AdminOrSystem, NonAdmin};
+        assert!(git_host_policy_allows(AdminOrSystem, false, false));
+        assert!(!git_host_policy_allows(NonAdmin, false, false));
+        assert!(!git_host_policy_allows(AdminOrSystem, false, true));
+        assert!(git_host_policy_allows(NonAdmin, true, true));
     }
 
     #[tokio::test]
