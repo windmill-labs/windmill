@@ -34,7 +34,7 @@
 	})
 </script>
 
-<div class="flex flex-col w-full pt-3">
+<div class="flex flex-col w-full py-3">
 	{#if trace.length > 0}
 		<AgentTrace entries={trace} {workspaceId} />
 		<LabeledDivider class="my-3">
