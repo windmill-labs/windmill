@@ -2468,7 +2468,8 @@ async fn create_app_internal<'a>(
     }
     // Resolve the on-behalf-of defaults on the (non-RLS) pool *before* opening
     // the RLS transaction below: doing these lookups mid-transaction would hold
-    // a second simultaneous connection while `tx` is still checked out.
+    // a second simultaneous connection while `tx` is still checked out. The race
+    // this leaves with a concurrent rename is accepted, see `resolve_on_behalf_of`.
     let should_preserve = app.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed)
         && (app.policy.on_behalf_of.is_some() || app.policy.on_behalf_of_email.is_some());
@@ -3400,7 +3401,7 @@ async fn update_app_internal<'a>(
     }
 
     // Resolved on the (non-RLS) pool before the RLS transaction opens, for the reason
-    // `create_app` states. Submitting a policy is how a deployer claims the app's execution
+    // `create_app` states, with the same accepted rename race. Submitting a policy is how a deployer claims the app's execution
     // identity; a source deploy that sent none claims nothing, so whoever the app already runs
     // as stays.
     let mut preserved_on_behalf_of: Option<String> = None;

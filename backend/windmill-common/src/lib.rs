@@ -282,7 +282,7 @@ pub fn check_on_behalf_of_preservation(
     None
 }
 
-/// Resolves the identity to store when creating/updating a flow or script.
+/// Resolves the identity to store when creating/updating a flow, script or app.
 ///
 /// The permissioned_as is the only stored identity — it decides what the job may access,
 /// and the address is derived from it at read time — so the two can never name different
@@ -297,6 +297,11 @@ pub fn check_on_behalf_of_preservation(
 /// Resolves through the non-RLS pool and authorizes nothing itself — `authed` decides only
 /// whether preservation is allowed, and its role flags are not re-checked against `w_id`.
 /// Callers must already be authorized for the workspace they pass.
+///
+/// The lookup and the caller's write are separate transactions, so a principal renamed or removed
+/// between them is stored after the sweep that would have moved it: the runnable then fails to
+/// authenticate until it is deployed with a current identity. That race fails closed and is
+/// accepted rather than serialized against every identity mutation.
 pub async fn resolve_on_behalf_of(
     on_behalf_of_email: Option<&str>,
     on_behalf_of: Option<&str>,
