@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { buildAgentTrace } from './agentTrace'
 import {
 	advanceAgentStream,
 	emptyAgentStreamProgress,
@@ -168,5 +169,40 @@ describe('a stream that narrates before calling a tool', () => {
 		expect(advanceAgentStream(raw, emptyAgentStreamProgress()).stream.answer).toBe(
 			'eu-central-1 is down.'
 		)
+	})
+})
+
+// A result is whatever a script returned, so a message that has a `role` still has
+// arbitrary anything underneath. Coercing once here is what lets every reader
+// treat `AgentMessage` as true; a bad value reaching them throws mid-render and
+// takes the result viewer down, including the plain error it usually rides on.
+describe('coercing messages at the boundary', () => {
+	function messagesOf(raw: unknown) {
+		return parseAgentResult({ output: '', messages: raw })?.messages
+	}
+
+	it.each([
+		['tool_calls that are not a list', { role: 'assistant', tool_calls: {} }],
+		['a null entry inside tool_calls', { role: 'assistant', tool_calls: [null] }],
+		['a tool call whose function is a string', { role: 'assistant', tool_calls: [{ id: 'c1', function: 'q' }] }],
+		['non-string arguments', { role: 'assistant', tool_calls: [{ id: 'c1', function: { arguments: 3 } }] }],
+		['annotations that are not a list', { role: 'assistant', annotations: 'abc' }],
+		['a null entry inside annotations', { role: 'assistant', annotations: [null] }],
+		['an annotation with no url', { role: 'assistant', annotations: [{ title: 'x' }] }],
+		['an agent_action that is not an object', { role: 'tool', agent_action: 'tool_call' }],
+		['an agent_action with no type', { role: 'tool', agent_action: {} }]
+	])('survives %s', (_label, message) => {
+		const parsed = messagesOf([message])
+		expect(parsed).toHaveLength(1)
+		expect(() => buildAgentTrace(parsed!)).not.toThrow()
+	})
+
+	it('keeps a well-formed call intact', () => {
+		const parsed = messagesOf([
+			{ role: 'assistant', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'q', arguments: '{}' } }] }
+		])
+		expect(parsed?.[0].tool_calls).toEqual([
+			{ id: 'c1', type: 'function', function: { name: 'q', arguments: '{}' } }
+		])
 	})
 })
