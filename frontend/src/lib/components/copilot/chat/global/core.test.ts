@@ -4750,12 +4750,17 @@ describe('global AI tools', () => {
 		)
 	})
 
+	// The form offers the arguments the flow declares and no others, so a fixture flow that
+	// takes one has to say so — as a real flow does, since nothing else could render a field.
+	const FLOW_NAME_SCHEMA = { type: 'object', properties: { name: { type: 'string' } } }
+
 	it('test_run_flow previews draft flow content by path', async () => {
 		const modules = [{ id: 'start', value: { type: 'identity' } }]
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/draft-test',
 			summary: 'Draft test flow',
-			modules: JSON.stringify(modules)
+			modules: JSON.stringify(modules),
+			schema: JSON.stringify(FLOW_NAME_SCHEMA)
 		})
 
 		await withCompletedTestJob(() =>
@@ -4782,7 +4787,7 @@ describe('global AI tools', () => {
 			path: 'f/flows/deployed-test',
 			summary: 'Deployed test flow',
 			value: { modules },
-			schema: {}
+			schema: FLOW_NAME_SCHEMA
 		} as any)
 
 		await withCompletedTestJob(() =>
@@ -4816,7 +4821,7 @@ describe('global AI tools', () => {
 				path: 'u/admin/live_flow',
 				summary: 'Live flow',
 				value: { modules: [{ id: 'live_step', value: { type: 'identity' } }] },
-				schema: {},
+				schema: FLOW_NAME_SCHEMA,
 				edited_by: '',
 				edited_at: '',
 				archived: false,
@@ -4839,12 +4844,14 @@ describe('global AI tools', () => {
 					path: 'u/admin/live_flow',
 					args: { name: 'Ada' }
 				},
-				toolCallbacks,
+				{ ...toolCallbacks, requestRunArgs: async () => ({ name: 'Grace' }) },
 				{ testActiveFlow }
 			)
 		)
 
-		expect(testActiveFlow).toHaveBeenCalledWith('u/admin/live_flow_storage', { name: 'Ada' })
+		// What the form submitted, not what the model proposed: the editor runs the flow, but
+		// the arguments are the user's.
+		expect(testActiveFlow).toHaveBeenCalledWith('u/admin/live_flow_storage', { name: 'Grace' })
 		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
 		expect(JobService.runFlowPreview).not.toHaveBeenCalled()
 		expect(result).toContain('Result (SUCCESS)')
@@ -4858,7 +4865,7 @@ describe('global AI tools', () => {
 				path: 'u/admin/live_flow_fallback',
 				summary: 'Live flow fallback',
 				value: { modules: [{ id: 'fallback_step', value: { type: 'identity' } }] },
-				schema: {},
+				schema: FLOW_NAME_SCHEMA,
 				edited_by: '',
 				edited_at: '',
 				archived: false,
@@ -4898,6 +4905,110 @@ describe('global AI tools', () => {
 		})
 	})
 
+	// A flow reaches its run form the way a script does: opened on the flow's own input schema,
+	// with the dynamic-option picker the schema carries, and the run takes what came back.
+	it('test_run_flow opens the form on the flow schema and runs what it submitted', async () => {
+		const modules = [{ id: 'start', value: { type: 'identity' } }]
+		await callGlobalTool('write_flow', {
+			path: 'f/flows/formed-flow',
+			summary: 'Formed flow',
+			modules: JSON.stringify(modules),
+			schema: JSON.stringify({
+				...FLOW_NAME_SCHEMA,
+				'x-windmill-dyn-select-code': 'export function names() { return ["Ada"] }',
+				'x-windmill-dyn-select-lang': 'bun'
+			})
+		})
+
+		let form: any
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_flow',
+				{ path: 'f/flows/formed-flow', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, f) => {
+						form = f
+						return { name: 'Grace' }
+					}
+				}
+			)
+		)
+
+		expect(form.args).toEqual({ name: 'Ada' })
+		expect(form.runnableKind).toBe('flow')
+		expect(form.schema?.properties).toEqual(FLOW_NAME_SCHEMA.properties)
+		// The flow's own dynselect script, which the schema carries rather than a step.
+		expect({ code: form.code, lang: form.lang }).toEqual({
+			code: 'export function names() { return ["Ada"] }',
+			lang: 'bun'
+		})
+		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/flows/formed-flow',
+				value: { modules },
+				args: { name: 'Grace' }
+			}
+		})
+	})
+
+	// The form waits as long as the user does, so which editor is on screen is only known when
+	// they press Run — checking it when the card appeared would drive an editor they have since
+	// moved away from.
+	it('test_run_flow re-checks the editor on screen when the form is submitted', async () => {
+		const modules = [{ id: 'moved_step', value: { type: 'identity' } }]
+		seedBackendDraft(
+			'flow',
+			'u/admin/moved_flow',
+			{
+				path: 'u/admin/moved_flow',
+				summary: 'Moved flow',
+				value: { modules },
+				schema: FLOW_NAME_SCHEMA,
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {}
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: 'u/admin/moved_flow',
+			effectivePath: 'u/admin/moved_flow'
+		})
+		const testActiveFlow = vi.fn(async () => 'job-live-flow')
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_flow',
+				{ path: 'u/admin/moved_flow', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						// The preview panel moves to another flow while the form sits open.
+						UserDraft.setLiveEditorDraft({
+							workspace: WORKSPACE,
+							itemKind: 'flow',
+							storagePath: 'u/admin/other_flow',
+							effectivePath: 'u/admin/other_flow'
+						})
+						return form.args
+					}
+				},
+				{ testActiveFlow }
+			)
+		)
+
+		expect(testActiveFlow).not.toHaveBeenCalled()
+		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: { path: 'u/admin/moved_flow', value: { modules }, args: { name: 'Ada' } }
+		})
+	})
+
 	// The flow may be open in a session tab that isn't the one on screen: driving its editor
 	// would paint the run into a tab the user is not looking at.
 	it('test_run_flow previews rather than driving an editor the user is not looking at', async () => {
@@ -4908,7 +5019,7 @@ describe('global AI tools', () => {
 				path: 'u/admin/background_flow',
 				summary: 'Background flow',
 				value: { modules: [{ id: 'background_step', value: { type: 'identity' } }] },
-				schema: {},
+				schema: FLOW_NAME_SCHEMA,
 				edited_by: '',
 				edited_at: '',
 				archived: false,
