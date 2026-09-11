@@ -40,6 +40,7 @@
 			.catch(() => (trialOffered = false))
 	})
 	let starting = $state(false)
+	let trialRefusal = $state<{ reason: string; location: string } | null>(null)
 	async function startPreApprovedTrial() {
 		if (starting) return
 		starting = true
@@ -48,19 +49,12 @@
 			const { location, reason } = await UserService.goCloudTrialOffer()
 			logFeatureUsage('cloud_trial_offer', 'go')
 			if (reason) {
-				// A refusal spends the offer; say so here, where the message can be read, and
-				// let the person choose to go to the portal rather than being taken there.
+				// A refusal spends the offer for good. It is recorded where the button was, so it
+				// stays readable for the rest of the session without a toast running its timer,
+				// and the person chooses whether to go to the portal.
 				trialOffered = false
+				trialRefusal = { reason, location }
 				starting = false
-				sendUserToast(
-					`The trial could not be started: ${reason}. The customer portal has the details.`,
-					true,
-					[{ label: 'Open the portal', callback: () => window.location.assign(location) }],
-					undefined,
-					// The refusal spent the offer for good; the only record of why must not fade out
-					// (a toast lives `duration` ms unless closed; there is no "forever" value).
-					24 * 60 * 60 * 1000
-				)
 				return
 			}
 			window.location.assign(location)
@@ -250,6 +244,19 @@
 				</Button>
 			{/if}
 		</Tooltip>
+	</div>
+{/if}
+
+{#if trialRefusal}
+	<div class="px-2 pt-2">
+		<p class="rounded-md border border-border-light px-2.5 py-2 text-2xs text-secondary">
+			The trial could not be started: {trialRefusal.reason}.
+			<a
+				href={trialRefusal.location}
+				class="text-accent hover:underline"
+				referrerpolicy="no-referrer">The customer portal has the details.</a
+			>
+		</p>
 	</div>
 {/if}
 
