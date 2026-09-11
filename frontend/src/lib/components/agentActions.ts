@@ -2,15 +2,17 @@ import type { WebSearchSource } from './copilot/chat/shared'
 import type { AgentMessage } from './aiAgentResult'
 
 /**
- * One readable turn of an agent run. Built from the envelope alone: the tool
- * arguments come from the assistant message that asked for the call, and the
- * result from the `tool` message that answered it, so a transcript renders
- * without waiting on any request. A tool's child job is enrichment (logs,
- * duration, whether it succeeded), not what makes the row.
+ * One thing an agent did. Built from the envelope alone: the tool arguments come
+ * from the assistant message that asked for the call, and the result from the
+ * `tool` message that answered it, so the list renders without waiting on any
+ * request. A tool's child job is enrichment (logs, duration, whether it
+ * succeeded), not what makes the row.
+ *
+ * The prompt and the user's question are deliberately absent. They are inputs to
+ * the step, shown as inputs, and a run is not a conversation the viewer is part
+ * of — it is a record of what the agent did with them.
  */
-export type TranscriptEntry =
-	| { kind: 'system'; content: string }
-	| { kind: 'user'; content: string }
+export type AgentActionEntry =
 	| { kind: 'assistant'; content: string; sources?: WebSearchSource[] }
 	| { kind: 'search'; content: string; sources?: WebSearchSource[] }
 	| {
@@ -52,7 +54,7 @@ function sourcesOf(message: AgentMessage): WebSearchSource[] | undefined {
 	return sources.length > 0 ? sources : undefined
 }
 
-export function buildTranscript(messages: AgentMessage[]): TranscriptEntry[] {
+export function buildAgentActions(messages: AgentMessage[]): AgentActionEntry[] {
 	// The arguments live on the assistant message that requested the call, while
 	// the action tag and the result live on the `tool` message answering it, so
 	// the two are joined by `tool_call_id`.
@@ -65,7 +67,7 @@ export function buildTranscript(messages: AgentMessage[]): TranscriptEntry[] {
 		}
 	}
 
-	const entries: TranscriptEntry[] = []
+	const entries: AgentActionEntry[] = []
 	for (const message of messages) {
 		const action = message.agent_action
 		if (action?.type === 'tool_call') {
@@ -98,23 +100,19 @@ export function buildTranscript(messages: AgentMessage[]): TranscriptEntry[] {
 			})
 			continue
 		}
-		// Messages with no action are the conversation itself: the prompt, what the
-		// user asked, and anything loaded back from memory.
-		const content = contentText(message.content)
-		if (content === '') {
+		// Every message this run produced is tagged, including the agent narrating
+		// its next move and its final answer. Untagged ones are the prompt, the
+		// question, or a previous turn replayed out of memory — history loses its
+		// tags on the way back, and attributing it to this run would credit it with
+		// answers it never gave.
+		if (action?.type !== 'message') {
 			continue
 		}
-		if (message.role === 'system') {
-			entries.push({ kind: 'system', content })
-		} else if (message.role === 'user') {
-			entries.push({ kind: 'user', content })
-		} else if (message.role === 'assistant') {
+		const content = contentText(message.content)
+		if (message.role === 'assistant' && content !== '') {
 			entries.push({ kind: 'assistant', content, sources: sourcesOf(message) })
 		}
 	}
 	return entries
 }
 
-export function transcriptJobIds(entries: TranscriptEntry[]): string[] {
-	return entries.flatMap((entry) => (entry.kind === 'tool' && entry.jobId ? [entry.jobId] : []))
-}

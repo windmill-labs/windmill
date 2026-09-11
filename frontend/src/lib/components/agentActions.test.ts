@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildTranscript } from './agentTranscript'
+import { buildAgentActions } from './agentActions'
 import type { AgentMessage } from './aiAgentResult'
 
 // The worker splits one tool call across two messages: the assistant message
@@ -34,11 +34,9 @@ const messages: AgentMessage[] = [
 	{ role: 'assistant', content: 'eu-central-1 is down.', agent_action: { type: 'message' } }
 ]
 
-describe('buildTranscript', () => {
+describe('buildAgentActions', () => {
 	it('joins a tool call to the arguments on the message that requested it', () => {
-		expect(buildTranscript(messages)).toEqual([
-			{ kind: 'system', content: 'You are an SRE assistant.' },
-			{ kind: 'user', content: 'Which region is broken?' },
+		expect(buildAgentActions(messages)).toEqual([
 			{
 				kind: 'tool',
 				name: 'query_metrics',
@@ -51,7 +49,7 @@ describe('buildTranscript', () => {
 	})
 
 	it('keeps an MCP call, whose arguments live on the action itself', () => {
-		const entries = buildTranscript([
+		const entries = buildAgentActions([
 			{
 				role: 'tool',
 				content: 'sunny',
@@ -76,7 +74,7 @@ describe('buildTranscript', () => {
 	})
 
 	it('carries web search citations onto the entry', () => {
-		const entries = buildTranscript([
+		const entries = buildAgentActions([
 			{
 				role: 'assistant',
 				content: 'Postgres 17 changed the default.',
@@ -93,13 +91,17 @@ describe('buildTranscript', () => {
 		])
 	})
 
-	// Memory replays messages back without their tags, and an assistant message
-	// that only asked for a tool has no text of its own.
-	it('drops messages with nothing to show', () => {
+	// The prompt and the question are the step's inputs, shown as inputs. A replayed
+	// turn comes back from memory without its tag, and crediting this run with an
+	// answer a previous one gave would be a lie about what happened.
+	it('keeps only what this run did', () => {
 		expect(
-			buildTranscript([
+			buildAgentActions([
+				{ role: 'system', content: 'You are an SRE assistant.' },
+				{ role: 'user', content: 'Which region is broken?' },
+				{ role: 'assistant', content: 'Answered in an earlier turn, replayed from memory.' },
 				{ role: 'assistant', tool_calls: [{ id: 'c1', function: { name: 'x', arguments: '{}' } }] },
-				{ role: 'assistant', content: '' }
+				{ role: 'assistant', content: '', agent_action: { type: 'message' } }
 			])
 		).toEqual([])
 	})
