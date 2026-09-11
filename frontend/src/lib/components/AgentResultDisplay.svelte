@@ -23,7 +23,9 @@
 	let textOutput = $derived(typeof result.output === 'string' ? result.output : undefined)
 </script>
 
-<div class="flex flex-col gap-2 w-full">
+<!-- pt-2 clears the toggle group and control bar the result viewer puts directly
+     above this, which otherwise sit on the meta line. -->
+<div class="flex flex-col gap-2 w-full pt-2">
 	<div class="flex items-center gap-2 flex-wrap text-xs">
 		<Bot size={14} class="text-tertiary shrink-0" />
 		{#if summary.toolCalls > 0}
