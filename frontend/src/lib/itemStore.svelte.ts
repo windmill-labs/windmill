@@ -388,16 +388,6 @@ class Entry<V> {
 		})
 	}
 
-	rename(to: string): Promise<CommandOutcome> {
-		return this.run(async () => {
-			const from = this.key
-			if (to !== from.path) this.moveTo(to)
-			this.reconcile()
-			await this.settleRows([from, this.key])
-			return { ok: true }
-		})
-	}
-
 	/**
 	 * A command that changes what exists resolves once the rows it implied have landed, so a
 	 * list re-read on its outcome sees neither the draft a save made redundant nor a draft-only
@@ -524,7 +514,6 @@ export type ItemHandle<V> = {
 	readonly canSave: boolean
 	save(): Promise<SaveOutcome>
 	discard(): Promise<DiscardOutcome>
-	rename(to: string): Promise<CommandOutcome>
 	reload(): Promise<CommandOutcome>
 	applyExternal(value: V): number
 	markEdited(): void
@@ -613,9 +602,6 @@ class Handle<V> implements ItemHandle<V> {
 	}
 	discard() {
 		return this.entry.discard()
-	}
-	rename(to: string) {
-		return this.entry.rename(to)
 	}
 	reload() {
 		return this.entry.load(this.adapter)
@@ -935,7 +921,6 @@ export function useItem<V>(
 		},
 		save: () => h()?.save() ?? noItem(),
 		discard: () => h()?.discard() ?? Promise.resolve({ removed: false }),
-		rename: (to) => h()?.rename(to) ?? noItem(),
 		reload: () => h()?.reload() ?? noItem(),
 		applyExternal: (v) => h()?.applyExternal(v) ?? 0,
 		markEdited: () => h()?.markEdited(),
