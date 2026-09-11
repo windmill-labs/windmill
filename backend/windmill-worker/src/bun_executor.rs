@@ -1786,8 +1786,10 @@ pub async fn handle_bun_job(
             if bundle_path.exists() {
                 // The lock-generation build kept every `pkg@version` specifier, and bun resolves
                 // a pinned specifier outside node_modules, loading a second copy of the package.
+                // A bundle the parser rejects still runs as built, pins and all.
                 let bundled = std::fs::read_to_string(&bundle_path)?;
-                write_file(job_dir, "main.ts", &remove_pinned_imports(&bundled)?)?;
+                let unpinned = remove_pinned_imports(&bundled).unwrap_or(bundled);
+                write_file(job_dir, "main.ts", &unpinned)?;
             }
         }
         "\n\n--- BUN CODE EXECUTION ---\n".to_string()
