@@ -125,6 +125,33 @@ export type ClearLiveEditorDraftOptions = UserDraftOptions & {
 
 const entries = new Map<string, DraftEntry>()
 const liveEditorDrafts = new Map<string, LiveEditorDraft>()
+
+/**
+ * Items the item store (`itemStore.svelte.ts`) holds live — resources, variables, schedules
+ * open in an editor. Their draft row follows the store's value, so the calls below hand such a
+ * key to the store rather than to a cell of their own. Registered by the store, which imports
+ * this module, not the other way round.
+ */
+export type LiveItemBridge = {
+	/** Apply `value` as an outside write. False when no live item holds the key. */
+	seed(workspace: string, itemKind: UserDraftItemKind, path: string, value: unknown): boolean
+	/** `undefined` when no live item holds the key; else the draft, if it has one. */
+	read(
+		workspace: string,
+		itemKind: UserDraftItemKind,
+		path: string
+	): { value: unknown | undefined } | undefined
+	/** Discard the live item's draft. False when no live item holds the key. */
+	discard(workspace: string, itemKind: UserDraftItemKind, path: string): boolean
+	list(workspace: string, itemKinds: readonly UserDraftItemKind[]): UserDraftEntry[]
+}
+
+let liveItems: LiveItemBridge | undefined
+
+export function registerLiveItemBridge(bridge: LiveItemBridge): void {
+	liveItems = bridge
+}
+
 /**
  * Map keys whose entry should start `syncSuspended` on acquire. Lets
  * callers `stopSync` BEFORE the editor has mounted (and called `use`).
@@ -261,6 +288,7 @@ export type UserDraftHandle<V> = {
 export const UserDraft = {
 	save<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
+		if (liveItems?.seed(ws, itemKind, path, value)) return
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
@@ -318,6 +346,8 @@ export const UserDraft = {
 		opts?: UserDraftOptions
 	): V | undefined {
 		const ws = resolveWorkspace(opts)
+		const live = liveItems?.read(ws, itemKind, path)
+		if (live) return snapshotDraftValue(live.value as V | undefined)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) return snapshotDraftValue(entry.state.val as V | undefined)
@@ -332,6 +362,8 @@ export const UserDraft = {
 	 */
 	has(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): boolean {
 		const ws = resolveWorkspace(opts)
+		const live = liveItems?.read(ws, itemKind, path)
+		if (live) return live.value !== undefined
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) return entry.state.val !== undefined
@@ -340,6 +372,7 @@ export const UserDraft = {
 
 	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
+		if (liveItems?.discard(ws, itemKind, path)) return
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
@@ -428,6 +461,7 @@ export const UserDraft = {
 	 */
 	seed<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
+		if (liveItems?.seed(ws, itemKind, path, value)) return
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (!entry) return
@@ -444,11 +478,17 @@ export const UserDraft = {
 		const itemKinds = opts?.itemKinds ?? USER_DRAFT_ITEM_KINDS
 		const out: UserDraftEntry<V>[] = []
 		const seen = new Set<string>()
+		for (const live of liveItems?.list(ws, itemKinds) ?? []) {
+			seen.add(mapKey(live.workspace, live.itemKind, live.path))
+			out.push(live as UserDraftEntry<V>)
+		}
 		for (const entry of entries.values()) {
 			if (entry.workspace !== ws || !itemKinds.includes(entry.itemKind)) continue
+			const mk = mapKey(entry.workspace, entry.itemKind, entry.path)
+			if (seen.has(mk)) continue
 			const val = untrack(() => entry.state.val as V | undefined)
 			if (val === undefined) continue
-			seen.add(mapKey(entry.workspace, entry.itemKind, entry.path))
+			seen.add(mk)
 			out.push({
 				workspace: entry.workspace,
 				itemKind: entry.itemKind,
@@ -523,6 +563,7 @@ export const UserDraft = {
 		}
 	): void {
 		const ws = resolveWorkspace(opts)
+		if (liveItems?.discard(ws, itemKind, path)) return
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		const safeFallback = snapshotDraftValue(fallback)
