@@ -651,20 +651,19 @@
 		</div>
 
 		<div class="mt-4">
+			<!-- Applied by the deploy rather than `setPublishState`: that call claims the
+			     app's run-as identity and republishes the editor's triggerables, too much
+			     for a display setting. -->
 			<Toggle
 				options={{ right: "Show the viewer's login status" }}
 				checked={!policy.hide_login_status}
 				on:change={(e) => {
 					policy.hide_login_status = e.detail ? undefined : true
-					if (savedApp && !newApp) {
-						setPublishState(e.detail ? 'Login status shown' : 'Login status hidden')
-					}
 				}}
-				disabled={!savedApp}
 			/>
 			<div class="text-xs text-secondary mt-1">
 				The public and custom URLs show who the viewer is signed in as, or that they are signed out,
-				in the top-left corner.
+				in the top-left corner. Applies on the next deploy.
 			</div>
 		</div>
 	</div>

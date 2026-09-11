@@ -1272,7 +1272,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                 },
                                 "execution_mode": {
                                         "type": "string",
-                                        "description": "Who the app's runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Either way `anonymous`, which makes the app publicly executable, is never assumed. Possible values: viewer, publisher, anonymous"
+                                        "description": "Who may open the app, and who its runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Neither `anonymous`, which makes the app publicly executable, nor `guest`, which opens it to anyone the identity provider authenticates, is ever assumed. A guest is only admitted where the workspace also has `guest_access_enabled`, which is checked when the session is minted and again on every guest request. Possible values: viewer, publisher, guest, anonymous"
                                 },
                                 "on_behalf_of": {
                                         "type": "string"
@@ -1290,6 +1290,10 @@ export const mcpEndpointTools: EndpointTool[] = [
                                                 "type": "string"
                                         },
                                         "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true \u2014 an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read).\n"
+                                },
+                                "hide_login_status": {
+                                        "type": "boolean",
+                                        "description": "When true, the app's public and custom URLs do not show the viewer's login status (the user they are signed in as, or that they are signed out) in the top-left corner. Absent or false shows it.\n"
                                 }
                         }
                 }
@@ -1387,7 +1391,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                 },
                                 "execution_mode": {
                                         "type": "string",
-                                        "description": "Who the app's runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Either way `anonymous`, which makes the app publicly executable, is never assumed. Possible values: viewer, publisher, anonymous"
+                                        "description": "Who may open the app, and who its runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Neither `anonymous`, which makes the app publicly executable, nor `guest`, which opens it to anyone the identity provider authenticates, is ever assumed. A guest is only admitted where the workspace also has `guest_access_enabled`, which is checked when the session is minted and again on every guest request. Possible values: viewer, publisher, guest, anonymous"
                                 },
                                 "on_behalf_of": {
                                         "type": "string"
@@ -1405,6 +1409,10 @@ export const mcpEndpointTools: EndpointTool[] = [
                                                 "type": "string"
                                         },
                                         "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true \u2014 an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read).\n"
+                                },
+                                "hide_login_status": {
+                                        "type": "boolean",
+                                        "description": "When true, the app's public and custom URLs do not show the viewer's login status (the user they are signed in as, or that they are signed out) in the top-left corner. Absent or false shows it.\n"
                                 }
                         }
                 },
