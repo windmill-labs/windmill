@@ -7,11 +7,32 @@
 
 use serde_json::Value;
 use windmill_common::error::{self, Error};
+use windmill_parser_yaml::dbt::DbtEngine;
 
 /// Written beside `profiles.yml`, and named absolutely in `sslrootcert`: dbt
 /// runs with the project as its working directory and hands the path to the
 /// driver unchanged.
 pub const ROOT_CERT_FILENAME: &str = "server-ca.pem";
+
+/// What a credential's value becomes in [`RenderedProfile::identity`].
+const MASKED_CREDENTIAL: &str = "$CREDENTIAL";
+
+/// Whether a target key holds a credential rather than part of the address. By
+/// name, because a `dbt_profile` block's keys are its adapter's own: `password`,
+/// `token`, `private_key_passphrase`, `client_secret`, `aws_secret_access_key`, …
+fn is_credential_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    [
+        "password",
+        "passphrase",
+        "secret",
+        "token",
+        "private_key",
+        "api_key",
+    ]
+    .iter()
+    .any(|c| key.contains(c))
+}
 
 /// The per-adapter facts, so each adapter states them together and a new one
 /// cannot inherit another's by omission. `PG` is the base every arm spreads
@@ -469,6 +490,10 @@ fn port_of(resource: &Value, default: i64) -> error::Result<i64> {
 #[derive(Debug)]
 pub struct RenderedProfile {
     pub yaml: String,
+    /// `yaml` with every credential's value masked: what run identity hashes. A
+    /// rotated token or password is still the same connection, and an OAuth token
+    /// rotates every few minutes, so hashing it would refuse nearly every retry.
+    pub identity: String,
     pub schema: Option<String>,
     pub database: Option<String>,
     /// A private CA the caller must write next to `profiles.yml`, under the
@@ -483,8 +508,11 @@ pub struct RenderedProfile {
 /// from the descriptor when set, else from the resource, else from dbt's own
 /// per-adapter default — dbt errors out clearly when it ends up missing, which
 /// is a better failure than a Windmill-invented default.
+#[allow(clippy::too_many_arguments)]
 pub fn render_profile(
     adapter: &DbtAdapter,
+    // The engines read some keys differently; see the Snowflake token below.
+    engine: DbtEngine,
     resource: &Value,
     profile_name: &str,
     target: &str,
@@ -593,11 +621,18 @@ pub fn render_profile(
                 out.push(("user".into(), quoted(&u)));
             }
             // Key-pair is Windmill's own snowflake resource shape; the
-            // `snowflake_oauth` type carries a token instead, which dbt only
-            // accepts alongside `authenticator: oauth` — without both, the
-            // profile renders with no credential at all and cannot connect.
+            // `snowflake_oauth` type carries an access token instead, which needs
+            // an `authenticator` saying so. dbt-core 1.x reads `oauth` + `token`
+            // as one. The Rust engines read `oauth` as the refresh-token flow and
+            // refuse a profile without client credentials, and send the same
+            // login for `jwt`, which dbt-snowflake has only from 1.9, while the
+            // 1.x engine still resolves 1.8.
             if let Some(t) = s(resource, "token").or_else(|| s(resource, "access_token")) {
-                out.push(("authenticator".into(), quoted("oauth")));
+                let authenticator = match engine {
+                    DbtEngine::DbtCore1x => "oauth",
+                    DbtEngine::DbtCore2x | DbtEngine::Fusion => "jwt",
+                };
+                out.push(("authenticator".into(), quoted(authenticator)));
                 out.push(("token".into(), quoted(&t)));
             } else if let Some(k) = s(resource, "private_key") {
                 out.push(("private_key".into(), quoted(&k)));
@@ -612,10 +647,17 @@ pub fn render_profile(
                     out.push((k.into(), quoted(&v)));
                 }
             }
-            database = s(resource, "database");
-            if let Some(d) = database.clone() {
-                out.push(("database".into(), quoted(&d)));
-            }
+            // dbt-snowflake requires one, and a resource from the OAuth connect flow
+            // starts without it: naming the field beats dbt's schema error.
+            let db = s(resource, "database").ok_or_else(|| {
+                Error::BadRequest(
+                    "a Snowflake target needs a database; add `database` to the warehouse's \
+                     resource"
+                        .to_string(),
+                )
+            })?;
+            out.push(("database".into(), quoted(&db)));
+            database = Some(db);
             schema = schema.or_else(|| s(resource, "schema"));
         }
         KnownAdapter::Bigquery => {
@@ -692,24 +734,43 @@ pub fn render_profile(
     // a newline in one opens a sibling key of the caller's choosing.
     let (qp, qt) = (yaml_scalar(profile_name), yaml_scalar(target));
     let mut yaml = format!("{qp}:\n  target: {qt}\n  outputs:\n    {qt}:\n");
+    let mut identity = yaml.clone();
     for (k, v) in &out {
         yaml.push_str(&format!("      {k}: {}\n", v.render()));
+        let shown = if is_credential_key(k) {
+            yaml_scalar(MASKED_CREDENTIAL)
+        } else {
+            v.render()
+        };
+        identity.push_str(&format!("      {k}: {shown}\n"));
     }
     // The service-account document is a nested mapping, not a scalar.
     if adapter == KnownAdapter::Bigquery {
         yaml.push_str("      keyfile_json:\n");
+        identity.push_str("      keyfile_json:\n");
         let obj = resource
             .as_object()
             .ok_or_else(|| Error::BadRequest("bigquery resource is not an object".to_string()))?;
         for (k, v) in obj {
             if let Some(v) = v.as_str() {
                 yaml.push_str(&format!("        {}: {}\n", yaml_scalar(k), yaml_scalar(v)));
+                let shown = if is_credential_key(k) {
+                    MASKED_CREDENTIAL
+                } else {
+                    v
+                };
+                identity.push_str(&format!(
+                    "        {}: {}\n",
+                    yaml_scalar(k),
+                    yaml_scalar(shown)
+                ));
             }
         }
     }
 
     Ok(RenderedProfile {
         yaml,
+        identity,
         schema,
         database,
         root_certificate_pem: matches!(adapter, KnownAdapter::Postgres)
@@ -746,6 +807,7 @@ pub fn render_dbt_profile(
         "      \"type\": {}\n",
         yaml_scalar(adapter.dbt_type())
     ));
+    let mut identity = yaml.clone();
     for (k, v) in block {
         // A null is an optional field the resource form left unset, and dbt
         // validates several keys against a schema that rejects one.
@@ -762,28 +824,33 @@ pub fn render_dbt_profile(
         if (k == schema_key && schema_override.is_some()) || (k == "threads" && threads.is_some()) {
             continue;
         }
-        emit_entry(&mut yaml, 6, k, v);
+        emit_entry(&mut yaml, 6, k, v, false);
+        emit_entry(&mut identity, 6, k, v, true);
     }
+    let mut tail = String::new();
     if root_certificate_pem.is_some() {
-        yaml.push_str(&format!(
+        tail.push_str(&format!(
             "      \"sslrootcert\": {}\n",
             yaml_scalar(&profiles_dir.join(ROOT_CERT_FILENAME).to_string_lossy())
         ));
     }
     if let Some(sc) = schema_override {
-        yaml.push_str(&format!(
+        tail.push_str(&format!(
             "      {}: {}\n",
             yaml_scalar(schema_key),
             yaml_scalar(sc)
         ));
     }
     if let Some(t) = threads {
-        yaml.push_str(&format!("      \"threads\": {t}\n"));
+        tail.push_str(&format!("      \"threads\": {t}\n"));
     }
+    yaml.push_str(&tail);
+    identity.push_str(&tail);
 
     let str_key = |k: &str| block.get(k).and_then(|v| v.as_str()).map(|v| v.to_string());
     Ok(RenderedProfile {
         yaml,
+        identity,
         schema: schema_override
             .map(|x| x.to_string())
             .or_else(|| str_key(schema_key)),
@@ -794,16 +861,21 @@ pub fn render_dbt_profile(
 
 /// Emit one target key, nesting as deep as the value goes — an adapter's credential can be
 /// a mapping (bigquery's `keyfile_json`) or a list. Keys are quoted like values: one nothing
-/// here enumerates is as free-form as a password.
-fn emit_entry(out: &mut String, indent: usize, key: &str, v: &Value) {
+/// here enumerates is as free-form as a password. `mask` writes credentials as
+/// [`MASKED_CREDENTIAL`], at any depth, for [`RenderedProfile::identity`].
+fn emit_entry(out: &mut String, indent: usize, key: &str, v: &Value, mask: bool) {
     out.push_str(&format!("{}{}:", " ".repeat(indent), yaml_scalar(key)));
-    emit_value(out, indent, v);
+    if mask && is_credential_key(key) {
+        out.push_str(&format!(" {}\n", yaml_scalar(MASKED_CREDENTIAL)));
+        return;
+    }
+    emit_value(out, indent, v, mask);
 }
 
 /// The value half, after `key:`. An empty collection is emitted INLINE: a block with no
 /// children reads back as `null`, so `extensions: []` would reach the adapter as a missing
 /// value rather than the empty list dbt was handed.
-fn emit_value(out: &mut String, indent: usize, v: &Value) {
+fn emit_value(out: &mut String, indent: usize, v: &Value, mask: bool) {
     match v {
         Value::Object(m) => {
             // A null is an optional field the resource form left unset, and dbt validates
@@ -815,7 +887,7 @@ fn emit_value(out: &mut String, indent: usize, v: &Value) {
             }
             out.push('\n');
             for (k, v) in kept {
-                emit_entry(out, indent + 2, k, v);
+                emit_entry(out, indent + 2, k, v, mask);
             }
         }
         Value::Array(items) => {
@@ -828,7 +900,7 @@ fn emit_value(out: &mut String, indent: usize, v: &Value) {
             for item in items {
                 out.push_str(&pad);
                 out.push('-');
-                emit_value(out, indent + 2, item);
+                emit_value(out, indent + 2, item, mask);
             }
         }
         _ => out.push_str(&format!(" {}\n", yaml_value(v))),
@@ -904,6 +976,7 @@ mod tests {
                        "dbname": "warehouse", "sslmode": "require"});
         let p = render_profile(
             &KnownAdapter::Postgres.into(),
+            DbtEngine::DbtCore1x,
             &r,
             "wm",
             "prod",
@@ -936,6 +1009,7 @@ mod tests {
                        "password": "p", "dbname": "warehouse"});
         let p = render_profile(
             &KnownAdapter::Redshift.into(),
+            DbtEngine::DbtCore1x,
             &r,
             "wm",
             "prod",
@@ -1136,6 +1210,7 @@ mod tests {
                        "http_path": "/sql/1.0/warehouses/x", "token": "t"});
         let p = render_profile(
             &KnownAdapter::Databricks.into(),
+            DbtEngine::DbtCore1x,
             &r,
             "wm",
             "prod",
@@ -1161,6 +1236,7 @@ mod tests {
                        "root_certificate_pem": "-----BEGIN CERTIFICATE-----\nx\n"});
         let p = render_profile(
             &KnownAdapter::Postgres.into(),
+            DbtEngine::DbtCore1x,
             &r,
             "wm",
             "prod",
@@ -1188,6 +1264,7 @@ mod tests {
         let plain = json!({"host": "h", "dbname": "d", "sslmode": "require"});
         let p = render_profile(
             &KnownAdapter::Postgres.into(),
+            DbtEngine::DbtCore1x,
             &plain,
             "wm",
             "prod",
@@ -1200,29 +1277,81 @@ mod tests {
         assert_eq!(p.root_certificate_pem, None);
     }
 
-    // `snowflake_oauth` maps to the Snowflake adapter, but its credential is a
-    // token, which dbt honors only with `authenticator: oauth`. Forwarding neither
-    // renders a profile with no credential at all.
-    #[test]
-    fn snowflake_oauth_renders_its_token() {
-        let r = json!({"account_identifier": "acc", "username": "u", "token": "tok",
-                       "database": "db", "warehouse": "wh"});
-        let p = render_profile(
+    fn snowflake(engine: DbtEngine, r: &Value) -> error::Result<RenderedProfile> {
+        render_profile(
             &KnownAdapter::Snowflake.into(),
-            &r,
+            engine,
+            r,
             "wm",
             "prod",
             None,
             None,
             std::path::Path::new("/tmp/p"),
         )
-        .unwrap();
-        assert!(
-            p.yaml.contains("      authenticator: \"oauth\"\n"),
-            "{}",
-            p.yaml
-        );
-        assert!(p.yaml.contains("      token: \"tok\"\n"));
+    }
+
+    // `snowflake_oauth` carries an access token, which only one `authenticator`
+    // per engine accepts: the Rust engines refuse `oauth` without client
+    // credentials, and dbt-snowflake before 1.9 has no `jwt`.
+    #[test]
+    fn snowflake_oauth_names_its_token_per_engine() {
+        let r = json!({"account_identifier": "acc", "token": "tok", "database": "db"});
+        for (engine, authenticator) in [
+            (DbtEngine::DbtCore1x, "oauth"),
+            (DbtEngine::DbtCore2x, "jwt"),
+            (DbtEngine::Fusion, "jwt"),
+        ] {
+            let p = snowflake(engine, &r).unwrap();
+            assert!(
+                p.yaml
+                    .contains(&format!("      authenticator: \"{authenticator}\"\n")),
+                "{engine:?}: {}",
+                p.yaml
+            );
+            assert!(p.yaml.contains("      token: \"tok\"\n"));
+        }
+        let err = snowflake(
+            DbtEngine::DbtCore1x,
+            &json!({"account_identifier": "acc", "token": "tok"}),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("add `database`"), "{err}");
+    }
+
+    // Run identity has to survive a credential rotating, which an OAuth token does
+    // every few minutes, and still change when the connection moves.
+    #[test]
+    fn identity_masks_credentials_but_not_the_connection() {
+        let rendered = |account: &str, token: &str| {
+            snowflake(
+                DbtEngine::DbtCore1x,
+                &json!({"account_identifier": account, "token": token, "database": "db"}),
+            )
+            .unwrap()
+            .identity
+        };
+        assert_eq!(rendered("acc", "t1"), rendered("acc", "t2"));
+        assert_ne!(rendered("acc", "t1"), rendered("other", "t1"));
+
+        // A `dbt_profile` block, whose keys are the adapter's own, nested ones too.
+        let block = |project: &str, key: &str| {
+            let v = json!({"type": "bigquery", "project": project, "dataset": "d",
+                           "keyfile_json": {"client_email": "e", "private_key": key}});
+            render_dbt_profile(
+                &KnownAdapter::Bigquery.into(),
+                v.as_object().unwrap(),
+                "wm",
+                "prod",
+                None,
+                None,
+                std::path::Path::new("/tmp/p"),
+            )
+            .unwrap()
+            .identity
+        };
+        assert_eq!(block("p", "k1"), block("p", "k2"));
+        assert_ne!(block("p", "k1"), block("q", "k1"));
     }
 
     // dbt rejects a BigQuery target with no dataset and a service-account JSON
@@ -1233,6 +1362,7 @@ mod tests {
         let r = json!({"project_id": "p", "client_email": "e", "private_key": "k"});
         let err = render_profile(
             &KnownAdapter::Bigquery.into(),
+            DbtEngine::DbtCore1x,
             &r,
             "wm",
             "prod",
@@ -1245,6 +1375,7 @@ mod tests {
         assert!(err.contains("profile.schema"), "{err}");
         let p = render_profile(
             &KnownAdapter::Bigquery.into(),
+            DbtEngine::DbtCore1x,
             &r,
             "wm",
             "prod",
@@ -1284,6 +1415,7 @@ mod tests {
         let r = json!({"host": "h", "dbname": "sales", "user": "u"});
         let p = render_profile(
             &KnownAdapter::Mysql.into(),
+            DbtEngine::DbtCore1x,
             &r,
             "wm",
             "dev",
@@ -1304,6 +1436,7 @@ mod tests {
     fn a_profile_name_or_target_cannot_open_a_sibling_key() {
         let rendered = render_profile(
             &KnownAdapter::Postgres.into(),
+            DbtEngine::DbtCore1x,
             &serde_json::json!({"host": "h", "user": "u", "password": "p", "dbname": "d"}),
             "prod # hidden",
             "dev\n  evil: yes",
@@ -1339,6 +1472,7 @@ mod tests {
                        "password": "p\"\nhost: evil.example.com\n#"});
         let p = render_profile(
             &KnownAdapter::Postgres.into(),
+            DbtEngine::DbtCore1x,
             &r,
             "wm",
             "dev",

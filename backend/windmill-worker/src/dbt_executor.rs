@@ -1121,15 +1121,72 @@ pub struct PreparedProject {
     /// Written nsjail profile for this job, when the worker sandboxes jobs.
     /// `None` means the phases run unsandboxed, exactly as before.
     pub sandbox_config: Option<SandboxProfile>,
-    /// One-way digest of the rendered profile — the resolved connection, not
-    /// just the names it exposes. A resource repointed from one warehouse to
-    /// another that happens to use the same database and schema names is
-    /// invisible to `relation_root`, and a retry would then execute the saved
-    /// failures against a warehouse where the successful nodes do not exist.
+    /// One-way digest of the rendered profile, credentials masked: the resolved
+    /// connection, not just the names it exposes. A resource repointed from one
+    /// warehouse to another that happens to use the same database and schema
+    /// names is invisible to `relation_root`, and a retry would then execute the
+    /// saved failures against a warehouse where the successful nodes do not exist.
     pub profile_digest: String,
+    /// The job's client, which `refresh_profile` re-resolves the warehouse with.
+    client: AuthedClient,
 }
 
 impl PreparedProject {
+    /// Re-resolve the warehouse and rewrite `profiles.yml` just before a dbt
+    /// process that logs in. What preparation wrote can have expired by then: a
+    /// Snowflake OAuth token lasts ten minutes, and the build follows `dbt deps`
+    /// and a parse, the `after_all` tests follow the build, a node retry follows
+    /// its backoff.
+    async fn refresh_profile(
+        &self,
+        descriptor: &DbtDescriptor,
+        job_id: &Uuid,
+        w_id: &str,
+        conn: &Connection,
+    ) -> error::Result<()> {
+        // A project-owned `profiles.yml` is rendered by dbt itself, from an
+        // environment resolved once.
+        if descriptor.profile.profiles_yml.is_some() {
+            return Ok(());
+        }
+        let fresh = match write_profiles(
+            descriptor,
+            &self.project_dir,
+            &self.project_dir.to_string_lossy(),
+            &self.client,
+            &self.template_env(),
+        )
+        .await
+        {
+            Ok(fresh) => fresh,
+            // The profile on disk is still whole: a credential that does not
+            // expire connects with it exactly as before.
+            Err(e) => {
+                append_logs(
+                    job_id,
+                    w_id,
+                    format!(
+                        "\nCould not re-resolve the warehouse, so this dbt process uses the \
+                         credentials resolved earlier in the job: {e}\n"
+                    ),
+                    conn,
+                )
+                .await;
+                return Ok(());
+            }
+        };
+        // Credentials are masked out of the digest, so a mismatch is the warehouse
+        // itself moving mid-run, and this process would build somewhere else.
+        if fresh.digest != self.profile_digest {
+            return Err(Error::BadRequest(format!(
+                "the `{}` warehouse was repointed while this run was in progress; run the \
+                 script again",
+                self.warehouse.as_deref().unwrap_or(DBT_DEFAULT_WAREHOUSE)
+            )));
+        }
+        Ok(())
+    }
+
     /// Where this run's relations live: the resolved schema and database. Drift
     /// here since the deploy means the stored graph names relations that no
     /// longer exist.
@@ -1388,6 +1445,7 @@ pub(crate) async fn prepare_project(
         },
         sandbox_config,
         profile_digest: profile.digest,
+        client: client.clone(),
         project_dir,
         profiles_dir: profile.dir,
         engine,
@@ -1906,6 +1964,7 @@ async fn write_profiles(
     } else {
         render_profile(
             &adapter,
+            descriptor.engine(),
             &value,
             &profile_name,
             target,
@@ -1923,7 +1982,7 @@ async fn write_profiles(
         )?;
     }
     let profile_digest = profile_identity_digest(
-        &rendered.yaml,
+        &rendered.identity,
         &dir,
         rendered.root_certificate_pem.as_deref(),
         &client.token,
@@ -1965,7 +2024,9 @@ async fn resolve_warehouse(
         .map_err(|e| Error::BadRequest(format!("resolving the dbt warehouse `{warehouse}`: {e}")))
 }
 
-/// Identifies the connection a rendered profile describes, for run identity.
+/// Identifies the connection a rendered profile describes, for run identity,
+/// from the rendering whose credentials are already masked
+/// (`RenderedProfile::identity`).
 ///
 /// Two things in the rendered text belong to the ATTEMPT rather than the
 /// connection, and hashing either as-is makes a retry reject its own
@@ -2494,6 +2555,8 @@ async fn run_dbt(
     ctx: &mut JobCtx<'_>,
     with_selection: bool,
 ) -> error::Result<()> {
+    p.refresh_profile(descriptor, &job.id, &job.workspace_id, conn)
+        .await?;
     let mut cmd = dbt_command(p, &[command]);
     // The console stays human-readable and goes straight to the job log; the
     // machine-readable copy goes to a file the progress reporter tails, so
@@ -3157,6 +3220,7 @@ async fn run_show(
              `@`) or wildcard (`*`), resolves to a set: run `build` with it instead"
         )));
     }
+    p.refresh_profile(descriptor, job_id, w_id, conn).await?;
     let mut cmd = dbt_command(p, &["show"]);
     if inv.deferral.is_some() {
         cmd.args(defer_flags("show", p.engine.engine));
