@@ -2,7 +2,6 @@
 	import { untrack } from 'svelte'
 	import ChatCollapsibleCard from './copilot/chat/ChatCollapsibleCard.svelte'
 	import GfmMarkdown from './GfmMarkdown.svelte'
-	import { scrollPaneToEnd } from './agentScroll'
 	import {
 		advanceAgentStream,
 		emptyAgentStreamProgress,
@@ -34,15 +33,6 @@
 
 	let stream = $derived(progress.stream)
 
-	let anchor: HTMLElement | undefined = $state()
-	$effect(() => {
-		// Follow the text as it is written, the same way a finished run opens on its
-		// output: both put what you came for at the bottom.
-		stream.current
-		stream.reasoning
-		stream.entries.length
-		scrollPaneToEnd(anchor)
-	})
 </script>
 
 <!-- The same order a finished run uses — what it did, then what it is saying — so
@@ -80,5 +70,4 @@
 			<GfmMarkdown md={stream.reasoning} prose="xs" noPadding />
 		</div>
 	{/if}
-	<div bind:this={anchor}></div>
 </div>

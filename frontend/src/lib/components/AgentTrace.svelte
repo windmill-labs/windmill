@@ -19,6 +19,13 @@
 	let { entries, workspaceId }: Props = $props()
 
 	let expanded = new SvelteSet<number>()
+	// Row state is keyed by position, which means nothing once the viewer is handed
+	// another run: row 0 would stay open showing the previous run's job.
+	$effect(() => {
+		entries
+		expanded.clear()
+		jobs.clear()
+	})
 	// A tool's own job holds what the envelope does not: its logs, how long it
 	// took, and whether it succeeded. Fetched when a row is opened rather than
 	// upfront, so a run with twenty calls does not issue twenty requests to draw
