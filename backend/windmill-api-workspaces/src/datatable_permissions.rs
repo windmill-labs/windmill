@@ -349,6 +349,7 @@ async fn set_datatable_permissions(
     // Turning roles on is refused while a replication stream reads this data table. One already
     // under roles cannot have any: the listener refuses to open a stream on it.
     if req.permissioned && governing.datatable.permissions.is_none() {
+        windmill_common::datatable_roles::lock_datatable_streams(&mut *tx, true).await?;
         ensure_no_streams_reaching(&db, &governing).await?;
     }
 

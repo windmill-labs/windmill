@@ -567,6 +567,9 @@ async fn set_config(
     };
 
     let mut tx = user_db.begin(&authed).await?;
+    if matches!(nc.trigger_kind, TriggerKind::Postgres) {
+        windmill_common::datatable_roles::lock_datatable_streams(&mut *tx, false).await?;
+    }
 
     sqlx::query!(
         r#"
@@ -614,6 +617,9 @@ async fn ping_config(
     )>,
 ) -> Result<()> {
     let mut tx = user_db.begin(&authed).await?;
+    if matches!(trigger_kind, TriggerKind::Postgres) {
+        windmill_common::datatable_roles::lock_datatable_streams(&mut *tx, false).await?;
+    }
 
     sqlx::query!(
         r#"
