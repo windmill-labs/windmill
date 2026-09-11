@@ -8,18 +8,15 @@
 	import ToolContentDisplay from './copilot/chat/ToolContentDisplay.svelte'
 	import WebSearchSourcesDisplay from './copilot/chat/WebSearchSourcesDisplay.svelte'
 	import GfmMarkdown from './GfmMarkdown.svelte'
-	import { buildAgentTrace, type AgentTraceEntry } from './agentTrace'
-	import type { AgentMessage } from './aiAgentResult'
+	import type { AgentTraceEntry } from './agentTrace'
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 
 	interface Props {
-		messages: AgentMessage[]
+		entries: AgentTraceEntry[]
 		workspaceId?: string
 	}
 
-	let { messages, workspaceId }: Props = $props()
-
-	const entries = $derived(buildAgentTrace(messages))
+	let { entries, workspaceId }: Props = $props()
 
 	let expanded = new SvelteSet<number>()
 	// A tool's own job holds what the envelope does not: its logs, how long it
