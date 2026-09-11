@@ -17,6 +17,7 @@ use windmill_api_auth::{
 };
 use windmill_common::db::DB;
 use windmill_common::per_minute_counter::PerMinuteCounter;
+use windmill_common::ssrf::{private_git_host_allowed, private_git_host_hint, GitRemoteCaller};
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
 use crate::secret_backend_ext::rename_vault_secret;
@@ -3446,8 +3447,10 @@ fn git_url_userinfo(url: &str) -> Option<&str> {
     git_url_userinfo_range(url).map(|r| &url[r])
 }
 
-/// Validates a git URL to prevent option injection, SSRF, and local file read.
-async fn validate_git_url(url: &str) -> Result<()> {
+/// Validates a git URL to prevent option injection, SSRF, and local file read. The
+/// syntax and scheme checks apply to every caller; the private-host refusal only
+/// where [`private_git_host_allowed`] refuses `caller`.
+async fn validate_git_url(url: &str, caller: GitRemoteCaller) -> Result<()> {
     let url = url.trim();
     if url.is_empty() {
         return Err(Error::BadRequest("Git URL cannot be empty".to_string()));
@@ -3501,17 +3504,17 @@ async fn validate_git_url(url: &str) -> Result<()> {
     let host = extract_host_from_git_url(url)
         .ok_or_else(|| Error::BadRequest("Could not parse hostname from git URL".to_string()))?;
 
-    // The opt-in for a git server on the instance's own network (and for the CI
-    // Gitea container on localhost). Scheme and option-injection validation above
-    // still applies.
-    if windmill_common::ssrf::allow_local_git_remotes() {
+    // Scheme and option-injection validation above applies to every caller.
+    if private_git_host_allowed(caller) {
         return Ok(());
     }
-    let hint = windmill_common::ssrf::local_git_remote_hint();
+    let hint = private_git_host_hint(caller)
+        .map(|h| format!(" {h}"))
+        .unwrap_or_default();
 
     if host == "localhost" || host.ends_with(".local") || host == "[::1]" {
         return Err(Error::BadRequest(format!(
-            "Git URLs targeting localhost or local network are not allowed. {hint}"
+            "Git URLs targeting localhost or local network are not allowed.{hint}"
         )));
     }
 
@@ -3519,7 +3522,7 @@ async fn validate_git_url(url: &str) -> Result<()> {
     if let Ok(ip) = host.parse::<IpAddr>() {
         if is_private_or_reserved_ip(&ip) {
             return Err(Error::BadRequest(format!(
-                "Git URLs targeting private or reserved IP addresses are not allowed. {hint}"
+                "Git URLs targeting private or reserved IP addresses are not allowed.{hint}"
             )));
         }
     } else {
@@ -3542,7 +3545,7 @@ async fn validate_git_url(url: &str) -> Result<()> {
         for addr in addrs {
             if is_private_or_reserved_ip(&addr.ip()) {
                 return Err(Error::BadRequest(format!(
-                    "Git URL hostname resolves to a private or reserved IP address. {hint}"
+                    "Git URL hostname resolves to a private or reserved IP address.{hint}"
                 )));
             }
         }
@@ -3645,8 +3648,14 @@ async fn get_git_commit_hash(
         .map_err(|e| {
         Error::BadRequest(format!("Invalid git repository resource format: {}", e))
     })?;
+    let caller = if authed.is_admin {
+        GitRemoteCaller::AdminOrSystem
+    } else {
+        GitRemoteCaller::NonAdmin
+    };
     git_resource.url =
-        resolve_azure_devops_url(&db_with_opt_authed, &w_id, &git_resource.url, false).await?;
+        resolve_azure_devops_url(&db_with_opt_authed, &w_id, &git_resource.url, false, caller)
+            .await?;
     // A credential is stored under the repository it was issued for, so a
     // resource repointed elsewhere finds none. Which credential can be attached
     // is bounded by that; who may use it is bounded here, on the same terms as
@@ -3676,7 +3685,7 @@ async fn get_git_commit_hash(
     let (git_ssh_cmd, filenames) =
         get_git_ssh_cmd(&authed, &user_db, &db, &w_id, identities).await?;
 
-    let commit_hash = get_repo_latest_commit_hash(&git_resource, git_ssh_cmd).await;
+    let commit_hash = get_repo_latest_commit_hash(&git_resource, git_ssh_cmd, caller).await;
 
     delete_paths(&filenames).await;
 
@@ -3780,12 +3789,17 @@ async fn get_git_ssh_cmd(
 const GIT_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// `git` command for a remote probe, with HTTP redirects disabled. `validate_git_url`
-/// only vets the host in the URL; git's default (`http.followRedirects=initial`)
-/// would let a validated public remote 302 the probe onto a private or link-local
-/// address that no check ever sees. Build every probe through this.
+/// checks the host in the URL, never one a redirect names; git's default
+/// (`http.followRedirects=initial`) would let a public remote 302 the probe of a
+/// caller refused private hosts onto one. Build every probe through this.
+///
+/// The transports are pinned too: an SCP-shaped remote-helper string such as
+/// `ext::<command>@host:path` passes the URL check for a caller allowed private
+/// hosts, and only git's own config would stop it from running the command.
 fn git_probe_command() -> Command {
     let mut git_cmd = Command::new("git");
     git_cmd.args(["-c", "http.followRedirects=false"]);
+    git_cmd.env("GIT_ALLOW_PROTOCOL", "http:https:ssh:git");
     git_cmd
 }
 
@@ -3845,8 +3859,8 @@ fn dot_git_url(url: &str) -> Option<String> {
 }
 
 /// Run a remote probe, retrying against [`dot_git_url`] if the remote answered the
-/// URL as given with a redirect. Extending the path keeps the retry on the host
-/// `validate_git_url` already cleared, which is exactly what following the redirect
+/// URL as given with a redirect. Extending the path keeps the retry on the host of
+/// the URL `validate_git_url` checked, which is exactly what following the redirect
 /// would not guarantee. `build` must produce the probe for the URL it is handed.
 ///
 /// A retry that also fails reports the *original* failure, so the caller's message
@@ -3986,6 +4000,7 @@ async fn resolve_azure_devops_url(
     w_id: &str,
     url: &str,
     allow_cache: bool,
+    caller: GitRemoteCaller,
 ) -> Result<String> {
     // Trim first: the http(s) gates the callers apply trim too, so a stored URL with
     // leading whitespace must not reach the scheme check here as a non-http one.
@@ -3998,7 +4013,7 @@ async fn resolve_azure_devops_url(
     // cost a live credential (nor cache one), and whoever can edit the URL would
     // otherwise drive a token mint per poll tick.
     let probe_url = url.replace(placeholder, "windmill");
-    validate_git_url(&probe_url).await?;
+    validate_git_url(&probe_url, caller).await?;
 
     // The background poller reads the referenced resource under the system identity,
     // which bypasses RLS. Confining the destination is what keeps that from becoming an
@@ -4198,9 +4213,10 @@ fn git_sync_system_dba(db: &DB) -> DbWithOptAuthed<'static, ApiAuthed> {
 async fn get_repo_latest_commit_hash(
     git_resource: &GitRepositoryResource,
     git_ssh_command: Option<String>,
+    caller: GitRemoteCaller,
 ) -> Result<String> {
     // Validate URL and branch to prevent option injection and SSRF attacks
-    validate_git_url(&git_resource.url).await?;
+    validate_git_url(&git_resource.url, caller).await?;
 
     let ref_spec = git_resource
         .branch
@@ -4333,8 +4349,14 @@ pub async fn get_git_repo_head_for_autopull(
             "Automatic pull can't authenticate an SSH git remote in the background. Use an HTTPS URL with an embedded token, or connect the repository through the GitHub App.".to_string(),
         ));
     }
-    git_resource.url =
-        resolve_azure_devops_url(&git_sync_system_dba(db), w_id, &git_resource.url, true).await?;
+    git_resource.url = resolve_azure_devops_url(
+        &git_sync_system_dba(db),
+        w_id,
+        &git_resource.url,
+        true,
+        GitRemoteCaller::AdminOrSystem,
+    )
+    .await?;
     // A repo whose credential Windmill holds carries none in its URL, so the
     // poller has to attach it here or every probe would be unauthenticated.
     git_resource.url =
@@ -4342,14 +4364,15 @@ pub async fn get_git_repo_head_for_autopull(
 
     if let Some(branch) = git_resource.branch.as_deref().filter(|s| !s.is_empty()) {
         let branch = branch.to_string();
-        let sha = get_repo_latest_commit_hash(&git_resource, None).await?;
+        let sha = get_repo_latest_commit_hash(&git_resource, None, GitRemoteCaller::AdminOrSystem)
+            .await?;
         return Ok(Some((branch, sha)));
     }
 
     // No explicit branch: resolve the remote's default-branch NAME along with
     // its head in one call. Fork sync needs the concrete name to scope
     // `wm-fork/<branch>/*`, so a bare "HEAD" ref would silently disable it.
-    validate_git_url(&git_resource.url).await?;
+    validate_git_url(&git_resource.url, GitRemoteCaller::AdminOrSystem).await?;
     let output = run_git_probe_for_url(&git_resource.url, "ls-remote --symref HEAD", |url| {
         let mut git_cmd = git_probe_command();
         git_cmd.args(["ls-remote", "--symref", url, "HEAD"]);
@@ -4444,13 +4467,20 @@ pub async fn get_git_repo_fork_heads_for_autopull(
             "Automatic pull can't authenticate an SSH git remote in the background. Use an HTTPS URL with an embedded token, or connect the repository through the GitHub App.".to_string(),
         ));
     }
-    git_resource.url = resolve_azure_devops_url(&dba, w_id, &git_resource.url, true).await?;
+    git_resource.url = resolve_azure_devops_url(
+        &dba,
+        w_id,
+        &git_resource.url,
+        true,
+        GitRemoteCaller::AdminOrSystem,
+    )
+    .await?;
     // Same reason as the head probe above: a repository whose credential Windmill
     // holds carries none in its URL, and listing the fork branches is the half of
     // polling that would otherwise go out unauthenticated.
     git_resource.url =
         windmill_common::git_sync_oss::with_stored_credential(db, w_id, git_resource.url).await?;
-    validate_git_url(&git_resource.url).await?;
+    validate_git_url(&git_resource.url, GitRemoteCaller::AdminOrSystem).await?;
     validate_git_ref(base_branch)?;
 
     for r in extra_refs {
@@ -4836,49 +4866,52 @@ mod tests {
         ));
     }
 
+    // A caller let through to private hosts must still hit the scheme check.
     #[tokio::test]
     async fn test_validate_git_url_blocks_file_scheme() {
-        let result = validate_git_url("file:///etc/passwd").await;
+        let result = validate_git_url("file:///etc/passwd", GitRemoteCaller::AdminOrSystem).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("https://"));
     }
 
     #[tokio::test]
     async fn test_validate_git_url_blocks_private_ips() {
-        assert!(validate_git_url("http://127.0.0.1/repo.git").await.is_err());
-        assert!(validate_git_url("http://169.254.169.254/latest/meta-data/")
-            .await
-            .is_err());
-        let err = validate_git_url("http://10.0.0.1/repo.git")
-            .await
-            .unwrap_err();
+        let v = |url: &'static str| validate_git_url(url, GitRemoteCaller::NonAdmin);
+        assert!(v("http://127.0.0.1/repo.git").await.is_err());
+        assert!(v("http://169.254.169.254/latest/meta-data/").await.is_err());
+        let err = v("http://10.0.0.1/repo.git").await.unwrap_err();
         assert!(err.to_string().contains("ALLOW_LOCAL_GIT_REMOTES"), "{err}");
-        assert!(validate_git_url("http://172.16.0.1/repo.git")
-            .await
-            .is_err());
-        assert!(validate_git_url("http://192.168.1.1/repo.git")
-            .await
-            .is_err());
-        assert!(validate_git_url("git://0.0.0.0/repo.git").await.is_err());
+        assert!(v("http://172.16.0.1/repo.git").await.is_err());
+        assert!(v("http://192.168.1.1/repo.git").await.is_err());
+        assert!(v("git://0.0.0.0/repo.git").await.is_err());
         // IPv6 loopback, unique-local, and link-local literals
-        assert!(validate_git_url("git://[::1]/repo.git").await.is_err());
-        assert!(validate_git_url("git://[fd00::1]/repo.git").await.is_err());
-        assert!(validate_git_url("git://[fe80::1]/repo.git").await.is_err());
+        assert!(v("git://[::1]/repo.git").await.is_err());
+        assert!(v("git://[fd00::1]/repo.git").await.is_err());
+        assert!(v("git://[fe80::1]/repo.git").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_git_url_lets_admins_reach_private_hosts() {
+        assert!(
+            validate_git_url("http://10.0.0.1/repo.git", GitRemoteCaller::AdminOrSystem)
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
     async fn test_validate_git_url_blocks_localhost() {
-        assert!(validate_git_url("http://localhost/repo.git").await.is_err());
-        assert!(validate_git_url("http://myhost.local/repo.git")
-            .await
-            .is_err());
+        let v = |url: &'static str| validate_git_url(url, GitRemoteCaller::NonAdmin);
+        assert!(v("http://localhost/repo.git").await.is_err());
+        assert!(v("http://myhost.local/repo.git").await.is_err());
     }
 
     #[tokio::test]
     async fn test_validate_git_url_blocks_local_paths() {
-        assert!(validate_git_url("/etc/passwd").await.is_err());
-        assert!(validate_git_url("../relative/path").await.is_err());
-        assert!(validate_git_url("./local/repo").await.is_err());
+        let v = |url: &'static str| validate_git_url(url, GitRemoteCaller::AdminOrSystem);
+        assert!(v("/etc/passwd").await.is_err());
+        assert!(v("../relative/path").await.is_err());
+        assert!(v("./local/repo").await.is_err());
     }
 
     /// Minimal loopback HTTP server: replies to every request with `response` and
@@ -5008,7 +5041,11 @@ mod tests {
     async fn test_validate_git_url_fails_closed_on_unresolvable_host() {
         // `.invalid` never resolves (RFC 6761). The private-IP check is only
         // meaningful if a failed lookup rejects instead of falling through.
-        let result = validate_git_url("https://this-host-does-not-exist.invalid/repo.git").await;
+        let result = validate_git_url(
+            "https://this-host-does-not-exist.invalid/repo.git",
+            GitRemoteCaller::NonAdmin,
+        )
+        .await;
         assert!(
             result.is_err(),
             "an unresolvable host was allowed — does this resolver synthesize records for NXDOMAIN?"
@@ -5019,21 +5056,33 @@ mod tests {
     #[tokio::test]
     async fn test_validate_git_url_allows_valid_urls() {
         // Needs DNS: validation fails closed on a host it cannot resolve.
-        assert!(validate_git_url("https://github.com/user/repo.git")
+        let v = |url: &'static str| validate_git_url(url, GitRemoteCaller::NonAdmin);
+        assert!(v("https://github.com/user/repo.git").await.is_ok());
+        assert!(v("git@github.com:user/repo.git").await.is_ok());
+        assert!(v("ssh://git@github.com/user/repo.git").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_git_probe_refuses_remote_helpers() {
+        // A caller allowed private hosts skips the DNS step that would reject this
+        // SCP-shaped string, so the transport pin is what keeps git from running it.
+        let output = git_probe_command()
+            .args(["ls-remote", "testhelper::x@127.0.0.1:repo"])
+            .output()
             .await
-            .is_ok());
-        assert!(validate_git_url("git@github.com:user/repo.git")
-            .await
-            .is_ok());
-        assert!(validate_git_url("ssh://git@github.com/user/repo.git")
-            .await
-            .is_ok());
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("transport 'testhelper' not allowed"),
+            "{stderr}"
+        );
     }
 
     #[tokio::test]
     async fn test_validate_git_url_blocks_option_injection() {
-        assert!(validate_git_url("-evil").await.is_err());
-        assert!(validate_git_url("--upload-pack=evil").await.is_err());
+        let v = |url: &'static str| validate_git_url(url, GitRemoteCaller::AdminOrSystem);
+        assert!(v("-evil").await.is_err());
+        assert!(v("--upload-pack=evil").await.is_err());
     }
 
     #[test]
@@ -5129,24 +5178,21 @@ mod tests {
         // GHSA-p5cj-8cfh-mjv6: a loopback authority must stay blocked, and the
         // fragment/query `@public-host` bypasses of #8600 must be rejected so the
         // host git dials can never diverge from the validated host.
-        assert!(validate_git_url("http://127.0.0.1:40173/repo.git")
-            .await
-            .is_err());
-        assert!(validate_git_url(
-            "http://127.0.0.1:40173/repo.git#@github.com/windmill-labs/windmill.git"
-        )
-        .await
-        .is_err());
-        assert!(validate_git_url(
-            "http://127.0.0.1:40173/repo.git?@github.com/windmill-labs/windmill.git"
-        )
-        .await
-        .is_err());
-        // A legitimate public repo URL still validates.
+        let v = |url: &'static str| validate_git_url(url, GitRemoteCaller::NonAdmin);
+        assert!(v("http://127.0.0.1:40173/repo.git").await.is_err());
         assert!(
-            validate_git_url("https://github.com/windmill-labs/windmill.git")
+            v("http://127.0.0.1:40173/repo.git#@github.com/windmill-labs/windmill.git")
                 .await
-                .is_ok()
+                .is_err()
         );
+        assert!(
+            v("http://127.0.0.1:40173/repo.git?@github.com/windmill-labs/windmill.git")
+                .await
+                .is_err()
+        );
+        // A legitimate public repo URL still validates.
+        assert!(v("https://github.com/windmill-labs/windmill.git")
+            .await
+            .is_ok());
     }
 }
