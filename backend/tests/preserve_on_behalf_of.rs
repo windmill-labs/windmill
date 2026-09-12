@@ -557,6 +557,28 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // ========================================
+    // 9c. App: an identity named only by address is refused, not silently dropped
+    // ========================================
+
+    // What a client written before the principal existed sends for "keep this identity". There
+    // is nothing to keep it by, and deploying it as the pusher would widen what the app runs as.
+    let resp = authed(client().post(format!("{base}/apps/create")), "SECRET_TOKEN")
+        .json(&new_app_with_on_behalf_of(
+            "u/test-user/app_address_only",
+            None,
+            Some("original@windmill.dev"),
+            true,
+        ))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "an address-only identity must be refused: {}",
+        resp.text().await?
+    );
+
+    // ========================================
     // 10. Schedule: Admin preserves email and edited_by
     // ========================================
 

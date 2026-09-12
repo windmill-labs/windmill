@@ -12,12 +12,12 @@
 		createFolderIfAbsent,
 		deployItem,
 		getOnBehalfOfOrThrow,
+		deployItemIdentityIsPrincipal,
 		type DeployResult,
 		type DeployTargetAccess
 	} from '$lib/utils_workspace_deploy'
 	import { COMPARE_ITEMS_PARAM } from '$lib/components/sessions/modifiedItemsMask'
 	import OnBehalfOfSelector, {
-		deployItemIdentityIsPrincipal,
 		needsOnBehalfOfSelection,
 		type OnBehalfOfChoice,
 		type OnBehalfOfDetails

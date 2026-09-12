@@ -495,6 +495,12 @@ pub struct Policy {
     /// the request. [`attach_on_behalf_of_email`] puts it here, and states which reads may.
     #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    /// The same key on the way in, taken only so that a request naming the identity by address
+    /// alone can be refused. Silently ignoring it would redeploy the app as whoever pushed it,
+    /// which is how a client written before the principal existed names an identity. An echo of
+    /// a read carries the principal too, so this is never the whole of what a caller sent.
+    #[serde(default, rename = "on_behalf_of_email", skip_serializing)]
+    pub submitted_on_behalf_of_email: Option<String>,
     //paths:
     // - script/<path>
     // - flow/<path>
@@ -2472,6 +2478,8 @@ async fn create_app_internal<'a>(
             ));
         }
     }
+    refuse_address_only_identity(&app.policy, app.preserve_on_behalf_of)?;
+
     // Resolve the on-behalf-of defaults on the (non-RLS) pool *before* opening
     // the RLS transaction below: doing these lookups mid-transaction would hold
     // a second simultaneous connection while `tx` is still checked out. The race this
@@ -3410,6 +3418,8 @@ async fn update_app_internal<'a>(
     // stays.
     let mut preserved_on_behalf_of: Option<String> = None;
     if let Some(npolicy) = ns.policy.as_mut() {
+        refuse_address_only_identity(npolicy, ns.preserve_on_behalf_of)?;
+
         let should_preserve = ns.preserve_on_behalf_of.unwrap_or(false)
             && windmill_common::can_preserve_on_behalf_of(&authed)
             && npolicy.on_behalf_of.is_some();
@@ -4574,6 +4584,7 @@ async fn upload_s3_file_from_app(
             triggerables_v2: None,
             on_behalf_of: None,
             on_behalf_of_email: None,
+            submitted_on_behalf_of_email: None,
             s3_inputs: Some(vec![S3Input {
                 file_key_regex: file_key_regex,
                 allow_user_resources: query.force_viewer_allow_user_resources.unwrap_or(false),
@@ -4999,6 +5010,7 @@ async fn get_on_behalf_authed_from_app(
             triggerables_v2: None,
             on_behalf_of: None,
             on_behalf_of_email: None,
+            submitted_on_behalf_of_email: None,
             s3_inputs: None,
             allowed_s3_keys: Some(force_allowed_s3_keys),
             sandbox: None,
@@ -5023,6 +5035,7 @@ async fn get_on_behalf_authed_from_app(
                 triggerables_v2: None,
                 on_behalf_of: None,
                 on_behalf_of_email: None,
+                submitted_on_behalf_of_email: None,
                 s3_inputs: None,
                 allowed_s3_keys: None,
                 sandbox: None,
@@ -5541,6 +5554,27 @@ async fn app_load_csv_preview() -> Result<()> {
     Err(Error::BadRequest(
         "This endpoint requires the parquet feature to be enabled".to_string(),
     ))
+}
+
+/// Refuse a deploy that asks to keep an identity it names only by address.
+///
+/// The address is no longer an identity the policy can store, so honouring such a request is
+/// impossible and ignoring it is worse than failing: `should_preserve` would come out false and
+/// the app would be redeployed as whoever pushed it — widening, not narrowing, what it runs as.
+/// Only the ambiguous shape is refused; a client echoing back a read sends the principal beside
+/// the address, and one that means "run as me" sends neither.
+fn refuse_address_only_identity(policy: &Policy, preserve: Option<bool>) -> Result<()> {
+    if preserve.unwrap_or(false)
+        && policy.on_behalf_of.is_none()
+        && policy.submitted_on_behalf_of_email.is_some()
+    {
+        return Err(Error::BadRequest(
+            "an app policy names its identity in on_behalf_of ('u/{username}' or 'g/{group}'); \
+             on_behalf_of_email is derived from it and cannot be preserved on its own"
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Attach to a policy on its way out the address its principal resolves to.

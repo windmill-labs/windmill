@@ -510,13 +510,14 @@ export async function deployItem(
         workspace: workspaceFrom,
         path,
       });
-      // The source policy's principal names nobody in the target, so it is always replaced:
-      // `getOnBehalfOf` read this one out of the *target*, where `u/alice` and `g/ops` mean
-      // what they say. Unlike the flow and script branches above, which still carry an
-      // address the backend resolves, the app's identity travels as the principal itself —
-      // a group has no address of its own to travel as. The address the read derived goes
-      // too: it is the source's, and a server old enough to still read it would take the
-      // pair as naming two accounts.
+      // Unlike the flow and script branches above, which carry an address for the backend to
+      // resolve, an app's identity travels as the principal itself — its policy stores nothing
+      // else, and a group has no address of its own to travel as. So the source policy's
+      // principal is always replaced by `onBehalfOf`, which **the caller must have made valid
+      // in the target**: `u/` names are per-workspace, so a caller reading the source has to map
+      // it (`preservedIdentity` in the CLI's merge does), and one reading the target can send it
+      // as is. The address the read derived goes too: it is the source's, and a server old
+      // enough to still read it would take the pair as naming two accounts.
       const app = {
         ...rawApp,
         policy: {

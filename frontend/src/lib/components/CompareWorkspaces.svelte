@@ -49,6 +49,7 @@
 		diffRemovesInTarget,
 		getItemValue,
 		getOnBehalfOf,
+		deployItemIdentityIsPrincipal,
 		type DeployPermission,
 		type DeployResult
 	} from '$lib/utils_workspace_deploy'
@@ -56,7 +57,6 @@
 	import { isTriggerOrScheduleKind } from 'windmill-utils-internal'
 	import Tooltip from './Tooltip.svelte'
 	import OnBehalfOfSelector, {
-		deployItemIdentityIsPrincipal,
 		needsOnBehalfOfSelection,
 		type OnBehalfOfChoice,
 		type OnBehalfOfDetails

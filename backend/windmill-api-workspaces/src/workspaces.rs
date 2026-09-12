@@ -6995,6 +6995,9 @@ fn repoint_cloned_app_identity(policy: &mut serde_json::Value, authed: &ApiAuthe
         "on_behalf_of".to_string(),
         serde_json::Value::String(username_to_permissioned_as(&authed.username)),
     );
+    // A policy an older peer wrote carries the source's address, and that peer prefers it at
+    // execution — so leaving it would hand the fork exactly the identity this re-point withholds.
+    obj.remove("on_behalf_of_email");
 }
 
 async fn clone_apps(

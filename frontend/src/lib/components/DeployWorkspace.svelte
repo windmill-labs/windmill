@@ -31,7 +31,8 @@
 		checkItemExists,
 		deployItem,
 		getItemValue,
-		getOnBehalfOf
+		getOnBehalfOf,
+		deployItemIdentityIsPrincipal
 	} from '$lib/utils_workspace_deploy'
 	import type { App } from './apps/types'
 	import { getAllGridItems } from './apps/editor/appUtils'
@@ -39,7 +40,6 @@
 	import type { Runnable } from './raw_apps/utils'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import OnBehalfOfSelector, {
-		deployItemIdentityIsPrincipal,
 		needsOnBehalfOfSelection,
 		type OnBehalfOfChoice,
 		type OnBehalfOfDetails
