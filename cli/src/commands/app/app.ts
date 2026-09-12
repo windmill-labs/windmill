@@ -572,7 +572,7 @@ const command = new Command()
   })
   .command(
     "set-permissioned-as",
-    "Set the on_behalf_of_email for an app (requires admin or wm_deployers group)"
+    "Set the user an app runs on behalf of (requires admin or wm_deployers group)"
   )
   .arguments("<path:string> <email:string>")
   .action((async (opts: any, appPath: string, email: string) => {
@@ -592,15 +592,15 @@ const command = new Command()
     // Only spread remote.policy — spreading the full remote object would include
     // `value` and trigger a new app version on every call. EditApp has all-Option
     // fields, so a minimal body only updates the policy column.
+    // The read carries a derived `on_behalf_of_email`; a server old enough to still read it
+    // would see the previous holder's address beside the new principal and reject the pair.
+    const policy = { ...(remote.policy as any), on_behalf_of: `u/${username}` };
+    delete policy.on_behalf_of_email;
     await wmill.updateApp({
       workspace: workspace.workspaceId,
       path: appPath,
       requestBody: {
-        policy: {
-          ...(remote.policy as any),
-          on_behalf_of: `u/${username}`,
-          on_behalf_of_email: email,
-        } as any,
+        policy: policy as any,
         preserve_on_behalf_of: true,
         // Preserve any user draft at this path (see backend skip_draft_deletion).
         skip_draft_deletion: true,

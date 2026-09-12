@@ -405,7 +405,6 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     // 7. App: Admin preserves on_behalf_of
     // ========================================
 
-    // Principal only, so the stored address can only have come from deriving it.
     let resp = authed(client().post(format!("{base}/apps/create")), "SECRET_TOKEN")
         .json(&new_app_with_on_behalf_of(
             "u/test-user/app_admin_preserve",
@@ -435,12 +434,10 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
         Some("u/original-user"),
         "Admin should preserve app on_behalf_of"
     );
-    // The address is written through from the principal, never taken from the request, so the
-    // stored copy can only agree with it.
     assert_eq!(
-        policy.get("on_behalf_of_email").and_then(|v| v.as_str()),
-        Some("original@windmill.dev"),
-        "the stored address is derived from the principal, not the one the client sent"
+        policy.get("on_behalf_of_email"),
+        None,
+        "the address is not stored beside the principal"
     );
     let resp = authed(
         client().get(format!("{base}/apps/get/p/u/test-user/app_admin_preserve")),
@@ -452,7 +449,7 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(
         returned["policy"]["on_behalf_of_email"].as_str(),
         Some("original@windmill.dev"),
-        "the response returns the address written through from the principal"
+        "the response derives the address from the principal"
     );
 
     // ========================================
@@ -530,24 +527,33 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // ========================================
-    // 9b. App: a policy naming two different accounts is rejected
+    // 9b. App: an address in the request is ignored, the principal decides
     // ========================================
 
-    // This is the shape a workspace deploy produces when it carries the source
-    // workspace's principal beside the target's address.
+    // The shape a client written before the principal existed still sends. It names another
+    // account than the principal does, and the principal is the one that counts.
     let resp = authed(client().post(format!("{base}/apps/create")), "SECRET_TOKEN")
         .json(&new_app_with_on_behalf_of(
-            "u/test-user/app_mismatched_pair",
+            "u/test-user/app_address_ignored",
             Some("u/original-user"),
             Some("test2@windmill.dev"),
             true,
         ))
         .send()
         .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+
+    let app = sqlx::query!(
+        "SELECT policy FROM app WHERE path = $1 AND workspace_id = $2",
+        "u/test-user/app_address_ignored",
+        "test-workspace"
+    )
+    .fetch_one(&db)
+    .await?;
     assert_eq!(
-        resp.status(),
-        400,
-        "a policy whose two halves name different accounts must be rejected"
+        app.policy.get("on_behalf_of").and_then(|v| v.as_str()),
+        Some("u/original-user"),
+        "the principal is stored, not the account the address named"
     );
 
     // ========================================
@@ -2885,9 +2891,9 @@ async fn test_schedule_permissions_superadmin_not_in_workspace(
 
 /// Reserved internal sentinel identities are rejected by name at deploy time on
 /// every entity that stores a preserved on_behalf_of. Real identities stay
-/// deployable by a `wm_deployers` member — including a real superadmin, and even
-/// their email pinned onto an unrelated principal — because that escalation is
-/// closed at execution by the job-token cap, not by restricting what is stored.
+/// deployable by a `wm_deployers` member — a real superadmin included — because
+/// that escalation is closed at execution by the job-token cap, not by
+/// restricting what is stored.
 #[sqlx::test(fixtures("preserve_on_behalf_of"))]
 async fn test_reject_reserved_sentinel_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -2900,18 +2906,17 @@ async fn test_reject_reserved_sentinel_on_behalf_of(db: Pool<Postgres>) -> anyho
     const SENTINEL: &str = "superadmin_secret@windmill.dev";
     // Reserved sentinel matched on permissioned_as.
     const SYNC_SENTINEL: &str = "superadmin_sync@windmill.dev";
-    // Real instance superadmin, present only in `password` (not a workspace member).
-    const REAL_SA: &str = "superadmin-external@windmill.dev";
 
-    // App: deployer cannot pin the sentinel email.
+    // App: deployer cannot pin the sentinel. The policy stores only a principal, and the
+    // sentinels are address-shaped, so this is the bare-address form of one.
     let resp = authed(
         client().post(format!("{base}/apps/create")),
         "DEPLOYER_TOKEN",
     )
     .json(&new_app_with_on_behalf_of(
         "u/deployer-user/app_sentinel",
-        Some("u/original-user"),
         Some(SENTINEL),
+        None,
         true,
     ))
     .send()
@@ -2919,34 +2924,13 @@ async fn test_reject_reserved_sentinel_on_behalf_of(db: Pool<Postgres>) -> anyho
     assert_eq!(
         resp.status(),
         400,
-        "deployer must not pin the sentinel as an app on_behalf_of_email: {}",
+        "deployer must not pin the sentinel as an app on_behalf_of: {}",
         resp.text().await?
     );
 
-    // App: a real superadmin's address pinned onto an unrelated principal is a pair naming two
-    // accounts, which the principal-authoritative policy refuses.
-    let resp = authed(
-        client().post(format!("{base}/apps/create")),
-        "DEPLOYER_TOKEN",
-    )
-    .json(&new_app_with_on_behalf_of(
-        "u/deployer-user/app_real_sa",
-        Some("u/original-user"),
-        Some(REAL_SA),
-        true,
-    ))
-    .send()
-    .await?;
-    assert_eq!(
-        resp.status(),
-        400,
-        "a superadmin address beside an unrelated principal must be refused: {}",
-        resp.text().await?
-    );
-
-    // App: a real superadmin on_behalf_of is allowed at deploy when consistently named (deployers
-    // may deploy on behalf of any real user); the escalation is closed at execution by the
-    // job-token cap, not by restricting what can be stored.
+    // App: a real superadmin on_behalf_of is allowed at deploy (deployers may deploy on behalf
+    // of any real user); the escalation is closed at execution by the job-token cap, not by
+    // restricting what can be stored.
     let resp = authed(
         client().post(format!("{base}/apps/create")),
         "DEPLOYER_TOKEN",
@@ -2954,7 +2938,7 @@ async fn test_reject_reserved_sentinel_on_behalf_of(db: Pool<Postgres>) -> anyho
     .json(&new_app_with_on_behalf_of(
         "u/deployer-user/app_consistent_sa",
         Some("u/superadmin-external"),
-        Some(REAL_SA),
+        None,
         true,
     ))
     .send()
@@ -2962,7 +2946,7 @@ async fn test_reject_reserved_sentinel_on_behalf_of(db: Pool<Postgres>) -> anyho
     assert_eq!(
         resp.status(),
         201,
-        "deployer may preserve a consistently named superadmin identity: {}",
+        "deployer may preserve a superadmin identity: {}",
         resp.text().await?
     );
 

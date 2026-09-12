@@ -33949,7 +33949,8 @@ components:
           description: The user or group the app runs as in anonymous or publisher mode (e.g. 'u/admin' or 'g/mygroup'). The authority for the app's identity.
         on_behalf_of_email:
           type: string
-          description: Address of `on_behalf_of`, written through from it on every save and returned as stored. Optional; when absent it is derived from `on_behalf_of`. Sending it is optional too; it must name the same account as `on_behalf_of`, and a pair that disagrees is rejected.
+          readOnly: true
+          description: Address of `on_behalf_of`, derived from it on every read and never stored. Absent when the policy names no identity. Read-only - sending it is ignored, so a deploy that means to keep an identity has to name it in `on_behalf_of`.
         sandbox:
           type: boolean
           description: >

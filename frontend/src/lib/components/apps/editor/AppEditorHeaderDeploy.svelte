@@ -144,7 +144,6 @@
 		}
 	}
 	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
-	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
 	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
@@ -315,22 +314,19 @@
 			user to run this app on behalf of. Once deployed the app will be run on behalf of
 			<OnBehalfOfSelector
 				targetWorkspace={opWs ?? ''}
-				targetValue={savedOnBehalfOfEmail}
+				targetValue={savedOnBehalfOf}
 				selected={onBehalfOfChoice}
 				onSelect={(choice, details) => {
 					onBehalfOfChoice = choice
 					if (choice === 'me') {
-						policy.on_behalf_of_email = $userStore?.email
 						policy.on_behalf_of = `u/${$userStore?.username}`
 						customOnBehalfOfEmail = ''
 						preserveOnBehalfOf = false
 					} else if (choice === 'target') {
-						policy.on_behalf_of_email = savedOnBehalfOfEmail
 						policy.on_behalf_of = savedOnBehalfOf
 						customOnBehalfOfEmail = ''
 						preserveOnBehalfOf = true
 					} else if (choice === 'custom' && details) {
-						policy.on_behalf_of_email = details.email
 						policy.on_behalf_of = details.permissionedAs
 						customOnBehalfOfEmail = details.email
 						preserveOnBehalfOf = true
