@@ -1602,12 +1602,16 @@ async fn linked_vars_referenced_elsewhere(
 /// pool from under an open `user_db` transaction takes a second connection out of the same
 /// pool, which hangs until the acquire timeout on a small `DATABASE_CONNECTIONS`. `resolve`
 /// therefore finishes the decision inside the transaction without touching the database.
+/// The cost of gathering it early: a resource that starts referencing a candidate between the
+/// scan and the delete keeps a `$var:` whose variable has gone. That window is milliseconds and
+/// the alternative is serializing every resource write in the workspace; the unfixed code
+/// deleted the variable whether or not anything referenced it, so this is strictly narrower.
 struct LinkedVarCascade {
-    /// The `$var:` paths the requested resources own, as of the read below.
-    candidates: Vec<String>,
+    /// Each owned `$var:` path with the requested resource whose value carries it.
+    candidates: Vec<(String, String)>,
     /// Requested resource paths, each with every variable path its value references.
     requested: Vec<(String, Vec<String>)>,
-    /// Candidates a resource outside the requested set still references.
+    /// Candidate paths a resource outside the requested set still references.
     referenced_outside: HashSet<String>,
 }
 
@@ -1624,17 +1628,27 @@ impl LinkedVarCascade {
             .flat_map(|(_, refs)| refs.iter().map(String::as_str))
             .collect();
 
-        self.candidates
+        let mut resolved: Vec<String> = self
+            .candidates
             .iter()
-            .filter(|var_path| {
-                deleted_paths
-                    .iter()
-                    .any(|path| is_owned_linked_var(path, var_path))
+            .filter(|(var_path, owner)| {
+                deleted_paths.contains(owner)
                     && !self.referenced_outside.contains(var_path.as_str())
                     && !referenced_by_survivors.contains(var_path.as_str())
             })
-            .cloned()
-            .collect()
+            .map(|(var_path, _)| var_path.clone())
+            .collect();
+        resolved.sort();
+        resolved.dedup();
+        resolved
+    }
+
+    /// Which deleted resource the cascade took `var_path` for, to stamp on its audit row.
+    fn owner_of<'a>(&'a self, var_path: &str, deleted_paths: &[String]) -> Option<&'a str> {
+        self.candidates
+            .iter()
+            .find(|(candidate, owner)| candidate == var_path && deleted_paths.contains(owner))
+            .map(|(_, owner)| owner.as_str())
     }
 }
 
@@ -1652,7 +1666,7 @@ async fn plan_linked_var_cascade(
     .fetch_all(db)
     .await?;
 
-    let mut candidates: Vec<String> = Vec::new();
+    let mut candidates: Vec<(String, String)> = Vec::new();
     let mut requested: Vec<(String, Vec<String>)> = Vec::new();
     for (path, value) in rows {
         let mut owned: Vec<String> = Vec::new();
@@ -1664,14 +1678,21 @@ async fn plan_linked_var_cascade(
         candidates.extend(
             owned
                 .into_iter()
-                .filter(|var_path| is_owned_linked_var(&path, var_path)),
+                .filter(|var_path| is_owned_linked_var(&path, var_path))
+                .map(|var_path| (var_path, path.clone())),
         );
         requested.push((path, refs));
     }
     candidates.sort();
     candidates.dedup();
 
-    let referenced_outside = linked_vars_referenced_elsewhere(db, w_id, &candidates, paths).await?;
+    let mut candidate_paths: Vec<String> = candidates
+        .iter()
+        .map(|(var_path, _)| var_path.clone())
+        .collect();
+    candidate_paths.dedup();
+    let referenced_outside =
+        linked_vars_referenced_elsewhere(db, w_id, &candidate_paths, paths).await?;
     Ok(LinkedVarCascade { candidates, requested, referenced_outside })
 }
 
@@ -1880,16 +1901,11 @@ async fn delete_resources_bulk(
     )
     .await?;
 
-    // See delete_resource: a cascaded variable gets the audit row it would have had. Longest
-    // matching path wins — `f/db` and `f/db_replica` both own-match `f/db_replica_pwd`, and
-    // the deeper one is the resource that minted it.
+    // See delete_resource: a cascaded variable gets the audit row it would have had.
     for var_path in &deleted_linked_variables {
-        let params = deleted
-            .iter()
-            .map(|(resource_path, _)| resource_path)
-            .filter(|resource_path| is_owned_linked_var(resource_path, var_path))
-            .max_by_key(|resource_path| resource_path.len())
-            .map(|resource_path| HashMap::from([("via_resource", resource_path.as_str())]));
+        let params = cascade
+            .owner_of(var_path, &deleted_paths)
+            .map(|resource_path| HashMap::from([("via_resource", resource_path)]));
         audit_log(
             &mut *tx,
             &authed,
