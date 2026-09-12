@@ -5505,6 +5505,8 @@ async fn push_inner<'c, 'd>(
         ) {
             // Check current usage with SELECT (fast, no row locks)
             // Only check user usage for non-premium workspaces
+            // `email` here and in the per-user checks below can be a cached dispatch address, up
+            // to one notify poll stale; accepted, see `get_email_from_permissioned_as`.
             let (current_workspace_usage, current_user_usage) =
                 check_usage_limits(db, &billing_w_id, email, !team_plan_status.premium).await?;
 
@@ -6894,7 +6896,11 @@ async fn push_inner<'c, 'd>(
         language as Option<ScriptLang>,
         same_worker,
         pre_run_error.map(|e| e.to_string()),
-        email,
+        // `job_authed`'s, not the handed-in `email`: unless the caller's own authed already names
+        // this identity, it came through `fetch_authed_from_permissioned_as`, which re-resolves the
+        // address from the principal's live binding. The same statement writes it to
+        // `job_perms.email`, and the two columns naming different accounts is what this prevents.
+        job_authed.email,
         visible_to_owner,
         flow_innermost_root_job,
         guarded_concurrent_limit,
@@ -7011,7 +7017,8 @@ async fn push_inner<'c, 'd>(
             hm.insert("created_by", user);
         }
         let audit_author = AuditAuthor {
-            email: email.to_string(),
+            // `job_authed`'s address, matching `v2_job` and `job_perms` above.
+            email: job_authed.email.clone(),
             username: if runs_on_behalf {
                 windmill_common::auth::permissioned_as_to_username(&permissioned_as)
             } else {

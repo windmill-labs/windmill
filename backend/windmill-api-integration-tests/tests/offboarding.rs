@@ -599,3 +599,59 @@ async fn test_offboard_invalid_target(db: Pool<Postgres>) -> anyhow::Result<()> 
 
     Ok(())
 }
+
+/// A legacy member named `group-ops` canonicalizes to `g/ops`, the principal the real `ops` group
+/// runs as. Offboarding the member must not hand the group's runnables to the replacement.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_offboard_group_prefixed_member_keeps_group_identities(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        "INSERT INTO password(email, password_hash, login_type, super_admin, verified, name, username)
+         VALUES ('ops-bot@windmill.dev', 'x', 'password', false, true, 'Ops bot', 'group-ops');
+         INSERT INTO usr(workspace_id, email, username, is_admin, role)
+         VALUES ('test-workspace', 'ops-bot@windmill.dev', 'group-ops', false, 'User');
+         INSERT INTO group_(workspace_id, name, summary) VALUES ('test-workspace', 'ops', '');
+         INSERT INTO app(workspace_id, path, summary, policy, versions, extra_perms)
+         VALUES ('test-workspace', 'f/shared/ops_app', '',
+                 '{\"execution_mode\": \"publisher\", \"on_behalf_of\": \"g/ops\",
+                   \"on_behalf_of_email\": \"group-ops@windmill.dev\"}', '{}', '{}');",
+    )
+    .execute(&db)
+    .await?;
+
+    let preview: serde_json::Value =
+        authed(client().get(ws_url(port, "offboard_preview/group-ops")))
+            .send()
+            .await?
+            .json()
+            .await?;
+    assert!(
+        preview["executing_on_behalf"]["apps"].is_null(),
+        "the group's apps are not the member's to reassign: {preview}"
+    );
+
+    let resp = authed(client().post(ws_url(port, "offboard/group-ops")))
+        .json(&json!({
+            "reassign_to": "u/test-user",
+            "new_on_behalf_of_user": "test-user",
+            "delete_user": false
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let principal: Option<String> = sqlx::query_scalar(
+        "SELECT policy->>'on_behalf_of' FROM app
+         WHERE workspace_id = 'test-workspace' AND path = 'f/shared/ops_app'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(principal.as_deref(), Some("g/ops"));
+
+    Ok(())
+}

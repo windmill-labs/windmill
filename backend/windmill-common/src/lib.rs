@@ -282,14 +282,16 @@ pub fn check_on_behalf_of_preservation(
     None
 }
 
-/// Resolves the identity to store when creating/updating a flow or script.
+/// Resolves the identity to store when creating/updating a flow, script or app.
 ///
-/// The permissioned_as is the only stored identity — it decides what the job may access,
-/// and the address is derived from it at read time — so the two can never name different
-/// accounts. Callers may supply either: a bare email (every client written before the
-/// principal existed) is resolved to the principal it names, and an email that names
-/// nobody is rejected rather than recorded, since it could only produce a runnable that
-/// cannot authenticate.
+/// The permissioned_as is the identity: it decides what the job may access, and the address is
+/// a function of it, so the two can never name different accounts. For a script or flow the
+/// address is derived at read time; an app still stores it, as a compatibility copy written
+/// through from the principal on every save and returned verbatim by the app reads (see
+/// `docs/app-policy-email-removal.md`). Callers may supply either: a bare email (every client
+/// written before the principal existed) is resolved to the principal it names, and an email
+/// that names nobody is rejected rather than recorded, since it could only produce a runnable
+/// that cannot authenticate.
 ///
 /// Returns `None` when the runnable has no on-behalf-of identity, and the caller's own
 /// identity when they are not allowed to preserve someone else's.
@@ -297,6 +299,18 @@ pub fn check_on_behalf_of_preservation(
 /// Resolves through the non-RLS pool and authorizes nothing itself — `authed` decides only
 /// whether preservation is allowed, and its role flags are not re-checked against `w_id`.
 /// Callers must already be authorized for the workspace they pass.
+///
+/// Known, accepted race. The lookup runs on the pool, outside the caller's write transaction, so
+/// an account renamed or removed between the two has its sweep run before the write is visible,
+/// and the write stores the old principal. The runnable then fails to authenticate until it is
+/// deployed with a current identity, with two exceptions: an app naming an external superadmin
+/// keeps running as that account through its stored address, and if the freed username is later
+/// given to another account, the stale principal binds to that account and runs as it. Every
+/// caller shares this (scripts, flows and apps, address-only inputs included), and it needs a
+/// rename or removal of the exact account inside the lookup-to-commit gap. Closing it means
+/// serializing every identity write against every identity mutation, across all runnable kinds
+/// (a `usr` row lock in each write, with each sweep ordered after the account change), which no
+/// single caller can do on its own; it is left open deliberately.
 pub async fn resolve_on_behalf_of(
     on_behalf_of_email: Option<&str>,
     on_behalf_of: Option<&str>,
@@ -1869,11 +1883,9 @@ pub async fn on_behalf_of_from_permissioned_as(
     let Some(permissioned_as) = permissioned_as else {
         return Ok(None);
     };
-    // Uncached: the address is copied onto the job row, where it stays for the life of the run
-    // and decides the superadmin flag and the instance groups. Nothing evicts the cache across
-    // processes, so a cached read would keep minting jobs under an address the account no longer
-    // holds for up to a minute after it moves.
-    let email = users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?;
+    // Cached on purpose, up to one notify poll stale: the accepted dispatch case
+    // `get_email_from_permissioned_as` documents.
+    let email = users::get_email_from_permissioned_as(permissioned_as, w_id, db).await?;
     Ok(Some(jobs::OnBehalfOf {
         email,
         permissioned_as: permissioned_as.to_string(),
