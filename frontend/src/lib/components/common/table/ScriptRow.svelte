@@ -9,7 +9,14 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
 	import { ScriptService, type Script } from '$lib/gen'
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		disableHubStore,
+		hubBaseUrlStore,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
+	import { scriptToHubUrl } from '$lib/hub'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	import { createEventDispatcher } from 'svelte'
@@ -32,6 +39,7 @@
 		FolderOpen,
 		ChevronUpSquare,
 		GitFork,
+		Globe2,
 		List,
 		Pen,
 		Shield,
@@ -47,7 +55,12 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
-	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
+	import {
+		claimTab,
+		editInForkAllowed,
+		editInForkLabel,
+		onEditInForkClick
+	} from '$lib/utils/editInFork'
 	import EditInForkButton from './EditInForkButton.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 
@@ -402,6 +415,32 @@
 						action: () => {
 							copyToClipboard(script.path)
 						}
+					},
+					{
+						displayName: 'Publish to Hub',
+						icon: Globe2,
+						action: async () => {
+							// The row only carries metadata, so the code has to be fetched first; the tab is
+							// claimed before that, since Safari won't open one after an await.
+							const tab = claimTab()
+							try {
+								const fullScript = await ScriptService.getScriptByPath({
+									workspace: $workspaceStore!,
+									path: script.path
+								})
+								const url = scriptToHubUrl(fullScript, $hubBaseUrlStore).toString()
+								if (tab) {
+									tab.show(url)
+								} else if (!window.open(url)) {
+									sendUserToast('Allow popups to publish this script to the Hub', true)
+								}
+							} catch (e: any) {
+								tab?.discard()
+								sendUserToast(`Could not load ${script.path}: ${e?.body ?? e?.message ?? e}`, true)
+							}
+						},
+						// Operators can't write scripts, so they have nothing to publish.
+						hide: $disableHubStore || $userStore?.operator
 					},
 					{
 						displayName: script.archived ? 'Unarchive' : 'Archive',
