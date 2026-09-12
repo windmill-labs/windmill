@@ -510,17 +510,19 @@ export async function deployItem(
         workspace: workspaceFrom,
         path,
       });
-      // See the flow branch: a source-workspace principal is never valid here, and the
-      // policy carries the app's in `on_behalf_of`. Clearing it lets the backend derive
-      // the target's own from the address. A group travels as its synthetic
-      // `group-*@windmill.dev` address, which an admin-created account holding it would
-      // win: known and accepted, see `users::permissioned_as_from_email` in the backend.
+      // The source policy's principal names nobody in the target, so it is always replaced:
+      // `getOnBehalfOf` read this one out of the *target*, where `u/alice` and `g/ops` mean
+      // what they say. Unlike the flow and script branches above, which still carry an
+      // address the backend resolves, the app's identity travels as the principal itself —
+      // a group has no address of its own to travel as. The address the read derived goes
+      // too: it is the source's, and a server old enough to still read it would take the
+      // pair as naming two accounts.
       const app = {
         ...rawApp,
         policy: {
           ...rawApp.policy,
-          on_behalf_of: undefined,
-          on_behalf_of_email: onBehalfOf,
+          on_behalf_of: onBehalfOf,
+          on_behalf_of_email: undefined,
         },
       };
       if (alreadyExists) {
@@ -987,7 +989,9 @@ function stripTriggerOrScheduleRuntimeFields(row: unknown): unknown {
 
 /**
  * Fetch the on_behalf_of value for a deployable item.
- * Returns an email for flows/scripts/apps, or undefined if not applicable.
+ * Returns an email for flows/scripts, `permissioned_as` for apps, schedules and triggers, or
+ * undefined if not applicable. Which of the two a kind speaks is also what `deployItem` sends
+ * back for it, so the pair has to stay in step.
  */
 export async function getOnBehalfOf(
   provider: DeployProvider,
@@ -1004,7 +1008,7 @@ export async function getOnBehalfOf(
       return script.on_behalf_of_email;
     } else if (kind === "app" || kind === "raw_app") {
       const app = await provider.getAppByPath({ workspace, path });
-      return app.policy?.on_behalf_of_email;
+      return app.policy?.on_behalf_of;
     } else if (kind === "schedule") {
       const schedule = await provider.getSchedule({ workspace, path });
       return schedule.permissioned_as;

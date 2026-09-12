@@ -17,6 +17,7 @@
 	} from '$lib/utils_workspace_deploy'
 	import { COMPARE_ITEMS_PARAM } from '$lib/components/sessions/modifiedItemsMask'
 	import OnBehalfOfSelector, {
+		deployItemIdentityIsPrincipal,
 		needsOnBehalfOfSelection,
 		type OnBehalfOfChoice,
 		type OnBehalfOfDetails
@@ -230,13 +231,14 @@
 				)
 				return
 			}
+			const identityIsPrincipal = deployItemIdentityIsPrincipal(req.itemType)
 			const deployed = await deployItem({
 				kind: req.itemType,
 				path: req.itemPath,
 				workspaceFrom: req.prodWorkspaceId,
 				workspaceTo: req.devWorkspaceId,
-				onBehalfOf: chosenIdentity?.email,
-				onBehalfOfPrincipal: chosenIdentity?.permissionedAs,
+				onBehalfOf: identityIsPrincipal ? chosenIdentity?.permissionedAs : chosenIdentity?.email,
+				onBehalfOfPrincipal: identityIsPrincipal ? undefined : chosenIdentity?.permissionedAs,
 				createOnly: true
 			})
 			if (deployed.conflict) {

@@ -39,6 +39,7 @@
 	import type { Runnable } from './raw_apps/utils'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import OnBehalfOfSelector, {
+		deployItemIdentityIsPrincipal,
 		needsOnBehalfOfSelection,
 		type OnBehalfOfChoice,
 		type OnBehalfOfDetails
@@ -93,14 +94,15 @@
 
 	/**
 	 * Get the on_behalf_of value for deployment based on user's choice.
-	 * Returns an email for flows/scripts/apps, or permissioned_as (u/username, g/group) for triggers/schedules.
+	 * An email for flows/scripts, permissioned_as (u/username, g/group) for the kinds
+	 * `deployItemIdentityIsPrincipal` names.
 	 */
 	function getOnBehalfOfForDeploy(statusPath: string, kind: Kind): string | undefined {
 		const choice = onBehalfOfChoice[statusPath]
 		if (choice === 'target') return targetOnBehalfOfInfo[statusPath]
 		if (choice === 'custom') {
 			const details = customOnBehalfOf[statusPath]
-			return kind === 'trigger' ? details?.permissionedAs : details?.email
+			return deployItemIdentityIsPrincipal(kind) ? details?.permissionedAs : details?.email
 		}
 		// 'me' or undefined = don't pass, backend will use deploying user's identity
 		return undefined
@@ -115,7 +117,8 @@
 		statusPath: string,
 		kind: Kind
 	): string | undefined {
-		if (kind === 'trigger' || onBehalfOfChoice[statusPath] !== 'custom') return undefined
+		if (deployItemIdentityIsPrincipal(kind)) return undefined
+		if (onBehalfOfChoice[statusPath] !== 'custom') return undefined
 		return customOnBehalfOf[statusPath]?.permissionedAs
 	}
 

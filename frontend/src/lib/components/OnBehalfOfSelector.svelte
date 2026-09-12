@@ -9,6 +9,21 @@
 	}
 
 	/**
+	 * Whether a deploy carries this kind's identity as a principal (`u/alice`, `g/ops`) rather
+	 * than as an address. Apps sit with triggers and schedules: an app's policy stores only the
+	 * principal, and a group has no address of its own to travel as. Flows and scripts still send
+	 * an address, which the backend resolves against the target workspace.
+	 *
+	 * Both halves of a deploy read this — what `getOnBehalfOf` fetches out of the target and what
+	 * is sent back — so a kind moved between the two sides has to move in `deployItem` with it.
+	 */
+	export function deployItemIdentityIsPrincipal(kind: string): boolean {
+		return (
+			kind === 'app' || kind === 'raw_app' || kind === 'trigger' || isTriggerOrScheduleKind(kind)
+		)
+	}
+
+	/**
 	 * Check if an item needs on_behalf_of selection.
 	 * Shows the selector when the source item has an on_behalf_of value set.
 	 */

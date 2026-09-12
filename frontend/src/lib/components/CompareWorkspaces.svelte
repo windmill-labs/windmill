@@ -56,6 +56,7 @@
 	import { isTriggerOrScheduleKind } from 'windmill-utils-internal'
 	import Tooltip from './Tooltip.svelte'
 	import OnBehalfOfSelector, {
+		deployItemIdentityIsPrincipal,
 		needsOnBehalfOfSelection,
 		type OnBehalfOfChoice,
 		type OnBehalfOfDetails
@@ -609,15 +610,15 @@
 
 	/**
 	 * Get the on_behalf_of value for deployment based on user's choice.
-	 * Returns an email for flows/scripts/apps, or permissioned_as (u/username, g/group) for triggers/schedules.
+	 * An email for flows/scripts, permissioned_as (u/username, g/group) for the kinds
+	 * `deployItemIdentityIsPrincipal` names.
 	 */
 	function getOnBehalfOfForDeploy(itemKey: string, kind: Kind): string | undefined {
 		const choice = onBehalfOfChoice[itemKey]
 		if (choice === 'target') return getTargetOnBehalfOf(itemKey)
 		if (choice === 'custom') {
 			const details = customOnBehalfOf[itemKey]
-			const wantsPermissionedAs = kind === 'trigger' || isTriggerOrScheduleKind(kind)
-			return wantsPermissionedAs ? details?.permissionedAs : details?.email
+			return deployItemIdentityIsPrincipal(kind) ? details?.permissionedAs : details?.email
 		}
 		// 'me' or undefined = don't pass, backend will use deploying user's identity
 		return undefined
@@ -629,7 +630,7 @@
 	 * returning undefined clears the source item's value rather than keeping it.
 	 */
 	function getOnBehalfOfPermissionedAsForDeploy(itemKey: string, kind: Kind): string | undefined {
-		if (kind === 'trigger' || isTriggerOrScheduleKind(kind)) return undefined
+		if (deployItemIdentityIsPrincipal(kind)) return undefined
 		if (onBehalfOfChoice[itemKey] !== 'custom') return undefined
 		return customOnBehalfOf[itemKey]?.permissionedAs
 	}
