@@ -1596,16 +1596,15 @@ async fn linked_vars_referenced_elsewhere(
     Ok(referenced.into_iter().flatten().collect())
 }
 
-/// A resource delete's candidate cascade, gathered before the caller's transaction opens.
+/// A resource delete's candidate cascade, gathered before the caller's transaction opens: the
+/// referrer scan runs on `db` because it has to see resources RLS hides, and a second acquire
+/// from that same pool under an open `user_db` transaction stalls to the acquire timeout when
+/// `DATABASE_CONNECTIONS` is small. `resolve` then decides without touching the database.
 ///
-/// It has to be gathered there: the referrer scan needs the non-RLS pool, and querying that
-/// pool from under an open `user_db` transaction takes a second connection out of the same
-/// pool, which hangs until the acquire timeout on a small `DATABASE_CONNECTIONS`. `resolve`
-/// therefore finishes the decision inside the transaction without touching the database.
-/// The cost of gathering it early: a resource that starts referencing a candidate between the
-/// scan and the delete keeps a `$var:` whose variable has gone. That window is milliseconds and
-/// the alternative is serializing every resource write in the workspace; the unfixed code
-/// deleted the variable whether or not anything referenced it, so this is strictly narrower.
+/// So a resource that starts referencing a candidate between the scan and the delete keeps a
+/// `$var:` pointing at nothing. Narrowing that window means running the scan on the
+/// transaction's own connection under a tightly scoped `SET LOCAL ROLE NONE` (the elevation
+/// `windmill-queue/src/schedule.rs` uses); closing it needs a lock on every resource write.
 struct LinkedVarCascade {
     /// Each owned `$var:` path with the requested resource whose value carries it.
     candidates: Vec<(String, String)>,
