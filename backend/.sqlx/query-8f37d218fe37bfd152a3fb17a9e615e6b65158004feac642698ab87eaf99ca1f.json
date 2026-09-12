@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH survivors AS MATERIALIZED (\n             SELECT value::text AS rendered FROM resource\n             WHERE workspace_id = $1 AND NOT (path = ANY($2::text[]))\n         )\n         SELECT v.path FROM unnest($3::text[]) AS v(path)\n         WHERE EXISTS (\n             SELECT 1 FROM survivors s\n             WHERE strpos(s.rendered, '\"$var:' || v.path || '\"') > 0\n                OR strpos(s.rendered, '\"$jsonvar:' || v.path || '\"') > 0\n         )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8f37d218fe37bfd152a3fb17a9e615e6b65158004feac642698ab87eaf99ca1f"
+}

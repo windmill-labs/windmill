@@ -7,7 +7,7 @@
  */
 
 use dashmap::DashMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::LazyLock;
 
@@ -1339,53 +1339,9 @@ async fn delete_resource(
         return Err(Error::PermissionDenied(msg));
     }
 
+    let cascade = plan_linked_var_cascade(&db, &w_id, &[path.to_string()]).await?;
+
     let mut tx = user_db.begin(&authed).await?;
-
-    // Capture resource data for trashbin before deleting
-    let trash_resource: Option<serde_json::Value> = sqlx::query_scalar(
-        "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
-    )
-    .bind(path)
-    .bind(&w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    // Fetch the resource value before deleting, so we can find linked $var: references
-    let resource_value: Option<Option<serde_json::Value>> =
-        sqlx::query_scalar("SELECT value FROM resource WHERE path = $1 AND workspace_id = $2")
-            .bind(path)
-            .bind(&w_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-
-    // Collect all $var: paths referenced in the resource value
-    let mut linked_var_paths: Vec<String> = Vec::new();
-    if let Some(Some(ref value)) = resource_value {
-        collect_var_refs(value, &mut linked_var_paths);
-    }
-
-    // A scoped token must not delete linked variables it lacks variables:write for.
-    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
-
-    // Capture linked variables for trashbin before deleting them
-    let trash_linked_vars: Vec<serde_json::Value> = if linked_var_paths.is_empty() {
-        Vec::new()
-    } else {
-        let placeholders: Vec<String> = linked_var_paths
-            .iter()
-            .enumerate()
-            .map(|(i, _)| format!("${}", i + 2))
-            .collect();
-        let query = format!(
-            "SELECT to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path IN ({})",
-            placeholders.join(", ")
-        );
-        let mut q = sqlx::query_scalar::<_, serde_json::Value>(&query).bind(&w_id);
-        for var_path in &linked_var_paths {
-            q = q.bind(var_path);
-        }
-        q.fetch_all(&mut *tx).await?
-    };
 
     sqlx::query!(
         "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
@@ -1395,64 +1351,77 @@ async fn delete_resource(
     .execute(&mut *tx)
     .await?;
 
-    let deleted_path = sqlx::query_scalar!(
-        "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
-        path,
-        w_id
+    // The whole row comes back out of the delete, so the trashbin entry below is built from
+    // what RLS actually removed, and the cascade runs only once RLS has allowed the delete.
+    let deleted: Option<(String, serde_json::Value)> = sqlx::query_as(
+        "DELETE FROM resource AS t WHERE t.path = $1 AND t.workspace_id = $2
+         RETURNING t.path, to_jsonb(t)",
     )
+    .bind(path)
+    .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
-    not_found_if_none(deleted_path, "Resource", &path)?;
+    let (deleted_path, res_data) = not_found_if_none(deleted, "Resource", &path)?;
 
-    // Delete linked variables that are actually referenced in the resource value
-    let deleted_linked_variables: Vec<String> = if linked_var_paths.is_empty() {
-        Vec::new()
-    } else {
-        // Clean up any ws_specific rows for these variables first
-        // (mark_linked_variables_ws_specific may have auto-inserted them) so
-        // they don't survive the variable deletion as orphans — a variable
-        // later recreated at the same path would otherwise inherit the stale
-        // ws_specific flag.
-        sqlx::query!(
-            "DELETE FROM ws_specific
-             WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
-            w_id,
-            &linked_var_paths
-        )
-        .execute(&mut *tx)
-        .await?;
+    let linked_var_paths = cascade.resolve(std::slice::from_ref(&deleted_path));
 
-        let placeholders: Vec<String> = linked_var_paths
-            .iter()
-            .enumerate()
-            .map(|(i, _)| format!("${}", i + 2))
-            .collect();
-        let query = format!(
-            "DELETE FROM variable WHERE workspace_id = $1 AND path IN ({}) RETURNING path",
-            placeholders.join(", ")
-        );
-        let mut q = sqlx::query_scalar::<_, String>(&query).bind(&w_id);
-        for var_path in &linked_var_paths {
-            q = q.bind(var_path);
-        }
-        q.fetch_all(&mut *tx).await?
-    };
+    // A scoped token must not delete linked variables it lacks variables:write for. Erroring
+    // here rolls the resource delete back with it, so nothing is deleted either way.
+    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
 
-    if let Some(res_data) = trash_resource {
-        let mut trash_data = serde_json::json!({"row": res_data});
-        if !trash_linked_vars.is_empty() {
-            trash_data["linked_variables"] = serde_json::Value::Array(trash_linked_vars);
-        }
-        windmill_common::trashbin::move_to_trash(
-            &mut *tx,
-            &w_id,
-            "resource",
-            path,
-            trash_data,
-            &authed.username,
-        )
-        .await?;
+    // Capture linked variables for trashbin before deleting them
+    let trash_linked_vars: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "SELECT path, to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path = ANY($2)",
+    )
+    .bind(&w_id)
+    .bind(&linked_var_paths)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Clean up any ws_specific rows for these variables first
+    // (mark_linked_variables_ws_specific may have auto-inserted them) so
+    // they don't survive the variable deletion as orphans — a variable
+    // later recreated at the same path would otherwise inherit the stale
+    // ws_specific flag.
+    sqlx::query!(
+        "DELETE FROM ws_specific
+         WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+        w_id,
+        &linked_var_paths
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    let deleted_linked_variables = sqlx::query_scalar!(
+        "DELETE FROM variable WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
+        w_id,
+        &linked_var_paths
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Only the rows that actually went: the snapshot above is what the caller could read,
+    // which is not necessarily what RLS let it delete, and the trashbin must not hold a copy
+    // of a secret that is still live.
+    let trash_linked_vars: Vec<serde_json::Value> = trash_linked_vars
+        .into_iter()
+        .filter(|(var_path, _)| deleted_linked_variables.contains(var_path))
+        .map(|(_, row)| row)
+        .collect();
+
+    let mut trash_data = serde_json::json!({"row": res_data});
+    if !trash_linked_vars.is_empty() {
+        trash_data["linked_variables"] = serde_json::Value::Array(trash_linked_vars);
     }
+    windmill_common::trashbin::move_to_trash(
+        &mut *tx,
+        &w_id,
+        "resource",
+        path,
+        trash_data,
+        &authed.username,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -1464,6 +1433,24 @@ async fn delete_resource(
         None,
     )
     .await?;
+
+    // The cascade is the one way a variable dies without a variables/delete request of its
+    // own, so give each one the audit row it would have had, stamped with what took it.
+    for var_path in &deleted_linked_variables {
+        let mut params = HashMap::new();
+        params.insert("via_resource", path);
+        audit_log(
+            &mut *tx,
+            &authed,
+            "variables.delete",
+            ActionKind::Delete,
+            &w_id,
+            Some(var_path),
+            Some(params),
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     // Resource gone for everyone: wipe ALL users' drafts at this path (and any linked
@@ -1515,35 +1502,195 @@ async fn delete_resource(
         );
     }
 
-    Ok(format!("resource {} deleted", path))
+    // Name what else went: the cascade is silent from the caller's side otherwise, and a
+    // secret it took is not something to discover later from a failing job.
+    if deleted_linked_variables.is_empty() {
+        Ok(format!("resource {} deleted", path))
+    } else {
+        Ok(format!(
+            "resource {} deleted, along with its linked variables: {}",
+            path,
+            deleted_linked_variables.join(", ")
+        ))
+    }
 }
 
-/// Recursively collect all `$var:path` references from a JSON value.
-fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
+/// The forms that resolve a variable path against `variable`, so a value carrying any of them
+/// breaks when that variable goes. Only `$var:` is minted by the resource editor, which is why
+/// `collect_var_refs` stays narrower than this.
+const REFERRER_PREFIXES: [&str; 2] = ["$var:", "$jsonvar:"];
+
+/// Recursively collect the variable paths a JSON value references through any of `prefixes`.
+fn collect_refs_with_prefixes(value: &serde_json::Value, prefixes: &[&str], out: &mut Vec<String>) {
     match value {
         serde_json::Value::String(s) => {
-            if let Some(var_path) = s.strip_prefix("$var:") {
+            if let Some(var_path) = prefixes.iter().find_map(|p| s.strip_prefix(p)) {
                 out.push(var_path.to_string());
             }
         }
         serde_json::Value::Object(m) => {
             for v in m.values() {
-                collect_var_refs(v, out);
+                collect_refs_with_prefixes(v, prefixes, out);
             }
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
-                collect_var_refs(v, out);
+                collect_refs_with_prefixes(v, prefixes, out);
             }
         }
         _ => {}
     }
 }
 
-/// Deleting a resource cascades into the `$var:` variables its value references. A
-/// scoped token must not use that cascade to delete variables it could not delete
-/// directly via `delete_variable` (which gates on `variables:write:<path>`), so require
-/// `variables:write` for EVERY linked variable and fail the whole delete otherwise.
+/// Recursively collect all `$var:path` references from a JSON value.
+fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
+    collect_refs_with_prefixes(value, &["$var:"], out)
+}
+
+/// Whether the variable at `var_path` is the resource's own secret rather than one its value
+/// merely points at. Two shapes qualify: the variable at the resource's own path — the twin
+/// `delete_variable` and the rename in `update_resource` already act on — and
+/// `<resource path>_<field>`, which the connect form mints when a resource type has more than
+/// one secret field.
+///
+/// Everything else is a standalone workspace variable whose author never tied it to this
+/// resource. Cascading into one destroys a secret that every other referrer — resources, flows,
+/// scripts, apps — still needs, and leaves them failing to interpolate.
+///
+/// A rename only moves the same-path twin, so `<old path>_<field>` secrets stop matching and
+/// are left behind on a later delete. That is the direction to err in: an orphaned secret can
+/// be deleted by hand, a destroyed one cannot be recovered.
+fn is_owned_linked_var(resource_path: &str, var_path: &str) -> bool {
+    var_path == resource_path
+        || var_path
+            .strip_prefix(resource_path)
+            .is_some_and(|suffix| suffix.starts_with('_'))
+}
+
+/// Which of `var_paths` a resource outside `excluded_resource_paths` still references.
+///
+/// Runs off the non-RLS pool on purpose: a referrer in a folder the caller cannot read is
+/// precisely the one whose variable must survive, and the caller's own transaction would not
+/// see it. Nothing about those rows reaches the response — only whether a path the caller
+/// already named is spoken for.
+async fn linked_vars_referenced_elsewhere(
+    db: &DB,
+    w_id: &str,
+    var_paths: &[String],
+    excluded_resource_paths: &[String],
+) -> Result<HashSet<String>> {
+    if var_paths.is_empty() {
+        return Ok(HashSet::new());
+    }
+    // `strpos` over the rendered jsonb, quotes included so the match is a whole JSON string:
+    // paths are `proper_id` segments, so neither JSON escaping nor a LIKE wildcard (`_` is a
+    // legal path character) can reach this. MATERIALIZED so each value is rendered once for
+    // the whole scan rather than once per candidate path.
+    let referenced = sqlx::query_scalar!(
+        "WITH survivors AS MATERIALIZED (
+             SELECT value::text AS rendered FROM resource
+             WHERE workspace_id = $1 AND NOT (path = ANY($2::text[]))
+         )
+         SELECT v.path FROM unnest($3::text[]) AS v(path)
+         WHERE EXISTS (
+             SELECT 1 FROM survivors s
+             WHERE strpos(s.rendered, '\"$var:' || v.path || '\"') > 0
+                OR strpos(s.rendered, '\"$jsonvar:' || v.path || '\"') > 0
+         )",
+        w_id,
+        excluded_resource_paths,
+        var_paths,
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(referenced.into_iter().flatten().collect())
+}
+
+/// A resource delete's candidate cascade, settled before the caller's transaction opens.
+///
+/// Two constraints force the split. The referrer scan has to see resources the caller cannot
+/// read, so it runs on the non-RLS pool — and it cannot run once the delete transaction is
+/// open, because taking a second connection out of the same pool from under it hangs on a
+/// small `DATABASE_CONNECTIONS`. Which of the requested resources RLS actually deletes is
+/// only known inside that transaction, so `resolve` finishes there, touching no database.
+struct LinkedVarCascade {
+    /// The `$var:` paths the requested resources own, as of the read below.
+    candidates: Vec<String>,
+    /// Requested resource paths, each with every variable path its value references.
+    requested: Vec<(String, Vec<String>)>,
+    /// Candidates a resource outside the requested set still references.
+    referenced_outside: HashSet<String>,
+}
+
+impl LinkedVarCascade {
+    /// The variables to delete, now that RLS has settled which resources went.
+    ///
+    /// A requested resource left standing is neither a cascade source nor absent from the
+    /// workspace: it still needs its `$var:`, and it is the one referrer the scan could not
+    /// account for, since that had to exclude every requested path.
+    fn resolve(&self, deleted_paths: &[String]) -> Vec<String> {
+        let referenced_by_survivors: HashSet<&str> = self
+            .requested
+            .iter()
+            .filter(|(path, _)| !deleted_paths.contains(path))
+            .flat_map(|(_, refs)| refs.iter().map(String::as_str))
+            .collect();
+
+        self.candidates
+            .iter()
+            .filter(|var_path| {
+                deleted_paths
+                    .iter()
+                    .any(|path| is_owned_linked_var(path, var_path))
+                    && !self.referenced_outside.contains(var_path.as_str())
+                    && !referenced_by_survivors.contains(var_path.as_str())
+            })
+            .cloned()
+            .collect()
+    }
+}
+
+/// Gather what `LinkedVarCascade::resolve` needs for a delete of `paths`.
+async fn plan_linked_var_cascade(
+    db: &DB,
+    w_id: &str,
+    paths: &[String],
+) -> Result<LinkedVarCascade> {
+    let rows: Vec<(String, Option<serde_json::Value>)> = sqlx::query_as(
+        "SELECT path, value FROM resource WHERE workspace_id = $1 AND path = ANY($2)",
+    )
+    .bind(w_id)
+    .bind(paths)
+    .fetch_all(db)
+    .await?;
+
+    let mut candidates: Vec<String> = Vec::new();
+    let mut requested: Vec<(String, Vec<String>)> = Vec::new();
+    for (path, value) in rows {
+        let mut owned: Vec<String> = Vec::new();
+        let mut refs: Vec<String> = Vec::new();
+        if let Some(value) = &value {
+            collect_var_refs(value, &mut owned);
+            collect_refs_with_prefixes(value, &REFERRER_PREFIXES, &mut refs);
+        }
+        candidates.extend(
+            owned
+                .into_iter()
+                .filter(|var_path| is_owned_linked_var(&path, var_path)),
+        );
+        requested.push((path, refs));
+    }
+    candidates.sort();
+    candidates.dedup();
+
+    let referenced_outside = linked_vars_referenced_elsewhere(db, w_id, &candidates, paths).await?;
+    Ok(LinkedVarCascade { candidates, requested, referenced_outside })
+}
+
+/// Deleting a resource cascades into the `$var:` variables it owns. A scoped token must not
+/// use that cascade to delete variables it could not delete directly via `delete_variable`
+/// (which gates on `variables:write:<path>`), so require `variables:write` for EVERY cascaded
+/// variable and fail the whole delete otherwise.
 ///
 /// No co-located-path exemption: a resource and a variable may share a path, and a
 /// resource-write token can create a resource over an existing standalone variable and
@@ -1646,73 +1793,9 @@ async fn delete_resources_bulk(
         return Err(Error::PermissionDenied(msg));
     }
 
+    let cascade = plan_linked_var_cascade(&db, &w_id, &request.paths).await?;
+
     let mut tx = user_db.begin(&authed).await?;
-
-    // Capture resources for trashbin per path before bulk delete, and
-    // collect $var: references so we can cascade-delete the linked variables
-    // (matching single-resource delete semantics).
-    let mut linked_var_paths: Vec<String> = Vec::new();
-    for path in &request.paths {
-        let trash_resource: Option<serde_json::Value> = sqlx::query_scalar(
-            "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
-        )
-        .bind(path)
-        .bind(&w_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        if let Some(res_data) = trash_resource {
-            // Per-resource linked vars so each resource's trash entry carries
-            // exactly the variables that vanished with it (matching the
-            // single-delete shape: trash_data["linked_variables"]).
-            let mut this_linked: Vec<String> = Vec::new();
-            if let Some(value) = res_data.get("value") {
-                collect_var_refs(value, &mut this_linked);
-            }
-            this_linked.sort();
-            this_linked.dedup();
-
-            let trash_linked_vars: Vec<serde_json::Value> = if this_linked.is_empty() {
-                Vec::new()
-            } else {
-                let placeholders: Vec<String> = this_linked
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _)| format!("${}", i + 2))
-                    .collect();
-                let query = format!(
-                    "SELECT to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path IN ({})",
-                    placeholders.join(", ")
-                );
-                let mut q = sqlx::query_scalar::<_, serde_json::Value>(&query).bind(&w_id);
-                for var_path in &this_linked {
-                    q = q.bind(var_path);
-                }
-                q.fetch_all(&mut *tx).await?
-            };
-
-            let mut trash_data = serde_json::json!({"row": res_data});
-            if !trash_linked_vars.is_empty() {
-                trash_data["linked_variables"] = serde_json::Value::Array(trash_linked_vars);
-            }
-            windmill_common::trashbin::move_to_trash(
-                &mut *tx,
-                &w_id,
-                "resource",
-                path,
-                trash_data,
-                &authed.username,
-            )
-            .await?;
-
-            linked_var_paths.extend(this_linked);
-        }
-    }
-    linked_var_paths.sort();
-    linked_var_paths.dedup();
-
-    // A scoped token must not delete linked variables it lacks variables:write for.
-    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
 
     sqlx::query!(
         "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = ANY($2)",
@@ -1722,11 +1805,30 @@ async fn delete_resources_bulk(
     .execute(&mut *tx)
     .await?;
 
-    let deleted_paths = sqlx::query_scalar!(
-        "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2 RETURNING path",
-        &request.paths,
-        w_id
+    // Whole rows out of the delete; see delete_resource. RLS can leave a requested resource
+    // standing, so everything below is driven by this list rather than by `request.paths`.
+    let deleted: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "DELETE FROM resource AS t WHERE t.path = ANY($1) AND t.workspace_id = $2
+         RETURNING t.path, to_jsonb(t)",
     )
+    .bind(&request.paths)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let deleted_paths: Vec<String> = deleted.iter().map(|(path, _)| path.clone()).collect();
+
+    let linked_var_paths = cascade.resolve(&deleted_paths);
+
+    // A scoped token must not delete linked variables it lacks variables:write for. Erroring
+    // here rolls the resource deletes back with it.
+    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
+
+    // Snapshot before the delete below: the trashbin entries need the rows.
+    let trash_linked_vars: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "SELECT path, to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path = ANY($2)",
+    )
+    .bind(&w_id)
+    .bind(&linked_var_paths)
     .fetch_all(&mut *tx)
     .await?;
 
@@ -1735,22 +1837,51 @@ async fn delete_resources_bulk(
     // resource was ws_specific) BEFORE deleting the variable rows themselves
     // — otherwise those ws_specific rows survive as orphans and a later
     // variable created at the same path would inherit a stale flag.
-    if !linked_var_paths.is_empty() {
-        sqlx::query!(
-            "DELETE FROM ws_specific
-             WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
-            w_id,
-            &linked_var_paths
-        )
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!(
+        "DELETE FROM ws_specific
+         WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+        w_id,
+        &linked_var_paths
+    )
+    .execute(&mut *tx)
+    .await?;
 
-        sqlx::query!(
-            "DELETE FROM variable WHERE workspace_id = $1 AND path = ANY($2)",
-            w_id,
-            &linked_var_paths
+    let deleted_linked_variables = sqlx::query_scalar!(
+        "DELETE FROM variable WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
+        w_id,
+        &linked_var_paths
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for (path, res_data) in &deleted {
+        // Every cascaded variable this resource's value points at, ownership aside: restoring
+        // it on its own must bring back each secret it needs, and the one it borrowed from a
+        // sibling in the same batch is gone too.
+        let mut refs: Vec<String> = Vec::new();
+        if let Some(value) = res_data.get("value") {
+            collect_var_refs(value, &mut refs);
+        }
+        let this_linked: Vec<serde_json::Value> = trash_linked_vars
+            .iter()
+            .filter(|(var_path, _)| {
+                refs.contains(var_path) && deleted_linked_variables.contains(var_path)
+            })
+            .map(|(_, row)| row.clone())
+            .collect();
+
+        let mut trash_data = serde_json::json!({"row": res_data});
+        if !this_linked.is_empty() {
+            trash_data["linked_variables"] = serde_json::Value::Array(this_linked);
+        }
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "resource",
+            path,
+            trash_data,
+            &authed.username,
         )
-        .execute(&mut *tx)
         .await?;
     }
 
@@ -1765,13 +1896,35 @@ async fn delete_resources_bulk(
     )
     .await?;
 
+    // See delete_resource: a cascaded variable gets the audit row it would have had. Longest
+    // matching path wins — `f/db` and `f/db_replica` both own-match `f/db_replica_pwd`, and
+    // the deeper one is the resource that minted it.
+    for var_path in &deleted_linked_variables {
+        let params = deleted
+            .iter()
+            .map(|(resource_path, _)| resource_path)
+            .filter(|resource_path| is_owned_linked_var(resource_path, var_path))
+            .max_by_key(|resource_path| resource_path.len())
+            .map(|resource_path| HashMap::from([("via_resource", resource_path.as_str())]));
+        audit_log(
+            &mut *tx,
+            &authed,
+            "variables.delete",
+            ActionKind::Delete,
+            &w_id,
+            Some(var_path),
+            params,
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     // Wipe ALL users' drafts at these paths (and linked variables); see delete_resource.
     for path in &deleted_paths {
         delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
     }
-    for var_path in &linked_var_paths {
+    for var_path in &deleted_linked_variables {
         delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, var_path).await?;
     }
 
