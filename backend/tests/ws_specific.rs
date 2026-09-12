@@ -572,6 +572,7 @@ async fn test_bulk_delete_follows_what_rls_deleted(db: Pool<Postgres>) -> anyhow
         .json(&json!({ "path": path, "value": "hunter2", "is_secret": true, "description": "" }))
         .send()
     };
+    // ws_specific so the flag assertion at the end has something to check.
     let create_res = |path: &'static str, var: &'static str| {
         authed(
             client().post(format!("{base}/resources/create")),
@@ -580,7 +581,8 @@ async fn test_bulk_delete_follows_what_rls_deleted(db: Pool<Postgres>) -> anyhow
         .json(&json!({
             "path": path,
             "value": { "password": format!("$var:{var}") },
-            "resource_type": "object"
+            "resource_type": "object",
+            "ws_specific": true
         }))
         .send()
     };
@@ -634,6 +636,13 @@ async fn test_bulk_delete_follows_what_rls_deleted(db: Pool<Postgres>) -> anyhow
     assert!(
         variable_exists(&db, "test-workspace", "u/test-user-2/own_pwd").await?,
         "a requested resource RLS left standing still counts as a referrer"
+    );
+    // ws_specific has no RLS policy of its own, so clearing it by requested path rather than
+    // by deleted path would quietly turn a surviving resource workspace-generic.
+    assert_eq!(
+        ws_specific_row_count(&db, "test-workspace", "resource", "u/test-user/hidden").await?,
+        1,
+        "a resource RLS refused to delete must keep its ws_specific flag"
     );
 
     Ok(())

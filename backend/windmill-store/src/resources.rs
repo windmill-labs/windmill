@@ -1343,14 +1343,6 @@ async fn delete_resource(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query!(
-        "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
-        w_id,
-        path
-    )
-    .execute(&mut *tx)
-    .await?;
-
     // The whole row comes back out of the delete, so the trashbin entry below is built from
     // what RLS actually removed, and the cascade runs only once RLS has allowed the delete.
     let deleted: Option<(String, serde_json::Value)> = sqlx::query_as(
@@ -1362,6 +1354,14 @@ async fn delete_resource(
     .fetch_optional(&mut *tx)
     .await?;
     let (deleted_path, res_data) = not_found_if_none(deleted, "Resource", &path)?;
+
+    sqlx::query!(
+        "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
+        w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
 
     let linked_var_paths = cascade.resolve(std::slice::from_ref(&deleted_path));
 
@@ -1378,26 +1378,24 @@ async fn delete_resource(
     .fetch_all(&mut *tx)
     .await?;
 
-    // Clean up any ws_specific rows for these variables first
-    // (mark_linked_variables_ws_specific may have auto-inserted them) so
-    // they don't survive the variable deletion as orphans — a variable
-    // later recreated at the same path would otherwise inherit the stale
-    // ws_specific flag.
-    sqlx::query!(
-        "DELETE FROM ws_specific
-         WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
-        w_id,
-        &linked_var_paths
-    )
-    .execute(&mut *tx)
-    .await?;
-
     let deleted_linked_variables = sqlx::query_scalar!(
         "DELETE FROM variable WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
         w_id,
         &linked_var_paths
     )
     .fetch_all(&mut *tx)
+    .await?;
+
+    // ws_specific has no FK to variable, so a row mark_linked_variables_ws_specific inserted
+    // would survive as an orphan and a variable later recreated at that path would inherit
+    // the stale flag.
+    sqlx::query!(
+        "DELETE FROM ws_specific
+         WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+        w_id,
+        &deleted_linked_variables
+    )
+    .execute(&mut *tx)
     .await?;
 
     // Only the rows that actually went: the snapshot above is what the caller could read,
@@ -1548,18 +1546,13 @@ fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
 }
 
 /// Whether the variable at `var_path` is the resource's own secret rather than one its value
-/// merely points at. Two shapes qualify: the variable at the resource's own path — the twin
-/// `delete_variable` and the rename in `update_resource` already act on — and
-/// `<resource path>_<field>`, which the connect form mints when a resource type has more than
-/// one secret field.
+/// merely points at: the same-path twin `delete_variable` and the `update_resource` rename
+/// already act on, or `<resource path>_<field>`, which the connect form mints for a resource
+/// type with several secret fields. Anything else is a standalone workspace variable, and
+/// deleting one destroys a secret its other referrers still need.
 ///
-/// Everything else is a standalone workspace variable whose author never tied it to this
-/// resource. Cascading into one destroys a secret that every other referrer — resources, flows,
-/// scripts, apps — still needs, and leaves them failing to interpolate.
-///
-/// A rename only moves the same-path twin, so `<old path>_<field>` secrets stop matching and
-/// are left behind on a later delete. That is the direction to err in: an orphaned secret can
-/// be deleted by hand, a destroyed one cannot be recovered.
+/// A rename moves only the twin, so `<old path>_<field>` secrets stop matching and are left
+/// behind instead. An orphaned secret can be deleted by hand; a destroyed one cannot.
 fn is_owned_linked_var(resource_path: &str, var_path: &str) -> bool {
     var_path == resource_path
         || var_path
@@ -1569,10 +1562,8 @@ fn is_owned_linked_var(resource_path: &str, var_path: &str) -> bool {
 
 /// Which of `var_paths` a resource outside `excluded_resource_paths` still references.
 ///
-/// Runs off the non-RLS pool on purpose: a referrer in a folder the caller cannot read is
-/// precisely the one whose variable must survive, and the caller's own transaction would not
-/// see it. Nothing about those rows reaches the response — only whether a path the caller
-/// already named is spoken for.
+/// Must run off the non-RLS pool: a referrer in a folder the caller cannot read is precisely
+/// the one whose variable has to survive. Nothing from those rows reaches the response.
 async fn linked_vars_referenced_elsewhere(
     db: &DB,
     w_id: &str,
@@ -1582,12 +1573,11 @@ async fn linked_vars_referenced_elsewhere(
     if var_paths.is_empty() {
         return Ok(HashSet::new());
     }
-    // `strpos` over the rendered jsonb, quotes included so the match is a whole JSON string:
-    // paths are `proper_id` segments, so neither JSON escaping nor a LIKE wildcard (`_` is a
-    // legal path character) can reach this. MATERIALIZED so each value is rendered once for
-    // the whole scan rather than once per candidate path.
+    // The quotes around the pattern are what make it a whole-JSON-string match rather than a
+    // prefix one, so `f/db` does not match `"$var:f/db_replica"`. Paths are `proper_id`
+    // segments, so no JSON escaping or LIKE wildcard can reach this.
     let referenced = sqlx::query_scalar!(
-        "WITH survivors AS MATERIALIZED (
+        "WITH survivors AS (
              SELECT value::text AS rendered FROM resource
              WHERE workspace_id = $1 AND NOT (path = ANY($2::text[]))
          )
@@ -1606,13 +1596,12 @@ async fn linked_vars_referenced_elsewhere(
     Ok(referenced.into_iter().flatten().collect())
 }
 
-/// A resource delete's candidate cascade, settled before the caller's transaction opens.
+/// A resource delete's candidate cascade, gathered before the caller's transaction opens.
 ///
-/// Two constraints force the split. The referrer scan has to see resources the caller cannot
-/// read, so it runs on the non-RLS pool — and it cannot run once the delete transaction is
-/// open, because taking a second connection out of the same pool from under it hangs on a
-/// small `DATABASE_CONNECTIONS`. Which of the requested resources RLS actually deletes is
-/// only known inside that transaction, so `resolve` finishes there, touching no database.
+/// It has to be gathered there: the referrer scan needs the non-RLS pool, and querying that
+/// pool from under an open `user_db` transaction takes a second connection out of the same
+/// pool, which hangs until the acquire timeout on a small `DATABASE_CONNECTIONS`. `resolve`
+/// therefore finishes the decision inside the transaction without touching the database.
 struct LinkedVarCascade {
     /// The `$var:` paths the requested resources own, as of the read below.
     candidates: Vec<String>,
@@ -1625,9 +1614,8 @@ struct LinkedVarCascade {
 impl LinkedVarCascade {
     /// The variables to delete, now that RLS has settled which resources went.
     ///
-    /// A requested resource left standing is neither a cascade source nor absent from the
-    /// workspace: it still needs its `$var:`, and it is the one referrer the scan could not
-    /// account for, since that had to exclude every requested path.
+    /// A requested resource left standing is the one referrer the scan could not account for,
+    /// having had to exclude every requested path before RLS had ruled.
     fn resolve(&self, deleted_paths: &[String]) -> Vec<String> {
         let referenced_by_survivors: HashSet<&str> = self
             .requested
@@ -1797,14 +1785,6 @@ async fn delete_resources_bulk(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query!(
-        "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = ANY($2)",
-        w_id,
-        &request.paths
-    )
-    .execute(&mut *tx)
-    .await?;
-
     // Whole rows out of the delete; see delete_resource. RLS can leave a requested resource
     // standing, so everything below is driven by this list rather than by `request.paths`.
     let deleted: Vec<(String, serde_json::Value)> = sqlx::query_as(
@@ -1816,6 +1796,14 @@ async fn delete_resources_bulk(
     .fetch_all(&mut *tx)
     .await?;
     let deleted_paths: Vec<String> = deleted.iter().map(|(path, _)| path.clone()).collect();
+
+    sqlx::query!(
+        "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = ANY($2)",
+        w_id,
+        &deleted_paths
+    )
+    .execute(&mut *tx)
+    .await?;
 
     let linked_var_paths = cascade.resolve(&deleted_paths);
 
@@ -1832,26 +1820,22 @@ async fn delete_resources_bulk(
     .fetch_all(&mut *tx)
     .await?;
 
-    // Cascade-clean linked variables: delete any ws_specific 'variable' rows
-    // (typically auto-inserted by mark_linked_variables_ws_specific when the
-    // resource was ws_specific) BEFORE deleting the variable rows themselves
-    // — otherwise those ws_specific rows survive as orphans and a later
-    // variable created at the same path would inherit a stale flag.
-    sqlx::query!(
-        "DELETE FROM ws_specific
-         WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
-        w_id,
-        &linked_var_paths
-    )
-    .execute(&mut *tx)
-    .await?;
-
     let deleted_linked_variables = sqlx::query_scalar!(
         "DELETE FROM variable WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
         w_id,
         &linked_var_paths
     )
     .fetch_all(&mut *tx)
+    .await?;
+
+    // See delete_resource: ws_specific has no FK, so the rows would orphan.
+    sqlx::query!(
+        "DELETE FROM ws_specific
+         WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+        w_id,
+        &deleted_linked_variables
+    )
+    .execute(&mut *tx)
     .await?;
 
     for (path, res_data) in &deleted {
