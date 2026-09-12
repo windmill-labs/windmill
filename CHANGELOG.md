@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.811.0](https://github.com/windmill-labs/windmill/compare/v1.810.0...v1.811.0) (2026-09-12)
+
+
+### Features
+
+* make snowflake_oauth work as a dbt warehouse on every engine ([#11095](https://github.com/windmill-labs/windmill/issues/11095)) ([9fc50a2](https://github.com/windmill-labs/windmill/commit/9fc50a23fb75cb541c481247b7b25c206fb06d36))
+
+
+### Bug Fixes
+
+* accept any hub version of the git sync script in the token check ([#11099](https://github.com/windmill-labs/windmill/issues/11099)) ([670628b](https://github.com/windmill-labs/windmill/commit/670628b300ab119363adb5496ebfe3c6ccd80063))
+* bring back Publish to Hub for scripts ([#11097](https://github.com/windmill-labs/windmill/issues/11097)) ([864e5f0](https://github.com/windmill-labs/windmill/commit/864e5f02ec1c2dd16c74524f551f44485df10a20))
+* bundle deployed bun scripts whose only pin is on a dynamic import ([#11096](https://github.com/windmill-labs/windmill/issues/11096)) ([4afb9aa](https://github.com/windmill-labs/windmill/commit/4afb9aa677ac11d22e22e54bb6fd7881378b7005))
+* clear a stale git auto-pull failure and show the status time ([#11100](https://github.com/windmill-labs/windmill/issues/11100)) ([e877b5f](https://github.com/windmill-labs/windmill/commit/e877b5f2e81b1741aee90e843c8cccc22f9eef24))
+* stop a resource delete from taking variables it does not own ([#11102](https://github.com/windmill-labs/windmill/issues/11102)) ([2a21efa](https://github.com/windmill-labs/windmill/commit/2a21efa11b8307b331a8c20720028444dd3c62ff))
+
 ## [1.810.0](https://github.com/windmill-labs/windmill/compare/v1.809.0...v1.810.0) (2026-09-11)
 
 
