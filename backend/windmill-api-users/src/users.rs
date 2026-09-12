@@ -2062,19 +2062,6 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
-    // Apps store an address next to their principal, and the synthetic
-    // `group-{name}@windmill.dev` may be a real user's, so a group-owned app has to keep its
-    // address when a colliding user moves: an app running in Anonymous or Publisher mode takes
-    // its permissions from that pair rather than from the caller, and a half-rewritten pair
-    // names two accounts. Drafts below carry the same pair and need the same guard.
-    sqlx::query!(
-        "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of_email'], to_jsonb($1::text)) WHERE policy->>'on_behalf_of_email' = $2 AND (policy->>'on_behalf_of' IS NULL OR policy->>'on_behalf_of' NOT LIKE 'g/%')",
-        &new_email,
-        &old_email
-    )
-    .execute(&mut *tx)
-    .await?;
-
     // ---- permissioned_as naming the account by its address ----
     // `usr.username` is constrained to `[\w-]+`, so a workspace member is always named
     // `u/{username}` and their principals survive an address change untouched. The address form
@@ -2103,8 +2090,9 @@ async fn change_user_email(
 
     // The address these two keep beside the principal is what a worker predating
     // MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL reads, so it follows the account for as long
-    // as one may be live. Group-owned rows are held back for the reason given above the app
-    // sweep: their address is the group's, which a colliding user does not take with them.
+    // as one may be live. Group-owned rows are held back: the synthetic
+    // `group-{name}@windmill.dev` may be a real user's, and their address is the group's, which
+    // a colliding user does not take with them — a half-rewritten pair names two accounts.
     sqlx::query!(
         "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND (on_behalf_of IS NULL OR on_behalf_of NOT LIKE 'g/%')",
         &new_email,
@@ -2132,7 +2120,7 @@ async fn change_user_email(
     // Script/flow rows store only the principal, but drafts carry an address beside it and
     // `deployDraft` sends both — left stale it contradicts the principal, which resolves to the
     // new address, and the deploy is rejected. Group-owned drafts are held back for the reason
-    // given above the app sweep.
+    // given above the script sweep.
     sqlx::query!(
         r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2 AND (value->>'on_behalf_of' IS NULL OR value->>'on_behalf_of' NOT LIKE 'g/%')"#,
         &new_email,
@@ -2154,19 +2142,6 @@ async fn change_user_email(
         r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb($1::text))) WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of' = $2"#,
         &new_principal,
         &old_principal
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    // A raw-app draft persists the address the client read back too. The deploy sends it beside
-    // the principal, where an address naming somebody else is rejected — and unlike a live read
-    // it never refreshes on its own. Same group guard as the deployed policy above, plus the
-    // `IS NULL` arm: without it the predicate is `NULL` for a draft with no principal, which is
-    // neither true nor false, so those rows would be skipped.
-    sqlx::query!(
-        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of_email'], to_jsonb($1::text))) WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of_email' = $2 AND (value->'policy'->>'on_behalf_of' IS NULL OR value->'policy'->>'on_behalf_of' NOT LIKE 'g/%')"#,
-        &new_email,
-        &old_email
     )
     .execute(&mut *tx)
     .await?;

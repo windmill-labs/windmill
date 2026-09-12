@@ -622,7 +622,7 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await?;
     sqlx::query!(
         "INSERT INTO app(workspace_id, path, summary, policy, versions)
-         VALUES ('test-workspace', 'u/test-user-2/app', '', '{\"on_behalf_of\": \"test2@windmill.dev\", \"on_behalf_of_email\": \"test2@windmill.dev\"}'::jsonb, '{}')"
+         VALUES ('test-workspace', 'u/test-user-2/app', '', '{\"on_behalf_of\": \"test2@windmill.dev\"}'::jsonb, '{}')"
     )
     .execute(&db)
     .await?;
@@ -828,14 +828,6 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
     // pair a group-owned identity keeps the group's synthetic address even though a real account
     // now holds it: rewriting one half leaves the pair naming two accounts.
     sqlx::query!(
-        "INSERT INTO app(workspace_id, path, summary, policy, versions)
-         VALUES ('test-workspace', 'u/test-user/g', '', '{\"on_behalf_of\": \"g/ops\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::jsonb, '{}'),
-                ('test-workspace', 'u/test-user/u', '', '{\"on_behalf_of\": \"u/test-user-2\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::jsonb, '{}')"
-    )
-    .execute(&db)
-    .await?;
-
-    sqlx::query!(
         "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, on_behalf_of, on_behalf_of_email)
          VALUES ('test-workspace', 'u/test-user/sg', 95001, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'g/ops', 'group-ops@windmill.dev'),
                 ('test-workspace', 'u/test-user/su', 95002, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/test-user-2', 'group-ops@windmill.dev')"
@@ -856,22 +848,6 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
         .send()
         .await?;
     assert_eq!(resp.status(), 200, "change_email: {}", resp.text().await?);
-
-    let apps = sqlx::query!(
-        "SELECT path, policy->>'on_behalf_of_email' AS email FROM app WHERE workspace_id = 'test-workspace' ORDER BY path"
-    )
-    .fetch_all(&db)
-    .await?;
-    assert_eq!(
-        apps.iter()
-            .map(|r| (r.path.as_str(), r.email.as_deref()))
-            .collect::<Vec<_>>(),
-        vec![
-            ("u/test-user/g", Some("group-ops@windmill.dev")),
-            ("u/test-user/u", Some("renamed@windmill.dev")),
-        ],
-        "the group-owned app keeps the group's address; the user-owned one moves"
-    );
 
     let scripts = sqlx::query!(
         "SELECT path, on_behalf_of_email AS email FROM script WHERE workspace_id = 'test-workspace' AND path LIKE 'u/test-user/s%' ORDER BY path"

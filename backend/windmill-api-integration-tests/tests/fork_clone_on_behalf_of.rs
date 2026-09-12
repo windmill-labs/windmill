@@ -20,7 +20,6 @@ async fn fork_with_public_app(
          RETURNING id",
         json!({
             "on_behalf_of": "u/test-user",
-            "on_behalf_of_email": "test@windmill.dev",
             "execution_mode": "anonymous",
         })
     )
@@ -71,7 +70,6 @@ async fn test_fork_repoints_app_identity_for_unprivileged_creator(
     let (policy, custom_path) = fork_with_public_app(&db, "SECRET_TOKEN_2").await?;
 
     assert_eq!(policy["on_behalf_of"], json!("u/test-user-2"));
-    assert_eq!(policy["on_behalf_of_email"], json!("test2@windmill.dev"));
     // `execution_mode` rides along untouched — see `clone_apps`.
     assert_eq!(policy["execution_mode"], json!("anonymous"));
     assert_eq!(custom_path, None);
@@ -88,7 +86,6 @@ async fn test_fork_keeps_app_policy_for_admin_creator(db: Pool<Postgres>) -> any
     let (policy, custom_path) = fork_with_public_app(&db, "SECRET_TOKEN").await?;
 
     assert_eq!(policy["on_behalf_of"], json!("u/test-user"));
-    assert_eq!(policy["on_behalf_of_email"], json!("test@windmill.dev"));
     assert_eq!(policy["execution_mode"], json!("anonymous"));
     assert_eq!(custom_path, None);
 
@@ -113,7 +110,7 @@ async fn test_compare_ignores_app_identity(db: Pool<Postgres>) -> anyhow::Result
              VALUES ('test-workspace', $1, 'original', $2, '{}')
              RETURNING id",
             path,
-            json!({ "on_behalf_of": "u/test-user", "on_behalf_of_email": "test@windmill.dev" })
+            json!({ "on_behalf_of": "u/test-user" })
         )
         .fetch_one(&db)
         .await?;
@@ -147,7 +144,7 @@ async fn test_compare_ignores_app_identity(db: Pool<Postgres>) -> anyhow::Result
     sqlx::query!(
         "UPDATE app SET policy = policy || $1::jsonb
          WHERE workspace_id = 'wm-fork-cmp' AND path = 'u/test-user/identity_only'",
-        json!({ "on_behalf_of": "u/someone-else", "on_behalf_of_email": "else@windmill.dev" })
+        json!({ "on_behalf_of": "u/someone-else" })
     )
     .execute(&db)
     .await?;

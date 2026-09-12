@@ -957,26 +957,22 @@ async fn offboard_user_from_workspace<'c>(
     .unwrap_or(0);
 
     sqlx::query!(
-        "UPDATE app SET policy = jsonb_set(
-            jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text)),
-            ARRAY['on_behalf_of_email'], to_jsonb($4::text)
-        ) WHERE policy->>'on_behalf_of' = $2 AND workspace_id = $3",
+        "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text))
+         WHERE policy->>'on_behalf_of' = $2 AND workspace_id = $3",
         &new_permissioned_as,
         departing.as_deref(),
-        w_id,
-        new_on_behalf_of_user_email
+        w_id
     )
     .execute(&mut **tx)
     .await?;
 
     // An app draft carries a copy of the deployed policy and is deployed from it, so it needs
-    // the same pair rewritten — the draft sweep above only covers scripts and flows.
+    // the same principal rewritten — the draft sweep above only covers scripts and flows.
     sqlx::query!(
-        r#"UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb($1::text)), ARRAY['policy', 'on_behalf_of_email'], to_jsonb($4::text))) WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of' = $2 AND workspace_id = $3"#,
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb($1::text))) WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of' = $2 AND workspace_id = $3"#,
         new_permissioned_as,
         departing.as_deref(),
-        w_id,
-        new_on_behalf_of_user_email
+        w_id
     )
     .execute(&mut **tx)
     .await?;

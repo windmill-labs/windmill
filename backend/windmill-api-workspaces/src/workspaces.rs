@@ -6995,10 +6995,6 @@ fn repoint_cloned_app_identity(policy: &mut serde_json::Value, authed: &ApiAuthe
         "on_behalf_of".to_string(),
         serde_json::Value::String(username_to_permissioned_as(&authed.username)),
     );
-    obj.insert(
-        "on_behalf_of_email".to_string(),
-        serde_json::Value::String(authed.email.clone()),
-    );
 }
 
 async fn clone_apps(
