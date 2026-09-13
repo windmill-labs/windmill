@@ -285,13 +285,11 @@ pub fn check_on_behalf_of_preservation(
 /// Resolves the identity to store when creating/updating a flow, script or app.
 ///
 /// The permissioned_as is the identity: it decides what the job may access, and the address is
-/// a function of it, so the two can never name different accounts. For a script or flow the
-/// address is derived at read time; an app still stores it, as a compatibility copy written
-/// through from the principal on every save and returned verbatim by the app reads (see
-/// `docs/app-policy-email-removal.md`). Callers may supply either: a bare email (every client
-/// written before the principal existed) is resolved to the principal it names, and an email
-/// that names nobody is rejected rather than recorded, since it could only produce a runnable
-/// that cannot authenticate.
+/// a function of it, derived at read time rather than stored, so the two can never name
+/// different accounts. Callers may still supply either for a script or flow: a bare email
+/// (every client written before the principal existed) is resolved to the principal it names,
+/// and an email that names nobody is rejected rather than recorded, since it could only produce
+/// a runnable that cannot authenticate. An app policy has no address to supply.
 ///
 /// Returns `None` when the runnable has no on-behalf-of identity, and the caller's own
 /// identity when they are not allowed to preserve someone else's.
@@ -303,9 +301,8 @@ pub fn check_on_behalf_of_preservation(
 /// Known, accepted race. The lookup runs on the pool, outside the caller's write transaction, so
 /// an account renamed or removed between the two has its sweep run before the write is visible,
 /// and the write stores the old principal. The runnable then fails to authenticate until it is
-/// deployed with a current identity, with two exceptions: an app naming an external superadmin
-/// keeps running as that account through its stored address, and if the freed username is later
-/// given to another account, the stale principal binds to that account and runs as it. Every
+/// deployed with a current identity, with one exception: if the freed username is later given to
+/// another account, the stale principal binds to that account and runs as it. Every
 /// caller shares this (scripts, flows and apps, address-only inputs included), and it needs a
 /// rename or removal of the exact account inside the lookup-to-commit gap. Closing it means
 /// serializing every identity write against every identity mutation, across all runnable kinds

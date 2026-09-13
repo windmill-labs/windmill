@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE app SET policy = policy - 'on_behalf_of_email' WHERE policy->>'on_behalf_of_email' = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d1d8b0f8a1e88a04056c245a6f28971a3f9fe209f8092f400c660814f6ee61bd"
+}

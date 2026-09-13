@@ -211,7 +211,6 @@
 				on_behalf_of: $userStore?.username.includes('@')
 					? $userStore?.username
 					: `u/${$userStore?.username}`,
-				on_behalf_of_email: $userStore?.email,
 				execution_mode: 'publisher'
 			} as any
 			// Explicit path seed: the fork-a-draft handoff re-homes the source

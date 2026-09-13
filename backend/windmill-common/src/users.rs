@@ -202,11 +202,12 @@ pub fn invalidate_email_cache_for_username(username: &str) {
 ///
 /// Known, accepted consequence of a real account winning the synthetic `group-*@windmill.dev`
 /// namespace: a group identity sent as its address alone, as a "keep target identity" workspace
-/// deploy sends it for scripts, flows and apps, comes back as the account holding that address
-/// when one exists, not as `g/*`. Such an account takes an admin to exist: a superadmin or an
+/// deploy sends it for scripts and flows, comes back as the account holding that address when one
+/// exists, not as `g/*`. Such an account takes an admin to exist: a superadmin or an
 /// admin-configured identity provider to create it (the public OAuth providers only assert a
 /// `@windmill.dev` address to that domain's owner) and an admin of the target workspace to admit
-/// it, so no member can steer a group's runnables to themselves this way.
+/// it, so no member can steer a group's runnables to themselves this way. An app is not exposed
+/// to it: its policy stores only the principal, so a deploy carries `g/*` itself.
 ///
 /// Reads through the non-RLS pool and authorizes nothing: callers must already be authorized
 /// for `workspace_id`.
@@ -263,11 +264,12 @@ pub async fn permissioned_as_from_email(
 /// ever missed.
 ///
 /// Which of the two to use is a question of how long a wrong answer lives, not of whether it is
-/// stored — both of these get stored and read back. A config row (an app policy, a schedule, a
-/// runnable) is the authority for every run that follows it, so a stale address there is
+/// stored — both of these get stored and read back. A config row that persists an address (a
+/// schedule, a runnable) is the authority for every run that follows it, so a stale one there is
 /// permanent and invisible: those use [`get_email_from_permissioned_as_uncached`]. Job dispatch
 /// also stores its answer, and the worker reads it back to build that run's authed, but it
-/// governs one job and dies with it, so it stays here.
+/// governs one job and dies with it, so it stays here. An app policy persists no address at all
+/// — its reads and its dispatch both derive one, and both are in the dispatch case.
 ///
 /// The job's own authorization does not trust the address as given:
 /// `fetch_authed_from_permissioned_as` re-resolves it from the principal's live binding, and that

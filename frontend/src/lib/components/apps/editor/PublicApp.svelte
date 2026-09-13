@@ -196,6 +196,7 @@
 						appPath={app.path}
 						{breakpoint}
 						policy={app.policy}
+						onBehalfOfEmail={app.on_behalf_of_email}
 						isEditor={false}
 						replaceStateFn={(path) => goto(path)}
 						gotoFn={(path, opt) => (embedNav ? embedNav.navigateTop(path) : goto(path, opt))}

@@ -474,6 +474,7 @@
 				newPath={app.value?.draft_path ?? app.path}
 				path={page.params.path ?? ''}
 				policy={app.policy}
+				onBehalfOfEmail={app.on_behalf_of_email}
 				bind:savedApp
 				{diffDrawer}
 				version={app.versions ? app.versions[app.versions.length - 1] : undefined}

@@ -1,0 +1,2 @@
+-- Nothing to undo: the key this dropped is derived from `policy->>'on_behalf_of'`, which is
+-- untouched, so a server that wants it back computes it rather than reading it.

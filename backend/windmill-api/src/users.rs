@@ -277,18 +277,22 @@ async fn rename_user(
 
     // The per-workspace sweep below only reaches accounts with a `usr` row. A superadmin acting
     // outside their workspaces has none, yet an app can name them: their principal is
-    // `u/{password.username}`, which this rename just moved. Matching on the address as well
-    // keeps a like-named member of some other workspace out of it.
+    // `u/{password.username}`, which this rename just moved. The `NOT EXISTS` is what keeps a
+    // like-named member of some other workspace out of it — in a workspace holding that
+    // username, `resolve_username_to_email` answers from `usr` and never reaches this account,
+    // and the per-workspace sweep is what moves those rows.
     if let Some(old_username) = old_instance_username.filter(|u| *u != ru.new_username) {
         let old_principal = windmill_common::users::username_to_permissioned_as(&old_username);
-        let new_principal =
-            windmill_common::users::username_to_permissioned_as(&ru.new_username);
+        let new_principal = windmill_common::users::username_to_permissioned_as(&ru.new_username);
         sqlx::query!(
             "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text))
-             WHERE policy->>'on_behalf_of' = $2 AND policy->>'on_behalf_of_email' = $3",
+             WHERE policy->>'on_behalf_of' = $2
+               AND NOT EXISTS (
+                 SELECT 1 FROM usr WHERE usr.workspace_id = app.workspace_id AND usr.username = $3
+               )",
             &new_principal,
             &old_principal,
-            user_email
+            &old_username
         )
         .execute(&mut *tx)
         .await?;
@@ -296,10 +300,12 @@ async fn rename_user(
             r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb($1::text)))
                WHERE typ IN ('app', 'raw_app')
                  AND value->'policy'->>'on_behalf_of' = $2
-                 AND value->'policy'->>'on_behalf_of_email' = $3"#,
+                 AND NOT EXISTS (
+                   SELECT 1 FROM usr WHERE usr.workspace_id = draft.workspace_id AND usr.username = $3
+                 )"#,
             &new_principal,
             &old_principal,
-            user_email
+            &old_username
         )
         .execute(&mut *tx)
         .await?;

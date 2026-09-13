@@ -58,6 +58,23 @@ async function ensureUserCache(
   }
 }
 
+/**
+ * The address a workspace member's username belongs to, or `undefined` when the workspace has no
+ * such member. Absence is an answer, not a failure: a principal naming no `usr` row is an
+ * instance-level identity (a superadmin acting outside their workspaces), which is not
+ * workspace-scoped and so means the same thing in every workspace.
+ *
+ * Reads `usr` through `listUsers`, so it is never the cached address a derived read would give.
+ */
+export async function lookupEmailByUsername(
+  workspace: string,
+  username: string,
+  cache: Map<string, { username: string; email: string }>
+): Promise<string | undefined> {
+  await ensureUserCache(workspace, cache);
+  return cache.get(username)?.email;
+}
+
 export async function lookupUsernameByEmail(
   workspace: string,
   email: string,

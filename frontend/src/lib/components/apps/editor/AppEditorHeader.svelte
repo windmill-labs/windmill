@@ -110,10 +110,14 @@
 		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
 		// event up through these runes-mode components silently drops it.
 		onRestore?: (restoredApp: any) => void
+		/** Address of the identity selected in the deploy drawer; a display value the editor
+		 * shows, never part of what a deploy sends. */
+		onBehalfOfEmail?: string | undefined
 	}
 
 	let {
 		policy = $bindable(),
+		onBehalfOfEmail = $bindable(undefined),
 		fromHub = false,
 		diffDrawer = undefined,
 		savedApp = $bindable(undefined),
@@ -812,6 +816,7 @@
 			</div>
 		{/snippet}
 		<AppEditorHeaderDeploy
+			bind:onBehalfOfEmail
 			{newPath}
 			{newApp}
 			{policy}

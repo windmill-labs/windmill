@@ -33947,9 +33947,6 @@ components:
         on_behalf_of:
           type: string
           description: The user or group the app runs as in anonymous or publisher mode (e.g. 'u/admin' or 'g/mygroup'). The authority for the app's identity.
-        on_behalf_of_email:
-          type: string
-          description: Address of `on_behalf_of`, written through from it on every save and returned as stored. Optional; when absent it is derived from `on_behalf_of`. Sending it is optional too; it must name the same account as `on_behalf_of`, and a pair that disagrees is rejected.
         sandbox:
           type: boolean
           description: >
@@ -34160,6 +34157,10 @@ components:
           type: boolean
         bundle_secret:
           type: string
+        on_behalf_of_email:
+          type: string
+          readOnly: true
+          description: Address of `policy.on_behalf_of`, derived from it on every read and never stored. Absent when the policy names no identity. Beside the policy rather than inside it so that a client echoing a policy back cannot send a value only the server may author.
         labels:
           type: array
           items:

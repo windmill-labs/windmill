@@ -30,9 +30,12 @@
 
 	interface Props {
 		policy: Policy
+		/** Address `policy.on_behalf_of` resolves to, derived by the app read. Beside the policy,
+		 * not in it, so a client echoing the policy back cannot send a server-authored value. */
+		onBehalfOfEmail?: string
 	}
 
-	let { policy }: Props = $props()
+	let { policy, onBehalfOfEmail = undefined }: Props = $props()
 
 	const {
 		selectedComponent,
@@ -174,7 +177,7 @@
 					/>
 				</div>
 				<div>
-					{policy.on_behalf_of ? `Author ${policy.on_behalf_of_email}` : ''}
+					{policy.on_behalf_of ? `Author ${onBehalfOfEmail ?? policy.on_behalf_of}` : ''}
 					<Tooltip>
 						The scripts will be run on behalf of the author and a tight policy ensure security about
 						the possible inputs of the runnables.

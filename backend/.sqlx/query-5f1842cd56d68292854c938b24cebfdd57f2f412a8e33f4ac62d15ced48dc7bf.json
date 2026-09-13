@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE draft SET value = to_json(to_jsonb(value) #- '{policy,on_behalf_of_email}') WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of_email' = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5f1842cd56d68292854c938b24cebfdd57f2f412a8e33f4ac62d15ced48dc7bf"
+}

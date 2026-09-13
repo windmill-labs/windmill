@@ -1054,9 +1054,10 @@ pub async fn fetch_api_authed_from_permissioned_as(
     username_override: Option<String>,
 ) -> error::Result<ApiAuthed> {
     // Keyed by the supplied address, so an entry built for a principal's previous holder is reused
-    // while that address is still supplied, until its 120s expiry: a cached dispatch address is
-    // evicted sooner, an app's stored one (a username deleted then reused) may not be. Accepted;
-    // the rebuild after expiry is the current holder's.
+    // while that address is still supplied. Every caller now derives that address rather than
+    // reading a stored one, so it goes stale only for as long as `get_email_from_permissioned_as`
+    // serves the old answer, and the 120s expiry here caps whatever survives that. Accepted; the
+    // rebuild after expiry is the current holder's.
     let key = (w_id.to_string(), permissioned_as.clone(), email.clone());
 
     let mut api_authed = match API_AUTHED_CACHE.get(&key) {
