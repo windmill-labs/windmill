@@ -287,7 +287,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						? false
 						: undefined,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
-			hasNullParent: jobKindsCat != 'all' ? true : undefined,
+			hasNullParent: jobKindsCat != null && jobKindsCat != 'all' ? true : undefined,
 			label: label == null || label === '' ? undefined : label,
 			tag: tag == null || tag === '' ? undefined : tag,
 			worker: worker == null || worker === '' ? undefined : worker,
