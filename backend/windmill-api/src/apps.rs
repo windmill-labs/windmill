@@ -5589,6 +5589,11 @@ fn refuse_address_only_identity(policy: &Policy, preserve: Option<bool>) -> Resu
 /// last typed, so resolving one would answer "which address is `u/x`?" for any principal a
 /// caller cares to name — including a superadmin outside their own workspaces, whom
 /// `resolve_username_to_email` reaches instance-wide.
+///
+/// Resolves through the non-RLS pool and authorizes nothing: it hands back an address for
+/// whatever principal it is given, so callers must already have established that the caller may
+/// see this app. Every route that calls it does so after its own read check — the RLS
+/// transaction that produced the row, `check_scopes`, or `authorize_app_viewer`.
 pub async fn attach_on_behalf_of_email(
     policy: &mut sqlx::types::Json<Box<RawValue>>,
     w_id: &str,
