@@ -55,6 +55,7 @@
 	import { onUserInput } from '$lib/userDraftEditGate'
 	import { isTemporaryPath, newItemPath, useItem, type ItemAdapter } from '$lib/itemStore.svelte'
 	import {
+		draftOnlyScheduleCfg,
 		newScheduleCfg,
 		normalizeScheduleCfg,
 		scheduleCfgOf,
@@ -192,9 +193,12 @@
 				const s = await ScheduleService.getSchedule({ workspace, path, getDraft: true })
 				// Drafts are saved in the form's config shape, over the deployed fields.
 				const { draft, draft_saved_at, no_deployed, ...deployedSchedule } = s as any
+				const loadedDraft = draft
+					? normalizeScheduleCfg({ ...deployedSchedule, ...draft })
+					: undefined
 				return {
 					deployed: no_deployed ? undefined : normalizeScheduleCfg(deployedSchedule),
-					draft: draft ? normalizeScheduleCfg({ ...deployedSchedule, ...draft }) : undefined,
+					draft: no_deployed && loadedDraft ? draftOnlyScheduleCfg(loadedDraft) : loadedDraft,
 					draftSavedAt: draft_saved_at
 				}
 			} catch (err) {

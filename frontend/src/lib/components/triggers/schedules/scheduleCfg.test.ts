@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeScheduleCfg, scheduleCfgOf, scheduleFormOf } from './scheduleCfg'
+import {
+	draftOnlyScheduleCfg,
+	normalizeScheduleCfg,
+	scheduleCfgOf,
+	scheduleFormOf
+} from './scheduleCfg'
 
 // A deployed schedule as the API returns it: server fields the form never shows, a short cron.
 const deployed = {
@@ -36,5 +41,18 @@ describe('schedule config normalization', () => {
 			summary: undefined
 		})
 		expect(once).not.toHaveProperty('edited_by')
+	})
+
+	// Deploying a draft-only schedule creates it, and a create always enables it. A draft that
+	// kept its stored state would show a disabled schedule the server has enabled, and later
+	// updates omit the field, so nothing would ever correct it.
+	it('records a draft-only schedule as enabled, however it was stored', () => {
+		expect(
+			draftOnlyScheduleCfg(normalizeScheduleCfg({ ...deployed, enabled: false }))
+		).toMatchObject({ enabled: true })
+		const { enabled: _dropped, ...withoutEnabled } = deployed
+		expect(draftOnlyScheduleCfg(normalizeScheduleCfg(withoutEnabled))).toMatchObject({
+			enabled: true
+		})
 	})
 })

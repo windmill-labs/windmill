@@ -173,6 +173,16 @@ export function normalizeScheduleCfg(raw: ScheduleCfg): ScheduleCfg {
 	return scheduleCfgOf(scheduleFormOf(raw))
 }
 
+/**
+ * A schedule that exists only as a draft, as deploying it will leave it: deploying one creates
+ * it, and a create always enables it (`writeScheduleCfg`), so the draft has to carry the state
+ * that create produces. Left as stored, a disabled draft would record `enabled: false` against
+ * a server that says otherwise, and later updates omit the field, so nothing corrects it.
+ */
+export function draftOnlyScheduleCfg(cfg: ScheduleCfg): ScheduleCfg {
+	return { ...cfg, enabled: true }
+}
+
 /** The handlers a new schedule starts with, from the workspace's defaults. */
 async function workspaceDefaultHandlers(workspace: string): Promise<ScheduleCfg> {
 	const [error, recovery, success] = (await Promise.all(
