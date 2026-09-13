@@ -299,7 +299,7 @@
 			hasNullParent:
 				filters.val.path != undefined ||
 				filters.val.path != undefined ||
-				filters.val.job_kinds != 'all'
+				(filters.val.job_kinds != undefined && filters.val.job_kinds != 'all')
 					? true
 					: undefined,
 			label: filters.val.label || undefined,
@@ -688,8 +688,8 @@
 				<ToggleButtonGroup
 					tabListClass="hidden xl:flex"
 					bind:selected={
-						() => filters.val.job_kinds ?? 'runs',
-						(v) => (v === 'runs' ? delete filters.val.job_kinds : (filters.val.job_kinds = v))
+						() => filters.val.job_kinds ?? 'all',
+						(v) => (v === 'all' ? delete filters.val.job_kinds : (filters.val.job_kinds = v))
 					}
 				>
 					{#snippet children({ item })}

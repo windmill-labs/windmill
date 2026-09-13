@@ -22,7 +22,7 @@ import { allowWildcards as _allowWildcards, type RunsFilterInstance } from './ru
 const MAX_PER_PAGE = 10000
 
 export function computeJobKinds(jobKindsCat: string | null): string {
-	if (jobKindsCat == 'all') {
+	if (jobKindsCat == null || jobKindsCat == 'all') {
 		return ''
 	} else if (jobKindsCat == 'dependencies') {
 		let kinds: CompletedJob['job_kind'][] = ['dependencies', 'flowdependencies', 'appdependencies']
@@ -34,10 +34,6 @@ export function computeJobKinds(jobKindsCat: string | null): string {
 		let kinds: CompletedJob['job_kind'][] = ['deploymentcallback']
 		return kinds.join(',')
 	} else {
-		// Default mirrors the explicit 'runs' category — top-level scripts, flows,
-		// and single-step flows. flowscript/flownode/appscript are intermediate
-		// flow children with non-null parent_job, and the loader pairs this with
-		// hasNullParent: true, so they would never match here anyway.
 		let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'singlestepflow']
 		return kinds.join(',')
 	}
