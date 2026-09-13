@@ -186,12 +186,20 @@ export type DeployConflict = { hit: boolean }
  * nowhere else since usernames are per-workspace. The key is therefore always overwritten:
  * with the picked user's principal for a custom choice, and cleared otherwise so the
  * backend derives the target's own from the email it is given. The shared `deployItem`
- * clears it too, but this app consumes the published package, so the clear has to exist
+ * does the same, but this app consumes the published package, so the rewrite has to exist
  * on both sides until that version ships.
+ *
+ * An app carries both halves inside its `policy` instead, so it needs both stamped here:
+ * the published package leaves the policy untouched, and a source principal beside a
+ * target address is rejected as a pair naming two different accounts.
+ *
+ * A group kept as the target identity travels as its synthetic `group-*@windmill.dev`
+ * address, which an admin-created account holding it would win on the backend: known and
+ * accepted, see `users::permissioned_as_from_email`.
  */
 function makeProvider(
 	onBehalfOfPrincipal?: string,
-	appIdentity?: AppIdentity,
+	onBehalfOf?: string,
 	/**
 	 * Refuse the writes the shared `deployItem` reaches for only when the item already exists in
 	 * the target, turning its silent switch to an update into a failure the caller can act on.
@@ -205,6 +213,17 @@ function makeProvider(
 		...requestBody,
 		on_behalf_of: onBehalfOfPrincipal
 	})
+	const withPolicyIdentity = <T extends Record<string, any>>(app: T): T =>
+		app.policy
+			? {
+					...app,
+					policy: {
+						...app.policy,
+						on_behalf_of: onBehalfOfPrincipal,
+						on_behalf_of_email: onBehalfOf
+					}
+				}
+			: app
 	const refuseUpdate = (): never => {
 		if (conflict) conflict.hit = true
 		throw new Error('item already exists in the target workspace')
@@ -231,26 +250,25 @@ function makeProvider(
 				? refuseUpdate()
 				: ScriptService.createScript({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
 		archiveScriptByPath: (p) => ScriptService.archiveScriptByPath(p),
-		// An app's identity lives in its policy, and the shared deploy forwards the source policy
-		// untouched — it only turns `onBehalfOf` into `preserve_on_behalf_of: true`. Rewriting the
-		// policy on the way out is therefore the only way a chosen identity reaches the target; the
-		// backend honours it (`should_preserve` requires `policy.on_behalf_of.is_some()`).
-		getAppByPath: async (p) => {
-			const app = await AppService.getAppByPath(p)
-			if (!appIdentity) return app
-			return {
-				...app,
-				policy: {
-					...app.policy,
-					on_behalf_of: appIdentity.permissionedAs,
-					on_behalf_of_email: appIdentity.email
-				}
-			}
-		},
-		createApp: (p) => AppService.createApp(p),
-		updateApp: (p) => (conflict ? refuseUpdate() : AppService.updateApp(p)),
-		createAppRaw: (p) => AppService.createAppRaw(p),
-		updateAppRaw: (p) => (conflict ? refuseUpdate() : AppService.updateAppRaw(p)),
+		getAppByPath: (p) => AppService.getAppByPath(p),
+		createApp: (p) =>
+			AppService.createApp({ ...p, requestBody: withPolicyIdentity(p.requestBody) }),
+		updateApp: (p) =>
+			conflict
+				? refuseUpdate()
+				: AppService.updateApp({ ...p, requestBody: withPolicyIdentity(p.requestBody) }),
+		createAppRaw: (p) =>
+			AppService.createAppRaw({
+				...p,
+				formData: { ...p.formData, app: withPolicyIdentity(p.formData.app) }
+			}),
+		updateAppRaw: (p) =>
+			conflict
+				? refuseUpdate()
+				: AppService.updateAppRaw({
+						...p,
+						formData: { ...p.formData, app: withPolicyIdentity(p.formData.app) }
+					}),
 		getPublicSecretOfLatestVersionOfApp: (p) => AppService.getPublicSecretOfLatestVersionOfApp(p),
 		getRawAppData: (p) => AppService.getRawAppData(p),
 		deleteApp: (p) => AppService.deleteApp(p),
@@ -401,13 +419,9 @@ export async function deployItem(
 		}
 	}
 
-	const appIdentity =
-		(kind === 'app' || kind === 'raw_app') && onBehalfOf && onBehalfOfPrincipal
-			? { email: onBehalfOf, permissionedAs: onBehalfOfPrincipal }
-			: undefined
 	const conflict: DeployConflict | undefined = createOnly ? { hit: false } : undefined
 	const result = await sharedDeployItem(
-		makeProvider(onBehalfOfPrincipal, appIdentity, conflict),
+		makeProvider(onBehalfOfPrincipal, onBehalfOf, conflict),
 		kind as DeployKind,
 		path,
 		workspaceFrom,

@@ -259,6 +259,19 @@ async fn compile_index(
         .await
         .ok();
 
+    // Static analysis can log in to read schemas, so it gets live credentials like
+    // every other dbt process.
+    if let Err(e) = p.refresh_profile(descriptor, job_id, w_id, conn).await {
+        append_logs(
+            job_id,
+            w_id,
+            format!("\nColumn lineage: skipped, {e}\n"),
+            conn,
+        )
+        .await;
+        return Ok(None);
+    }
+
     let mut cmd = dbt_command(
         p,
         &[
