@@ -176,8 +176,12 @@
 				getDeployed={() => resourceEditor?.localDraftDeployed()}
 				getCurrent={() => resourceEditor?.localDraftCurrent()}
 				onDiscard={async () => {
-					// A draft-only resource is its draft: discarding it leaves nothing to show.
-					if (await resourceEditor?.discardLocalDraft()) drawer?.closeDrawer()
+					// A draft-only resource is its draft: discarding it leaves nothing to show. Close
+					// only the opening that asked for it — the discard is awaited, and another resource
+					// may have been opened over this drawer in the meantime.
+					const opening = session
+					if ((await resourceEditor?.discardLocalDraft()) && session === opening)
+						drawer?.closeDrawer()
 				}}
 				disabled={!canWriteSelected}
 			/>
