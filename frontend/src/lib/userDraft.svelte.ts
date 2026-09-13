@@ -372,7 +372,14 @@ export const UserDraft = {
 
 	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
-		if (liveItems?.discard(ws, itemKind, path)) return
+		if (liveItems?.discard(ws, itemKind, path)) {
+			// The live item owns the row, and its own discard deletes it. Falling through to the
+			// POST below would race that delete with an unconditional one (see `forgetLocal`), so
+			// only this caller's mirror is dropped — otherwise its reads keep answering with a
+			// draft that is gone.
+			UserDraft.forgetLocal(itemKind, path, opts)
+			return
+		}
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
@@ -563,10 +570,20 @@ export const UserDraft = {
 		}
 	): void {
 		const ws = resolveWorkspace(opts)
-		if (liveItems?.discard(ws, itemKind, path)) return
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		const safeFallback = snapshotDraftValue(fallback)
+		if (liveItems?.discard(ws, itemKind, path)) {
+			// No POST, for the reason `remove` gives. The cell still has to reach `fallback`:
+			// a caller holding one resets it to what it just saved, and its apply-effect would
+			// otherwise copy the stale draft straight back over the form.
+			if (entry) {
+				entry.skipNextSync = true
+				entry.state.val = safeFallback
+			}
+			writtenCache.delete(mk)
+			return
+		}
 		if (entry) {
 			entry.skipNextSync = true
 			entry.state.val = safeFallback
