@@ -317,7 +317,7 @@ export function preserveOnBehalfOfFields(
     return {};
   }
   log.info(
-    `Preserving ${deployedPolicy?.on_behalf_of_email ?? onBehalfOf} as permissioned_as for app ${remotePath}`
+    `Preserving ${onBehalfOf} as permissioned_as for app ${remotePath}`
   );
   return { preserve_on_behalf_of: true };
 }
@@ -592,10 +592,7 @@ const command = new Command()
     // Only spread remote.policy — spreading the full remote object would include
     // `value` and trigger a new app version on every call. EditApp has all-Option
     // fields, so a minimal body only updates the policy column.
-    // The read carries a derived `on_behalf_of_email`; a server old enough to still read it
-    // would see the previous holder's address beside the new principal and reject the pair.
     const policy = { ...(remote.policy as any), on_behalf_of: `u/${username}` };
-    delete policy.on_behalf_of_email;
     await wmill.updateApp({
       workspace: workspace.workspaceId,
       path: appPath,

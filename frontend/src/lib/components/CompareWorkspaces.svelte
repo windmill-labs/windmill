@@ -1005,7 +1005,7 @@
 		)
 	)
 
-	// Fetch summaries and on_behalf_of_email when comparison data loads
+	// Fetch summaries and the on-behalf-of identity when comparison data loads
 	$effect(() => {
 		if (comparison?.diffs) {
 			fetchSummaries(comparison.diffs)

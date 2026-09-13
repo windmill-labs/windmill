@@ -516,14 +516,12 @@ export async function deployItem(
       // principal is always replaced by `onBehalfOf`, which **the caller must have made valid
       // in the target**: `u/` names are per-workspace, so a caller reading the source has to map
       // it (`preservedIdentity` in the CLI's merge does), and one reading the target can send it
-      // as is. The address the read derived goes too: it is the source's, and a server old
-      // enough to still read it would take the pair as naming two accounts.
+      // as is.
       const app = {
         ...rawApp,
         policy: {
           ...rawApp.policy,
           on_behalf_of: onBehalfOf,
-          on_behalf_of_email: undefined,
         },
       };
       if (alreadyExists) {

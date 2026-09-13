@@ -255,6 +255,16 @@ pub struct AppWithLastVersion {
     #[sqlx(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bundle_secret: Option<String>,
+    /// The address `policy.on_behalf_of` resolves to, derived per read and never stored — see
+    /// [`attach_on_behalf_of_email`], which is also the only thing that sets it.
+    ///
+    /// Beside the policy rather than inside it on purpose. The policy is read, edited and written
+    /// back by a dozen callers; a field only the server may author, living in there, makes every
+    /// one of them responsible for stripping it before it goes out again, and makes the same
+    /// field serve both what the editor displays and what it submits.
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_behalf_of_email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
 }
@@ -491,14 +501,11 @@ pub struct S3Key {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Policy {
     pub on_behalf_of: Option<String>,
-    /// The address `on_behalf_of` resolves to. Response-only: never stored and never read from
-    /// the request. [`attach_on_behalf_of_email`] puts it here, and states which reads may.
-    #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
-    pub on_behalf_of_email: Option<String>,
-    /// The same key on the way in, taken only so that a request naming the identity by address
-    /// alone can be refused. Silently ignoring it would redeploy the app as whoever pushed it,
-    /// which is how a client written before the principal existed names an identity. An echo of
-    /// a read carries the principal too, so this is never the whole of what a caller sent.
+    /// An address a caller sent, taken only so that a request naming the identity by address
+    /// alone can be refused. The policy has no address of its own: it is derived per read onto
+    /// `AppWithLastVersion::on_behalf_of_email`, so nothing here is ever stored or served.
+    /// Silently ignoring it would redeploy the app as whoever pushed it, which is how a client
+    /// written before the principal existed names an identity.
     #[serde(default, rename = "on_behalf_of_email", skip_serializing)]
     pub submitted_on_behalf_of_email: Option<String>,
     //paths:
@@ -1169,7 +1176,7 @@ async fn get_app(
 
     // The deployed policy only. A draft overlaid below keeps whatever its editor last saved.
     if let Some(app) = app_o.as_mut() {
-        attach_on_behalf_of_email(&mut app.app.policy, &w_id, &db).await?;
+        attach_on_behalf_of_email(&mut app.app, &w_id, &db).await?;
     }
 
     // No deployed row + `get_draft`: fall back to the draft table; see scripts.rs.
@@ -1221,7 +1228,7 @@ async fn get_app_lite(
     tx.commit().await?;
 
     let mut app = not_found_if_none(app_o, "App", path)?;
-    attach_on_behalf_of_email(&mut app.policy, &w_id, &db).await?;
+    attach_on_behalf_of_email(&mut app, &w_id, &db).await?;
     Ok(Json(app))
 }
 
@@ -1360,7 +1367,7 @@ async fn get_app_by_id(
 
     check_scopes(&authed, || format!("apps:read:{}", &app.path))?;
 
-    attach_on_behalf_of_email(&mut app.policy, &w_id, &db).await?;
+    attach_on_behalf_of_email(&mut app, &w_id, &db).await?;
     Ok(Json(app))
 }
 
@@ -1414,7 +1421,7 @@ async fn get_public_app_by_secret(
         app.bundle_secret = Some(compute_bundle_secret(&db, &w_id, &app.versions).await?);
     }
 
-    attach_on_behalf_of_email(&mut app.policy, &w_id, &db).await?;
+    attach_on_behalf_of_email(&mut app, &w_id, &db).await?;
     Ok(Json(app))
 }
 
@@ -4583,7 +4590,6 @@ async fn upload_s3_file_from_app(
             triggerables: None,
             triggerables_v2: None,
             on_behalf_of: None,
-            on_behalf_of_email: None,
             submitted_on_behalf_of_email: None,
             s3_inputs: Some(vec![S3Input {
                 file_key_regex: file_key_regex,
@@ -5009,7 +5015,6 @@ async fn get_on_behalf_authed_from_app(
             triggerables: None,
             triggerables_v2: None,
             on_behalf_of: None,
-            on_behalf_of_email: None,
             submitted_on_behalf_of_email: None,
             s3_inputs: None,
             allowed_s3_keys: Some(force_allowed_s3_keys),
@@ -5034,7 +5039,6 @@ async fn get_on_behalf_authed_from_app(
                 triggerables: None,
                 triggerables_v2: None,
                 on_behalf_of: None,
-                on_behalf_of_email: None,
                 submitted_on_behalf_of_email: None,
                 s3_inputs: None,
                 allowed_s3_keys: None,
@@ -5577,7 +5581,7 @@ fn refuse_address_only_identity(policy: &Policy, preserve: Option<bool>) -> Resu
     Ok(())
 }
 
-/// Attach to a policy on its way out the address its principal resolves to.
+/// Derive onto an app, on its way out, the address its policy's principal resolves to.
 ///
 /// Derived here rather than left to the caller because the app bundle reads it as `ctx.author`
 /// in the browser, where an anonymous viewer has no session to resolve `u/alice` with. Cached,
@@ -5595,27 +5599,23 @@ fn refuse_address_only_identity(policy: &Policy, preserve: Option<bool>) -> Resu
 /// see this app. Every route that calls it does so after its own read check — the RLS
 /// transaction that produced the row, `check_scopes`, or `authorize_app_viewer`.
 pub async fn attach_on_behalf_of_email(
-    policy: &mut sqlx::types::Json<Box<RawValue>>,
+    app: &mut AppWithLastVersion,
     w_id: &str,
     db: &DB,
 ) -> Result<()> {
-    // Field-level, not a `Policy` round-trip: a legacy policy carries keys this struct has
-    // never had, and returning it shorn of them is not this function's job.
-    let mut value = serde_json::from_str::<serde_json::Value>(policy.0.get()).map_err(to_anyhow)?;
-    let Some(object) = value.as_object_mut() else {
-        return Ok(());
-    };
-    let Some(permissioned_as) = object
+    // Field-level, not a `Policy` parse: a legacy policy carries keys that struct has never had,
+    // and this reads one key rather than deciding what the policy is.
+    let Some(permissioned_as) = serde_json::from_str::<serde_json::Value>(app.policy.0.get())
+        .map_err(to_anyhow)?
         .get("on_behalf_of")
         .and_then(|v| v.as_str())
         .map(str::to_string)
     else {
         return Ok(());
     };
-    let email =
-        windmill_common::users::get_email_from_permissioned_as(&permissioned_as, w_id, db).await?;
-    object.insert("on_behalf_of_email".to_string(), json!(email));
-    *policy = sqlx::types::Json(serde_json::value::to_raw_value(&value).map_err(to_anyhow)?);
+    app.on_behalf_of_email = Some(
+        windmill_common::users::get_email_from_permissioned_as(&permissioned_as, w_id, db).await?,
+    );
     Ok(())
 }
 

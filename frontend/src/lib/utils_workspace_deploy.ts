@@ -206,7 +206,8 @@ export type DeployConflict = { hit: boolean }
  * An app carries its identity inside its `policy` instead, and as a principal rather than an
  * address — `deployItemIdentityIsPrincipal` says which kinds do. So `onBehalfOf` is already
  * the `u/`/`g/` form for one, and it is stamped into the policy here because the published
- * package leaves that untouched.
+ * package leaves that untouched. Nothing has to be stripped on the way out: the address the
+ * read derives arrives beside the policy, not in it.
  */
 function makeProvider(
 	onBehalfOfPrincipal?: string,
@@ -230,8 +231,7 @@ function makeProvider(
 					...app,
 					policy: {
 						...app.policy,
-						on_behalf_of: onBehalfOf,
-						on_behalf_of_email: undefined
+						on_behalf_of: onBehalfOf
 					}
 				}
 			: app

@@ -200,9 +200,9 @@ function triggerService(kind: TriggerDeployKind) {
  * over that fallback, so carrying the name into a workspace that has a member of its own by that
  * name would hand the app to them.
  *
- * The member's address comes from `usr` via `listUsers`, never from the app read's derived
- * `on_behalf_of_email`: that one is served from a cache that may be a notify poll stale, and this
- * answer is about to be persisted as the target's identity.
+ * The member's address comes from `usr` via `listUsers`, never from the address the app read
+ * derives: that one is served from a cache that may be a notify poll stale, and this answer is
+ * about to be persisted as the target's identity.
  *
  * Throws rather than guessing whenever the two workspaces disagree about who a name belongs to.
  * Deploying as the pusher instead would silently widen what the app runs as.

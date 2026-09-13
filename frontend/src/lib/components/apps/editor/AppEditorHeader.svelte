@@ -64,7 +64,7 @@
 	import type { DiffDrawerI } from '$lib/components/diff_drawer'
 	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
-	import { policyForDeploy, updatePolicy } from './appPolicy'
+	import { updatePolicy } from './appPolicy'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
@@ -110,10 +110,14 @@
 		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
 		// event up through these runes-mode components silently drops it.
 		onRestore?: (restoredApp: any) => void
+		/** Address of the identity selected in the deploy drawer; a display value the editor
+		 * shows, never part of what a deploy sends. */
+		onBehalfOfEmail?: string | undefined
 	}
 
 	let {
 		policy = $bindable(),
+		onBehalfOfEmail = $bindable(undefined),
 		fromHub = false,
 		diffDrawer = undefined,
 		savedApp = $bindable(undefined),
@@ -253,7 +257,7 @@
 					value: $app,
 					path,
 					summary: $summary,
-					policy: policyForDeploy(policy),
+					policy,
 					deployment_message: deploymentMsg,
 					custom_path: customPath,
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
@@ -357,7 +361,7 @@
 			requestBody: {
 				value: $app!,
 				summary: $summary,
-				policy: policyForDeploy(policy),
+				policy,
 				path: npath,
 				deployment_message: deploymentMsg,
 				// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
@@ -410,7 +414,7 @@
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $appPath,
-			requestBody: { policy: policyForDeploy(policy) }
+			requestBody: { policy }
 		})
 		if (message) {
 			sendUserToast(message)
@@ -812,6 +816,7 @@
 			</div>
 		{/snippet}
 		<AppEditorHeaderDeploy
+			bind:onBehalfOfEmail
 			{newPath}
 			{newApp}
 			{policy}

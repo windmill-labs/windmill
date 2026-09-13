@@ -44,12 +44,17 @@
 		newPath,
 		hideSecretUrl = false,
 		preserveOnBehalfOf = $bindable(false),
+		onBehalfOfEmail = $bindable(undefined),
 		labels = $bindable(),
 		rawApp = false,
 		newApp = false,
 		operatingWorkspace = undefined
 	}: {
 		policy: any
+		/** Address of the identity currently selected in the deploy drawer, so the editor shows
+		 * who the app will run as rather than who it last ran as. Separate from `policy` on
+		 * purpose: this is a display value, and nothing a deploy sends. */
+		onBehalfOfEmail?: string | undefined
 		setPublishState: (message?: string) => void
 		appPath: string
 		customPath: string | undefined
@@ -145,6 +150,7 @@
 	}
 	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
+	let savedOnBehalfOfEmail = $derived(savedApp?.on_behalf_of_email)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
 	let dirtyCustomPath = $state(false)
@@ -320,14 +326,17 @@
 					onBehalfOfChoice = choice
 					if (choice === 'me') {
 						policy.on_behalf_of = `u/${$userStore?.username}`
+						onBehalfOfEmail = $userStore?.email
 						customOnBehalfOfEmail = ''
 						preserveOnBehalfOf = false
 					} else if (choice === 'target') {
 						policy.on_behalf_of = savedOnBehalfOf
+						onBehalfOfEmail = savedOnBehalfOfEmail
 						customOnBehalfOfEmail = ''
 						preserveOnBehalfOf = true
 					} else if (choice === 'custom' && details) {
 						policy.on_behalf_of = details.permissionedAs
+						onBehalfOfEmail = details.email
 						customOnBehalfOfEmail = details.email
 						preserveOnBehalfOf = true
 					}

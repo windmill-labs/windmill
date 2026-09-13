@@ -23,7 +23,6 @@ import {
 	normalizeRawAppData
 } from '$lib/components/raw_apps/rawAppDraftValue'
 import { stateSnapshot } from '$lib/svelte5Utils.svelte'
-import { policyForDeploy } from '$lib/components/apps/editor/appPolicy'
 
 /**
  * Deploy an explicit raw-app value — one the user edited as JSON, or one
@@ -74,7 +73,7 @@ export async function deployRawAppValue({
 				// version can still carry the pre-`data` datatable shapes.
 				value: { files, runnables, data: normalizeRawAppData(plainValue) },
 				summary: summary ?? '',
-				policy: policyForDeploy(policy),
+				policy,
 				deployment_message: deploymentMessage,
 				// custom_path changes require admin (see deployRawAppDraft).
 				custom_path: isAdmin ? (customPath ?? '') : undefined,
@@ -141,7 +140,7 @@ export async function deployRawAppDraft(
 					path: targetPath,
 					value: rawAppValue,
 					summary,
-					policy: policyForDeploy(policy),
+					policy,
 					deployment_message: deploymentMessage,
 					custom_path: isAdmin ? (value.custom_path ?? '') : undefined,
 					// Preserve the policy's on_behalf_of: this draft-deploy path has no
@@ -161,7 +160,7 @@ export async function deployRawAppDraft(
 					path: targetPath,
 					value: rawAppValue,
 					summary,
-					policy: policyForDeploy(policy),
+					policy,
 					deployment_message: deploymentMessage,
 					custom_path: value.custom_path,
 					// Preserve the policy's on_behalf_of (see update branch above).

@@ -447,9 +447,13 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await?;
     let returned: serde_json::Value = resp.json().await?;
     assert_eq!(
-        returned["policy"]["on_behalf_of_email"].as_str(),
+        returned["on_behalf_of_email"].as_str(),
         Some("original@windmill.dev"),
-        "the response derives the address from the principal"
+        "the response derives the address from the principal, beside the policy"
+    );
+    assert!(
+        returned["policy"]["on_behalf_of_email"].is_null(),
+        "and never inside it, where a client echoing the policy back would resend it"
     );
 
     // ========================================
@@ -2951,9 +2955,9 @@ async fn test_app_draft_read_does_not_derive_an_address(db: Pool<Postgres>) -> a
     let body: serde_json::Value = resp.json().await?;
 
     assert_eq!(
-        body["policy"]["on_behalf_of_email"].as_str(),
+        body["on_behalf_of_email"].as_str(),
         Some("original@windmill.dev"),
-        "the deployed policy carries the address derived from its principal"
+        "the deployed app carries the address derived from its principal"
     );
     // Asserted before the absence below, so that a response carrying no draft at all cannot
     // pass this test by having nothing to derive from.
@@ -2963,7 +2967,8 @@ async fn test_app_draft_read_does_not_derive_an_address(db: Pool<Postgres>) -> a
         "the draft is returned, principal and all: {body}"
     );
     assert!(
-        body["draft"]["policy"]["on_behalf_of_email"].is_null(),
+        body["draft"]["on_behalf_of_email"].is_null()
+            && body["draft"]["policy"]["on_behalf_of_email"].is_null(),
         "the draft's principal must not be resolved: {}",
         body["draft"]
     );

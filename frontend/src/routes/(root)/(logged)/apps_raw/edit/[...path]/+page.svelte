@@ -5,7 +5,6 @@
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { readFieldsRecursively } from '$lib/utils'
-	import { policyForDeploy } from '$lib/components/apps/editor/appPolicy'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
@@ -121,10 +120,7 @@
 			runnables,
 			data,
 			summary,
-			// Shaped on the way into the row, not just on the way to a deploy: the address is
-			// derived per read, and a copy persisted here is the one thing that outlives the
-			// sweeps that exist to keep it out of a draft.
-			policy: policyForDeploy(policy),
+			policy,
 			custom_path: savedApp?.custom_path,
 			// Persist the typed path as `draft_path` only when it actually differs
 			// from the current path — a `draft_path` equal to the baseline is a
@@ -410,7 +406,7 @@
 						runnables,
 						data,
 						summary,
-						policy: policyForDeploy(policy),
+						policy,
 						custom_path: savedApp?.custom_path,
 						...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
 					} as RawAppDraft,
