@@ -74,6 +74,7 @@
 	import type { RawAppData } from './dataTableRefUtils'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import { policyForDeploy } from '$lib/components/apps/editor/appPolicy'
 
 	// async function hash(message) {
 	// 	try {
@@ -314,7 +315,7 @@
 						value: app,
 						path,
 						summary: summary,
-						policy,
+						policy: policyForDeploy(policy),
 						deployment_message: deploymentMsg,
 						custom_path: customPath,
 						preserve_on_behalf_of: preserveOnBehalfOf || undefined,
@@ -435,7 +436,7 @@
 				app: {
 					value: app!,
 					summary: summary,
-					policy,
+					policy: policyForDeploy(policy),
 					path: npath,
 					deployment_message: deploymentMsg,
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
@@ -485,7 +486,7 @@
 		await AppService.updateApp({
 			workspace: opWorkspace!,
 			path: appPath,
-			requestBody: { policy }
+			requestBody: { policy: policyForDeploy(policy) }
 		})
 		if (message) {
 			sendUserToast(message)
