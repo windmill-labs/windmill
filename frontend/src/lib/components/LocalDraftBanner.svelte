@@ -56,6 +56,9 @@
 	// partially-reserved slot below (keeps the toggle shift small); new entities
 	// have none, so no slot and no gap.
 	let hasBaseline = $derived(reserveSpace ?? getDeployed() != null)
+	// A draft-only item: the draft is the item, so there is nothing to diff it against and
+	// discarding it deletes it.
+	let draftOnly = $derived(getDeployed() == null)
 
 	// Suppress the banner when:
 	//   • There's no deployed baseline (brand-new entity — "Show diff"
@@ -122,17 +125,19 @@
 				<div class="flex flex-row items-center gap-2 min-w-0">
 					<AlertCircle class={classes.warning.iconClass} size={16} />
 					<span class={twMerge('text-xs font-semibold truncate', classes.warning.titleClass)}>
-						You have unsaved changes
+						{draftOnly ? 'This draft has never been deployed' : 'You have unsaved changes'}
 					</span>
 				</div>
 				<div class="flex flex-row items-center gap-2 shrink-0">
-					<Button
-						unifiedSize="sm"
-						variant="default"
-						startIcon={{ icon: Diff }}
-						btnClasses={classes.warning.titleClass}
-						on:click={showDiff}>Show diff</Button
-					>
+					{#if !draftOnly}
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							startIcon={{ icon: Diff }}
+							btnClasses={classes.warning.titleClass}
+							on:click={showDiff}>Show diff</Button
+						>
+					{/if}
 					{#if !disabled}
 						<Button
 							unifiedSize="sm"
