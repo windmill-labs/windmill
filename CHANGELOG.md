@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.811.1](https://github.com/windmill-labs/windmill/compare/v1.811.0...v1.811.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* check kafka trigger topics against a set, not a one-pass iterator ([#11108](https://github.com/windmill-labs/windmill/issues/11108)) ([bf4fa2b](https://github.com/windmill-labs/windmill/commit/bf4fa2b174b8d4a5897b2aa0d108480442bd0e18))
+* let the hub_sync job read the uid and hub_base_url settings ([#11106](https://github.com/windmill-labs/windmill/issues/11106)) ([45102c8](https://github.com/windmill-labs/windmill/commit/45102c82659d86ca5ec6fd3aee57232f2348736c))
+
 ## [1.811.0](https://github.com/windmill-labs/windmill/compare/v1.810.0...v1.811.0) (2026-09-12)
 
 
