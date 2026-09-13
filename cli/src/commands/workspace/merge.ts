@@ -183,6 +183,76 @@ function triggerService(kind: TriggerDeployKind) {
 }
 
 /**
+ * The identity to preserve for one item, in the form its kind travels in and valid in the
+ * *target* workspace.
+ *
+ * A flow or script sends an address, which the backend resolves against the target, so the
+ * source's answer carries over untouched. An app sends a principal — its policy stores nothing
+ * else — so a `u/` name, which is per-workspace, is re-read as the source member it names and
+ * looked up again in the target. That is the mapping the backend did for as long as the address
+ * itself travelled; without it the app lands on whoever holds that username in the target, or on
+ * nobody.
+ *
+ * `g/ops` carries over by name: it means the target's ops group, which is the identity a fork and
+ * its parent are meant to share. So does a `u/` name with no member behind it in *either*
+ * workspace — that is an instance-level superadmin, which the backend resolves through the same
+ * `password` fallback everywhere. It has to be absent from both: the target's own `usr` row wins
+ * over that fallback, so carrying the name into a workspace that has a member of its own by that
+ * name would hand the app to them.
+ *
+ * The member's address comes from `usr` via `listUsers`, never from the app read's derived
+ * `on_behalf_of_email`: that one is served from a cache that may be a notify poll stale, and this
+ * answer is about to be persisted as the target's identity.
+ *
+ * Throws rather than guessing whenever the two workspaces disagree about who a name belongs to.
+ * Deploying as the pusher instead would silently widen what the app runs as.
+ */
+export async function preservedIdentity(
+  deployProvider: DeployProvider,
+  kind: DeployKind,
+  path: string,
+  workspaceFrom: string,
+  workspaceTo: string,
+  usernamesInSource: Map<string, { username: string; email: string }>,
+  usernamesInTarget: Map<string, { username: string; email: string }>
+): Promise<string | undefined> {
+  if (kind !== "app" && kind !== "raw_app") {
+    return await getOnBehalfOf(deployProvider, kind, path, workspaceFrom);
+  }
+  const { lookupEmailByUsername, lookupUsernameByEmail } = await import(
+    "../../core/permissioned_as.ts"
+  );
+  const policy = (
+    await deployProvider.getAppByPath({ workspace: workspaceFrom, path })
+  )?.policy as { on_behalf_of?: string } | undefined;
+  const principal = policy?.on_behalf_of;
+  if (!principal?.startsWith("u/")) {
+    return principal;
+  }
+  const username = principal.slice(2);
+  const email = await lookupEmailByUsername(
+    workspaceFrom,
+    username,
+    usernamesInSource
+  );
+  if (email) {
+    return `u/${await lookupUsernameByEmail(
+      workspaceTo,
+      email,
+      usernamesInTarget
+    )}`;
+  }
+  if (await lookupEmailByUsername(workspaceTo, username, usernamesInTarget)) {
+    throw new Error(
+      `'${principal}' names no member of ${workspaceFrom} but does name one of ${workspaceTo}, ` +
+        `so it cannot be carried across: deploying it would run the app as that account. ` +
+        `Set the app's identity in ${workspaceTo} explicitly.`
+    );
+  }
+  return principal;
+}
+
+/**
  * Apply kind-specific transforms before sending a trigger to create/update.
  * Currently only GCP needs special handling (subscription_id wipe + base_endpoint
  * for push delivery). All kinds receive the on_behalf_of plumbing.
@@ -542,6 +612,10 @@ async function mergeWorkspaces(
   }
   let successCount = 0;
   let failCount = 0;
+  // One `listUsers` per workspace for the whole run, shared by every app that maps an identity
+  // across (`preservedIdentity`).
+  const usernamesInSource = new Map<string, { username: string; email: string }>();
+  const usernamesInTarget = new Map<string, { username: string; email: string }>();
   // Datatable migrations deployed (not deleted) into the target. Deploying a
   // migration only upserts its definition — the target schema is unchanged until
   // the migration is run — so offer to run them afterwards (like the push path).
@@ -571,23 +645,33 @@ async function mergeWorkspaces(
       );
     } else {
       let onBehalfOf: string | undefined;
+      let identityError: string | undefined;
       if (opts.preserveOnBehalfOf) {
-        onBehalfOf = await getOnBehalfOf(
-          provider,
-          diff.kind as DeployKind,
-          diff.path,
-          workspaceFrom
-        );
+        try {
+          onBehalfOf = await preservedIdentity(
+            provider,
+            diff.kind as DeployKind,
+            diff.path,
+            workspaceFrom,
+            workspaceTo,
+            usernamesInSource,
+            usernamesInTarget
+          );
+        } catch (e: any) {
+          identityError = e?.message ?? String(e);
+        }
       }
 
-      result = await deployItem(
-        provider,
-        diff.kind as DeployKind,
-        diff.path,
-        workspaceFrom,
-        workspaceTo,
-        onBehalfOf
-      );
+      result = identityError
+        ? { success: false, error: identityError }
+        : await deployItem(
+            provider,
+            diff.kind as DeployKind,
+            diff.path,
+            workspaceFrom,
+            workspaceTo,
+            onBehalfOf
+          );
     }
 
     if (result.success) {

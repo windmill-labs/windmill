@@ -42,6 +42,7 @@ import {
 	checkItemExists as sharedCheckItemExists,
 	getOnBehalfOf as sharedGetOnBehalfOf,
 	getItemValue as sharedGetItemValue,
+	isTriggerOrScheduleKind,
 	type DeployProvider,
 	type DeployKind,
 	type DeployResult,
@@ -170,8 +171,21 @@ function legacyTriggerKind(kind: TriggerDeployKind) {
 	return map[kind]
 }
 
-/** An identity in both formats the app policy stores it in. */
+/** An identity in both formats a deploy may carry it in — see `deployItemIdentityIsPrincipal`. */
 export type AppIdentity = { email: string; permissionedAs: string }
+
+/**
+ * Whether a deploy carries this kind's identity as a principal (`u/alice`, `g/ops`) rather
+ * than as an address. Apps sit with triggers and schedules: an app's policy stores only the
+ * principal, and a group has no address of its own to travel as. Flows and scripts still send
+ * an address, which the backend resolves against the target workspace.
+ *
+ * Both halves of a deploy read this — what `getOnBehalfOf` fetches out of the target and what is
+ * sent back — so a kind moved between the two sides has to move in `deployItem` with it.
+ */
+export function deployItemIdentityIsPrincipal(kind: string): boolean {
+	return kind === 'app' || kind === 'raw_app' || kind === 'trigger' || isTriggerOrScheduleKind(kind)
+}
 
 /**
  * Set when a create-only deploy was refused because the target turned out to already have the
@@ -189,13 +203,10 @@ export type DeployConflict = { hit: boolean }
  * does the same, but this app consumes the published package, so the rewrite has to exist
  * on both sides until that version ships.
  *
- * An app carries both halves inside its `policy` instead, so it needs both stamped here:
- * the published package leaves the policy untouched, and a source principal beside a
- * target address is rejected as a pair naming two different accounts.
- *
- * A group kept as the target identity travels as its synthetic `group-*@windmill.dev`
- * address, which an admin-created account holding it would win on the backend: known and
- * accepted, see `users::permissioned_as_from_email`.
+ * An app carries its identity inside its `policy` instead, and as a principal rather than an
+ * address — `deployItemIdentityIsPrincipal` says which kinds do. So `onBehalfOf` is already
+ * the `u/`/`g/` form for one, and it is stamped into the policy here because the published
+ * package leaves that untouched.
  */
 function makeProvider(
 	onBehalfOfPrincipal?: string,
@@ -219,8 +230,8 @@ function makeProvider(
 					...app,
 					policy: {
 						...app.policy,
-						on_behalf_of: onBehalfOfPrincipal,
-						on_behalf_of_email: onBehalfOf
+						on_behalf_of: onBehalfOf,
+						on_behalf_of_email: undefined
 					}
 				}
 			: app
@@ -342,17 +353,18 @@ export interface DeployItemParams {
 	/**
 	 * The value to use for on_behalf_of when deploying.
 	 * Format varies by item kind:
-	 * - For flows/scripts/apps: an email address (on_behalf_of_email)
-	 * - For triggers/schedules: permissioned_as format (u/username or g/group)
+	 * - For flows/scripts: an email address (on_behalf_of_email)
+	 * - For apps, triggers and schedules: permissioned_as format (u/username or g/group)
+	 * `deployItemIdentityIsPrincipal` is the authority on which of the two a kind takes.
 	 * If set, preserve_on_behalf_of / preserve_permissioned_as will be true.
 	 * If undefined, the deploying user's identity is used.
 	 */
 	onBehalfOf?: string
 	/**
-	 * Authorization half of `onBehalfOf` (u/username or g/group). Must name the same identity as
-	 * `onBehalfOf`. Set it only when the user picked a specific user; undefined clears the key,
-	 * leaving the backend to derive the target workspace's own principal from `onBehalfOf`. Apps
-	 * additionally need it in the policy, which holds both formats — see `makeProvider`.
+	 * Authorization half of `onBehalfOf` for the kinds that send an address. Must name the same
+	 * identity as `onBehalfOf`. Set it only when the user picked a specific user; undefined
+	 * clears the key, leaving the backend to derive the target workspace's own principal from
+	 * `onBehalfOf`. Leave it unset for a kind that already sends a principal.
 	 */
 	onBehalfOfPrincipal?: string
 	/**
@@ -548,6 +560,11 @@ export async function getItemValue(
 
 /**
  * Get the on_behalf_of value for a deployable item.
+ *
+ * The app branch is answered here rather than by the shared helper: the published package
+ * still reads the policy's address, which is the target's own only by coincidence — a group's
+ * is `group-*@windmill.dev`, and the backend hands that to whichever account holds it. Drop
+ * this once a package carrying the principal branch ships.
  */
 export async function getOnBehalfOf(
 	kind: Kind,
@@ -558,6 +575,13 @@ export async function getOnBehalfOf(
 	if (kind === 'trigger' && additionalInformation?.triggers) {
 		try {
 			return await getTriggerPermissionedAs(additionalInformation.triggers.kind, path, workspace)
+		} catch {
+			return undefined
+		}
+	}
+	if (kind === 'app' || kind === 'raw_app') {
+		try {
+			return (await AppService.getAppByPath({ workspace, path })).policy?.on_behalf_of
 		} catch {
 			return undefined
 		}
@@ -579,7 +603,7 @@ export async function getOnBehalfOfOrThrow(
 	if (kind === 'flow') return (await provider.getFlowByPath({ workspace, path })).on_behalf_of_email
 	if (kind === 'script')
 		return (await provider.getScriptByPath({ workspace, path })).on_behalf_of_email
-	return (await provider.getAppByPath({ workspace, path })).policy?.on_behalf_of_email
+	return (await provider.getAppByPath({ workspace, path })).policy?.on_behalf_of
 }
 
 /**

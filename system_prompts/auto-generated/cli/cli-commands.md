@@ -47,7 +47,7 @@ app related commands
   - `--overwrite` - Overwrite the target directory if it already exists, without prompting.
   - `--no-open-in-desktop` - Do not prompt to open the new app in Claude Desktop.
 - `app generate-agents [app_folder:string]` - regenerate AGENTS.md and DATATABLES.md from remote workspace
-- `app set-permissioned-as <path:string> <email:string>` - Set the on_behalf_of_email for an app (requires admin or wm_deployers group)
+- `app set-permissioned-as <path:string> <email:string>` - Set the user an app runs on behalf of (requires admin or wm_deployers group)
 
 ### audit
 

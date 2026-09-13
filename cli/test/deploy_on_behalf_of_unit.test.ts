@@ -3,10 +3,11 @@ import { deployItem } from "../windmill-utils-internal/src/deploy.ts";
 
 // `deployItem` spreads the source item into the request body, and the principal it carries
 // (`on_behalf_of`, at the top level for a script or flow and inside the policy for an app)
-// names a username that only exists in the source workspace. Sending it to the target pairs
-// one workspace's principal with the other's email, which the backend rejects. Deleting the
-// spread is an easy regression, so pin that the principal never reaches the wire while the
-// caller's chosen address does.
+// names a username that only exists in the source workspace. Sending it to the target would
+// run the item as whoever holds that name there, or as nobody. Deleting the overwrite is an
+// easy regression, so pin that the source principal never reaches the wire — and that each
+// kind sends the identity in the form it takes: an address for a flow or script, the target's
+// own principal for an app.
 function recordingProvider(captured: [string, any][], flowExists: boolean) {
   const source = {
     on_behalf_of_email: "alice@corp",
@@ -42,7 +43,6 @@ function recordingProvider(captured: [string, any][], flowExists: boolean) {
       policy: {
         execution_mode: "publisher",
         on_behalf_of: "u/alice",
-        on_behalf_of_email: "alice@corp",
       },
     }),
     createApp: async (p: any) => void captured.push(["createApp", p.requestBody]),
@@ -52,7 +52,7 @@ function recordingProvider(captured: [string, any][], flowExists: boolean) {
 test("deployItem: never sends the source workspace's on_behalf_of", async () => {
   const captured: [string, any][] = [];
 
-  // The clear is written out once per branch, so exercise all three: a flow that
+  // The overwrite is written out once per branch, so exercise all three: a flow that
   // does not exist in the target (create), one that does (update — the branch
   // `wmill workspace merge` takes for anything already deployed), and a script.
   await deployItem(
@@ -79,13 +79,15 @@ test("deployItem: never sends the source workspace's on_behalf_of", async () => 
     "dst",
     "alice@corp",
   );
+  // An app is handed a principal, not an address: `getOnBehalfOf` read it out of the
+  // target workspace, where `u/` and `g/` names mean what they say.
   await deployItem(
     recordingProvider(captured, false),
     "app" as any,
     "f/x/a",
     "src",
     "dst",
-    "alice@corp",
+    "g/ops",
   );
 
   expect(captured.map(([fn]) => fn)).toEqual([
@@ -96,12 +98,13 @@ test("deployItem: never sends the source workspace's on_behalf_of", async () => 
   ]);
   for (const [name, body] of captured) {
     expect(body.preserve_on_behalf_of).toBe(true);
-    // Both surfaces spell it `on_behalf_of`; only its nesting differs — an app carries the
-    // identity inside its policy, the others at the top level.
-    const identity = name === "createApp" ? body.policy : body;
-    // The email is still overridden with the caller's choice...
-    expect(identity.on_behalf_of_email).toBe("alice@corp");
-    // ...while the principal is dropped, so the backend derives the target's own.
-    expect("on_behalf_of" in JSON.parse(JSON.stringify(identity))).toBe(false);
+    if (name === "createApp") {
+      expect(body.policy.on_behalf_of).toBe("g/ops");
+      expect(body.policy.on_behalf_of_email).toBeUndefined();
+    } else {
+      expect(body.on_behalf_of_email).toBe("alice@corp");
+      // The principal is dropped, so the backend derives the target's own from the address.
+      expect("on_behalf_of" in JSON.parse(JSON.stringify(body))).toBe(false);
+    }
   }
 });

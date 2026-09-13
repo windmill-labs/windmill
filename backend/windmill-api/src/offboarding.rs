@@ -842,8 +842,8 @@ async fn offboard_user_from_workspace<'c>(
     let new_prefix = reassign_to.to_string();
     let departing = departing_principal(username);
 
-    // The app policy stores an address beside its principal, and script/flow keep one for the
-    // workers that still read it, so the replacement's is resolved here.
+    // Script and flow rows keep an address beside their principal for the workers that still
+    // read it, so the replacement's is resolved here.
     // resolve_new_permissioned_as already validated the user exists.
     let new_on_behalf_of_user_username = new_permissioned_as
         .strip_prefix("u/")
@@ -956,27 +956,27 @@ async fn offboard_user_from_workspace<'c>(
     .await?
     .unwrap_or(0);
 
+    // The address is dropped, not rewritten: an app policy carries none, and a peer still
+    // running the release before that writes one on every save — and prefers it at execution.
+    // Leaving one behind here is what would keep the departing member's identity live.
     sqlx::query!(
-        "UPDATE app SET policy = jsonb_set(
-            jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text)),
-            ARRAY['on_behalf_of_email'], to_jsonb($4::text)
-        ) WHERE policy->>'on_behalf_of' = $2 AND workspace_id = $3",
+        "UPDATE app SET policy =
+            jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text)) - 'on_behalf_of_email'
+         WHERE policy->>'on_behalf_of' = $2 AND workspace_id = $3",
         &new_permissioned_as,
         departing.as_deref(),
-        w_id,
-        new_on_behalf_of_user_email
+        w_id
     )
     .execute(&mut **tx)
     .await?;
 
     // An app draft carries a copy of the deployed policy and is deployed from it, so it needs
-    // the same pair rewritten — the draft sweep above only covers scripts and flows.
+    // the same principal rewritten — the draft sweep above only covers scripts and flows.
     sqlx::query!(
-        r#"UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb($1::text)), ARRAY['policy', 'on_behalf_of_email'], to_jsonb($4::text))) WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of' = $2 AND workspace_id = $3"#,
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb($1::text)) #- '{policy,on_behalf_of_email}') WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of' = $2 AND workspace_id = $3"#,
         new_permissioned_as,
         departing.as_deref(),
-        w_id,
-        new_on_behalf_of_user_email
+        w_id
     )
     .execute(&mut **tx)
     .await?;

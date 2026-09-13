@@ -64,7 +64,7 @@
 	import type { DiffDrawerI } from '$lib/components/diff_drawer'
 	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
-	import { updatePolicy } from './appPolicy'
+	import { policyForDeploy, updatePolicy } from './appPolicy'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
@@ -253,7 +253,7 @@
 					value: $app,
 					path,
 					summary: $summary,
-					policy,
+					policy: policyForDeploy(policy),
 					deployment_message: deploymentMsg,
 					custom_path: customPath,
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
@@ -357,7 +357,7 @@
 			requestBody: {
 				value: $app!,
 				summary: $summary,
-				policy,
+				policy: policyForDeploy(policy),
 				path: npath,
 				deployment_message: deploymentMsg,
 				// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
@@ -410,7 +410,7 @@
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $appPath,
-			requestBody: { policy }
+			requestBody: { policy: policyForDeploy(policy) }
 		})
 		if (message) {
 			sendUserToast(message)
