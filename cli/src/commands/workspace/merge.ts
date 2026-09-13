@@ -188,14 +188,22 @@ function triggerService(kind: TriggerDeployKind) {
  *
  * A flow or script sends an address, which the backend resolves against the target, so the
  * source's answer carries over untouched. An app sends a principal — its policy stores nothing
- * else — and `u/` names are per-workspace, so the source's is mapped through the address it
- * resolves to. That mapping is what the backend used to do for as long as the address itself
- * travelled; without it the app would land on whoever holds that username in the target, or on
- * nobody. A group carries over by name: `g/ops` means the target's ops group, which is the
- * identity a fork and its parent are meant to share.
+ * else — so a `u/` name, which is per-workspace, is re-read as the source member it names and
+ * looked up again in the target. That is the mapping the backend did for as long as the address
+ * itself travelled; without it the app lands on whoever holds that username in the target, or on
+ * nobody.
  *
- * Throws when the source's account has no counterpart in the target, which is the honest answer
- * — deploying as the pusher instead would silently widen what the app runs as.
+ * Two principals are *not* workspace-scoped and carry over untouched: `g/ops` means the target's
+ * ops group, which is the identity a fork and its parent are meant to share, and a `u/` name with
+ * no member behind it is an instance-level superadmin, valid in every workspace through the same
+ * `password` fallback the backend resolves it by.
+ *
+ * The member's address comes from `usr` via `listUsers`, never from the app read's derived
+ * `on_behalf_of_email`: that one is served from a cache that may be a notify poll stale, and this
+ * answer is about to be persisted as the target's identity.
+ *
+ * Throws when a source member has no counterpart in the target, which is the honest answer —
+ * deploying as the pusher instead would silently widen what the app runs as.
  */
 export async function preservedIdentity(
   deployProvider: DeployProvider,
@@ -203,25 +211,34 @@ export async function preservedIdentity(
   path: string,
   workspaceFrom: string,
   workspaceTo: string,
-  usernames: Map<string, { username: string; email: string }>
+  usernamesInSource: Map<string, { username: string; email: string }>,
+  usernamesInTarget: Map<string, { username: string; email: string }>
 ): Promise<string | undefined> {
   if (kind !== "app" && kind !== "raw_app") {
     return await getOnBehalfOf(deployProvider, kind, path, workspaceFrom);
   }
-  const { lookupUsernameByEmail } = await import("../../core/permissioned_as.ts");
+  const { lookupEmailByUsername, lookupUsernameByEmail } = await import(
+    "../../core/permissioned_as.ts"
+  );
   const policy = (
     await deployProvider.getAppByPath({ workspace: workspaceFrom, path })
-  )?.policy as
-    | { on_behalf_of?: string; on_behalf_of_email?: string }
-    | undefined;
+  )?.policy as { on_behalf_of?: string } | undefined;
   const principal = policy?.on_behalf_of;
-  if (!principal?.startsWith("u/") || !policy?.on_behalf_of_email) {
+  if (!principal?.startsWith("u/")) {
+    return principal;
+  }
+  const email = await lookupEmailByUsername(
+    workspaceFrom,
+    principal.slice(2),
+    usernamesInSource
+  );
+  if (!email) {
     return principal;
   }
   return `u/${await lookupUsernameByEmail(
     workspaceTo,
-    policy.on_behalf_of_email,
-    usernames
+    email,
+    usernamesInTarget
   )}`;
 }
 
@@ -585,8 +602,9 @@ async function mergeWorkspaces(
   }
   let successCount = 0;
   let failCount = 0;
-  // One `listUsers` of the target for the whole run, shared by every app that maps an identity
-  // into it (`preservedIdentity`).
+  // One `listUsers` per workspace for the whole run, shared by every app that maps an identity
+  // across (`preservedIdentity`).
+  const usernamesInSource = new Map<string, { username: string; email: string }>();
   const usernamesInTarget = new Map<string, { username: string; email: string }>();
   // Datatable migrations deployed (not deleted) into the target. Deploying a
   // migration only upserts its definition — the target schema is unchanged until
@@ -626,6 +644,7 @@ async function mergeWorkspaces(
             diff.path,
             workspaceFrom,
             workspaceTo,
+            usernamesInSource,
             usernamesInTarget
           );
         } catch (e: any) {

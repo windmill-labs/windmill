@@ -33950,7 +33950,7 @@ components:
         on_behalf_of_email:
           type: string
           readOnly: true
-          description: Address of `on_behalf_of`, derived from it on every read and never stored. Absent when the policy names no identity. Read-only - sending it is ignored, so a deploy that means to keep an identity has to name it in `on_behalf_of`.
+          description: Address of `on_behalf_of`, derived from it on every read and never stored. Absent when the policy names no identity. Read-only - sending it beside `on_behalf_of` is ignored, and sending it alone with `preserve_on_behalf_of` is rejected, so a deploy that means to keep an identity has to name it in `on_behalf_of`.
         sandbox:
           type: boolean
           description: >
