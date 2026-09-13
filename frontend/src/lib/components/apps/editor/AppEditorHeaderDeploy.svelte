@@ -318,11 +318,6 @@
 				selected={onBehalfOfChoice}
 				onSelect={(choice, details) => {
 					onBehalfOfChoice = choice
-					// `policy` came from a read, which derives the address from the principal being
-					// replaced here. It is inert on this release, but a peer still on the one before
-					// reads the pair and refuses it as naming two accounts, so the deploy fails outright
-					// mid-rollover. Every other writer of this policy clears it for the same reason.
-					delete policy.on_behalf_of_email
 					if (choice === 'me') {
 						policy.on_behalf_of = `u/${$userStore?.username}`
 						customOnBehalfOfEmail = ''

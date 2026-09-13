@@ -626,6 +626,15 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     )
     .execute(&db)
     .await?;
+    // The shape a peer still on the release before this one re-adds on every save: it prefers
+    // that address on reads, so one left behind would answer with the address this change moves
+    // away from for as long as that peer is live.
+    sqlx::query!(
+        "INSERT INTO app(workspace_id, path, summary, policy, versions)
+         VALUES ('test-workspace', 'u/test-user-2/legacy', '', '{\"on_behalf_of\": \"u/test-user-2\", \"on_behalf_of_email\": \"test2@windmill.dev\"}'::jsonb, '{}')"
+    )
+    .execute(&db)
+    .await?;
     sqlx::query!(
         "INSERT INTO folder(workspace_id, name, display_name, owners, extra_perms, default_permissioned_as)
          VALUES ('test-workspace', 'fold', 'fold', '{}', '{}'::jsonb,
@@ -677,6 +686,17 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert!(
         !policy.contains("test2@windmill.dev") && policy.contains("renamed@windmill.dev"),
         "app policy should carry only the new address: {policy}"
+    );
+
+    let legacy = sqlx::query_scalar!(
+        "SELECT policy::text FROM app WHERE path = 'u/test-user-2/legacy' AND workspace_id = 'test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or_default();
+    assert!(
+        !legacy.contains("on_behalf_of_email"),
+        "an address a peer re-added is dropped, not left naming the old account: {legacy}"
     );
 
     // The rules keep their order, since the folder resolver takes the first glob that matches.

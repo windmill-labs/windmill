@@ -193,17 +193,19 @@ function triggerService(kind: TriggerDeployKind) {
  * itself travelled; without it the app lands on whoever holds that username in the target, or on
  * nobody.
  *
- * Two principals are *not* workspace-scoped and carry over untouched: `g/ops` means the target's
- * ops group, which is the identity a fork and its parent are meant to share, and a `u/` name with
- * no member behind it is an instance-level superadmin, valid in every workspace through the same
- * `password` fallback the backend resolves it by.
+ * `g/ops` carries over by name: it means the target's ops group, which is the identity a fork and
+ * its parent are meant to share. So does a `u/` name with no member behind it in *either*
+ * workspace — that is an instance-level superadmin, which the backend resolves through the same
+ * `password` fallback everywhere. It has to be absent from both: the target's own `usr` row wins
+ * over that fallback, so carrying the name into a workspace that has a member of its own by that
+ * name would hand the app to them.
  *
  * The member's address comes from `usr` via `listUsers`, never from the app read's derived
  * `on_behalf_of_email`: that one is served from a cache that may be a notify poll stale, and this
  * answer is about to be persisted as the target's identity.
  *
- * Throws when a source member has no counterpart in the target, which is the honest answer —
- * deploying as the pusher instead would silently widen what the app runs as.
+ * Throws rather than guessing whenever the two workspaces disagree about who a name belongs to.
+ * Deploying as the pusher instead would silently widen what the app runs as.
  */
 export async function preservedIdentity(
   deployProvider: DeployProvider,
@@ -227,19 +229,27 @@ export async function preservedIdentity(
   if (!principal?.startsWith("u/")) {
     return principal;
   }
+  const username = principal.slice(2);
   const email = await lookupEmailByUsername(
     workspaceFrom,
-    principal.slice(2),
+    username,
     usernamesInSource
   );
-  if (!email) {
-    return principal;
+  if (email) {
+    return `u/${await lookupUsernameByEmail(
+      workspaceTo,
+      email,
+      usernamesInTarget
+    )}`;
   }
-  return `u/${await lookupUsernameByEmail(
-    workspaceTo,
-    email,
-    usernamesInTarget
-  )}`;
+  if (await lookupEmailByUsername(workspaceTo, username, usernamesInTarget)) {
+    throw new Error(
+      `'${principal}' names no member of ${workspaceFrom} but does name one of ${workspaceTo}, ` +
+        `so it cannot be carried across: deploying it would run the app as that account. ` +
+        `Set the app's identity in ${workspaceTo} explicitly.`
+    );
+  }
+  return principal;
 }
 
 /**

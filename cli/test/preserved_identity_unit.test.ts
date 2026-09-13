@@ -68,6 +68,22 @@ test("preservedIdentity: an identity with no member behind it carries over untou
   ).toBe("u/superadmin-external");
 });
 
+// ...but only while the target has no member of that name. `resolve_username_to_email` prefers a
+// `usr` row over the `password` fallback, so carrying it across would run the app as that member.
+test("preservedIdentity: a name the target has a member for is refused, not carried", async () => {
+  expect(
+    preservedIdentity(
+      providerFor("u/saext"),
+      "app" as any,
+      "f/x/a",
+      "src",
+      "dst",
+      source(),
+      seeded({ username: "saext", email: "someone-else@corp" }),
+    ),
+  ).rejects.toThrow(/cannot be carried across/);
+});
+
 test("preservedIdentity: a member absent from the target fails rather than falling back", async () => {
   expect(
     preservedIdentity(

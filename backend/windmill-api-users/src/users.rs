@@ -2062,6 +2062,25 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
+    // An app policy carries no address, so there is none to move — but a peer still running the
+    // release before this one writes it on every save and prefers it on reads, so one re-added
+    // after the migration would answer with the address this change is moving away from, for as
+    // long as that peer is live. Dropped rather than rewritten: the key has no place here, and
+    // every reader that matters derives it.
+    sqlx::query!(
+        "UPDATE app SET policy = policy - 'on_behalf_of_email' WHERE policy->>'on_behalf_of_email' = $1",
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(to_jsonb(value) #- '{policy,on_behalf_of_email}') WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of_email' = $1"#,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
     // ---- permissioned_as naming the account by its address ----
     // `usr.username` is constrained to `[\w-]+`, so a workspace member is always named
     // `u/{username}` and their principals survive an address change untouched. The address form

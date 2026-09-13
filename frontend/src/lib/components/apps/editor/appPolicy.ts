@@ -189,6 +189,18 @@ export async function updatePolicy(app: App, currentPolicy: Policy | undefined):
 	return next
 }
 
+/**
+ * The policy as a deploy should send it.
+ *
+ * A read derives `on_behalf_of_email` from the principal, and the editor keeps it to show who the
+ * app runs as — but sending it back beside a principal the user has just changed reads, to a peer
+ * that still stores the address, as a pair naming two accounts, and the deploy is refused. Built
+ * as a copy so the object the editor renders from keeps the address it displays.
+ */
+export function policyForDeploy<T extends Record<string, any>>(policy: T): T {
+	return { ...policy, on_behalf_of_email: undefined }
+}
+
 export async function processRunnable(
 	id: string,
 	runnable: Runnable,
