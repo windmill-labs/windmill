@@ -157,3 +157,85 @@ async fn test_save_follows_a_draft_only_move(db: Pool<Postgres>) -> anyhow::Resu
     assert_eq!(draft["draft_path"], "u/test-user/moved", "{draft}");
     Ok(())
 }
+
+/// Rename `from` to `to` the way Home does: redeploy the deployed content at the new
+/// path, keeping the deployer's own draft so it is carried rather than consumed.
+/// Returns the new head's hash.
+async fn rename(port: u16, from_hash: &str, to: &str) -> anyhow::Result<String> {
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/scripts/create"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({
+            "path": to,
+            "parent_hash": from_hash,
+            "summary": "A",
+            "description": "",
+            "content": "export function main() { return 1 }",
+            "language": "deno",
+            "schema": {},
+            "skip_draft_deletion": true
+        }))
+        .send()
+        .await?;
+    let status = resp.status();
+    let hash = resp.text().await?;
+    assert_eq!(status, 201, "rename to {to} failed: {hash}");
+    Ok(hash)
+}
+
+/// Save the draft as an editor still bound to `url_path` would. Returns the path the
+/// save landed at.
+async fn save_at(port: u16, url_path: &str, content: &str) -> anyhow::Result<String> {
+    let saved: Value = reqwest::Client::new()
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/drafts/update/script/{url_path}"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({
+            "value": { "path": url_path, "summary": "A", "content": content, "language": "deno" }
+        }))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(saved["status"], "saved", "save refused: {saved}");
+    Ok(saved["path"].as_str().unwrap_or_default().to_string())
+}
+
+/// A record is kept to one hop, and a move back to the path it left ends it: both are
+/// three statements whose order decides the answer.
+#[sqlx::test(fixtures("base", "drafts_save_follows_move"))]
+async fn test_move_records_stay_one_hop(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let b = rename(port, HEAD_HASH, "u/test-user/follow_b").await?;
+    let _c = rename(port, &b, "u/test-user/follow_c").await?;
+    assert_eq!(
+        save_at(port, "u/test-user/follow_a", "after two moves").await?,
+        "u/test-user/follow_c",
+        "a save at the first path did not reach the last"
+    );
+    assert_eq!(own_draft_paths(port).await?, vec!["u/test-user/follow_c"]);
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base", "drafts_save_follows_move"))]
+async fn test_move_back_ends_the_record(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let b = rename(port, HEAD_HASH, "u/test-user/follow_b").await?;
+    let _a = rename(port, &b, "u/test-user/follow_a").await?;
+    assert_eq!(
+        save_at(port, "u/test-user/follow_a", "after moving back").await?,
+        "u/test-user/follow_a",
+        "a save was routed off the path the item moved back to"
+    );
+    assert_eq!(own_draft_paths(port).await?, vec!["u/test-user/follow_a"]);
+    Ok(())
+}

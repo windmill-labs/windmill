@@ -607,7 +607,9 @@ function createRuntime(session: Session): SessionRuntime {
 						saved.val = undefined
 					}
 					await initFlow(aiDraft, store, stateStore, workspace)
-					if (deployedVersionId != null && store.val) store.val.version_id = deployedVersionId
+					// Only a draft with no base takes the head; see loadScript.
+					if (deployedVersionId != null && store.val && store.val.version_id == null)
+						store.val.version_id = deployedVersionId
 					slot.loadedPath = path
 					slot.loadedWorkspace = workspace
 					return
@@ -629,7 +631,8 @@ function createRuntime(session: Session): SessionRuntime {
 				)
 				UserDraft.save('flow', path, flow, { workspace })
 				await initFlow(flow, store, stateStore, workspace)
-				if (deployedVersionId != null && store.val) store.val.version_id = deployedVersionId
+				if (deployedVersionId != null && store.val && store.val.version_id == null)
+					store.val.version_id = deployedVersionId
 				slot.loadedPath = path
 				slot.loadedWorkspace = workspace
 			} catch (err) {
@@ -694,7 +697,10 @@ function createRuntime(session: Session): SessionRuntime {
 								schema: emptySchema(),
 								language: (aiDraft.language ?? 'bun') as any
 							}
-					if (saved.val?.hash) {
+					// Only a draft with no base takes the head: `draft.base` is derived from
+					// `parent_hash` on every save, so stamping the head over a fork base
+					// tells the server this draft is up to date when it is not.
+					if (saved.val?.hash && baseline.parent_hash == null) {
 						baseline.parent_hash = saved.val.hash
 					}
 					baseline.content = aiDraft.content
@@ -714,7 +720,8 @@ function createRuntime(session: Session): SessionRuntime {
 				const baseline = structuredClone(
 					((result as SavedScript).draft as NewScript | undefined) ?? (result as NewScript)
 				)
-				baseline.parent_hash = result.hash
+				// See the ai-draft branch above: the head only seeds a draft that has no base.
+				if (baseline.parent_hash == null) baseline.parent_hash = result.hash
 				// Seed the per-tab last_sync from the server draft's timestamp so the
 				// seeding save below attaches a matching last_sync and the server can
 				// reject stale writes (see loadRawApp). Without this a server draft —
@@ -842,7 +849,11 @@ function createRuntime(session: Session): SessionRuntime {
 					path: result.path,
 					custom_path: draftValue?.custom_path ?? result.custom_path,
 					draft_path: draftValue?.draft_path,
-					parent_version: draftValue?.parent_version
+					// The draft's own base, else the head this checkout forks from (the
+					// standalone editor's loader does the same).
+					parent_version:
+						draftValue?.parent_version ??
+						(Array.isArray(result.versions) ? result.versions[result.versions.length - 1] : undefined)
 				}
 				// Seed the per-tab last_sync from the server draft's timestamp so
 				// later saves attach a matching last_sync and the server can reject

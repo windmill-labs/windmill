@@ -722,6 +722,16 @@ pub async fn move_drafts_for_path(
 ///
 /// Kept to one hop: records pointing at `old_path` are re-pointed, and records
 /// leaving either path are replaced, since `new_path` now holds the item.
+///
+/// **The caller must have authorized the move first.** A record routes every later
+/// draft write at `old_path` (any owner's, for an item move), and enforces nothing
+/// itself.
+///
+/// A record outlives the editors that need it: it ends when a later move touches
+/// either path or an item is deployed at `old_path`, so a save that means to start
+/// a NEW draft at a vacated path would be routed instead. Nothing does that today —
+/// every surface parks a new item at a minted `u/<user>/draft_<uuid>` key
+/// (`mintDraftPath.ts`) and carries the user-typed name inside the value.
 pub async fn record_draft_move(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
@@ -771,6 +781,9 @@ pub async fn record_draft_move(
 
 /// Drop the move records leaving `path`: an item was just created there, and saves
 /// addressed to it are its own.
+///
+/// **The caller must have authorized the deploy that created the item first.**
+/// Dropping a record sends later draft writes at `path` back to `path`.
 pub async fn clear_draft_moves_from(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,

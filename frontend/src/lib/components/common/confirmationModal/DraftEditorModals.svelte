@@ -148,6 +148,16 @@
 			relocating = true
 			await onBeforeRelocate?.()
 			await UserDraftDbSyncer.flush(query)
+			// `flush` resolves on a failed or rejected save as well, and leaving the
+			// route drops what it was carrying: stay, so the editor keeps the edits
+			// and its own failure indicator.
+			if (
+				UserDraftDbSyncer.getState(query).failureMessage ||
+				UserDraftDbSyncer.getConflict(query).conflict
+			) {
+				relocating = false
+				return
+			}
 			sendUserToast(`This item was moved to ${newPath}. You are now editing it there.`)
 			await goto(`${base}/${seg}/${newPath}`)
 		})
