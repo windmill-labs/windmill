@@ -545,6 +545,8 @@ async fn read_former_owner_defaults(
              JOIN pg_default_acl d ON d.defaclnamespace = n.oid
              CROSS JOIN LATERAL aclexplode(d.defaclacl) a
              WHERE n.nspname = $1 AND a.grantee = n.nspowner
+               -- What the owner gives itself on what it creates adds nothing to owning it.
+               AND a.grantee <> d.defaclrole
                AND d.defaclobjtype IN ('r', 'S', 'f', 'T')
                AND n.nspowner <> (SELECT oid FROM pg_roles WHERE rolname = $2)
              ORDER BY 2, 3",
@@ -1562,8 +1564,10 @@ async fn apply_datatable_acl(
         }
     }
 
-    // A schema's objects were listed before the transaction opened; one created since would stay
-    // with its old owner while the schema changes hands.
+    // A schema's objects were listed before the transaction opened; one committed since would stay
+    // with its old owner. One created while this transaction is still open can still slip past, as
+    // Postgres has no lock that holds creation in a schema back. That is benign: it stays with its
+    // creator, like anything created there later, and moving that table fixes it.
     if let (AclChange::SetOwner { role }, AclTarget::Schema { schema }) = (&req.change, &req.target)
     {
         let new_owner = pg_role_of(role, &catalog)?;
@@ -1834,7 +1838,9 @@ mod tests {
         client
             .batch_execute(
                 "CREATE SCHEMA typed AUTHORIZATION pg_read_all_data;
-                 ALTER DEFAULT PRIVILEGES IN SCHEMA typed GRANT USAGE ON TYPES TO pg_read_all_data;",
+                 ALTER DEFAULT PRIVILEGES IN SCHEMA typed GRANT USAGE ON TYPES TO pg_read_all_data;
+                 ALTER DEFAULT PRIVILEGES FOR ROLE pg_read_all_data IN SCHEMA typed
+                     GRANT SELECT ON TABLES TO pg_read_all_data;",
             )
             .await
             .unwrap();
