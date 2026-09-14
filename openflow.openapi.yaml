@@ -1074,10 +1074,11 @@ components:
               description: |
                 Array of strings naming which of the tools configured in `tools` the agent may call
                 this run. Leaving it unset carries every one of them; an empty array carries none.
-                A tool is named as the model is shown it; an MCP server, which the model is shown
-                nothing of, is named by its resource path and carries every tool it exposes (which
-                of them it exposes stays that entry's include_tools/exclude_tools).
-                Example: ['get_user', 'u/admin/github_mcp']
+                A tool is named as the model is shown it. An entry the model is shown nothing of is
+                named by what identifies it instead: an MCP server by its resource path, carrying
+                every tool it exposes (which of them stays that entry's include_tools/exclude_tools),
+                and a websearch entry by the reserved name 'web search', whatever summary it carries.
+                Example: ['get_user', 'u/admin/github_mcp', 'web search']
             max_completion_tokens:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'

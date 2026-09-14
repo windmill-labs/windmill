@@ -243,15 +243,19 @@ fn overlay_tool_inputs(
     }
 }
 
-/// What a websearch entry is named by when it carries no summary of its own. A summary is a name
-/// only for an entry the model is shown; web search reaches the model as a provider capability
-/// rather than a tool, so its summary is a label the editor happens to write and JSON authored
-/// anywhere else may leave out, and an entry with no name at all could not be enabled.
-const WEBSEARCH_ENABLED_NAME: &str = "web_search";
+/// What every websearch entry is named by, whatever label it carries. Web search reaches the model
+/// as a provider capability rather than a tool, so it has no model-facing name of its own, and the
+/// editor's label is not one: a flow module tool could carry the same one, and enabling that tool
+/// would then silently turn web search on with it.
+///
+/// The space is what makes the name unshareable. A flow module tool's name must match
+/// `TOOL_NAME_REGEX`, and a resource path carries no spaces either, so nothing else in a roster can
+/// answer to this.
+const WEBSEARCH_ENABLED_NAME: &str = "web search";
 
 /// The name a run enables a roster entry by: the name the model is shown, except for an entry the
-/// model is shown nothing of, which is named by whatever identifies it instead. An MCP server is
-/// named by the resource it points at, web search by its label or `WEBSEARCH_ENABLED_NAME`.
+/// model is shown nothing of, which cannot be named by a label others may share. An MCP server is
+/// named by the resource it points at, web search by `WEBSEARCH_ENABLED_NAME`.
 ///
 /// The MCP path is bare. The roster stores it as authored, `$res:` and all, but a name is an
 /// argument value and one carrying that prefix is resolved to the resource itself before the worker
@@ -259,13 +263,7 @@ const WEBSEARCH_ENABLED_NAME: &str = "web_search";
 fn tool_enabled_name(tool: &AgentTool) -> Option<&str> {
     match &tool.value {
         ToolValue::Mcp(mcp) => Some(mcp.resource_path.trim_start_matches("$res:")),
-        ToolValue::Websearch(_) => Some(
-            tool.summary
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .unwrap_or(WEBSEARCH_ENABLED_NAME),
-        ),
+        ToolValue::Websearch(_) => Some(WEBSEARCH_ENABLED_NAME),
         _ => tool.summary.as_deref(),
     }
 }
@@ -1994,9 +1992,8 @@ mod tests {
         let names = |tools: &[AgentTool]| -> Vec<String> {
             tools.iter().filter_map(|t| t.summary.clone()).collect()
         };
-        let ids = |tools: &[AgentTool]| -> Vec<String> {
-            tools.iter().map(|t| t.id.clone()).collect()
-        };
+        let ids =
+            |tools: &[AgentTool]| -> Vec<String> { tools.iter().map(|t| t.id.clone()).collect() };
 
         // No list at all: the whole roster, as every agent written before the field expects.
         assert_eq!(
@@ -2037,24 +2034,29 @@ mod tests {
         );
         assert!(narrow_roster(roster(), Some(&["u/test/other".to_string()])).is_empty());
 
-        // Web search reaches the model as a provider capability rather than a tool, so its summary
-        // is a label the editor writes and JSON authored anywhere else may leave out. Without the
-        // fallback such an entry has no name, and a run that narrows could not keep web search.
-        let mut with_websearch = roster();
-        with_websearch.push(websearch("w", None));
+        // Web search reaches the model as a provider capability rather than a tool, so it has no
+        // name of its own and is enabled by a reserved one, whatever label it was authored with.
+        for label in [None, Some("Web Search")] {
+            let mut with_websearch = roster();
+            with_websearch.push(websearch("w", label));
+            assert_eq!(
+                ids(&narrow_roster(
+                    with_websearch,
+                    Some(&[WEBSEARCH_ENABLED_NAME.to_string()])
+                )),
+                ["w"]
+            );
+        }
+
+        // The reserved name is one nothing else in a roster can answer to, so enabling a tool
+        // cannot switch web search on beside it: a tool named after it would be rejected by
+        // `TOOL_NAME_REGEX`, which is what the space is there to stay outside of.
+        assert!(!TOOL_NAME_REGEX.is_match(WEBSEARCH_ENABLED_NAME));
+        let mut collision = vec![named("t", "web_search")];
+        collision.push(websearch("w", None));
         assert_eq!(
-            ids(&narrow_roster(
-                with_websearch,
-                Some(&[WEBSEARCH_ENABLED_NAME.to_string()])
-            )),
-            ["w"]
-        );
-        // A label of its own still names it, which is what the editor writes.
-        let mut labelled = roster();
-        labelled.push(websearch("w", Some("Web Search")));
-        assert_eq!(
-            ids(&narrow_roster(labelled, Some(&["Web Search".to_string()]))),
-            ["w"]
+            ids(&narrow_roster(collision, Some(&["web_search".to_string()]))),
+            ["t"]
         );
     }
 

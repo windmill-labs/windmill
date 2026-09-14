@@ -158,7 +158,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 		enabled_tools: {
 			type: 'array',
 			description:
-				'Which of the agent tools a run may call, named as the model is shown them, except an MCP server, which is named by its resource path and carries every tool it exposes. Unset carries every tool.',
+				'Which of the agent tools a run may call: a tool by the name the model is shown, an MCP server by its resource path, which carries every tool it exposes, and web search by "web search". Unset carries every tool.',
 			items: {
 				type: 'string'
 			}

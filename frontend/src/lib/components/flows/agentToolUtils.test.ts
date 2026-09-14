@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 // Only `createAiAgentTool` reads it, and nothing below does.
 vi.mock('../aiProviderStorage', () => ({ loadStoredConfig: () => undefined }))
 
-import { toolEnabledName, WEBSEARCH_ENABLED_NAME } from './agentToolUtils'
+import { getToolNameError, toolEnabledName, WEBSEARCH_ENABLED_NAME } from './agentToolUtils'
 
 /**
  * The names this returns are the ones `enabled_tools` holds and `tool_enabled_name` in
@@ -30,14 +30,20 @@ describe('toolEnabledName', () => {
 		).toBe('u/admin/gh')
 	})
 
-	it('falls back to a constant for web search authored without a label', () => {
-		// The editor always writes one and offers no way to clear it; JSON authored anywhere else may
-		// carry none, and an entry with no name could not be enabled at all.
+	it('names web search by a reserved name, whatever label it carries', () => {
+		// It reaches the model as a provider capability rather than a tool, so the editor's label is
+		// not a name: something else in the roster could carry it and be switched on with it.
 		expect(toolEnabledName({ id: 'w', value: { tool_type: 'websearch' } } as any)).toBe(
 			WEBSEARCH_ENABLED_NAME
 		)
 		expect(
 			toolEnabledName({ id: 'w', summary: 'Web Search', value: { tool_type: 'websearch' } } as any)
-		).toBe('Web Search')
+		).toBe(WEBSEARCH_ENABLED_NAME)
+	})
+
+	it('reserves that name against every other kind', () => {
+		// A flow module tool cannot be called it, so enabling a tool never enables web search beside
+		// it. `getToolNameError` is the rule that holds, and the space is what stays outside it.
+		expect(getToolNameError(WEBSEARCH_ENABLED_NAME)).toBeDefined()
 	})
 })
