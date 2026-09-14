@@ -1,13 +1,20 @@
-//! `PROPER_EMAIL` mirrors the `proper_email` CHECK constraint so callers can tell, before
-//! writing, whether `usr` will hold an address. The two only stay equivalent while nobody
-//! edits one without the other: each sample below must be stored by `usr` exactly when the
-//! mirror accepts it, and everything `VALID_EMAIL` accepts must be stored too.
+//! `usr_accepts_email` predicts whether `usr` will store an address by evaluating
+//! `PROPER_EMAIL_PATTERN` in the database. It only stays right while that text matches the
+//! `proper_email` constraint and the width matches the column: each sample below must be
+//! stored by `usr` exactly when the check accepts it, and everything `VALID_EMAIL` accepts
+//! within the width must be stored too.
 
 use sqlx::{Pool, Postgres};
-use windmill_common::users::{PROPER_EMAIL, VALID_EMAIL};
+use windmill_common::users::{usr_accepts_email, EMAIL_COLUMN_MAX_LEN, VALID_EMAIL};
 
 #[sqlx::test(migrations = "../migrations")]
-async fn proper_email_mirror_agrees_with_usr_constraint(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn usr_accepts_email_agrees_with_the_constraint(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let domain = "@example.com";
+    let widest = format!(
+        "{}{domain}",
+        "a".repeat(EMAIL_COLUMN_MAX_LEN - domain.len())
+    );
+    let too_wide = format!("a{widest}");
     for email in [
         "alice@example.com",
         "Alice@Example.COM",
@@ -15,6 +22,8 @@ async fn proper_email_mirror_agrees_with_usr_constraint(db: Pool<Postgres>) -> a
         "\"quoted\"@example.com",
         "\"quoted local\"@example.com",
         "alice@[192.168.0.1]",
+        widest.as_str(),
+        too_wide.as_str(),
         "ef40ea04-1a9e-4a84-9e65-cb1baa81dfed",
         // Unicode case folding would map the long s and the Kelvin sign into `[a-z]`.
         "u\u{17f}er@example.com",
@@ -39,10 +48,10 @@ async fn proper_email_mirror_agrees_with_usr_constraint(db: Pool<Postgres>) -> a
 
         assert_eq!(
             stored,
-            PROPER_EMAIL.is_match(email),
-            "{email:?}: `usr` and PROPER_EMAIL disagree"
+            usr_accepts_email(&db, email).await?,
+            "{email:?}: `usr` and usr_accepts_email disagree"
         );
-        if VALID_EMAIL.is_match(email) {
+        if VALID_EMAIL.is_match(email) && email.len() <= EMAIL_COLUMN_MAX_LEN {
             assert!(stored, "{email:?}: VALID_EMAIL accepts what `usr` rejects");
         }
     }

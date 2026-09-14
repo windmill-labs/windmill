@@ -950,6 +950,16 @@ async fn test_instance_group_member_that_is_not_an_email_is_skipped(
         400,
         "adduser must refuse a value that is not an email"
     );
+    let too_wide = format!("{}@example.com", "a".repeat(244));
+    let resp = authed(client().post(format!("{global_base}/adduser/entra_grp")))
+        .json(&json!({ "email": too_wide }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "adduser must refuse a value wider than the email columns"
+    );
 
     sqlx::query("INSERT INTO email_to_igroup (email, igroup) VALUES ($1, 'entra_grp')")
         .bind(ENTRA_OBJECT_ID)

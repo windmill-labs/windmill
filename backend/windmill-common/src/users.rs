@@ -14,16 +14,34 @@ lazy_static::lazy_static! {
         r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$"
     ).unwrap();
 
-    /// Mirror of the `proper_email` CHECK constraint on `usr` and `workspace_invite`
-    /// (`20220620210708_regex_fix`, case-insensitive), so a value passes here exactly when those
-    /// tables store it. Unlike [`VALID_EMAIL`] it admits quoted local parts and IP-literal
-    /// domains, which matters wherever an address the tables may already hold is judged.
-    /// `(?i-u)`: Postgres `~*` folds ASCII only, whereas a Unicode `(?i)` would also let a
-    /// long s (U+017F) or the Kelvin sign match `[a-z]`. The mirror must never accept more
-    /// than the constraint; `windmill-common/tests/proper_email_mirror.rs` pins the two.
-    pub static ref PROPER_EMAIL: regex::Regex = regex::Regex::new(
-        r##"(?i-u)^(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9]))\.){3}(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9])|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])$"##
-    ).unwrap();
+}
+
+/// Width of the `email` columns of `usr`, `workspace_invite` and `email_to_igroup`.
+pub const EMAIL_COLUMN_MAX_LEN: usize = 255;
+
+/// The regex of the `proper_email` CHECK constraint on `usr` and `workspace_invite`
+/// (`20220620210708_regex_fix`), verbatim, for [`usr_accepts_email`]. Evaluated by the
+/// database and never by a Rust engine: `~*` folds case under the database collation, so a
+/// fixed mirror accepts addresses the constraint rejects, or rejects ones it holds, on some
+/// locale. `windmill-common/tests/usr_accepts_email.rs` pins the text to the constraint.
+pub const PROPER_EMAIL_PATTERN: &str = r#"^(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9]))\.){3}(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9])|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])$"#;
+
+/// Whether `usr` (and `workspace_invite`) will store `email`: the `proper_email` regex as the
+/// database evaluates it, plus the column width. Unlike [`VALID_EMAIL`] this admits every
+/// address those tables already hold, which matters wherever an existing member is judged.
+pub async fn usr_accepts_email<'c, E>(db: E, email: &str) -> crate::error::Result<bool>
+where
+    E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
+    if email.contains('\0') || email.chars().count() > EMAIL_COLUMN_MAX_LEN {
+        return Ok(false);
+    }
+    let accepted: bool = sqlx::query_scalar("SELECT $1::text ~* $2::text")
+        .bind(email)
+        .bind(PROPER_EMAIL_PATTERN)
+        .fetch_one(db)
+        .await?;
+    Ok(accepted)
 }
 
 pub const SUPERADMIN_SECRET_EMAIL: &str = "superadmin_secret@windmill.dev";
@@ -457,30 +475,6 @@ mod tests {
             "",
         ] {
             assert!(!VALID_EMAIL.is_match(email), "{email} should be invalid");
-        }
-    }
-
-    #[test]
-    fn test_proper_email_admits_what_valid_email_rejects() {
-        for email in [
-            "alice@example.com",
-            "Alice@Example.COM",
-            "\"quoted\"@example.com",
-            "alice@[192.168.0.1]",
-        ] {
-            assert!(PROPER_EMAIL.is_match(email), "{email} should be storable");
-        }
-        for email in [
-            "ef40ea04-1a9e-4a84-9e65-cb1baa81dfed",
-            "\"quoted local\"@example.com",
-            "u\u{17f}er@example.com",
-            "alice@example\u{212a}.com",
-            "alice",
-            "alice@example",
-            "alice@example.com\nbob@example.com",
-            "",
-        ] {
-            assert!(!PROPER_EMAIL.is_match(email), "{email} should be rejected");
         }
     }
 
