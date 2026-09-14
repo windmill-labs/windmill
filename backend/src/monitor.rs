@@ -6151,7 +6151,10 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
 /// Force-complete a zombie job that handle_job_error failed to complete.
 /// This is a minimal fallback: it inserts a failed completed job and deletes
 /// from the queue in a single transaction, without schedule pushing or
-/// error handler logic that could cause the completion to fail.
+/// error handler logic. The one thing it keeps is the WAC parent notification,
+/// deliberately inside the transaction: if that fails, the whole completion
+/// rolls back and the job waits for the next sweep, which is cheaper than a
+/// parent parked for its full suspend window and a task run twice.
 async fn force_complete_zombie_job(
     db: &Pool<Postgres>,
     job_id: &Uuid,

@@ -720,9 +720,10 @@ fn pending_step_key(job_ids: &Value, child_job: &Uuid) -> Option<String> {
 /// Authorization: none is checked here. `child_job` is the job the caller is
 /// completing, which it already holds, and `parent_job` must be that job's
 /// persisted `v2_job.parent_job` (both callers read it from the child's row).
-/// The read that gates the counter mutation joins on that relationship, so a
-/// mismatched pair changes no parent's checkpoint or counter; job ids are global,
-/// so no workspace scoping is needed on top.
+/// The read that gates the step merge and the counter decrement joins on that
+/// relationship, so a mismatched pair changes no parent's `completed_steps` or
+/// `suspend`; only the timeline stamp at the end runs unconditionally. Job ids
+/// are global, so no workspace scoping is needed on top.
 pub async fn record_child_completion(
     tx: &mut Transaction<'_, Postgres>,
     parent_job: &Uuid,
