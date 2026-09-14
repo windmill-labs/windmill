@@ -318,6 +318,19 @@ async fn add_granular_acl(
             )
             .await?
         }
+        "variable" => {
+            handle_deployment_metadata(
+                &authed.email,
+                &authed.username,
+                &db,
+                &w_id,
+                DeployedObject::Variable { path: path.to_string(), parent_path: None },
+                Some(format!("Variable '{}' changed permissions", path)),
+                true,
+                None,
+            )
+            .await?
+        }
         _ => (),
     }
 
@@ -523,6 +536,19 @@ async fn remove_granular_acl(
                     &w_id,
                     DeployedObject::Flow { path: path.to_string(), parent_path: None, version: 0 },
                     Some(format!("Flow '{}' changed permissions", path)),
+                    true,
+                    None,
+                )
+                .await?
+            }
+            "variable" => {
+                handle_deployment_metadata(
+                    &authed.email,
+                    &authed.username,
+                    &db,
+                    &w_id,
+                    DeployedObject::Variable { path: path.to_string(), parent_path: None },
+                    Some(format!("Variable '{}' changed permissions", path)),
                     true,
                     None,
                 )

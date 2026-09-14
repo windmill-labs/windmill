@@ -35,8 +35,9 @@
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
-	import McpConnections from './McpConnections.svelte'
-	import SkillsPicker from './SkillsPicker.svelte'
+	import AssistantSettingsModal from './AssistantSettingsModal.svelte'
+	import { SkillsMenu } from './skills/skillsMenu.svelte'
+	import { McpMenu } from '$lib/components/mcp/mcpMenu.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -207,8 +208,11 @@
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
-	let mcpConnections: McpConnections | undefined = $state()
-	let skillsPicker: SkillsPicker | undefined = $state()
+	let assistantSettings: AssistantSettingsModal | undefined = $state()
+	// The "+" menu's skill and MCP rows: enough state to check and flip one, with
+	// everything else about them behind the assistant settings modal.
+	const skillsMenu = new SkillsMenu(aiChatManager, () => assistantSettings?.open('skills'))
+	const mcpMenu = new McpMenu(aiChatManager, () => assistantSettings?.open('mcp'))
 	let plusMenuOpen = $state(false)
 	let editingMessageIndex = $state<number | null>(null)
 
@@ -223,7 +227,15 @@
 			const active = document.activeElement
 			const focusOnChat =
 				!active || active === document.body || (panelEl?.contains(active) ?? false)
-			if (!focusOnChat) return
+			// An Escape while a run form is open must not discard what the user typed, so the action
+			// row alone stops the turn — wherever it is mounted, since the preview panel holds the
+			// form outside `panelEl`. Matched by call: two chats can be loading at once, and one's
+			// row must not answer for the other.
+			if (aiChatManager.hasPendingRunForm) {
+				const row = active?.closest('[data-run-form-actions]')
+				const toolCallId = row?.getAttribute('data-run-form-actions')
+				if (!toolCallId || !aiChatManager.isRunFormPending(toolCallId)) return
+			} else if (!focusOnChat) return
 			e.preventDefault()
 			// Immediate form: other chat panels' identical listeners must not
 			// also cancel on body focus, nor a drawer/modal close on this press.
@@ -555,7 +567,7 @@
 
 	const yoloBypassedTools = $derived.by(() => {
 		return aiChatManager.tools
-			.filter((tool) => tool.requiresConfirmation === true)
+			.filter((tool) => tool.requiresConfirmation === true || tool.bypassedByAutoAccept === true)
 			.map((tool) => ({
 				name: tool.def.function.name,
 				// confirmationMessage may be a function of the call args, which we don't
@@ -959,8 +971,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									const closeMenu = () => (plusMenuOpen = false)
 									const inGlobal = aiChatManager.mode === AIMode.GLOBAL
 									const [skillItems, mcpItems] = await Promise.all([
-										inGlobal ? skillsPicker?.menuItems(closeMenu) : undefined,
-										inGlobal ? mcpConnections?.menuItems(closeMenu) : undefined
+										inGlobal ? skillsMenu.items(closeMenu) : undefined,
+										inGlobal ? mcpMenu.items(closeMenu) : undefined
 									])
 									return [
 										{
@@ -1143,10 +1155,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							<DatatableCreationPolicy />
 						{/if}
 						<ContextUsageIndicator />
-						<AIChatModelSettings />
+						<!-- Unconditional: this composer mounts only via `AIChat` ← `SessionWrapper`,
+						     and `sessionRuntime` locks a session to GLOBAL, where the settings
+						     modal's Instructions section owns the prompt entries. -->
+						<AIChatModelSettings promptSettings={false} />
 						{#if aiChatManager.mode === AIMode.GLOBAL}
-							<SkillsPicker bind:this={skillsPicker} />
-							<McpConnections bind:this={mcpConnections} />
+							<AssistantSettingsModal bind:this={assistantSettings} />
 						{/if}
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}

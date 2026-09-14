@@ -38,7 +38,6 @@ import {
 import {
 	commitSessionWorkspace,
 	deleteSession as deleteSessionState,
-	ensureChatIdsSeeded,
 	getEffectiveWorkspaceId,
 	materializeTransient,
 	sessionState,
@@ -62,6 +61,7 @@ import {
 	previewLocationContext,
 	previewLocationLabel,
 	promptSafe,
+	parseRunFormRoute,
 	resolvePreviewTab
 } from './previewRouter'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
@@ -494,7 +494,13 @@ function createRuntime(session: Session): SessionRuntime {
 			const slot = resolvePreviewTab(url)
 			logFeatureUsage('ai_session', 'tab', {
 				key:
-					slot.kind === 'editor' ? slot.editorKind : slot.kind === 'artifact' ? 'artifact' : 'page',
+					slot.kind === 'editor'
+						? slot.editorKind
+						: slot.kind === 'artifact'
+							? 'artifact'
+							: slot.kind === 'runform'
+								? 'run_form'
+								: 'page',
 				entityId: session.id,
 				workspace: getEffectiveWorkspaceId(session)
 			})
@@ -512,12 +518,35 @@ function createRuntime(session: Session): SessionRuntime {
 		})
 	}
 
+	// Not a page: the tab mounts the chat's own form on the same tool call, so Run in the
+	// panel is Run in the chat, and the two share one draft rather than being two forms
+	// proposing two jobs.
+	manager.openRunForm = ({ toolCallId, label }) => {
+		previewTabs.open({ type: 'runform', toolCallId, label })
+	}
+	manager.closeRunForm = (toolCallId) => previewTabs.closeRunForm(toolCallId)
+	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
+		previewTabs.retargetRunForm(toolCallId, `${base}/run/${jobId}?workspace=${workspace}`)
+	}
+	// Read off the tab list rather than the slot's lifecycle: a tab the user has switched
+	// away from is unmounted but still open, and the card must keep its form hidden until it
+	// is closed. A resolver, like activePreviewResolver: the reader's own $derived subscribes
+	// to `tabs` through it, and the runtime is not inside an effect root to push from.
+	manager.isRunFormInPreview = (toolCallId) =>
+		previewTabs.tabs.some((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)
+
 	manager.openArtifact = (id, name, version) => {
 		previewTabs.open({ type: 'artifact', id, name, version })
 	}
 	manager.closeArtifact = (id) => previewTabs.closeArtifact(id)
 	// Key the store before any configureGlobalMode runs, so a new session's first create shows at once.
 	void manager.artifacts.setSession(session.id)
+
+	// Assigning `manager.mode` above only records the mode; this builds the tool set
+	// and system prompt from it. Keep it here, after the resolvers and the artifact
+	// store it reads, and not on `changeMode`: a runtime exists per session the
+	// picker lists, so changeMode's network refreshes would fire once per listing.
+	manager.configureGlobalMode()
 
 	// Pipeline target state lives on the runtime (not the PipelineEditorView
 	// component) so the in-session drafts survive hide/show of the editor pane —
@@ -921,7 +950,6 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// Restore linked files persisted for this session (live handles re-grant on send;
 	// snapshots restore directly). Non-transient sessions persist immediately.
 	await manager.attachedFiles.restore(session.id, !session.transient)
-	await ensureChatIdsSeeded(manager.historyManager)
 
 	// Keep the session record's chatId following the manager's active chat: a
 	// "/clear" rotation or a history switch would otherwise leave it pointing at

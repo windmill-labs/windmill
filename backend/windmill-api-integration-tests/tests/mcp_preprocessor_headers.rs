@@ -15,6 +15,12 @@ use windmill_test_utils::*;
 
 const SCRIPT_PATH: &str = "u/test-user/mcp_hdr_probe";
 
+/// A bun lock the executor accepts without installing anything: no dependencies
+/// in the `package.json` half, `<empty>` for the `bun.lock` half. The empty
+/// string is not a substitute: a lock carrying no `//bun.lock` separator is
+/// rejected at run time.
+const EMPTY_BUN_LOCK: &str = "{}\n//bun.lock\n<empty>";
+
 /// Echoes the two halves of the event separately, so the assertions can tell
 /// which one a value arrived in.
 const PREPROCESSOR_SCRIPT: &str = r#"
@@ -84,7 +90,7 @@ async fn test_mcp_preprocessor_receives_the_callers_headers(
             "description": "",
             "content": PREPROCESSOR_SCRIPT,
             "language": "bun",
-            "lock": "",
+            "lock": EMPTY_BUN_LOCK,
             "schema": {
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "type": "object",
@@ -101,13 +107,14 @@ async fn test_mcp_preprocessor_receives_the_callers_headers(
         resp.text().await.unwrap_or_default()
     );
 
-    // A script counts as deployed once it has a lock, which normally arrives from
-    // a dependency job. Planting an empty one keeps the test to the path under
-    // test instead of a bun resolution whose timing it does not control.
-    sqlx::query("UPDATE script SET lock = '' WHERE path = $1 AND workspace_id = 'test-workspace'")
-        .bind(SCRIPT_PATH)
-        .execute(&db)
-        .await?;
+    // A supplied lock queues no dependency job, so the version is deployed (hence
+    // listable and runnable) as soon as the create returns.
+    let queued: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM v2_job_queue WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(queued, 0, "the supplied lock must queue no dependency job");
 
     let tools = mcp_post(
         port,

@@ -614,6 +614,39 @@
 			</div>
 		</SettingCard>
 	{/if}
+
+	{#if promptScope === 'workspace'}
+		<!-- Recorded usage must be priced with the rates the chats actually ran under.
+		     A workspace on instance defaults has no rates of its own, so the effective
+		     ones come from copilotInfo rather than from this form's (empty) workspace
+		     config. -->
+		<AiUsagePanel
+			workspace={effectiveWorkspace}
+			modelPricing={usesInstanceAiConfig ? ($copilotInfo.modelPricing ?? {}) : modelPricing}
+		/>
+	{/if}
+
+	<!-- Below the usage it explains: the rates are read as a correction to what the
+	     table above already shows. Kept on its own `showWorkspaceOverrideEditor` gate so
+	     the instance scope, which has no usage panel, still edits rates. -->
+	{#if showWorkspaceOverrideEditor}
+		<ModelPricing {aiProviders} bind:modelPricing />
+	{/if}
+
+	{#if promptScope === 'workspace'}
+		<SettingCard
+			label="Hide AI sessions"
+			description="Hides AI sessions and every other AI assistant button (chat, code generation and completion, AI fix) from all members of this workspace. AI agent steps and the AI sandbox in flows are not affected and keep using the providers configured above. This hides the assistant in the UI only; it does not restrict API access to the configured providers."
+		>
+			<Toggle
+				checked={copilotDisabled}
+				on:change={(e) => {
+					copilotDisabled = e.detail
+				}}
+				options={{ right: 'Hide AI sessions in this workspace' }}
+			/>
+		</SettingCard>
+	{/if}
 </div>
 
 <AIPromptsModal
@@ -623,39 +656,6 @@
 	hasChanges={hasPromptsChanges}
 	scope={promptScope}
 />
-
-{#if promptScope === 'workspace'}
-	<!-- Recorded usage must be priced with the rates the chats actually ran under.
-	     A workspace on instance defaults has no rates of its own, so the effective
-	     ones come from copilotInfo rather than from this form's (empty) workspace
-	     config. -->
-	<AiUsagePanel
-		workspace={effectiveWorkspace}
-		modelPricing={usesInstanceAiConfig ? ($copilotInfo.modelPricing ?? {}) : modelPricing}
-	/>
-{/if}
-
-<!-- Below the usage it explains: the rates are read as a correction to what the
-     table above already shows. Kept on its own `showWorkspaceOverrideEditor` gate so
-     the instance scope, which has no usage panel, still edits rates. -->
-{#if showWorkspaceOverrideEditor}
-	<ModelPricing {aiProviders} bind:modelPricing />
-{/if}
-
-{#if promptScope === 'workspace'}
-	<SettingCard
-		label="Hide AI sessions"
-		description="Hides AI sessions and every other AI assistant button (chat, code generation and completion, AI fix) from all members of this workspace. AI agent steps and the AI sandbox in flows are not affected and keep using the providers configured above. This hides the assistant in the UI only; it does not restrict API access to the configured providers."
-	>
-		<Toggle
-			checked={copilotDisabled}
-			on:change={(e) => {
-				copilotDisabled = e.detail
-			}}
-			options={{ right: 'Hide AI sessions in this workspace' }}
-		/>
-	</SettingCard>
-{/if}
 
 <!-- Not gated on `showWorkspaceOverrideEditor`: a workspace on instance defaults still has
      the hide toggle above to save. -->

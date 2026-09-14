@@ -73,6 +73,7 @@ use crate::{
     args::{self, RawWebhookArgs},
     auth::{OptTokened, Tokened},
     concurrency_groups::join_concurrency_key,
+    csrf::CrossSiteGetGuard,
     db::{ApiAuthed, DB},
     triggers::trigger_helpers::RunnableId,
     users::{
@@ -106,7 +107,10 @@ use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
     flow_status::{Approval, ApprovalConditions, FlowStatus, FlowStatusModule},
-    flows::{add_virtual_items_if_necessary, resolve_maybe_value, FlowValue},
+    flows::{
+        add_virtual_items_if_necessary, resolve_maybe_value, ApprovalSkin, FlowModule, FlowValue,
+        Suspend,
+    },
     jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
     query_builders,
@@ -139,6 +143,7 @@ pub fn workspaced_service() -> Router {
         .route("/run_progress/{id}", get(get_run_progress))
         .route("/run_assets/{id}", get(list_run_assets))
         .route("/dbt_graph/{id}", get(get_dbt_run_graph))
+        .route("/dbt_column_lineage/{id}", get(get_dbt_run_column_lineage))
         .route("/dbt_resumable/{id}", get(get_dbt_resumable))
         .route(
             "/dbt_resumable_script/p/{*script_path}",
@@ -891,21 +896,27 @@ struct AssetProgress {
     error: Option<String>,
 }
 
-/// The asset graph as one run saw it. Pinning to a job needs the full job-read
-/// contract, so it lives on `require_job_read_access` here rather than as a
-/// parameter on `/assets/graph`. See docs/dbt-runtime.md.
-async fn get_dbt_run_graph(
-    authed: ApiAuthed,
-    OptViewToken(view_token): OptViewToken,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(q): Query<windmill_api_assets::GraphQuery>,
-) -> error::JsonResult<windmill_api_assets::AssetGraphResponse> {
+/// Which project version a dbt view pins to for this job, once the caller has
+/// been shown to be entitled to it.
+///
+/// `Ok(None)` is "answer unpinned", not a refusal: a job that stored no graph of
+/// its own — and one that has aged out of retention — is served the deployed
+/// version rather than an error, so a run page keeps drawing after the run is
+/// gone. Pinning needs the full job-read contract, which is why it lives on
+/// `require_job_read_access` here rather than as a parameter on `/assets/*`.
+/// See docs/dbt-runtime.md.
+async fn dbt_pinned_run(
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    job_id: Uuid,
+    view_token: Option<&str>,
+) -> error::Result<Option<windmill_api_assets::PinnedRun>> {
     // The scope domain comes from the URL segment, so `/jobs` asks a scoped token
     // for `jobs:read` alone while the body returned is asset data. Both are
     // required: the job gate below reaches this run, this reaches assets at all.
-    check_scopes(&authed, || "assets:read".to_string())?;
+    check_scopes(authed, || "assets:read".to_string())?;
     let job = sqlx::query!(
         r#"SELECT created_by, runnable_path,
                 CASE WHEN kind = 'script' THEN runnable_id END AS script_hash,
@@ -918,40 +929,68 @@ async fn get_dbt_run_graph(
                            AND g.script_hash IS NULL) AS "editor_graph!"
            FROM v2_job WHERE id = $1 AND workspace_id = $2"#,
         job_id,
-        &w_id
+        w_id
     )
-    .fetch_optional(&db)
+    .fetch_optional(db)
     .await?;
-    // No such job: answer the unpinned graph rather than 404, so a run page whose
-    // job has aged out of retention still draws the deployed version instead of
-    // an error. Reachable only with `assets:read`, which is exactly what
-    // `/assets/graph` would have cost for the same answer.
+    // Unpinned rather than 404 for a job that is gone. Reachable only with
+    // `assets:read`, which is exactly what the unpinned route would have cost
+    // for the same answer.
     let Some(job) = job else {
-        return windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, None).await;
+        return Ok(None);
     };
     require_job_read_access(
-        &db,
-        &user_db,
-        &authed,
-        &w_id,
+        db,
+        user_db,
+        authed,
+        w_id,
         &job_id,
         &job.created_by,
-        view_token.as_deref(),
+        view_token,
     )
     .await?;
     // A preview or flow job names no deployed version, so there is usually no
     // graph to pin to and the workspace one answers. The exception is a job that
     // parsed one itself, which is what the dbt editor's refresh is: its graph
     // belongs to that job alone and nothing else can reach it.
-    let pinned = job
+    Ok(job
         .runnable_path
         .filter(|_| job.script_hash.is_some() || job.editor_graph)
         .map(|path| windmill_api_assets::PinnedRun {
             job_id,
             script_path: path,
             script_hash: job.script_hash,
-        });
+        }))
+}
+
+/// The asset graph as one run saw it.
+async fn get_dbt_run_graph(
+    authed: ApiAuthed,
+    OptViewToken(view_token): OptViewToken,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Query(q): Query<windmill_api_assets::GraphQuery>,
+) -> error::JsonResult<windmill_api_assets::AssetGraphResponse> {
+    let pinned =
+        dbt_pinned_run(&authed, &db, &user_db, &w_id, job_id, view_token.as_deref()).await?;
     windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, pinned).await
+}
+
+/// The column lineage a set of relations sits in as one run saw it — the same
+/// pin as `get_dbt_run_graph`, for the trace drawn beside a node of that graph.
+async fn get_dbt_run_column_lineage(
+    authed: ApiAuthed,
+    OptViewToken(view_token): OptViewToken,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Query(pairs): Query<Vec<(String, String)>>,
+) -> error::JsonResult<windmill_api_assets::ColumnLineageResponse> {
+    let q = windmill_api_assets::ColumnLineageQuery::from_query_pairs(pairs)?;
+    let pinned =
+        dbt_pinned_run(&authed, &db, &user_db, &w_id, job_id, view_token.as_deref()).await?;
+    windmill_api_assets::dbt_column_lineage_for(&authed, &w_id, user_db, q, pinned).await
 }
 
 /// Whether a `dbt retry` submitted by this caller would resume THIS run.
@@ -1594,7 +1633,11 @@ pub(crate) async fn require_job_read_access(
     // this token, and letting it reach any job merely visible to the viewer would
     // expose unrelated runs' results/logs. Stop at the launched-by-viewer grant.
     // NotFound (not PermissionDenied) so the untrusted app can't probe job existence.
-    if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+    // A guest stops here too: it has no membership behind it, so a share token whose
+    // audience is the workspace's members must not read for it either.
+    if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref())
+        || windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref())
+    {
         return Err(Error::NotFound(format!("Job {job_id} not found")));
     }
 
@@ -4377,6 +4420,15 @@ async fn count_completed_jobs(
         ))
 }
 
+lazy_static::lazy_static! {
+    /// 0 keeps the connection-wide statement_timeout.
+    static ref LIST_JOBS_STATEMENT_TIMEOUT_SECS: u64 =
+        std::env::var("LIST_JOBS_STATEMENT_TIMEOUT_SECS")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(30);
+}
+
 async fn list_jobs(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -4494,10 +4546,32 @@ async fn list_jobs(
     // tracing::info!("sql: {}", &sql);
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
+    // A client that gives up does not cancel its query, so without this bound every retry of a
+    // slow filter stacks another scan running until the connection-wide 5min timeout.
+    let timeout_secs = *LIST_JOBS_STATEMENT_TIMEOUT_SECS;
+    if timeout_secs > 0 {
+        sqlx::query(&format!("SET LOCAL statement_timeout = '{timeout_secs}s'"))
+            .execute(&mut *tx)
+            .await?;
+    }
+
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql)
         .fetch_all(&mut *tx)
         .warn_after_seconds_with_sql(5, format!("list_jobs: {}", sql))
-        .await?;
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::Database(ref db_err)
+                if timeout_secs > 0 && db_err.code().as_deref() == Some("57014") =>
+            {
+                Error::Generic(
+                    StatusCode::BAD_REQUEST,
+                    format!(
+                        "Listing jobs took more than {timeout_secs}s and was stopped. Set a start date or narrow the filters."
+                    ),
+                )
+            }
+            e => e.into(),
+        })?;
     tx.commit().await?;
 
     Ok(Json(jobs.into_iter().map(From::from).collect()))
@@ -4787,6 +4861,11 @@ struct ApprovalInfo {
     user_auth_required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     hide_cancel: Option<bool>,
+    skin: ApprovalSkin,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    flow_summary: Option<String>,
     approvers: Vec<Approval>,
     /// Share-read-link token for the flow, minted only for callers allowed to view this
     /// approval. Lets an authenticated workspace-member approver open the run details of
@@ -4840,6 +4919,48 @@ fn can_approve_step(
     }
 }
 
+/// The latest approval step the run has passed: a step before the current `step` that ran
+/// rather than being skipped. Steps from `step` on don't count, because while an approval is
+/// pending the step after it already holds the `WaitingForEvents` status.
+fn last_reached_approval_step<'a>(
+    flow: &'a FlowValue,
+    status: &FlowStatus,
+) -> Option<&'a FlowModule> {
+    flow.modules
+        .iter()
+        .zip(status.modules.iter())
+        .take(usize::try_from(status.step).unwrap_or(0))
+        .rev()
+        .filter(|(_, m)| matches!(m, FlowStatusModule::Success { skipped: false, .. }))
+        .map(|(module, _)| module)
+        .find(|module| module.suspend.is_some())
+}
+
+/// The approval conditions a step's own settings give, as the worker records them when the step
+/// suspends. The worker drops them from the run once the step is approved, so a run that has
+/// moved on is gated by these. Groups computed by an expression can't be re-evaluated outside
+/// the run, so such a step falls back to any signed-in user.
+fn approval_conditions_from_settings(suspend: &Suspend) -> Option<ApprovalConditions> {
+    let user_auth_required = suspend.user_auth_required.unwrap_or(false);
+    let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
+    if !user_auth_required && !self_approval_disabled {
+        return None;
+    }
+    let user_groups_required = match &suspend.user_groups_required {
+        Some(InputTransform::Static { value }) if user_auth_required => {
+            serde_json::from_str(value.get()).unwrap_or_default()
+        }
+        _ => vec![],
+    };
+    Some(ApprovalConditions { user_auth_required, user_groups_required, self_approval_disabled })
+}
+
+/// How the approval step presents itself on the approval page.
+struct ApprovalStepView {
+    skin: ApprovalSkin,
+    summary: Option<String>,
+}
+
 async fn get_approval_info(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
@@ -4868,13 +4989,33 @@ async fn get_approval_info(
         script_path: Option<String>,
         email: String,
         flow_status: Option<serde_json::Value>,
-        workflow_as_code_status: Option<serde_json::Value>,
+        // `v2_job_status` only holds a run that hasn't finished, so the fields below also read
+        // the completed run's status: a finished run's page keeps its skin and, for workflows as
+        // code, its description, still gated by the approval conditions the run had.
+        completed_flow_status: Option<serde_json::Value>,
+        is_wac: bool,
+        wac_approval: Option<serde_json::Value>,
+        approval_conditions: Option<serde_json::Value>,
+        flow_summary: Option<String>,
     }
     let row = sqlx::query_as::<_, ApprovalJobRow>(
         "SELECT j.id, j.runnable_path as script_path, j.permissioned_as_email as email,
-                s.flow_status, s.workflow_as_code_status
+                s.flow_status,
+                c.flow_status AS completed_flow_status,
+                COALESCE(s.workflow_as_code_status, c.workflow_as_code_status) IS NOT NULL
+                    AS is_wac,
+                COALESCE(s.workflow_as_code_status, c.workflow_as_code_status)->'_approval'
+                    AS wac_approval,
+                COALESCE(s.flow_status, c.flow_status)->'approval_conditions'
+                    AS approval_conditions,
+                NULLIF(COALESCE(f.summary, sc.summary), '') AS flow_summary
          FROM v2_job j
          LEFT JOIN v2_job_status s ON s.id = j.id
+         LEFT JOIN v2_job_completed c ON c.id = j.id
+         LEFT JOIN flow f
+             ON j.kind = 'flow' AND f.workspace_id = j.workspace_id AND f.path = j.runnable_path
+         LEFT JOIN script sc
+             ON j.kind = 'script' AND sc.workspace_id = j.workspace_id AND sc.hash = j.runnable_id
          WHERE j.id = $1 AND j.workspace_id = $2",
     )
     .bind(&job_id)
@@ -4883,31 +5024,31 @@ async fn get_approval_info(
     .await?
     .ok_or_else(|| Error::NotFound(format!("Job {job_id} not found")))?;
 
-    let is_wac = row.workflow_as_code_status.is_some();
+    let is_wac = row.is_wac;
+    let run_ac = row
+        .approval_conditions
+        .as_ref()
+        .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
 
     // Extract approval info based on WAC vs classic flow
-    let (form_schema, description, default_args, enums, approval_conditions, hide_cancel) =
+    let (form_schema, description, default_args, enums, approval_conditions, hide_cancel, step) =
         if is_wac {
-            let approval_meta = row
-                .workflow_as_code_status
-                .as_ref()
-                .and_then(|v| v.get("_approval"));
+            let approval_meta = row.wac_approval.as_ref();
             let form = approval_meta.and_then(|m| m.get("form").cloned());
             let default_args = approval_meta.and_then(|m| m.get("default_args").cloned());
             let enums = approval_meta.and_then(|m| m.get("enums").cloned());
             let description = approval_meta.and_then(|m| m.get("description").cloned());
-            let ac = row
-                .flow_status
-                .as_ref()
-                .and_then(|v| v.get("approval_conditions"))
-                .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
-            (form, description, default_args, enums, ac, None)
+            let skin = approval_meta
+                .and_then(|m| m.get("skin"))
+                .and_then(|v| serde_json::from_value::<ApprovalSkin>(v.clone()).ok())
+                .unwrap_or_default();
+            let step = Some(ApprovalStepView { skin, summary: None });
+            (form, description, default_args, enums, run_ac, None, step)
         } else {
             let fs = row
                 .flow_status
                 .as_ref()
                 .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
-            let ac = fs.as_ref().and_then(|s| s.approval_conditions.clone());
 
             // For classic flows, form/description come from the flow definition and step result
             let approval_step = fs.as_ref().map(|s| (s.step as usize).saturating_sub(1));
@@ -4967,6 +5108,28 @@ async fn get_approval_info(
                 .and_then(|s| s.resume_form.as_ref())
                 .map(|rf| serde_json::json!(rf));
             let hc = suspend_settings.map(|s| s.hide_cancel.unwrap_or(false));
+            let completed_fs = row
+                .completed_flow_status
+                .as_ref()
+                .filter(|_| fs.is_none())
+                .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
+            let approval_module = raw_flow
+                .as_ref()
+                .zip(fs.as_ref().or(completed_fs.as_ref()))
+                .and_then(|(flow, status)| last_reached_approval_step(flow, status));
+            let ac = run_ac.or_else(|| {
+                approval_module
+                    .and_then(|module| module.suspend.as_ref())
+                    .and_then(approval_conditions_from_settings)
+            });
+            let step = approval_module.map(|module| ApprovalStepView {
+                skin: module
+                    .suspend
+                    .as_ref()
+                    .and_then(|s| s.skin)
+                    .unwrap_or_default(),
+                summary: module.summary.clone().filter(|s| !s.trim().is_empty()),
+            });
 
             // Fetch description, default_args, and enums from the step's completed job result
             let step_job_id = fs
@@ -4990,8 +5153,11 @@ async fn get_approval_info(
                 (None, None, None)
             };
 
-            (form, desc, default_args, enums, ac, hc)
+            (form, desc, default_args, enums, ac, hc, step)
         };
+
+    let skin = step.as_ref().map(|s| s.skin).unwrap_or_default();
+    let step_summary = step.and_then(|s| s.summary);
 
     let user_auth_required = approval_conditions
         .as_ref()
@@ -5022,6 +5188,9 @@ async fn get_approval_info(
             can_approve: false,
             user_auth_required,
             hide_cancel: None,
+            skin,
+            step_summary: None,
+            flow_summary: None,
             approvers: vec![],
             view_token: None,
         }));
@@ -5057,6 +5226,9 @@ async fn get_approval_info(
         can_approve,
         user_auth_required,
         hide_cancel,
+        skin,
+        step_summary,
+        flow_summary: row.flow_summary,
         approvers,
         view_token,
     }))
@@ -6472,7 +6644,7 @@ pub async fn run_flow_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let (args, trigger_metadata) = get_args_and_trigger_metadata(
+    let (args, trigger_metadata) = match get_args_and_trigger_metadata(
         &db,
         &authed,
         RunnableId::from_flow_path(flow_path.to_path()),
@@ -6480,7 +6652,15 @@ pub async fn run_flow_by_path(
         &w_id,
         args,
     )
-    .await?;
+    .await?
+    {
+        WebhookRun::Run(args, trigger_metadata) => (args, trigger_metadata),
+        // 200 rather than an error: services drop a webhook that keeps failing, and disabling a
+        // trigger in Windmill must not cost it its registration.
+        WebhookRun::TriggerDisabled => {
+            return Ok((StatusCode::OK, NATIVE_TRIGGER_DISABLED_MSG.to_string()))
+        }
+    };
 
     let (uuid, _, _, _) = push_flow_job_by_path_into_queue(
         authed,
@@ -6905,7 +7085,7 @@ pub async fn run_script_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let (args, trigger_metadata) = get_args_and_trigger_metadata(
+    let (args, trigger_metadata) = match get_args_and_trigger_metadata(
         &db,
         &authed,
         RunnableId::from_script_path(script_path.to_path()),
@@ -6913,7 +7093,13 @@ pub async fn run_script_by_path(
         &w_id,
         args,
     )
-    .await?;
+    .await?
+    {
+        WebhookRun::Run(args, trigger_metadata) => (args, trigger_metadata),
+        WebhookRun::TriggerDisabled => {
+            return Ok((StatusCode::OK, NATIVE_TRIGGER_DISABLED_MSG.to_string()))
+        }
+    };
 
     let (uuid, _, _) = push_script_job_by_path_into_queue(
         authed,
@@ -6931,6 +7117,16 @@ pub async fn run_script_by_path(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
+/// What a webhook delivery resolved to: the arguments to run with, or nothing to run.
+pub enum WebhookRun {
+    Run(PushArgsOwned, Option<TriggerMetadata>),
+    /// The native trigger this delivery belongs to is disabled.
+    TriggerDisabled,
+}
+
+const NATIVE_TRIGGER_DISABLED_MSG: &str =
+    "This trigger is disabled in Windmill, so no job was created";
+
 #[allow(unused)]
 pub async fn get_args_and_trigger_metadata(
     db: &DB,
@@ -6939,14 +7135,21 @@ pub async fn get_args_and_trigger_metadata(
     run_query: &RunJobQuery,
     w_id: &str,
     args: RawWebhookArgs,
-) -> error::Result<(PushArgsOwned, Option<TriggerMetadata>)> {
+) -> error::Result<WebhookRun> {
     use windmill_common::triggers::TriggerMetadata;
 
     // Build trigger metadata if this is a native trigger request
     #[cfg(feature = "native_trigger")]
     let (trigger_metadata, native_args) = if let Some(service_name_str) = &run_query.service_name {
-        use crate::native_triggers::{prepare_native_trigger_args, ServiceName};
+        use crate::native_triggers::{
+            native_trigger_is_enabled, prepare_native_trigger_args, ServiceName,
+        };
         let service_name = ServiceName::try_from(service_name_str.to_owned())?;
+        if let Some(external_id) = run_query.trigger_external_id.as_deref() {
+            if !native_trigger_is_enabled(db, w_id, service_name, external_id).await? {
+                return Ok(WebhookRun::TriggerDisabled);
+            }
+        }
         let metadata = Some(TriggerMetadata::new(
             run_query.trigger_external_id.clone(),
             service_name.as_job_trigger_kind(),
@@ -6982,7 +7185,7 @@ pub async fn get_args_and_trigger_metadata(
         .await?
     };
 
-    Ok((args, trigger_metadata))
+    Ok(WebhookRun::Run(args, trigger_metadata))
 }
 
 #[derive(Deserialize)]
@@ -7377,6 +7580,7 @@ async fn log_job_view(
 }
 
 pub async fn run_wait_result_job_by_path_get(
+    cross_site: CrossSiteGetGuard,
     method: hyper::http::Method,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -7389,6 +7593,7 @@ pub async fn run_wait_result_job_by_path_get(
     check_license_key_valid().await?;
 
     let script_path = script_path.to_path();
+    let runnable_id = cross_site.script_runnable(script_path)?;
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
 
     if method == http::Method::HEAD {
@@ -7401,12 +7606,7 @@ pub async fn run_wait_result_job_by_path_get(
     args.body = args::Body::HashMap(payload_as_args);
 
     let args = args
-        .to_args_from_runnable(
-            &db,
-            &w_id,
-            RunnableId::from_script_path(script_path),
-            run_query.skip_preprocessor,
-        )
+        .to_args_from_runnable(&db, &w_id, runnable_id, run_query.skip_preprocessor)
         .await?;
 
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
@@ -7825,6 +8025,7 @@ pub async fn stream_flow_by_version(
 }
 
 pub async fn stream_script_by_path(
+    cross_site: CrossSiteGetGuard,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -7833,12 +8034,13 @@ pub async fn stream_script_by_path(
     method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
+    let runnable_id = cross_site.script_runnable(script_path.to_path())?;
     stream_job(
         authed,
         db,
         user_db,
         w_id,
-        RunnableId::from_script_path(script_path.to_path()),
+        runnable_id,
         args,
         run_query,
         method == http::Method::GET,
@@ -11712,6 +11914,7 @@ mod approval_view_gate_tests {
             token_prefix: None,
             read_only: false,
             job_id: None,
+            credential_expiry: None,
         }
     }
 
@@ -11805,5 +12008,59 @@ mod approval_view_gate_tests {
             Some("f/team/flow"),
             "trigger@example.com"
         ));
+    }
+
+    #[test]
+    fn approval_step_is_the_last_one_passed() {
+        let flow: FlowValue = serde_json::from_value(serde_json::json!({ "modules": [
+            { "id": "a", "value": { "type": "identity" }, "suspend": {} },
+            { "id": "b", "value": { "type": "identity" }, "suspend": {} },
+            { "id": "c", "value": { "type": "identity" } }
+        ]}))
+        .unwrap();
+        let step_at = |step: i32, types: [(&str, bool); 3]| {
+            let mut status = FlowStatus::new(&flow);
+            status.step = step;
+            status.modules = ["a", "b", "c"]
+                .into_iter()
+                .zip(types)
+                .map(|(id, (kind, skipped))| {
+                    serde_json::from_value(serde_json::json!({
+                        "type": kind, "id": id, "job": Uuid::nil(), "count": 1,
+                        "failed_retries": [], "skipped": skipped
+                    }))
+                    .unwrap()
+                })
+                .collect();
+            last_reached_approval_step(&flow, &status).map(|module| module.id.clone())
+        };
+        let waiting = ("WaitingForEvents", false);
+        let pending = ("WaitingForPriorSteps", false);
+        let ran = ("Success", false);
+        let skipped = ("Success", true);
+        // Awaiting a's approval: b, itself an approval step, already holds `WaitingForEvents`.
+        assert_eq!(step_at(1, [ran, waiting, pending]).as_deref(), Some("a"));
+        assert_eq!(step_at(2, [ran, ran, waiting]).as_deref(), Some("b"));
+        assert_eq!(step_at(3, [ran, skipped, ran]).as_deref(), Some("a"));
+        assert_eq!(step_at(0, [pending, pending, pending]), None);
+    }
+
+    #[test]
+    fn approved_step_stays_gated_by_its_settings() {
+        let from_settings = |suspend: serde_json::Value| {
+            approval_conditions_from_settings(&serde_json::from_value(suspend).unwrap())
+        };
+        let login = from_settings(serde_json::json!({
+            "user_auth_required": true,
+            "user_groups_required": { "type": "static", "value": ["approvers"] }
+        }));
+        assert!(!can_view(
+            &None,
+            &login,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
+        assert_eq!(login.unwrap().user_groups_required, ["approvers"]);
+        assert!(from_settings(serde_json::json!({})).is_none());
     }
 }

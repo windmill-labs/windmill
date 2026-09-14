@@ -10,6 +10,7 @@
 	import { Button } from '../common'
 	import Tooltip from '../Tooltip.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
+	import SelfHostCta from '$lib/components/settings/SelfHostCta.svelte'
 	import { ExternalLink, Pen, X } from 'lucide-svelte'
 	import Section from '../Section.svelte'
 	import Range from '../Range.svelte'
@@ -600,6 +601,10 @@
 			</div>
 		</div>
 	{/each}
+</div>
+
+<div class="mt-4">
+	<SelfHostCta />
 </div>
 <div class="flex flex-col gap-1 my-8 w-full items-center">
 	<div class="text-primary text-md font-semibold"> Frequently asked questions </div><br />

@@ -534,8 +534,8 @@ describe('sessionState IndexedDB persistence', () => {
 		} as never)
 		await reconcileSessionsLifecycle()
 
-		// A caller that captured the session before the delete writes it back — what the
-		// chat-id seeder does when it resumes after awaiting mid-loop.
+		// A caller that captured the session before the delete writes it back — what any
+		// writer does when it resumes after awaiting between the find and the write.
 		doomed.chatId = 'chat-from-a-stale-reference'
 		await putSession(doomed)
 

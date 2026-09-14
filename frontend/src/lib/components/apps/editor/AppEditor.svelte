@@ -473,15 +473,6 @@
 
 	let appEditorHeader: AppEditorHeader | undefined = $state(undefined)
 
-	export function triggerTutorial() {
-		const urlParams = new URLSearchParams(window.location.search)
-		const tutorial = urlParams.get('tutorial')
-
-		if (tutorial) {
-			appEditorHeader?.runTutorialById(tutorial)
-		}
-	}
-
 	let box: HTMLElement | undefined = $state(undefined)
 	function parseScroll() {
 		$yTop = box?.scrollTop ?? 0

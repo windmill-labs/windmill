@@ -128,6 +128,40 @@ pub fn extract_referenced_paths(
     }
 }
 
+/// Re-records which paths `script_path` imports and what each one's lock hashes to right now.
+/// That snapshot is what a later relock-skip check of this importer compares against, so it
+/// has to move whenever the imports may have, whether or not the importer's own lock did.
+///
+/// Writes for any path in `w_id` and checks nothing: callers are responsible for having
+/// established access to that workspace and script, as a dependency job's push already has.
+pub async fn refresh_dependency_map(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    w_id: &str,
+    script_path: &str,
+    parent_path: &Option<String>,
+    code: &str,
+    script_lang: &Option<ScriptLang>,
+) -> error::Result<()> {
+    use scoped_dependency_map::ScopedDependencyMap;
+
+    let mut tx = db.begin().await?;
+    let mut dependency_map =
+        ScopedDependencyMap::fetch_maybe_rearranged(w_id, script_path, "script", parent_path, db)
+            .await?;
+
+    tx = dependency_map
+        .patch(
+            extract_referenced_paths(code, script_path, *script_lang),
+            // Ideally should be None, but due to current implementation will use empty string to represent None.
+            "".into(),
+            tx,
+        )
+        .await?;
+
+    dependency_map.dissolve(tx).await.commit().await?;
+    Ok(())
+}
+
 pub async fn process_relative_imports(
     db: &sqlx::Pool<sqlx::Postgres>,
     _job_id: Option<Uuid>,
@@ -145,29 +179,7 @@ pub async fn process_relative_imports(
     use scoped_dependency_map::ScopedDependencyMap;
     use trigger_dependents::trigger_dependents_to_recompute_dependencies;
 
-    // TODO: Should be moved into handle_dependency_job body to be more consistent with how flows and apps are handled
-    {
-        let mut tx = db.begin().await?;
-        let mut dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(
-            &w_id,
-            script_path,
-            "script",
-            &parent_path,
-            db,
-        )
-        .await?;
-
-        tx = dependency_map
-            .patch(
-                extract_referenced_paths(&code, script_path, *script_lang),
-                // Ideally should be None, but due to current implementation will use empty string to represent None.
-                "".into(),
-                tx,
-            )
-            .await?;
-
-        dependency_map.dissolve(tx).await.commit().await?;
-    }
+    refresh_dependency_map(db, w_id, script_path, &parent_path, code, script_lang).await?;
 
     {
         let mut already_visited = args

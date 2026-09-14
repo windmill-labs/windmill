@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT canceled_by, canceled_reason,\n                (extract(epoch FROM now() - started_at) * 1000)::bigint AS segment_ms\n         FROM v2_job_queue WHERE id = $1 AND workspace_id = $2 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "canceled_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "canceled_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "segment_ms",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "e749663a4b9248a9d120f77e86fd3413ad3c0fbe8f3dca9aea11cb49fd4a28ef"
+}

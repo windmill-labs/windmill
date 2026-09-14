@@ -10,9 +10,11 @@ import {
 	parseArtifactRoute,
 	parsePreviewItemRoute,
 	parsePreviewSelectedId,
+	parseRunFormRoute,
 	previewLocationContext,
 	previewLocationLabel,
-	resolvePreviewTab
+	resolvePreviewTab,
+	runFormUrl
 } from './previewRouter'
 
 describe('drawerAnchorFor', () => {
@@ -389,5 +391,28 @@ describe('artifact route', () => {
 	it('labels an artifact tab by its name, falling back to "Artifact" when unnamed', () => {
 		expect(previewLocationLabel(artifactUrl('abc', 'My Doc'))).toBe('My Doc')
 		expect(previewLocationLabel('artifact:abc')).toBe('Artifact')
+	})
+})
+
+describe('run form route', () => {
+	it('round-trips the tool call and its label, including special chars', () => {
+		// This url is persisted with the tab, so one that does not read back comes back as an
+		// unopenable tab on every reload rather than failing once.
+		for (const [toolCallId, label] of [
+			['call_abc', 'Run refund'],
+			['call#with/odd:chars', 'weird # % / summary'],
+			['call_x', '']
+		] as const) {
+			expect(parseRunFormRoute(runFormUrl(toolCallId, label))).toEqual({ toolCallId, label })
+		}
+	})
+
+	it('resolves to a mounted form rather than a frame, and never claims another url', () => {
+		expect(resolvePreviewTab(runFormUrl('call_abc', 'Run refund'))).toEqual({
+			kind: 'runform',
+			toolCallId: 'call_abc'
+		})
+		expect(parseRunFormRoute('/run/01a0')).toBeNull()
+		expect(parseRunFormRoute('artifact:abc#Plan')).toBeNull()
 	})
 })

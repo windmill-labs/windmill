@@ -7,10 +7,10 @@
 	import {
 		cleanValueProperties,
 		orderedJsonStringify,
-		orderedYamlStringify,
 		replaceFalseWithUndefined,
 		type Value
 	} from '$lib/utils'
+	import { orderedYamlStringify } from '$lib/utils/orderedYaml'
 	import type { Script } from '$lib/gen'
 	import Select from './select/Select.svelte'
 	import type { DiffVersionOption } from './diff_drawer'

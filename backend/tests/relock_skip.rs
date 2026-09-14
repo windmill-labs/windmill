@@ -266,7 +266,10 @@ def main():
         .await
         .unwrap();
 
-        in_test_worker(&db, wait_for_jobs_ge(&mut completed, 10), port).await;
+        // Empty content leaves every importer's lock as it was, so only the five direct
+        // importers of the default deps run a job: an unchanged script relock deploys no
+        // version and so queues nothing for its own importers.
+        in_test_worker(&db, wait_for_jobs_ge(&mut completed, 5), port).await;
 
         // Note: within a cascade, the same script may be triggered multiple times.
         // After the first trigger relocks and stores the hash, subsequent triggers skip.
@@ -295,7 +298,7 @@ def main():
         .await
         .unwrap();
 
-        in_test_worker(&db, wait_for_jobs_ge(&mut completed, 10), port).await;
+        in_test_worker(&db, wait_for_jobs_ge(&mut completed, 5), port).await;
 
         let skipping_count = count_pattern_in_job_logs(&db, "Skipping relock", before).await;
         assert!(

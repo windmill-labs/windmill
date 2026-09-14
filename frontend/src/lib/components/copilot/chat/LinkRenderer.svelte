@@ -3,6 +3,7 @@
 	import { ExternalLink, PanelRight } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import { newTabModifier } from '$lib/attachments/newTabModifier.svelte'
 	import {
 		hasToolDisplayActionHandler,
 		runToolDisplayAction
@@ -44,6 +45,8 @@
 	const previewAction = $derived(available?.type === 'open_item_preview' ? available : undefined)
 	const drawerAction = $derived(available?.type === 'open_created_resource' ? available : undefined)
 
+	const modifier = newTabModifier()
+
 	const hint = $derived(
 		previewAction ? `Open ${wmPath} in the preview panel` : `Open ${wmPath} in a new tab`
 	)
@@ -67,7 +70,11 @@
 
 {#if href}
 	{#if wmKind}
-		<span class="group inline-flex items-baseline">
+		<!-- Only a preview pill can change icon, so only it is worth tracking the modifier for. -->
+		<span
+			class="group inline-flex items-baseline"
+			{@attach previewAction ? modifier.attach : undefined}
+		>
 			<a
 				{href}
 				target={previewAction ? undefined : '_blank'}
@@ -85,7 +92,9 @@
 					<span
 						class="absolute inset-0 flex items-center justify-center text-tertiary opacity-0 transition-opacity group-hover:opacity-100"
 					>
-						{#if previewAction}
+						<!-- Narrower than the modifier list `onclick` bails on: only the modifier that
+						     really opens a tab may show the icon for one. -->
+						{#if previewAction && !modifier.held}
 							<PanelRight size={12} />
 						{:else}
 							<ExternalLink size={11} />

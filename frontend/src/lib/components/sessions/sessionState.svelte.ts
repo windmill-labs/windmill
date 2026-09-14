@@ -38,7 +38,6 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 }
 import { WorkspaceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
-import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
 import { onUserChange } from '$lib/userScopedStorage'
 
 // A destination the session preview can open as an editor: a workspace item
@@ -405,7 +404,7 @@ export function takeSessionAutoSend(sessionId: string): boolean {
 
 // Persist a session on a genuine user edit, promoting an in-memory-only
 // (transient) pending session to a durable IndexedDB record on first touch.
-// Non-touch writers (runtime chatId seeding via patchStoredSessionChatId, the
+// Non-touch writers (runtime chatId writes via patchStoredSessionChatId, the
 // unread watermark via putSession) persist directly, so an untouched draft
 // stays in memory and vanishes on reload.
 function persistTouched(s: Session): void {
@@ -457,8 +456,8 @@ export async function putSession(s: Session): Promise<void> {
 	if (s.transient) return
 	// A record removed because its workspace is gone had its files and artifacts GC'd with
 	// it, so writing it back resurrects an empty husk. Callers reach here holding a
-	// reference captured before the delete — the chat-id seeder awaits mid-loop,
-	// find-then-write callers race the re-hydrate.
+	// reference captured before the delete: find-then-write callers race the
+	// re-hydrate, and any writer that awaits between the find and the write.
 	if (deletedSessionIds.has(s.id)) return
 	// Separately, keep a UI action (e.g. unarchive) from persisting into a workspace that
 	// has gone unavailable but not yet reconciled. `userWorkspaces` answers that only for
@@ -759,9 +758,9 @@ function isDiscardableDraft(s: Session): boolean {
 }
 
 // Somewhere empty to put the user, for a URL naming a session this browser
-// doesn't hold. Only `transient` makes "empty" trustworthy: chat seeding and
-// attached-file persistence both key off `!transient` and leave every field
-// below untouched, so a persisted session can hold a conversation regardless.
+// doesn't hold. Only `transient` makes "empty" trustworthy: a persisted session
+// can hold a conversation while every field below stays untouched — its chat and
+// attached files key off `!transient`, not off these.
 export function findEmptyLandingSession(): Session | undefined {
 	return sessionState.sessions.find(
 		(s) =>
@@ -1183,42 +1182,4 @@ async function patchStoredSessionChatId(s: Session, chatId: string): Promise<voi
 	} catch (e) {
 		console.error('Failed to persist session chat id', e)
 	}
-}
-
-let seedPromise: Promise<void> | undefined
-
-// One-shot pairing of the user's two most-recently-modified saved chats with
-// the two seeded sessions. Idempotent across all callers / SessionWrappers.
-export function ensureChatIdsSeeded(historyManager: HistoryManager): Promise<void> {
-	if (!seedPromise) {
-		seedPromise = (async () => {
-			try {
-				await historyManager.init()
-				// Read directly from storage so we see chats regardless of this manager's
-				// own session-scope filter (getPastChats would hide already-tagged ones).
-				const pastChats = historyManager.getAllSavedChats()
-				const untagged = pastChats
-					.filter((c) => !c.sessionId)
-					.sort((a, b) => b.lastModified - a.lastModified)
-				// Only seed pre-existing (persisted) sessions. Transient
-				// sessions are freshly created via the "+" button and must
-				// start with an empty chat — if the seed catches one (e.g. the
-				// user clicks "New session" before this one-shot runs), it
-				// would graft a previous discussion onto the new session.
-				const seedable = sessionState.sessions.filter((s) => !s.transient)
-				for (let i = 0; i < Math.min(seedable.length, untagged.length); i++) {
-					if (!seedable[i].chatId) {
-						const chatId = untagged[i].id
-						const sessionId = seedable[i].id
-						seedable[i].chatId = chatId
-						await historyManager.tagChatWithSession(chatId, sessionId)
-						void putSession(seedable[i])
-					}
-				}
-			} catch (e) {
-				console.error('Failed to seed chat ids from history', e)
-			}
-		})()
-	}
-	return seedPromise
 }

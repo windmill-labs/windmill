@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// Whether `label` denotes a user-created token rather than a system token
-/// (`session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`). System-token
+/// (`session`, `guest_session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`). System-token
 /// labels are load-bearing — session cleanup, super_admin propagation, expiry
 /// notifications and username overrides all key off them — so they must not be
 /// user-editable. `None` (no label) is treated as a user token.
@@ -36,6 +36,7 @@ pub fn is_user_token(label: Option<&str>) -> bool {
             // frontend mirror (`label.toLowerCase().startsWith('ephemeral')`) and
             // the SQL `lower(label) NOT LIKE 'ephemeral%'` guard.
             l != "session"
+                && l != GUEST_SESSION_LABEL
                 && !l.to_lowercase().starts_with("ephemeral")
                 && l != "debugger-token"
                 && !l.starts_with("mcp-oauth-")
@@ -56,7 +57,38 @@ pub fn is_server_minted_label(label: &str) -> bool {
         || label.starts_with("ephemeral-script-end-user-")
         || label == "ephemeral-script"
         || label == "session"
+        || label == GUEST_SESSION_LABEL
         || label.starts_with("mcp-oauth-")
+}
+
+/// Label on a guest session (the `guest` app execution mode). This is the *grant*:
+/// `AuthCache` will resolve a token carrying it into an identity with no account behind
+/// it, which nothing else can do. It must therefore stay unforgeable, which is what
+/// listing it in [`is_server_minted_label`] buys — `/users/tokens/create` refuses it.
+///
+/// Do not move this test onto the token's scopes. Scopes on a user-minted token are
+/// caller-supplied and only ever *narrow* (`app_embed`, `raw_app_sdk`), so a scope
+/// that granted non-member access would be free for anyone to declare.
+pub const GUEST_SESSION_LABEL: &str = "guest_session";
+
+/// Whether `label` marks a guest session. See [`GUEST_SESSION_LABEL`].
+///
+/// Reserved in [`is_user_token`] as well as [`is_server_minted_label`]: the former
+/// gates relabelling, and a user token that could be relabelled *into* this
+/// namespace would become a guest session with no workspace pin — one that
+/// authenticates everywhere.
+pub fn is_guest_session_label(label: Option<&str>) -> bool {
+    label == Some(GUEST_SESSION_LABEL)
+}
+
+/// Whether `path` can be spliced into a scope as one literal resource. The scope
+/// grammar reserves three characters: `:` separates the parts, `,` separates
+/// resources, `*` is a wildcard. App paths are otherwise free-form (spaces, `@`). A
+/// leading `/` is refused too: routes strip it, so the scope would never match.
+pub fn is_scope_literal_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.chars().any(|c| matches!(c, ':' | ',' | '*'))
 }
 
 /// Whether `label` is the one minted for a browser session at login. [`is_server_minted_label`]
@@ -420,6 +452,42 @@ async fn fetch_authed_from_permissioned_as_inner(
     w_id: &str,
     conn: &mut sqlx::PgConnection,
 ) -> Result<Authed> {
+    // The `usr` row is the live binding between a `u/` principal and an address, and it is read
+    // here anyway for the workspace role. Callers may hand us a cached address, so read it before
+    // anything is granted: `super_admin` and `email_to_igroup` below are keyed on the address
+    // while the role is keyed on the principal, and an address that no longer belongs to this
+    // principal — a username freed and reassigned while its previous holder keeps a privileged
+    // account — would mix one account's role with another's instance privileges.
+    let member = match permissioned_as.split_once('/') {
+        Some(("u", name)) => sqlx::query!(
+            "SELECT is_admin, operator, email FROM usr where username = $1 AND \
+                                         workspace_id = $2 AND disabled = false",
+            name,
+            &w_id
+        )
+        .fetch_optional(&mut *conn)
+        .await?,
+        _ => None,
+    };
+    let resolved_email;
+    let email = match member.as_ref() {
+        Some(m) => m.email.as_str(),
+        // No enabled `usr` row. Resolve as `resolve_username_to_email` does: a disabled member's
+        // own row still wins over the `password` superadmin fallback, so it can never resolve to
+        // an unrelated superadmin who shares the username (workspace usernames are only unique per
+        // workspace). Off the member path, which is why it is worth a query that path skips.
+        None => match permissioned_as.split_once('/') {
+            Some(("u", name)) => {
+                resolved_email =
+                    crate::users::resolve_username_to_email(w_id, name, &mut *conn).await?;
+                // No live binding at all: the supplied address stands. A cached one is at most one
+                // notify poll stale; accepted, see `users::get_email_from_permissioned_as`.
+                resolved_email.as_deref().unwrap_or(email)
+            }
+            _ => email,
+        },
+    };
+
     let is_super_admin = permissioned_as == SUPERADMIN_SYNC_EMAIL
         || email == SUPERADMIN_SECRET_EMAIL
         || email == SUPERADMIN_NOTIFICATION_EMAIL
@@ -433,22 +501,12 @@ async fn fetch_authed_from_permissioned_as_inner(
         if prefix == "u" {
             let (is_admin, is_operator) = if is_super_admin {
                 (true, false)
+            } else if let Some(m) = member.as_ref() {
+                (m.is_admin, m.operator)
             } else {
-                let r = sqlx::query!(
-                    "SELECT is_admin, operator FROM usr where username = $1 AND \
-                                                 workspace_id = $2 AND disabled = false",
-                    name,
-                    &w_id
-                )
-                .fetch_optional(&mut *conn)
-                .await?;
-                if let Some(r) = r {
-                    (r.is_admin, r.operator)
-                } else {
-                    return Err(Error::NotFound(format!(
-                        "user {name} not found in workspace {w_id}"
-                    )));
-                }
+                return Err(Error::NotFound(format!(
+                    "user {name} not found in workspace {w_id}"
+                )));
             };
 
             let groups = get_groups_for_user(w_id, &name, email, &mut *conn).await?;

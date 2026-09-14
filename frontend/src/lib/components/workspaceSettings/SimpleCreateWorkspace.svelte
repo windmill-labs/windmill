@@ -1,0 +1,237 @@
+<script lang="ts">
+	import type { Snippet } from 'svelte'
+	import { Loader2 } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import CreateWorkspaceInner from './CreateWorkspaceInner.svelte'
+	import { UserService, WorkspaceService } from '$lib/gen'
+	import { usersWorkspaceStore } from '$lib/stores'
+	import { switchWorkspace } from '$lib/storeUtils'
+	import { sendUserToast } from '$lib/toast'
+	import {
+		toWorkspaceId,
+		validateWorkspaceId,
+		WORKSPACE_NAME_MAX_LENGTH
+	} from '$lib/utils/workspaceId'
+	import {
+		defaultWorkspaceName,
+		loadUsernamePolicy,
+		WORKSPACE_HANDOVER_MS
+	} from '$lib/workspaceCreation'
+
+	/**
+	 * Creates a workspace. It enforces no permission of its own — `create_workspace` is the
+	 * gate, and it refuses when `CREATE_WORKSPACE_REQUIRE_SUPERADMIN` is on and the caller is
+	 * not one — so a surface that offers this form to someone who may not create is offering
+	 * an action that ends in a 401. A caller must establish that first. The workspace picker
+	 * asks `canCreateWorkspace()`; the onboarding step does not, because it is reached only
+	 * from the cloud sign-in path, where the setting is off by definition — a surface with
+	 * any other way in owes the check.
+	 */
+	interface Props {
+		/** Where to go once the workspace exists. It is already the active one by then. */
+		onCreated: () => void
+		/**
+		 * Rendered at the head of the action row — a host's own way back, next to Advanced
+		 * settings rather than stranded under the button that finishes the form.
+		 */
+		leading?: Snippet
+	}
+
+	let { onCreated, leading }: Props = $props()
+
+	let name = $state('')
+	let creating = $state(false)
+
+	// The full form — id, colour, username, invites — for the person who wants it. Forced on
+	// when the instance does not derive usernames: one is required and a name field has
+	// nowhere to ask for it.
+	let advanced = $state(false)
+	let automateUsername = $state(true)
+	let suggestedUsername = $state<string | undefined>(undefined)
+	/**
+	 * Whether the username policy is known, which is what this form may not submit without.
+	 * `create_workspace` refuses a username on an instance that automates them and requires
+	 * one on an instance that does not, so a client that has not read the setting cannot
+	 * pick a request shape — there is no safe default to fall back to, only two shapes the
+	 * server rejects. Unknown therefore blocks Create and says why, with a retry.
+	 */
+	let policyLoaded = $state(false)
+	let policyFailed = $state(false)
+	/** Someone typed while the prefill was in flight; their name wins over the suggestion. */
+	let nameEdited = false
+
+	async function load() {
+		// Settled apart: the policy decides whether this form may submit at all, the suggested
+		// name is cosmetic, and neither failure should decide the other.
+		policyFailed = false
+		const [me, policy] = await Promise.allSettled([
+			UserService.globalWhoami(),
+			loadUsernamePolicy()
+		])
+		if (!nameEdited) {
+			name =
+				me.status === 'fulfilled'
+					? defaultWorkspaceName(me.value.name, me.value.email)
+					: 'My workspace'
+		}
+		if (policy.status === 'rejected') {
+			console.error('Could not read the username policy:', policy.reason)
+			policyFailed = true
+			return
+		}
+		automateUsername = policy.value.automate
+		suggestedUsername = policy.value.suggested
+		if (!policy.value.automate && !policy.value.suggested) advanced = true
+		policyLoaded = true
+	}
+	void load()
+
+	const problem = $derived(
+		!name.trim()
+			? 'A name is required'
+			: name.trim().length > WORKSPACE_NAME_MAX_LENGTH
+				? `The name is too long (max ${WORKSPACE_NAME_MAX_LENGTH} characters).`
+				: undefined
+	)
+
+	/**
+	 * The id the name implies. `Bob's workspace` is Bob's, so the id is `bob` — slugifying the
+	 * whole name would make `bob-s-workspace`, which is what nobody would have typed. A name
+	 * that is not possessive is slugified as it stands.
+	 */
+	function idSeed(workspaceName: string): string {
+		const owner = workspaceName.replace(/['’]s\s+workspace$/i, '').trim()
+		return toWorkspaceId(owner || workspaceName) || 'workspace'
+	}
+
+	/**
+	 * The id nearest that seed which is both valid and free: `-2`, `-3`, … so two people named
+	 * Bob both get something readable. `validateWorkspaceId` answers with the *reason* an id is
+	 * unusable, so a falsy answer is the valid one — and an invalid candidate is skipped rather
+	 * than returned: `global` is reserved while `global-2` is not. Undefined when no candidate
+	 * works, which is the caller's cue to ask for one rather than post a name the server
+	 * refuses.
+	 */
+	async function freeWorkspaceId(seed: string): Promise<string | undefined> {
+		for (let n = 1; n <= 20; n++) {
+			const next = n === 1 ? seed : `${seed}-${n}`
+			if (validateWorkspaceId(next)) continue
+			if (!(await WorkspaceService.existsWorkspace({ requestBody: { id: next } }))) return next
+		}
+		return undefined
+	}
+
+	async function create() {
+		if (problem || creating || !policyLoaded) return
+		creating = true
+		const workspaceName = name.trim()
+		const started = Date.now()
+
+		let id: string | undefined
+		try {
+			id = await freeWorkspaceId(idSeed(workspaceName))
+			if (!id) {
+				sendUserToast(
+					'No workspace ID could be derived from that name. Pick one in advanced settings.',
+					true
+				)
+				advanced = true
+				creating = false
+				return
+			}
+			await WorkspaceService.createWorkspace({
+				requestBody: {
+					id,
+					name: workspaceName,
+					username: automateUsername ? undefined : suggestedUsername
+				}
+			})
+		} catch (error) {
+			console.error('Could not create the workspace:', error)
+			sendUserToast('Could not create the workspace: ' + (error?.body || error?.message), true)
+			creating = false
+			return
+		}
+
+		// The workspace exists from here on, so nothing below may report failure or hand the
+		// form back: a retry would pick the next free id and create a second one. A refresh
+		// that fails is worth a log and nothing more — the list reloads on the next page load,
+		// and the workspace this hands over to is real either way.
+		try {
+			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+		} catch (error) {
+			console.error('Created the workspace but could not refresh the list:', error)
+		}
+		switchWorkspace(id)
+		const left = WORKSPACE_HANDOVER_MS - (Date.now() - started)
+		if (left > 0) await new Promise((resolve) => setTimeout(resolve, left))
+		// Left up rather than cleared: the navigation it hands over to loads the workspace
+		// layout for the first time, and dropping back to the form under it would show the
+		// button again for as long as that takes.
+		onCreated()
+	}
+</script>
+
+{#if creating}
+	<div class="flex flex-col items-center gap-3 py-12 text-sm text-secondary">
+		<Loader2 size={20} class="animate-spin" />
+		Creating {name.trim()}…
+	</div>
+{:else if advanced}
+	<CreateWorkspaceInner inModal onFinish={onCreated} />
+	<!-- The full form has no way back to this one, so the host's way out of the step stays
+	     reachable here too — below it, since that form ends on its own action row. -->
+	{#if leading}
+		<div class="mt-6 flex items-center">{@render leading()}</div>
+	{/if}
+{:else}
+	<div class="flex flex-col gap-1">
+		<span class="text-xs font-semibold text-emphasis">Workspace name</span>
+		<TextInput
+			bind:value={name}
+			inputProps={{
+				autofocus: true,
+				maxlength: WORKSPACE_NAME_MAX_LENGTH,
+				oninput: () => (nameEdited = true),
+				onkeydown: (e) => e.key === 'Enter' && create()
+			}}
+		/>
+		{#if problem && name.trim()}
+			<span class="text-2xs font-normal text-red-500">{problem}</span>
+		{/if}
+		{#if policyFailed}
+			<span class="mt-1 text-2xs font-normal text-red-500">
+				This instance's settings could not be read, so a workspace cannot be created yet.
+				<button class="text-accent hover:underline" onclick={() => void load()}>Try again</button>
+			</span>
+		{/if}
+
+		<div class="mt-6 flex items-center justify-between gap-4">
+			<div class="flex items-center gap-3">
+				{@render leading?.()}
+				<!-- A bare <button> as a quiet text link, signed off by design: a second <Button> here
+				     would compete with Create workspace for the eye. -->
+				<!-- Closed while the policy is unknown, or it would be a way around the gate beside
+				     it: the full form asks the same question of the same setting and submits on
+				     its own optimistic default, so with no policy neither route creates. -->
+				<button
+					class="text-xs text-secondary hover:text-emphasis disabled:opacity-50 disabled:hover:text-secondary"
+					disabled={!policyLoaded}
+					title={policyFailed ? "This instance's settings could not be read" : undefined}
+					onclick={() => (advanced = true)}
+				>
+					Advanced settings
+				</button>
+			</div>
+			<Button
+				variant="accent"
+				unifiedSize="md"
+				disabled={!!problem || !policyLoaded}
+				onClick={create}
+			>
+				Create workspace
+			</Button>
+		</div>
+	</div>
+{/if}

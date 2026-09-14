@@ -916,6 +916,14 @@ pub struct WorkerGroupConfig {
     pub autoscaling: Option<AutoscalingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub native_mode: Option<bool>,
+    /// Object store this group's dependency cache uses instead of the instance one. Same shape
+    /// as the instance `object_store_cache_config`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "instance_config_schema",
+        schemars(schema_with = "opaque_json_schema")
+    )]
+    pub object_store_cache_config: Option<serde_json::Value>,
 
     /// Catch-all for fields not yet covered by typed fields.
     #[serde(flatten)]
@@ -1280,8 +1288,9 @@ pub fn diff_worker_configs(
     ConfigsDiff { upserts, deletes }
 }
 
-/// Declaratively replace the global settings, rejecting a `github_app_webhook_base_url`
-/// the API would reject.
+/// Declaratively replace the global settings, rejecting a
+/// `github_app_webhook_base_url` or `http_route_default_allowed_origins` the
+/// API would reject.
 ///
 /// Every declarative writer (the `sync-config` CLI, the Kubernetes operator's
 /// ConfigMap sync) MUST go through this rather than calling
@@ -1329,6 +1338,23 @@ pub async fn sync_global_settings_declarative(
             ));
         }
     }
+
+    let banner_key = crate::global_settings::INSTANCE_BANNER_SETTING;
+    match desired.get(banner_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(banner) => crate::global_settings::validate_instance_banner(banner)
+            // The validator's messages name the offending field and its expected type,
+            // never the submitted value, so they are safe to surface here.
+            .map_err(|e| anyhow::anyhow!("{banner_key}: {e}"))?,
+    }
+
+    // An origin list that cannot be parsed is dropped at boot, leaving the
+    // empty default — which is no restriction at all. Rejecting it here is what
+    // keeps a typo in a ConfigMap from silently widening CORS instance-wide.
+    let origins_key = crate::global_settings::HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING;
+    crate::global_settings::parse_allowed_origins_setting(desired.get(origins_key))
+        .map_err(|e| anyhow::anyhow!("{origins_key}: {e}"))?;
 
     let diff = diff_global_settings(current, desired, ApplyMode::Replace);
     apply_settings_diff(db, &diff).await?;

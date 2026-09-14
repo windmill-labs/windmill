@@ -18,8 +18,9 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     trigger_history::{self, TriggerHistoryEvent, TriggerOperation, TriggerSource},
     user_drafts::{
-        delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only_list_rows,
-        overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+        delete_all_drafts_for_path, delete_draft_only_for_path, delete_own_draft_for_path,
+        fetch_draft_only_list_rows, overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay,
+        WithDraftQuery,
     },
     utils::{paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
@@ -990,6 +991,18 @@ async fn delete_trigger<T: TriggerCrud>(
         .await?;
 
     if !deleted {
+        drop(tx);
+        if delete_draft_only_for_path(
+            &db,
+            &workspace_id,
+            T::user_draft_item_kind(),
+            path,
+            &authed.email,
+        )
+        .await?
+        {
+            return Ok(format!("Draft-only trigger '{}' deleted", path));
+        }
         return Err(Error::NotFound(format!(
             "Trigger not found at path: {}",
             path

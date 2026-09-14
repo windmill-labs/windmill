@@ -86,6 +86,7 @@ vi.mock('$lib/gen', async () => {
 		previewBenchmarkSchedule,
 		runBenchmarkDatatableSql,
 		runBenchmarkFlowByPath,
+		runBenchmarkScriptByPath,
 		runBenchmarkScriptPreview,
 		updateBenchmarkDraft,
 		listBenchmarkMcpTools
@@ -279,6 +280,18 @@ vi.mock('$lib/gen', async () => {
 				}
 				return runBenchmarkScriptPreview({ workspace: data.workspace, requestBody })
 			},
+			runScriptByPath: async (data: {
+				workspace: string
+				path: string
+				requestBody?: Record<string, unknown>
+			}) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? runBenchmarkScriptByPath({
+							workspace: data.workspace,
+							path: data.path,
+							args: data.requestBody
+						})
+					: actual.JobService.runScriptByPath(data),
 			runFlowByPath: async (data: {
 				workspace: string
 				path: string
