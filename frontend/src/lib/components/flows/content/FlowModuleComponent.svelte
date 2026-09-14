@@ -1154,6 +1154,7 @@
 														flowPath={$pathStore}
 														fromAgentEditor={agentEditorHost?.() != undefined}
 														bind:linkedMemory={linkedAgentMemory}
+														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														bind:agent={
 															() =>
 																flowModule.value.type === 'aiagent'

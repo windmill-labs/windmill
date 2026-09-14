@@ -50,6 +50,7 @@
 		opWorkspace = undefined,
 		flowPath = '',
 		fromAgentEditor = false,
+		chatInputEnabled = false,
 		linkedMemory = $bindable()
 	}: {
 		agent: string | undefined
@@ -68,6 +69,7 @@
 		// backend supports it, but only a flow can author it, and a second editor over a second draft
 		// is the wrong way in.
 		fromAgentEditor?: boolean
+		chatInputEnabled?: boolean
 		// The linked agent's memory once its config has loaded, for the step's history row.
 		linkedMemory?: { memory: unknown } | undefined
 	} = $props()
@@ -291,6 +293,20 @@
 	// saved without a complete one fails on every linked run. Block saving when the provider is
 	// computed/connected (only a static value can be captured into the resource) or when the static
 	// value is incomplete (a fresh step defaults to empty resource/model, which is still static).
+	// A saved agent never carries a memory id, so saving would drop the id this step's runs still fall
+	// back to and leave them without memory. The author picks what replaces it first. In chat mode the
+	// conversation id always won, so there the id was never read.
+	let legacyMemorySaveError = $derived.by(() => {
+		const memory = inputTransforms?.memory as
+			| { type?: string; value?: { kind?: string; context_length?: number; memory_id?: string } }
+			| undefined
+		const value = memory?.type === 'static' ? memory.value : undefined
+		if (chatInputEnabled || value?.kind !== 'auto' || !value.memory_id || !value.context_length) {
+			return undefined
+		}
+		return "This step still uses a fixed memory id from an earlier version. In Memory, choose Keep as override or Use the run's memory id, then save it as an agent."
+	})
+
 	let providerSaveError = $derived.by(() => {
 		const t = inputTransforms?.provider as
 			| { type?: string; value?: { resource?: string; model?: string } }
@@ -322,8 +338,8 @@
 	// the success toast that would otherwise bury the explanation.
 	async function persist(path: string, description?: string): Promise<boolean> {
 		const dropped = nonStaticBrainKeys(inputTransforms)
-		if (providerSaveError) {
-			throw new Error(providerSaveError)
+		if (providerSaveError ?? legacyMemorySaveError) {
+			throw new Error(providerSaveError ?? legacyMemorySaveError)
 		}
 		if (dropped.length > 0) {
 			sendUserToast(
@@ -640,9 +656,9 @@
 					size="sm"
 				/>
 			</label>
-			{#if providerSaveError}
+			{#if providerSaveError ?? legacyMemorySaveError}
 				<p class="text-xs text-red-600 dark:text-red-400">
-					{providerSaveError}
+					{providerSaveError ?? legacyMemorySaveError}
 				</p>
 			{/if}
 		</div>
@@ -650,7 +666,10 @@
 			<Button
 				variant="accent"
 				startIcon={{ icon: Save }}
-				disabled={!newPath || !!pathError || saving || !!providerSaveError}
+				disabled={!newPath ||
+					!!pathError ||
+					saving ||
+					!!(providerSaveError ?? legacyMemorySaveError)}
 				onclick={saveAsAgent}
 			>
 				Save agent

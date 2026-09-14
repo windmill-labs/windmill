@@ -44,11 +44,12 @@ which memory it is:
   An absent `memory` means off. `auto` and `manual` are the older spellings and are still read.
 - **Run: memory id.** `flow_status.memory_id`, set when the run is queued: the chat conversation
   id, an app chat session id, or the `memory_id` run parameter. Any string is accepted, and one
-  that is not a uuid is hashed to a v5 uuid (`memory_key` in
-  `windmill-common/src/flow_conversations.rs`). Nothing is generated at save time, so schedules,
+  that is not a uuid is hashed to a v5 uuid scoped to the workspace and the flow the run started
+  from (`memory_key` in `windmill-common/src/flow_conversations.rs`), so a guessable key never
+  reaches another flow's memory. A uuid is used as is. Nothing is generated at save time, so schedules,
   webhooks, evals and plain runs pass no id and run stateless.
 - **Step: history inputs.** Flow-local, so they stay on a linked step. `memory_id` overrides the
-  run's id: a fixed value is one memory shared by every run, an expression such as
+  run's id, hashed the same way: a fixed value is one memory shared by every run, an expression such as
   `flow_input.customer_id` one memory per key, and an expression that evaluates to nothing runs
   stateless rather than falling back to the run's id. `messages` supplies the history itself and
   bypasses memory. The editor writes at most one of them and never seeds a placeholder for

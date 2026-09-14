@@ -142,10 +142,12 @@ fn keep_authored_history_args(
 /// Reconciles the step's history inputs, the agent's memory policy and the run's memory id, for
 /// every shape a flow or agent resource may still carry. Also returns a line for the job log when a
 /// policy that remembers ends up stateless.
-fn resolve_history_source(
-    args: &AIAgentArgs,
+fn resolve_history_source<'a>(
+    args: &'a AIAgentArgs,
     run_memory_id: Option<Uuid>,
-) -> (HistorySource<'_>, Option<&'static str>) {
+    workspace_id: &str,
+    flow_path: &str,
+) -> (HistorySource<'a>, Option<&'static str>) {
     if let Some(messages) = &args.messages {
         return (HistorySource::Messages(messages), None);
     }
@@ -162,7 +164,7 @@ fn resolve_history_source(
                 HistorySource::Stateless,
                 Some("This step's memory id evaluated to an empty value, so the agent runs without memory."),
             ),
-            Some(step_memory_id) => memory_key(step_memory_id),
+            Some(step_memory_id) => memory_key(workspace_id, flow_path, step_memory_id),
             None => match run_memory_id.or(legacy_memory_id) {
                 Some(memory_id) => memory_id,
                 None => return (
@@ -199,14 +201,16 @@ async fn find_ai_agent_tool_module_in_parent_agent(
         return Ok(None);
     };
 
-    let FlowModuleValue::AIAgent { tools, agent, .. } = parent_agent_module.get_value()? else {
+    let FlowModuleValue::AIAgent { tools, agent, tool_inputs, .. } =
+        parent_agent_module.get_value()?
+    else {
         return Ok(None);
     };
 
     // A linked parent carries no tools on the module (they live in the resource, resolved only in
     // the main execution branch). Resolve them from the resource here too, so a nested agent tool
     // of a saved+linked agent can still be located when it runs as its own job.
-    let tools = if let Some(agent_ref) = agent.as_deref() {
+    let mut tools = if let Some(agent_ref) = agent.as_deref() {
         let agent_path = agent_ref
             .trim_start_matches("$res:")
             .trim_start_matches("res://");
@@ -233,6 +237,9 @@ async fn find_ai_agent_tool_module_in_parent_agent(
     } else {
         tools
     };
+    // The nested job reads its history inputs from the tool's transforms, which must carry the
+    // host flow's bindings as the parent evaluated them.
+    overlay_tool_inputs(&mut tools, &tool_inputs);
 
     for tool in tools {
         if tool.id == tool_module_id {
@@ -975,7 +982,12 @@ pub async fn run_agent(
         .flow_status
         .as_ref()
         .and_then(|fs| fs.memory_id);
-    let (history, history_note) = resolve_history_source(args, conversation_id);
+    let (history, history_note) = resolve_history_source(
+        args,
+        conversation_id,
+        &job.workspace_id,
+        flow_context.flow_path.as_deref().unwrap_or_default(),
+    );
 
     // Check if user_message is provided and non-empty
     let has_user_message = args
@@ -1784,7 +1796,7 @@ mod tests {
         use serde_json::json;
         let run = Uuid::from_u128(1);
         let baked = Uuid::from_u128(2);
-        let cust_1 = Uuid::parse_str("4e201797-1cea-50b8-bcf8-c11c0f487f67").unwrap();
+        let cust_1 = Uuid::parse_str("0168fcea-ffa7-5c15-bdb0-7709bb5f540d").unwrap();
         let window = json!({ "kind": "window", "context_length": 10 });
         let message = json!([{ "role": "user", "content": "earlier" }]);
         let cases = [
@@ -1873,7 +1885,7 @@ mod tests {
                 .unwrap()
                 .extend(history.as_object().unwrap().clone());
             let args: AIAgentArgs = serde_json::from_value(raw).unwrap();
-            let resolved = match resolve_history_source(&args, run_memory_id) {
+            let resolved = match resolve_history_source(&args, run_memory_id, "ws", "f/flow") {
                 (HistorySource::Messages(m), _) => Resolved::Messages(m.len()),
                 (HistorySource::Window { memory_id, context_length }, _) => {
                     Resolved::Window(memory_id, context_length)

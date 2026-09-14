@@ -10937,7 +10937,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed, so the same string always names the same memory.
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
@@ -10977,7 +10977,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed, so the same string always names the same memory.
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
@@ -11017,7 +11017,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed, so the same string always names the same memory.
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
@@ -11043,7 +11043,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed, so the same string always names the same memory.
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
@@ -11084,7 +11084,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed, so the same string always names the same memory.
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
@@ -11123,7 +11123,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed, so the same string always names the same memory.
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
@@ -11170,7 +11170,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed, so the same string always names the same memory.
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
@@ -14223,7 +14223,7 @@ paths:
           schema:
             type: boolean
         - name: memory_id
-          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed, so the same string always names the same memory.
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
@@ -14280,7 +14280,7 @@ paths:
           schema:
             type: boolean
         - name: memory_id
-          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed, so the same string always names the same memory.
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
@@ -14771,7 +14771,7 @@ paths:
             type: boolean
         - $ref: "#/components/parameters/NewJobId"
         - name: memory_id
-          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed, so the same string always names the same memory.
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
@@ -14802,7 +14802,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: memory_id
-          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed, so the same string always names the same memory.
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string

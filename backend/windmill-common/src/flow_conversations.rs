@@ -10,15 +10,20 @@ use crate::utils::truncate_with_ellipsis;
 /// Changing it detaches every memory stored under a string memory id.
 const MEMORY_ID_NAMESPACE: Uuid = Uuid::from_u128(0x6f1c2d4e_8a3b_5c7d_9e0f_1a2b3c4d5e6f);
 
-/// Memory is stored and carried in `flow_status.memory_id` as a uuid. Any other string names a
-/// memory through a name-based (v5) uuid, so the same string reaches the same memory on every run.
-pub fn memory_key(memory_id: &str) -> Uuid {
+/// Memory is stored and carried in `flow_status.memory_id` as a uuid, which names the same memory
+/// wherever it is passed, as a chat conversation id must. Any other string names a memory through a
+/// name-based (v5) uuid scoped to its workspace and flow: a guessable key such as a customer id must
+/// not reach another flow's memory, and chat conversation ids are unique across workspaces.
+pub fn memory_key(workspace_id: &str, flow_path: &str, memory_id: &str) -> Uuid {
     let memory_id = memory_id.trim();
     Uuid::parse_str(memory_id).unwrap_or_else(|_| {
         use sha1::{Digest, Sha1};
         let mut hasher = Sha1::new();
         hasher.update(MEMORY_ID_NAMESPACE.as_bytes());
-        hasher.update(memory_id.as_bytes());
+        for part in [workspace_id, flow_path, memory_id] {
+            hasher.update(part.as_bytes());
+            hasher.update([0u8]);
+        }
         let mut bytes = [0u8; 16];
         bytes.copy_from_slice(&hasher.finalize()[..16]);
         uuid::Builder::from_sha1_bytes(bytes).into_uuid()
@@ -160,4 +165,27 @@ pub async fn delete_conversation_memory(
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A string names a memory only within its workspace and flow; a uuid is used as is.
+    #[test]
+    fn memory_key_scopes_strings_but_not_uuids() {
+        let key = memory_key("ws", "f/support/triage", " customer-1 ");
+        assert_eq!(key, memory_key("ws", "f/support/triage", "customer-1"));
+        assert_ne!(
+            key,
+            memory_key("other_ws", "f/support/triage", "customer-1")
+        );
+        assert_ne!(key, memory_key("ws", "f/sales/triage", "customer-1"));
+        let conversation = Uuid::from_u128(7).to_string();
+        assert_eq!(memory_key("ws", "f/a", &conversation), Uuid::from_u128(7));
+        assert_eq!(
+            memory_key("other_ws", "f/b", &conversation),
+            Uuid::from_u128(7)
+        );
+    }
 }
