@@ -379,8 +379,11 @@
 		// Surface the saved `draft_path` to the Path widget so the topbar shows the
 		// pending name, not the `draft_{uuid}` URL. Else the widget seeds from the
 		// URL, the first edit clobbers `draft_path`, and the friendly name is lost.
+		// Otherwise the URL, set on every load: this route instance is reused when the
+		// editor follows its draft to a moved item, and the path it opened on is where
+		// deploy would look for the flow.
 		const renderedDraftPath = (effectiveFlow as any).draft_path as string | undefined
-		if (renderedDraftPath) flowInitialPath = renderedDraftPath
+		flowInitialPath = renderedDraftPath || (page.params.path ?? '')
 
 		// "Load another user's draft" handoff: render their value over the deployed
 		// metadata. Overlay mode (we have our own draft) never saves until the user

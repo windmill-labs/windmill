@@ -488,9 +488,7 @@
 		deployedBy = flow.edited_by
 		// Names the deployed side of the diff. Without it the reader is shown two panes
 		// and told nothing about what the left one is.
-		const versions = (flow as any).versions as number[] | undefined
-		const head = versions?.length ? versions[versions.length - 1] : undefined
-		deployedLabel = `Deployed${head ? ` v${head}` : ''}${flow.edited_by ? ` by ${flow.edited_by}` : ''}`
+		deployedLabel = `Deployed${flow.version_id != null ? ` ${flow.version_id}` : ''}${flow.edited_by ? ` by ${flow.edited_by}` : ''} · latest`
 	}
 
 	async function saveFlow(deploymentMsg?: string, toDeploy?: DraftChangesToDeploy): Promise<void> {

@@ -405,7 +405,8 @@ function flushOnPageHide(): void {
 				body: JSON.stringify({
 					value: opts.value,
 					last_sync: opts.force ? undefined : lastSync,
-					force: opts.force ?? false
+					force: opts.force ?? false,
+					id: draftIds.get(key)
 				}),
 				keepalive: true
 			}).catch((e) => {
