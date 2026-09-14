@@ -119,8 +119,10 @@ pub(crate) async fn clone_pg_database(
     // rather than refused for a name already in use. One this caller made of the same data table
     // with the other behavior is replaced — the record says this request's caller made it and no
     // fork has it.
-    let previous = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT fork_behavior FROM datatable_clone
+    // A copy made while the source's roles were in another state is replaced too: its grants would
+    // not match what the fork request links it to.
+    let previous = sqlx::query_as::<_, (Option<String>, bool)>(
+        "SELECT fork_behavior, replayed FROM datatable_clone
          WHERE dbname = $1 AND source_workspace_id = $2 AND source_datatable = $3
            AND created_by = $4 AND claimed_by_workspace_id IS NULL",
     )
@@ -130,9 +132,10 @@ pub(crate) async fn clone_pg_database(
     .bind(&authed.email)
     .fetch_optional(&db)
     .await?;
+    let under_roles = governing.datatable.permissions.is_some();
     if previous
         .as_ref()
-        .is_some_and(|b| b.as_deref() == Some(behavior))
+        .is_some_and(|(b, replayed)| b.as_deref() == Some(behavior) && *replayed == under_roles)
     {
         return Ok(format!(
             "Data table '{name}' is already cloned into '{}'",
@@ -315,6 +318,7 @@ impl CloneJob {
             &self.name,
             &self.authed,
             Some(behavior),
+            replayed,
         )
         .await?;
         audit_log(

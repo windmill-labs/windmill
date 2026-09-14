@@ -3303,6 +3303,7 @@ async fn create_pg_database(
             &name,
             &authed,
             None,
+            false,
         )
         .await?;
     }
@@ -3369,31 +3370,36 @@ pub(crate) async fn record_datatable_clone(
     datatable: &str,
     authed: &ApiAuthed,
     fork_behavior: Option<&str>,
+    replayed: bool,
 ) -> Result<()> {
     sqlx::query(
         "INSERT INTO datatable_clone
-             (dbname, source_workspace_id, source_datatable, created_by, fork_behavior)
-         VALUES ($1, $2, $3, $4, $5)
+             (dbname, source_workspace_id, source_datatable, created_by, fork_behavior, replayed)
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (dbname) DO UPDATE SET source_workspace_id = EXCLUDED.source_workspace_id,
              source_datatable = EXCLUDED.source_datatable, created_by = EXCLUDED.created_by,
-             fork_behavior = EXCLUDED.fork_behavior, created_at = now(),
-             claimed_by_workspace_id = NULL",
+             fork_behavior = EXCLUDED.fork_behavior, replayed = EXCLUDED.replayed,
+             created_at = now(), claimed_by_workspace_id = NULL",
     )
     .bind(dbname)
     .bind(w_id)
     .bind(datatable)
     .bind(&authed.email)
     .bind(fork_behavior)
+    .bind(replayed)
     .execute(conn)
     .await?;
     Ok(())
 }
 
 /// Hand the copy in `dbname` to fork `forked_w_id`, refusing unless it was copied from data table
-/// `datatable` of `parent_w_id` by this same user, and no fork has taken it.
+/// `datatable` of `parent_w_id` by this same user, no fork has taken it, and its owners and grants
+/// were replayed exactly when the source is under roles now (`under_roles`).
 ///
 /// Without this a fork names its database freely, so it could take another workspace's copy — or
-/// one an admin made with data for a fork of their own — and govern rows it was never given.
+/// one an admin made with data for a fork of their own — and govern rows it was never given. And a
+/// copy made before roles were turned on holds no grant for any role, so linking it to the source's
+/// roles would admit tenants Postgres then denies everything.
 async fn claim_datatable_clone(
     tx: &mut Transaction<'_, Postgres>,
     dbname: &str,
@@ -3401,12 +3407,13 @@ async fn claim_datatable_clone(
     datatable: &str,
     forked_w_id: &str,
     authed: &ApiAuthed,
+    under_roles: bool,
 ) -> Result<()> {
-    let claimed = sqlx::query_scalar::<_, String>(
+    let claimed = sqlx::query_scalar::<_, bool>(
         "UPDATE datatable_clone SET claimed_by_workspace_id = $1
          WHERE dbname = $2 AND source_workspace_id = $3 AND source_datatable = $4
            AND created_by = $5 AND claimed_by_workspace_id IS NULL
-         RETURNING dbname",
+         RETURNING replayed",
     )
     .bind(forked_w_id)
     .bind(dbname)
@@ -3415,14 +3422,21 @@ async fn claim_datatable_clone(
     .bind(&authed.email)
     .fetch_optional(&mut **tx)
     .await?;
-    if claimed.is_none() {
-        return Err(Error::BadRequest(format!(
+    match claimed {
+        None => Err(Error::BadRequest(format!(
             "Database '{dbname}' is not a copy of data table '{datatable}' of workspace \
              '{parent_w_id}' that you made and no fork has taken yet. Clone the data table \
              again for this fork."
-        )));
+        ))),
+        Some(replayed) if replayed != under_roles => Err(Error::BadRequest(format!(
+            "Data table '{datatable}' was {} roles when it was copied into '{dbname}' and is {} \
+             them now, so the copy's grants do not match its roles. Clone the data table again \
+             for this fork.",
+            if replayed { "under" } else { "not under" },
+            if under_roles { "under" } else { "not under" },
+        ))),
+        Some(_) => Ok(()),
     }
-    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -8031,7 +8045,6 @@ async fn apply_forked_datatable(
     forked_w_id: &str,
     fdt: &ForkedDatatableInfo,
 ) -> Result<()> {
-    let governing = ensure_datatable_is_clonable(db, parent_w_id, &fdt.name).await?;
     windmill_common::validate_dbname(&fdt.new_dbname)?;
     if !fdt.new_dbname.starts_with("wm_fork_") {
         return Err(Error::BadRequest(format!(
@@ -8039,6 +8052,15 @@ async fn apply_forked_datatable(
             fdt.new_dbname
         )));
     }
+    // Held until the fork commits, as the permissions save holds it: roles turned on or off in
+    // between would link the copy to roles its grants were not replayed for, or leave one that
+    // was unlinked.
+    let governing = ensure_datatable_is_clonable(db, parent_w_id, &fdt.name).await?;
+    sqlx::query("SELECT 1 FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE")
+        .bind(governing.governing_workspace_id())
+        .fetch_optional(&mut **tx)
+        .await?;
+    let governing = ensure_datatable_is_clonable(db, parent_w_id, &fdt.name).await?;
     claim_datatable_clone(
         tx,
         &fdt.new_dbname,
@@ -8046,6 +8068,7 @@ async fn apply_forked_datatable(
         &fdt.name,
         forked_w_id,
         authed,
+        governing.datatable.permissions.is_some(),
     )
     .await?;
     // The fork keeps a snapshot of the source's schema, which under roles is only for those who

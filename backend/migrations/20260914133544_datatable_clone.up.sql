@@ -13,6 +13,9 @@ CREATE TABLE datatable_clone (
     -- `schema_only` or `schema_and_data`. NULL for a database created empty, to be filled by a
     -- separate import.
     fork_behavior VARCHAR(20),
+    -- Whether the source's owners and grants were replayed into the copy, which it was under roles
+    -- then. A fork takes the copy only while that still matches the source.
+    replayed BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- The fork that took it. NULL while nothing has.
     claimed_by_workspace_id VARCHAR(50)

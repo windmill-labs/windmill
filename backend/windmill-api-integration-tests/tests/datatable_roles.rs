@@ -803,6 +803,25 @@ async fn a_fork_takes_only_a_copy_made_for_it(db: Pool<Postgres>) -> anyhow::Res
             "{dbname} was taken for another reason"
         );
     }
+
+    // Made by this user, but before `main` was under roles: no grant was replayed into it, so
+    // linking it to `main`'s roles would admit tenants Postgres denies everything.
+    sqlx::query(
+        "INSERT INTO datatable_clone
+             (dbname, source_workspace_id, source_datatable, created_by, fork_behavior, replayed)
+         VALUES ('wm_fork_taker__main', 'test-workspace', 'main', 'test@windmill.dev',
+                 'schema_and_data', false)",
+    )
+    .execute(&db)
+    .await?;
+    let resp = fork("wm_fork_taker__main").send().await?;
+    assert_eq!(resp.status(), 400);
+    assert!(
+        resp.text()
+            .await?
+            .contains("not under roles when it was copied"),
+        "a copy made without its grants was taken"
+    );
     Ok(())
 }
 
