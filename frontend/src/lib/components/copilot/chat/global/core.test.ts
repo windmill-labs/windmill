@@ -321,8 +321,9 @@ vi.mock('./rawAppBundlerBridge', () => ({
 
 vi.mock('$lib/infer', async () => ({
 	...(await vi.importActual<any>('$lib/infer')),
-	// Avoid the wasm parser in unit tests: the script deploy path infers the arg
-	// schema but tolerates failure, and these tests don't assert on the schema.
+	// Avoid the wasm parser in unit tests. A no-op passes the seeded schema through
+	// untouched, which is what lets the password-marking test pin how a schema is
+	// seeded in and carried out without pinning inference's own merge rules.
 	inferArgs: vi.fn(async () => {})
 }))
 
