@@ -8,6 +8,7 @@ import type { Item } from '$lib/utils'
 import type { AIChatManager } from '../copilot/chat/AIChatManager.svelte'
 import { isMcpEnabled, setMcpEnabled } from './enabledServers'
 import { cachedProviderKey, rememberProviderKey } from './iconCache'
+import { isOwnOrSharedMcpPath, MCP_LIST_PER_PAGE, mcpViewer } from './ownServers'
 import { loadProviderIcon } from './providerIcon'
 import McpServerIcon from './McpServerIcon.svelte'
 
@@ -56,17 +57,22 @@ export class McpMenu {
 	async #load(ws: string) {
 		const seq = ++this.#seq
 		try {
-			const resources = await ResourceService.listResource({
-				workspace: ws,
-				resourceType: 'mcp',
-				perPage: 100
-			})
+			const [resources, viewer] = await Promise.all([
+				ResourceService.listResource({
+					workspace: ws,
+					resourceType: 'mcp',
+					perPage: MCP_LIST_PER_PAGE
+				}),
+				mcpViewer(ws)
+			])
 			if (seq !== this.#seq) return
-			this.#rows = resources.map((r) => ({
-				path: r.path,
-				editedAt: r.edited_at,
-				enabled: isMcpEnabled(ws, r.path)
-			}))
+			this.#rows = resources
+				.filter((r) => isOwnOrSharedMcpPath(r.path, r.extra_perms, viewer))
+				.map((r) => ({
+					path: r.path,
+					editedAt: r.edited_at,
+					enabled: isMcpEnabled(ws, r.path)
+				}))
 			this.#rowsWorkspace = ws
 			void this.#loadIcons(ws, seq)
 		} catch {

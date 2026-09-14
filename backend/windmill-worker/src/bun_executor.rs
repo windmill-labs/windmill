@@ -1146,6 +1146,81 @@ pub async fn generate_bun_bundle(
     Ok(())
 }
 
+/// [`generate_bun_bundle`], built once more with the version pins dropped from the import
+/// specifiers of `main.ts` if it fails. The lockfile pins those versions, but bun fails on a
+/// pinned specifier except where it tolerates a failed import (in a `try`, under a `.catch`, in
+/// dead code). Such a script builds as written and must keep that bundle, so only failures retry.
+async fn generate_bun_bundle_unpinning_imports(
+    job_dir: &str,
+    w_id: &str,
+    job_id: &Uuid,
+    worker_name: &str,
+    db: Option<&Connection>,
+    timeout: Option<i32>,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    common_bun_proc_envs: &HashMap<String, String>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+) -> Result<()> {
+    let built = generate_bun_bundle(
+        job_dir,
+        w_id,
+        job_id,
+        worker_name,
+        db,
+        timeout,
+        mem_peak,
+        canceled_by,
+        common_bun_proc_envs,
+        occupancy_metrics,
+    )
+    .await;
+    // Without a job, a failed build comes back as an `ExecutionErr`; with one, that variant is a
+    // cancellation or timeout, which must not be retried.
+    let build_failed = match &built {
+        Err(error::Error::ExitStatus(..)) => true,
+        Err(_) => db.is_none(),
+        Ok(()) => false,
+    };
+    if !build_failed {
+        return built;
+    }
+    let Some(unpinned) = read_file_content(&format!("{job_dir}/main.ts"))
+        .await
+        .ok()
+        .and_then(|main| {
+            remove_pinned_import_specifiers(&main)
+                .ok()
+                .filter(|u| *u != main)
+        })
+    else {
+        return built;
+    };
+    write_file(job_dir, "main.ts", &unpinned)?;
+    if let Some(db) = db {
+        append_logs(
+            job_id,
+            w_id,
+            "\nbundling again with the imports' versions taken from the lockfile\n",
+            db,
+        )
+        .await;
+    }
+    generate_bun_bundle(
+        job_dir,
+        w_id,
+        job_id,
+        worker_name,
+        db,
+        timeout,
+        mem_peak,
+        canceled_by,
+        common_bun_proc_envs,
+        occupancy_metrics,
+    )
+    .await
+}
+
 struct PulledCodebase {
     is_esm: bool,
 }
@@ -1305,7 +1380,7 @@ pub async fn prebundle_bun_script(
 
     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
-    generate_bun_bundle(
+    generate_bun_bundle_unpinning_imports(
         job_dir,
         w_id,
         job_id,
@@ -2202,7 +2277,7 @@ try {{
 
     if !codebase.is_some() && !has_bundle_cache {
         if build_cache {
-            generate_bun_bundle(
+            generate_bun_bundle_unpinning_imports(
                 job_dir,
                 &job.workspace_id,
                 &job.id,
