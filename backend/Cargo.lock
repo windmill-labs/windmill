@@ -15726,6 +15726,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "windmill-audit",
  "windmill-common",
  "windmill-dep-map",
  "windmill-queue",
