@@ -3891,7 +3891,18 @@ async fn push_next_flow_job(
 
     drop(resume_messages);
 
-    let is_skipped = if let Some(skip_if) = &module.skip_if {
+    // `skip_if` is a one-time entry gate, so only first-entry statuses evaluate it.
+    // Once the module is looping, the last completed job is an inner iteration, not
+    // `previous_id`'s, and re-evaluating would alias `results.<previous_id>` to it.
+    // A restart-at-iteration also enters as `InProgress`: it resumes without re-gating.
+    let is_skipped = if let Some(skip_if) = module.skip_if.as_ref().filter(|_| {
+        matches!(
+            status_module,
+            FlowStatusModule::WaitingForPriorSteps { .. }
+                | FlowStatusModule::WaitingForEvents { .. }
+                | FlowStatusModule::WaitingForExecutor { .. }
+        )
+    }) {
         let idcontext = get_transform_context(&flow_job, previous_id.as_str(), &status);
         let skip_if_res = compute_bool_from_expr(
             &skip_if.expr,
