@@ -918,6 +918,7 @@ async fn test_preserve_orphaned_members_migration(db: Pool<Postgres>) -> anyhow:
 /// member values were validated) must not break the workspace's instance-group save: the
 /// reconciler skips it and still provisions the valid members. The admin endpoint refuses to
 /// add such a value in the first place.
+#[cfg(feature = "private")]
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_instance_group_member_that_is_not_an_email_is_skipped(
     db: Pool<Postgres>,
@@ -993,6 +994,36 @@ async fn test_instance_group_member_that_is_not_an_email_is_skipped(
         ],
         "valid member provisioned and existing member kept, both as developers; non-email one skipped"
     );
+
+    // A full import carrying the same rows: the object id is dropped, the address only
+    // `proper_email` accepts is kept, and neither member loses their workspace row.
+    let resp = authed(client().post(format!("{global_base}/overwrite")))
+        .json(&json!([{
+            "name": "entra_grp",
+            "emails": ["kept@example.com", "\"quoted\"@example.com", ENTRA_OBJECT_ID]
+        }]))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "overwrite: {}", resp.text().await?);
+
+    let mut stored: Vec<String> =
+        sqlx::query_scalar("SELECT email FROM email_to_igroup WHERE igroup = 'entra_grp'")
+            .fetch_all(&db)
+            .await?;
+    stored.sort();
+    assert_eq!(
+        stored,
+        vec!["\"quoted\"@example.com", "kept@example.com"],
+        "import drops the object id and keeps the rest"
+    );
+    let mut after_import: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT email, operator FROM usr WHERE workspace_id = 'test-workspace'
+         AND added_via->>'source' = 'instance_group'",
+    )
+    .fetch_all(&db)
+    .await?;
+    after_import.sort();
+    assert_eq!(after_import, members, "import must not evict either member");
 
     Ok(())
 }

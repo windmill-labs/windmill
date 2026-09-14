@@ -13,6 +13,15 @@ lazy_static::lazy_static! {
     pub static ref VALID_EMAIL: regex::Regex = regex::Regex::new(
         r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$"
     ).unwrap();
+
+    /// Mirror of the `proper_email` CHECK constraint on `usr` and `workspace_invite`
+    /// (`20220620210708_regex_fix`, case-insensitive), so a value passes here exactly when those
+    /// tables store it. Unlike [`VALID_EMAIL`] it admits quoted local parts and IP-literal
+    /// domains, which matters wherever an address the tables may already hold is judged.
+    /// `windmill-common/tests/proper_email_mirror.rs` pins the two against each other.
+    pub static ref PROPER_EMAIL: regex::Regex = regex::Regex::new(
+        r##"(?i)^(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9]))\.){3}(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9])|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])$"##
+    ).unwrap();
 }
 
 pub const SUPERADMIN_SECRET_EMAIL: &str = "superadmin_secret@windmill.dev";
@@ -446,6 +455,28 @@ mod tests {
             "",
         ] {
             assert!(!VALID_EMAIL.is_match(email), "{email} should be invalid");
+        }
+    }
+
+    #[test]
+    fn test_proper_email_admits_what_valid_email_rejects() {
+        for email in [
+            "alice@example.com",
+            "Alice@Example.COM",
+            "\"quoted\"@example.com",
+            "alice@[192.168.0.1]",
+        ] {
+            assert!(PROPER_EMAIL.is_match(email), "{email} should be storable");
+        }
+        for email in [
+            "ef40ea04-1a9e-4a84-9e65-cb1baa81dfed",
+            "\"quoted local\"@example.com",
+            "alice",
+            "alice@example",
+            "alice@example.com\nbob@example.com",
+            "",
+        ] {
+            assert!(!PROPER_EMAIL.is_match(email), "{email} should be rejected");
         }
     }
 

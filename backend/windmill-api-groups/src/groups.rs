@@ -24,7 +24,7 @@ use windmill_common::{
 };
 use windmill_common::{
     db::UserDB,
-    users::{username_to_permissioned_as, VALID_EMAIL},
+    users::{username_to_permissioned_as, PROPER_EMAIL},
 };
 
 use serde::{Deserialize, Serialize};
@@ -978,7 +978,7 @@ async fn add_user_igroup(
     // `email_to_igroup` has no shape constraint of its own; `usr`, which the member is
     // promoted into on reconcile, has `proper_email`, and a value failing it there would
     // roll back every member of the group.
-    if !VALID_EMAIL.is_match(&email) {
+    if !PROPER_EMAIL.is_match(&email) {
         return Err(Error::BadRequest(format!(
             "'{email}' is not a valid email address"
         )));
@@ -1438,7 +1438,7 @@ async fn overwrite_igroups(
             for email in emails.iter() {
                 // An export can carry a member the source instance stored before ingest
                 // validated member values; it is dropped rather than failing the import.
-                if !VALID_EMAIL.is_match(email) {
+                if !PROPER_EMAIL.is_match(email) {
                     tracing::warn!(
                         "Skipping member '{}' of imported instance group '{}': not an email address",
                         email,
