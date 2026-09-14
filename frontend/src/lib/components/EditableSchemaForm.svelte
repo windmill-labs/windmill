@@ -15,6 +15,7 @@
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
+	import { watch } from 'runed'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
@@ -172,6 +173,11 @@
 	let pickForField: string | undefined
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
+
+	watch(
+		() => ws,
+		() => itemPicker?.reloadItems()
+	)
 
 	let keys: string[] = $state(
 		(Array.isArray(schema?.order)

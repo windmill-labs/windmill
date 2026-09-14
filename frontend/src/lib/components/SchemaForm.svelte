@@ -15,6 +15,7 @@
 	import { Plus } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
+	import { watch } from 'runed'
 	import { deepEqual } from 'fast-equals'
 	import {
 		dragHandleZone,
@@ -154,6 +155,11 @@
 	let pickForField: string | undefined = $state()
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
+
+	watch(
+		() => ws,
+		() => itemPicker?.reloadItems()
+	)
 
 	let resourceTypes: string[] | undefined = $state(undefined)
 

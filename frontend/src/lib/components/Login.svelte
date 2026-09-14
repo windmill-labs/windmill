@@ -16,15 +16,13 @@
 
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import {
-		Auth0Icon,
-		GithubIcon,
-		GitlabIcon,
-		GoogleIcon,
-		MicrosoftIcon,
-		NextcloudIcon,
-		OktaIcon
-	} from '$lib/components/icons'
+	import Auth0Icon from '$lib/components/icons/Auth0Icon.svelte'
+	import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
+	import GitlabIcon from '$lib/components/icons/GitlabIcon.svelte'
+	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
+	import MicrosoftIcon from '$lib/components/icons/MicrosoftIcon.svelte'
+	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
+	import OktaIcon from '$lib/components/icons/OktaIcon.svelte'
 	import PocketIdIcon from '$lib/components/icons/PocketIdIcon.svelte'
 
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
@@ -63,10 +61,18 @@
 		firstTime?: boolean
 		autoRedirect?: boolean
 		onLoginSuccess?: () => void
+		/** A refusal the popup relayed back, in the server's words. */
+		onLoginError?: (message: string) => void
 		preview?: LoginPreview
 		/** Reports the instance's login options once loaded, so the page around the card can
 		 * adapt its heading: a third-party login also creates the account on first use. */
 		onOptionsLoaded?: (options: { hasThirdParty: boolean }) => void
+		/** `<workspace>/<app_path>` when this sign-in is someone opening an app that is
+		 * open to guests. A third-party login then mints a guest session -- no account,
+		 * no seat -- instead of creating a user. Omitting it is what promotion is: the
+		 * same sign-in without this, which provisions them for real. Password login
+		 * ignores it: a guest has no stored credential to check. */
+		guestApp?: string | undefined
 	}
 
 	let {
@@ -78,8 +84,10 @@
 		firstTime = false,
 		autoRedirect = true,
 		onLoginSuccess = undefined,
+		onLoginError = undefined,
 		preview = undefined,
-		onOptionsLoaded = undefined
+		onOptionsLoaded = undefined,
+		guestApp = undefined
 	}: Props = $props()
 
 	// The harness never takes effect in a production bundle, whatever a caller passes.
@@ -329,7 +337,11 @@
 				} else {
 					goto(resolvedRd ?? '/')
 				}
-			} else if (resolvedRd?.startsWith('/user/workspaces')) {
+				// See (root)/+layout.svelte for why /projects/import skips the picker.
+			} else if (
+				resolvedRd?.startsWith('/user/workspaces') ||
+				resolvedRd?.startsWith(`${base}/projects/import`)
+			) {
 				goto(resolvedRd)
 			} else if (resolvedRd == '/#user-settings') {
 				goto(`/user/workspaces#user-settings`)
@@ -396,7 +408,7 @@
 				if (!redirectSaml()) autoRedirecting = false
 			} else if (logins?.some((l) => l.type === autoLogin)) {
 				autoRedirecting = true
-				if (!storeRedirect(autoLogin)) {
+				if (!storeRedirect(autoLogin, true)) {
 					autoRedirecting = false
 					sendUserToast('Popup blocked — please click the sign-in button to continue.', true)
 				}
@@ -473,7 +485,9 @@
 
 	function processPopupData(data) {
 		if (data.type === 'error') {
+			clearPendingLoginMethod()
 			sendUserToast(data.error, true)
+			onLoginError?.(data.error)
 		} else if (data.type === 'success') {
 			finishOauthFlow('postMessage')
 		}
@@ -530,12 +544,20 @@
 		}
 	}
 
-	function storeRedirect(provider: string): boolean {
+	// `automatic` marks the auto-login redirect, the one login that has to reach the
+	// provider without drawing anything. It suppresses the provider's extra params —
+	// Google's and Microsoft's account chooser — which every other login gets.
+	function storeRedirect(provider: string, automatic: boolean): boolean {
 		// The kitchen sink renders real provider buttons; clicking one must not leave the page.
 		if (previewConfig) return true
 		markLoginMethodPending({ kind: 'oauth', provider })
 		persistRd()
-		let url = base + '/api/oauth/login/' + provider + (popup ? '?close=true' : '')
+		const params = new URLSearchParams()
+		if (popup) params.set('close', 'true')
+		if (automatic) params.set('auto', 'true')
+		if (guestApp) params.set('guest_app', guestApp)
+		const query = params.size > 0 ? '?' + params.toString() : ''
+		let url = base + '/api/oauth/login/' + provider + query
 		console.log('storeRedirect', popup, url)
 
 		if (popup) {
@@ -581,8 +603,14 @@
 				console.log('oauth: popup closed before login completed')
 				return
 			}
+			// A guest session is pinned to its workspace and cannot answer the global
+			// probe; an ordinary session for a non-member cannot answer the workspace
+			// one. Either answering means the popup signed someone in.
+			const guestWorkspace = guestApp?.split('/')[0]
+			const probes: Promise<unknown>[] = [UserService.getCurrentEmail()]
+			if (guestWorkspace) probes.push(UserService.whoami({ workspace: guestWorkspace }))
 			try {
-				await UserService.getCurrentEmail()
+				await Promise.any(probes)
 			} catch {
 				return
 			}
@@ -606,7 +634,17 @@
 		// full URLs (e.g. the page URL from /a/[...path]) are reduced to their
 		// path component first. The backend re-validates. Cross-origin or
 		// otherwise unsafe values fall through to the localStorage fallback.
-		const safePath = toSameOriginRelativePath(rd)
+		// A guest entry rides in the same RelayState as a `guest_app` query parameter
+		// the ACS lifts out: SAML never passes through `/api/oauth/login/<client>`,
+		// where the OAuth path hands its target to the server.
+		let safePath = toSameOriginRelativePath(rd)
+		if (guestApp && safePath) {
+			const hashAt = safePath.indexOf('#')
+			const pathAndQuery = hashAt === -1 ? safePath : safePath.slice(0, hashAt)
+			const hash = hashAt === -1 ? '' : safePath.slice(hashAt)
+			const sep = pathAndQuery.includes('?') ? '&' : '?'
+			safePath = `${pathAndQuery}${sep}guest_app=${encodeURIComponent(guestApp)}${hash}`
+		}
 		if (safePath) {
 			try {
 				const url = new URL(saml)
@@ -616,6 +654,13 @@
 			} catch (e) {
 				console.error('Could not set SAML RelayState', e)
 			}
+		}
+		if (guestApp && !relayStateSet) {
+			// Without the target the callback provisions an account, so a guest
+			// sign-in that cannot carry it does not start.
+			clearPendingLoginMethod()
+			sendUserToast('Could not start sign-in, please try again.', true)
+			return false
 		}
 		// Only use the localStorage fallback when RelayState is NOT carrying the
 		// deep link. With RelayState the ACS redirects straight to the target and
@@ -673,7 +718,9 @@
 						unifiedSize="lg"
 						startIcon={entry.icon ? { icon: entry.icon, classes: 'h-4' } : undefined}
 						onClick={() =>
-							entry.method.kind === 'saml' ? redirectSaml() : storeRedirect(entry.method.provider)}
+							entry.method.kind === 'saml'
+								? redirectSaml()
+								: storeRedirect(entry.method.provider, false)}
 					>
 						Continue with {entry.displayName}
 					</Button>
@@ -732,7 +779,7 @@
 						contact@windmill.dev
 					</p>
 				{/if}
-				<div bind:this={fieldsEl} class="space-y-6 {shake ? 'motion-safe:animate-shake' : ''}">
+				<div bind:this={fieldsEl} class="space-y-2 {shake ? 'motion-safe:animate-shake' : ''}">
 					<div class="space-y-1">
 						<label for={emailId} class="block text-xs font-semibold text-emphasis"> Email </label>
 						<div>

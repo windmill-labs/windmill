@@ -245,7 +245,7 @@
      viewport bottom) so the mount scrollIntoView leaves the Submit button uncovered. -->
 <div
 	bind:this={cardNode}
-	class="scroll-mb-8 rounded-md border border-border-light bg-surface p-3"
+	class="scroll-mb-8 rounded-md border border-border-light bg-surface-tertiary p-3 shadow-sm"
 	data-chat-keyboard-scope="ask-user-question"
 	use:focusActiveOnBackgroundClick
 >

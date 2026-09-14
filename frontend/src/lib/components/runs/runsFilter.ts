@@ -217,7 +217,9 @@ export function buildRunsFilterSearchbarSchema({
 		show_future_jobs: {
 			type: 'boolean' as const,
 			label: 'Show future jobs (Default: true)',
-			description: 'Include jobs that are planned later'
+			description: 'Include jobs that are planned later',
+			// On by default (useJobsLoader), so selecting it means "turn it off" — keep the picker.
+			default: true
 		},
 		...(isSuperAdminOrDevops &&
 			isAdminsWorkspace && {

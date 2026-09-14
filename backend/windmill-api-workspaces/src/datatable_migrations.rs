@@ -10,7 +10,10 @@
 //! management, and the workspace-merge diff helper. Split out of `workspaces.rs`
 //! to keep that file focused on core workspace configuration.
 
-use crate::workspaces::{pg_dump_database, ItemComparison};
+use crate::workspaces::{
+    is_instance_datatable, pg_dump_database, strip_unreplayable_dump_lines, ItemComparison,
+    PgDumpOptions,
+};
 
 use axum::{
     extract::{Extension, Path, Query},
@@ -413,6 +416,16 @@ async fn run_datatable_migrations(
 
     let applied_versions = read_applied_versions_on_client(&client, &datatable_name).await?;
 
+    // How the user scoped the run, for the counter emitted on the first migration
+    // that lands below.
+    let scope = if query.only.is_some() {
+        "only"
+    } else if query.up_to.is_some() {
+        "up_to"
+    } else {
+        "all"
+    };
+
     let mut applied = Vec::new();
     for m in migrations {
         if let Some(only) = query.only {
@@ -450,6 +463,14 @@ async fn run_datatable_migrations(
                 ))
             })?;
         applied.push(AppliedMigration { version: m.timestamp, name: m.name });
+        // One event per run that moved the data table forward, emitted on the
+        // first migration that lands rather than after the loop: a later one
+        // failing returns early, and that run still advanced the data table. A
+        // run with nothing pending stays uncounted — it is the common outcome of
+        // opening the list and would drown out the runs that did something.
+        if applied.len() == 1 {
+            windmill_common::feature_usage::log_feature_usage("datatable", "migration_run", scope);
+        }
     }
 
     Ok(Json(RunDatatableMigrationsResult { applied }))
@@ -590,6 +611,12 @@ async fn rollback_datatable_migrations(
                 pg_error_message(&e)
             ))
         })?;
+
+    windmill_common::feature_usage::log_feature_usage(
+        "datatable",
+        "migration_rollback",
+        if query.only.is_some() { "only" } else { "last" },
+    );
 
     Ok(Json(RollbackDatatableMigrationsResult {
         rolled_back: vec![RolledBackMigration { version, name: definition.name }],
@@ -821,6 +848,8 @@ async fn enable_datatable_migrations(
     )
     .await?;
 
+    windmill_common::feature_usage::log_feature_usage("datatable", "migrations_toggled", "on");
+
     Ok(format!(
         "Enabled migrations for data table {datatable_name}"
     ))
@@ -888,6 +917,8 @@ async fn disable_datatable_migrations(
         )
         .await?;
     }
+
+    windmill_common::feature_usage::log_feature_usage("datatable", "migrations_toggled", "off");
 
     Ok(format!(
         "Disabled migrations for data table {datatable_name} and deleted its migrations"
@@ -1131,6 +1162,8 @@ async fn create_datatable_migration(
     )
     .await?;
 
+    windmill_common::feature_usage::log_feature_usage("datatable", "migration_created", "manual");
+
     Ok(Json(DatatableMigration {
         datatable: datatable_name,
         timestamp,
@@ -1368,6 +1401,20 @@ async fn upsert_datatable_migration(
     )
     .await?;
 
+    // An unchanged re-push is not counted: `wmill sync push` sends every migration
+    // on every sync, so counting those would swamp the definitions people write.
+    if !unchanged {
+        windmill_common::feature_usage::log_feature_usage(
+            "datatable",
+            "migration_created",
+            if existing.is_none() {
+                "synced"
+            } else {
+                "edited"
+            },
+        );
+    }
+
     Ok(format!(
         "Upserted migration {} in {}",
         payload.timestamp, datatable_name
@@ -1408,18 +1455,25 @@ async fn generate_initial_datatable_migration(
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
 
-    // Snapshot the schema, excluding Windmill's own migration bookkeeping table.
-    let dump_file = pg_dump_database(&pg_db, true, &["_wm_migrations"]).await?;
+    // Snapshot the schema without `_wm_migrations`, Windmill's own bookkeeping table, and
+    // without what a replay elsewhere cannot run: the replaying user owns none of this
+    // database's objects, and the grants Windmill plants in an instance database (`ALTER
+    // DEFAULT PRIVILEGES FOR ROLE ...`) fail even replaying onto the same server.
+    let no_acl = is_instance_datatable(&db, &w_id, &datatable_name).await?;
+    let dump_file = pg_dump_database(
+        &pg_db,
+        PgDumpOptions {
+            schema_only: true,
+            exclude_tables: &["_wm_migrations"],
+            no_owner: true,
+            no_acl,
+        },
+    )
+    .await?;
     let raw_dump = tokio::fs::read_to_string(&dump_file.path)
         .await
         .map_err(|e| Error::internal_err(format!("Failed to read schema dump: {}", e)))?;
-    // pg_dump emits psql meta-commands (\restrict / \unrestrict) that aren't
-    // valid SQL; drop them so the migration body can run via a plain query.
-    let code_up: String = raw_dump
-        .lines()
-        .filter(|line| !line.trim_start().starts_with('\\'))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let code_up = strip_unreplayable_dump_lines(&raw_dump);
 
     // Record the definition first, then mark it installed. If marking fails we
     // delete the definition, so a failure leaves no phantom "initial" (rather
@@ -1466,6 +1520,12 @@ async fn generate_initial_datatable_migration(
         "initial",
     )
     .await?;
+
+    windmill_common::feature_usage::log_feature_usage(
+        "datatable",
+        "migration_created",
+        "initial_snapshot",
+    );
 
     Ok(Json(DatatableMigration {
         datatable: datatable_name,

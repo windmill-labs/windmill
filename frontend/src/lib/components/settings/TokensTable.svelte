@@ -56,6 +56,7 @@
 		if (!label) return true
 		return (
 			label !== 'session' &&
+			label !== 'guest_session' &&
 			!label.toLowerCase().startsWith('ephemeral') &&
 			label !== 'debugger-token' &&
 			!label.startsWith('mcp-oauth-')

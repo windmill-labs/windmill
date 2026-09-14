@@ -8,6 +8,7 @@
 		onTextSegmentAtCursorChange,
 		onKeyDown,
 		autofocus,
+		id,
 		class: className = ''
 	}: {
 		tags: { regex: RegExp; id: string; onClear?: () => void }[]
@@ -18,6 +19,7 @@
 		onTextSegmentAtCursorChange?: (segment: { text: string; start: number; end: number }) => void
 		onKeyDown?: (e: KeyboardEvent) => void
 		autofocus?: boolean
+		id?: string
 		class?: string
 	} = $props()
 
@@ -337,7 +339,13 @@
 
 	function handleKeyDown(e: KeyboardEvent) {
 		onKeyDown?.(e)
-		if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') return
+		// Single-line filter input: block Enter's default newline insertion. Surrounding handlers
+		// (suggestion select, list open) still run on bubble; only the contenteditable break is gone.
+		if (e.key === 'Enter') {
+			e.preventDefault()
+			return
+		}
+		if (e.key === 'ArrowDown' || e.key === 'ArrowUp') return
 		const cursorPos = getCursorPosition()
 		const text = getTextContent()
 
@@ -509,6 +517,7 @@
 <!-- svelte-ignore a11y_autofocus -->
 <div
 	bind:this={contentEditableDiv}
+	{id}
 	contenteditable="true"
 	oninput={handleInput}
 	onpaste={handlePaste}

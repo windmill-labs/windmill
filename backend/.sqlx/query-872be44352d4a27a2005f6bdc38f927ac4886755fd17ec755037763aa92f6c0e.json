@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH moved AS (\n             UPDATE log_file SET indexed_at = CASE\n                 WHEN log_ts > NOW() - make_interval(secs => $1) THEN NULL\n                 ELSE now() END\n             WHERE indexed_at = 'epoch' RETURNING 1)\n         SELECT count(*) AS \"n!\" FROM moved",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "872be44352d4a27a2005f6bdc38f927ac4886755fd17ec755037763aa92f6c0e"
+}

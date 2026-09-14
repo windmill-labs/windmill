@@ -157,7 +157,8 @@ async fn list_flows(
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
               LEFT JOIN password p ON p.email = d.email AND p.super_admin = true \
-              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'flow') as draft_users",
+              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'flow' \
+                AND (d.email IS NULL OR u.username IS NOT NULL OR p.email IS NOT NULL)) as draft_users",
             "folder_labels(o.workspace_id, o.path) as inherited_labels"
         ])
         .left()
@@ -921,7 +922,7 @@ async fn derived_on_behalf_of_email(
     let Some(permissioned_as) = flow.on_behalf_of.as_deref() else {
         return Ok(None);
     };
-    // Uncached, for the reason given on `prefetch_cached_script`: this pair is round-tripped.
+    // Uncached: this pair is round-tripped by the client and stored again on redeploy.
     Ok(Some(
         windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
             .await?,

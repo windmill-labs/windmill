@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO resource_type (workspace_id, name, schema, description, format_extension, edited_at)\n             VALUES ('admins', $1, $2, $3, $4, now())\n             ON CONFLICT (workspace_id, name) DO UPDATE\n             SET schema = EXCLUDED.schema, description = EXCLUDED.description,\n                 -- A fileset is a set of files, so it cannot also be one file.\n                 -- Create and update reject the pair; this writer bypasses both, so\n                 -- it declines the extension rather than persisting the forbidden\n                 -- combination onto a same-named local fileset.\n                 format_extension = CASE\n                     WHEN resource_type.is_fileset THEN NULL\n                     WHEN $5 THEN EXCLUDED.format_extension\n                     ELSE resource_type.format_extension END,\n                 edited_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Jsonb",
+        "Text",
+        "Varchar",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "972df41db505fbbd20a558b200a2e2e8bc43633707d8365f73130c5bca3923b9"
+}

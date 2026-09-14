@@ -6,21 +6,28 @@
 
 	interface Props {
 		subtitle?: string | undefined
+		/** Rendered under the title, for a subtitle that needs markup (a link, say).
+		 * Sits below `subtitle` when both are given. */
+		subtitleSnippet?: import('svelte').Snippet
 		title?: string
 		large?: boolean
 		centerVertically?: boolean
 		loading?: boolean
 		containOverflow?: boolean
+		/** The Windmill version and update notice in the header. */
+		showVersion?: boolean
 		children?: import('svelte').Snippet
 	}
 
 	let {
 		subtitle = undefined,
+		subtitleSnippet = undefined,
 		title = 'Windmill',
 		large = false,
 		centerVertically = true,
 		loading = false,
 		containOverflow = false,
+		showVersion = true,
 		children
 	}: Props = $props()
 
@@ -60,6 +67,9 @@
 					{subtitle}
 				</p>
 			{/if}
+			{#if subtitleSnippet}
+				<div class="text-center mt-2">{@render subtitleSnippet()}</div>
+			{/if}
 		</div>
 
 		{#if children}
@@ -75,5 +85,5 @@
 		{/if}
 	</div>
 
-	<LoginPageHeader />
+	<LoginPageHeader {showVersion} />
 </div>

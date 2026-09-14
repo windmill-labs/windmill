@@ -1485,3 +1485,44 @@ async fn declarative_sync_rejects_an_unusable_webhook_base_url(db: Pool<Postgres
         "the other settings in the same apply must not have been written either"
     );
 }
+
+/// Same contract for the announcement banner: this path owns its validation, and a value
+/// that lands here unchecked reaches every user's browser. A rejected banner must not be
+/// half-applied either.
+#[sqlx::test(fixtures("base"))]
+async fn declarative_sync_rejects_an_unusable_instance_banner(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+    let before = count_global_settings(&db).await;
+
+    let mut desired = BTreeMap::new();
+    desired.insert(
+        "base_url".to_string(),
+        serde_json::json!("https://wm.example.com"),
+    );
+    desired.insert(
+        "instance_banner".to_string(),
+        serde_json::json!({ "enabled": true, "message": "down", "link": "javascript:alert(1)" }),
+    );
+
+    let err = windmill_common::instance_config::sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &desired,
+    )
+    .await
+    .expect_err("a javascript: banner link must fail the sync");
+    assert!(
+        err.to_string().contains("instance_banner"),
+        "the error should name the offending setting, got: {err}"
+    );
+
+    assert_eq!(
+        count_global_settings(&db).await,
+        before,
+        "validation must run before anything is applied"
+    );
+    assert!(
+        get_global_setting(&db, "base_url").await.is_none(),
+        "the other settings in the same apply must not have been written either"
+    );
+}

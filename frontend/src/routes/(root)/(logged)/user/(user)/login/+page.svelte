@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'
 
@@ -109,7 +110,8 @@
 				} else {
 					goto(rd ?? '/')
 				}
-			} else if (rd?.startsWith('/user/workspaces')) {
+				// See (root)/+layout.svelte for why /projects/import skips the picker.
+			} else if (rd?.startsWith('/user/workspaces') || rd?.startsWith(`${base}/projects/import`)) {
 				goto(rd)
 			} else if (rd == '/#user-settings') {
 				goto(`/user/workspaces#user-settings`)
@@ -138,6 +140,12 @@
 		clearStores()
 	}
 </script>
+
+<svelte:head>
+	<!-- Linked with a different `rd` from every page, so a crawler meets many URLs
+	     for this one form. Nothing about a login page belongs in an index. -->
+	<meta name="robots" content="noindex, nofollow" />
+</svelte:head>
 
 <!-- Anchored to the top, not centered: the card grows when the password form opens or an
 	error appears, and centering would slide the mark and the fields under the pointer. -->

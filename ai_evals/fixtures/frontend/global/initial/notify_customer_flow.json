@@ -1,0 +1,40 @@
+{
+  "workspace": {
+    "flows": [
+      {
+        "path": "f/evals/global/notify_customer",
+        "summary": "Notify a customer",
+        "description": "Sends a notification to the named customer.",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "customer": {
+              "type": "string"
+            }
+          },
+          "required": ["customer"]
+        },
+        "value": {
+          "modules": [
+            {
+              "id": "notify",
+              "summary": "Send the notification",
+              "value": {
+                "type": "rawscript",
+                "language": "bun",
+                "content": "export async function main(customer: string) {\n  return `Notified ${customer}`\n}\n",
+                "input_transforms": {
+                  "customer": {
+                    "type": "javascript",
+                    "expr": "flow_input.customer"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -22,6 +22,7 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { discardDraftAfterDeploy, runResetToDeployed } from '$lib/userDraftToast'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
+	import { schemaAsEditorMounts } from '$lib/scriptEditorSchema'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
@@ -301,6 +302,18 @@
 				getDraft
 			})
 			if (tok !== loadScriptToken) return
+			// The editor re-infers the schema as soon as it mounts, so a baseline
+			// taken from the raw stored schema would flag every unedited open of a
+			// script whose stored schema differs from what this parser emits.
+			const baselineSchema = backendScript.no_deployed
+				? undefined
+				: await schemaAsEditorMounts(
+						backendScript.language,
+						backendScript.content ?? '',
+						backendScript.schema,
+						backendScript.kind
+					)
+			if (tok !== loadScriptToken) return
 			// Backend only computes `other_drafts_users` when `getDraft`. Don't clobber
 			// the known list on a `getDraft:false` reload (e.g. reset-to-deployed, which
 			// discards only OUR draft and must keep other users' drafts visible).
@@ -329,11 +342,14 @@
 			savedScript = structuredClone($state.snapshot(effectiveScript))
 			const parentHash = topHash ?? backendScript.hash
 			// Baseline for the autosave `discardIf`: the deployed script with the
-			// same `parent_hash` graft the seed below applies, so the unedited draft
-			// compares equal. `undefined` when there's no deployed row.
+			// same `parent_hash` graft the seed below applies and the schema as the
+			// mounted editor holds it, so the unedited draft compares equal.
+			// `undefined` when there's no deployed row.
 			deployedBaseline = backendScript.no_deployed
 				? undefined
-				: structuredClone($state.snapshot({ ...deployedScript, parent_hash: parentHash }))
+				: structuredClone(
+						$state.snapshot({ ...deployedScript, schema: baselineSchema, parent_hash: parentHash })
+					)
 			// "Load another user's draft" handoff: show their value over the
 			// deployed metadata. If WE already have a draft → overlay mode (never
 			// saved until the user confirms overwriting their own draft).

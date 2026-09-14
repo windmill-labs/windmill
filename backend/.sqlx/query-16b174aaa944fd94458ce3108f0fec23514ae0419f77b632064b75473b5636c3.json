@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT trace_id FROM otel_traces ORDER BY trace_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "trace_id",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "16b174aaa944fd94458ce3108f0fec23514ae0419f77b632064b75473b5636c3"
+}

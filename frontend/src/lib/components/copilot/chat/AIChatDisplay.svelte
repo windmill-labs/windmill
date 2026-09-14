@@ -7,6 +7,7 @@
 		AlertTriangle,
 		ArrowDown,
 		AtSign,
+		BookOpen,
 		ChevronDown,
 		ChevronsRight,
 		CheckIcon,
@@ -15,6 +16,7 @@
 		Folder,
 		Hand,
 		HistoryIcon,
+		KeyRound,
 		MousePointer2,
 		Plug,
 		Plus,
@@ -33,7 +35,9 @@
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
-	import McpConnections from './McpConnections.svelte'
+	import AssistantSettingsModal from './AssistantSettingsModal.svelte'
+	import { SkillsMenu } from './skills/skillsMenu.svelte'
+	import { McpMenu } from '$lib/components/mcp/mcpMenu.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -59,9 +63,22 @@
 		readDroppedEntries
 	} from './files/fsAccess'
 	import { sendUserToast } from '$lib/toast'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { copilotInfo } from '$lib/aiStore'
+	import { base } from '$lib/base'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const aiChatManager = getAiChatManager()
+
+	// The user spent their one-time free Windmill AI grant: there is no model left to send
+	// to, so say so in the thread itself rather than only failing on send.
+	let freeTierExhausted = $derived($copilotInfo.freeTier?.exhausted === true)
+	// Still on the free grant: keep how much is left in view right above the composer, so
+	// running out isn't a surprise. Once spent, the exhausted banner replaces it.
+	let freeTier = $derived($copilotInfo.freeTier)
+	let freeTierUsedPct = $derived(Math.min(100, Math.round((freeTier?.used_ratio ?? 0) * 100)))
+	let showFreeTierUsage = $derived(!!freeTier && !freeTier.exhausted)
+
 	// One row per autonomy posture, in picker order, so adding one touches only this
 	// table. `isAvailable` hides the postures that would do nothing in the current AI
 	// mode, which is why the picker can be shorter than this list.
@@ -191,7 +208,11 @@
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
-	let mcpConnections: McpConnections | undefined = $state()
+	let assistantSettings: AssistantSettingsModal | undefined = $state()
+	// The "+" menu's skill and MCP rows: enough state to check and flip one, with
+	// everything else about them behind the assistant settings modal.
+	const skillsMenu = new SkillsMenu(aiChatManager, () => assistantSettings?.open('skills'))
+	const mcpMenu = new McpMenu(aiChatManager, () => assistantSettings?.open('mcp'))
 	let plusMenuOpen = $state(false)
 	let editingMessageIndex = $state<number | null>(null)
 
@@ -206,7 +227,15 @@
 			const active = document.activeElement
 			const focusOnChat =
 				!active || active === document.body || (panelEl?.contains(active) ?? false)
-			if (!focusOnChat) return
+			// An Escape while a run form is open must not discard what the user typed, so the action
+			// row alone stops the turn — wherever it is mounted, since the preview panel holds the
+			// form outside `panelEl`. Matched by call: two chats can be loading at once, and one's
+			// row must not answer for the other.
+			if (aiChatManager.hasPendingRunForm) {
+				const row = active?.closest('[data-run-form-actions]')
+				const toolCallId = row?.getAttribute('data-run-form-actions')
+				if (!toolCallId || !aiChatManager.isRunFormPending(toolCallId)) return
+			} else if (!focusOnChat) return
 			e.preventDefault()
 			// Immediate form: other chat panels' identical listeners must not
 			// also cancel on body focus, nor a drawer/modal close on this press.
@@ -298,7 +327,10 @@
 		}
 	})
 
-	const showTypingIndicator = $derived(aiChatManager.loading)
+	// Also shown for a run held by another tab, labeled with where it is: the
+	// dots say a turn is in flight even before the reader reaches the footer
+	// note. Remote runs pause nothing and offer no Stop — this tab can't cancel.
+	const showTypingIndicator = $derived(aiChatManager.loading || aiChatManager.runHeldElsewhere)
 
 	// The manual `@` context-picker button. Shown in SCRIPT/FLOW (workspace items +
 	// code blocks) and APP (datatables, frontend files). Hidden in GLOBAL — there
@@ -535,7 +567,7 @@
 
 	const yoloBypassedTools = $derived.by(() => {
 		return aiChatManager.tools
-			.filter((tool) => tool.requiresConfirmation === true)
+			.filter((tool) => tool.requiresConfirmation === true || tool.bypassedByAutoAccept === true)
 			.map((tool) => ({
 				name: tool.def.function.name,
 				// confirmationMessage may be a function of the call args, which we don't
@@ -554,13 +586,57 @@
 		(aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false) &&
 			!aiChatManager.autoAcceptEditsActive
 	)
+	// A disabled state with no message (a remote hold, a spent free grant) keeps
+	// the footer toolbar in place — swapping it for an empty strip would make
+	// the model/mode row flash out and back on every remote turn. A state with
+	// a real message (archived, AI off) still shows it, hold or not, matching
+	// the precedence disabledMessage itself encodes.
+	const footerMessageShown = $derived(disabled && disabledMessage !== '')
 	const showFooterLeftControls = $derived(
-		!disabled &&
+		!footerMessageShown &&
 			(showContextPicker ||
 				showAutonomyModeSelector ||
 				(aiChatManager.mode === AIMode.SCRIPT && hasDiff))
 	)
 </script>
+
+{#snippet freeTierExhaustedBanner()}
+	<div class="my-2">
+		<Alert type="info" size="xs" title="Free Windmill AI used up">
+			<div class="flex flex-col items-start gap-2">
+				<span>
+					You have used all of your free Windmill AI tokens. Add your own API key to keep using AI.
+				</span>
+				<Button
+					unifiedSize="2xs"
+					variant="accent"
+					startIcon={{ icon: KeyRound }}
+					href="{base}/workspace_settings?tab=ai"
+				>
+					Add your own API key
+				</Button>
+			</div>
+		</Alert>
+	</div>
+{/snippet}
+
+{#snippet freeTierUsageBanner()}
+	<div
+		class="my-1 flex items-center justify-between gap-2 rounded-md border bg-surface-secondary px-2 py-1"
+	>
+		<span class="text-xs text-secondary tabular-nums">
+			{freeTierUsedPct}% of your free Windmill AI used
+		</span>
+		<Button
+			unifiedSize="2xs"
+			variant="default"
+			startIcon={{ icon: KeyRound }}
+			href="{base}/workspace_settings?tab=ai"
+		>
+			Configure your API key
+		</Button>
+	</div>
+{/snippet}
 
 <!-- tabindex="-1": clicks on non-focusable chat content must move focus into
 the panel, or the Escape-to-stop focus check would wrongly reject them. -->
@@ -618,10 +694,14 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									{#each pastChats as chat (chat.id)}
 										<button
 											class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
-											disabled={aiChatManager.loading || aiChatManager.sendInFlight}
-											title={aiChatManager.loading || aiChatManager.sendInFlight
-												? 'Stop the current answer to switch conversation'
-												: undefined}
+											disabled={aiChatManager.loading ||
+												aiChatManager.sendInFlight ||
+												aiChatManager.runHeldElsewhere}
+											title={aiChatManager.runHeldElsewhere
+												? 'Wait for the turn in the other tab to switch conversation'
+												: aiChatManager.loading || aiChatManager.sendInFlight
+													? 'Stop the current answer to switch conversation'
+													: undefined}
 											onclick={() => {
 												loadPastChat(chat.id)
 												close()
@@ -651,7 +731,10 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					{/snippet}
 				</Popover>
 				<Button
-					title="New chat"
+					title={aiChatManager.runHeldElsewhere
+						? 'Wait for the turn in the other tab to start a new chat'
+						: 'New chat'}
+					disabled={aiChatManager.runHeldElsewhere}
 					on:click={() => {
 						saveAndClear()
 					}}
@@ -674,6 +757,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				>You can use {getModifierKey()}L to open or close this chat, and {getModifierKey()}K in the
 				script editor to modify selected lines.</span
 			>
+		{/if}
+		{#if freeTierExhausted}
+			<div class={wideLayout ? 'w-full max-w-3xl mx-auto px-7' : 'w-full max-w-2xl mx-auto px-3'}>
+				{@render freeTierExhaustedBanner()}
+			</div>
 		{/if}
 	{/if}
 
@@ -699,6 +787,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							isLast={messageIndex === messages.length - 1}
 						/>
 					{/each}
+					{#if freeTierExhausted}
+						{@render freeTierExhaustedBanner()}
+					{/if}
 					{#if showTypingIndicator}
 						<div
 							class={twMerge(
@@ -707,17 +798,19 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							)}
 						>
 							<ChatTypingIndicator
-								loading={aiChatManager.loading}
+								loading={showTypingIndicator}
 								paused={waitingForUserAction}
-								label={aiChatManager.loadingLabel
-									? aiChatManager.loadingLabel
-									: aiChatManager.compacting
-										? 'Compacting conversation'
-										: aiChatManager.currentReasoningActive &&
-											  !aiChatManager.currentReply &&
-											  !aiChatManager.currentReasoning
-											? (aiChatManager.reasoningHiddenIndicatorLabel ?? 'Thinking')
-											: undefined}
+								label={aiChatManager.runHeldElsewhere
+									? 'Running in another tab'
+									: aiChatManager.loadingLabel
+										? aiChatManager.loadingLabel
+										: aiChatManager.compacting
+											? 'Compacting conversation'
+											: aiChatManager.currentReasoningActive &&
+												  !aiChatManager.currentReply &&
+												  !aiChatManager.currentReasoning
+												? (aiChatManager.reasoningHiddenIndicatorLabel ?? 'Thinking')
+												: undefined}
 							/>
 						</div>
 					{/if}
@@ -798,6 +891,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			{#if inputPreface}
 				{@render inputPreface()}
 			{/if}
+			{#if showFreeTierUsage}
+				{@render freeTierUsageBanner()}
+			{/if}
 			<AIChatInput
 				bind:this={aiChatInput}
 				bind:selectedContext
@@ -868,39 +964,60 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 						{#if canAttachFiles}
 							<DropdownV2
-								items={async () => [
-									{
-										displayName: 'Attach file or image',
-										icon: FileText,
-										action: () => {
-											plusMenuOpen = false
-											linkFiles()
-										}
-									},
-									{
-										// A real (live) link needs the File System Access API; without it the
-										// folder is only snapshotted, so call it "Add folder", not "Link folder".
-										displayName: canUseFsAccess ? 'Link folder' : 'Add folder',
-										icon: Folder,
-										tooltip: canUseFsAccess
-											? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
-											: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
-										action: () => {
-											plusMenuOpen = false
-											linkFolder()
-										}
-									},
-									...(aiChatManager.mode === AIMode.GLOBAL && mcpConnections
-										? [
-												{
-													displayName: 'MCP connections',
-													icon: Plug,
-													separatorTop: true,
-													submenuItems: await mcpConnections.menuItems(() => (plusMenuOpen = false))
-												}
-											]
-										: [])
-								]}
+								items={async () => {
+									// Both submenus fetch on the menu's first open, so they start
+									// together: awaited inline they queue, and the whole menu —
+									// attachments included — waits out two round trips.
+									const closeMenu = () => (plusMenuOpen = false)
+									const inGlobal = aiChatManager.mode === AIMode.GLOBAL
+									const [skillItems, mcpItems] = await Promise.all([
+										inGlobal ? skillsMenu.items(closeMenu) : undefined,
+										inGlobal ? mcpMenu.items(closeMenu) : undefined
+									])
+									return [
+										{
+											displayName: 'Attach file or image',
+											icon: FileText,
+											action: () => {
+												plusMenuOpen = false
+												linkFiles()
+											}
+										},
+										{
+											// A real (live) link needs the File System Access API; without it the
+											// folder is only snapshotted, so call it "Add folder", not "Link folder".
+											displayName: canUseFsAccess ? 'Link folder' : 'Add folder',
+											icon: Folder,
+											tooltip: canUseFsAccess
+												? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
+												: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
+											action: () => {
+												plusMenuOpen = false
+												linkFolder()
+											}
+										},
+										...(skillItems
+											? [
+													{
+														displayName: 'Skills',
+														icon: BookOpen,
+														separatorTop: true,
+														submenuItems: skillItems
+													}
+												]
+											: []),
+										...(mcpItems
+											? [
+													{
+														displayName: 'MCP connections',
+														icon: Plug,
+														separatorTop: !skillItems,
+														submenuItems: mcpItems
+													}
+												]
+											: [])
+									]
+								}}
 								placement="bottom-start"
 								fixedHeight={false}
 								closeOnItemClick={false}
@@ -1017,12 +1134,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								{/snippet}
 							</Tooltip>
 						{/if}
-						{#if aiChatManager.mode === AIMode.SCRIPT && hasDiff}
+						{#if aiChatManager.mode === AIMode.SCRIPT && hasDiff && !disabled}
 							<ChatQuickActions {askAi} {diffMode} />
 						{/if}
 					</div>
 				{/if}
-				{#if disabled}
+				{#if footerMessageShown}
 					<div class="text-primary text-xs my-2 px-2">
 						<Markdown md={disabledMessage} />
 					</div>
@@ -1038,9 +1155,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							<DatatableCreationPolicy />
 						{/if}
 						<ContextUsageIndicator />
-						<AIChatModelSettings />
+						<!-- Unconditional: this composer mounts only via `AIChat` ← `SessionWrapper`,
+						     and `sessionRuntime` locks a session to GLOBAL, where the settings
+						     modal's Instructions section owns the prompt entries. -->
+						<AIChatModelSettings promptSettings={false} />
 						{#if aiChatManager.mode === AIMode.GLOBAL}
-							<McpConnections bind:this={mcpConnections} />
+							<AssistantSettingsModal bind:this={assistantSettings} />
 						{/if}
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}

@@ -101,7 +101,6 @@ jobs:
 
       - name: Install OpenSSL via vcpkg
         run: |
-          vcpkg.exe install openssl-windows:x64-windows
           vcpkg.exe install openssl:x64-windows-static
           vcpkg.exe integrate install
 
@@ -179,15 +178,14 @@ jobs:
           # binary link spikes several hundred MB of transient I/O. Capping at
           # 8 trades ~25% wall time for headroom on the ~75GB runner disk.
           CARGO_BUILD_JOBS: 8
-          # backend/Cargo.toml leaves profile.dev at the default debug = 2 for
-          # the (large) windmill workspace crates; that debuginfo is emitted
-          # into every object file and embedded in each test binary, and on
-          # windows-msvc also spawns the mspdbsrv.exe PDB type server. Across a
-          # full --all --features build it is the dominant consumer of the
-          # ~63GB free on the runner disk (LNK1180 / disk-full during linking).
-          # CI needs no debug info, so drop it entirely for the dev/test
-          # profiles here. debug = 0 supersedes the previous split-debuginfo=off
-          # knob (no debuginfo => no .pdb and no LNK1318 type-server limit).
+          # backend/Cargo.toml keeps line tables on profile.dev for the (large)
+          # windmill workspace crates; that debuginfo is emitted into every
+          # object file and embedded in each test binary, and on windows-msvc
+          # also spawns the mspdbsrv.exe PDB type server. Across the worker
+          # crates' test build it drives the peak on the ~63GB free of the
+          # runner disk (LNK1180 / disk-full during linking). CI reads no
+          # backtraces, so drop it entirely for the dev/test profiles here:
+          # debug = 0 means no .pdb and no LNK1318 type-server limit.
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
           # Tests' poll-time stack frames (deep nested async fn chains in

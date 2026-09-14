@@ -17,6 +17,9 @@ interface HubResourceType {
   app: string;
   description: string;
   is_fileset?: boolean;
+  // Absent from hubs predating the column, so a missing value is "ordinary type",
+  // not "unset it".
+  format_extension?: string | null;
 }
 
 export async function pull(opts: GlobalOptions) {
@@ -116,7 +119,8 @@ export async function pull(opts: GlobalOptions) {
           typeof y.schema !== "string" &&
           deepEqual(y.schema, x.schema) &&
           y.description === x.description &&
-          (y.is_fileset ?? false) === (x.is_fileset ?? false)
+          (y.is_fileset ?? false) === (x.is_fileset ?? false) &&
+          (y.format_extension ?? null) === (x.format_extension ?? null)
       )
     ) {
       log.info("skipping " + x.name + " (same as current)");

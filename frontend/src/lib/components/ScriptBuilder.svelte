@@ -102,7 +102,7 @@
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
 	import { type Trigger, deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
-	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
+	import DraftChangesConfirmationModal from './common/confirmationModal/DraftChangesConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
@@ -1149,7 +1149,7 @@
 	currentValue={script}
 />
 
-<DraftTriggersConfirmationModal
+<DraftChangesConfirmationModal
 	bind:open={draftTriggersModalOpen}
 	draftTriggers={triggersState.triggers.filter((t) => t.draftConfig)}
 	on:canceled={() => {

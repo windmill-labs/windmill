@@ -12,7 +12,6 @@
 		Building,
 		Moon,
 		Sun,
-		GraduationCap,
 		BookOpen,
 		Github,
 		Newspaper,
@@ -120,7 +119,6 @@
 	}
 
 	const helpItems: Item[] = [
-		{ displayName: 'Tutorials', icon: GraduationCap, href: `${base}/tutorials` },
 		{
 			displayName: 'Docs',
 			icon: BookOpen,

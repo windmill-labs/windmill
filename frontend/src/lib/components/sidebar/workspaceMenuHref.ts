@@ -1,3 +1,5 @@
+import { base } from '$lib/base'
+
 // Href for a workspace-switch link in the sidebar WorkspaceMenu: stay on the
 // current path and just swap the `workspace` query param, so a modifier/middle
 // click (open in new tab, which bypasses the onClick fast-path) lands on the
@@ -11,7 +13,15 @@ export function workspaceMenuHref(args: {
 	id: string
 	// Whether `id` belongs to the same workspace family as the active workspace.
 	sameFamily?: boolean
+	// Land on home instead of the current page — an operator's own pages are
+	// granted per workspace, so the one they are on may not be theirs to open in
+	// the workspace they are switching into. Drops the current page's params with
+	// it: they describe a page the target is not going to show.
+	landOnHome?: boolean
 }): string {
+	if (args.landOnHome) {
+		return `${base}/?workspace=${encodeURIComponent(args.id)}`
+	}
 	const params = new URLSearchParams(args.searchParams)
 	params.set('workspace', args.id)
 	if (!args.sameFamily) {

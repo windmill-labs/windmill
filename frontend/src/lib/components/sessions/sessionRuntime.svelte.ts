@@ -30,9 +30,14 @@ import { copilotWorkspace } from '$lib/aiStore'
 import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { emptySchema, type StateStore } from '$lib/utils'
 import {
+	localRunEnded,
+	localRunStarted,
+	onRemoteTurnEnd,
+	runHeldElsewhere
+} from './sessionSync.svelte'
+import {
 	commitSessionWorkspace,
 	deleteSession as deleteSessionState,
-	ensureChatIdsSeeded,
 	getEffectiveWorkspaceId,
 	materializeTransient,
 	sessionState,
@@ -56,6 +61,7 @@ import {
 	previewLocationContext,
 	previewLocationLabel,
 	promptSafe,
+	parseRunFormRoute,
 	resolvePreviewTab
 } from './previewRouter'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
@@ -338,6 +344,15 @@ function createRuntime(session: Session): SessionRuntime {
 	// Carried into the tool helpers so this session's preview/deploy tool calls
 	// dispatch to THIS session even when another session is the UI-active one.
 	manager.sessionId = session.id
+	// Cross-tab awareness: heartbeat while this tab runs a turn, composer lock
+	// (and send refusal) while another tab does. The chat id is read at turn
+	// end, not captured at start — the turn may have rotated it, and the other
+	// tabs re-read whichever record it ended on.
+	manager.runHeldElsewhereResolver = () => runHeldElsewhere(session.id)
+	manager.onRunningChanged = (running) => {
+		if (running) localRunStarted(session.id, manager.historyManager.getCurrentChatId())
+		else localRunEnded(session.id, manager.historyManager.getCurrentChatId())
+	}
 	// The chat targets the session's OWN (possibly forked) workspace without
 	// switching the global workspaceStore. Resolved live from the session record
 	// so it tracks the pending → committed (and staged-fork) transitions.
@@ -479,7 +494,13 @@ function createRuntime(session: Session): SessionRuntime {
 			const slot = resolvePreviewTab(url)
 			logFeatureUsage('ai_session', 'tab', {
 				key:
-					slot.kind === 'editor' ? slot.editorKind : slot.kind === 'artifact' ? 'artifact' : 'page',
+					slot.kind === 'editor'
+						? slot.editorKind
+						: slot.kind === 'artifact'
+							? 'artifact'
+							: slot.kind === 'runform'
+								? 'run_form'
+								: 'page',
 				entityId: session.id,
 				workspace: getEffectiveWorkspaceId(session)
 			})
@@ -497,12 +518,35 @@ function createRuntime(session: Session): SessionRuntime {
 		})
 	}
 
+	// Not a page: the tab mounts the chat's own form on the same tool call, so Run in the
+	// panel is Run in the chat, and the two share one draft rather than being two forms
+	// proposing two jobs.
+	manager.openRunForm = ({ toolCallId, label }) => {
+		previewTabs.open({ type: 'runform', toolCallId, label })
+	}
+	manager.closeRunForm = (toolCallId) => previewTabs.closeRunForm(toolCallId)
+	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
+		previewTabs.retargetRunForm(toolCallId, `${base}/run/${jobId}?workspace=${workspace}`)
+	}
+	// Read off the tab list rather than the slot's lifecycle: a tab the user has switched
+	// away from is unmounted but still open, and the card must keep its form hidden until it
+	// is closed. A resolver, like activePreviewResolver: the reader's own $derived subscribes
+	// to `tabs` through it, and the runtime is not inside an effect root to push from.
+	manager.isRunFormInPreview = (toolCallId) =>
+		previewTabs.tabs.some((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)
+
 	manager.openArtifact = (id, name, version) => {
 		previewTabs.open({ type: 'artifact', id, name, version })
 	}
 	manager.closeArtifact = (id) => previewTabs.closeArtifact(id)
 	// Key the store before any configureGlobalMode runs, so a new session's first create shows at once.
 	void manager.artifacts.setSession(session.id)
+
+	// Assigning `manager.mode` above only records the mode; this builds the tool set
+	// and system prompt from it. Keep it here, after the resolvers and the artifact
+	// store it reads, and not on `changeMode`: a runtime exists per session the
+	// picker lists, so changeMode's network refreshes would fire once per listing.
+	manager.configureGlobalMode()
 
 	// Pipeline target state lives on the runtime (not the PipelineEditorView
 	// component) so the in-session drafts survive hide/show of the editor pane —
@@ -906,7 +950,6 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// Restore linked files persisted for this session (live handles re-grant on send;
 	// snapshots restore directly). Non-transient sessions persist immediately.
 	await manager.attachedFiles.restore(session.id, !session.transient)
-	await ensureChatIdsSeeded(manager.historyManager)
 
 	// Keep the session record's chatId following the manager's active chat: a
 	// "/clear" rotation or a history switch would otherwise leave it pointing at
@@ -956,6 +999,65 @@ export function listRuntimes(): SessionRuntime[] {
 
 export function getRuntime(sessionId: string): SessionRuntime | undefined {
 	return runtimes.get(sessionId)
+}
+
+// ---------------------------------------------------------------------------
+// Cross-tab catch-up
+// ---------------------------------------------------------------------------
+
+// Chained per session so two turn-ends close together (a turn plus its queued
+// follow-up) re-read sequentially: the later read starts after the earlier
+// one's loadPastChat, so the newest record is what ends up on screen.
+const catchUps = new Map<string, Promise<void>>()
+
+onRemoteTurnEnd((sessionId, chatId) => {
+	const next = (catchUps.get(sessionId) ?? Promise.resolve())
+		.then(() => applyRemoteTurnEnd(sessionId, chatId))
+		.catch((e) => console.error('Failed to catch up on a turn from another tab', e))
+	catchUps.set(sessionId, next)
+	void next.finally(() => {
+		if (catchUps.get(sessionId) === next) catchUps.delete(sessionId)
+	})
+	// Awaited by the caller: the composer unlock rides on this settling.
+	return next
+})
+
+async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<void> {
+	const runtime = runtimes.get(sessionId)
+	if (!runtime) return
+	const m = runtime.manager
+	// Two transient states get a short retry rather than a skip, because the
+	// composer unlocks when this promise settles and a skip would unlock it on
+	// stale history: a send of this tab's own still in preflight (it may yet be
+	// refused, leaving no turn to converge on), and a store that failed to
+	// open. A turn actually running here owns the transcript instead — its own
+	// end converges — and the pruner caps the whole hold at STALE_MS anyway.
+	for (let attempt = 0; ; attempt++) {
+		if (m.loading) return
+		if (!m.sendInFlight) {
+			const res = await m.historyManager.reloadChat(chatId)
+			if (res === 'missing') return
+			if (res === 'loaded') break
+		}
+		if (attempt >= 7) return
+		await new Promise((r) => setTimeout(r, 500))
+		if (runtimes.get(sessionId) !== runtime) return
+	}
+	// Disposed (session deleted, teardown) while the read was in flight.
+	if (runtimes.get(sessionId) !== runtime) return
+	// Adopts the driver's chat unconditionally, current view included: watching
+	// a session means following where its activity is, and it is also how tabs
+	// converge after an unsynced /clear rotation. A watcher browsing an older
+	// conversation is pulled along — deliberate, and the price of not syncing
+	// rotation as its own message.
+	//
+	// preserveQueue: this reload is a catch-up, not a conversation switch — a
+	// draft queued here (a refused send's kept message, a failed turn's card)
+	// is unsent user input the re-read must not destroy.
+	await m.loadPastChat(chatId, { preserveQueue: true })
+	// loadPastChat's own artifact sync no-ops for an unchanged session id, so
+	// artifacts the driver wrote during the turn need this forced re-read.
+	await m.artifacts.resyncFromStore()
 }
 
 // Point a session's preview at a single seed tab. For re-pointing an existing

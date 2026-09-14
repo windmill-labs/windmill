@@ -916,6 +916,14 @@ pub struct WorkerGroupConfig {
     pub autoscaling: Option<AutoscalingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub native_mode: Option<bool>,
+    /// Object store this group's dependency cache uses instead of the instance one. Same shape
+    /// as the instance `object_store_cache_config`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "instance_config_schema",
+        schemars(schema_with = "opaque_json_schema")
+    )]
+    pub object_store_cache_config: Option<serde_json::Value>,
 
     /// Catch-all for fields not yet covered by typed fields.
     #[serde(flatten)]
@@ -1328,6 +1336,16 @@ pub async fn sync_global_settings_declarative(
                 "{webhook_key} must be a URL string, got {kind}"
             ));
         }
+    }
+
+    let banner_key = crate::global_settings::INSTANCE_BANNER_SETTING;
+    match desired.get(banner_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(banner) => crate::global_settings::validate_instance_banner(banner)
+            // The validator's messages name the offending field and its expected type,
+            // never the submitted value, so they are safe to surface here.
+            .map_err(|e| anyhow::anyhow!("{banner_key}: {e}"))?,
     }
 
     let diff = diff_global_settings(current, desired, ApplyMode::Replace);

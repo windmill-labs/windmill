@@ -31,9 +31,12 @@
 	type Props = {
 		steps: SetupStep[]
 		class?: string
+		/** Applied to each step's substep block, for a caller whose substeps are a long
+		 *  list rather than a handful of checks and need their own scroll. */
+		substepsClass?: string
 	}
 
-	let { steps, class: className = '' }: Props = $props()
+	let { steps, class: className = '', substepsClass = '' }: Props = $props()
 
 	/**
 	 * Only the steps the user has actually toggled. A failed step opens itself, so recording
@@ -108,8 +111,8 @@
 				</div>
 			</div>
 			{#if step.substeps?.length}
-				<div class="ml-6">
-					<Self steps={step.substeps} />
+				<div class={twMerge('ml-6', substepsClass)}>
+					<Self steps={step.substeps} {substepsClass} />
 				</div>
 			{/if}
 		</div>

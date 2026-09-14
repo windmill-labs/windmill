@@ -878,7 +878,7 @@ is, a different one moves it there and archives the old path"),
     EndpointTool {
         name: Cow::Borrowed("runScriptByPath"),
         description: Cow::Borrowed("run script by path"),
-        instructions: Cow::Borrowed("You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected."),
+        instructions: Cow::Borrowed("You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected. A resource argument (schema format `resource-<type>`) is the bare string `$res:<path>` as that whole argument value -- not a wrapper object, not a plain path. A variable is `$var:<path>`."),
         path: Cow::Borrowed("/w/{workspace}/jobs/run/p/{path}"),
         method: Cow::Borrowed("POST"),
         path_params_schema: Some(serde_json::json!({
@@ -1265,7 +1265,7 @@ is, a different one moves it there and archives the old path"),
                                 },
                                 "execution_mode": {
                                         "type": "string",
-                                        "description": "Who the app's runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Either way `anonymous`, which makes the app publicly executable, is never assumed. Possible values: viewer, publisher, anonymous"
+                                        "description": "Who may open the app, and who its runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Neither `anonymous`, which makes the app publicly executable, nor `guest`, which opens it to anyone the identity provider authenticates, is ever assumed. A guest is only admitted where the workspace also has `guest_access_enabled`, which is checked when the session is minted and again on every guest request. Possible values: viewer, publisher, guest, anonymous"
                                 },
                                 "on_behalf_of": {
                                         "type": "string"
@@ -1380,7 +1380,7 @@ is, a different one moves it there and archives the old path"),
                                 },
                                 "execution_mode": {
                                         "type": "string",
-                                        "description": "Who the app's runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Either way `anonymous`, which makes the app publicly executable, is never assumed. Possible values: viewer, publisher, anonymous"
+                                        "description": "Who may open the app, and who its runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Neither `anonymous`, which makes the app publicly executable, nor `guest`, which opens it to anyone the identity provider authenticates, is ever assumed. A guest is only admitted where the workspace also has `guest_access_enabled`, which is checked when the session is minted and again on every guest request. Possible values: viewer, publisher, guest, anonymous"
                                 },
                                 "on_behalf_of": {
                                         "type": "string"
@@ -1419,7 +1419,7 @@ is, a different one moves it there and archives the old path"),
     EndpointTool {
         name: Cow::Borrowed("runFlowByPath"),
         description: Cow::Borrowed("run flow by path"),
-        instructions: Cow::Borrowed("You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected."),
+        instructions: Cow::Borrowed("You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected. A resource argument (schema format `resource-<type>`) is the bare string `$res:<path>` as that whole argument value -- not a wrapper object, not a plain path. A variable is `$var:<path>`."),
         path: Cow::Borrowed("/w/{workspace}/jobs/run/f/{path}"),
         method: Cow::Borrowed("POST"),
         path_params_schema: Some(serde_json::json!({

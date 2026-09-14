@@ -22,7 +22,14 @@
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		disableHubStore,
+		enterpriseLicense,
+		hubBaseUrlStore,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 
@@ -59,6 +66,7 @@
 		Eye,
 		FolderOpen,
 		GitFork,
+		Globe2,
 		History,
 		Loader2,
 		Pen,
@@ -71,6 +79,7 @@
 		ChevronDown,
 		ChevronRight
 	} from 'lucide-svelte'
+	import { scriptToHubUrl } from '$lib/hub'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
@@ -388,7 +397,7 @@
 				if (!held || !current || block?.label !== 'retry' || block['dbt_retry_job']) return
 				args = { ...current, command: { ...block, dbt_retry_job: held } }
 				if (jsonView) {
-					runForm?.setCode(JSON.stringify(args, null, '\t'))
+					runForm?.syncJsonEditor()
 				}
 			})
 			.catch(() => {})
@@ -430,7 +439,7 @@
 			}
 		}
 		if (jsonView) {
-			runForm?.setCode(JSON.stringify(args, null, '\t'))
+			runForm?.syncJsonEditor()
 		}
 	}
 
@@ -615,6 +624,17 @@
 				Icon: ChevronUpSquare,
 				onclick: () => {
 					deploymentDrawer?.openDrawer(script?.path ?? '', 'script')
+				}
+			})
+		}
+
+		if (!$disableHubStore) {
+			menuItems.push({
+				label: 'Publish to Hub',
+				Icon: Globe2,
+				onclick: () => {
+					if (!script) return
+					window.open(scriptToHubUrl(script, $hubBaseUrlStore).toString(), '_blank', 'noopener')
 				}
 			})
 		}
@@ -934,9 +954,6 @@
 												rightTooltip: 'Fill args from JSON'
 											}}
 											lightMode
-											on:change={(e) => {
-												runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-											}}
 										/>
 									{/if}
 								</div>
@@ -1051,7 +1068,7 @@
 						const nargs = JSON.parse(JSON.stringify(e.detail))
 						args = nargs
 						if (jsonView) {
-							runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+							runForm?.syncJsonEditor()
 						}
 					}}
 				/>

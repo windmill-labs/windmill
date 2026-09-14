@@ -1078,6 +1078,7 @@
 				{otherArgs}
 				{helperScript}
 				{workspace}
+				{disabled}
 				bind:value
 				format={format ?? ''}
 			/>
@@ -1447,7 +1448,7 @@
 				{showSchemaExplorer}
 			/>
 		{:else if inputCat == 'ai-provider'}
-			<AIProviderPicker bind:value {disabled} {actions} />
+			<AIProviderPicker bind:value {disabled} {actions} {workspace} />
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}

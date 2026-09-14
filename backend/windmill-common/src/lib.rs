@@ -42,7 +42,6 @@ pub mod db;
 mod db_entra_ee;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_iam_ee;
-pub mod db_params;
 pub mod dbt_manifest;
 pub mod deploy_origin;
 #[cfg(feature = "private")]
@@ -68,6 +67,7 @@ pub mod flow_status;
 pub mod flows;
 pub mod folders;
 pub mod global_settings;
+pub mod guest_jwt;
 pub mod indexer;
 pub mod instance_config;
 pub mod job_metrics;
@@ -111,6 +111,7 @@ pub use pipeline_advanced_ee as pipeline_advanced;
 pub use pipeline_advanced_oss as pipeline_advanced;
 pub mod query_builders;
 pub mod queue;
+pub mod queue_metrics;
 pub mod result_stream;
 pub mod runnable_settings;
 pub mod schedule;
@@ -148,8 +149,85 @@ pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
 
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
 pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
-pub const SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
+pub const DEFAULT_SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
+pub const DEFAULT_OTEL_TRACES_RETENTION_SECS: i64 = 60 * 60 * 24 * 7; // 1 week retention period for HTTP request spans
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
+
+/// A century. Every consumer has to survive `now - retention`, and the ceilings are much lower
+/// than an `i64`: `DateTime` subtraction panics past year 262143, and the `(<n> s)::interval`
+/// the cleanup queries build overflows Postgres' microsecond field.
+const MAX_RETENTION_SECS: i64 = 60 * 60 * 24 * 365 * 100;
+
+/// Clamp a configured retention window, in seconds, to one a cutoff can be built from.
+///
+/// Shared by the retention windows that have no "keep forever" spelling, so that an unusable
+/// value can never reach a cutoff. The two unusable directions are not the same mistake and must
+/// not share a landing point: too large still says "keep these for a very long time", so it is
+/// capped and the intent survives, whereas falling back would delete data the operator meant to
+/// keep. A non-positive value has no such reading — every cutoff is `now - retention`, so it
+/// lands at or after `now` and the next sweep expires the entire history. `0` is both what an
+/// operator types by analogy with job retention, where it does mean keep forever, and what the
+/// settings UI writes into a field that was merely focused, so it falls back to the default.
+fn clamp_retention_secs(configured: i64, default: i64, what: &str) -> i64 {
+    if configured > MAX_RETENTION_SECS {
+        tracing::warn!(
+            "{what} retention of {configured}s exceeds the maximum of {MAX_RETENTION_SECS}s, \
+             capping it there"
+        );
+        MAX_RETENTION_SECS
+    } else if configured >= 1 {
+        configured
+    } else {
+        tracing::warn!(
+            "{what} retention of {configured}s would expire the entire history, \
+             falling back to the default of {default}s"
+        );
+        default
+    }
+}
+
+/// Apply a configured service log retention, in seconds.
+///
+/// The only way into [`SERVICE_LOG_RETENTION_SECS`]. Expiry reaches every copy of a log line:
+/// the row, the file on disk, and the object-storage object.
+pub fn set_service_log_retention_secs(configured: i64) {
+    let effective = clamp_retention_secs(
+        configured,
+        DEFAULT_SERVICE_LOG_RETENTION_SECS,
+        "service log",
+    );
+    SERVICE_LOG_RETENTION_SECS.store(effective, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Apply a configured OTEL trace retention, in seconds.
+///
+/// The only way into [`OTEL_TRACES_RETENTION_SECS`].
+pub fn set_otel_traces_retention_secs(configured: i64) {
+    let effective = clamp_retention_secs(
+        configured,
+        DEFAULT_OTEL_TRACES_RETENTION_SECS,
+        "otel traces",
+    );
+    OTEL_TRACES_RETENTION_SECS.store(effective, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// How long an HTTP request tracing span stays in `otel_traces`, in seconds.
+///
+/// Spans are keyed by the job they were captured for and read back by the job detail view, so
+/// this is the outer bound on how far back that view can show a job's HTTP requests. It is
+/// independent of job retention: a span can outlive its job, or be swept while the job remains.
+pub fn otel_traces_retention_secs() -> i64 {
+    OTEL_TRACES_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// How long a service log line stays retrievable, in seconds.
+///
+/// The outer bound on everything service-log: the `log_file` rows, the raw files in object
+/// storage, the columnar store queried by retrieval, and — through
+/// [`indexer::service_log_index_window_secs`] — the search index.
+pub fn service_log_retention_secs() -> i64 {
+    SERVICE_LOG_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 /// Canonical form of a base URL, used as one of the inputs to the offline-license
 /// instance hash (`compute_instance_hash`).
@@ -204,14 +282,16 @@ pub fn check_on_behalf_of_preservation(
     None
 }
 
-/// Resolves the identity to store when creating/updating a flow or script.
+/// Resolves the identity to store when creating/updating a flow, script or app.
 ///
-/// The permissioned_as is the only stored identity — it decides what the job may access,
-/// and the address is derived from it at read time — so the two can never name different
-/// accounts. Callers may supply either: a bare email (every client written before the
-/// principal existed) is resolved to the principal it names, and an email that names
-/// nobody is rejected rather than recorded, since it could only produce a runnable that
-/// cannot authenticate.
+/// The permissioned_as is the identity: it decides what the job may access, and the address is
+/// a function of it, so the two can never name different accounts. For a script or flow the
+/// address is derived at read time; an app still stores it, as a compatibility copy written
+/// through from the principal on every save and returned verbatim by the app reads (see
+/// `docs/app-policy-email-removal.md`). Callers may supply either: a bare email (every client
+/// written before the principal existed) is resolved to the principal it names, and an email
+/// that names nobody is rejected rather than recorded, since it could only produce a runnable
+/// that cannot authenticate.
 ///
 /// Returns `None` when the runnable has no on-behalf-of identity, and the caller's own
 /// identity when they are not allowed to preserve someone else's.
@@ -219,6 +299,18 @@ pub fn check_on_behalf_of_preservation(
 /// Resolves through the non-RLS pool and authorizes nothing itself — `authed` decides only
 /// whether preservation is allowed, and its role flags are not re-checked against `w_id`.
 /// Callers must already be authorized for the workspace they pass.
+///
+/// Known, accepted race. The lookup runs on the pool, outside the caller's write transaction, so
+/// an account renamed or removed between the two has its sweep run before the write is visible,
+/// and the write stores the old principal. The runnable then fails to authenticate until it is
+/// deployed with a current identity, with two exceptions: an app naming an external superadmin
+/// keeps running as that account through its stored address, and if the freed username is later
+/// given to another account, the stale principal binds to that account and runs as it. Every
+/// caller shares this (scripts, flows and apps, address-only inputs included), and it needs a
+/// rename or removal of the exact account inside the lookup-to-commit gap. Closing it means
+/// serializing every identity write against every identity mutation, across all runnable kinds
+/// (a `usr` row lock in each write, with each sweep ordered after the account change), which no
+/// single caller can do on its own; it is left open deliberately.
 pub async fn resolve_on_behalf_of(
     on_behalf_of_email: Option<&str>,
     on_behalf_of: Option<&str>,
@@ -376,6 +468,14 @@ lazy_static::lazy_static! {
     /// workspace configured before its override could be read.
     pub static ref JOB_RETENTION_SECS_OVERRIDES_LOADED: AtomicBool = AtomicBool::new(false);
     pub static ref AUDIT_LOG_RETENTION_DAYS: AtomicI64 = AtomicI64::new(0);
+    /// Private on purpose: [`set_service_log_retention_secs`] is the only writer, so a value that
+    /// would expire every service log cannot reach a cutoff. Read it with
+    /// [`service_log_retention_secs`].
+    static ref SERVICE_LOG_RETENTION_SECS: AtomicI64 = AtomicI64::new(DEFAULT_SERVICE_LOG_RETENTION_SECS);
+    /// Private on purpose, same as [`SERVICE_LOG_RETENTION_SECS`]:
+    /// [`set_otel_traces_retention_secs`] is the only writer, [`otel_traces_retention_secs`] the
+    /// only reader.
+    static ref OTEL_TRACES_RETENTION_SECS: AtomicI64 = AtomicI64::new(DEFAULT_OTEL_TRACES_RETENTION_SECS);
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: AtomicBool = AtomicBool::new(false);
 
@@ -1479,6 +1579,17 @@ pub async fn create_custom_instance_database(
     Ok(())
 }
 
+/// Connection options parsed from a database URL.
+///
+/// The only place a database URL becomes `PgConnectOptions`. Providers that mint the password
+/// themselves override it on these and keep the rest: options assembled field by field instead
+/// would drop every query parameter, `sslmode` and `sslrootcert` above all, leaving the
+/// connection on sqlx's default TLS policy rather than the operator's.
+pub fn base_connect_options(database_url: &str) -> Result<sqlx::postgres::PgConnectOptions, Error> {
+    sqlx::postgres::PgConnectOptions::from_str(database_url)
+        .map_err(|e| Error::InternalErr(format!("Failed to parse database URL: {}", e)))
+}
+
 #[derive(Clone)]
 pub enum DatabaseUrl {
     #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -1509,8 +1620,8 @@ impl DatabaseUrl {
     }
 
     /// Get PgConnectOptions for this database URL.
-    /// For token-based auth (IAM RDS, Entra ID), this returns options built directly from the
-    /// token to avoid double-encoding issues with temporary credentials.
+    /// For token-based auth (IAM RDS, Entra ID), this returns options carrying the current
+    /// token, set on the builder to avoid double-encoding temporary credentials.
     /// For static URLs, this parses the URL string.
     pub async fn connect_options(&self) -> Result<sqlx::postgres::PgConnectOptions, Error> {
         match self {
@@ -1524,8 +1635,7 @@ impl DatabaseUrl {
                 let guard = entra_url.read().await;
                 Ok(guard.connect_options())
             }
-            DatabaseUrl::Static(url) => sqlx::postgres::PgConnectOptions::from_str(url)
-                .map_err(|e| Error::InternalErr(format!("Failed to parse database URL: {}", e))),
+            DatabaseUrl::Static(url) => base_connect_options(url),
         }
     }
 
@@ -1773,11 +1883,9 @@ pub async fn on_behalf_of_from_permissioned_as(
     let Some(permissioned_as) = permissioned_as else {
         return Ok(None);
     };
-    // Uncached: the address is copied onto the job row, where it stays for the life of the run
-    // and decides the superadmin flag and the instance groups. Nothing evicts the cache across
-    // processes, so a cached read would keep minting jobs under an address the account no longer
-    // holds for up to a minute after it moves.
-    let email = users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?;
+    // Cached on purpose, up to one notify poll stale: the accepted dispatch case
+    // `get_email_from_permissioned_as` documents.
+    let email = users::get_email_from_permissioned_as(permissioned_as, w_id, db).await?;
     Ok(Some(jobs::OnBehalfOf {
         email,
         permissioned_as: permissioned_as.to_string(),
