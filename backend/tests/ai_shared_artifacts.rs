@@ -33,7 +33,7 @@ async fn share(
     Ok(resp.json().await?)
 }
 
-#[sqlx::test(fixtures("base"))]
+#[sqlx::test(fixtures("base", "ai_shared_artifacts"))]
 async fn shared_artifact_is_served_to_members_until_it_expires(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
@@ -58,6 +58,22 @@ async fn shared_artifact_is_served_to_members_until_it_expires(
     assert_eq!(resp.status(), 200);
     let body: Value = resp.json().await?;
     assert_eq!(body["content"], "final");
+
+    // The handlers read through the raw pool, so the workspace in the URL is the only thing
+    // scoping a share: a member of another workspace must not reach it by id through theirs.
+    let resp = client
+        .get(format!(
+            "http://localhost:{}/api/w/test-workspace-2/ai/shared_artifacts/get/{id}",
+            server.addr.port()
+        ))
+        .header("Authorization", ADMIN)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        404,
+        "a share was served through another workspace's path"
+    );
 
     sqlx::query(
         "UPDATE ai_shared_artifact SET shared_at = now() - ($1::bigint + 60) * interval '1 second'",
