@@ -182,8 +182,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 						},
 						tools: {
 							type: 'array',
-							description:
-								'Tools by the name the model is shown, and an MCP server by its resource path, which carries every tool that server exposes.',
+							description: 'Tool names and MCP servers',
 							items: {
 								type: 'string'
 							}
