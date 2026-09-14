@@ -18,7 +18,7 @@
 	import ResourceVersionHistory from './ResourceVersionHistory.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { addResourceTitle } from './resourceTypeDisplay'
-	import { loadResourceTypeDisplayName } from './pickerPopularity'
+	import { loadResourceTypeDisplayName } from './displayNameLoaders'
 
 	let {
 		workspace = undefined,

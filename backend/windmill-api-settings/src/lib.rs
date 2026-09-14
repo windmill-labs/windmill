@@ -2177,6 +2177,12 @@ async fn sync_cached_resource_types(
     let mut synced_count = 0;
 
     for rt in &resource_types {
+        // A name too long for the column counts as absent, leaving the stored one alone: one bad
+        // entry must not fail the upsert and end the rest of the sync.
+        let display_name = match &rt.display_name {
+            Some(Some(name)) if name.chars().count() > 100 => None,
+            other => other.clone(),
+        };
         let exists: Option<bool> = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3 AND ($5 IS NOT TRUE OR format_extension IS NOT DISTINCT FROM $4) AND ($7 IS NOT TRUE OR display_name IS NOT DISTINCT FROM $6))",
             &rt.name,
@@ -2184,8 +2190,8 @@ async fn sync_cached_resource_types(
             rt.description.as_deref(),
             rt.format_extension.clone().flatten(),
             rt.format_extension.is_some(),
-            rt.display_name.clone().flatten(),
-            rt.display_name.is_some(),
+            display_name.clone().flatten(),
+            display_name.is_some(),
         )
         .fetch_one(&db)
         .await?;
@@ -2217,8 +2223,8 @@ async fn sync_cached_resource_types(
             rt.description.as_deref(),
             rt.format_extension.clone().flatten(),
             rt.format_extension.is_some(),
-            rt.display_name.clone().flatten(),
-            rt.display_name.is_some(),
+            display_name.clone().flatten(),
+            display_name.is_some(),
         )
         .execute(&db)
         .await?;

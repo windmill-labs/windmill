@@ -10,7 +10,7 @@
 	import Select from './select/Select.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { addResourceTitle } from './resourceTypeDisplay'
-	import { loadResourceTypeDisplayName } from './pickerPopularity'
+	import { loadResourceTypeDisplayName } from './displayNameLoaders'
 
 	interface Props {
 		value: string | undefined

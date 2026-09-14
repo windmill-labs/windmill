@@ -597,8 +597,16 @@ pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyh
                 None => stored_extension.clone(),
             }
         };
-        // No key in the cache leaves the stored name alone, as for the extension.
+        // No key in the cache leaves the stored name alone, as for the extension. So does a name
+        // too long for the column: one bad entry must not fail the upsert and end the sync.
         let display_name = match &rt.display_name {
+            Some(Some(name)) if name.chars().count() > 100 => {
+                tracing::warn!(
+                    "Ignoring the display_name of resource type {}: longer than 100 characters",
+                    rt.name
+                );
+                stored_display_name.clone()
+            }
             Some(from_cache) => from_cache.clone(),
             None => stored_display_name.clone(),
         };

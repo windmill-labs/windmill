@@ -6,7 +6,7 @@
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import { loadHubFlows } from '$lib/hub'
-	import { loadHubIntegrationDisplayNames } from '$lib/components/pickerPopularity'
+	import { loadHubIntegrationDisplayNames } from '$lib/components/displayNameLoaders'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { Alert } from '$lib/components/common'
 	import { disableHubStore } from '$lib/stores'

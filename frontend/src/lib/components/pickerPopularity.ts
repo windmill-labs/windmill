@@ -1,12 +1,8 @@
 import { get } from 'svelte/store'
-import { IntegrationService, ResourceService } from '$lib/gen'
+import { ResourceService } from '$lib/gen'
 import { disableHubStore } from '$lib/stores'
 import { createCache } from '$lib/utils'
-import {
-	isCustomResourceTypeName,
-	setHubIntegrationDisplayNames,
-	setResourceTypeDisplayNames
-} from './resourceTypeDisplay'
+import { isCustomResourceTypeName } from './resourceTypeDisplay'
 
 /**
  * How often something has been picked or used, keyed by integration or resource type name.
@@ -55,39 +51,6 @@ export async function hubResourceTypePicks(workspace: string): Promise<Popularit
 	if (get(disableHubStore)) return {}
 	const info = await hubInfoCached({ workspace })
 	return Object.fromEntries(info.map((rt) => [rt.name, rt.picks]))
-}
-
-const resourceTypeRowCached = createCache(
-	({ workspace, name }: { workspace: string; name: string }) =>
-		ResourceService.getResourceType({ workspace, path: name }).then(
-			(rt) => setResourceTypeDisplayNames([rt]),
-			() => {}
-		),
-	{ invalidateMs: CACHE_MS, maxSize: 50 }
-)
-
-/**
- * Fill `resourceTypeDisplayName` for one type, for a surface titled with a type it holds no row
- * for. The name is stored with the type, so this reads the row rather than the hub.
- */
-export function loadResourceTypeDisplayName(workspace: string, name: string): Promise<void> {
-	return resourceTypeRowCached({ workspace, name })
-}
-
-const hubIntegrationNamesCached = createCache(
-	(_: Record<string, never>) =>
-		IntegrationService.listHubIntegrations().then(setHubIntegrationDisplayNames, () => {}),
-	{ invalidateMs: CACHE_MS }
-)
-
-/**
- * Fill `integrationDisplayName` for a picker whose integrations come from its own items rather
- * than the hub's integration list, as the hub app and flow pickers do. Unfiltered: `kind`
- * narrows by script kind, so asking for an app or a flow would name nothing.
- */
-export function loadHubIntegrationDisplayNames(): Promise<void> {
-	if (get(disableHubStore)) return Promise.resolve()
-	return hubIntegrationNamesCached({})
 }
 
 /**

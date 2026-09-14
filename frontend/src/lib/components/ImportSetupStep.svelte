@@ -23,7 +23,7 @@
 		resourceTypeDisplayName,
 		setResourceTypeDisplayNames
 	} from '$lib/components/resourceTypeDisplay'
-	import { loadResourceTypeDisplayName } from '$lib/components/pickerPopularity'
+	import { loadResourceTypeDisplayName } from '$lib/components/displayNameLoaders'
 	import { applyOneMigration } from '$lib/components/workspaceSettings/projectInstall'
 	import { probeMigrationsApplied } from '$lib/importWizard/probe'
 	import {
