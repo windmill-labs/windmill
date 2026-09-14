@@ -218,9 +218,9 @@
 </script>
 
 {#if !profileReady}
-	<!-- Blank while the invite profile, and for an invited account its placement, resolve
-	     which step comes first, or whether there is one at all. -->
-	<div></div>
+	<!-- While the invite profile, and for an invited account its placement, resolve which
+	     step comes first, or whether there is one at all. -->
+	<CenteredModal title="Setting things up" loading={true}></CenteredModal>
 {:else if currentStep === STEP_SOURCE}
 	<CenteredModal title="How did you hear about Windmill?">
 		<div class="w-full max-w-lg mx-auto">

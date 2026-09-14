@@ -8,6 +8,9 @@ import { noteSessionEmail } from '$lib/onboardingProfile'
 let pending = $state(false)
 let open = $state(false)
 let inflight: Promise<void> | undefined
+// Bumped on sign-out so a lookup still in flight for the previous account cannot land
+// its answer on the next one.
+let generation = 0
 
 export const accountSetup = {
 	/** Whether the signed-in account still has to set a password or connect a sign-in. */
@@ -25,10 +28,19 @@ export const accountSetup = {
 	 * Re-read the login type. Shared across callers mounting at the same time so the
 	 * sidebar's several readers cost one request, not one each.
 	 */
+	/** Forget the signed-out account; the module outlives a same-tab sign-out. */
+	reset() {
+		generation++
+		inflight = undefined
+		pending = false
+		open = false
+	},
 	refresh(): Promise<void> {
 		if (!inflight) {
+			const started = generation
 			inflight = UserService.globalWhoami()
 				.then((me) => {
+					if (started !== generation) return
 					noteSessionEmail(me.email)
 					pending = me.login_type === 'pending_oauth'
 					// The finish-setup marker is set for one provider round trip; a SAML one
@@ -40,10 +52,10 @@ export const accountSetup = {
 					}
 				})
 				.catch(() => {
-					pending = false
+					if (started === generation) pending = false
 				})
 				.finally(() => {
-					inflight = undefined
+					if (started === generation) inflight = undefined
 				})
 		}
 		return inflight

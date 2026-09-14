@@ -1,4 +1,5 @@
 import { noteSessionEmail } from './onboardingProfile'
+import { accountSetup } from './components/sidebar/accountSetup.svelte'
 import { UserService } from '$lib/gen'
 import { clearStores } from './storeUtils'
 
@@ -8,6 +9,7 @@ import { clearStores } from './storeUtils'
 export async function clearUser() {
 	try {
 		noteSessionEmail(undefined)
+		accountSetup.reset()
 		clearStores()
 		await UserService.logout()
 	} catch (error) {}
