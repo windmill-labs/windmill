@@ -46,6 +46,8 @@
 	}
 
 	export function buildCloneQueue(targetWorkspaceId: string): DatatableCloneJob[] {
+		// A fork attempt starts here: what an earlier attempt confirmed is not this one's to send.
+		confirmedJobs = []
 		return (allDatatables.current ?? [])
 			.filter((dt) => {
 				const behavior = datatableBehaviors[dt.name] ?? 'keep_original'

@@ -8450,6 +8450,20 @@ async fn create_workspace_fork(
         ensure_no_existing_dev_workspace(&db, &parent_workspace_id).await?;
     }
 
+    // Each data table is written once, at a database of its own: a second entry naming the same
+    // database would reach a copy made for another data table without its governance, and a
+    // second copy of one data table would outlive a fork that points at the other.
+    let mut names = HashSet::new();
+    let mut dbnames = HashSet::new();
+    for fdt in &nw.forked_datatables {
+        if !names.insert(fdt.name.as_str()) || !dbnames.insert(fdt.new_dbname.as_str()) {
+            return Err(Error::BadRequest(format!(
+                "Data table '{}' or database '{}' is named more than once in this fork",
+                fdt.name, fdt.new_dbname
+            )));
+        }
+    }
+
     // Refused here, before any database exists; `make_copies` checks again under the locks.
     crate::datatable_clone::authorize_copies(
         &db,

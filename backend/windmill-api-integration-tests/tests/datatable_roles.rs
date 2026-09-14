@@ -683,6 +683,28 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
     assert_eq!(resp.status(), 401, "{}", resp.text().await?);
     assert!(!database_exists(&db, &target).await?);
 
+    // A second entry naming the copy's database would reach it without its governance.
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/workspaces/create_fork"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(
+        &json!({"id": "wm-fork-copy", "name": "copy", "forked_datatables": [
+            {"name": "main", "new_dbname": target, "fork_behavior": "schema_only"},
+            {"name": "other", "new_dbname": target}
+        ]}),
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400);
+    assert!(
+        resp.text().await?.contains("more than once"),
+        "an alias of a governed copy was accepted"
+    );
+    assert!(!database_exists(&db, &target).await?);
+
     // A database the caller created and filled itself carries no grant for any role.
     let resp = fork(
         "SECRET_TOKEN",
