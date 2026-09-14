@@ -4,7 +4,7 @@ import {
 	integrationDisplayName,
 	resourceTypeDisplayName,
 	setHubIntegrationDisplayNames,
-	setHubResourceTypeDisplayNames,
+	setResourceTypeDisplayNames,
 	sortResourceTypesByMatch
 } from './resourceTypeDisplay'
 
@@ -57,7 +57,7 @@ describe('sortResourceTypesByMatch', () => {
 })
 
 describe('resourceTypeDisplayName', () => {
-	it('takes the whole-name override when there is one', () => {
+	it('cases each word from the word table', () => {
 		expect(resourceTypeDisplayName('ms_sql_server')).toBe('Microsoft SQL Server')
 	})
 
@@ -69,12 +69,13 @@ describe('resourceTypeDisplayName', () => {
 		expect(resourceTypeDisplayName('stripe')).toBe('Stripe')
 	})
 
-	it("prefers the hub's curated name, and infers one where the hub names none", () => {
-		setHubResourceTypeDisplayNames([
-			{ name: 'snowflake_oauth', display_name: 'Snowflake (OAuth)' },
+	it('prefers the name stored with the type, and infers one where it has none', () => {
+		expect(resourceTypeDisplayName('gsheets')).toBe('Gsheets')
+		setResourceTypeDisplayNames([
+			{ name: 'gsheets', display_name: 'Google Sheets' },
 			{ name: 'smtp', display_name: null }
 		])
-		expect(resourceTypeDisplayName('snowflake_oauth')).toBe('Snowflake (OAuth)')
+		expect(resourceTypeDisplayName('gsheets')).toBe('Google Sheets')
 		expect(resourceTypeDisplayName('smtp')).toBe('SMTP')
 	})
 })

@@ -6466,8 +6466,8 @@ async fn clone_resource_types(
     target_workspace_id: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at, created_by, format_extension, is_fileset)
-         SELECT $2, name, schema, description, edited_at, created_by, format_extension, is_fileset
+        "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at, created_by, format_extension, is_fileset, display_name)
+         SELECT $2, name, schema, description, edited_at, created_by, format_extension, is_fileset, display_name
          FROM resource_type
          WHERE workspace_id = $1",
         source_workspace_id,
@@ -11948,7 +11948,7 @@ async fn compare_two_resource_types(
 ) -> Result<ItemComparison> {
     // Get resource type from each workspace
     let source_resource_type = sqlx::query!(
-        "SELECT schema, description, format_extension, is_fileset
+        "SELECT schema, description, format_extension, is_fileset, display_name
          FROM resource_type
          WHERE workspace_id = $1 AND name = $2",
         source_workspace_id,
@@ -11958,7 +11958,7 @@ async fn compare_two_resource_types(
     .await?;
 
     let target_resource_type = sqlx::query!(
-        "SELECT schema, description, format_extension, is_fileset
+        "SELECT schema, description, format_extension, is_fileset, display_name
          FROM resource_type
          WHERE workspace_id = $1 AND name = $2",
         fork_workspace_id,
@@ -11975,6 +11975,7 @@ async fn compare_two_resource_types(
             || source.description != target.description
             || source.format_extension != target.format_extension
             || source.is_fileset != target.is_fileset
+            || source.display_name != target.display_name
         {
             has_changes = true;
         }

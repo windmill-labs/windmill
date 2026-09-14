@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') ORDER BY name",
+  "query": "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name from resource_type ORDER BY name",
   "describe": {
     "columns": [
       {
@@ -42,12 +42,15 @@
         "ordinal": 7,
         "name": "is_fileset",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "display_name",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
-      "Left": [
-        "Text"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -57,8 +60,9 @@
       true,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "d0a95698b9a2c5e2543e94276d854d7e509c7db2c2ac7d395b7b53ad5dbc25e6"
+  "hash": "6f993567336a2f5ff642ed54e3aaf4d070f803b6192739e9ebaad7427ce59251"
 }

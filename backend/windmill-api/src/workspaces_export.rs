@@ -926,7 +926,7 @@ pub(crate) async fn tarball_workspace(
     if !skip_resource_types.unwrap_or(false) {
         let resource_types = sqlx::query_as!(
             ResourceType,
-            "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset FROM resource_type WHERE workspace_id = $1",
+            "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name FROM resource_type WHERE workspace_id = $1",
             &w_id
         )
         .fetch_all(&mut *tx)

@@ -118,6 +118,10 @@ pub struct ResourceType {
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub format_extension: Option<String>,
     pub is_fileset: bool,
+    /// The name the product goes by (`gsheets` is "Google Sheets"), null where nobody named it.
+    /// Skipped when absent, so the type files of a synced repo gain nothing until one is set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -127,6 +131,7 @@ pub struct CreateResourceType {
     pub description: Option<String>,
     pub format_extension: Option<String>,
     pub is_fileset: Option<bool>,
+    pub display_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -143,6 +148,13 @@ pub struct EditResourceType {
         deserialize_with = "windmill_common::more_serde::double_option"
     )]
     pub format_extension: Option<Option<String>>,
+    /// Doubly optional for the same reason. A push from a CLI that predates the field omits it,
+    /// and must not clear a name the hub set.
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
+    pub display_name: Option<Option<String>>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -2560,7 +2572,7 @@ async fn list_resource_types(
 ) -> JsonResult<Vec<ResourceType>> {
     let rows = sqlx::query_as!(
         ResourceType,
-        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') ORDER \
+        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') ORDER \
          BY name",
         &w_id
     )
@@ -2672,10 +2684,6 @@ struct HubResourceTypeEntry {
     /// fail the whole parse and take pick reporting — which needs just the id — with it.
     #[serde(default)]
     app: Option<String>,
-    /// Raw: `None` where nobody named the type. The frontend derives those labels with its own
-    /// word casing, which a titleised guess from the hub would override.
-    #[serde(default)]
-    display_name: Option<String>,
 }
 
 #[derive(Clone)]
@@ -2686,7 +2694,6 @@ struct HubResourceType {
     /// hub knows that. Without it a workspace holding a `discord_webhook` resource looks
     /// like one that has never touched Discord.
     app: String,
-    display_name: Option<String>,
 }
 
 /// Reads the index cache, choosing the TTL by what is stored: a failure expires far sooner
@@ -2727,9 +2734,9 @@ async fn hub_resource_types(
         if !response.status().is_success() {
             return None;
         }
-        // Only the id, the app and the display name are kept. That listing carries every
-        // type's schema — around a megabyte — and neither reporting a pick, grouping types by
-        // integration nor labelling them needs it.
+        // Only the id and the app are kept. That listing carries every type's schema —
+        // around a megabyte — and neither reporting a pick nor grouping types by
+        // integration needs it.
         Some(
             response
                 .json::<Vec<HubResourceTypeEntry>>()
@@ -2738,11 +2745,7 @@ async fn hub_resource_types(
                 .into_iter()
                 .map(|rt| {
                     let app = rt.app.unwrap_or_else(|| rt.name.clone());
-                    let display_name = rt
-                        .display_name
-                        .map(|n| n.trim().to_string())
-                        .filter(|n| !n.is_empty());
-                    (rt.name, HubResourceType { id: rt.id, app, display_name })
+                    (rt.name, HubResourceType { id: rt.id, app })
                 })
                 .collect::<HashMap<String, HubResourceType>>(),
         )
@@ -2822,7 +2825,7 @@ mod hub_picks_tests {
         let index = || {
             Some(HashMap::from([(
                 "slack".to_string(),
-                HubResourceType { id: 1, app: "slack".to_string(), display_name: None },
+                HubResourceType { id: 1, app: "slack".to_string() },
             )]))
         };
 
@@ -2869,13 +2872,10 @@ struct HubResourceTypeInfo {
     /// integration rather than per type.
     app: String,
     picks: i64,
-    /// The label the hub curates for the type, absent where it names none.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    display_name: Option<String>,
 }
 
-/// What the hub knows about its resource types: which integration each belongs to, what it
-/// names each, and how often each has been picked.
+/// What the hub knows about its resource types: which integration each belongs to, and how
+/// often each has been picked.
 ///
 /// Empty rather than an error when the hub answers neither read, so the pickers treat an
 /// older or private hub as "no hub signal" and fall back to what the workspace itself uses.
@@ -2929,7 +2929,6 @@ async fn list_hub_resource_type_info(
             picks: picks_by_name.remove(&name).unwrap_or(0),
             name,
             app: rt.app,
-            display_name: rt.display_name,
         })
         .collect();
     // What the index did not account for is a type the picks read knows and the listing does
@@ -2938,12 +2937,7 @@ async fn list_hub_resource_type_info(
     info.extend(
         picks_by_name
             .into_iter()
-            .map(|(name, picks)| HubResourceTypeInfo {
-                app: name.clone(),
-                name,
-                picks,
-                display_name: None,
-            }),
+            .map(|(name, picks)| HubResourceTypeInfo { app: name.clone(), name, picks }),
     );
 
     Ok(Json(info))
@@ -2958,7 +2952,7 @@ async fn get_resource_type(
 
     let resource_type_o = sqlx::query_as!(
         ResourceType,
-        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')",
+        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')",
         &name,
         &w_id
     )
@@ -2984,6 +2978,20 @@ async fn exists_resource_type(
     .unwrap_or(false);
 
     Ok(Json(exists))
+}
+
+/// Trimmed, blank as none, and held to the column's 100 characters, so an over-long name is
+/// refused with a message rather than a database error.
+fn normalize_display_name(name: Option<&str>) -> Result<Option<String>> {
+    let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) else {
+        return Ok(None);
+    };
+    if name.chars().count() > 100 {
+        return Err(Error::BadRequest(
+            "display_name must be at most 100 characters".to_string(),
+        ));
+    }
+    Ok(Some(name.to_string()))
 }
 
 async fn create_resource_type(
@@ -3019,11 +3027,12 @@ async fn create_resource_type(
             "A fileset resource type cannot have a format_extension".to_string(),
         ));
     }
+    let display_name = normalize_display_name(resource_type.display_name.as_deref())?;
 
     sqlx::query!(
         "INSERT INTO resource_type
-            (workspace_id, name, schema, description, created_by, format_extension, is_fileset, edited_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, now())",
+            (workspace_id, name, schema, description, created_by, format_extension, is_fileset, display_name, edited_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())",
         w_id,
         resource_type.name,
         resource_type.schema,
@@ -3031,6 +3040,7 @@ async fn create_resource_type(
         authed.username,
         resource_type.format_extension,
         is_fileset,
+        display_name,
     )
     .execute(&mut *tx)
     .await?;
@@ -3196,6 +3206,12 @@ async fn update_resource_type(
         match format_extension {
             Some(ext) => sqlb.set_str("format_extension", ext),
             None => sqlb.set("format_extension", "NULL"),
+        };
+    }
+    if let Some(display_name) = &ns.display_name {
+        match normalize_display_name(display_name.as_deref())? {
+            Some(name) => sqlb.set_str("display_name", name),
+            None => sqlb.set("display_name", "NULL"),
         };
     }
     sqlb.set_str("edited_at", "now()");

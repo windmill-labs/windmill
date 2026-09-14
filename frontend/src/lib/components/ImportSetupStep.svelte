@@ -19,8 +19,11 @@
 	import { applyRetarget, seesWholeWorkspace } from '$lib/importWizard/retargetDeployed'
 	import { OauthService } from '$lib/gen'
 	import { registryCcCapableFor } from '$lib/components/oauthRegistry'
-	import { resourceTypeDisplayName } from '$lib/components/resourceTypeDisplay'
-	import { loadHubResourceTypeDisplayNames } from '$lib/components/pickerPopularity'
+	import {
+		resourceTypeDisplayName,
+		setResourceTypeDisplayNames
+	} from '$lib/components/resourceTypeDisplay'
+	import { loadResourceTypeDisplayName } from '$lib/components/pickerPopularity'
 	import { applyOneMigration } from '$lib/components/workspaceSettings/projectInstall'
 	import { probeMigrationsApplied } from '$lib/importWizard/probe'
 	import {
@@ -199,9 +202,11 @@
 	 */
 	const canConnectType = (rt: string) => instanceConnects.has(rt) || registryCcCapableFor(rt)
 
-	// Row labels read the hub's curated resource type names, which arrive after first render.
+	// A row blocked by a resource of another type names that type, whose row nothing here reads.
 	$effect(() => {
-		loadHubResourceTypeDisplayNames(workspace)
+		for (const b of blanks) {
+			if (b.occupiedBy) void loadResourceTypeDisplayName(workspace, b.occupiedBy)
+		}
 	})
 
 	let appConnect: AppConnectDrawer | undefined = $state(undefined)
@@ -403,8 +408,9 @@
 			// row is kept instead; it just cannot name which fields are short.
 			let requirementsUnknown = false
 			try {
-				const schema = (await ResourceService.getResourceType({ workspace, path: r.resource_type }))
-					?.schema as { required?: string[] } | undefined
+				const rt = await ResourceService.getResourceType({ workspace, path: r.resource_type })
+				setResourceTypeDisplayNames([rt])
+				const schema = rt?.schema as { required?: string[] } | undefined
 				required = schema?.required ?? []
 			} catch {
 				requirementsUnknown = true

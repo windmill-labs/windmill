@@ -5,7 +5,7 @@ import { createCache } from '$lib/utils'
 import {
 	isCustomResourceTypeName,
 	setHubIntegrationDisplayNames,
-	setHubResourceTypeDisplayNames
+	setResourceTypeDisplayNames
 } from './resourceTypeDisplay'
 
 /**
@@ -21,14 +21,12 @@ export type PopularityCounts = Record<string, number>
  */
 const CACHE_MS = 60_000
 
-type HubResourceTypeInfo = { name: string; app: string; picks: number; display_name?: string }
+type HubResourceTypeInfo = { name: string; app: string; picks: number }
 
 const hubInfoCached = createCache(
 	async ({ workspace }: { workspace: string }): Promise<HubResourceTypeInfo[]> => {
 		try {
-			const info = await ResourceService.listHubResourceTypeInfo({ workspace })
-			setHubResourceTypeDisplayNames(info)
-			return info
+			return await ResourceService.listHubResourceTypeInfo({ workspace })
 		} catch {
 			return []
 		}
@@ -59,13 +57,21 @@ export async function hubResourceTypePicks(workspace: string): Promise<Popularit
 	return Object.fromEntries(info.map((rt) => [rt.name, rt.picks]))
 }
 
+const resourceTypeRowCached = createCache(
+	({ workspace, name }: { workspace: string; name: string }) =>
+		ResourceService.getResourceType({ workspace, path: name }).then(
+			(rt) => setResourceTypeDisplayNames([rt]),
+			() => {}
+		),
+	{ invalidateMs: CACHE_MS, maxSize: 50 }
+)
+
 /**
- * Fill `resourceTypeDisplayName` with the hub's curated names, for a surface that shows type
- * labels without ordering by picks. The pickers get them from the read they already make.
+ * Fill `resourceTypeDisplayName` for one type, for a surface titled with a type it holds no row
+ * for. The name is stored with the type, so this reads the row rather than the hub.
  */
-export async function loadHubResourceTypeDisplayNames(workspace: string): Promise<void> {
-	if (get(disableHubStore)) return
-	await hubInfoCached({ workspace })
+export function loadResourceTypeDisplayName(workspace: string, name: string): Promise<void> {
+	return resourceTypeRowCached({ workspace, name })
 }
 
 const hubIntegrationNamesCached = createCache(

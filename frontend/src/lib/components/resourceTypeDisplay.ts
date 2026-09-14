@@ -182,23 +182,22 @@ const RESOURCE_TYPE_WORDS: Record<string, string> = {
 }
 
 /**
- * Names the hub curates, for the resource types and integrations no rule names (`gsheets` ->
- * Google Sheets). The hub leaves the rest unnamed on purpose, so the word table above keeps
- * deciding those. Reactive because they fill in after first render: a label already on screen
- * updates when they land.
+ * Names for the items no rule names (`gsheets` -> Google Sheets): stored with resource types,
+ * and curated by the hub for integrations. Unnamed items are left to the word table above on
+ * purpose. Reactive because they fill in after first render: a label already on screen updates
+ * when they land.
  */
-const hubResourceTypeNames = new SvelteMap<string, string>()
+const resourceTypeNames = new SvelteMap<string, string>()
 const hubIntegrationNames = new SvelteMap<string, string>()
 
-type HubNamed = { name: string; display_name?: string | null }
+type Named = { name: string; display_name?: string | null }
 
 /**
- * Updates only the entries the listing carries: one without a name drops any name kept for it,
- * which is how switching to a hub predating display names reverts to inferred labels. Entries
- * absent from the listing are left alone on purpose, since callers pass `kind`-filtered
- * listings, and clearing those would wipe names another filter loaded.
+ * Updates only the entries it is given: one without a name drops any name kept for it, which is
+ * how a hub predating display names reverts to inferred labels. Entries it is not given are left
+ * alone on purpose, since callers pass single rows and `kind`-filtered listings.
  */
-function recordHubNames(names: SvelteMap<string, string>, entries: HubNamed[]): void {
+function recordNames(names: SvelteMap<string, string>, entries: Named[]): void {
 	for (const entry of entries) {
 		const label = entry.display_name?.trim()
 		if (label) names.set(entry.name, label)
@@ -206,33 +205,12 @@ function recordHubNames(names: SvelteMap<string, string>, entries: HubNamed[]): 
 	}
 }
 
-export function setHubResourceTypeDisplayNames(types: HubNamed[]): void {
-	recordHubNames(hubResourceTypeNames, types)
+export function setResourceTypeDisplayNames(types: Named[]): void {
+	recordNames(resourceTypeNames, types)
 }
 
-export function setHubIntegrationDisplayNames(integrations: HubNamed[]): void {
-	recordHubNames(hubIntegrationNames, integrations)
-}
-
-/**
- * What the hub names these types, and the integrations that share their slugs, for an instance
- * that cannot ask it: one with the hub switched off, or a hub predating display names.
- */
-const RESOURCE_TYPE_NAMES: Record<string, string> = {
-	adobe_acrobat_sign: 'Adobe Acrobat Sign',
-	bamboo_hr: 'BambooHR',
-	cacertificate: 'CA certificate',
-	deep_infra: 'DeepInfra',
-	gcal: 'Google Calendar',
-	gdocs: 'Google Docs',
-	gdrive: 'Google Drive',
-	gforms: 'Google Forms',
-	gsheets: 'Google Sheets',
-	gworkspace: 'Google Workspace',
-	ms_sql_server: 'Microsoft SQL Server',
-	sage_intacct: 'Sage Intacct',
-	sensortower: 'Sensor Tower',
-	their_stack: 'TheirStack'
+export function setHubIntegrationDisplayNames(integrations: Named[]): void {
+	recordNames(hubIntegrationNames, integrations)
 }
 
 /** The prefix the resources page puts on a type created in a workspace. */
@@ -243,14 +221,15 @@ export function isCustomResourceTypeName(name: string): boolean {
 }
 
 /**
- * Display name for a resource type: `adobe_acrobat_sign` -> `Adobe Acrobat Sign`, `mysql` ->
- * `MySQL`, `c_acme_api` -> `Acme API`. A name the hub curates wins; everything else is
- * inferred from the type name, the tables above covering what the inference gets wrong.
+ * Display name for a resource type: `gsheets` -> `Google Sheets` where the type stores that name,
+ * otherwise inferred from the type name (`mysql` -> `MySQL`, `c_acme_api` -> `Acme API`), the
+ * word table above covering what capitalizing gets wrong.
  */
 export function resourceTypeDisplayName(name: string): string {
-	const exact = hubResourceTypeNames.get(name) ?? wholeName(name)
-	if (exact) return exact
-	return titleize(isCustomResourceTypeName(name) ? name.slice(CUSTOM_TYPE_PREFIX.length) : name)
+	return (
+		resourceTypeNames.get(name) ??
+		titleize(isCustomResourceTypeName(name) ? name.slice(CUSTOM_TYPE_PREFIX.length) : name)
+	)
 }
 
 /**
@@ -259,18 +238,13 @@ export function resourceTypeDisplayName(name: string): string {
  * that does not.
  */
 export function integrationDisplayName(app: string): string {
-	return hubIntegrationNames.get(app) ?? wholeName(app) ?? titleize(app)
-}
-
-// `Object.hasOwn` throughout: a name like `constructor` would otherwise resolve up the
-// prototype chain of these object literals and render as a native function.
-function wholeName(name: string): string | undefined {
-	return Object.hasOwn(RESOURCE_TYPE_NAMES, name) ? RESOURCE_TYPE_NAMES[name] : undefined
+	return hubIntegrationNames.get(app) ?? titleize(app)
 }
 
 /**
  * Lowercases each word before the lookup and splits on `-` too: a private hub can predate the
- * slug rule, and still serve `aws-ses` or `RSS`.
+ * slug rule, and still serve `aws-ses` or `RSS`. `Object.hasOwn`, because a word like
+ * `constructor` would otherwise resolve up the object literal's prototype chain.
  */
 function titleize(name: string): string {
 	return name

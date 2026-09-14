@@ -9,6 +9,7 @@
 		resourceTypeDisplayName,
 		resourceTypeMatchRank,
 		resourceTypeSearchText,
+		setResourceTypeDisplayNames,
 		sortResourceTypesByMatch
 	} from './resourceTypeDisplay'
 	import {
@@ -45,7 +46,6 @@
 		alphabetical,
 		byPopularity,
 		hubResourceTypePicks,
-		loadHubResourceTypeDisplayNames,
 		localResourceTypeCounts,
 		recordHubResourceTypePick
 	} from './pickerPopularity'
@@ -341,9 +341,6 @@
 		if (!rt) {
 			loadResourceTypes()
 			loadPopularity()
-		} else if (effectiveWorkspace) {
-			// Opened straight on a type, so its title reads hub names nothing here has loaded yet.
-			void loadHubResourceTypeDisplayNames(effectiveWorkspace)
 		}
 		step = 1 //express && !manual ? 3 : 1
 		// The list is keyboard-driven from the search field, so it takes focus on open.
@@ -478,6 +475,7 @@
 		// $derived, so search re-ranks when they land.
 		ResourceService.listResourceType({ workspace: effectiveWorkspace })
 			.then((types) => {
+				setResourceTypeDisplayNames(types)
 				resourceTypeDescriptions = Object.fromEntries(
 					types.filter((t) => t.description).map((t) => [t.name, t.description!])
 				)
@@ -633,6 +631,7 @@
 				workspace: effectiveWorkspace,
 				path: resourceType
 			})
+			setResourceTypeDisplayNames([resourceTypeInfo])
 			const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
 			const newArgsKeys = Object.keys(props).filter((x) => props?.[x]?.type == 'string') ?? []
 
