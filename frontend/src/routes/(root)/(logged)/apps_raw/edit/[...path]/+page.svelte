@@ -626,7 +626,8 @@
 				bind:savedApp
 				{diffDrawer}
 				newApp={isNewApp}
-				version={parentVersion}
+				version={parentVersion ??
+					(deployedHeadVersion != null ? Number(deployedHeadVersion) : undefined)}
 				onTakeLatest={draftBaseVersion &&
 				deployedHeadVersion &&
 				draftBaseVersion !== deployedHeadVersion

@@ -134,7 +134,8 @@
 		onResetToDeployed?: () => void | Promise<void>
 		/** The app_version the draft forked from, for the deploy-time "new version
 		 *  deployed" guard: deploying is refused with a confirmation while it is not
-		 *  the head. Undefined for a draft-only app. */
+		 *  the head. The head at load when the draft's base is unknown; undefined for
+		 *  a draft-only app. */
 		version?: number | undefined
 		/** Moves the draft's base to the deployed head and keeps its content;
 		 *  offered in the diff drawer while the draft is behind. */

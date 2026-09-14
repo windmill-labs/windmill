@@ -843,7 +843,8 @@ function createRuntime(session: Session): SessionRuntime {
 					summary: draftValue?.summary ?? result.summary ?? '',
 					path: result.path,
 					custom_path: draftValue?.custom_path ?? result.custom_path,
-					draft_path: draftValue?.draft_path
+					draft_path: draftValue?.draft_path,
+					parent_version: draftValue?.parent_version
 				}
 				// Seed the per-tab last_sync from the server draft's timestamp so
 				// later saves attach a matching last_sync and the server can reject
