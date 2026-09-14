@@ -310,40 +310,28 @@ fn mcp_tool_enabled(tool: &Tool, enabled: &[String], enabled_mcp_paths: &HashSet
         || enabled_mcp_paths.contains(&source.resource_path)
 }
 
-/// How many unmatched names are worth naming in the log. The list is an input transform, so its
-/// length is the flow author's to choose; the log line exists to point at a typo, and the count
-/// carries the rest.
-const MAX_LOGGED_UNMATCHED_TOOLS: usize = 20;
-
 /// The log line for names in `enabled_tools` that name nothing on the agent, if any. The list can
 /// be computed per run, so a name that has since been renamed away must not fail the step — but it
-/// would otherwise silently narrow the agent, so the run says what it dropped.
+/// would otherwise silently narrow the agent, so the run says how many of its names matched nothing.
+///
+/// Counted, never quoted: a name is an argument value, and one written as `$var:path` reaches the
+/// worker already replaced by the variable's own value. Naming it here would write that value to a
+/// log, which no mask covers — the masks are registered wherever the secret is decrypted, a
+/// process a worker on its own host is not.
 fn unmatched_enabled_tools_message(
     enabled_tools: &[String],
     advertised: &[&str],
 ) -> Option<String> {
-    let unmatched: Vec<&str> = enabled_tools
+    let unmatched = enabled_tools
         .iter()
-        .map(|name| name.as_str())
-        .filter(|name| !advertised.contains(name))
-        .collect();
-    if unmatched.is_empty() {
+        .filter(|name| !advertised.contains(&name.as_str()))
+        .count();
+    if unmatched == 0 {
         return None;
     }
-    let shown = unmatched
-        .iter()
-        .take(MAX_LOGGED_UNMATCHED_TOOLS)
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(", ");
-    let rest = unmatched.len().saturating_sub(MAX_LOGGED_UNMATCHED_TOOLS);
-    let suffix = if rest > 0 {
-        format!(" and {rest} more")
-    } else {
-        String::new()
-    };
+    let subject = if unmatched == 1 { "name" } else { "names" };
     Some(format!(
-        "--- ENABLED TOOLS: {shown}{suffix} named no tool of this agent and had no effect ---\n"
+        "--- ENABLED TOOLS: {unmatched} {subject} named no tool of this agent and had no effect ---\n"
     ))
 }
 
@@ -589,7 +577,12 @@ pub async fn handle_ai_agent_job(
         Some(EnabledTools::Only { tools }) => Some(tools.as_slice()),
         Some(EnabledTools::All) | None => None,
     };
-    let roster_names: Vec<String> = tools.iter().filter_map(|t| t.summary.clone()).collect();
+    // Taken before the narrowing consumes the roster, and only by a run that narrows: they are
+    // there to tell such a run which of its names matched nothing.
+    let roster_names: Vec<String> = match enabled_tools {
+        Some(_) => tools.iter().filter_map(|t| t.summary.clone()).collect(),
+        None => Vec::new(),
+    };
     let (tools, enabled_mcp_paths) = narrow_roster(tools, enabled_tools);
 
     // Separate Windmill tools from MCP tools, websearch, and extract MCP resource configs
@@ -2041,10 +2034,12 @@ mod tests {
         let (kept, paths) = narrow_roster(roster(), Some(&enabled));
         assert_eq!(names(&kept), ["get_user"]);
         assert!(paths.is_empty());
+        // Counted, not quoted: a name is an argument value, and one holding `$var:` arrives as the
+        // variable's own value, which this log is not masked for.
         assert_eq!(
             unmatched_enabled_tools_message(&enabled, &["get_user", "send_email", "github"])
                 .unwrap(),
-            "--- ENABLED TOOLS: renamed_away named no tool of this agent and had no effect ---\n"
+            "--- ENABLED TOOLS: 1 name named no tool of this agent and had no effect ---\n"
         );
 
         // Naming the entry enables every tool of that server, keyed by the path load_mcp_tools uses.
