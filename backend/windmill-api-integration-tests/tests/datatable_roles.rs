@@ -936,30 +936,58 @@ async fn a_settings_save_dropping_a_governing_entry_names_the_forks_it_strands(
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
-async fn a_save_replacing_an_entry_under_roles_on_its_database_is_refused(
+async fn an_entry_without_roles_cannot_newly_reach_a_database_under_roles(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    // A rename as a settings sync sends it: the whole map, no `renames`.
-    let resp = authed(
-        client().post(format!(
-            "http://localhost:{}/api/w/test-workspace/workspaces/edit_datatable_config",
-            server.addr.port()
-        )),
-        "SECRET_TOKEN",
+    sqlx::query(
+        r#"UPDATE workspace_settings SET datatable = jsonb_set(datatable, '{datatables,other}',
+             '{"database": {"resource_type": "instance", "resource_path": "dt_other"}}')
+           WHERE workspace_id = 'test-workspace'"#,
     )
-    .json(&json!({ "settings": { "datatables": {
-        "main_renamed": { "database": { "resource_type": "instance", "resource_path": "dt_main" } }
-    } } }))
-    .send()
+    .execute(&db)
     .await?;
-    let status = resp.status();
-    let body = resp.text().await?;
-    assert_eq!(
-        status, 400,
-        "a save dropped the roles of the database it kept: {body}"
-    );
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Whole-map saves with no `renames`, as a settings sync sends them.
+    let dt_main =
+        json!({ "database": { "resource_type": "instance", "resource_path": "dt_main" } });
+    let dt_other =
+        json!({ "database": { "resource_type": "instance", "resource_path": "dt_other" } });
+    for (case, w_id, datatables) in [
+        (
+            "a rename to a new name",
+            "test-workspace",
+            json!({ "main_renamed": dt_main, "other": dt_other }),
+        ),
+        (
+            "an existing name repointed",
+            "test-workspace",
+            json!({ "other": dt_main }),
+        ),
+        (
+            "another workspace's entry",
+            "wm-fork-dt",
+            json!({ "direct": dt_main }),
+        ),
+    ] {
+        let resp = authed(
+            client().post(format!(
+                "http://localhost:{port}/api/w/{w_id}/workspaces/edit_datatable_config"
+            )),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({ "settings": { "datatables": datatables } }))
+        .send()
+        .await?;
+        let status = resp.status();
+        let body = resp.text().await?;
+        assert!(
+            status == 400 && body.contains("which a data table under roles uses"),
+            "{case} reached the database under roles without them ({status}): {body}"
+        );
+    }
 
     let still_governed: bool = sqlx::query_scalar(
         "SELECT (datatable->'datatables'->'main') ? 'permissions' FROM workspace_settings
