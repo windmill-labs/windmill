@@ -644,14 +644,9 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
-    // Unique per test database: databases are cluster-wide, and sibling runs share the cluster.
-    let test_db: String = sqlx::query_scalar("SELECT current_database()::text")
-        .fetch_one(&db)
-        .await?;
-    let target = format!(
-        "wm_fork_{}",
-        test_db[test_db.len().saturating_sub(24)..].to_lowercase()
-    );
+    // The database a fork's copy of `main` goes into is named after the fork. Every request below
+    // is refused before it is created, so the cluster-wide name never collides with a sibling run.
+    let target = "wm_fork_copy__main";
     let fork = |token: &str, forked: Value| {
         authed(
             client().post(format!(
@@ -670,7 +665,7 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
     .send()
     .await?;
     assert_eq!(resp.status(), 403, "{}", resp.text().await?);
-    assert!(!database_exists(&db, &target).await?);
+    assert!(!database_exists(&db, target).await?);
 
     // Even the schema alone lists every table, which a member covered by no role cannot read in
     // the parent.
@@ -681,9 +676,26 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
     .send()
     .await?;
     assert_eq!(resp.status(), 401, "{}", resp.text().await?);
-    assert!(!database_exists(&db, &target).await?);
+    assert!(!database_exists(&db, target).await?);
 
-    // A second entry naming the copy's database would reach it without its governance.
+    // Refused in the first phase too, before a git branch is created for a fork that cannot be.
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/workspaces/create_workspace_fork_branch"
+        )),
+        "SECRET_TOKEN_3",
+    )
+    .json(
+        &json!({"id": "wm-fork-copy", "name": "copy", "forked_datatables": [
+            {"name": "main", "new_dbname": target, "fork_behavior": "schema_only"}
+        ]}),
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 401, "{}", resp.text().await?);
+
+    // An entry naming a database that is not its own — here the copy made for another data table —
+    // would reach that copy without its governance.
     let resp = authed(
         client().post(format!(
             "http://localhost:{port}/api/w/test-workspace/workspaces/create_fork"
@@ -700,10 +712,12 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
     .await?;
     assert_eq!(resp.status(), 400);
     assert!(
-        resp.text().await?.contains("more than once"),
+        resp.text()
+            .await?
+            .contains("is copied into database 'wm_fork_copy__other'"),
         "an alias of a governed copy was accepted"
     );
-    assert!(!database_exists(&db, &target).await?);
+    assert!(!database_exists(&db, target).await?);
 
     // A database the caller created and filled itself carries no grant for any role.
     let resp = fork(
@@ -734,7 +748,7 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
     assert!(body.contains("pg_dump"), "{body}");
     #[cfg(not(all(feature = "private", feature = "enterprise")))]
     assert!(body.contains("Enterprise Edition"), "{body}");
-    assert!(!database_exists(&db, &target).await?);
+    assert!(!database_exists(&db, target).await?);
     assert!(!workspace_exists(&db, "wm-fork-copy").await?);
     Ok(())
 }

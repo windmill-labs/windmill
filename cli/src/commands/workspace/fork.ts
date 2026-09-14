@@ -355,6 +355,8 @@ async function createWorkspaceFork(
         id: trueWorkspaceId,
         name: opts.createWorkspaceName ?? workspaceName ?? trueWorkspaceId,
         color: forkColor,
+        // So a clone the fork would refuse is refused before any branch is created.
+        forked_datatables: forkedDatatables,
       },
     });
     if (gitSyncJobIds && gitSyncJobIds.length > 0) {

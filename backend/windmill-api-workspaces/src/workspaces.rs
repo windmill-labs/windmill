@@ -7780,6 +7780,7 @@ async fn create_workspace_fork_branch(
     // dangling branch on the synced repos.
     check_fork_w_id_conflict(&db, &nw.id).await?;
     purge_stale_fork_diff_state(&db, &nw.id).await?;
+    validate_forked_datatables(&db, &authed, &w_id, &nw).await?;
 
     Ok(Json(
         handle_fork_branch_creation(&authed.email, &authed.username, &db, &w_id, &nw.id).await?,
@@ -8450,28 +8451,8 @@ async fn create_workspace_fork(
         ensure_no_existing_dev_workspace(&db, &parent_workspace_id).await?;
     }
 
-    // Each data table is written once, at a database of its own: a second entry naming the same
-    // database would reach a copy made for another data table without its governance, and a
-    // second copy of one data table would outlive a fork that points at the other.
-    let mut names = HashSet::new();
-    let mut dbnames = HashSet::new();
-    for fdt in &nw.forked_datatables {
-        if !names.insert(fdt.name.as_str()) || !dbnames.insert(fdt.new_dbname.as_str()) {
-            return Err(Error::BadRequest(format!(
-                "Data table '{}' or database '{}' is named more than once in this fork",
-                fdt.name, fdt.new_dbname
-            )));
-        }
-    }
-
     // Refused here, before any database exists; `make_copies` checks again under the locks.
-    crate::datatable_clone::authorize_copies(
-        &db,
-        &authed,
-        &parent_workspace_id,
-        &copy_requests(&nw.forked_datatables),
-    )
-    .await?;
+    validate_forked_datatables(&db, &authed, &parent_workspace_id, &nw).await?;
 
     // Detached from the request: a client that goes away while the copies are made must still end
     // with the fork created or no copy left behind, and dropping the handler's future would skip
@@ -8517,6 +8498,44 @@ async fn create_workspace_fork(
     })
     .await
     .map_err(|e| Error::internal_err(format!("Creating the fork stopped unexpectedly: {e}")))?
+}
+
+/// Everything about a fork's data tables that can be refused before a git branch or a database is
+/// created, and that the fork request re-checks.
+///
+/// Each data table is copied into the database named after the fork being created and itself —
+/// the name its clients derive. The fork's id is free, so that database is this fork's: naming any
+/// other would let a data table without roles become the fork's way into a copy made for another
+/// fork, reached without that copy's governance, and dropped with this fork.
+async fn validate_forked_datatables(
+    db: &DB,
+    authed: &ApiAuthed,
+    parent_w_id: &str,
+    nw: &CreateWorkspaceFork,
+) -> Result<()> {
+    let mut names = HashSet::new();
+    for fdt in &nw.forked_datatables {
+        let expected = format!("{}__{}", nw.id.replace('-', "_"), fdt.name);
+        if fdt.new_dbname != expected {
+            return Err(Error::BadRequest(format!(
+                "Data table '{}' of fork '{}' is copied into database '{expected}', not '{}'",
+                fdt.name, nw.id, fdt.new_dbname
+            )));
+        }
+        if !names.insert(fdt.name.as_str()) {
+            return Err(Error::BadRequest(format!(
+                "Data table '{}' is named more than once in this fork",
+                fdt.name
+            )));
+        }
+    }
+    crate::datatable_clone::authorize_copies(
+        db,
+        authed,
+        parent_w_id,
+        &copy_requests(&nw.forked_datatables),
+    )
+    .await
 }
 
 /// The copies a fork request asks this request to make.
