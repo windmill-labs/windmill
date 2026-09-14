@@ -181,6 +181,9 @@
 		on:close={() => drawer?.closeDrawer()}
 		tooltip="A data table role is a Postgres login. A job that names one connects as it, and Postgres decides what it may touch — grant it privileges under Access. Roles are defined for the whole instance; here you say who may use each one on this data table."
 	>
+		{#snippet titleExtra()}
+			<Badge color="blue" small>Beta</Badge>
+		{/snippet}
 		{#if loading}
 			<p class="text-sm text-secondary">Loading…</p>
 		{:else if loadError}

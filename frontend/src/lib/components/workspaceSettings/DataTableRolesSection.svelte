@@ -91,6 +91,7 @@
 			people may use a role on a given data table, and what it may do there, is set per data table,
 			in its roles drawer.
 		</Tooltip>
+		<Badge color="blue" small>Beta</Badge>
 	</div>
 
 	{#if loadError}
