@@ -120,8 +120,13 @@ export function Support() {
 }
 ```
 
-The hook returns the [state](#state) plus the chat's methods, and recreates the chat
-when `flowPath`, `baseUrl`, `workspace` or `history` change.
+The hook returns the [state](#state) plus the chat's methods. It recreates the chat
+(fresh state, old one destroyed) when `flowPath`, `baseUrl`, `workspace`, `history`,
+`storageKey` or the credential change: a different token string, or a switch between
+no token, a string and a function. A token function is called through a ref, so
+passing a new closure on every render is fine and never resets the chat; when users
+sign in and out behind a token function, change `storageKey` (their id) so local
+history and state start over with them.
 
 ## Raw apps
 
@@ -176,6 +181,7 @@ await chat.sendMessage('Hello')
 | `token` | A token, or a function returning one (called before every request, so it can fetch a short-lived token from your backend). Omit it inside a raw app. |
 | `history` | `'server'`, `'local'` or `'none'`, see [History](#history). Defaults to `'server'` with a viewer session and `'local'` with an explicit `token`. |
 | `inputs` | Extra flow inputs sent with every message. `sendMessage(text, { inputs })` adds per-message ones. |
+| `storageKey` | Namespace for `local` history, e.g. the signed-in user's id. Local history is per browser and per flow; without it, users sharing a browser share it. |
 | `fetch`, `storage` | Replacements for the globals, for tests and unusual runtimes. |
 | `pageSize` | Messages and conversations per page of server history. Default 50. |
 | `onFinish`, `onError` | Called when a turn has its answer, or could not run at all. |

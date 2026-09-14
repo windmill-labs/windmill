@@ -16,15 +16,19 @@ export type UseWindmillChat = ChatState &
 
 /**
  * A chat on a chat-mode flow. The chat is created once per `flowPath`, `baseUrl`,
- * `workspace`, `history` and token string, and destroyed on unmount: a new token
- * string is a new user, whose chat must not carry the previous one's state. A
- * token function and the callbacks are read through refs, so passing a new
- * closure on a render changes nothing but what the next call runs.
+ * `workspace`, `history`, `storageKey` and credential, and destroyed on unmount. A
+ * credential change is a new user, whose chat must not carry the previous one's
+ * state: a different token string, or a switch between no token, a token string
+ * and a token function, all recreate it. A token function is read through a ref
+ * on every call, so a new closure per render changes what the next call runs and
+ * nothing else; pass a `storageKey` per user when local history must not be shared.
+ * The callbacks are read through refs too.
  */
 export function useWindmillChat(options: ChatOptions): UseWindmillChat {
   const latest = useRef(options)
   latest.current = options
-  const tokenString = typeof options.token === 'string' ? options.token : undefined
+  const credential =
+    typeof options.token === 'function' ? 'fn' : typeof options.token === 'string' ? `str:${options.token}` : 'none'
   const chat = useMemo(
     () =>
       createChat({
@@ -40,7 +44,7 @@ export function useWindmillChat(options: ChatOptions): UseWindmillChat {
         onError: (error, turn) => latest.current.onError?.(error, turn)
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [options.flowPath, options.baseUrl, options.workspace, options.history, tokenString]
+    [options.flowPath, options.baseUrl, options.workspace, options.history, options.storageKey, credential]
   )
   useEffect(() => () => chat.destroy(), [chat])
   const state = useSyncExternalStore(chat.subscribe, chat.getState, chat.getState)

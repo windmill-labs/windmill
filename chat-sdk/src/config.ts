@@ -11,6 +11,7 @@ export interface ResolvedConfig {
   inputs: Record<string, unknown>
   fetch: FetchLike | undefined
   storage: StorageLike | undefined
+  storageKey: string | undefined
   pageSize: number
   onFinish: ChatOptions['onFinish']
   onError: ChatOptions['onError']
@@ -72,6 +73,7 @@ export function resolveConfig(options: ChatOptions): ResolvedConfig {
     inputs: options.inputs ?? {},
     fetch: options.fetch,
     storage: options.storage,
+    storageKey: options.storageKey,
     pageSize: options.pageSize ?? 50,
     onFinish: options.onFinish,
     onError: options.onError

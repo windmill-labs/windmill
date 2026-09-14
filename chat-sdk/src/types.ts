@@ -92,6 +92,11 @@ export interface ChatOptions {
   fetch?: FetchLike
   /** Backing store for `local` history. Defaults to `localStorage`. */
   storage?: StorageLike
+  /**
+   * Namespace for `local` history, e.g. the signed-in user's id. Local history is
+   * per browser, per flow; without this, users sharing a browser share it.
+   */
+  storageKey?: string
   /** Messages fetched per page of server history. */
   pageSize?: number
   /** Called once a turn has its answer (a failed flow included: its error is the answer). */

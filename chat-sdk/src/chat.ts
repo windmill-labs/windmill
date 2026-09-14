@@ -71,7 +71,8 @@ class ChatImpl implements Chat {
     })
     this.#local = createLocalHistory(
       this.#config.storage,
-      `windmill-chat:${this.#config.baseUrl}:${this.#config.workspace}:${this.#config.flowPath}`
+      `windmill-chat:${this.#config.baseUrl}:${this.#config.workspace}:${this.#config.flowPath}` +
+        (this.#config.storageKey ? `:${this.#config.storageKey}` : '')
     )
     this.#state = {
       conversationId: undefined,
