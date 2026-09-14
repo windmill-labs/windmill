@@ -586,6 +586,36 @@ describe('item store: one entry per key', () => {
 		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: chat })
 	})
 
+	it('lets a discard asked before a move lands win over the edits it drops', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const gate = deferred()
+		const b = { ...deployedRes, path: 'u/me/b' }
+		const temporary = newItemPath()
+		const { handle: moving } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: temporary },
+			{ workspace: 'w', path: temporary, template: b },
+			adapter({}, () => gate.promise)
+		)
+		await settle()
+		moving.value = { ...b, args: { a: 2 } }
+		const moved = moving.save()
+		await settle()
+		const { handle: opened } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
+			{ workspace: 'w', path: 'u/me/b' },
+			adapter({ deployed: b })
+		)
+		store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'written by the chat' })
+		store.bridge.discard('w', 'resource', 'u/me/b')
+
+		gate.resolve()
+		expect(await moved).toMatchObject({ ok: true, moved: true })
+		expect(opened.value).toEqual({ ...b, args: { a: 2 } })
+		expect(opened.dirty).toBe(false)
+		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: null })
+	})
+
 	it('keeps a change the draft comparison ignores in an editor a move replaces', async () => {
 		type Sched = { path: string; summary: string; permissioned_as?: string }
 		const rows = fakeRows()

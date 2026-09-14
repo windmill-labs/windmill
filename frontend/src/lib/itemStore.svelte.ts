@@ -180,6 +180,8 @@ class Entry<V> {
 	/** Replaced by an entry that moved onto its key: it no longer owns the row there, and a write
 	 *  reaching its turn does nothing, as its handles show the item that replaced it. */
 	retired = false
+	/** Discards asked and still waiting for their turn. */
+	discardsAsked = 0
 	/** The command running now, past its turn: what a move onto this key waits for. */
 	running: Promise<unknown> | undefined
 	/** The entries a save of this entry waits for before moving: a move skips waiting for any
@@ -421,7 +423,9 @@ class Entry<V> {
 	 *  changed from its own deployed side, so they stay a draft over what this entry deployed.
 	 *  Compared exactly, as a save is: a field the draft comparison ignores (run-as) is an edit. */
 	carryEditsOf(old: Entry<V>): void {
-		if (old.value === undefined || this.value === undefined) return
+		// A discard asked before the move landed wins over the edits it was asked to drop; had it
+		// run first, it would have dropped anything typed after it too.
+		if (old.value === undefined || this.value === undefined || old.discardsAsked > 0) return
 		// Not loaded yet (its read waits behind the move): only an outside write can have filled it,
 		// and nothing has persisted that write but this entry.
 		if (!old.loaded) {
@@ -460,7 +464,9 @@ class Entry<V> {
 	}
 
 	discard(): Promise<DiscardOutcome> {
+		this.discardsAsked++
 		return this.run(async () => {
+			this.discardsAsked--
 			if (!this.loaded || this.retired) return { removed: false }
 			if (this.origin === 'draft') {
 				const kept = snapshot(this.value)
