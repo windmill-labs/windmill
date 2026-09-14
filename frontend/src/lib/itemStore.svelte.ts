@@ -138,6 +138,11 @@ function errorMessage(e: unknown): string {
  *  item's revision for another's. */
 let nextRevision = 1
 
+/** Stamps every write and discard asked of an item, so the one asked last can be told from the
+ *  one that reaches it last: a draft parked for a save moving onto a key arrives after asks the
+ *  entry there has already recorded. */
+let nextAsk = 1
+
 const superseded = { ok: false, error: 'Another save of this item replaced this one' } as const
 
 class Entry<V> {
@@ -180,10 +185,10 @@ class Entry<V> {
 	/** Replaced by an entry that moved onto its key: it no longer owns the row there, and a write
 	 *  reaching its turn does nothing, as its handles show the item that replaced it. */
 	retired = false
-	/** Discards asked and still waiting for their turn, and which of a write and a discard was
-	 *  asked for this item last: the later of the two is the one that holds. */
+	/** Discards asked and still waiting for their turn, and the last ask made of this item, stamped
+	 *  when it was made: of a write and a discard, the one asked later is the one that holds. */
 	discardsAsked = 0
-	lastOutsideAsk: 'write' | 'discard' | undefined
+	lastAsk: { kind: 'write' | 'discard'; at: number } | undefined
 	/** The command running now, past its turn: what a move onto this key waits for. */
 	running: Promise<unknown> | undefined
 	/** The entries a save of this entry waits for before moving: a move skips waiting for any
@@ -233,6 +238,12 @@ class Entry<V> {
 			}
 		}
 		this.reconcile()
+	}
+
+	/** Keep the latest of the asks made of this item, by when each was asked. */
+	private recordAsk(kind: 'write' | 'discard', at: number): void {
+		if (at < (this.lastAsk?.at ?? 0)) return
+		this.lastAsk = { kind, at }
 	}
 
 	/** Mirror `dirty ? value : null` to the draft row. The only place a row is written. */
@@ -346,10 +357,11 @@ class Entry<V> {
 	}
 
 	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
-	applyExternal(value: V): number {
+	/** `askedAt`: when the write was made, for one parked while a move was heading here. */
+	applyExternal(value: V, askedAt = nextAsk++): number {
 		// Before the unchanged-value return: re-writing the same draft is still an ask, and which
 		// ask came last is what outranks a discard still waiting for its turn.
-		this.lastOutsideAsk = 'write'
+		this.recordAsk('write', askedAt)
 		if (this.loaded && serialize(value) === serialize(this.value)) return this.revision
 		this.pristine = false
 		this.removed = false
@@ -431,7 +443,7 @@ class Entry<V> {
 		// A discard asked before the move landed wins over the edits it was asked to drop; had it
 		// run first, it would have dropped anything typed after it too.
 		if (old.value === undefined || this.value === undefined) return
-		if (old.discardsAsked > 0 && old.lastOutsideAsk !== 'write') return
+		if (old.discardsAsked > 0 && old.lastAsk?.kind !== 'write') return
 		// Not loaded yet (its read waits behind the move): only an outside write can have filled it,
 		// and nothing has persisted that write but this entry.
 		if (!old.loaded) {
@@ -471,12 +483,12 @@ class Entry<V> {
 
 	discard(): Promise<DiscardOutcome> {
 		this.discardsAsked++
-		this.lastOutsideAsk = 'discard'
+		this.recordAsk('discard', nextAsk++)
 		return this.run(async () => {
 			this.discardsAsked--
 			// A draft written again after this discard was asked outranks it, however the move it
 			// waited for turned out: the ask that came last is the one that holds.
-			if (this.lastOutsideAsk === 'write') return { removed: false }
+			if (this.lastAsk?.kind === 'write') return { removed: false }
 			if (!this.loaded || this.retired) return { removed: false }
 			if (this.origin === 'draft') {
 				const kept = snapshot(this.value)
@@ -779,9 +791,10 @@ export function createItemStore(ports: ItemRowPort) {
 	const entries = new Map<string, Entry<any>>()
 	/** The latest save moving onto a key, by that key, and when its move is done. */
 	const moves = new Map<string, { owner: Entry<any>; done: Promise<void> }>()
-	/** Drafts written from outside at a key while a save is moving onto it: newer than that write,
-	 *  so the entry arriving there takes them rather than clearing the row it finds. */
-	const arrivals = new Map<string, unknown>()
+	/** Drafts written from outside at a key while a save is moving onto it, stamped when they were
+	 *  written: newer than that write, so the entry arriving there takes them rather than clearing
+	 *  the row it finds, unless it has been asked something later still. */
+	const arrivals = new Map<string, { value: unknown; at: number }>()
 
 	const internals: StoreInternals = {
 		release(entry) {
@@ -803,11 +816,9 @@ export function createItemStore(ports: ItemRowPort) {
 			const arrived = arrivals.get(to)
 			if (arrived !== undefined) {
 				arrivals.delete(to)
-				// Parked before anything this entry has been asked since, so applying it now does not
-				// make it the latest ask: a discard asked meanwhile still outranks it.
-				const asked = entry.lastOutsideAsk
-				entry.applyExternal(arrived)
-				entry.lastOutsideAsk = asked
+				// It was asked when it was parked, not now: whichever of it and the asks this entry
+				// recorded meanwhile came last is the one that holds.
+				entry.applyExternal(arrived.value, arrived.at)
 			}
 		},
 		/**
@@ -970,7 +981,7 @@ export function createItemStore(ports: ItemRowPort) {
 			if (!entry) {
 				// Persisted as usual, and handed to the save moving onto this key when it lands.
 				const k = keyString({ workspace, kind: kind as ItemKind, path })
-				if (moves.has(k)) arrivals.set(k, snapshot(value))
+				if (moves.has(k)) arrivals.set(k, { value: snapshot(value), at: nextAsk++ })
 				return false
 			}
 			entry.applyExternal(value)

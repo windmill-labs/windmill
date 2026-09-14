@@ -701,6 +701,15 @@ describe('item store: one entry per key', () => {
 		expect(discardedAfterParking.moving.dirty).toBe(false)
 		expect(discardedAfterParking.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: null })
 
+		// The other way round: Discard first, then a draft parked for the move. The parked draft was
+		// asked last, so it is what the item arrives with.
+		const parkedAfterDiscard = await moveOnto(false, (store, _open, moving) => {
+			void moving.discard()
+			store.bridge.seed('w', 'resource', 'u/me/b', again)
+		})
+		expect(parkedAfterDiscard.moving.value).toEqual(again)
+		expect(parkedAfterDiscard.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: again })
+
 		// Deleted last: the delete is what holds, however many drafts preceded it.
 		const deleted = await moveOnto(true, (store) => {
 			store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'first draft' })
