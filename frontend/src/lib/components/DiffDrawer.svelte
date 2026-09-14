@@ -11,6 +11,7 @@
 		type Value
 	} from '$lib/utils'
 	import { orderedYamlStringify } from '$lib/utils/orderedYaml'
+	import { sendUserToast } from '$lib/toast'
 	import type { Script } from '$lib/gen'
 	import Select from './select/Select.svelte'
 	import type { DiffVersionOption } from './diff_drawer'
@@ -117,6 +118,7 @@
 				// Nothing loaded: the diff still shows the previous version, so the picker
 				// has to say so rather than name one the reader is not looking at.
 				selectedVersion = shown
+				if (!value) sendUserToast(`Could not load version ${id}`, true)
 				return
 			}
 			const opt = data.versions?.find((v) => v.id === id)
@@ -125,9 +127,12 @@
 				deployed: prepareDiff(value),
 				deployedLabel: opt?.isHead ? headLabel : opt?.label
 			}
-		} catch (e) {
-			if (generation === versionLoadGeneration) selectedVersion = shown
-			throw e
+		} catch (e: any) {
+			// The snap-back would otherwise be the only sign the version never loaded.
+			if (generation === versionLoadGeneration) {
+				selectedVersion = shown
+				sendUserToast(`Could not load version ${id}: ${e?.body ?? e?.message ?? e}`, true)
+			}
 		} finally {
 			if (generation === versionLoadGeneration) loadingVersion = false
 		}
