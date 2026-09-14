@@ -273,31 +273,37 @@ async function deleteSync(ids: string[], email: string): Promise<void> {
 	await tx.done
 }
 
-/** Forget every push into a workspace whose storage is gone, so a storage configured
- * later gets a full backfill instead of nothing. */
-async function forgetWorkspaceSync(ws: string, email: string): Promise<void> {
+/** A workspace's storage went away: what was pushed there can no longer be trusted to be
+ * where a later storage looks, so every session goes whole on the next push. The rows stay
+ * (stale) so a removal still knows a backup existed. */
+async function staleWorkspaceSync(ws: string, email: string): Promise<void> {
 	const db = await syncDb(email)
 	if (!db) return
-	const gone = (await db.getAll('sync')).filter((s) => s.ws === ws).map((s) => s.id)
-	await deleteSync(gone, email)
+	const rows = (await db.getAll('sync')).filter((s) => s.ws === ws && !s.stale)
+	await writeSync(
+		rows.map((s) => ({ ...s, stale: true })),
+		email
+	)
 }
 
-/** Sessions this browser has backed up nothing of yet: everything committed to a
- * workspace and not yet in the sync table gets a mark, once per page load. */
-async function backfillMarks(marks: PendingMarks, email: string): Promise<void> {
-	if (backfilled) return
-	backfilled = true
+/** Sessions this browser has backed up nothing of yet, or whose backup went stale:
+ * everything committed to a workspace gets a mark, once per page load. */
+async function backfillMarks(marks: PendingMarks, email: string): Promise<boolean> {
+	if (backfilled) return true
 	const sessions = await readStoredSessions(email)
 	const db = await syncDb(email)
-	if (!sessions || !db) return
-	const known = new Set((await db.getAllKeys('sync')).map(String))
+	if (!sessions || !db) return false
+	backfilled = true
+	const rows = new Map((await db.getAll('sync')).map((s) => [s.id, s]))
 	const marked = new Set(marks.dirty.map((d) => d.id))
 	for (const s of sessions) {
-		if (s.workspace_id && !known.has(s.id) && !marked.has(s.id)) {
+		const row = rows.get(s.id)
+		if (s.workspace_id && (!row || row.stale) && !marked.has(s.id)) {
 			bumpDirty(s.id)
 			marks.dirty.push({ id: s.id, v: 1 })
 		}
 	}
+	return true
 }
 
 /** Read what the stores hold for a dirty session and plan its push. `undefined` when the
@@ -345,6 +351,8 @@ interface WorkspaceOutcome {
 	anyFailed: boolean
 	/** Some store could not be read; its marks stay for a later flush. */
 	unavailable: boolean
+	/** A session moved workspace and left a removal mark for the old one behind. */
+	movedAny: boolean
 }
 
 /**
@@ -364,7 +372,8 @@ async function pushWorkspace(
 		dropped: [],
 		removedDone: [],
 		anyFailed: false,
-		unavailable: false
+		unavailable: false,
+		movedAny: false
 	}
 	// Parts of a session still to be acknowledged, and the sessions the server refused.
 	// `complete` once every part of the session has been appended: a session whose first
@@ -472,6 +481,7 @@ async function pushWorkspace(
 		// its own if this push lands and its removal does not.
 		if (plan.removeFrom && wsState.get(plan.removeFrom) !== 'off') {
 			addRemoved(item.session.id, plan.removeFrom, false)
+			out.movedAny = true
 		}
 		const nothingToSend = !plan.entry && plan.images.length === 0
 		attempted.set(item.session.id, {
@@ -519,10 +529,18 @@ async function flush(): Promise<void> {
 	}
 	await withUserLock(email, async () => {
 		const marks = readPending()
-		await backfillMarks(marks, email)
+		// A store that cannot be opened right now (another tab's upgrade in progress) is
+		// retried with backoff, as any other unavailable store below.
+		if (!(await backfillMarks(marks, email))) {
+			backOff()
+			return
+		}
 		if (marks.dirty.length === 0 && marks.removed.length === 0) return
 		const stored = await readStoredSessions(email)
-		if (!stored) return
+		if (!stored) {
+			backOff()
+			return
+		}
 		const byId = new Map(stored.map((s) => [s.id, s]))
 		const work = new Map<string, WorkspaceWork>()
 		const workFor = (ws: string) => {
@@ -534,13 +552,17 @@ async function flush(): Promise<void> {
 		const consumedRemoved: string[] = []
 
 		for (const r of marks.removed) {
-			const ws = r.ws ?? (await readSync(r.id, email))?.ws
+			const sync = await readSync(r.id, email)
+			const ws = r.ws ?? sync?.ws
 			// Nowhere to remove it from (an unsent draft): done. A workspace whose backups are
-			// off keeps its removals for when they are on again, or the session would come back.
+			// off keeps the removal of a session that was backed up, for when they are on
+			// again, or the session would come back; one never backed up from here has
+			// nothing there, so its mark goes, or a storage-less instance would collect one
+			// per deleted session forever.
 			if (!ws) consumedRemoved.push(r.key)
 			else if (!wsState.has(ws) || wsState.get(ws) === 'on') {
 				workFor(ws).removed.push({ id: r.id, key: r.key })
-			}
+			} else if (wsState.get(ws) === 'off' && !sync) consumedRemoved.push(r.key)
 		}
 		for (const d of marks.dirty) {
 			const session = byId.get(d.id)
@@ -551,21 +573,25 @@ async function flush(): Promise<void> {
 			const state = wsState.get(session.workspace_id)
 			if (state === 'off') consumedDirty.push(d)
 			else if (state !== 'refused') {
+				// A stale row plans like no row at all: the whole session goes again.
+				const sync = await readSync(d.id, email)
 				workFor(session.workspace_id).items.push({
 					session,
 					v: d.v,
-					sync: await readSync(d.id, email)
+					sync: sync?.stale ? undefined : sync
 				})
 			}
 		}
 
 		let settledAny = false
+		let movedAny = false
 		for (const [ws, w] of work) {
 			const out = await pushWorkspace(ws, w, email)
+			movedAny ||= out.movedAny
 			if (out.status === 'abort') return
 			if (out.status === 'off') {
 				wsState.set(ws, 'off')
-				await forgetWorkspaceSync(ws, email)
+				await staleWorkspaceSync(ws, email)
 				for (const item of w.items) consumedDirty.push({ id: item.session.id, v: item.v })
 				continue
 			}
@@ -593,7 +619,9 @@ async function flush(): Promise<void> {
 		for (const key of consumedRemoved) removeKey(key)
 		// Whatever is still marked is either waiting on the backoff timer, on a write that
 		// scheduled its own flush, or on a workspace that is off or refused for the page;
-		// none of it wants another flush in 15 s.
+		// none of it wants another flush in 15 s. The one mark this flush wrote itself, a
+		// moved session's removal from its old workspace, does.
+		if (movedAny) scheduleFlush()
 	})
 }
 

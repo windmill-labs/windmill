@@ -151,7 +151,8 @@ describe('sessionMirror flush', () => {
 
 	it('keeps the marks when the push fails, and stops for a workspace without storage', async () => {
 		const s: Session = { id: 's2', name: 'session-2', createdAt: 1, workspace_id: 'ws' }
-		sessionState.sessions = [s]
+		const never: Session = { id: 's2b', name: 'session-3', createdAt: 2, workspace_id: 'ws' }
+		sessionState.sessions = [s, never]
 		await putSession(s)
 
 		pushMock.mockRejectedValueOnce(new TypeError('network'))
@@ -160,18 +161,25 @@ describe('sessionMirror flush', () => {
 		expect(pendingKeys()).toEqual(['d::s2'])
 		// Still marked: the retry carries it again once the backoff lapses.
 		__resetMirrorForTesting()
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 's2' }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(pendingKeys()).toEqual([])
+
+		// The storage goes away: no further request for the page. A delete keeps its
+		// removal mark only for a session that was backed up (s2), for when backups are on
+		// again, or it would come back from the bucket; one never backed up has nothing
+		// there, so its mark goes rather than piling up on a storage-less instance.
+		await putSession({ ...s, summary: 'changed' })
+		await putSession(never)
 		pushMock.mockResolvedValueOnce({ enabled: false, results: [] })
 		await __flushForTesting()
-		expect(pushMock).toHaveBeenCalledTimes(2)
-
-		// The workspace answered that it has nowhere to keep backups: no further request.
-		// A delete there keeps its removal mark for when backups are on again, or the
-		// session would come back from the bucket; the dirty mark is dropped.
-		await putSession({ ...s, summary: 'changed' })
+		expect(pushMock).toHaveBeenCalledTimes(3)
 		deleteSession('s2')
+		deleteSession('s2b')
 		await flush()
 		await __flushForTesting()
-		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(pushMock).toHaveBeenCalledTimes(3)
 		expect(pendingKeys()).toEqual(['r::s2::ws'])
 	})
 

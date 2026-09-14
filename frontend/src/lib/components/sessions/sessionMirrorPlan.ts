@@ -20,6 +20,10 @@ export interface MirrorSyncState {
 	/** The chat each pushed image belongs to, by image id. */
 	images: Record<string, string>
 	artifacts?: string
+	/** The workspace's storage went away after this push: what it holds is unknown, so the
+	 * next push carries everything again. Kept rather than deleted, so a removal still
+	 * knows a backup existed. */
+	stale?: boolean
 }
 
 /**
