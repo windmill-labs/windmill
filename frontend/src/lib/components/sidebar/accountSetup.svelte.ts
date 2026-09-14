@@ -24,10 +24,6 @@ export const accountSetup = {
 	set open(v: boolean) {
 		open = v
 	},
-	/**
-	 * Re-read the login type. Shared across callers mounting at the same time so the
-	 * sidebar's several readers cost one request, not one each.
-	 */
 	/** Forget the signed-out account; the module outlives a same-tab sign-out. */
 	reset() {
 		generation++
@@ -35,6 +31,10 @@ export const accountSetup = {
 		pending = false
 		open = false
 	},
+	/**
+	 * Re-read the login type. Shared across callers mounting at the same time so the
+	 * sidebar's several readers cost one request, not one each.
+	 */
 	refresh(): Promise<void> {
 		if (!inflight) {
 			const started = generation
