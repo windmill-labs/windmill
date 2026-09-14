@@ -30,6 +30,7 @@ import { __flushForTesting, __resetMirrorForTesting } from './sessionMirror.svel
 
 const EMAIL = 'mirror@x.com'
 const IMAGE = 'data:image/png;base64,AAAA'
+const PENDING_KEY = `windmill_sessions_mirror_pending::${EMAIL}`
 
 function asUser(email: string): UserExt {
 	return { email, username: email.split('@')[0] } as unknown as UserExt
@@ -122,9 +123,28 @@ describe('sessionMirror flush', () => {
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(2)
 
-		// The workspace answered that it has nowhere to keep backups: no further request.
+		// The workspace answered that it has nowhere to keep backups: no further request,
+		// and a delete there has nothing to remove, so its mark is consumed rather than
+		// rescheduling a flush for the life of the tab.
 		await putSession({ ...s, summary: 'changed' })
+		deleteSession('s2')
+		await flush()
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(localStorage.getItem(PENDING_KEY)).toBeNull()
+	})
+
+	it('backs off when the server could not store a session, keeping its mark', async () => {
+		const s: Session = { id: 's3', name: 'session-3', createdAt: 1, workspace_id: 'ws' }
+		sessionState.sessions = [s]
+		await putSession(s)
+
+		pushMock.mockResolvedValue({ enabled: true, results: [{ id: 's3', error: 'bucket refused' }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(1)
+		// Still marked, but not re-sent until the backoff lapses.
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(1)
+		expect(JSON.parse(localStorage.getItem(PENDING_KEY) ?? '{}').dirty?.s3).toBeDefined()
 	})
 })

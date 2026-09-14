@@ -52,9 +52,11 @@ import {
 	artifactsFingerprint,
 	headSig,
 	jsonBytes,
+	packRequests,
 	planSessionPush,
 	type ChatSnapshot,
 	type MirrorSyncState,
+	type PackLimits,
 	type PlannedPush
 } from './sessionMirrorPlan'
 
@@ -263,9 +265,9 @@ async function planFor(
 	mark: DirtyMark,
 	sync: MirrorSyncState | undefined,
 	email: string
-): Promise<PlannedPush | undefined> {
+): Promise<PlannedPush | undefined | 'unavailable'> {
 	const chatIds = await listSessionChatIds(session.id, email)
-	if (!chatIds) return undefined
+	if (!chatIds) return 'unavailable'
 	const prev = sync?.ws === session.workspace_id ? sync : undefined
 	const chats: ChatSnapshot[] = []
 	for (const id of chatIds) {
@@ -292,43 +294,14 @@ async function planFor(
 		chats.push({ id, lastModified: record.lastModified, record, imageIds })
 	}
 	const artifacts = await readSessionArtifacts(session.id, email)
-	if (!artifacts) return undefined
+	if (!artifacts) return 'unavailable'
 	return planSessionPush({ session, chats, artifacts, sync })
 }
 
-type PushBody = { owner: string; sessions: AISessionBackupPush[]; removed?: string[] }
-
-/**
- * Pack the workspace's entries into requests of about REQUEST_TARGET_BYTES. Images go
- * first, as entries of their own: the server needs nothing else to store one, and a
- * session's images alone can outweigh a whole request.
- */
-function packRequests(
-	email: string,
-	imageEntries: AISessionBackupPush[],
-	entries: AISessionBackupPush[],
-	removed: string[]
-): PushBody[] {
-	const requests: PushBody[] = []
-	let current: PushBody | undefined
-	let size = 0
-	const add = (entry: AISessionBackupPush) => {
-		const bytes = jsonBytes(entry)
-		if (!current || (size > 0 && size + bytes > REQUEST_TARGET_BYTES)) {
-			current = { owner: email, sessions: [] }
-			requests.push(current)
-			size = 0
-		}
-		current.sessions.push(entry)
-		size += bytes
-	}
-	for (const entry of imageEntries) add(entry)
-	for (const entry of entries) add(entry)
-	if (removed.length > 0) {
-		if (requests.length === 0) requests.push({ owner: email, sessions: [] })
-		requests[0].removed = removed
-	}
-	return requests
+const PACK_LIMITS: PackLimits = {
+	targetBytes: REQUEST_TARGET_BYTES,
+	maxSessions: 100,
+	maxRemoved: 200
 }
 
 /** Load a plan's images and split them into request-sized entries. */
@@ -357,8 +330,13 @@ interface WorkspaceWork {
 	removed: string[]
 }
 
-/** Outcome per session id: absent means the workspace's requests failed as a whole. */
-type PushOutcome = { failed: Set<string>; disabled: boolean; abort: boolean } | undefined
+/**
+ * Outcome per session id; absent means the requests failed transiently as a whole.
+ * `off`: the workspace has nowhere to keep backups, forget what was pushed there.
+ * `refused`: the server rejected what this page sends, stop for the page but keep the marks
+ * and what was pushed so far, so the next load tries again with whatever changed.
+ */
+type PushOutcome = { failed: Set<string>; disabled?: 'off' | 'refused'; abort: boolean } | undefined
 
 async function pushWorkspace(ws: string, work: WorkspaceWork, email: string): Promise<PushOutcome> {
 	const images: AISessionBackupPush[] = []
@@ -368,24 +346,24 @@ async function pushWorkspace(ws: string, work: WorkspaceWork, email: string): Pr
 		if (plan.entry) entries.push(plan.entry)
 	}
 	const failed = new Set<string>()
-	for (const requestBody of packRequests(email, images, entries, work.removed)) {
-		if (getCurrentUserEmail() !== email) return { failed, disabled: false, abort: true }
+	for (const requestBody of packRequests(email, images, entries, work.removed, PACK_LIMITS)) {
+		if (getCurrentUserEmail() !== email) return { failed, abort: true }
 		let res
 		try {
 			res = await AiService.pushAiSessionBackups({ workspace: ws, requestBody })
 		} catch (e) {
 			const status = statusOf(e)
 			// 404: a build without object storage. 403: nothing this token may back up.
-			if (status === 404 || status === 403) return { failed, disabled: true, abort: false }
-			if (status === 409) return { failed, disabled: false, abort: true }
+			if (status === 404 || status === 403) return { failed, disabled: 'off', abort: false }
+			if (status === 409) return { failed, abort: true }
 			if (status !== undefined && status < 500 && status !== 429) {
 				console.error('Session backup push refused', e)
-				return { failed, disabled: true, abort: false }
+				return { failed, disabled: 'refused', abort: false }
 			}
 			console.warn('Session backup push failed, retrying later', e)
 			return undefined
 		}
-		if (!res.enabled) return { failed, disabled: true, abort: false }
+		if (!res.enabled) return { failed, disabled: 'off', abort: false }
 		for (const r of res.results) {
 			if (r.error) {
 				console.warn(`Session backup of ${r.id} failed: ${r.error}`)
@@ -393,7 +371,7 @@ async function pushWorkspace(ws: string, work: WorkspaceWork, email: string): Pr
 			}
 		}
 	}
-	return { failed, disabled: false, abort: false }
+	return { failed, abort: false }
 }
 
 async function flush(): Promise<void> {
@@ -421,11 +399,18 @@ async function flush(): Promise<void> {
 		const done: { id: string; v: number }[] = []
 		const settledSync: MirrorSyncState[] = []
 
+		// A store that could not be read (an open waiting behind another tab's upgrade)
+		// keeps its marks for a later flush; consuming them would lose the change for good.
+		let unavailable = false
 		for (const [id, mark] of Object.entries(marks.dirty)) {
 			const session = byId.get(id)
 			const sync = await readSync(id, email)
 			const plan =
 				session && !session.transient ? await planFor(session, mark, sync, email) : undefined
+			if (plan === 'unavailable') {
+				unavailable = true
+				continue
+			}
 			if (!plan) {
 				done.push({ id, v: mark.v })
 				continue
@@ -445,12 +430,14 @@ async function flush(): Promise<void> {
 			}
 			workFor(plan.workspaceId).plans.push({ plan, mark })
 		}
+		const removedDone = new Set<string>()
 		for (const r of marks.removed) {
 			const ws = r.ws ?? (await readSync(r.id, email))?.ws
+			// Nowhere to remove it from (an unsent draft, a workspace without storage): done.
 			if (ws && wsState.get(ws) !== 'off') workFor(ws).removed.push(r.id)
+			else removedDone.add(r.id)
 		}
 
-		const removedDone = new Set<string>()
 		let abort = false
 		for (const [ws, w] of work) {
 			if (abort) break
@@ -463,14 +450,22 @@ async function flush(): Promise<void> {
 				abort = true
 				break
 			}
-			if (outcome.disabled) {
+			if (outcome.disabled === 'refused') {
+				disableWorkspace(ws)
+				continue
+			}
+			if (outcome.disabled === 'off') {
 				disableWorkspace(ws)
 				await forgetWorkspaceSync(ws, email)
 				for (const { plan, mark } of w.plans) done.push({ id: plan.next.id, v: mark.v })
 				for (const id of w.removed) removedDone.add(id)
 				continue
 			}
-			retryMs = RETRY_MIN_MS
+			// A session the server could not store stays marked and is carried again, but
+			// not every 15 s: a bucket refusing writes would otherwise be sent the whole
+			// payload over and over.
+			if (outcome.failed.size > 0) backOff()
+			else retryMs = RETRY_MIN_MS
 			for (const { plan, mark } of w.plans) {
 				if (outcome.failed.has(plan.next.id)) continue
 				settledSync.push(plan.next)
@@ -478,6 +473,7 @@ async function flush(): Promise<void> {
 			}
 			for (const id of w.removed) if (!outcome.failed.has(id)) removedDone.add(id)
 		}
+		if (unavailable) backOff()
 		if (abort || getCurrentUserEmail() !== email) return
 
 		await writeSync(settledSync, email)
@@ -617,21 +613,28 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 		const unpacked = pulled.sessions
 			.map((b) => unpackBackup(ws, b, updatedAt.get(b.id) ?? Date.now()))
 			.filter((u) => u !== undefined)
-		if (unpacked.length === 0) continue
-		for (const u of unpacked) await importArtifacts(u.artifacts.items, u.artifacts.versions, email)
-		await importStoredChats(
-			unpacked.flatMap((u) => u.chats),
-			unpacked.flatMap((u) => u.images),
-			email
-		)
+		// A session's pieces land before its record, and a session whose pieces could not be
+		// written is left for the next restore: recording it now would let the next flush
+		// push its half-empty local state over the backup.
+		const ready: typeof unpacked = []
+		for (const u of unpacked) {
+			try {
+				if (!(await importArtifacts(u.artifacts.items, u.artifacts.versions, email))) continue
+				await importStoredChats(u.chats, u.images, email)
+				ready.push(u)
+			} catch (e) {
+				console.error(`Could not restore session ${u.session.id}`, e)
+			}
+		}
+		if (ready.length === 0) continue
 		const imported = new Set(
 			await importSessions(
-				unpacked.map((u) => u.session),
+				ready.map((u) => u.session),
 				email
 			)
 		)
 		await writeSync(
-			unpacked.filter((u) => imported.has(u.session.id)).map((u) => u.sync),
+			ready.filter((u) => imported.has(u.session.id)).map((u) => u.sync),
 			email
 		)
 		restored += imported.size

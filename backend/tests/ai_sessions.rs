@@ -7,6 +7,7 @@
 
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
+use windmill_common::utils::calculate_hash;
 use windmill_test_utils::*;
 
 fn client() -> reqwest::Client {
@@ -57,6 +58,20 @@ async fn push(base: &str, token: &str, body: Value) -> anyhow::Result<reqwest::R
             .send()
             .await?,
     )
+}
+
+fn copy_dir(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.path().is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
 }
 
 /// Every file under the storage root, as bytes.
@@ -179,6 +194,22 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     assert_eq!(other["sessions"], json!([]));
     let other = pull(&base, "SECRET_TOKEN_2", &["s1"]).await?;
     assert_eq!(other["sessions"], json!([]));
+
+    // Nor after copying the first user's ciphertext under their own prefix, which anyone
+    // holding the bucket credentials can do: the key is bound to the user, not the workspace.
+    let users_root = storage_dir
+        .path()
+        .join("windmill_ai_sessions/test-workspace");
+    let first = users_root.join(calculate_hash("test@windmill.dev"));
+    let second = users_root.join(calculate_hash("test2@windmill.dev"));
+    copy_dir(&first, &second)?;
+    let other = pull(&base, "SECRET_TOKEN_2", &["s1"]).await?;
+    assert_eq!(
+        other["sessions"],
+        json!([]),
+        "relocated ciphertext must not decrypt for another user"
+    );
+    std::fs::remove_dir_all(&second)?;
 
     // Deleting a chat takes its images along; a head-only push leaves the rest in place.
     let resp = push(

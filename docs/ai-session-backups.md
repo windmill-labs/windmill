@@ -43,9 +43,12 @@ Unsent drafts (no `workspace_id`) and attached files (Blobs, directory handles) 
 
 ## Encryption and access
 
-Every object is encrypted with the workspace key (`build_crypt`), because workspace storage
-credentials are shared far more widely than a user's transcripts: `public_resource` storages and
-legacy-mode READ hand any member the bucket. The server builds every key from ids it validated
+Every object is encrypted with a key derived from the workspace key and the user
+(`build_crypt_with_key_suffix` with the email hash), because workspace storage credentials are
+shared far more widely than a user's transcripts: `public_resource` storages and legacy-mode
+READ/WRITE hand any member the bucket. The key is per user rather than per workspace so that a
+member who copies another user's ciphertext under their own prefix gets nothing from `pull`; an
+object that does not decrypt for its reader is treated as absent. The server builds every key from ids it validated
 (`[A-Za-z0-9_-]{1,64}`) and the caller's own email; the client never names a key, and the
 workspace storage permission rules are not consulted (the same stance as volumes). Only an
 unscoped user token may reach the routes: a job token can carry an `on_behalf_of` identity and
@@ -76,8 +79,12 @@ in the bucket.
 
 ## Limits
 
-Push bodies are packed to about 8 MB and capped at 32 MB server-side; a chat above 24 MB is left
-out with a console warning. Pull answers up to 20 ids and defers what does not fit 32 MB. A
+Push bodies are packed to about 8 MB, at most 100 entries and 200 removals each (the server's
+caps, with 32 MB on the body); an entry that outgrows the target is split into chat-only parts
+with the head riding on the last, and a chat above 24 MB is left out with a console warning. A
+request the server refuses (a 4xx other than 404/403/409) stops the backup for the page but keeps
+the marks and the sync state, so the next load tries again; a session the server reports it could
+not store stays marked and is retried with backoff. Pull answers up to 20 ids and defers what does not fit 32 MB. A
 restore takes the newest 50 sessions per workspace: every visible session gets a runtime, and
 each runtime's history load reads the whole chat store. On CE the push checks the storage quota
 and bumps usage by bytes written (an over-count on overwrites; the periodic recount settles it).

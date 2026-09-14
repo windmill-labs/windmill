@@ -29,7 +29,7 @@ use std::sync::Arc;
 use windmill_api_auth::is_effectively_unscoped;
 use windmill_common::error::{Error, JsonResult, Result};
 use windmill_common::utils::calculate_hash;
-use windmill_common::variables::build_crypt;
+use windmill_common::variables::build_crypt_with_key_suffix;
 use windmill_object_store::object_store_reexports::{
     ObjectStore, ObjectStoreError, Path as ObjectPath, PutPayload,
 };
@@ -113,8 +113,9 @@ impl Backend {
         self.put_sealed(key, self.seal(plaintext)).await
     }
 
-    /// `None` when the object does not exist; a stored object that does not decrypt is an
-    /// error, since it was written under another workspace key.
+    /// `None` when the object does not exist, and also when it does not decrypt under this
+    /// user's key: an object written under another user's or workspace's key is nobody's
+    /// to read, and one such object must not take the rest of the session down with it.
     async fn get(&self, key: &ObjectPath) -> Result<Option<String>> {
         let result = match self.store.get(key).await {
             Ok(result) => result,
@@ -122,13 +123,15 @@ impl Backend {
             Err(e) => return Err(object_store_error_to_error(e)),
         };
         let bytes = result.bytes().await.map_err(object_store_error_to_error)?;
-        let plaintext = self
+        let text = self
             .mc
             .decrypt_bytes_to_bytes(&bytes)
-            .map_err(|e| Error::internal_err(format!("decrypting {key}: {e}")))?;
-        String::from_utf8(plaintext)
-            .map(Some)
-            .map_err(|e| Error::internal_err(format!("decoding {key}: {e}")))
+            .ok()
+            .and_then(|plaintext| String::from_utf8(plaintext).ok());
+        if text.is_none() {
+            tracing::warn!("AI session backup object {key} does not decrypt for its reader");
+        }
+        Ok(text)
     }
 
     async fn delete(&self, key: &ObjectPath) -> Result<()> {
@@ -232,8 +235,11 @@ async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backe
         return Ok(None);
     };
     let store = build_object_store_client(&resource).await?;
-    let mc = build_crypt(db, w_id).await?;
-    let prefix = format!("{ROOT}/{w_id}/{}", calculate_hash(&authed.email));
+    let user = calculate_hash(&authed.email);
+    // Keyed per user, not per workspace: anyone who can write the bucket could otherwise copy
+    // another member's ciphertext under their own prefix and have `pull` decrypt it for them.
+    let mc = build_crypt_with_key_suffix(db, w_id, &user).await?;
+    let prefix = format!("{ROOT}/{w_id}/{user}");
     Ok(Some(Backend { store, mc, prefix }))
 }
 

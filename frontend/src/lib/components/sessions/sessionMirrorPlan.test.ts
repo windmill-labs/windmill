@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	artifactsFingerprint,
 	headSig,
+	packRequests,
 	planSessionPush,
 	type ChatSnapshot,
 	type MirrorSyncState
@@ -133,5 +134,46 @@ describe('planSessionPush', () => {
 			sync: synced({ artifacts: artifactsFingerprint({ items, versions: [] }) })
 		})
 		expect(emptied?.entry?.artifacts).toEqual(noArtifacts)
+	})
+})
+
+describe('packRequests', () => {
+	const limits = { targetBytes: 200, maxSessions: 3, maxRemoved: 2 }
+	const small = (id: string) => ({ id, head: { id } })
+
+	it('stays within the per-request counts and spreads removals over requests', () => {
+		const requests = packRequests(
+			'me',
+			[small('img')],
+			[small('a'), small('b'), small('c')],
+			['r1', 'r2', 'r3'],
+			limits
+		)
+		expect(requests.map((r) => r.sessions.map((s) => s.id))).toEqual([['img', 'a', 'b'], ['c']])
+		expect(requests.map((r) => r.removed)).toEqual([['r1', 'r2'], ['r3']])
+		expect(packRequests('me', [], [], ['r1', 'r2', 'r3'], limits).map((r) => r.removed)).toEqual([
+			['r1', 'r2'],
+			['r3']
+		])
+	})
+
+	it('splits an oversized entry into chat-only parts, the head riding on the last', () => {
+		const big = (id: string) => ({ id, record: { id, text: 'x'.repeat(150) } })
+		const entry = {
+			id: 's',
+			head: { id: 's' },
+			chats: [big('c1'), big('c2'), big('c3')],
+			delete_chats: ['old']
+		}
+		const requests = packRequests('me', [], [entry], [], limits)
+		const parts = requests.flatMap((r) => r.sessions)
+		expect(parts.map((p) => p.chats?.map((c) => c.id))).toEqual([['c1'], ['c2'], ['c3']])
+		expect(
+			parts.slice(0, -1).every((p) => p.head === undefined && p.delete_chats === undefined)
+		).toBe(true)
+		expect(parts.at(-1)?.head).toEqual({ id: 's' })
+		expect(parts.at(-1)?.delete_chats).toEqual(['old'])
+		// Each part outgrows the target on its own, so each travels alone.
+		expect(requests.length).toBe(3)
 	})
 })

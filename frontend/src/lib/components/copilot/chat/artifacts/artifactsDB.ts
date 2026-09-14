@@ -148,14 +148,17 @@ export async function readSessionArtifacts(
 	}
 }
 
-/** Write restored artifacts and snapshots, leaving any that already exist alone. */
+/** Write restored artifacts and snapshots, leaving any that already exist alone. Reports
+ * whether they are all in the store now: unlike the other writes here, a caller records the
+ * restore as done on the strength of this answer. */
 export async function importArtifacts(
 	items: PersistedArtifact[],
 	versions: ArtifactVersion[],
 	email: string
-): Promise<void> {
+): Promise<boolean> {
+	if (items.length === 0 && versions.length === 0) return true
 	const db = await getDB()
-	if (!db || db.name !== scopedKeyFor(ARTIFACTS_DB, email)) return
+	if (!db || db.name !== scopedKeyFor(ARTIFACTS_DB, email)) return false
 	try {
 		const tx = db.transaction(['items', 'versions'], 'readwrite')
 		const itemStore = tx.objectStore('items')
@@ -167,8 +170,10 @@ export async function importArtifacts(
 			if ((await versionStore.getKey(version.key)) === undefined) await versionStore.put(version)
 		}
 		await tx.done
+		return true
 	} catch (err) {
 		console.error('Could not import artifacts', err)
+		return false
 	}
 }
 
