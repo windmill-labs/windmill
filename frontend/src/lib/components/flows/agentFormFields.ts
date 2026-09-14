@@ -45,8 +45,8 @@ export interface AgentFieldSpec {
 	 *  row opens on an empty list to keep what is shown and what a run does the same thing, which
 	 *  leaves an absent field as the only way to say every tool. */
 	seed?: unknown
-	/** Shown under the field's name in the add menu: `implicit` written for a reader, or, for a field
-	 *  with a `seed`, what adding the row does, since the two are no longer the same thing. */
+	/** What leaving the field unset does, written for a reader, shown under the field's name in the
+	 *  add menu. */
 	defaultHint?: string
 	/** Ignored for image output, so the field hides while `output_type` is `'image'`. */
 	textOnly?: boolean
@@ -123,7 +123,7 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		tooltip:
 			'Which of the agent tools a run carries, so it costs no more than it needs. Selecting none leaves the agent with no tools, and unsetting the field gives it all of them. Set it to an expression to decide per run. An MCP server selected here carries every tool it exposes, which its own include and exclude lists decide.',
 		seed: [],
-		defaultHint: 'Opens empty. Unset for all tools.'
+		defaultHint: 'Default: all of them'
 	},
 	{
 		key: 'max_iterations',
