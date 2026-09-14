@@ -12896,6 +12896,134 @@ paths:
                     type: boolean
                     description: more buckets matched than were returned, so summing them under-reports
 
+  /w/{workspace}/ai/shared_artifacts/share:
+    post:
+      summary: share an AI session artifact with the workspace
+      description: >
+        Stores a read-only copy that any member of the workspace can open by id. Sharing the
+        same artifact again updates that copy, keeps its id, and restarts its retention window.
+      operationId: shareAiArtifact
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - artifact_id
+                - name
+                - kind
+                - version
+                - content
+              properties:
+                artifact_id:
+                  type: string
+                  description: the artifact's id in the author's session
+                name:
+                  type: string
+                kind:
+                  type: string
+                  enum: [md, html]
+                version:
+                  type: integer
+                  minimum: 1
+                content:
+                  type: string
+      responses:
+        "200":
+          description: the shared copy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedAiArtifactInfo"
+
+  /w/{workspace}/ai/shared_artifacts/status:
+    get:
+      summary: get the calling user's share of one of their AI session artifacts
+      operationId: getAiArtifactShareStatus
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: artifact_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the live share, if any, and how long shares last
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - retention_secs
+                properties:
+                  retention_secs:
+                    type: integer
+                  share:
+                    $ref: "#/components/schemas/SharedAiArtifactInfo"
+
+  /w/{workspace}/ai/shared_artifacts/get/{id}:
+    get:
+      summary: get a shared AI session artifact
+      operationId: getSharedAiArtifact
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the shared artifact
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SharedAiArtifactInfo"
+                  - type: object
+                    required:
+                      - content
+                      - can_unshare
+                    properties:
+                      content:
+                        type: string
+                      can_unshare:
+                        type: boolean
+                        description: whether the caller authored the share or is a workspace admin
+
+  /w/{workspace}/ai/shared_artifacts/delete/{id}:
+    delete:
+      summary: stop sharing an AI session artifact
+      operationId: unshareAiArtifact
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: share deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
       summary: get raw app data by
@@ -27960,6 +28088,36 @@ components:
         - cache_write_tokens
         - output_tokens
         - requests
+
+    SharedAiArtifactInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [md, html]
+        version:
+          type: integer
+        created_by:
+          type: string
+        shared_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - kind
+        - version
+        - created_by
+        - shared_at
+        - expires_at
 
     InstanceAIProviderSummary:
       type: object
