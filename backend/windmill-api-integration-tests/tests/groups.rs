@@ -955,6 +955,20 @@ async fn test_instance_group_member_that_is_not_an_email_is_skipped(
         .execute(&db)
         .await?;
 
+    // A member whose address only the wider `proper_email` of `usr` accepts, already
+    // provisioned through the group: reconciliation must keep and re-role them, since
+    // removal destroys their drafts, inputs and permissions.
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO email_to_igroup (email, igroup) VALUES ('"quoted"@example.com', 'entra_grp');
+        INSERT INTO usr (workspace_id, username, email, is_admin, operator, added_via)
+        VALUES ('test-workspace', 'quoted', '"quoted"@example.com', false, true,
+                '{"source": "instance_group", "group": "entra_grp"}'::jsonb);
+        "#,
+    )
+    .execute(&db)
+    .await?;
+
     let resp = authed(client().post(format!("{ws_base}/edit_instance_groups")))
         .json(&json!({
             "groups": ["entra_grp"],
@@ -964,16 +978,20 @@ async fn test_instance_group_member_that_is_not_an_email_is_skipped(
         .await?;
     assert_eq!(resp.status(), 200, "edit: {}", resp.text().await?);
 
-    let members: Vec<String> = sqlx::query_scalar(
-        "SELECT email FROM usr WHERE workspace_id = 'test-workspace'
-         AND added_via->>'source' = 'instance_group' ORDER BY email",
+    let mut members: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT email, operator FROM usr WHERE workspace_id = 'test-workspace'
+         AND added_via->>'source' = 'instance_group'",
     )
     .fetch_all(&db)
     .await?;
+    members.sort();
     assert_eq!(
         members,
-        vec!["kept@example.com"],
-        "valid member provisioned, non-email one skipped"
+        vec![
+            ("\"quoted\"@example.com".to_string(), false),
+            ("kept@example.com".to_string(), false),
+        ],
+        "valid member provisioned and existing member kept, both as developers; non-email one skipped"
     );
 
     Ok(())
