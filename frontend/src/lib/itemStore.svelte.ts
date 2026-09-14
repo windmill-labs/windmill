@@ -359,6 +359,8 @@ class Entry<V> {
 	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
 	/** `askedAt`: when the write was made, for one parked while a move was heading here. */
 	applyExternal(value: V, askedAt = nextAsk++): number {
+		// An ask older than the one that holds changes nothing, value included.
+		if (askedAt < (this.lastAsk?.at ?? 0)) return this.revision
 		// Before the unchanged-value return: re-writing the same draft is still an ask, and which
 		// ask came last is what outranks a discard still waiting for its turn.
 		this.recordAsk('write', askedAt)

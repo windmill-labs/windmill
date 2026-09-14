@@ -710,6 +710,17 @@ describe('item store: one entry per key', () => {
 		expect(parkedAfterDiscard.moving.value).toEqual(again)
 		expect(parkedAfterDiscard.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: again })
 
+		// A draft parked for the move, then a newer one written to the editor that opened over it:
+		// the newer one holds, and the parked one does not come back with the item.
+		const newerThanParked = { ...b, description: 'written after the parked one' }
+		const parkedThenWritten = await moveOnto(false, (store, open) => {
+			store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'parked draft' })
+			open()
+			store.bridge.seed('w', 'resource', 'u/me/b', newerThanParked)
+		})
+		expect(parkedThenWritten.moving.value).toEqual(newerThanParked)
+		expect(parkedThenWritten.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: newerThanParked })
+
 		// Deleted last: the delete is what holds, however many drafts preceded it.
 		const deleted = await moveOnto(true, (store) => {
 			store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'first draft' })
