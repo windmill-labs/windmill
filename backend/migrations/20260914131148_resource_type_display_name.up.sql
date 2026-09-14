@@ -2,8 +2,8 @@
 -- "Google Sheets". Null where nobody named the type; readers derive a label from the name.
 ALTER TABLE resource_type ADD COLUMN display_name VARCHAR(100);
 
--- The names the hub carries today, so existing instances show them before any sync. Not
--- limited to admins: a workspace that copied a hub type keeps the type's name.
+-- The names the hub carries today, so existing instances show them before any sync. Only in
+-- admins, where hub resource types live and every workspace reads them from.
 UPDATE resource_type SET display_name = v.display_name
 FROM (VALUES
     ('bamboo_hr', 'BambooHR'),
@@ -19,4 +19,6 @@ FROM (VALUES
     ('snowflake_oauth', 'Snowflake (OAuth)'),
     ('their_stack', 'TheirStack')
 ) AS v(name, display_name)
-WHERE resource_type.name = v.name AND resource_type.display_name IS NULL;
+WHERE resource_type.workspace_id = 'admins'
+    AND resource_type.name = v.name
+    AND resource_type.display_name IS NULL;

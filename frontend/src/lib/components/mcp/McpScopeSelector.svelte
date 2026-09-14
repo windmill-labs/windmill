@@ -5,12 +5,10 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
-	import {
-		integrationDisplayName,
-		setHubIntegrationDisplayNames
-	} from '$lib/components/resourceTypeDisplay'
+	import { integrationDisplayName } from '$lib/components/resourceTypeDisplay'
+	import { listHubIntegrationsShared } from '$lib/components/displayNameLoaders'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { FlowService, FolderService, IntegrationService, ScriptService } from '$lib/gen'
+	import { FlowService, FolderService, ScriptService } from '$lib/gen'
 	import { mcpEndpointTools } from '$lib/mcpEndpointTools'
 	import {
 		endpointPathPolicy,
@@ -272,8 +270,7 @@
 		if (allApps.length > 0) return
 		try {
 			loadingApps = true
-			const integrations = await IntegrationService.listHubIntegrations({ kind: 'script' })
-			setHubIntegrationDisplayNames(integrations)
+			const integrations = await listHubIntegrationsShared('script')
 			allApps = integrations.map((x) => x.name)
 		} catch (err) {
 			console.error('Hub is not available')

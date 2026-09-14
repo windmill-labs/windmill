@@ -5,10 +5,10 @@ import { createCache } from '$lib/utils'
 import { setHubIntegrationDisplayNames, setResourceTypeDisplayNames } from './resourceTypeDisplay'
 
 /**
- * Loads the names `resourceTypeDisplayName` and `integrationDisplayName` read, for a surface that
- * shows a label without already fetching the rows it comes from. Apart from `resourceTypeDisplay`,
- * which makes no API calls so it can be unit-tested alone. Cached briefly: drawers and pickers
- * reopen often, and a name rarely changes.
+ * Loads what `resourceTypeDisplayName` and `integrationDisplayName` read: a type's stored name for a
+ * surface that holds no row for it, and the hub's integration list, which every picker that needs
+ * it shares. Apart from `resourceTypeDisplay`, which makes no API calls so it can be unit-tested
+ * alone. Cached briefly: drawers and pickers reopen often, and a name rarely changes.
  */
 const CACHE_MS = 60_000
 
@@ -29,11 +29,23 @@ export function loadResourceTypeDisplayName(workspace: string, name: string): Pr
 	return resourceTypeRowCached({ workspace, name })
 }
 
-const hubIntegrationNamesCached = createCache(
-	(_: Record<string, never>) =>
-		IntegrationService.listHubIntegrations().then(setHubIntegrationDisplayNames, () => {}),
+const hubIntegrationsCached = createCache(
+	({ kind }: { kind?: string }) =>
+		IntegrationService.listHubIntegrations({ kind }).then((integrations) => {
+			setHubIntegrationDisplayNames(integrations)
+			return integrations
+		}),
 	{ invalidateMs: CACHE_MS }
 )
+
+/**
+ * The hub's integration list, read once a minute per `kind` however many pickers ask, recording
+ * each integration's name on the way. A failed read is kept for that minute too, and rejects, so
+ * a picker can say the hub is unavailable.
+ */
+export function listHubIntegrationsShared(kind?: string) {
+	return hubIntegrationsCached({ kind })
+}
 
 /**
  * Fill `integrationDisplayName` for a picker whose integrations come from its own items rather
@@ -42,5 +54,8 @@ const hubIntegrationNamesCached = createCache(
  */
 export function loadHubIntegrationDisplayNames(): Promise<void> {
 	if (get(disableHubStore)) return Promise.resolve()
-	return hubIntegrationNamesCached({})
+	return listHubIntegrationsShared().then(
+		() => {},
+		() => {}
+	)
 }
