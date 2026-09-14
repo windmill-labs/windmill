@@ -279,8 +279,13 @@ fn narrow_roster(
                     // An MCP entry is added with no summary and the roster displays it by its
                     // resource path, so that path is the only name the form can offer for it. Match
                     // it too, or naming one tool would be the sole way to keep a whole server.
+                    // Both sides are stripped: the roster stores the path as authored, so the name
+                    // the picker offers carries the `$res:` prefix while `McpToolSource` does not.
                     let path = mcp.resource_path.trim_start_matches("$res:");
-                    let named = named || enabled.iter().any(|n| n == path);
+                    let named = named
+                        || enabled
+                            .iter()
+                            .any(|n| n.trim_start_matches("$res:") == path);
                     if named {
                         enabled_mcp_paths.insert(path.to_string());
                     }
@@ -324,7 +329,12 @@ fn unmatched_enabled_tools_message(
     let unmatched: Vec<&str> = enabled_tools
         .iter()
         .map(|name| name.as_str())
-        .filter(|name| !advertised.contains(name))
+        // An MCP server is named by the path the roster shows, which carries the `$res:` the
+        // matched paths are stripped of, so the two are compared without it.
+        .filter(|name| {
+            let bare = name.trim_start_matches("$res:");
+            !advertised.iter().any(|a| a == name || *a == bare)
+        })
         .collect();
     if unmatched.is_empty() {
         return None;
@@ -811,6 +821,8 @@ pub async fn handle_ai_agent_job(
                 .filter(|t| t.mcp_source.is_some())
                 .map(|t| t.def.function.name.as_str()),
         );
+        // A server named by its path matched something real, so the log must not call it unmatched.
+        matchable.extend(enabled_mcp_paths.iter().map(|p| p.as_str()));
         windmill_common::feature_usage::log_feature_usage(
             "ai_agent",
             "dynamic_tools",
@@ -2070,6 +2082,15 @@ mod tests {
         let (dropped, paths) = narrow_roster(unnamed(), Some(&["u/test/other".to_string()]));
         assert!(dropped.is_empty());
         assert!(paths.is_empty());
+
+        // The roster stores the path as authored, so the name the picker offers is the `$res:` form
+        // while the loader's own key is not — a run that selects a server from the form sends this.
+        let selected = ["$res:u/test/gh".to_string()];
+        let (kept, paths) = narrow_roster(unnamed(), Some(&selected));
+        assert_eq!(kept.len(), 1);
+        assert_eq!(paths.into_iter().collect::<Vec<_>>(), ["u/test/gh"]);
+        // And having matched, it is not reported as having named nothing.
+        assert!(unmatched_enabled_tools_message(&selected, &["u/test/gh"]).is_none());
     }
 
     /// The two sides of the server-entry match are different types, and getting it wrong advertises

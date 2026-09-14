@@ -171,8 +171,12 @@
 		// By the name the roster shows, not the summary alone: an MCP entry is added without one and
 		// displays as its resource path, so keying on `summary` would leave a whole server with no
 		// name to pick. `narrow_roster` matches that path for the same reason.
+		//
+		// Stripped of `$res:`, which the roster keeps: a static input transform holding one is
+		// resolved to the resource's own value before the step runs, so the prefixed form would
+		// reach the worker as an object where a name is expected, and the step would fail outright.
 		const names = tools
-			.map((tool) => toolDisplayName(tool))
+			.map((tool) => toolDisplayName(tool)?.replace(/^\$res:/, ''))
 			.filter((name): name is string => !!name)
 		const properties = schemaProperties
 		untrack(() => {
