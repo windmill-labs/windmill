@@ -569,7 +569,7 @@ pub async fn rename_drafts_of_email(
     .await?;
     // The records that route saves to those drafts follow the same address, or a save
     // still addressed to a path the account moved away from would start a second draft
-    // there. The destination's own records for a path win, as its drafts just did.
+    // there. The moving account's record for a path wins, as its draft just did.
     sqlx::query!(
         "DELETE FROM draft_move dest
          WHERE dest.email = $1
@@ -793,16 +793,18 @@ pub async fn record_draft_move(
     )
     .execute(&mut **tx)
     .await?;
-    // An owner's move must not re-point what everyone else follows, so the records
-    // ending at `old_path` in another scope are copied into this one: a save addressed
-    // to the start of that chain still reaches this destination in one hop.
+    // An owner's move must not re-point what everyone else follows, so the item's own
+    // records ending at `old_path` are copied into this scope: a save addressed to the
+    // start of that chain still reaches this destination in one hop. Only those: another
+    // user's owner-scoped record routes their own draft-only item, which this move has
+    // nothing to do with.
     if email.is_some() {
         sqlx::query!(
             "INSERT INTO draft_move (workspace_id, typ, old_path, new_path, email)
              SELECT m.workspace_id, m.typ, m.old_path, $4, $5::text
              FROM draft_move m
              WHERE m.workspace_id = $1 AND m.typ::text = ANY($2::text[])
-               AND m.new_path = $3 AND m.email IS DISTINCT FROM $5::text
+               AND m.new_path = $3 AND m.email IS NULL
                AND NOT EXISTS (
                    SELECT 1 FROM draft_move o
                    WHERE o.workspace_id = m.workspace_id AND o.typ = m.typ
