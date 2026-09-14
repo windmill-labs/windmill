@@ -1440,12 +1440,14 @@ const APP_EMBED_TOKEN_VALIDITY_HOURS: i64 = 12;
 /// Scopes an app author may declare in `Policy::frontend_sdk_scopes`. No `apps:*`
 /// scope, so the token cannot reach the mint endpoints and renew itself; the
 /// `raw_app_sdk` sentinel narrows the rest (see `scopes.rs`).
-pub const FRONTEND_SDK_ALLOWED_SCOPES: [&str; 5] = [
+pub const FRONTEND_SDK_ALLOWED_SCOPES: [&str; 7] = [
     "jobs:run",
     "jobs:read",
     "users:read",
     "resources:read",
     "variables:read",
+    "flow_conversations:read",
+    "flow_conversations:write",
 ];
 
 /// Reject a policy declaring frontend SDK scopes outside the curated list.
@@ -6014,6 +6016,10 @@ mod embed_token_tests {
             // the author declared it and the viewer consented.
             ("/api/w/test/resources/get_value/u/admin/r", "GET"),
             ("/api/w/test/variables/get_value/u/admin/v", "GET"),
+            // A chat UI's history for a chat-mode flow; RLS keeps it to the viewer's own.
+            ("/api/w/test/flow_conversations/list", "GET"),
+            ("/api/w/test/flow_conversations/some-uuid/messages", "GET"),
+            ("/api/w/test/flow_conversations/delete/some-uuid", "DELETE"),
         ];
         for (path, method) in allowed {
             assert!(
