@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path FROM app WHERE id = $1",
+  "query": "SELECT a.path FROM app a JOIN app_version av ON av.app_id = a.id\n        WHERE a.id = $1 AND a.workspace_id = $2 AND av.id = $3",
   "describe": {
     "columns": [
       {
@@ -11,6 +11,8 @@
     ],
     "parameters": {
       "Left": [
+        "Int8",
+        "Text",
         "Int8"
       ]
     },
@@ -18,5 +20,5 @@
       false
     ]
   },
-  "hash": "abb56dec024600d0d7a63212f63c3296196898003707f2cb3a890690173a51a5"
+  "hash": "a462d8661fee58129ec52952ee08a33fcc2e22b47d352030d55e1375c885cd36"
 }

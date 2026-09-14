@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg\n        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version\n        WHERE a.workspace_id = $1 AND a.path = $2\n        ORDER BY created_at DESC",
+  "query": "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg\n        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version AND dm.workspace_id = a.workspace_id\n        WHERE a.workspace_id = $1 AND a.path = $2\n        ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -31,5 +31,5 @@
       true
     ]
   },
-  "hash": "d02c1cfefc7d5f87ca4555a092f5fbc777a91271b80d0e488a8cae79afd56d8f"
+  "hash": "b29cf43a194f4a61a67ce95a5485dc287df1b1d79bf5040216ee48583405cd8b"
 }
