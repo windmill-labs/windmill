@@ -367,7 +367,7 @@
 			failedSyncJobs = []
 			forkCreationError = ''
 
-			// Clone datatables BEFORE creating the workspace fork
+			// Each data table copy is confirmed first; the fork request makes the copies
 			if (forkDatatableSection) {
 				const queue = forkDatatableSection.buildCloneQueue(prefixed_id)
 				if (queue.length > 0) {

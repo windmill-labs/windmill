@@ -34160,7 +34160,7 @@ components:
           type: array
           items:
             type: object
-            required: [name, new_dbname, fork_behavior]
+            required: [name, new_dbname]
             properties:
               name:
                 type: string
@@ -34175,7 +34175,9 @@ components:
                   - schema_and_data
                 description: >-
                   What the fork request copies into `new_dbname`, which it creates — with the
-                  owners and grants of a data table under roles.
+                  owners and grants of a data table under roles. This server refuses an entry
+                  without it; servers predating it expect `new_dbname` created and filled
+                  beforehand.
         shared_ducklakes:
           type: array
           items:

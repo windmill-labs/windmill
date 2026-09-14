@@ -8505,7 +8505,16 @@ async fn validate_forked_datatables(
                 fdt.name
             )));
         }
-        let expected = format!("{}__{}", nw.id.replace('-', "_"), fdt.name);
+        // A dev workspace's id carries no `wm-fork-` prefix, and its copies are dropped by the same
+        // `wm_fork_` rule as a fork's.
+        let expected = format!(
+            "wm_fork_{}__{}",
+            nw.id
+                .strip_prefix("wm-fork-")
+                .unwrap_or(&nw.id)
+                .replace('-', "_"),
+            fdt.name
+        );
         if fdt.new_dbname != expected {
             return Err(Error::BadRequest(format!(
                 "Data table '{}' of fork '{}' is copied into database '{expected}', not '{}'",

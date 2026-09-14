@@ -57,7 +57,8 @@
 				name: dt.name,
 				resourceType: dt.resource_type,
 				behavior: datatableBehaviors[dt.name] as 'schema_only' | 'schema_and_data',
-				_newDbName: `${targetWorkspaceId.replace(/-/g, '_')}__${dt.name}`
+				// A dev workspace's id has no `wm-fork-` prefix; its copies are named like a fork's
+				_newDbName: `wm_fork_${targetWorkspaceId.replace(/^wm-fork-/, '').replace(/-/g, '_')}__${dt.name}`
 			}))
 	}
 
