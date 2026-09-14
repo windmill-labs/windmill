@@ -628,12 +628,22 @@
 				onTakeLatest={draftBaseVersion &&
 				deployedHeadVersion &&
 				draftBaseVersion !== deployedHeadVersion
-					? () => {
+					? async () => {
 							const head = Number(deployedHeadVersion)
-							// The bundle carries `parentVersion`, so this alone re-persists the draft.
 							parentVersion = head
 							if (deployedBaseline) deployedBaseline = { ...deployedBaseline, parent_version: head }
 							draftBaseVersion = String(head)
+							// Persisted explicitly, as the script and flow routes do: the reactive
+							// bundle mirror is parked while auto-save is off, and a parked write is
+							// dropped on pagehide, so the new base would not survive a reload.
+							if (draftSync.draft) {
+								draftSync.draft = { ...draftSync.draft, parent_version: head }
+								if ($workspaceStore) {
+									await UserDraft.forcePersist('raw_app', page.params.path ?? '', {
+										workspace: $workspaceStore
+									})
+								}
+							}
 						}
 					: undefined}
 				onDeploy={({ version }) => {

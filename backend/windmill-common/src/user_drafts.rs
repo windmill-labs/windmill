@@ -748,8 +748,8 @@ pub async fn move_drafts_for_path(
 /// record to one user's draft-only move; `None` is a deployed item's move, for everyone.
 ///
 /// Kept to one hop: records pointing at `old_path` are re-pointed (an owner's move
-/// copies another scope's into its own rather than re-pointing it), and records
-/// leaving either path are replaced, since `new_path` now holds the item.
+/// leaves the item's own record alone and copies it into its own scope instead), and
+/// records leaving either path are replaced, since `new_path` now holds the item.
 ///
 /// **The caller must have authorized the move first.** A record routes every later
 /// draft write at `old_path` (any owner's, for an item move), and enforces nothing

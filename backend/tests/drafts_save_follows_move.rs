@@ -303,3 +303,36 @@ async fn test_an_owner_move_extends_an_item_move(db: Pool<Postgres>) -> anyhow::
     assert_eq!(own_draft_paths(port).await?, vec!["u/test-user/follow_c"]);
     Ok(())
 }
+
+/// Redeploying at a path an owner's move routed away from ends that route: the live item
+/// owns its path again, and its saves must not follow the draft that left.
+#[sqlx::test(fixtures("base", "drafts_save_follows_move"))]
+async fn test_redeploy_at_a_routed_path_ends_the_route(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // `move_draft` ignores archived rows, so an archived script's draft can be moved away.
+    sqlx::query("UPDATE script SET archived = true WHERE path = 'u/test-user/follow_a'")
+        .execute(&db)
+        .await?;
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/drafts/move/script/u/test-user/follow_a"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({ "new_path": "u/test-user/follow_b" }))
+        .send()
+        .await?;
+    assert!(resp.status().is_success(), "move failed: {}", resp.text().await?);
+
+    // Unarchiving redeploys at the same path, with the archived version as parent.
+    rename(port, HEAD_HASH, "u/test-user/follow_a").await?;
+
+    assert_eq!(
+        save_at(port, "u/test-user/follow_a", "for the live script").await?,
+        "u/test-user/follow_a",
+        "a save for the redeployed script followed the draft that moved away"
+    );
+    Ok(())
+}

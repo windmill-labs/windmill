@@ -2417,14 +2417,17 @@ async fn create_script_internal<'c>(
             .execute(&mut *tx)
             .await?;
         }
-        windmill_common::user_drafts::clear_draft_moves_from(
-            &mut tx,
-            &w_id,
-            &[UserDraftItemKind::Script],
-            &ns.path,
-        )
-        .await?;
     }
+    // Every deploy, not only a new script: an archived script's draft can be moved away
+    // (`move_draft` ignores archived rows), and unarchiving redeploys at the same path,
+    // where a route left behind would send the live script's saves to the moved draft.
+    windmill_common::user_drafts::clear_draft_moves_from(
+        &mut tx,
+        &w_id,
+        &[UserDraftItemKind::Script],
+        &ns.path,
+    )
+    .await?;
     if p_hashes.is_some() && !p_hashes.unwrap().is_empty() {
         audit_log(
             &mut *tx,

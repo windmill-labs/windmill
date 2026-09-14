@@ -101,6 +101,9 @@
 		loadingVersion = true
 		try {
 			const value = await versionLoader(id)
+			// A slower earlier request must not replace what the picker now shows, nor
+			// clear the spinner the newer one is still running under.
+			if (selectedVersion !== id) return
 			if (!value || !data || data.mode !== 'normal') return
 			const opt = data.versions?.find((v) => v.id === id)
 			data = {
@@ -109,7 +112,7 @@
 				deployedLabel: opt?.isHead ? headLabel : opt?.label
 			}
 		} finally {
-			loadingVersion = false
+			if (selectedVersion === id) loadingVersion = false
 		}
 	}
 
