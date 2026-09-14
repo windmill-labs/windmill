@@ -184,9 +184,11 @@ export function revokeScopeOf(grant: GroupedGrant): AclScope | undefined {
 
 /** The privileges of a row a revoke may take back. On the database that is `CREATE` alone:
  * `CONNECT` belongs to the role catalog, which would grant it again, and `TEMPORARY` is not one
- * the editor hands out — a row holding only those has nothing to revoke here. */
+ * the editor hands out — a row holding only those has nothing to revoke here. A database's rows
+ * "created later" are default privileges set database-wide, which nothing here revokes. */
 export function revocablePrivileges(grant: GroupedGrant, target: AclTarget): string[] {
 	if (target.kind === 'database' && grant.objects.length === 0) {
+		if (grant.future) return []
 		return grant.privileges.filter((p) => DATABASE_PRIVILEGES.includes(p))
 	}
 	return grant.privileges

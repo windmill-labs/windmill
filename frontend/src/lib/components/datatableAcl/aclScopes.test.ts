@@ -97,6 +97,9 @@ describe('revoke of a row', () => {
 			'CONNECT',
 			'CREATE'
 		])
+		// Set database-wide, so not one a schema's revoke could take back either.
+		const schemasLater = { ...row('SCHEMAS'), privileges: ['CREATE'] }
+		expect(revocablePrivileges(schemasLater, { kind: 'database' })).toEqual([])
 	})
 
 	it('maps default privileges to their scope, and refuses the ones it has none for', () => {

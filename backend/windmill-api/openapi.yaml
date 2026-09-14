@@ -32934,7 +32934,11 @@ components:
           $ref: "#/components/schemas/AclObject"
         future:
           type: string
-          description: set for a default privilege, naming the kind of object it covers
+          description: >-
+            set for a default privilege, naming the kind of object it covers (TABLES, SEQUENCES,
+            FUNCTIONS, TYPES, or SCHEMAS). On a schema, the defaults set in that schema; on the
+            database, the ones set database-wide, which apply in every schema and which no schema's
+            own defaults take back.
         sources:
           type: array
           description: >-

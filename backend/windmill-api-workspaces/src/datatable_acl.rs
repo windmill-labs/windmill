@@ -450,6 +450,31 @@ async fn read_owned_objects(
         .collect()
 }
 
+/// Default privileges set database-wide (no `IN SCHEMA`), as `(defaclrole, defaclobjtype, grantee,
+/// privilege_type)`. Postgres stores such an entry as a whole acl, the creator's own privileges
+/// included, so only what goes beyond the built-in default is a grant. It applies in every schema
+/// on top of the schema's own defaults, which cannot take it back.
+macro_rules! database_wide_defaults {
+    () => {
+        "SELECT d.defaclrole, d.defaclobjtype, a.grantee, a.privilege_type
+         FROM pg_default_acl d, aclexplode(d.defaclacl) a
+         WHERE d.defaclnamespace = 0
+           AND NOT EXISTS (
+               SELECT 1 FROM aclexplode(acldefault(
+                   CASE d.defaclobjtype WHEN 'S' THEN 's' ELSE d.defaclobjtype END, d.defaclrole)) x
+               WHERE x.grantee = a.grantee AND x.privilege_type = a.privilege_type)"
+    };
+}
+
+/// `TABLES`, `SEQUENCES` or `FUNCTIONS`, as a `defaclobjtype` names them.
+fn default_objects_keyword(objtype: &str) -> &'static str {
+    match objtype {
+        "r" => "TABLES",
+        "S" => "SEQUENCES",
+        _ => "FUNCTIONS",
+    }
+}
+
 /// What a schema's owner holds on what gets created there later. A change of owner hands the new
 /// owner the same and takes these back: otherwise every former owner keeps reaching whatever the
 /// other roles create there.
@@ -462,12 +487,53 @@ pub(crate) struct FormerOwnerDefaults {
 
 /// The default privileges schema `schema`'s owner holds there — `None` when it holds none, or is
 /// `new_owner` already. Refused when one was set by a role this connection cannot act for: only
-/// a member of the creating role may change its defaults, so the revoke would fail at apply.
+/// a member of the creating role may change its defaults, so the revoke would fail at apply. Also
+/// refused when the owner holds defaults set database-wide, which no change to this schema takes
+/// back.
 async fn read_former_owner_defaults(
     client: &tokio_postgres::Client,
     schema: &str,
     new_owner: &str,
 ) -> Result<Option<FormerOwnerDefaults>> {
+    let database_wide = client
+        .query_opt(
+            concat!(
+                "SELECT pg_get_userbyid(n.nspowner), pg_get_userbyid(g.defaclrole),
+                        g.defaclobjtype::text
+                 FROM pg_namespace n, (",
+                database_wide_defaults!(),
+                ") g
+                 WHERE n.nspname = $1 AND g.grantee = n.nspowner
+                   AND g.defaclobjtype IN ('r', 'S', 'f')
+                   AND n.nspowner <> (SELECT oid FROM pg_roles WHERE rolname = $2)
+                 ORDER BY 2, 3
+                 LIMIT 1"
+            ),
+            &[&schema, &new_owner],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to read the database-wide default privileges: {}",
+                pg_error_message(&e)
+            ))
+        })?;
+    if let Some(row) = database_wide {
+        let pg_role: String = row.get(0);
+        let creator: String = row.get(1);
+        return Err(Error::BadRequest(format!(
+            "{} holds default privileges set database-wide by {}, which no default of schema \
+             {schema} takes back, so it would keep reaching what is created here after the change \
+             of owner. Revoke them database-wide first: ALTER DEFAULT PRIVILEGES FOR ROLE {} \
+             REVOKE ALL PRIVILEGES ON {} FROM {}",
+            role_name_of(&pg_role),
+            role_name_of(&creator),
+            quote_ident(&creator),
+            default_objects_keyword(row.get(2)),
+            quote_ident(&pg_role)
+        )));
+    }
+
     let rows = client
         .query(
             "SELECT DISTINCT pg_get_userbyid(n.nspowner), pg_get_userbyid(d.defaclrole),
@@ -492,11 +558,7 @@ async fn read_former_owner_defaults(
         return Ok(None);
     };
     let pg_role: String = first.get(0);
-    let plural = |row: &tokio_postgres::Row| match row.get::<_, &str>(2) {
-        "r" => "TABLES",
-        "S" => "SEQUENCES",
-        _ => "FUNCTIONS",
-    };
+    let plural = |row: &tokio_postgres::Row| default_objects_keyword(row.get(2));
     if let Some(row) = rows.iter().find(|row| !row.get::<_, bool>(3)) {
         let creator: String = row.get(1);
         return Err(Error::BadRequest(format!(
@@ -593,6 +655,7 @@ async fn read_revoked_grants(
             pg_error_message(&e)
         ))
     };
+    let wanted: Vec<String> = privileges.iter().map(|p| p.to_uppercase()).collect();
     // (object, how it reads in a refusal, one row per source and privilege)
     let mut read = Vec::new();
     match (scope, target) {
@@ -602,6 +665,42 @@ async fn read_revoked_grants(
                 GrantScope::FutureSequences => ("S", "sequences"),
                 _ => ("f", "functions"),
             };
+            let database_wide = client
+                .query(
+                    concat!(
+                        "SELECT pg_get_userbyid(g.defaclrole), g.privilege_type FROM (",
+                        database_wide_defaults!(),
+                        ") g
+                         WHERE g.defaclobjtype::text = $1
+                           AND g.grantee = (SELECT oid FROM pg_roles WHERE rolname = $2)
+                         ORDER BY 1, 2"
+                    ),
+                    &[&objtype, &pg_role],
+                )
+                .await
+                .map_err(read_error)?;
+            let mut still_granted: BTreeMap<String, Vec<String>> = BTreeMap::new();
+            for row in database_wide {
+                let privilege: String = row.get(1);
+                if wanted.contains(&privilege) {
+                    still_granted.entry(row.get(0)).or_default().push(privilege);
+                }
+            }
+            if let Some((creator, taken)) = still_granted.into_iter().next() {
+                return Err(Error::BadRequest(format!(
+                    "{} also receives {} on {plural} {} creates through a default privilege set \
+                     database-wide, which no default of schema {schema} takes back. Revoke it \
+                     database-wide first: ALTER DEFAULT PRIVILEGES FOR ROLE {} REVOKE {} ON {} \
+                     FROM {}",
+                    role_name_of(pg_role),
+                    taken.join(", "),
+                    role_name_of(&creator),
+                    quote_ident(&creator),
+                    taken.join(", "),
+                    default_objects_keyword(objtype),
+                    quote_ident(pg_role)
+                )));
+            }
             let rows = client
                 .query(
                     "SELECT pg_get_userbyid(d.defaclrole), pg_has_role(d.defaclrole, 'USAGE'),
@@ -708,7 +807,6 @@ async fn read_revoked_grants(
         _ => {}
     }
 
-    let wanted: Vec<String> = privileges.iter().map(|p| p.to_uppercase()).collect();
     let mut revoked = Vec::new();
     for (object, label, rows) in read {
         let mut by_source: BTreeMap<String, (bool, Vec<String>)> = BTreeMap::new();
@@ -959,19 +1057,44 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
     // or a default privilege's creating role — and whether this connection can take back what it
     // gave.
     let mut rows = match target {
-        AclTarget::Database => client
-            .query(
-                concat!(
-                    "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
-                            a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text, ",
-                    grant_source!("d.datdba"),
-                    " FROM pg_database d, aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a
-                     WHERE d.datname = current_database() AND a.grantee <> d.datdba"
-                ),
-                &[],
-            )
-            .await
-            .map_err(grant_read_error)?,
+        AclTarget::Database => {
+            let mut out = client
+                .query(
+                    concat!(
+                        "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                                a.privilege_type, NULL::text, NULL::text, NULL::text, NULL::text, ",
+                        grant_source!("d.datdba"),
+                        " FROM pg_database d, aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a
+                         WHERE d.datname = current_database() AND a.grantee <> d.datdba"
+                    ),
+                    &[],
+                )
+                .await
+                .map_err(grant_read_error)?;
+            out.extend(
+                client
+                    .query(
+                        // Default privileges set database-wide reach what is created in every
+                        // schema, so they are the database's to show rather than any schema's.
+                        concat!(
+                            "SELECT CASE WHEN g.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(g.grantee) END,
+                                    g.privilege_type, NULL::text,
+                                    CASE g.defaclobjtype
+                                        WHEN 'r' THEN 'TABLES' WHEN 'S' THEN 'SEQUENCES'
+                                        WHEN 'f' THEN 'FUNCTIONS' WHEN 'n' THEN 'SCHEMAS'
+                                        ELSE 'TYPES' END, NULL::text, NULL::text,
+                                    pg_get_userbyid(g.defaclrole), pg_has_role(g.defaclrole, 'USAGE')
+                             FROM (",
+                            database_wide_defaults!(),
+                            ") g"
+                        ),
+                        &[],
+                    )
+                    .await
+                    .map_err(grant_read_error)?,
+            );
+            out
+        }
         AclTarget::Schema { schema } => {
             let mut out = client
                 .query(
@@ -1610,6 +1733,78 @@ mod tests {
         assert_eq!(on_g.sources.len(), 1, "{:?}", on_g.sources);
         assert_eq!(on_g.sources[0].privileges, ["INSERT", "SELECT"]);
         assert!(on_g.sources[0].reachable);
+    }
+
+    /// A default privilege set database-wide applies in every schema on top of the schema's own,
+    /// which cannot take it back: the database shows it, and neither a schema's revoke of it nor a
+    /// change of owner away from its grantee may go ahead as if it were gone.
+    #[sqlx::test(migrations = false)]
+    async fn a_schema_cannot_take_back_a_database_wide_default(pool: sqlx::PgPool) {
+        let client = catalog_client(&pool).await;
+        client
+            .batch_execute(
+                "CREATE SCHEMA owned AUTHORIZATION pg_read_all_data;
+                 ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO pg_read_all_data;
+                 ALTER DEFAULT PRIVILEGES IN SCHEMA owned
+                     GRANT SELECT, INSERT ON TABLES TO pg_read_all_data;",
+            )
+            .await
+            .unwrap();
+        let creator: String = client
+            .query_one("SELECT current_user::text", &[])
+            .await
+            .unwrap()
+            .get(0);
+
+        let grants = read_grants(&client, &AclTarget::Database).await.unwrap();
+        let database_wide = grants
+            .iter()
+            .find(|g| g.grantee == "pg_read_all_data" && g.future.as_deref() == Some("TABLES"))
+            .unwrap_or_else(|| panic!("{grants:?}"));
+        // The creator's own privileges come with the entry, not with a grant.
+        assert_eq!(database_wide.privileges, ["SELECT"]);
+        assert_eq!(
+            database_wide.sources.len(),
+            1,
+            "{:?}",
+            database_wide.sources
+        );
+        assert_eq!(database_wide.sources[0].role, creator);
+
+        let schema = AclTarget::Schema { schema: "owned".to_string() };
+        let still_granted = read_revoked_grants(
+            &client,
+            "db",
+            &schema,
+            GrantScope::FutureTables,
+            &[],
+            &["select".to_string()],
+            "pg_read_all_data",
+        )
+        .await;
+        assert!(
+            matches!(&still_granted, Err(Error::BadRequest(m)) if m.contains("database-wide")),
+            "{still_granted:?}"
+        );
+        let schema_only = read_revoked_grants(
+            &client,
+            "db",
+            &schema,
+            GrantScope::FutureTables,
+            &[],
+            &["insert".to_string()],
+            "pg_read_all_data",
+        )
+        .await
+        .unwrap();
+        assert_eq!(schema_only.len(), 1, "{schema_only:?}");
+        assert_eq!(schema_only[0].privileges, ["INSERT"]);
+
+        let moved = read_former_owner_defaults(&client, "owned", "pg_write_all_data").await;
+        assert!(
+            matches!(&moved, Err(Error::BadRequest(m)) if m.contains("database-wide")),
+            "{moved:?}"
+        );
     }
 
     /// A kind of object the list misses stays with its old owner while the schema changes hands,
