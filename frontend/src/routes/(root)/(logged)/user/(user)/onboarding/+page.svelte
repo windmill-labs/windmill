@@ -63,7 +63,9 @@
 		const profile = await onboardingProfile()
 		if (profile?.touch_point) {
 			invitedTouchPoint = profile.touch_point
-			await skip()
+			// An account that already has somewhere to go leaves from here; painting the
+			// survey behind that navigation would show a step this account never takes.
+			if (await skip()) return
 		}
 		profileReady = true
 	}
@@ -190,7 +192,8 @@
 		}
 	}
 
-	async function skip() {
+	/** Declines the survey; true when that left onboarding altogether. */
+	async function skip(): Promise<boolean> {
 		isSubmitting = true
 		try {
 			// The known source still counts when the rest of the survey is declined.
@@ -199,23 +202,24 @@
 			})
 		} catch (error) {
 			console.error('Error skipping onboarding:', error)
-		} finally {
-			await workspaceStepReady
-			isSubmitting = false
-			// Skipping the survey is not skipping naming the workspace: the questions are ours,
-			// the workspace is theirs.
-			skippedSurvey = true
-			if (alreadyPlaced) {
-				leaveOnboarding()
-			} else {
-				currentStep = STEP_WORKSPACE
-			}
 		}
+		await workspaceStepReady
+		isSubmitting = false
+		// Skipping the survey is not skipping naming the workspace: the questions are ours,
+		// the workspace is theirs.
+		skippedSurvey = true
+		if (alreadyPlaced) {
+			await leaveOnboarding()
+			return true
+		}
+		currentStep = STEP_WORKSPACE
+		return false
 	}
 </script>
 
 {#if !profileReady}
-	<!-- One frame at most, while the invite profile resolves which step comes first. -->
+	<!-- Blank while the invite profile, and for an invited account its placement, resolve
+	     which step comes first, or whether there is one at all. -->
 	<div></div>
 {:else if currentStep === STEP_SOURCE}
 	<CenteredModal title="How did you hear about Windmill?">
