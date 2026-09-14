@@ -1912,6 +1912,17 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::info!("deleted {} expired otel trace spans", deleted_spans);
     }
 
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM ai_shared_artifact
+         WHERE shared_at <= now() - ($1::bigint::text || ' s')::interval",
+        windmill_common::ai_shared_artifact_retention_secs(),
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error deleting expired shared AI artifacts: {:?}", e);
+    }
+
     let audit_retention_days = audit_log_retention_days().await;
     let audit_retention_secs: i64 = audit_retention_days * 60 * 60 * 24;
 
