@@ -266,6 +266,14 @@ async fn fill(
     if replayed {
         crate::datatable_replay_oss::ensure_replay()?;
         let catalog = read_role_catalog_tx(&mut tx).await?;
+        // The replay leaves `CONNECT` to the catalog, and creating the database only tried to set
+        // it: a copy `PUBLIC` could still connect to would admit logins the source turns away.
+        windmill_common::datatable_roles::converge_connect_grants_with(
+            db,
+            &target.dbname,
+            &catalog,
+        )
+        .await?;
         let catalog_roles: BTreeSet<String> = catalog.values().map(|r| r.name.clone()).collect();
         let (source, _source_notices) = connect_with_notices(db, source).await?;
         let (mut target, mut notices) = connect_with_notices(db, target).await?;
