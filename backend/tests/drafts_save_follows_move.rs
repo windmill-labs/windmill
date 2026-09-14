@@ -369,3 +369,41 @@ async fn test_a_poisoned_draft_follows_a_rename(db: Pool<Postgres>) -> anyhow::R
     assert_eq!(row.2, "ab", "the NUL survived the rewrite");
     Ok(())
 }
+
+/// The legacy workspace-level row is carried by a rename like any other draft, and the
+/// record that routes saves to it covers every caller — so discarding it from a page that
+/// still names the old path has to reach it where it went.
+#[sqlx::test(fixtures("base", "drafts_save_follows_move"))]
+async fn test_a_legacy_discard_follows_a_rename(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query(
+        r#"INSERT INTO draft (workspace_id, path, typ, value, email)
+           VALUES ('test-workspace', 'u/test-user/follow_a', 'script',
+                   '{"path": "u/test-user/follow_a", "summary": "legacy", "content": "x"}', NULL)"#,
+    )
+    .execute(&db)
+    .await?;
+
+    rename(port, HEAD_HASH, "u/test-user/follow_b").await?;
+
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/drafts/update/script/u/test-user/follow_a"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({ "value": null, "legacy": true }))
+        .send()
+        .await?;
+    assert!(resp.status().is_success(), "discard failed: {}", resp.text().await?);
+
+    let left: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM draft WHERE workspace_id = 'test-workspace' AND email IS NULL",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(left, 0, "the legacy draft survived a discard aimed at its old path");
+    Ok(())
+}

@@ -403,30 +403,31 @@ async fn update_draft(
     // — they keep the write gate.
     let is_own_discard = req.value.is_none() && !req.legacy;
 
+    // Whose row this write is for: the caller's, or the workspace-level one on a legacy
+    // DELETE (`legacy` is delete-only, so an upsert is the caller's own row either way).
+    // It picks both the record that applies — an item's move (`email IS NULL`) covers the
+    // legacy row too, since the same rename carried it — and the draft whose presence
+    // means this path is still the write's own.
+    let owner: Option<&str> = (!(req.legacy && req.value.is_none())).then_some(email.as_str());
     // The caller's own draft-only move outranks the move of the deployed item.
-    // `legacy` names the workspace-level row, which no move record covers, and it is
-    // delete-only: an upsert writes the caller's own row and is routed like any other.
-    let moved_to = if req.legacy && req.value.is_none() {
-        None
-    } else {
-        sqlx::query_scalar!(
-            r#"SELECT m.new_path FROM draft_move m
-               WHERE m.workspace_id = $1 AND m.typ = $2 AND m.old_path = $3
-                 AND (m.email IS NULL OR m.email = $4)
-                 AND NOT EXISTS (
-                     SELECT 1 FROM draft d
-                     WHERE d.workspace_id = $1 AND d.typ = $2 AND d.path = $3 AND d.email = $4
-                 )
-               ORDER BY m.email IS NULL
-               LIMIT 1"#,
-            &w_id,
-            kind as UserDraftItemKind,
-            url_path,
-            email,
-        )
-        .fetch_optional(&db)
-        .await?
-    };
+    let moved_to = sqlx::query_scalar!(
+        r#"SELECT m.new_path FROM draft_move m
+           WHERE m.workspace_id = $1 AND m.typ = $2 AND m.old_path = $3
+             AND (m.email IS NULL OR m.email = $4)
+             AND NOT EXISTS (
+                 SELECT 1 FROM draft d
+                 WHERE d.workspace_id = $1 AND d.typ = $2 AND d.path = $3
+                   AND d.email IS NOT DISTINCT FROM $4
+             )
+           ORDER BY m.email IS NULL
+           LIMIT 1"#,
+        &w_id,
+        kind as UserDraftItemKind,
+        url_path,
+        owner,
+    )
+    .fetch_optional(&db)
+    .await?;
     let path: &str = moved_to.as_deref().unwrap_or(url_path);
 
     // Everything past here writes, so the gate applies from here on. Answered
