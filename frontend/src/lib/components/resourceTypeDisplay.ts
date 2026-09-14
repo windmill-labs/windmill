@@ -193,9 +193,10 @@ const hubIntegrationNames = new SvelteMap<string, string>()
 type HubNamed = { name: string; display_name?: string | null }
 
 /**
- * Takes a complete hub listing, so an entry without a name drops any name kept for it. A hub
- * predating display names sends none at all, and switching to one must revert to the inferred
- * labels rather than keep the previous hub's.
+ * Updates only the entries the listing carries: one without a name drops any name kept for it,
+ * which is how switching to a hub predating display names reverts to inferred labels. Entries
+ * absent from the listing are left alone on purpose, since callers pass `kind`-filtered
+ * listings, and clearing those would wipe names another filter loaded.
  */
 function recordHubNames(names: SvelteMap<string, string>, entries: HubNamed[]): void {
 	for (const entry of entries) {

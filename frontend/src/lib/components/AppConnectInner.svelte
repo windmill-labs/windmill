@@ -45,6 +45,7 @@
 		alphabetical,
 		byPopularity,
 		hubResourceTypePicks,
+		loadHubResourceTypeDisplayNames,
 		localResourceTypeCounts,
 		recordHubResourceTypePick
 	} from './pickerPopularity'
@@ -340,6 +341,9 @@
 		if (!rt) {
 			loadResourceTypes()
 			loadPopularity()
+		} else if (effectiveWorkspace) {
+			// Opened straight on a type, so its title reads hub names nothing here has loaded yet.
+			void loadHubResourceTypeDisplayNames(effectiveWorkspace)
 		}
 		step = 1 //express && !manual ? 3 : 1
 		// The list is keyboard-driven from the search field, so it takes focus on open.

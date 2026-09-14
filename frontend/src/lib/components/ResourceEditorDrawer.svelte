@@ -18,6 +18,7 @@
 	import ResourceVersionHistory from './ResourceVersionHistory.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { addResourceTitle } from './resourceTypeDisplay'
+	import { loadHubResourceTypeDisplayNames } from './pickerPopularity'
 
 	let {
 		workspace = undefined,
@@ -106,6 +107,8 @@
 		// rather than left where the last one put it: a new resource is a typed form, whoever was
 		// looking at JSON before.
 		viewJsonSchema = false
+		// The title names the type, and nothing else on the page may have loaded the hub's names.
+		void loadHubResourceTypeDisplayNames(effectiveWorkspace)
 		drawer?.openDrawer?.()
 	}
 
