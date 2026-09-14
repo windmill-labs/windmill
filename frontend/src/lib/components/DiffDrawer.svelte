@@ -94,10 +94,11 @@
 	let selectedVersion: string | undefined = $state(undefined)
 	let versionLoader: ((id: string) => Promise<Value | undefined>) | undefined = $state(undefined)
 	let headLabel: string | undefined = $state(undefined)
-	/** The deployed head as it was handed to `setDiff`. `data.deployed` follows the
-	 *  picker, and Restore always restores the head, so its enabled state compares
-	 *  against this rather than whichever version is on display. */
-	let headDeployed: Value | undefined = $state(undefined)
+	/** The deployed head, prepared for diffing as `data.deployed` is: `data.deployed`
+	 *  follows the picker while Restore always restores the head, so its enabled state
+	 *  compares against this. Must hold `prepareDiff`'s output, not the raw value, or the
+	 *  comparison never matches and Restore is always enabled. */
+	let headDeployed: ReturnType<typeof prepareDiff> | undefined = $state(undefined)
 	let loadingVersion = $state(false)
 	/** Which version load the spinner belongs to, counted rather than keyed on the id so
 	 *  re-picking the same version is still generation-safe. A response from any other

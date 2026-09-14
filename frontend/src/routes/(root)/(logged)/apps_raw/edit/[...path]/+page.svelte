@@ -629,7 +629,15 @@
 				deployedHeadVersion &&
 				draftBaseVersion !== deployedHeadVersion
 					? async () => {
-							const head = Number(deployedHeadVersion)
+							// Re-read rather than trusting the head this page loaded with; see
+							// /scripts/edit.
+							const head =
+								(
+									await AppService.getAppLatestVersion({
+										workspace: $workspaceStore!,
+										path: page.params.path ?? ''
+									}).catch(() => undefined)
+								)?.version ?? Number(deployedHeadVersion)
 							parentVersion = head
 							if (deployedBaseline) deployedBaseline = { ...deployedBaseline, parent_version: head }
 							draftBaseVersion = String(head)
