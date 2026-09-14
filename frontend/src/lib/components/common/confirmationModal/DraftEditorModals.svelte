@@ -141,7 +141,11 @@
 		const seg = EDITOR_SEGMENT[itemKind]
 		if (!seg) return
 		const query = { workspace, itemKind, path }
+		// The flush below saves again and can land here a second time.
+		let relocating = false
 		return UserDraftDbSyncer.onRelocated(query, async (newPath) => {
+			if (relocating) return
+			relocating = true
 			await onBeforeRelocate?.()
 			await UserDraftDbSyncer.flush(query)
 			sendUserToast(`This item was moved to ${newPath}. You are now editing it there.`)

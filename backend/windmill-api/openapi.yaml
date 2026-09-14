@@ -9663,9 +9663,6 @@ paths:
                     created_at:
                       type: string
                       format: date-time
-                    base:
-                      type: string
-                      description: The deployed version this draft forked from (script hash, flow version id or app version id, as text). Absent when the draft was never forked from a deploy.
                     can_write:
                       type: boolean
                       description: Whether the current user may deploy/discard this draft (same check the deploy/discard endpoints enforce).

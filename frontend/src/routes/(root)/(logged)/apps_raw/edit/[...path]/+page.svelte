@@ -322,14 +322,19 @@
 		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
 		deployedBy = backendApp.no_deployed ? undefined : (backendApp.created_by as string | undefined)
 		// Head = the last entry of the deployed `versions`. The base the bundle
-		// carries is the draft's own when it has one; a draft that predates the
-		// base (or a fresh checkout) forks from the head from here on.
+		// carries is the draft's own; a draft that predates the base keeps none
+		// (stamping the head would hide whatever it is behind), and only a fresh
+		// checkout forks from the head.
 		const versions = backendApp.versions as number[] | undefined
 		const headVersion =
 			backendApp.no_deployed || !Array.isArray(versions) ? undefined : versions[versions.length - 1]
 		deployedHeadVersion = headVersion != null ? String(headVersion) : undefined
 		draftBaseVersion = backendApp.draft_base as string | undefined
-		parentVersion = hasOwnDraft && draftBaseVersion != null ? Number(draftBaseVersion) : headVersion
+		parentVersion = hasOwnDraft
+			? draftBaseVersion != null
+				? Number(draftBaseVersion)
+				: undefined
+			: headVersion
 		// Deployed baseline for the autosave `discardIf`, captured BEFORE the swap
 		// below mutates `backendApp`. Mirrors the bundle `$effect`'s shape (minus
 		// the edit-only `draft_path`) so an unedited draft compares equal.
@@ -638,6 +643,7 @@
 					// autosave should carry.
 					if (version != null) {
 						parentVersion = version
+						draftBaseVersion = String(version)
 						deployedHeadVersion = String(version)
 					}
 				}}

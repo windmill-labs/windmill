@@ -55,11 +55,6 @@ pub struct DraftListItem {
     /// row exists at this (path, kind) — the DISTINCT ON prefers an owned row.
     pub legacy_draft: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    /// The deployed version this draft forked from (`draft.base`): a script
-    /// hash, a flow version id or an app version id, always as text. `None` for
-    /// a draft that was never forked from a deploy.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub base: Option<String>,
     /// All draft authors at this `(path, kind)`, for the shared full-page-editor
     /// kinds (script/flow/app/raw_app) only — feeds the home-page-style owner
     /// circles on the review page. `None` for drawer kinds, which keep their
@@ -248,7 +243,6 @@ fn list_drafts_query(all_users: bool) -> String {
                   d.path,
                   d.typ AS kind,
                   d.created_at,
-                  d.base,
                   d.value ->> 'summary' AS summary,
                   {draft_users} AS draft_users,
                   -- Friendly typed path, by kind (mirrors the home-page list
@@ -417,12 +411,6 @@ async fn update_draft(
     // touch the caller's own row. Legacy (NULL-email) rows aren't owned by anyone
     // — they keep the write gate.
     let is_own_discard = req.value.is_none() && !req.legacy;
-
-    if !is_own_discard && authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "operators cannot save drafts".to_string(),
-        ));
-    }
 
     // Where the row is now. `None` when the id names no row of ours any more
     // (discarded elsewhere, or deleted with its item): the URL path then applies,
