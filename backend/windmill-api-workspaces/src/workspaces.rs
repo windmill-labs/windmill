@@ -5311,6 +5311,8 @@ async fn set_encryption_key(
 
     // Build the previous cipher before the transaction (reads from cache/pool)
     let previous_encryption_key = build_crypt(&db, w_id.as_str()).await?;
+    #[cfg(feature = "parquet")]
+    let previous_key = windmill_common::variables::get_workspace_key(&w_id, &db).await?;
 
     let mut tx = db.begin().await?;
 
@@ -5377,6 +5379,22 @@ async fn set_encryption_key(
     // Invalidate the cache only after the transaction has committed
     WORKSPACE_CRYPT_CACHE.remove(w_id.as_str());
 
+    // The AI session backups in the workspace storage are ciphertext under the previous
+    // key too; re-key them like the secrets above, off the request since there can be
+    // many. An object left under the old key reads as absent, never as corrupt.
+    #[cfg(feature = "parquet")]
+    if !request.skip_reencrypt.unwrap_or(false) {
+        let db = db.clone();
+        let w_id = w_id.clone();
+        let new_key = request.new_key.clone();
+        tokio::spawn(async move {
+            match reencrypt_ai_session_backups(&db, &w_id, &previous_key, &new_key).await {
+                Ok(n) => tracing::info!("re-keyed {n} AI session backup objects in {w_id}"),
+                Err(e) => tracing::error!("re-keying the AI session backups in {w_id}: {e:#}"),
+            }
+        });
+    }
+
     // Build the batch: one event for the encryption key itself plus one per
     // re-encrypted secret variable. The batch entrypoint dispatches a single
     // git-sync job per repo carrying all items, so repos with Secrets sync
@@ -5398,6 +5416,96 @@ async fn set_encryption_key(
     .await?;
 
     return Ok(());
+}
+
+/// Decrypt every object under `windmill_ai_sessions/{w_id}/` with the previous key and write
+/// it back under the new one. The per-user suffix of the cipher is the user segment of the
+/// key (see `windmill-api/src/ai_sessions.rs`), so no email is needed. Returns how many
+/// objects were re-keyed; an object that does not decrypt under the previous key is left
+/// as it is.
+#[cfg(feature = "parquet")]
+async fn reencrypt_ai_session_backups(
+    db: &DB,
+    w_id: &str,
+    previous_key: &str,
+    new_key: &str,
+) -> Result<usize> {
+    use futures::{StreamExt, TryStreamExt};
+    use magic_crypt::MagicCryptTrait;
+    use windmill_common::variables::crypt_from_key_with_suffix;
+    use windmill_object_store::object_store_reexports::{Path as ObjectPath, PutPayload};
+
+    let Some(lfs_json) = sqlx::query_scalar!(
+        "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten() else {
+        return Ok(0);
+    };
+    let lfs: LargeFileStorage = serde_json::from_value(lfs_json)
+        .map_err(|e| Error::internal_err(format!("parsing large_file_storage: {e}")))?;
+    let resource_value = if matches!(lfs, LargeFileStorage::FilesystemStorage(_)) {
+        serde_json::Value::Null
+    } else {
+        let path = lfs.get_s3_resource_path();
+        let path = path.strip_prefix("$res:").unwrap_or(path);
+        windmill_common::workspaces::transform_json_value_unchecked(
+            &serde_json::Value::String(format!("$res:{path}")),
+            w_id,
+            db,
+        )
+        .await?
+    };
+    let store = windmill_object_store::build_object_store_client(
+        &windmill_object_store::lfs_to_object_store_resource(&lfs, resource_value)?,
+    )
+    .await?;
+
+    let prefix = ObjectPath::from(format!("windmill_ai_sessions/{w_id}"));
+    let keys: Vec<ObjectPath> = store
+        .list(Some(&prefix))
+        .map_ok(|meta| meta.location)
+        .try_collect()
+        .await
+        .map_err(windmill_object_store::object_store_error_to_error)?;
+    let rekeyed = futures::stream::iter(keys)
+        .map(|key| {
+            let store = store.clone();
+            async move {
+                // `windmill_ai_sessions/{w_id}/{user}/...`: the user segment is the suffix.
+                let Some(user) = key.parts().nth(2).map(|p| p.as_ref().to_string()) else {
+                    return Ok::<usize, Error>(0);
+                };
+                let bytes = store
+                    .get(&key)
+                    .await
+                    .map_err(windmill_object_store::object_store_error_to_error)?
+                    .bytes()
+                    .await
+                    .map_err(windmill_object_store::object_store_error_to_error)?;
+                let Ok(plaintext) =
+                    crypt_from_key_with_suffix(previous_key, &user).decrypt_bytes_to_bytes(&bytes)
+                else {
+                    tracing::warn!(
+                        "AI session backup object {key} was not under the previous key; left as is"
+                    );
+                    return Ok(0);
+                };
+                let ciphertext =
+                    crypt_from_key_with_suffix(new_key, &user).encrypt_bytes_to_bytes(&plaintext);
+                store
+                    .put(&key, PutPayload::from(ciphertext))
+                    .await
+                    .map_err(windmill_object_store::object_store_error_to_error)?;
+                Ok(1)
+            }
+        })
+        .buffer_unordered(8)
+        .try_fold(0, |acc, n| async move { Ok::<_, Error>(acc + n) })
+        .await?;
+    Ok(rekeyed)
 }
 
 #[derive(Serialize)]

@@ -264,6 +264,20 @@ async function readSync(id: string, email: string): Promise<MirrorSyncState | un
 	return (await syncDb(email))?.get('sync', id)
 }
 
+async function allSyncRows(email: string): Promise<MirrorSyncState[]> {
+	return (await (await syncDb(email))?.getAll('sync')) ?? []
+}
+
+/** The durable fallback for a user delete whose localStorage mark could not be written:
+ * a row exists only for a session that was backed up, which is exactly when the copy in
+ * the bucket has to go. */
+async function removeViaSyncRow(id: string): Promise<void> {
+	const email = getCurrentUserEmail()
+	if (!email) return
+	const row = await readSync(id, email)
+	if (row) await writeSync([{ ...row, removed: true }], email)
+}
+
 async function writeSync(states: MirrorSyncState[], email: string): Promise<void> {
 	const db = await syncDb(email)
 	if (!db || states.length === 0) return
@@ -345,7 +359,8 @@ async function planFor(
 
 interface WorkspaceWork {
 	items: { session: Session; v: number; sync?: MirrorSyncState }[]
-	removed: { id: string; key: string }[]
+	/** `key` is the localStorage mark; absent when the removal rides on the sync row. */
+	removed: { id: string; key?: string }[]
 }
 
 type SendStatus = 'ok' | 'off' | 'refused' | 'abort' | 'transient'
@@ -363,7 +378,7 @@ interface WorkspaceOutcome {
 	/** Marks with nothing behind them (an unsent draft, a session gone from the store). */
 	dropped: { id: string; v: number }[]
 	/** Removal marks the server carried out. */
-	removedDone: { id: string; key: string }[]
+	removedDone: { id: string; key?: string }[]
 	/** Some session the server could not store. */
 	anyFailed: boolean
 	/** Some store could not be read; its marks stay for a later flush. */
@@ -583,14 +598,19 @@ async function flush(): Promise<void> {
 		// window in which a bump is lost), so there is one per session ever backed up, and
 		// telling them apart from live ones is what lets a flush with nothing to do stop
 		// here, before the sessions store.
-		const syncRows = new Map(
-			((await (await syncDb(email))?.getAll('sync')) ?? []).map((row) => [row.id, row])
-		)
+		const syncRows = new Map((await allSyncRows(email)).map((row) => [row.id, row]))
 		const live = marks.dirty.filter((d) => {
 			const sync = syncRows.get(d.id)
 			return !(sync && !sync.stale && (sync.flushedV ?? -1) >= d.v)
 		})
-		if (live.length === 0 && marks.removed.length === 0) return
+		// A removal whose mark could not be written rides on the sync row instead.
+		const removals: { id: string; ws?: string; key?: string }[] = [...marks.removed]
+		for (const row of syncRows.values()) {
+			if (row.removed && !removals.some((r) => r.id === row.id)) {
+				removals.push({ id: row.id, ws: row.ws })
+			}
+		}
+		if (live.length === 0 && removals.length === 0) return
 		const stored = await readStoredSessions(email)
 		if (!stored) {
 			backOff()
@@ -606,7 +626,7 @@ async function flush(): Promise<void> {
 		const droppedDirty: string[] = []
 		const consumedRemoved: string[] = []
 
-		for (const r of marks.removed) {
+		for (const r of removals) {
 			const sync = syncRows.get(r.id)
 			const ws = r.ws ?? sync?.ws
 			// Nowhere to remove it from (an unsent draft): done. A workspace whose backups are
@@ -614,10 +634,11 @@ async function flush(): Promise<void> {
 			// again, or the session would come back; one never backed up from here has
 			// nothing there, so its mark goes, or a storage-less instance would collect one
 			// per deleted session forever.
-			if (!ws) consumedRemoved.push(r.key)
-			else if (!wsState.has(ws) || wsState.get(ws) === 'on') {
+			if (!ws) {
+				if (r.key) consumedRemoved.push(r.key)
+			} else if (!wsState.has(ws) || wsState.get(ws) === 'on') {
 				workFor(ws).removed.push({ id: r.id, key: r.key })
-			} else if (wsState.get(ws) === 'off' && !sync) consumedRemoved.push(r.key)
+			} else if (wsState.get(ws) === 'off' && !sync && r.key) consumedRemoved.push(r.key)
 		}
 		for (const d of live) {
 			const session = byId.get(d.id)
@@ -653,7 +674,7 @@ async function flush(): Promise<void> {
 				// Same rule as the loop above: a removal is worth keeping only for a session
 				// that was backed up from here.
 				for (const r of w.removed) {
-					if (!syncRows.has(r.id)) consumedRemoved.push(r.key)
+					if (!syncRows.has(r.id) && r.key) consumedRemoved.push(r.key)
 				}
 				continue
 			}
@@ -682,7 +703,7 @@ async function flush(): Promise<void> {
 				// The row describes this workspace's copy only; a session that moved on keeps
 				// the row its new workspace wrote.
 				if ((await readSync(r.id, email))?.ws === ws) await deleteSync([r.id], email)
-				consumedRemoved.push(r.key)
+				if (r.key) consumedRemoved.push(r.key)
 			}
 		}
 		if (settledAny && Date.now() >= retryAt) retryMs = RETRY_MIN_MS
@@ -792,6 +813,7 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 	// A removal names the workspace it is for: a session that moved here from another one
 	// still has that one's removal pending, and is ours to restore.
 	for (const r of readPending().removed) if (r.ws === ws) local.add(r.id)
+	for (const row of await allSyncRows(email)) if (row.removed && row.ws === ws) local.add(row.id)
 	const candidates = listing.sessions
 		.filter((s) => !local.has(s.id) && !isSessionTombstoned(s.id))
 		.slice(0, RESTORE_MAX)
@@ -872,7 +894,9 @@ export function restoreSessionBackups(currentWorkspace: string): void {
 if (BROWSER) {
 	onMirrorSignal((signal) => {
 		if (signal.kind === 'dirty') bumpDirty(signal.sessionId)
-		else addRemoved(signal.sessionId, signal.workspaceId, true)
+		else if (!addRemoved(signal.sessionId, signal.workspaceId, true)) {
+			void removeViaSyncRow(signal.sessionId)
+		}
 		scheduleFlush()
 	})
 	onUserChange((email) => {
@@ -900,7 +924,7 @@ export function __flushForTesting(): Promise<void | undefined> {
 
 /** Test-only: what the sync table holds for the user. */
 export async function __syncRowsForTesting(email: string): Promise<MirrorSyncState[]> {
-	return (await (await syncDb(email))?.getAll('sync')) ?? []
+	return allSyncRows(email)
 }
 
 /** Test-only: wait for whatever flush or restore is queued. */
@@ -908,8 +932,10 @@ export function __settleForTesting(): Promise<void> {
 	return enqueue(async () => {})
 }
 
-/** Test-only: forget every page-lifetime decision. */
+/** Test-only: forget every page-lifetime decision, and let go of the sync store so the
+ * next open lands in the test's fresh IndexedDB rather than the cached connection. */
 export function __resetMirrorForTesting(): void {
+	syncDbh.close()
 	clearTimers()
 	clearTimeout(retryTimer)
 	retryAt = 0

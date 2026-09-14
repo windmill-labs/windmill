@@ -28,6 +28,9 @@ export interface MirrorSyncState {
 	 * above this; retiring it here rather than deleting the mark means a tab bumping the
 	 * counter while another flushes can never have its bump erased. */
 	flushedV?: number
+	/** The user deleted the session and its removal mark could not be written to
+	 * localStorage (full): the row itself carries the removal, until it lands. */
+	removed?: boolean
 }
 
 /**

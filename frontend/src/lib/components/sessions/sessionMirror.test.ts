@@ -169,6 +169,42 @@ describe('sessionMirror flush', () => {
 		hm.close()
 	})
 
+	it('carries a user delete on the sync row when its localStorage mark cannot be written', async () => {
+		pushMock.mockResolvedValue({ enabled: true, results: [{ id: 'sd' }] })
+		const s: Session = { id: 'sd', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
+		sessionState.sessions = [s]
+		await putSession(s)
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(1)
+
+		// Storage full at the moment of the delete.
+		const setItem = localStorage.setItem.bind(localStorage)
+		localStorage.setItem = (key: string, value: string) => {
+			if (key.includes('::r::')) throw new Error('QuotaExceededError')
+			setItem(key, value)
+		}
+		try {
+			deleteSession('sd')
+		} finally {
+			localStorage.setItem = setItem
+		}
+		await flush()
+		expect(removalKeys()).toEqual([])
+		await vi.waitFor(async () =>
+			expect((await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'sd')?.removed).toBe(true)
+		)
+
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(pushMock.mock.calls[1][0].requestBody).toEqual({
+			owner: EMAIL,
+			sessions: [],
+			removed: ['sd']
+		})
+		expect((await __syncRowsForTesting(EMAIL)).some((r) => r.id === 'sd')).toBe(false)
+		await __settleForTesting()
+	})
+
 	it('keeps the marks when the push fails, and stops for a workspace without storage', async () => {
 		const s: Session = { id: 's2', name: 'session-2', createdAt: 1, workspace_id: 'ws' }
 		const never: Session = { id: 's2b', name: 'session-3', createdAt: 2, workspace_id: 'ws' }

@@ -229,6 +229,31 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     assert_eq!(s1["chats"][0]["id"], "c2");
     assert_eq!(s1["images"], json!([]));
 
+    // Rotating the workspace key re-keys the backup objects (off the request), so what was
+    // written under the previous key stays readable.
+    let resp = authed(
+        client().post(format!("{base}/workspaces/encryption_key")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "new_key": "b".repeat(64) }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let mut after_rotation = json!(null);
+    for _ in 0..50 {
+        let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
+        if pulled["sessions"].as_array().is_some_and(|s| !s.is_empty()) {
+            after_rotation = pulled;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert_eq!(
+        after_rotation["sessions"][0]["head"], head,
+        "the backup must read under the rotated key: {after_rotation}"
+    );
+    assert_eq!(after_rotation["sessions"][0]["chats"][0]["id"], "c2");
+
     // Removal empties both prefixes.
     let resp = push(
         &base,
@@ -281,6 +306,19 @@ async fn test_backup_writes_are_refused_for_the_wrong_owner_token_or_id(
         &base,
         "SECRET_TOKEN",
         json!({ "owner": "test@windmill.dev", "removed": ["a/b"] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+
+    // An image is a base64 data URL, stored and served verbatim; anything JSON would have
+    // to escape (and so inflate past the pull budget) is refused.
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s1", "images": [{ "chat_id": "c1", "id": "i1", "data_url": "data:image/png;base64,\u{0001}\u{0001}\"" }] }]
+        }),
     )
     .await?;
     assert_eq!(resp.status(), 400, "{}", resp.text().await?);

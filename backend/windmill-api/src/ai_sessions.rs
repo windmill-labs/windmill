@@ -42,6 +42,9 @@ const PULL_BODY_LIMIT: usize = 64 * 1024;
 /// A pull answer larger than this hands the remaining ids back as `deferred`.
 const PULL_RESPONSE_BUDGET: usize = 32 * 1024 * 1024;
 const MAX_HEAD_BYTES: usize = 1024 * 1024;
+/// The browser bounds an image to a 1568 px edge and re-encodes past 700 KB; this is
+/// well above what that produces.
+const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_PULL_IDS: usize = 20;
 const MAX_PUSH_SESSIONS: usize = 100;
 const MAX_REMOVED: usize = 200;
@@ -217,6 +220,31 @@ fn require_valid_id(kind: &str, id: &str) -> Result<()> {
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
     if !ok {
         return Err(Error::BadRequest(format!("invalid {kind} id: {id:?}")));
+    }
+    Ok(())
+}
+
+/// Images travel as base64 data URLs and are stored verbatim, so they serialize back into
+/// a pull answer at exactly their stored size; anything else (control characters,
+/// quotes) could grow several times under JSON escaping and defeat the pull budget.
+fn require_data_url(data_url: &str) -> Result<()> {
+    let ok = data_url.len() <= MAX_IMAGE_BYTES
+        && data_url
+            .strip_prefix("data:")
+            .and_then(|rest| rest.split_once(";base64,"))
+            .is_some_and(|(mime, payload)| {
+                !mime.is_empty()
+                    && mime.bytes().all(|b| {
+                        b.is_ascii_alphanumeric() || matches!(b, b'/' | b'.' | b'+' | b'-')
+                    })
+                    && payload
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
+            });
+    if !ok {
+        return Err(Error::BadRequest(
+            "an image must be a base64 data URL within the size cap".to_string(),
+        ));
     }
     Ok(())
 }
@@ -605,6 +633,7 @@ fn validate_push(req: &PushRequest) -> Result<()> {
         for i in &s.images {
             require_valid_id("chat", &i.chat_id)?;
             require_valid_id("image", &i.id)?;
+            require_data_url(&i.data_url)?;
         }
         for c in &s.delete_chats {
             require_valid_id("chat", c)?;

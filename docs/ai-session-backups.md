@@ -58,7 +58,10 @@ Every object is encrypted with a key derived from the workspace key and the user
 shared far more widely than a user's transcripts: `public_resource` storages and legacy-mode
 READ/WRITE hand any member the bucket. The key is per user rather than per workspace so that a
 member who copies another user's ciphertext under their own prefix gets nothing from `pull`; an
-object that does not decrypt for its reader is treated as absent. The server builds every key from ids it validated
+object that does not decrypt for its reader is treated as absent. Rotating the workspace key
+(`set_encryption_key`) re-keys every backup object off the request, the way it re-encrypts the
+workspace's secrets, unless `skip_reencrypt` was asked for; the user segment of an object's key
+is the cipher suffix, so the walk needs no email. The server builds every key from ids it validated
 (`[A-Za-z0-9_-]{1,64}`) and the caller's own email; the client never names a key, and the
 workspace storage permission rules are not consulted (the same stance as volumes). Only an
 unscoped user token may reach the routes: a job token can carry an `on_behalf_of` identity and
@@ -69,6 +72,10 @@ IndexedDB by it): a user whose email changes starts from an empty history on bot
 the objects under the old hash stay in the bucket unread. Carrying them over would need a
 server-side re-key (decrypt with the old suffix, encrypt with the new, move every object) in the
 email-change flow, which this design leaves out.
+
+An image is accepted only as a base64 data URL of at most 4 MB and stored verbatim, so it
+serializes back into a pull answer at its stored size; anything JSON would escape could grow
+several times and defeat the pull budget.
 
 `push` carries `owner`, the email the browser prepared the batch for, and the server refuses a
 mismatch with 409: an in-place account switch must not file one user's sessions under another's
@@ -121,7 +128,9 @@ since a new storage may be a new bucket) and leaves its dirty marks where they a
 it must still remember the old copy); it keeps the removal marks of sessions that had been backed
 up, so one deleted while backups are off does not come back once they are on, and drops the
 removals of sessions never backed up from this browser, so a storage-less instance does not
-collect one mark per deleted session forever. Pull bodies are
+collect one mark per deleted session forever. A user delete whose removal mark cannot be written
+(localStorage full) is carried by the session's sync row instead (`removed`), which the flush
+and the restore read like a mark. Pull bodies are
 capped at 64 KB. Pull answers up to 20 ids within a 32 MB
 budget: a session's size is known from the listings before anything of it is read, one that
 would not fit is deferred unless it is the first of the answer, in which case its chats and
