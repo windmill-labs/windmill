@@ -50,9 +50,11 @@
 	// default comes from the navigation store.
 	let curWs = $derived(workspace ?? $workspaceStore)
 
+	/** The variable opened for editing, where it is stored: a rename the drawer outlived moves it. */
 	let editPath: string | undefined = $state(undefined)
-	/** The item open in the drawer: `editPath`, or a temporary path while creating one. */
-	let itemPath: string | undefined = $state(undefined)
+	/** Each workspace's item in the drawer: where it is stored, or a temporary path while creating
+	 *  one. */
+	let paths = $state<Record<string, string>>({})
 	let template: VariableState | undefined = undefined
 	/** Bumped by every opening, so reopening an item reads it afresh. */
 	let session = $state(0)
@@ -143,13 +145,13 @@
 		() =>
 			workspaces.map((ws) => ({
 				workspace: ws,
-				path: itemPath,
+				path: paths[ws],
 				template,
 				session,
 				valid: () => isValid(items[ws]?.value),
 				writable: () => {
 					const perms = extraPermsOf(ws)
-					return !perms || canWrite(editPath ?? '', perms, acting.in(ws))
+					return !perms || canWrite(paths[ws] ?? '', perms, acting.in(ws))
 				}
 			})),
 		variableAdapter
@@ -171,10 +173,20 @@
 	// Open the selected workspace's version of the item alongside the others.
 	$effect(() => {
 		const ws = selected
-		if (!ws || !itemPath) return
+		if (!ws || workspaces.length === 0) return
 		untrack(() => {
-			if (!workspaces.includes(ws)) workspaces.push(ws)
+			if (workspaces.includes(ws)) return
+			paths[ws] = editPath ?? paths[workspaces[0]]
+			workspaces.push(ws)
 		})
+	})
+
+	// The page anchor names the variable on screen, which a rename the drawer outlived moves.
+	$effect(() => {
+		const path = editPath
+		if (path !== undefined && untrack(() => drawer?.isOpen())) {
+			setPageDrawerAnchor(VARIABLES_PATH, path)
+		}
 	})
 
 	let drawer: Drawer | undefined = $state()
@@ -251,7 +263,7 @@
 		closeOnSettle = false
 		pathError = ''
 		acting.forgetFailures()
-		itemPath = path
+		paths = { [ws]: path }
 		workspaces = [ws]
 		selected = ws
 		session++
@@ -288,8 +300,19 @@
 	async function save(): Promise<void> {
 		const targets = dirtyWorkspaces.map((ws) => items[ws])
 		const updated = edit
+		const opening = session
+		const shown = selected
 		closeOnSettle = true
 		const outcomes = await saveEach(targets)
+		// A save the drawer outlives may have created or renamed what it shows: follow each item to
+		// where it is stored, keeping its handle rather than reading it afresh.
+		if (session === opening) {
+			for (const ws of workspaces) {
+				const at = items[ws]?.key.path
+				if (at && !isTemporaryPath(at) && at !== paths[ws]) paths[ws] = at
+			}
+			if (editPath !== undefined && shown && paths[shown]) editPath = paths[shown]
+		}
 		const failed = outcomes.find((o) => !o.ok && !o.skipped)
 		if (failed && !failed.ok) {
 			sendUserToast(`Could not save variable: ${failed.error}`, true)
