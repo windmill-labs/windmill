@@ -12,8 +12,8 @@ const MEMORY_ID_NAMESPACE: Uuid = Uuid::from_u128(0x6f1c2d4e_8a3b_5c7d_9e0f_1a2b
 
 /// Memory is stored and carried in `flow_status.memory_id` as a uuid, which names the same memory
 /// wherever it is passed, as a chat conversation id must. Any other string names a memory through a
-/// name-based (v5) uuid scoped to its workspace and flow: a guessable key such as a customer id must
-/// not reach another flow's memory, and chat conversation ids are unique across workspaces.
+/// name-based (v5) uuid scoped to its workspace and flow, so the same key in two flows or two
+/// workspaces names two memories, and chat conversation ids stay unique across workspaces.
 pub fn memory_key(workspace_id: &str, flow_path: &str, memory_id: &str) -> Uuid {
     let memory_id = memory_id.trim();
     Uuid::parse_str(memory_id).unwrap_or_else(|_| {
