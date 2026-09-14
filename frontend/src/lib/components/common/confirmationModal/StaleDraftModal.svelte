@@ -58,7 +58,7 @@
 	// Scripts are versioned by hash, the other kinds by a numeric version id;
 	// the diff picker renders them the same way.
 	function formatVersion(v: string): string {
-		return itemKind === 'script' ? v.slice(0, 8) : `v${v}`
+		return itemKind === 'script' ? v.slice(0, 8) : v
 	}
 
 	async function loadLatestDeploy() {

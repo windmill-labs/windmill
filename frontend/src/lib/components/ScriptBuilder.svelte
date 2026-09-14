@@ -559,10 +559,13 @@
 
 		try {
 			if (initialPath && initialPath != '') {
+				// The row's path, not `initialPath`: that is the typed path, where a
+				// staged rename has nothing deployed, and a missing head would deploy
+				// on a base that already has a child.
 				actual_parent_hash = (
 					await ScriptService.getScriptLatestVersion({
 						workspace: opWorkspace!,
-						path: initialPath
+						path: userDraftPath || initialPath
 					})
 				)?.script_hash
 			}
