@@ -314,7 +314,12 @@
 				reserveSpace={edit}
 				getDeployed={() => selectedItem?.deployed}
 				getCurrent={() => current}
-				onDiscard={async () => void (await selectedItem?.discard())}
+				onDiscard={async () => {
+					const shown = selectedItem
+					// The removal effect only sees the item on screen: one opened over this one before
+					// the discard landed leaves the list to be told here.
+					if ((await shown?.discard())?.removed && shown !== selectedItem) dispatch('create')
+				}}
 				disabled={!can_write}
 			/>
 		{/snippet}

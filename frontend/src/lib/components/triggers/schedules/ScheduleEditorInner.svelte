@@ -1327,7 +1327,13 @@
 					getDeployed={() => item.deployed}
 					reserveSpace={hasBaseline}
 					getCurrent={() => item.value}
-					onDiscard={async () => void (await item.discard())}
+					onDiscard={async () => {
+						const shown = item.current
+						const target = schedulePath
+						// The removal effect only sees the item on screen: one opened over this one
+						// before the discard landed leaves the list to be told here.
+						if ((await shown?.discard())?.removed && shown !== item.current) onUpdate?.(target)
+					}}
 					disabled={!can_write}
 				/>
 			{/snippet}

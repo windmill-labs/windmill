@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { createEventDispatcher } from 'svelte'
 	import { Button, Drawer } from './common'
 
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -35,6 +36,8 @@
 		 * resource — `onRestored` only covers restoring an old version. */
 		onSaved?: () => void
 	} = $props()
+
+	const dispatch = createEventDispatcher<{ refresh: string | undefined }>()
 
 	let drawer: Drawer | undefined = $state()
 	let historyDrawer: Drawer | undefined = $state()
@@ -176,12 +179,16 @@
 				getDeployed={() => resourceEditor?.localDraftDeployed()}
 				getCurrent={() => resourceEditor?.localDraftCurrent()}
 				onDiscard={async () => {
-					// A draft-only resource is its draft: discarding it leaves nothing to show. Close
-					// only the opening that asked for it — the discard is awaited, and another resource
-					// may have been opened over this drawer in the meantime.
+					// A draft-only resource is its draft: discarding it leaves nothing to show. The
+					// discard is awaited, and by then the drawer may be closed, which unmounts the
+					// editor, or showing another resource or workspace version: that stays as it is,
+					// and the list, which the editor's removal effect no longer reaches, is told here.
 					const opening = session
-					if ((await resourceEditor?.discardLocalDraft()) && session === opening)
-						drawer?.closeDrawer()
+					const shownWs = selected
+					const removedPath = path
+					if (!(await resourceEditor?.discardLocalDraft())) return
+					if (session === opening && selected === shownWs && drawer?.isOpen()) drawer.closeDrawer()
+					else dispatch('refresh', removedPath)
 				}}
 				disabled={!canWriteSelected}
 			/>
