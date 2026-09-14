@@ -657,6 +657,25 @@ describe('item store: one entry per key', () => {
 		expect(first.moving.value).toEqual(again)
 		expect(first.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: again })
 
+		// The same draft written again is an ask of its own, unchanged value or not.
+		const same = await moveOnto(true, (store) => {
+			store.bridge.seed('w', 'resource', 'u/me/b', again)
+			store.bridge.discard('w', 'resource', 'u/me/b')
+			store.bridge.seed('w', 'resource', 'u/me/b', again)
+		})
+		expect(same.moving.value).toEqual(again)
+		expect(same.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: again })
+
+		// Deleted last: the delete is what holds, however many drafts preceded it.
+		const deleted = await moveOnto(true, (store) => {
+			store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'first draft' })
+			store.bridge.discard('w', 'resource', 'u/me/b')
+			store.bridge.seed('w', 'resource', 'u/me/b', again)
+			store.bridge.discard('w', 'resource', 'u/me/b')
+		})
+		expect(deleted.moving.dirty).toBe(false)
+		expect(deleted.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: null })
+
 		// Parked for the move before anyone held the key, then deleted once an editor does: the
 		// discard is asked for the key, so the parked draft goes with it.
 		const second = await moveOnto(false, (store, open) => {

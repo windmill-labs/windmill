@@ -180,10 +180,10 @@ class Entry<V> {
 	/** Replaced by an entry that moved onto its key: it no longer owns the row there, and a write
 	 *  reaching its turn does nothing, as its handles show the item that replaced it. */
 	retired = false
-	/** Discards asked and still waiting for their turn, and whether an outside write has landed
-	 *  since, which outranks them. */
+	/** Discards asked and still waiting for their turn, and which of a write and a discard was
+	 *  asked for this item last: the later of the two is the one that holds. */
 	discardsAsked = 0
-	private writtenSinceDiscard = false
+	lastOutsideAsk: 'write' | 'discard' | undefined
 	/** The command running now, past its turn: what a move onto this key waits for. */
 	running: Promise<unknown> | undefined
 	/** The entries a save of this entry waits for before moving: a move skips waiting for any
@@ -347,9 +347,10 @@ class Entry<V> {
 
 	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
 	applyExternal(value: V): number {
+		// Before the unchanged-value return: re-writing the same draft is still an ask, and which
+		// ask came last is what outranks a discard still waiting for its turn.
+		this.lastOutsideAsk = 'write'
 		if (this.loaded && serialize(value) === serialize(this.value)) return this.revision
-		// A draft written again after a discard was asked outranks it: the last outside write wins.
-		if (this.discardsAsked > 0) this.writtenSinceDiscard = true
 		this.pristine = false
 		this.removed = false
 		this.replaceValue(value)
@@ -430,7 +431,7 @@ class Entry<V> {
 		// A discard asked before the move landed wins over the edits it was asked to drop; had it
 		// run first, it would have dropped anything typed after it too.
 		if (old.value === undefined || this.value === undefined) return
-		if (old.discardsAsked > 0 && !old.writtenSinceDiscard) return
+		if (old.discardsAsked > 0 && old.lastOutsideAsk !== 'write') return
 		// Not loaded yet (its read waits behind the move): only an outside write can have filled it,
 		// and nothing has persisted that write but this entry.
 		if (!old.loaded) {
@@ -470,9 +471,9 @@ class Entry<V> {
 
 	discard(): Promise<DiscardOutcome> {
 		this.discardsAsked++
+		this.lastOutsideAsk = 'discard'
 		return this.run(async () => {
 			this.discardsAsked--
-			if (this.discardsAsked === 0) this.writtenSinceDiscard = false
 			if (!this.loaded || this.retired) return { removed: false }
 			if (this.origin === 'draft') {
 				const kept = snapshot(this.value)
@@ -979,8 +980,6 @@ export function createItemStore(ports: ItemRowPort) {
 			return { value: entry.dirty && entry.origin !== 'new' ? snapshot(entry.value) : undefined }
 		},
 		discard(workspace: string, kind: UserDraftItemKind, path: string): boolean {
-			// The discard is asked for the key, whoever holds it: a draft parked for the save moving
-			// onto it is discarded too, however it was parked.
 			// The discard is asked for the key, whoever holds it: a draft parked for a save moving
 			// onto that key goes with it, however it was parked.
 			arrivals.delete(keyString({ workspace, kind: kind as ItemKind, path }))
