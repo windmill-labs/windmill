@@ -243,15 +243,29 @@ fn overlay_tool_inputs(
     }
 }
 
-/// The name a run enables a roster entry by: the name the model is shown, except for an MCP server,
-/// which the model is shown nothing of and which is named by the resource it points at.
+/// What a websearch entry is named by when it carries no summary of its own. A summary is a name
+/// only for an entry the model is shown; web search reaches the model as a provider capability
+/// rather than a tool, so its summary is a label the editor happens to write and JSON authored
+/// anywhere else may leave out, and an entry with no name at all could not be enabled.
+const WEBSEARCH_ENABLED_NAME: &str = "web_search";
+
+/// The name a run enables a roster entry by: the name the model is shown, except for an entry the
+/// model is shown nothing of, which is named by whatever identifies it instead. An MCP server is
+/// named by the resource it points at, web search by its label or `WEBSEARCH_ENABLED_NAME`.
 ///
-/// The path is bare. The roster stores it as authored, `$res:` and all, but a name is an argument
-/// value and one carrying that prefix is resolved to the resource itself before the worker is
-/// handed its args, so the prefixed form is not something the list can hold.
+/// The MCP path is bare. The roster stores it as authored, `$res:` and all, but a name is an
+/// argument value and one carrying that prefix is resolved to the resource itself before the worker
+/// is handed its args, so the prefixed form is not something the list can hold.
 fn tool_enabled_name(tool: &AgentTool) -> Option<&str> {
     match &tool.value {
         ToolValue::Mcp(mcp) => Some(mcp.resource_path.trim_start_matches("$res:")),
+        ToolValue::Websearch(_) => Some(
+            tool.summary
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(WEBSEARCH_ENABLED_NAME),
+        ),
         _ => tool.summary.as_deref(),
     }
 }
@@ -1962,6 +1976,14 @@ mod tests {
                 }),
             }
         }
+        fn websearch(id: &str, summary: Option<&str>) -> AgentTool {
+            AgentTool {
+                id: id.to_string(),
+                summary: summary.map(str::to_string),
+                description: None,
+                value: ToolValue::Websearch(windmill_common::flows::WebsearchToolValue {}),
+            }
+        }
         let roster = || {
             vec![
                 named("a", "get_user"),
@@ -1971,6 +1993,9 @@ mod tests {
         };
         let names = |tools: &[AgentTool]| -> Vec<String> {
             tools.iter().filter_map(|t| t.summary.clone()).collect()
+        };
+        let ids = |tools: &[AgentTool]| -> Vec<String> {
+            tools.iter().map(|t| t.id.clone()).collect()
         };
 
         // No list at all: the whole roster, as every agent written before the field expects.
@@ -2011,6 +2036,26 @@ mod tests {
             ["get_user"]
         );
         assert!(narrow_roster(roster(), Some(&["u/test/other".to_string()])).is_empty());
+
+        // Web search reaches the model as a provider capability rather than a tool, so its summary
+        // is a label the editor writes and JSON authored anywhere else may leave out. Without the
+        // fallback such an entry has no name, and a run that narrows could not keep web search.
+        let mut with_websearch = roster();
+        with_websearch.push(websearch("w", None));
+        assert_eq!(
+            ids(&narrow_roster(
+                with_websearch,
+                Some(&[WEBSEARCH_ENABLED_NAME.to_string()])
+            )),
+            ["w"]
+        );
+        // A label of its own still names it, which is what the editor writes.
+        let mut labelled = roster();
+        labelled.push(websearch("w", Some("Web Search")));
+        assert_eq!(
+            ids(&narrow_roster(labelled, Some(&["Web Search".to_string()]))),
+            ["w"]
+        );
     }
 
     #[test]

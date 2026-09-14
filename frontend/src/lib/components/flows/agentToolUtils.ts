@@ -99,11 +99,17 @@ export function toolDisplayName(tool: AgentTool): string | undefined {
 	return tool?.summary || value?.path || value?.resource_path || undefined
 }
 
-/** The name `enabled_tools` holds a tool by: the name the model is shown, except for an MCP server,
- *  which the model is shown nothing of and which is named by the resource it points at. Its summary
- *  is a label two entries may share, so naming one would enable both.
+/** What web search is named by with no summary of its own, mirroring `WEBSEARCH_ENABLED_NAME` in
+ *  `ai_executor.rs`. The editor writes a label and offers no way to clear it, but JSON authored
+ *  anywhere else may carry none, and an entry with no name could not be enabled at all. */
+export const WEBSEARCH_ENABLED_NAME = 'web_search'
+
+/** The name `enabled_tools` holds a tool by: the name the model is shown, except for an entry the
+ *  model is shown nothing of, which is named by whatever identifies it instead. An MCP server is
+ *  named by the resource it points at, since its summary is a label two entries may share and
+ *  naming one would enable both; web search by its label, else `WEBSEARCH_ENABLED_NAME`.
  *
- *  The path is offered bare. It is stored with the `$res:` it was authored with, and an
+ *  The MCP path is offered bare. It is stored with the `$res:` it was authored with, and an
  *  `enabled_tools` entry carrying that prefix is resolved to the resource's own value before the
  *  step runs, reaching the worker as an object where a name is expected. Mirrors
  *  `tool_enabled_name` in `ai_executor.rs`. */
@@ -111,6 +117,9 @@ export function toolEnabledName(tool: AgentTool): string | undefined {
 	const value = tool?.value as Record<string, any>
 	if (value?.tool_type === 'mcp') {
 		return (value?.resource_path as string | undefined)?.replace(/^\$res:/, '') || undefined
+	}
+	if (value?.tool_type === 'websearch') {
+		return tool?.summary?.trim() || WEBSEARCH_ENABLED_NAME
 	}
 	return toolDisplayName(tool)
 }
