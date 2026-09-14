@@ -52,7 +52,7 @@ which memory it is:
   run's id, hashed the same way: a fixed value is one memory shared by every run, an expression such as
   `flow_input.customer_id` one memory per key, and an expression that evaluates to nothing runs
   stateless rather than falling back to the run's id. `messages` supplies the history itself and
-  bypasses memory. The editor writes at most one of them and never seeds a placeholder for
+  bypasses memory; an expression that evaluates to null sends no history and still bypasses it. The editor writes at most one of them and never seeds a placeholder for
   either, because a present key is the step's choice; if both are present, `messages` wins.
 
 The worker reconciles them once per agent invocation, nested agent tools included, in

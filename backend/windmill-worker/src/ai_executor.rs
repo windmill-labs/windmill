@@ -120,8 +120,8 @@ enum HistorySource<'a> {
 }
 
 /// The step's history inputs count only as the step authored them. A static empty value is a form
-/// placeholder, so a memory id reads as unset rather than as one that evaluated to nothing; an
-/// AI-filled value would let the model choose which memory the agent reads.
+/// placeholder, so it reads as unset rather than as an expression that evaluated to nothing, which
+/// runs without memory; an AI-filled value would let the model choose which memory the agent reads.
 fn keep_authored_history_args(
     args: &mut AIAgentArgs,
     step_input_transforms: &HashMap<String, InputTransform>,
@@ -131,11 +131,10 @@ fn keep_authored_history_args(
         Some(InputTransform::Static { .. }) if args.memory_id.as_deref() != Some("") => {}
         _ => args.memory_id = None,
     }
-    if !matches!(
-        step_input_transforms.get("messages"),
-        Some(InputTransform::Static { .. } | InputTransform::Javascript { .. })
-    ) {
-        args.messages = None;
+    match step_input_transforms.get("messages") {
+        Some(InputTransform::Javascript { .. }) => {}
+        Some(InputTransform::Static { value }) if value.get().trim() != "null" => {}
+        _ => args.messages = None,
     }
 }
 
@@ -1927,6 +1926,47 @@ mod tests {
             keep_authored_history_args(&mut args, &transforms(transform));
             assert_eq!(args.memory_id.as_deref(), expected, "{transform}");
             assert!(args.messages.is_none(), "{transform}");
+        }
+    }
+
+    /// Provided messages bypass memory even when their expression evaluates to null; only a static
+    /// placeholder leaves the step on its memory.
+    #[test]
+    fn a_messages_expression_evaluating_to_null_bypasses_memory() {
+        let run = Uuid::from_u128(1);
+        for (transform, expected) in [
+            (
+                r#"{ "type": "javascript", "expr": "flow_input.history" }"#,
+                Resolved::Messages(0),
+            ),
+            (
+                r#"{ "type": "static", "value": null }"#,
+                Resolved::Window(run, 10),
+            ),
+            (
+                r#"{ "type": "static", "value": [] }"#,
+                Resolved::Messages(0),
+            ),
+        ] {
+            let mut args: AIAgentArgs = serde_json::from_value(serde_json::json!({
+                "provider": { "kind": "openai", "resource": {}, "model": "m" },
+                "memory": { "kind": "window", "context_length": 10 },
+                "messages": if transform.contains("[]") { serde_json::json!([]) } else { serde_json::Value::Null },
+            }))
+            .unwrap();
+            let transforms = HashMap::from([(
+                "messages".to_string(),
+                serde_json::from_str(transform).unwrap(),
+            )]);
+            keep_authored_history_args(&mut args, &transforms);
+            let resolved = match resolve_history_source(&args, Some(run), "ws", "f/flow") {
+                (HistorySource::Messages(m), _) => Resolved::Messages(m.len()),
+                (HistorySource::Window { memory_id, context_length }, _) => {
+                    Resolved::Window(memory_id, context_length)
+                }
+                (HistorySource::Stateless, note) => Resolved::Stateless { noted: note.is_some() },
+            };
+            assert_eq!(resolved, expected, "{transform}");
         }
     }
 

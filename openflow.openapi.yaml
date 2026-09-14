@@ -1092,8 +1092,9 @@ components:
                 - $ref: '#/components/schemas/InputTransform'
               description: |
                 Array of MemoryMessage. History supplied by the flow, sent between the system prompt
-                and the user message. Memory is neither read nor written. Takes precedence over
-                `memory_id` and `memory`.
+                and the user message. Memory is neither read nor written, also when an expression
+                evaluates to null, which sends no history. Takes precedence over `memory_id` and
+                `memory`.
             output_schema:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'

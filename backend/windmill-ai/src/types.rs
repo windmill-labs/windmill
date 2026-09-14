@@ -94,6 +94,12 @@ pub enum Memory {
     },
 }
 
+fn deserialize_present_messages<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Option<Vec<OpenAIMessage>>>, D::Error> {
+    <Option<Vec<OpenAIMessage>> as serde::Deserialize>::deserialize(deserializer).map(Some)
+}
+
 fn deserialize_present<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<serde_json::Value>, D::Error> {
@@ -118,7 +124,10 @@ struct AIAgentArgsRaw {
     // nothing runs stateless instead of falling back to the run's memory id.
     #[serde(default, deserialize_with = "deserialize_present")]
     memory_id: Option<serde_json::Value>,
-    messages: Option<Vec<OpenAIMessage>>,
+    // Same distinction for an authored messages expression: null sends no history, and memory stays
+    // bypassed rather than being read and overwritten.
+    #[serde(default, deserialize_with = "deserialize_present_messages")]
+    messages: Option<Option<Vec<OpenAIMessage>>>,
     // Legacy field for backward compatibility
     messages_context_length: Option<usize>,
     #[serde(default)]
@@ -181,7 +190,7 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
             max_iterations: raw.max_iterations,
             memory,
             memory_id,
-            messages: raw.messages,
+            messages: raw.messages.map(Option::unwrap_or_default),
             credentials_check: raw.credentials_check.unwrap_or(false),
         }
     }
