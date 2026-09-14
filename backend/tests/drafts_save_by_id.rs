@@ -14,6 +14,19 @@ use windmill_test_utils::*;
 const HEAD_HASH: &str = "0000000000001b76";
 const DRAFT_ID: i64 = 9001;
 
+async fn own_draft_value(port: u16, path: &str) -> anyhow::Result<Value> {
+    let draft: Value = reqwest::Client::new()
+        .get(format!(
+            "http://localhost:{port}/api/w/test-workspace/drafts/get_own/script/{path}"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .send()
+        .await?
+        .json()
+        .await?;
+    Ok(draft["value"].clone())
+}
+
 async fn own_draft_paths(port: u16) -> anyhow::Result<Vec<String>> {
     let list: Vec<Value> = reqwest::Client::new()
         .get(format!(
@@ -60,8 +73,13 @@ async fn test_save_by_id_follows_a_rename(db: Pool<Postgres>) -> anyhow::Result<
         .await?;
     assert_eq!(resp.status(), 201, "rename failed: {}", resp.text().await?);
     assert_eq!(own_draft_paths(port).await?, vec!["u/test-user/byid_b"]);
+    // A script draft's `path` is where deploying it lands, so it moves with the row.
+    assert_eq!(
+        own_draft_value(port, "u/test-user/byid_b").await?["path"],
+        "u/test-user/byid_b"
+    );
 
-    // The editor is still on the old path but saves by id.
+    // The editor is still on the old path but saves by id, writing that path back.
     let saved: Value = client
         .post(format!(
             "http://localhost:{port}/api/w/test-workspace/drafts/update/script/u/test-user/byid_a"
@@ -89,19 +107,9 @@ async fn test_save_by_id_follows_a_rename(db: Pool<Postgres>) -> anyhow::Result<
 
     // The write landed on the carried row; nothing reappeared at the old path.
     assert_eq!(own_draft_paths(port).await?, vec!["u/test-user/byid_b"]);
-    let draft: Value = client
-        .get(format!(
-            "http://localhost:{port}/api/w/test-workspace/drafts/get_own/script/u/test-user/byid_b"
-        ))
-        .header("Authorization", "Bearer SECRET_TOKEN")
-        .send()
-        .await?
-        .json()
-        .await?;
-    assert_eq!(
-        draft["value"]["content"], "edited after the move",
-        "{draft}"
-    );
+    let draft = own_draft_value(port, "u/test-user/byid_b").await?;
+    assert_eq!(draft["content"], "edited after the move", "{draft}");
+    assert_eq!(draft["path"], "u/test-user/byid_b", "{draft}");
 
     Ok(())
 }

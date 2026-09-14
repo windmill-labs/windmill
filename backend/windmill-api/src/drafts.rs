@@ -17,7 +17,9 @@ use serde::{Deserialize, Serialize};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    user_drafts::{DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
+    user_drafts::{
+        repoint_draft_path_keys, DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX,
+    },
     users::resolve_username_to_email,
     utils::{check_proper_path, strip_json_nul},
     variables::{build_crypt, encrypt},
@@ -470,6 +472,14 @@ async fn update_draft(
         // escape and later make any `->>`/`to_jsonb` extraction raise `22P05`.
         // Strip it here so a NUL never reaches the column.
         let serialized = strip_json_nul(&serialized);
+        // An editor still open on the path the row moved away from writes that path
+        // into the value; kept, it would deploy the item back there.
+        let serialized = if followed && path != url_path {
+            repoint_draft_path_keys(&serialized, url_path, path)
+                .map_or(serialized, std::borrow::Cow::Owned)
+        } else {
+            serialized
+        };
         // `base` is derived here from the value's per-kind field rather than sent
         // by the client, so every writer (editors, chat, CLI) fills it the same way.
         let base = draft_lineage(kind, value.0.get()).and_then(|l| l.as_text(kind));

@@ -6,9 +6,9 @@
 //! key left the mirror naming the old location: reopening the item restored the
 //! old path, and the next autosave wrote it back — undoing the move silently.
 //!
-//! The rule is spread over three sites that have to agree (`move_draft`, the
-//! passive carry in `move_drafts_for_path`, and `resolve_moved_to_in`'s patch);
-//! this pins the endpoint, including that a draft with no mirror never gains one.
+//! This pins `move_draft`, including that a draft with no mirror never gains one.
+//! A deploy's carry follows the keys only where they still name the old path
+//! (`drafts_save_by_id` pins that).
 
 use serde_json::Value;
 use sqlx::{Pool, Postgres};

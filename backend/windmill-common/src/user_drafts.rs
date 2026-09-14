@@ -638,12 +638,10 @@ pub async fn delete_own_draft_for_path(
 /// cleared both paths for the caller; reached any other way it is a cross-user
 /// write with no gate.
 ///
-/// Only the `path` column moves. A move is a deploy like any other, so every
-/// draft on the item is now behind the head — which the editor reports through
-/// the ordinary stale-draft prompt, with a diff. Rewriting the value to hide
-/// that would mean guessing whether the path a draft carries was deliberate,
-/// and guessing wrong silently either strands the user's staged rename or
-/// clears a staleness warning they needed.
+/// The value keeps its base version: a move is a deploy like any other, so every
+/// draft on the item is now behind the head, which the editor reports through
+/// the ordinary stale-draft prompt. Its path keys follow only where they still
+/// name `old_path` (see [`DRAFT_PATH_KEYS`]).
 ///
 /// A draft already at `new_path` (a never-deployed item, or one left on an
 /// archived script there) occupies that path the way a deployed item does, and
@@ -658,40 +656,94 @@ pub async fn move_drafts_for_path(
     new_path: &str,
 ) -> Result<()> {
     let typs = kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
-    let taken = sqlx::query_scalar!(
-        r#"SELECT count(*) as "n!" FROM draft
-           WHERE workspace_id = $1 AND path = $2 AND typ::text = ANY($3::text[])"#,
+    // Named by workspace username, as the editors name other users' drafts: the
+    // caller is often not the owner, and cannot clear a draft they cannot find.
+    let owners = sqlx::query!(
+        r#"SELECT d.email IS NULL as "legacy!", COALESCE(u.username, p.username) as username
+           FROM draft d
+           LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email
+           LEFT JOIN password p ON p.email = d.email AND p.super_admin = true
+           WHERE d.workspace_id = $1 AND d.path = $2 AND d.typ::text = ANY($3::text[])
+           ORDER BY 2"#,
         w_id,
         new_path,
         &typs as &[&str],
     )
-    .fetch_one(&mut **tx)
+    .fetch_all(&mut **tx)
     .await?;
-    if taken > 0 {
+    if !owners.is_empty() {
+        let names = owners
+            .into_iter()
+            .map(|o| match (o.username, o.legacy) {
+                (Some(name), _) => name,
+                (None, true) => "a legacy workspace draft".to_string(),
+                (None, false) => "another user".to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
         return Err(crate::error::Error::BadRequest(format!(
-            "'{new_path}' already has a draft on it — move it or discard it first"
+            "'{new_path}' already has a draft on it ({names}) — it must be moved or discarded first"
         )));
     }
-    // Only the row's path column. The value is the user's payload and this deploy
-    // is not their edit, so nothing in it is rewritten — including the path it
-    // would deploy to, which stays whatever they last typed. A carried draft
-    // therefore reads as out of date against the version this deploy created,
-    // which is true, and the editor's stale prompt shows the diff that says
-    // whether it matters.
+    // `draft.value` is `json`, so `to_jsonb` raises 22P05 on a row still carrying a
+    // NUL escape from before the write-time sanitizer. Such a row moves on its path
+    // column alone: one poisoned draft must not abort someone else's rename.
     sqlx::query!(
         r#"UPDATE draft
-           SET path = $3
+           SET path = $3::text,
+               value = CASE
+                   WHEN position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0
+                       THEN value
+                   WHEN to_jsonb(value) -> $5::text = to_jsonb($2::text)
+                     OR to_jsonb(value) -> $6::text = to_jsonb($2::text)
+                       THEN to_json(
+                           to_jsonb(value)
+                           || CASE WHEN to_jsonb(value) -> $5::text = to_jsonb($2::text)
+                                   THEN jsonb_build_object($5::text, $3::text)
+                                   ELSE '{}'::jsonb END
+                           || CASE WHEN to_jsonb(value) -> $6::text = to_jsonb($2::text)
+                                   THEN jsonb_build_object($6::text, $3::text)
+                                   ELSE '{}'::jsonb END
+                       )
+                   ELSE value
+               END
            WHERE workspace_id = $1
-             AND path = $2
+             AND path = $2::text
              AND typ::text = ANY($4::text[])"#,
         w_id,
         old_path,
         new_path,
         &typs as &[&str],
+        DRAFT_PATH_KEYS[0],
+        DRAFT_PATH_KEYS[1],
     )
     .execute(&mut **tx)
     .await?;
     Ok(())
+}
+
+/// The two keys a full-page editor's draft value can hold a path in: `path` and
+/// `draft_path` (which one is the deploy target depends on the kind, see
+/// `typed_path_field`). One still equal to the path the row sits at is not a
+/// rename the user staged — the editors write the item's own path there on every
+/// save — so when the row moves it has to move too, or deploying the draft sends
+/// the item back where it came from. Any other value is a staged rename, kept.
+const DRAFT_PATH_KEYS: [&str; 2] = ["path", "draft_path"];
+
+/// `value` with each of [`DRAFT_PATH_KEYS`] that equals `from` re-pointed at `to`,
+/// or `None` when none does (the value is then already right as it is).
+pub fn repoint_draft_path_keys(value: &str, from: &str, to: &str) -> Option<String> {
+    let mut obj = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(value).ok()?;
+    let mut changed = false;
+    for key in DRAFT_PATH_KEYS {
+        if let Some(v) = obj.get_mut(key) {
+            if v.as_str() == Some(from) {
+                *v = serde_json::Value::String(to.to_string());
+                changed = true;
+            }
+        }
+    }
+    changed.then(|| serde_json::to_string(&obj).ok()).flatten()
 }
 
 /// Fetch the authed user's draft as a standalone payload, for "get by path"
@@ -771,4 +823,24 @@ pub async fn decrypt_draft_secret_value(db: &DB, w_id: &str, value: &str) -> Res
     let encrypted = value.strip_prefix(ENCRYPTED_DRAFT_PREFIX).unwrap_or(value);
     let mc = crate::variables::build_crypt(db, w_id).await?;
     crate::variables::decrypt(&mc, encrypted.to_string()).map_err(|_| draft_decrypt_error())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::repoint_draft_path_keys;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn repoints_only_keys_still_naming_the_old_path() {
+        let flow = r#"{"path":"f/a","draft_path":"f/staged","summary":"s"}"#;
+        let out: Value =
+            serde_json::from_str(&repoint_draft_path_keys(flow, "f/a", "f/b").unwrap()).unwrap();
+        assert_eq!(
+            out,
+            json!({"path": "f/b", "draft_path": "f/staged", "summary": "s"})
+        );
+
+        let staged = r#"{"path":"f/staged"}"#;
+        assert_eq!(repoint_draft_path_keys(staged, "f/a", "f/b"), None);
+    }
 }
