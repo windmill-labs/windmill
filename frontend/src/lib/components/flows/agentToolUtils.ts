@@ -99,14 +99,20 @@ export function toolDisplayName(tool: AgentTool): string | undefined {
 	return tool?.summary || value?.path || value?.resource_path || undefined
 }
 
-/** The name `enabled_tools` holds a tool by, which is what the roster shows it as except for an MCP
- *  server displayed by the resource path it was authored with: a name carrying that `$res:` is
- *  resolved to the resource's own value before the step runs, so it would reach the worker as an
- *  object where a name is expected and fail the step outright. */
+/** The name `enabled_tools` holds a tool by: the name the model is shown, except for an MCP server,
+ *  which the model is shown nothing of and which is named by the resource it points at. Its summary
+ *  is a label two entries may share, so naming one would enable both.
+ *
+ *  The path is offered bare. It is stored with the `$res:` it was authored with, and an
+ *  `enabled_tools` entry carrying that prefix is resolved to the resource's own value before the
+ *  step runs, reaching the worker as an object where a name is expected. Mirrors
+ *  `tool_enabled_name` in `ai_executor.rs`. */
 export function toolEnabledName(tool: AgentTool): string | undefined {
-	const name = toolDisplayName(tool)
 	const value = tool?.value as Record<string, any>
-	return name && name === value?.resource_path ? name.replace(/^\$res:/, '') : name
+	if (value?.tool_type === 'mcp') {
+		return (value?.resource_path as string | undefined)?.replace(/^\$res:/, '') || undefined
+	}
+	return toolDisplayName(tool)
 }
 
 /**

@@ -115,7 +115,7 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		group: 'tools',
 		label: 'Enabled tools',
 		tooltip:
-			'Whether a run carries every tool above or only the ones listed, so it costs no more than it needs. Listing none at all leaves the agent with no tools. Set it to an expression to decide per run. An MCP server listed here enables every tool it exposes, and an expression can name a single one of them as mcp_<server>_<tool>.',
+			'Whether a run carries every tool above or only the ones listed, so it costs no more than it needs. Listing none at all leaves the agent with no tools. Set it to an expression to decide per run. An MCP server listed here carries every tool it exposes, which its own include and exclude lists decide.',
 		implicit: { kind: 'all' },
 		defaultHint: 'Default: all of them'
 	},

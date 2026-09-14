@@ -80,8 +80,8 @@ impl Default for OutputType {
 pub enum EnabledTools {
     All,
     Only {
-        /// By the name the model is shown, so an MCP tool is `mcp_<server>_<tool>`. Naming the MCP
-        /// server entry instead enables every tool it exposes. Empty advertises nothing.
+        /// By the name the model is shown, except an MCP server, which the model is shown nothing
+        /// of and which is named by its resource path. Empty advertises nothing.
         #[serde(default)]
         tools: Vec<String>,
     },
