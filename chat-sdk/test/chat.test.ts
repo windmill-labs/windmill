@@ -160,6 +160,25 @@ describe('createChat with local history', () => {
     expect(answer.jobId).toBe('job-1')
   })
 
+  test('renders a successful result that merely looks like an error envelope', async () => {
+    const result = { error: { message: 'domain data' } }
+    const { fetch } = fetchMock(
+      run,
+      (c) => (c.url.pathname === streamPath ? sse([{ type: 'update', completed: true, only_result: result }]) : undefined),
+      (c) =>
+        c.url.pathname === '/api/w/ws/jobs_u/completed/get_result_maybe/job-1'
+          ? json({ completed: true, success: true, result })
+          : undefined
+    )
+    const chat = createChat(options({ token: 'tok' }, fetch))
+    await chat.sendMessage('hi')
+    expect(chat.getState().messages[1]).toMatchObject({
+      role: 'assistant',
+      success: true,
+      content: JSON.stringify(result, null, 2)
+    })
+  })
+
   test('reports a failed flow as an unsuccessful assistant message', async () => {
     const { fetch } = fetchMock(
       run,
@@ -247,6 +266,93 @@ describe('createChat with server history', () => {
     const messagesCall = calls.find((c) => c.url.pathname.endsWith('/messages'))!
     expect(messagesCall.url.pathname).toBe(`/api/w/ws/flow_conversations/${chatId}/messages`)
     expect(messagesCall.headers.authorization).toBeUndefined()
+  })
+
+  test('keeps the streamed answer until its row lands, even when a tool row lands first', async () => {
+    let messageFetches = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([
+              {
+                type: 'update',
+                new_result_stream: ndjson(
+                  { type: 'tool_call', call_id: 'c1', function_name: 'lookup' },
+                  { type: 'tool_result', call_id: 'c1', function_name: 'lookup', result: '1', success: true },
+                  { type: 'token_delta', content: 'Final answer' }
+                ),
+                stream_offset: 3,
+                completed: true,
+                only_result: { output: 'Final answer', messages: [] }
+              }
+            ])
+          : undefined,
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        messageFetches++
+        // The assistant row is written by a task that trails the tool's.
+        return json(
+          messageFetches === 1
+            ? [messageRow(21, 'user', 'hi'), messageRow(22, 'tool', 'Used lookup tool')]
+            : [messageRow(23, 'assistant', 'Final answer')]
+        )
+      },
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('hi')
+    expect(messageFetches).toBe(2)
+    expect(chat.getState().messages.map((m) => [m.id, m.role, m.content, m.pending])).toEqual([
+      ['row-21', 'user', 'hi', false],
+      ['row-22', 'tool', 'Used lookup tool', false],
+      ['row-23', 'assistant', 'Final answer', false]
+    ])
+    expect(chat.getState().messages[1].tool).toMatchObject({ callId: 'c1', result: '1', status: 'success' })
+  })
+
+  test('finishes the turn from the flow result when history falls back mid-turn', async () => {
+    const storage = memoryStorage()
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'From a script' } }])
+          : undefined,
+      (c) => (c.url.pathname.includes('/flow_conversations/') ? text('forbidden', 403) : undefined)
+    )
+    const chat = createChat(options({ storage }, fetch))
+    await chat.sendMessage('hi')
+    const state = chat.getState()
+    expect(state.history).toBe('local')
+    expect(state.status).toBe('idle')
+    expect(state.messages.map((m) => [m.role, m.content])).toEqual([
+      ['user', 'hi'],
+      ['assistant', 'From a script']
+    ])
+    const stored = JSON.parse([...storage.data.values()][0])
+    expect(stored.messages[state.conversationId!]).toHaveLength(2)
+  })
+
+  test('appends later pages of conversations', async () => {
+    const row = (id: string) => ({
+      id,
+      workspace_id: 'ws',
+      flow_path: FLOW,
+      title: id,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      created_by: 'admin'
+    })
+    const { fetch } = fetchMock((c) =>
+      c.url.pathname === '/api/w/ws/flow_conversations/list'
+        ? json(c.url.searchParams.get('page') === '2' ? [row('c2')] : [row('c1')])
+        : undefined
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.loadConversations()
+    await chat.loadConversations({ page: 2 })
+    expect(chat.getState().conversations.map((c) => c.id)).toEqual(['c1', 'c2'])
   })
 
   test('falls back to local history when the credential cannot read conversations', async () => {

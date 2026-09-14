@@ -157,7 +157,7 @@ class ChatImpl implements Chat {
     if (this.#state.history === 'server' && this.#state.conversationId === turn.conversationId) {
       // A cancelled flow persists its failure as the assistant's answer.
       await sleep(RECONCILE_DELAY_MS).catch(() => {})
-      await this.#syncFromServer(turn.conversationId, { dropPending: false }).catch(() => {})
+      await this.#syncFromServer(turn.conversationId).catch(() => {})
     }
   }
 
@@ -232,7 +232,7 @@ class ChatImpl implements Chat {
     } else {
       conversations = this.#state.history === 'local' ? this.#local.listConversations() : []
     }
-    const known = new Set(conversations.map((c) => c.id))
+    const known = new Set(this.#state.conversations.map((c) => c.id))
     this.#set({
       conversations:
         page === 1
@@ -422,16 +422,20 @@ class ChatImpl implements Chat {
   async #finishTurn(turn: Turn, result: unknown, isNew: boolean): Promise<void> {
     if (!this.#turnActive(turn)) return
     if (this.#state.history === 'server') {
-      await this.#reconcileTurn(turn)
+      const reconciled = await this.#reconcileTurn(turn)
       if (!this.#turnActive(turn)) return
-      this.#set({ status: 'idle' })
-      if (isNew) await this.loadConversations().catch(() => {})
-      return
+      if (reconciled) {
+        this.#set({ status: 'idle' })
+        if (isNew) await this.loadConversations().catch(() => {})
+        return
+      }
+      // Server history just proved unreadable: the turn completes as local history.
     }
     let messages = this.#state.messages
+    let failed = false
     if (isErrorResult(result)) {
       // The envelope is also a legitimate result shape; the job's own status decides.
-      const failed = await this.#api
+      failed = await this.#api
         .getCompletedResult(turn.jobId!, turn.controller.signal)
         .then((r) => r.success === false)
         .catch(() => true)
@@ -439,7 +443,8 @@ class ChatImpl implements Chat {
       if (failed) {
         messages = [...messages, assistantMessage(errorResultMessage(result), false, turn.jobId)]
       }
-    } else if (!turn.streamedText) {
+    }
+    if (!failed && !turn.streamedText) {
       const answer = extractChatAnswer(result)
       if (answer !== undefined) {
         messages = [...messages, assistantMessage(answer, true, turn.jobId)]
@@ -450,11 +455,14 @@ class ChatImpl implements Chat {
   }
 
   /**
-   * Replaces the turn's optimistic messages with what the server persisted for it.
-   * The answer's rows are written by the worker in their own transactions and may
-   * trail the flow's completion, so an answer that hasn't landed yet is polled for.
+   * Folds what the server persisted for the turn into the message list. The rows
+   * are written by the worker in their own transactions, each of which can trail
+   * the flow's completion, so a streamed message whose row hasn't landed stays and
+   * the list is re-read a few times before the rest is kept as streamed.
+   * Returns false when server history turned out unreadable and the chat fell
+   * back to local history; the caller then finishes the turn from the flow result.
    */
-  async #reconcileTurn(turn: Turn): Promise<void> {
+  async #reconcileTurn(turn: Turn): Promise<boolean> {
     for (let attempt = 1; attempt <= RECONCILE_ATTEMPTS; attempt++) {
       let rows: FlowConversationMessage[]
       try {
@@ -465,25 +473,18 @@ class ChatImpl implements Chat {
         })
       } catch (e) {
         if (isAbortError(e)) throw e
-        if (this.#fallBackToLocal(e)) break
-        // Left as streamed; the next load of the conversation shows the server's copy.
+        if (this.#fallBackToLocal(e)) return false
         if (attempt === RECONCILE_ATTEMPTS) break
         await sleep(RECONCILE_DELAY_MS, turn.controller.signal)
         continue
       }
-      if (!this.#turnActive(turn)) return
-      const answered = rows.some((r) => r.message_type !== 'user')
-      if (answered || attempt === RECONCILE_ATTEMPTS) {
-        this.#mergeRows(rows, { dropPending: answered })
-        break
-      }
-      this.#mergeRows(rows, { dropPending: false })
-      await sleep(RECONCILE_DELAY_MS, turn.controller.signal)
+      if (!this.#turnActive(turn)) return true
+      this.#mergeRows(rows)
+      if (!this.#state.messages.some((m) => m.pending && m.content)) break
+      if (attempt < RECONCILE_ATTEMPTS) await sleep(RECONCILE_DELAY_MS, turn.controller.signal)
     }
-    if (!this.#turnActive(turn)) return
-    this.#set({ messages: finalized(this.#state.messages) })
-    // Mirrors the history in case the server side becomes unreadable later.
-    this.#persistLocal()
+    if (this.#turnActive(turn)) this.#set({ messages: finalized(this.#state.messages) })
+    return true
   }
 
   #failTurn(turn: Turn, e: unknown): void {
@@ -515,7 +516,7 @@ class ChatImpl implements Chat {
             perPage: 100,
             signal
           })
-          if (!stopped && this.#turnActive(turn)) this.#mergeRows(rows, { dropPending: false })
+          if (!stopped && this.#turnActive(turn)) this.#mergeRows(rows)
         } catch {
           // transient; the completion reconciliation catches up
         }
@@ -527,62 +528,45 @@ class ChatImpl implements Chat {
     }
   }
 
-  async #syncFromServer(
-    conversationId: string,
-    options: { dropPending: boolean }
-  ): Promise<void> {
+  async #syncFromServer(conversationId: string): Promise<void> {
     const rows = await this.#api.listMessages(conversationId, {
       afterSeq: this.#lastSeq(),
       perPage: 100
     })
     if (this.#state.conversationId !== conversationId) return
-    this.#mergeRows(rows, options)
+    this.#mergeRows(rows)
     this.#set({ messages: finalized(this.#state.messages) })
   }
 
   /**
-   * Folds persisted rows into the message list. A row standing for a client-side
-   * message (same role and text) takes its place and keeps what only the stream
-   * knew (reasoning, tool call details); other rows append in server order. With
-   * `dropPending`, the server's copy of the turn replaces every optimistic message,
-   * except an assistant message that only carried reasoning: the server keeps none.
+   * Folds persisted rows into the message list. A row standing for a message the
+   * client already shows (same role and text; for a tool, the same tool name, since
+   * the server words a failure differently) takes its place and keeps what only the
+   * stream knew: reasoning, call id, arguments, result. Other rows append in server
+   * order. Nothing is dropped: a streamed message outlives a row that never lands.
    */
-  #mergeRows(rows: FlowConversationMessage[], options: { dropPending: boolean }): void {
+  #mergeRows(rows: FlowConversationMessage[]): void {
     if (rows.length === 0) return
-    const fresh = rows.map(fromRow)
-    let messages = [...this.#state.messages]
+    const messages = [...this.#state.messages]
     const known = new Set(messages.map((m) => m.id))
-    const matchIndex = (row: ChatMessage) =>
-      messages.findIndex((m) => m.seq === undefined && m.role === row.role && m.content === row.content)
-    const streamOnly = (m: ChatMessage, row: ChatMessage): ChatMessage => ({
-      ...row,
-      reasoning: m.reasoning ?? row.reasoning,
-      tool: m.tool ? { ...m.tool, status: row.tool?.status ?? m.tool.status } : row.tool
-    })
-    if (options.dropPending) {
-      const carried = new Map<string, ChatMessage>()
-      for (const m of messages) {
-        if (m.pending) carried.set(`${m.role}\n${m.content}`, m)
-      }
-      messages = messages.filter(
-        (m) => !m.pending || (m.role === 'assistant' && !m.content && m.reasoning)
+    for (const row of rows.map(fromRow)) {
+      if (known.has(row.id)) continue
+      known.add(row.id)
+      const i = messages.findIndex(
+        (m) =>
+          m.seq === undefined &&
+          m.role === row.role &&
+          (m.content === row.content || (row.tool !== undefined && m.tool?.name === row.tool.name))
       )
-      for (const row of fresh) {
-        if (known.has(row.id)) continue
-        known.add(row.id)
-        const i = matchIndex(row)
-        const from = i >= 0 ? messages[i] : carried.get(`${row.role}\n${row.content}`)
-        const merged = from ? streamOnly(from, row) : row
-        if (i >= 0) messages[i] = merged
-        else messages.push(merged)
-      }
-    } else {
-      for (const row of fresh) {
-        if (known.has(row.id)) continue
-        known.add(row.id)
-        const i = matchIndex(row)
-        if (i >= 0) messages[i] = streamOnly(messages[i], row)
-        else messages.push(row)
+      if (i >= 0) {
+        const m = messages[i]
+        messages[i] = {
+          ...row,
+          reasoning: m.reasoning ?? row.reasoning,
+          tool: m.tool ? { ...m.tool, status: row.tool?.status ?? m.tool.status } : row.tool
+        }
+      } else {
+        messages.push(row)
       }
     }
     this.#set({ messages })
