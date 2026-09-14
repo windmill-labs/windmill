@@ -34,6 +34,8 @@ export function useWindmillChat(options: ChatOptions): UseWindmillChat {
     () =>
       createChat({
         ...options,
+        // Sent per message from the latest render instead, so a removed key stays removed.
+        inputs: undefined,
         token:
           typeof options.token === 'function'
             ? () => {

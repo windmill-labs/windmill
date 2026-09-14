@@ -63,6 +63,12 @@ describe('useWindmillChat', () => {
     void hook.sendMessage('hi', { inputs: { extra: true } }).catch(() => {})
     await new Promise((r) => setTimeout(r, 20))
     expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ docId: 'second', extra: true, user_message: 'hi' })
+    hook.chat.destroy()
+    // A key the latest render no longer passes is gone from the next message.
+    const cleared = render({ ...base, fetch, token: 'tok', inputs: {} })
+    void cleared.sendMessage('again').catch(() => {})
+    await new Promise((r) => setTimeout(r, 20))
+    expect(calls.filter((c) => c.method === 'POST')[1]?.body).toEqual({ user_message: 'again' })
     unmount()
   })
 

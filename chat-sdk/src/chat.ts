@@ -133,11 +133,11 @@ class ChatImpl implements Chat {
     this.#rememberConversation()
 
     try {
-      turn.jobId = await this.#api.runFlow(
-        this.#config.flowPath,
-        { ...this.#config.inputs, ...options.inputs, user_message: content },
-        { memoryId: conversationId, signal: turn.controller.signal }
-      )
+      const args = { ...this.#config.inputs, ...options.inputs, user_message: content }
+      const context = { memoryId: conversationId, conversationId, signal: turn.controller.signal }
+      turn.jobId = this.#config.run
+        ? await this.#config.run(args, context)
+        : await this.#api.runFlow(this.#config.flowPath, args, context)
       const stopPolling = this.#state.history === 'server' ? this.#startPolling(turn) : () => {}
       let result: unknown
       try {
@@ -421,7 +421,7 @@ class ChatImpl implements Chat {
     if (this.#state.history === 'server') {
       turn.jobIds = await this.#turnJobIds(turn)
       if (!this.#turnActive(turn)) return
-      const reconciled = await this.#reconcileTurn(turn)
+      const reconciled = await this.#reconcileTurn(turn, result)
       if (!this.#turnActive(turn)) return
       if (reconciled) {
         this.#set({ status: 'idle' })
@@ -466,7 +466,11 @@ class ChatImpl implements Chat {
    * to history. Whether a row counts is read from the message list, not from what
    * this read returned: the turn's polling may have merged the answer already.
    */
-  async #reconcileTurn(turn: Turn): Promise<boolean> {
+  async #reconcileTurn(turn: Turn, result: unknown): Promise<boolean> {
+    // An agent writes a row per round, so an earlier row of the turn is not its
+    // answer: when the result says what the answer is, that row has to have landed.
+    const expected = isErrorResult(result) ? undefined : extractChatAnswer(result)?.trim()
+    const answered = () => this.#answered(turn, expected)
     for (let attempt = 1; attempt <= RECONCILE_ATTEMPTS; attempt++) {
       let rows: FlowConversationMessage[]
       try {
@@ -479,32 +483,40 @@ class ChatImpl implements Chat {
         if (isAbortError(e)) throw e
         if (this.#fallBackToLocal(e)) return false
         const refused = e instanceof WindmillApiError && (e.status === 401 || e.status === 403)
-        if (refused || attempt === RECONCILE_ATTEMPTS) return this.#answered(turn)
+        if (refused || attempt === RECONCILE_ATTEMPTS) return answered()
         await sleep(RECONCILE_DELAY_MS, turn.controller.signal)
         continue
       }
       if (!this.#turnActive(turn)) return true
       this.#mergeRows(rows)
-      if (this.#answered(turn) && !this.#state.messages.some((m) => m.pending && m.content)) break
+      if (answered() && !this.#state.messages.some((m) => m.pending && m.content)) break
       if (attempt < RECONCILE_ATTEMPTS) await sleep(RECONCILE_DELAY_MS, turn.controller.signal)
     }
     if (!this.#turnActive(turn)) return true
     this.#set({ messages: finalized(this.#state.messages) })
-    return this.#answered(turn)
+    return answered()
   }
 
   /**
    * A persisted assistant message written by one of the turn's jobs follows the
-   * turn's user message. Tool rows alone are not an answer, and neither is a row
-   * from an earlier turn whose job outlived `stop()` (a token without `jobs:write`
-   * cannot cancel it), which can land after this turn's user row.
+   * turn's user message, carrying the expected answer when one is known. Tool rows
+   * alone are not an answer, and neither is a row from an earlier turn whose job
+   * outlived `stop()` (a token without `jobs:write` cannot cancel it), which can
+   * land after this turn's user row.
    */
-  #answered(turn: Turn): boolean {
+  #answered(turn: Turn, expected: string | undefined): boolean {
     const messages = this.#state.messages
     const from = messages.findIndex((m) => m.id === turn.userMessageId)
     const ownJob = (m: ChatMessage) =>
       turn.jobIds === undefined || (m.jobId !== undefined && turn.jobIds.has(m.jobId))
-    return messages.some((m, i) => i > from && m.role === 'assistant' && m.seq !== undefined && ownJob(m))
+    return messages.some(
+      (m, i) =>
+        i > from &&
+        m.role === 'assistant' &&
+        m.seq !== undefined &&
+        ownJob(m) &&
+        (expected === undefined || m.content.trim() === expected)
+    )
   }
 
   /**

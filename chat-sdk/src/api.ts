@@ -107,13 +107,14 @@ export class WindmillChatApi {
   /**
    * One server-sent-events connection to a job's updates. The server closes it after
    * `TIMEOUT_SSE_STREAM` (a `timeout` event); resume by calling again with the last
-   * `stream_offset`, never by re-running the flow.
+   * `stream_offset`, never by re-running the flow. `poll_delay_ms` is the fastest
+   * poll an enterprise server offers; others ignore it.
    */
   async *streamJob(
     jobId: string,
     options: { streamOffset?: number; signal?: AbortSignal } = {}
   ): AsyncGenerator<JobUpdateEvent> {
-    const query: Record<string, string> = { fast: 'true', only_result: 'true' }
+    const query: Record<string, string> = { fast: 'true', only_result: 'true', poll_delay_ms: '50' }
     if (options.streamOffset !== undefined) {
       query.stream_offset = String(options.streamOffset)
     }

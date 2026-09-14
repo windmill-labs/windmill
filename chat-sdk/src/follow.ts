@@ -14,24 +14,40 @@ export type FollowEvent =
  * connection resumes from the last `stream_offset`, so no delta is repeated and
  * the flow is never re-run. `onOffset` reports each offset so a caller can
  * resume later from another connection (see the AI SDK transport).
+ *
+ * The offset indexes the stream of one sub-job (`flow_stream_job_id`, the flow's
+ * streaming step). A retried step gets a new one, so when the id changes the
+ * offset is dropped and the connection reopened from that sub-job's start.
  */
 export async function* followJob(
   api: WindmillChatApi,
   jobId: string,
   options: { signal?: AbortSignal; streamOffset?: number; onOffset?: (offset: number) => void } = {}
 ): AsyncGenerator<FollowEvent> {
-  const parser = createStreamEventParser()
+  let parser = createStreamEventParser()
   let offset = options.streamOffset
+  let streamJobId: string | undefined
   while (true) {
-    let timedOut = false
+    let reopen = false
     for await (const update of api.streamJob(jobId, { streamOffset: offset, signal: options.signal })) {
       if (update.type === 'ping') continue
       if (update.type === 'timeout') {
-        timedOut = true
+        reopen = true
         break
       }
       if (update.type === 'error') throw new Error(update.error)
       if (update.type === 'notfound') throw new Error(`Job ${jobId} not found`)
+      if (update.flow_stream_job_id && update.flow_stream_job_id !== streamJobId) {
+        const switched = streamJobId !== undefined && offset !== undefined
+        streamJobId = update.flow_stream_job_id
+        if (switched) {
+          // This connection skipped the new sub-job's first chunks: start it over.
+          offset = undefined
+          parser = createStreamEventParser()
+          reopen = true
+          break
+        }
+      }
       if (update.stream_offset !== undefined) {
         offset = update.stream_offset
         options.onOffset?.(offset)
@@ -49,6 +65,6 @@ export async function* followJob(
     if (options.signal?.aborted) throw abortError()
     // The server closes the connection after its timeout; a dropped connection looks
     // the same minus the event. Either way the offset lets the next one resume.
-    if (!timedOut) await sleep(RECONNECT_DELAY_MS, options.signal)
+    if (!reopen) await sleep(RECONNECT_DELAY_MS, options.signal)
   }
 }

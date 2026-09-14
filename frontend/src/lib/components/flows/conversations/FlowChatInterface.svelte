@@ -3,19 +3,76 @@
 	import { MessageCircle, Loader2, Settings2 } from 'lucide-svelte'
 	import ChatMessage from '$lib/components/chat/ChatMessage.svelte'
 	import ChatInput from '$lib/components/chat/ChatInput.svelte'
-	import { FlowChatManager } from './FlowChatManager.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { type DynamicInput } from '$lib/utils'
+	import { tick, untrack } from 'svelte'
+	import type { Chat, ChatState } from 'windmill-chat'
 
 	interface Props {
-		manager: FlowChatManager
+		chat: Chat
+		chatState: ChatState
 		deploymentInProgress?: boolean
 		additionalInputsSchema?: Record<string, any>
 		path: string
+		workspace?: string
 	}
 
-	let { manager, deploymentInProgress = false, additionalInputsSchema, path }: Props = $props()
+	let {
+		chat,
+		chatState,
+		deploymentInProgress = false,
+		additionalInputsSchema,
+		path,
+		workspace = undefined
+	}: Props = $props()
+
+	let inputMessage = $state('')
+	let inputElement = $state<HTMLTextAreaElement | undefined>(undefined)
+	let messagesContainer = $state<HTMLDivElement | undefined>(undefined)
+	let loadingOlder = false
+
+	const busy = $derived(chatState.status === 'submitted' || chatState.status === 'streaming')
+	// Deriveds notify only when their value changes; `chatState` itself is a new
+	// object on every token, and following it would drag a reader who scrolled up
+	// back to the end on each one.
+	const messageCount = $derived(chatState.messages.length)
+	const conversationId = $derived(chatState.conversationId)
+	const loadingMessages = $derived(chatState.loadingMessages)
+
+	// Follow the conversation: new messages and a conversation switch scroll to the
+	// end, older pages loaded at the top keep the viewport where it was.
+	$effect(() => {
+		messageCount
+		conversationId
+		loadingMessages
+		untrack(() => {
+			if (loadingOlder) return
+			tick().then(() => {
+				if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight
+			})
+		})
+	})
+
+	async function handleScroll() {
+		if (
+			!messagesContainer ||
+			!chatState.hasMoreMessages ||
+			chatState.loadingMessages ||
+			loadingOlder
+		)
+			return
+		if (messagesContainer.scrollTop > 10) return
+		loadingOlder = true
+		const previousHeight = messagesContainer.scrollHeight
+		try {
+			await chat.loadOlderMessages()
+			await tick()
+			messagesContainer.scrollTop = messagesContainer.scrollHeight - previousHeight
+		} finally {
+			loadingOlder = false
+		}
+	}
 
 	// Derive helperScript for dynamic inputs from schema
 	const dynamicInputHelperScript = $derived.by((): DynamicInput.HelperScript | undefined => {
@@ -63,11 +120,17 @@
 		showInputsModal = false
 	}
 
-	function handleSendMessage() {
+	async function handleSendMessage() {
+		const text = inputMessage.trim()
+		if (!text || busy || deploymentInProgress) return
 		const inputs = additionalInputsSchema
 			? (loadInputsFromStorage() ?? additionalInputsValues)
 			: undefined
-		manager.sendMessage(inputs)
+		inputMessage = ''
+		// A failure is reported through the chat's `onError` and as a failed message.
+		await chat.sendMessage(text, { inputs }).catch(() => {})
+		await tick()
+		inputElement?.focus()
 	}
 
 	function openInputsModal() {
@@ -93,7 +156,7 @@
 			schema={additionalInputsSchema}
 			bind:args={additionalInputsValues}
 			helperScript={dynamicInputHelperScript}
-			workspace={manager.operatingWorkspace?.()}
+			{workspace}
 		/>
 		{#snippet actions()}
 			<Button onClick={handleModalConfirm} variant="accent">Save</Button>
@@ -104,18 +167,18 @@
 <div class="flex flex-col h-full flex-1 min-w-0">
 	<!-- Messages Container -->
 	<div
-		bind:this={manager.messagesContainer}
+		bind:this={messagesContainer}
 		class="flex-1 min-h-0 overflow-y-auto p-4 bg-background"
-		onscroll={manager.handleScroll}
+		onscroll={handleScroll}
 	>
 		{#if deploymentInProgress}
 			<Alert type="warning" title="Deployment in progress" size="xs" />
 		{/if}
-		{#if manager.isLoadingMessages}
+		{#if chatState.loadingMessages && chatState.messages.length === 0}
 			<div class="flex items-center justify-center h-full">
 				<Loader2 size={32} class="animate-spin" />
 			</div>
-		{:else if manager.messages.length === 0}
+		{:else if chatState.messages.length === 0}
 			<div class="text-center text-tertiary flex items-center justify-center flex-col h-full">
 				<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
 				<p class="text-lg font-medium">Start a conversation</p>
@@ -123,16 +186,15 @@
 			</div>
 		{:else}
 			<div class="w-full space-y-4 xl:max-w-7xl mx-auto">
-				{#each manager.messages as message (message.id)}
+				{#each chatState.messages as message (message.id)}
 					<ChatMessage
-						role={message.message_type}
+						role={message.role}
 						content={message.content}
-						loading={message.loading}
 						success={message.success}
-						stepName={message.step_name}
+						stepName={message.stepName}
 					/>
 				{/each}
-				{#if manager.isWaitingForResponse}
+				{#if busy}
 					<div class="flex items-center gap-2 text-tertiary">
 						<Loader2 size={16} class="animate-spin" />
 						<span class="text-sm">Processing...</span>
@@ -148,7 +210,7 @@
 			<div class="flex items-center justify-end w-full">
 				<div class="relative">
 					<Button
-						size="xs"
+						unifiedSize="xs"
 						variant="default"
 						startIcon={{ icon: Settings2 }}
 						title="Inputs"
@@ -164,9 +226,9 @@
 		{/if}
 		<div class="w-full" class:opacity-50={deploymentInProgress}>
 			<ChatInput
-				bind:value={manager.inputMessage}
-				bind:bindTextarea={manager.inputElement}
-				disabled={manager.isLoading || deploymentInProgress}
+				bind:value={inputMessage}
+				bind:bindTextarea={inputElement}
+				disabled={busy || deploymentInProgress}
 				onSend={handleSendMessage}
 				onKeydown={(e) => {
 					if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
@@ -174,8 +236,8 @@
 						handleSendMessage()
 					}
 				}}
-				showCancelButton={manager.isWaitingForResponse || manager.isLoading}
-				onCancel={() => manager.cancelCurrentJob()}
+				showCancelButton={busy}
+				onCancel={() => chat.stop()}
 				sendTitle={deploymentInProgress ? 'Deployment in progress' : 'Send message (Enter)'}
 			/>
 		</div>

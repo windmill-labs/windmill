@@ -185,6 +185,7 @@ await chat.sendMessage('Hello')
 | `fetch`, `storage` | Replacements for the globals, for tests and unusual runtimes. |
 | `pageSize` | Messages and conversations per page of server history. Default 50. |
 | `onFinish`, `onError` | Called when a turn has its answer, or could not run at all. |
+| `run` | Runs the flow for a turn yourself and returns the job id, instead of the deployed flow at `flowPath` (Windmill's editor chats with an undeployed flow through a preview run this way). Pass `memory_id` = the conversation id. |
 
 ## State
 
