@@ -539,6 +539,48 @@ describe('item store: one entry per key', () => {
 		expect(order).toEqual(['first', 'second'])
 		expect(other.deployed?.description).toBe('second')
 	})
+
+	it('holds an editor that opens an item while a save is moving onto it', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const order: string[] = []
+		const gate = deferred()
+		const b = { ...deployedRes, path: 'u/me/b' }
+		const temporary = newItemPath()
+		const { handle: moving } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: temporary },
+			{ workspace: 'w', path: temporary, template: b },
+			adapter({}, async (ctx) => {
+				await gate.promise
+				order.push(`moved: ${ctx.value.description}`)
+			})
+		)
+		await settle()
+		moving.value = { ...b, description: 'moving' }
+		const moved = moving.save()
+		await settle()
+
+		const { handle: opened } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
+			{ workspace: 'w', path: 'u/me/b' },
+			adapter(
+				async () => {
+					order.push('loaded')
+					return { deployed: b }
+				},
+				async (ctx) => void order.push(`saved: ${ctx.value.description}`)
+			)
+		)
+		const savedMeanwhile = opened.save()
+		await settle()
+		expect(order).toEqual([])
+
+		gate.resolve()
+		expect(await moved).toMatchObject({ ok: true, moved: true })
+		expect(await savedMeanwhile).toMatchObject({ ok: false })
+		expect(order).toEqual(['moved: moving'])
+		expect(opened.value?.description).toBe('moving')
+	})
 })
 
 describe('item store: conflicts', () => {

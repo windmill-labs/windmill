@@ -263,14 +263,17 @@ class Entry<V> {
 		return result
 	}
 
-	/** Let a write from another entry go next: `turn` resolves once the commands queued so far have
-	 *  run, and any queued after wait for `release`. */
-	hold(): { turn: Promise<unknown>; release: () => void } {
+	/** Let a move onto this key go next: resolves once the commands queued so far have run, and
+	 *  holds any queued after until `until`. */
+	hold(until: Promise<void>): Promise<unknown> {
 		const turn = this.queue
-		let release!: () => void
-		const released = new Promise<void>((r) => (release = r))
-		this.queue = turn.then(() => released)
-		return { turn, release }
+		this.queue = turn.then(() => until)
+		return turn
+	}
+
+	/** A new entry at a key a move is heading for: its commands, its first load included, wait. */
+	startAfter(move: Promise<void>): void {
+		this.queue = move
 	}
 
 	/** Count a command as started now, ahead of its turn in the queue; returns its release. */
@@ -297,6 +300,7 @@ class Entry<V> {
 			const key = this.key
 			let res: ItemLoad<V>
 			try {
+				if (this.retired) return superseded
 				if (!adapter.load) throw new Error('This item cannot be loaded')
 				res = await adapter.load(key)
 			} catch (e) {
@@ -394,12 +398,12 @@ class Entry<V> {
 				this.origin = 'deployed'
 				this.template = undefined
 				if (moved) this.moveTo(to)
+				this.reconcile()
+				await this.settleRows(moved ? [from, this.key] : [this.key])
+				return { ok: true, path: to, moved }
 			} finally {
 				claim?.release()
 			}
-			this.reconcile()
-			await this.settleRows(moved ? [from, this.key] : [this.key])
-			return { ok: true, path: to, moved }
 		}
 		if (!started) return this.run(body)
 		const result = this.queue.then(body).finally(started)
@@ -727,6 +731,8 @@ export type ItemAcquisition<V> = { handle: ItemHandle<V>; release(): void }
 
 export function createItemStore(ports: ItemRowPort) {
 	const entries = new Map<string, Entry<any>>()
+	/** Saves moving onto a key, by that key: each settles once its move is done. */
+	const moves = new Map<string, Promise<void>>()
 
 	const internals: StoreInternals = {
 		release(entry) {
@@ -747,20 +753,28 @@ export function createItemStore(ports: ItemRowPort) {
 			entries.set(to, entry)
 		},
 		/**
-		 * A save about to write the item at `key` and move onto it, while another live entry holds
-		 * that key: it goes after the commands already queued there, and holds back any queued
-		 * meanwhile, so one write to the item lands at a time and the displaced entry is idle when
-		 * retired. Not when the holder is itself waiting to move onto the claimant: each would wait
-		 * for the other.
+		 * A save about to write the item at `key` and move onto it. It goes after whatever is queued
+		 * at that key (the entry holding it, or a move already heading there), and until it is done
+		 * everything else at that key waits: that holder's later commands, an entry acquired there
+		 * meanwhile, another move. So one write to the item lands at a time, and whatever the move
+		 * retires is idle by then. Not when the holder is itself waiting to move onto the claimant:
+		 * each would wait for the other.
 		 */
 		claim(key, claimant) {
-			const holder = entries.get(keyString(key))
-			if (!holder || holder === claimant || waitsFor(holder, claimant)) return undefined
-			const { turn, release } = holder.hold()
+			const k = keyString(key)
+			const holder = entries.get(k)
+			if (holder === claimant || (holder && waitsFor(holder, claimant))) return undefined
+			let release!: () => void
+			const released = new Promise<void>((r) => (release = r))
+			const turn = holder ? holder.hold(released) : (moves.get(k) ?? Promise.resolve())
+			moves.set(k, released)
 			claimant.awaiting = key
 			return {
 				turn: turn.then(() => (claimant.awaiting = undefined)),
-				release
+				release() {
+					release()
+					if (moves.get(k) === released) moves.delete(k)
+				}
 			}
 		}
 	}
@@ -821,6 +835,8 @@ export function createItemStore(ports: ItemRowPort) {
 			entry = new Entry<V>(key, ports, internals)
 			entry.settles = adapter.settles ?? false
 			entry.absorbs = adapter.absorbs
+			const move = moves.get(k)
+			if (move) entry.startAfter(move)
 			entries.set(k, entry)
 			if (isTemporaryPath(key.path) && spec.template !== undefined) entry.initNew(spec.template)
 			else void entry.load(adapter)
