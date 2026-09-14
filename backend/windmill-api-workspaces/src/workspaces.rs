@@ -11948,7 +11948,7 @@ async fn compare_two_resource_types(
 ) -> Result<ItemComparison> {
     // Get resource type from each workspace
     let source_resource_type = sqlx::query!(
-        "SELECT schema, description, format_extension, is_fileset, display_name
+        "SELECT schema, description, format_extension, is_fileset
          FROM resource_type
          WHERE workspace_id = $1 AND name = $2",
         source_workspace_id,
@@ -11958,7 +11958,7 @@ async fn compare_two_resource_types(
     .await?;
 
     let target_resource_type = sqlx::query!(
-        "SELECT schema, description, format_extension, is_fileset, display_name
+        "SELECT schema, description, format_extension, is_fileset
          FROM resource_type
          WHERE workspace_id = $1 AND name = $2",
         fork_workspace_id,
@@ -11975,7 +11975,6 @@ async fn compare_two_resource_types(
             || source.description != target.description
             || source.format_extension != target.format_extension
             || source.is_fileset != target.is_fileset
-            || source.display_name != target.display_name
         {
             has_changes = true;
         }
