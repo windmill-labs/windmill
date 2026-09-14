@@ -24,8 +24,10 @@ import { workspaceRootId } from './sessionScope.svelte'
 import { clearSessionRecovered } from './sessionRecoveryNotice.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
+import { scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
+import { markSessionDirty, markSessionRemoved } from './sessionMirrorSignal'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -444,6 +446,7 @@ async function deleteSessionRow(db: IDBPDatabase<SessionSchema>, id: string): Pr
 async function putSessionRow(db: IDBPDatabase<SessionSchema>, s: Session): Promise<void> {
 	if (deletedSessionIds.has(s.id)) return
 	await db.put('sessions', s)
+	markSessionDirty(s.id)
 }
 
 // Write-behind a single session record. Transient sessions are in-memory only
@@ -775,6 +778,15 @@ export function findEmptyLandingSession(): Session | undefined {
 	)
 }
 
+// Session names are a per-browser counter (`session-N`) that the sessions page puts in
+// its URL, so a new or restored record takes the number after the highest in use.
+function nextSessionNumber(sessions: Session[]): number {
+	const numbers = sessions
+		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
+		.map((n) => (n ? parseInt(n, 10) : 0))
+	return (numbers.length ? Math.max(...numbers) : 0) + 1
+}
+
 export function createSession(): Session {
 	// Reuse an existing untouched draft from the active family rather than pile a
 	// blank entry on every `+`, so several pending sessions can still be built up
@@ -795,10 +807,7 @@ export function createSession(): Session {
 		return reusable
 	}
 	sessionState.sessions = sessionState.sessions.filter((s) => !isDiscardableDraft(s))
-	const existingNumbers = sessionState.sessions
-		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
-		.map((n) => (n ? parseInt(n, 10) : 0))
-	const next = (existingNumbers.length ? Math.max(...existingNumbers) : 0) + 1
+	const next = nextSessionNumber(sessionState.sessions)
 	// Start in the workspace you're in. The one exception: a root you can't
 	// deploy to (locked, no bypass) steers to its dev, since a session there
 	// couldn't edit anything. The picker lets you switch.
@@ -1144,7 +1153,61 @@ export function deleteSession(id: string) {
 	// GC any linked files and artifacts persisted for this session.
 	void deleteItemsForSession(id)
 	void deleteArtifactsForSession(id)
+	// Only a delete the user asked for takes the backup with it: the workspace-lifecycle
+	// removals above keep theirs, so a session dropped by a wrong reconcile can be restored.
+	markSessionRemoved(id, s.workspace_id)
 	logFeatureUsage('ai_session', 'deleted', { entityId: id, workspace: s.workspace_id })
+}
+
+// --- Session backup support (sessionMirror) ---
+
+export function isSessionTombstoned(id: string): boolean {
+	return deletedSessionIds.has(id)
+}
+
+// Every stored record of the named user, or undefined when the store is unavailable or
+// already serves someone else: the backup captures its user up front and must not follow
+// an in-place account switch.
+export async function readStoredSessions(email: string): Promise<Session[] | undefined> {
+	if (!BROWSER) return undefined
+	const db = await sessionsDb.whenReady()
+	if (!db || db.name !== scopedKeyFor(SESSIONS_DB, email)) return undefined
+	try {
+		return await db.getAll('sessions')
+	} catch (e) {
+		console.error('Failed to read sessions from IndexedDB', e)
+		return undefined
+	}
+}
+
+// Add restored records for sessions this browser does not have, and re-hydrate the list.
+// A record that exists, or was deleted here, is left alone: the local copy is the newer
+// one. Returns the ids written.
+export async function importSessions(records: Session[], email: string): Promise<string[]> {
+	if (!BROWSER) return []
+	const db = await sessionsDb.whenReady()
+	if (!db || db.name !== scopedKeyFor(SESSIONS_DB, email)) return []
+	const imported: string[] = []
+	try {
+		const tx = db.transaction('sessions', 'readwrite')
+		const existing = new Set((await tx.store.getAllKeys()).map(String))
+		let next = nextSessionNumber([...(await tx.store.getAll()), ...sessionState.sessions])
+		for (const r of records) {
+			if (existing.has(r.id) || deletedSessionIds.has(r.id)) continue
+			const record: Session = { ...r, name: `session-${next++}` }
+			delete record.transient
+			delete record.workspace_root_id
+			ensureSessionRootId(record)
+			await tx.store.put(record)
+			imported.push(record.id)
+		}
+		await tx.done
+	} catch (e) {
+		console.error('Failed to import sessions', e)
+		return []
+	}
+	if (imported.length > 0) await hydrateSessions()
+	return imported
 }
 
 export function setSessionChatId(sessionId: string, chatId: string) {
@@ -1172,6 +1235,7 @@ async function patchStoredSessionChatId(s: Session, chatId: string): Promise<voi
 			stored.chatId = chatId
 			await tx.store.put(stored)
 			await tx.done
+			markSessionDirty(s.id)
 			return
 		}
 		await tx.done

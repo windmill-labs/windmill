@@ -2,6 +2,8 @@
 // active chat's rotation, so chatId-keying would drop artifacts on each new conversation.
 import { type DBSchema as IDBSchema, type IDBPObjectStore, type IDBPTransaction } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
+import { scopedKeyFor } from '$lib/userScopedStorage'
+import { markSessionDirty } from '$lib/components/sessions/sessionMirrorSignal'
 
 export type ArtifactKind = 'md' | 'html'
 
@@ -89,9 +91,11 @@ interface ArtifactsSchema extends IDBSchema {
 	}
 }
 
+const ARTIFACTS_DB = 'copilot-artifacts'
+
 // User-scoped like the chat-history store these are keyed against: no cross-user
 // co-residency on a shared browser.
-const dbh = userScopedDb<ArtifactsSchema>('copilot-artifacts', {
+const dbh = userScopedDb<ArtifactsSchema>(ARTIFACTS_DB, {
 	version: 2,
 	// Runs for a fresh database and for the v1 upgrade alike, so create each store only
 	// when it is missing.
@@ -118,8 +122,53 @@ export async function putArtifact(artifact: PersistedArtifact): Promise<void> {
 		// A rejected write (most likely QuotaExceededError) leaves the artifact usable for the
 		// session but unpersisted — degrade like the reads rather than throwing at the caller.
 		await db.put('items', artifact)
+		markSessionDirty(artifact.sessionId)
 	} catch (err) {
 		console.error('Could not persist artifact', err)
+	}
+}
+
+/** A session's artifacts with their history, or undefined when the store is unavailable
+ * or no longer the named user's (see `readStoredSessions`). */
+export async function readSessionArtifacts(
+	sessionId: string,
+	email: string
+): Promise<{ items: PersistedArtifact[]; versions: ArtifactVersion[] } | undefined> {
+	const db = await getDB()
+	if (!db || db.name !== scopedKeyFor(ARTIFACTS_DB, email)) return undefined
+	try {
+		const items = await db.getAllFromIndex('items', 'by-session', sessionId)
+		const versions = (
+			await Promise.all(items.map((i) => db.getAllFromIndex('versions', 'by-artifact', i.id)))
+		).flat()
+		return { items, versions }
+	} catch (err) {
+		console.error('Could not read artifacts', err)
+		return undefined
+	}
+}
+
+/** Write restored artifacts and snapshots, leaving any that already exist alone. */
+export async function importArtifacts(
+	items: PersistedArtifact[],
+	versions: ArtifactVersion[],
+	email: string
+): Promise<void> {
+	const db = await getDB()
+	if (!db || db.name !== scopedKeyFor(ARTIFACTS_DB, email)) return
+	try {
+		const tx = db.transaction(['items', 'versions'], 'readwrite')
+		const itemStore = tx.objectStore('items')
+		const versionStore = tx.objectStore('versions')
+		for (const item of items) {
+			if ((await itemStore.getKey(item.id)) === undefined) await itemStore.put(item)
+		}
+		for (const version of versions) {
+			if ((await versionStore.getKey(version.key)) === undefined) await versionStore.put(version)
+		}
+		await tx.done
+	} catch (err) {
+		console.error('Could not import artifacts', err)
 	}
 }
 
@@ -273,7 +322,9 @@ export async function mutateArtifact(
 		reportFailure = false
 		abort()
 	}
-	return { outcome: await settled, artifact: edit.artifact }
+	const outcome = await settled
+	if (outcome === 'saved') markSessionDirty(edit.artifact.sessionId)
+	return { outcome, artifact: edit.artifact }
 }
 
 /**
@@ -342,9 +393,12 @@ export async function deleteArtifact(id: string): Promise<void> {
 	if (!db) return
 	try {
 		const tx = db.transaction(['items', 'versions'], 'readwrite')
-		await tx.objectStore('items').delete(id)
+		const items = tx.objectStore('items')
+		const sessionId = (await items.get(id))?.sessionId
+		await items.delete(id)
 		await deleteVersionsIn(tx.objectStore('versions'), id)
 		await tx.done
+		if (sessionId) markSessionDirty(sessionId)
 	} catch (err) {
 		console.error('Could not delete artifact', err)
 	}

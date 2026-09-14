@@ -12896,6 +12896,130 @@ paths:
                     type: boolean
                     description: more buckets matched than were returned, so summing them under-reports
 
+  /w/{workspace}/ai/sessions/list:
+    get:
+      summary: list the calling user's AI session backups in the workspace object storage
+      operationId: listAiSessionBackups
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: backups, newest first; `enabled` is false when the workspace has no storage for them
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - enabled
+                  - sessions
+                properties:
+                  enabled:
+                    type: boolean
+                  sessions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AISessionBackupListing"
+
+  /w/{workspace}/ai/sessions/pull:
+    post:
+      summary: fetch whole AI session backups
+      operationId: pullAiSessionBackups
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ids
+              properties:
+                ids:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: the backups found; `deferred` lists ids that did not fit the response budget
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - enabled
+                  - sessions
+                  - deferred
+                properties:
+                  enabled:
+                    type: boolean
+                  sessions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AISessionBackup"
+                  deferred:
+                    type: array
+                    items:
+                      type: string
+
+  /w/{workspace}/ai/sessions/push:
+    post:
+      summary: write changed pieces of AI sessions to their backups, and remove deleted ones
+      operationId: pushAiSessionBackups
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - owner
+              properties:
+                owner:
+                  type: string
+                  description: the email the push was prepared for; refused with a 409 when it is not the caller's
+                sessions:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/AISessionBackupPush"
+                removed:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: one result per session written or removed, in request order
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - enabled
+                  - results
+                properties:
+                  enabled:
+                    type: boolean
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - id
+                      properties:
+                        id:
+                          type: string
+                        error:
+                          type: string
+
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
       summary: get raw app data by
@@ -27862,6 +27986,112 @@ components:
             fixes) from the workspace UI. Read from the workspace's own settings even when
             the providers served fall back to the instance config. AI agent steps and the
             AI sandbox in flows are unaffected.
+        sessions_storage_disabled:
+          type: boolean
+          description: >-
+            Stops browsers from backing their AI sessions up to the workspace's object
+            storage. Read from the workspace's own settings like `copilot_disabled`.
+
+    AISessionBackupListing:
+      type: object
+      required:
+        - id
+        - updated_at
+      properties:
+        id:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+
+    AISessionBackupImage:
+      type: object
+      required:
+        - chat_id
+        - id
+        - data_url
+      properties:
+        chat_id:
+          type: string
+        id:
+          type: string
+        data_url:
+          type: string
+
+    AISessionBackupChat:
+      type: object
+      required:
+        - id
+        - record
+      properties:
+        id:
+          type: string
+        record:
+          type: object
+          additionalProperties: true
+
+    AISessionBackup:
+      type: object
+      required:
+        - id
+        - head
+        - chats
+        - images
+      properties:
+        id:
+          type: string
+        head:
+          type: object
+          additionalProperties: true
+        chats:
+          type: array
+          items:
+            $ref: "#/components/schemas/AISessionBackupChat"
+        images:
+          type: array
+          items:
+            $ref: "#/components/schemas/AISessionBackupImage"
+        artifacts:
+          type: object
+          additionalProperties: true
+
+    AISessionBackupPush:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        head:
+          type: object
+          additionalProperties: true
+        chats:
+          type: array
+          items:
+            $ref: "#/components/schemas/AISessionBackupChat"
+        images:
+          type: array
+          items:
+            $ref: "#/components/schemas/AISessionBackupImage"
+        artifacts:
+          type: object
+          additionalProperties: true
+        delete_chats:
+          type: array
+          items:
+            type: string
+        delete_images:
+          type: array
+          items:
+            type: object
+            required:
+              - chat_id
+              - id
+            properties:
+              chat_id:
+                type: string
+              id:
+                type: string
 
     FreeTierInfo:
       type: object
