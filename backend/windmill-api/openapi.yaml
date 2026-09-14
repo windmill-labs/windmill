@@ -293,6 +293,108 @@ paths:
                 items:
                   $ref: "#/components/schemas/AuditLog"
 
+  /w/{workspace}/trash/list:
+    get:
+      summary: list the workspace trashbin (requires admin privilege)
+      operationId: listTrash
+      tags:
+        - trash
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: item_kind
+          in: query
+          description: >
+            only return items of this kind: script, flow, app, schedule, variable,
+            resource, or a trigger kind such as http_trigger
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: which page to return (starts at 0, default 0)
+          schema:
+            type: integer
+        - name: per_page
+          in: query
+          description: number of items to return for a given page (default 100, max 1000)
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: the trashed items, most recently deleted first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TrashItem"
+
+  /w/{workspace}/trash/get/{id}:
+    get:
+      summary: get a trashed item with the data it was deleted with (requires admin privilege)
+      operationId: getTrashItem
+      tags:
+        - trash
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: the trashed item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrashItemWithData"
+
+  /w/{workspace}/trash/restore/{id}:
+    post:
+      summary: restore a trashed item to its path (requires admin privilege)
+      operationId: restoreTrashItem
+      tags:
+        - trash
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: item restored
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/trash/delete/{id}:
+    delete:
+      summary: permanently delete a trashed item (requires admin privilege)
+      operationId: permanentlyDeleteTrashItem
+      tags:
+        - trash
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: item permanently deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/trash/empty:
+    post:
+      summary: permanently delete every item in the workspace trashbin (requires admin privilege)
+      operationId: emptyTrash
+      tags:
+        - trash
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: trashbin emptied
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /auth/login:
     post:
       security: []
@@ -405,6 +507,28 @@ paths:
                 $ref: "#/components/schemas/PasswordResetResponse"
         "400":
           description: SMTP not configured
+
+  /auth/login_link/{token}:
+    get:
+      security: []
+      summary: consume a single-use login link, set the session cookie and redirect
+      operationId: consumeLoginLink
+      tags:
+        - user
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: rd
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "302":
+          description: redirected to the post-login destination, or to /user/login_link_expired when the link is used, expired or unknown
 
   /auth/reset_password:
     post:
@@ -623,9 +747,14 @@ paths:
                 skip_email:
                   type: boolean
                   description: Skip sending email notifications to the user
+                login_type:
+                  type: string
+                  description: >-
+                    password (default, requires `password`), pending_oauth (no credential
+                    until the first OAuth login proving the address adopts the account), or
+                    a configured OAuth login client key
               required:
                 - email
-                - password
                 - super_admin
       responses:
         "201":
@@ -6383,6 +6512,172 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /users/login_links:
+    post:
+      summary: mint a single-use login link for an account (require superadmin)
+      operationId: createLoginLink
+      tags:
+        - user
+      requestBody:
+        description: target account and link options
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                expires_in_s:
+                  type: integer
+                  description: link lifetime in seconds, at most 900 (default 600)
+                rd:
+                  type: string
+                  description: same-origin path the browser lands on after login (default /user/workspaces)
+                require_login_type:
+                  type: string
+                  description: >-
+                    mint only while the account still has this login type (for example
+                    pending_oauth), so a link stops working once the owner has set a password
+                    or signed in with a provider
+      responses:
+        "201":
+          description: login link minted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - url
+                  - expires_at
+                properties:
+                  url:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+        "409":
+          description: the account does not have the required login type
+
+  /users/cloud_trial_offer:
+    post:
+      summary: record or consume a pre-approved self-hosted trial offer for a cloud account (require superadmin, cloud only)
+      operationId: setCloudTrialOffer
+      tags:
+        - user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                consumed:
+                  type: boolean
+                  description: mark the offer used (a trial or subscription now exists) instead of recording it
+      responses:
+        "200":
+          description: offer recorded or consumed
+          content:
+            text/plain:
+              schema:
+                type: string
+    get:
+      summary: whether the signed-in account holds an unconsumed pre-approved self-hosted trial offer (cloud only)
+      operationId: getCloudTrialOffer
+      tags:
+        - user
+      responses:
+        "200":
+          description: offer state
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - offered
+                properties:
+                  offered:
+                    type: boolean
+
+  /users/cloud_trial_offer/go:
+    post:
+      summary: start the signed-in account's pre-approved self-hosted trial on the customer portal (cloud only). A POST answered as JSON rather than a redirecting GET, so a cross-site navigation cannot start it; the browser navigates to `location` itself
+      operationId: goCloudTrialOffer
+      tags:
+        - user
+      responses:
+        "200":
+          description: where to go — the customer portal signed in with the trial being started, or the portal home with the reason the offer could not be used
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - location
+                properties:
+                  location:
+                    type: string
+                  reason:
+                    type: string
+                    description: present when the portal refused (e.g. the account already has a subscription); the offer is then spent
+        "403":
+          description: called with a job token
+        "404":
+          description: no offer for this account
+
+  /users/onboarding_profile:
+    post:
+      summary: record the invite context an account's onboarding tailors itself from (require superadmin, cloud only)
+      operationId: setOnboardingProfile
+      tags:
+        - user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - profile
+              properties:
+                email:
+                  type: string
+                profile:
+                  type: object
+                  description: free-form context from the invite, every key optional. The frontend reads `touch_point` (answers onboarding's source question), `company` and `workspace_name` (prefill the first workspace's name), `hub_projects` (slugs surfaced first on an empty workspace), `tools` (integrations, used to pick hub projects when none are named) and `starter_prompts` (`[{label, prompt}]`, replacing the home page's example prompts); unknown keys are kept and ignored
+      responses:
+        "200":
+          description: profile recorded
+          content:
+            text/plain:
+              schema:
+                type: string
+    get:
+      summary: the invite context recorded for the signed-in account, if any (cloud only)
+      operationId: getOnboardingProfile
+      tags:
+        - user
+      responses:
+        "200":
+          description: the profile, or null when none was recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile:
+                    type: object
+                    nullable: true
+                    additionalProperties: true
 
   /users/tokens/delete/{token_prefix}:
     delete:
@@ -13019,6 +13314,134 @@ paths:
                           type: string
                         error:
                           type: string
+
+  /w/{workspace}/ai/shared_artifacts/share:
+    post:
+      summary: share an AI session artifact with the workspace
+      description: >
+        Stores a read-only copy that any member of the workspace can open by id. Sharing the
+        same artifact again updates that copy, keeps its id, and restarts its retention window.
+      operationId: shareAiArtifact
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - artifact_id
+                - name
+                - kind
+                - version
+                - content
+              properties:
+                artifact_id:
+                  type: string
+                  description: the artifact's id in the author's session
+                name:
+                  type: string
+                kind:
+                  type: string
+                  enum: [md, html]
+                version:
+                  type: integer
+                  minimum: 1
+                content:
+                  type: string
+      responses:
+        "200":
+          description: the shared copy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedAiArtifactInfo"
+
+  /w/{workspace}/ai/shared_artifacts/status:
+    get:
+      summary: get the calling user's share of one of their AI session artifacts
+      operationId: getAiArtifactShareStatus
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: artifact_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the live share, if any, and how long shares last
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - retention_secs
+                properties:
+                  retention_secs:
+                    type: integer
+                  share:
+                    $ref: "#/components/schemas/SharedAiArtifactInfo"
+
+  /w/{workspace}/ai/shared_artifacts/get/{id}:
+    get:
+      summary: get a shared AI session artifact
+      operationId: getSharedAiArtifact
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the shared artifact
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SharedAiArtifactInfo"
+                  - type: object
+                    required:
+                      - content
+                      - can_unshare
+                    properties:
+                      content:
+                        type: string
+                      can_unshare:
+                        type: boolean
+                        description: whether the caller authored the share or is a workspace admin
+
+  /w/{workspace}/ai/shared_artifacts/delete/{id}:
+    delete:
+      summary: stop sharing an AI session artifact
+      operationId: unshareAiArtifact
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: share deleted
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
@@ -28191,6 +28614,36 @@ components:
         - output_tokens
         - requests
 
+    SharedAiArtifactInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [md, html]
+        version:
+          type: integer
+        created_by:
+          type: string
+        shared_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - kind
+        - version
+        - created_by
+        - shared_at
+        - expires_at
+
     InstanceAIProviderSummary:
       type: object
       properties:
@@ -30051,6 +30504,51 @@ components:
         - username
         - operation
         - action_kind
+
+    TrashItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        workspace_id:
+          type: string
+        item_kind:
+          type: string
+          description: script, flow, app, schedule, variable, resource, or a trigger kind such as http_trigger
+        item_path:
+          type: string
+        deleted_by:
+          type: string
+        deleted_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          description: when the item is permanently deleted unless restored first
+      required:
+        - id
+        - workspace_id
+        - item_kind
+        - item_path
+        - deleted_by
+        - deleted_at
+        - expires_at
+
+    TrashItemWithData:
+      allOf:
+        - $ref: "#/components/schemas/TrashItem"
+        - type: object
+          properties:
+            item_data:
+              type: object
+              additionalProperties: true
+              description: >
+                the deleted rows as they were stored; the shape depends on the kind, and a
+                secret variable's value stays encrypted
+          required:
+            - item_data
 
     MainArgSignature:
       type: object
@@ -33932,7 +34430,7 @@ components:
           type: string
         login_type:
           type: string
-          enum: ["password", "github", "service_account"]
+          enum: ["password", "github", "service_account", "pending_oauth"]
         super_admin:
           type: boolean
         devops:
@@ -34224,7 +34722,8 @@ components:
             carrying their own identity restricted to these scopes, handed to
             the app bundle so `windmill-client` calls run as the viewer. Must
             be a subset of the server's curated allowlist (jobs:run, jobs:read,
-            users:read, resources:read, variables:read).
+            users:read, resources:read, variables:read, flow_conversations:read,
+            flow_conversations:write).
 
     ListableApp:
       type: object

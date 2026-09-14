@@ -522,6 +522,10 @@ pub fn workspaced_service() -> Router {
                 // could make the server allocate and parse an arbitrarily large one.
                 // Sized well above a full batch of the shape below.
                 .layer(DefaultBodyLimit::max(AI_USAGE_BODY_LIMIT)),
+        )
+        .nest(
+            "/shared_artifacts",
+            crate::ai_shared_artifacts::workspaced_service(),
         );
 
     #[cfg(feature = "bedrock")]
