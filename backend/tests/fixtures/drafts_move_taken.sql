@@ -15,3 +15,11 @@ INSERT INTO draft (workspace_id, path, typ, value, email)
 VALUES ('test-workspace', 'u/test-user/mvtaken_b', 'script',
         '{"path": "u/test-user/mvtaken_b", "summary": "B", "content": ""}',
         'test@windmill.dev');
+
+-- A draft-only classic app and a draft-only raw app of the same owner. They share
+-- the `app` table, so one occupies the other's path.
+INSERT INTO draft (workspace_id, path, typ, value, email) VALUES
+    ('test-workspace', 'u/test-user/mvtaken_app', 'app',
+     '{"summary": "classic", "value": {}}', 'test@windmill.dev'),
+    ('test-workspace', 'u/test-user/mvtaken_raw', 'raw_app',
+     '{"summary": "raw", "files": {}}', 'test@windmill.dev');

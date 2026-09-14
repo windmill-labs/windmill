@@ -849,11 +849,13 @@ function createRuntime(session: Session): SessionRuntime {
 					path: result.path,
 					custom_path: draftValue?.custom_path ?? result.custom_path,
 					draft_path: draftValue?.draft_path,
-					// The draft's own base, else the head this checkout forks from (the
-					// standalone editor's loader does the same).
-					parent_version:
-						draftValue?.parent_version ??
-						(Array.isArray(result.versions) ? result.versions[result.versions.length - 1] : undefined)
+					// Only a fresh checkout forks from the head; a draft keeps its own base,
+					// unknown included, or it would read as up to date. See loadScript.
+					parent_version: draftValue
+						? draftValue.parent_version
+						: Array.isArray(result.versions)
+							? result.versions[result.versions.length - 1]
+							: undefined
 				}
 				// Seed the per-tab last_sync from the server draft's timestamp so
 				// later saves attach a matching last_sync and the server can reject

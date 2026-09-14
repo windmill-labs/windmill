@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $3\n                        AND typ = $2 AND email = $4) as \"at_target!\",\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5\n                        AND typ = $2 AND email = $4\n                        AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0\n                       ) as \"poisoned!\" ",
+  "query": "SELECT\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $3\n                        AND typ::text = ANY($6::text[]) AND email = $4) as \"at_target!\",\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5\n                        AND typ = $2 AND email = $4\n                        AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0\n                       ) as \"poisoned!\" ",
   "describe": {
     "columns": [
       {
@@ -54,7 +54,8 @@
         },
         "Text",
         "Text",
-        "Text"
+        "Text",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -62,5 +63,5 @@
       null
     ]
   },
-  "hash": "25ce9aff8844fbfc1a9e16ac7c4b9d0c37c27da9f9768f6520ac3c96b5765840"
+  "hash": "9b574bf93759d822066ac1629744a8df58840c463d8aa412871bd9774d978bae"
 }

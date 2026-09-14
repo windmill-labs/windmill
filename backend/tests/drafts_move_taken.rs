@@ -73,3 +73,45 @@ async fn test_rename_onto_a_draft_is_refused(db: Pool<Postgres>) -> anyhow::Resu
 
     Ok(())
 }
+
+/// A classic app and a raw app deploy into the same table, so a draft-only move onto
+/// the other kind's draft must be refused: deploying either path afterwards deletes
+/// the caller's drafts of both kinds, taking the loser's item with it.
+#[sqlx::test(fixtures("base", "drafts_move_taken"))]
+async fn test_draft_move_refuses_the_other_app_kind(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/drafts/move/raw_app/u/test-user/mvtaken_raw"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({ "new_path": "u/test-user/mvtaken_app" }))
+        .send()
+        .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(status, 400, "move onto a classic app draft was allowed: {body}");
+    assert!(body.contains("already have a draft"), "unexpected refusal: {body}");
+
+    // Both drafts are untouched.
+    let list: Vec<Value> = reqwest::Client::new()
+        .get(format!(
+            "http://localhost:{port}/api/w/test-workspace/drafts/list"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .send()
+        .await?
+        .json()
+        .await?;
+    let mut kinds = list
+        .iter()
+        .filter(|d| matches!(d["kind"].as_str(), Some("app") | Some("raw_app")))
+        .filter_map(|d| d["kind"].as_str())
+        .collect::<Vec<_>>();
+    kinds.sort();
+    assert_eq!(kinds, vec!["app", "raw_app"], "{list:?}");
+    Ok(())
+}

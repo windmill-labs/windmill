@@ -679,6 +679,17 @@ async fn move_draft(
         }
     }
 
+    // A classic app and a raw app share the `app` table, so a draft of either kind
+    // occupies the destination for both: deploying there deletes the caller's drafts
+    // of both kinds, taking the item that lost the collision with it.
+    let collision_typs: Vec<&str> = match kind {
+        UserDraftItemKind::App | UserDraftItemKind::RawApp => vec![
+            UserDraftItemKind::App.as_str(),
+            UserDraftItemKind::RawApp.as_str(),
+        ],
+        _ => vec![kind.as_str()],
+    };
+
     // One transaction with the move record, so a save addressed to the old path
     // never sees the row gone without knowing where it went.
     let mut tx = db.begin().await?;
@@ -714,7 +725,8 @@ async fn move_draft(
              -- row and the guard would refuse the update against itself.
              AND ($2 = $3 OR NOT EXISTS (
                  SELECT 1 FROM draft o
-                 WHERE o.workspace_id = $1 AND o.path = $3 AND o.typ = $4 AND o.email = $6
+                 WHERE o.workspace_id = $1 AND o.path = $3 AND o.typ::text = ANY($9::text[])
+                   AND o.email = $6
              ))
            RETURNING id"#,
         &w_id,
@@ -725,6 +737,7 @@ async fn move_draft(
         &authed.email,
         req.summary,
         mirror_field,
+        &collision_typs as &[&str],
     )
     .fetch_optional(&mut *tx)
     .await?;
@@ -745,7 +758,7 @@ async fn move_draft(
         let row = sqlx::query!(
             r#"SELECT
                  EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $3
-                        AND typ = $2 AND email = $4) as "at_target!",
+                        AND typ::text = ANY($6::text[]) AND email = $4) as "at_target!",
                  EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5
                         AND typ = $2 AND email = $4
                         AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0
@@ -755,6 +768,7 @@ async fn move_draft(
             new_path,
             &authed.email,
             path,
+            &collision_typs as &[&str],
         )
         .fetch_one(&db)
         .await?;
