@@ -370,7 +370,8 @@
 			// Clone datatables BEFORE creating the workspace fork
 			if (forkDatatableSection) {
 				const queue = forkDatatableSection.buildCloneQueue(prefixed_id)
-				if (queue.length > 0 && forkDatatableSection.startCloning(queue)) {
+				if (queue.length > 0) {
+					forkDatatableSection.startCloning(queue)
 					return
 				}
 			}

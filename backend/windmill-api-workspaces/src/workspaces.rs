@@ -3400,6 +3400,10 @@ pub(crate) async fn record_datatable_clone(
 /// one an admin made with data for a fork of their own — and govern rows it was never given. And a
 /// copy made before roles were turned on holds no grant for any role, so linking it to the source's
 /// roles would admit tenants Postgres then denies everything.
+///
+/// Only the role mode is compared. The grants in the copy are those of the moment it was made, like
+/// its rows: a grant changed on the source afterwards is not carried into it, before the claim or
+/// after.
 async fn claim_datatable_clone(
     tx: &mut Transaction<'_, Postgres>,
     dbname: &str,
@@ -8056,12 +8060,31 @@ async fn apply_forked_datatable(
     // Held until the fork commits, as the permissions save holds it: roles turned on or off in
     // between would link the copy to roles its grants were not replayed for, or leave one that
     // was unlinked.
+    let settings_rows = |governing: &GoverningDatatable| {
+        let mut ids = vec![
+            governing.workspace_id.clone(),
+            governing.governing_workspace_id().to_string(),
+        ];
+        ids.sort();
+        ids.dedup();
+        ids
+    };
+    let locked = settings_rows(&ensure_datatable_is_clonable(db, parent_w_id, &fdt.name).await?);
+    sqlx::query(
+        "SELECT 1 FROM workspace_settings WHERE workspace_id = ANY($1)
+         ORDER BY workspace_id FOR UPDATE",
+    )
+    .bind(&locked)
+    .fetch_all(&mut **tx)
+    .await?;
     let governing = ensure_datatable_is_clonable(db, parent_w_id, &fdt.name).await?;
-    sqlx::query("SELECT 1 FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE")
-        .bind(governing.governing_workspace_id())
-        .fetch_optional(&mut **tx)
-        .await?;
-    let governing = ensure_datatable_is_clonable(db, parent_w_id, &fdt.name).await?;
+    if settings_rows(&governing) != locked {
+        return Err(Error::BadRequest(format!(
+            "Data table '{}' was pointed at another data table while this fork was created; \
+             create the fork again",
+            fdt.name
+        )));
+    }
     claim_datatable_clone(
         tx,
         &fdt.new_dbname,

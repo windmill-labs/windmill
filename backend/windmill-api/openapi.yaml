@@ -33043,7 +33043,7 @@ components:
 
     DatatableAclInfo:
       type: object
-      required: [owner, roles, editable, supports_maintain, dbname, grants, children]
+      required: [owner, roles, editable, clone, supports_maintain, dbname, grants, children]
       properties:
         owner:
           type: string

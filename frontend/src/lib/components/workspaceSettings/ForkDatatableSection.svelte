@@ -92,32 +92,13 @@
 
 	let completedJobs: DatatableCloneJob[] = $state([])
 
-	/** Returns false when every job of `queue` was already cloned, and there is nothing to run. */
-	export function startCloning(queue: DatatableCloneJob[]): boolean {
-		// A copy made for this same fork is still waiting for it when the fork request failed and is
-		// retried; cloning it again would collide with the database already there.
-		const alreadyCloned = (job: DatatableCloneJob) =>
-			completedJobs.some(
-				(done) =>
-					done.name === job.name &&
-					done._newDbName === job._newDbName &&
-					done.behavior === job.behavior
-			)
-		completedJobs = completedJobs.filter((done) =>
-			queue.some(
-				(job) =>
-					job.name === done.name &&
-					job._newDbName === done._newDbName &&
-					job.behavior === done.behavior
-			)
-		)
-		cloneQueue = queue.filter((job) => !alreadyCloned(job))
-		if (cloneQueue.length === 0) {
-			return false
-		}
+	// Every job runs again when the fork request is retried: the server answers a copy it already
+	// made as done, and replaces one that no longer matches the data table.
+	export function startCloning(queue: DatatableCloneJob[]) {
+		completedJobs = []
+		cloneQueue = queue
 		currentCloneJob = cloneQueue[0]
 		cloneModalOpen = true
-		return true
 	}
 
 	export function getCompletedCloneJobs(): DatatableCloneJob[] {
