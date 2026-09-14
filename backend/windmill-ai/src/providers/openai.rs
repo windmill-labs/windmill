@@ -258,15 +258,20 @@ pub fn remember_reasoning_summary_unavailable(credentials: &ProviderCredentials,
 
 /// Whether a rejected request was refused over its reasoning summary, e.g. `Your
 /// organization must be verified to generate reasoning summaries` (param
-/// `reasoning.summary`).
+/// `reasoning.summary`). An OpenAI-kind resource can also point at a gateway that validates
+/// the body strictly and names only the unknown `summary` property.
 pub fn rejects_reasoning_summary(status: u16, body: &str) -> bool {
     if !matches!(status, 400 | 403) {
         return false;
     }
     let body = body.to_lowercase();
+    let unknown_field = body.contains("additional properties are not allowed")
+        || body.contains("unrecognized request argument")
+        || body.contains("extra inputs are not permitted");
     body.contains("reasoning.summary")
         || body.contains("verified to generate reasoning summar")
         || body.contains("verified to stream reasoning summar")
+        || (unknown_field && body.contains("summary"))
 }
 
 #[derive(Serialize)]
@@ -775,6 +780,10 @@ mod tests {
         let unverified = r#"{"error":{"message":"Your organization must be verified to generate reasoning summaries. Please go to: https://platform.openai.com/settings/organization/general and click on Verify Organization.","type":"invalid_request_error","param":"reasoning.summary","code":"unsupported_value"}}"#;
         assert!(rejects_reasoning_summary(400, unverified));
         assert!(!rejects_reasoning_summary(500, unverified));
+        assert!(rejects_reasoning_summary(
+            400,
+            r#"{"detail":"Additional properties are not allowed ('summary' was unexpected)"}"#
+        ));
         assert!(!rejects_reasoning_summary(
             400,
             r#"{"error":{"message":"Invalid 'prompt_cache_key': string too long","param":"prompt_cache_key"}}"#
