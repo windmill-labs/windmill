@@ -30,8 +30,8 @@ use windmill_common::datatable_roles::{read_role_catalog, ADMIN_DATATABLE_ROLE};
 use windmill_common::error::{Error, JsonResult, Result};
 use windmill_common::workspaces::{
     can_use_datatable_role_in_governing_workspace, resolve_governing_datatable,
-    DataTableCatalogResourceType, DataTablePermissions, DataTableRoleTenants, DatatableAccess,
-    GoverningDatatable, DATATABLE_TENANT_WILDCARD,
+    DataTableCatalogResourceType, DataTablePermissions, DataTableReference, DataTableRoleTenants,
+    DatatableAccess, GoverningDatatable, DATATABLE_TENANT_WILDCARD,
 };
 use windmill_common::DB;
 
@@ -72,7 +72,10 @@ struct DatatablePermissionsInfo {
     /// The workspace whose entry this is, when it is not the one asking.
     #[serde(skip_serializing_if = "Option::is_none")]
     governing_workspace_id: Option<String>,
-    /// Whether this caller may save. False from a fork, and for a non-admin.
+    /// For a clone, the data table whose roles it takes. Not editable from anywhere.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    clone_of: Option<DataTableReference>,
+    /// Whether this caller may save. False from a fork, on a clone, and for a non-admin.
     editable: bool,
     /// Every instance role the instance defines, to pick from.
     available_roles: Vec<AvailableRole>,
@@ -117,12 +120,22 @@ struct UsableDatatableRoles {
 /// Administering a data table — its permissions, its migrations that declare no role, its exports
 /// — is for the admins of the workspace that governs it. A fork can use the data table; it never
 /// administers it.
+///
+/// A clone is refused whoever asks: its roles are the data table it was cloned from, changed there,
+/// and its grants stay as they were copied.
 pub(crate) async fn ensure_governs_datatable(
     db: &DB,
     authed: &ApiAuthed,
     w_id: &str,
     governing: &GoverningDatatable,
 ) -> Result<()> {
+    if let Some(governor) = governing.governor.as_ref() {
+        return Err(Error::BadRequest(format!(
+            "Data table '{}' is a clone of data table '{}' of workspace '{}', which decides its \
+             roles; change them there. Its grants stay as they were copied.",
+            governing.name, governor.datatable, governor.workspace_id
+        )));
+    }
     if governing.workspace_id == w_id && authed.is_admin {
         return Ok(());
     }
@@ -162,7 +175,7 @@ pub(crate) async fn ensure_reaches_datatable(
         }
         if can_use_datatable_role_in_governing_workspace(
             db,
-            &governing.workspace_id,
+            governing.governing_workspace_id(),
             w_id,
             tenants,
             &access,
@@ -271,8 +284,9 @@ async fn get_datatable_permissions(
             .map(|p| p.default_role().to_string())
             .unwrap_or_else(|| ADMIN_DATATABLE_ROLE.to_string()),
         roles,
-        governing_workspace_id: (governing.workspace_id != w_id)
-            .then(|| governing.workspace_id.clone()),
+        governing_workspace_id: (governing.governing_workspace_id() != w_id)
+            .then(|| governing.governing_workspace_id().to_string()),
+        clone_of: governing.governor.clone(),
         editable,
         // The instance's role names are only of use to someone who can pick from them, and
         // enumerating them is the first step of anything that wants to name one it shouldn't.
@@ -460,22 +474,36 @@ async fn set_datatable_permissions(
 /// replication stream reads every row whatever the roles grant, so a data table carries one or the
 /// other; the listener side refuses a data table already under roles.
 async fn ensure_no_streams_reaching(db: &DB, governing: &GoverningDatatable) -> Result<()> {
-    // Every workspace holding an entry that resolves here, under the name it calls it: the
-    // governing one, plus each fork pointing at it. A fork's trigger names its own local entry, so
-    // looking in the governing workspace alone would miss every stream a fork opened.
+    // Every workspace holding an entry that takes its roles from here, under the name it calls it:
+    // the governing one, each fork pointing at it, each clone governed by it, and each fork pointing
+    // at one of those clones. A fork's trigger names its own local entry, so looking in the
+    // governing workspace alone would miss every stream a fork opened — and a clone's stream reads
+    // the copied rows.
     let mut reached = vec![(governing.workspace_id.clone(), governing.name.clone())];
-    let pointers = sqlx::query!(
-        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "datatable!"
-           FROM workspace_settings ws
-           CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
-           WHERE dt.value->'reference'->>'workspace_id' = $1
-             AND dt.value->'reference'->>'datatable' = $2"#,
-        &governing.workspace_id,
-        &governing.name,
-    )
-    .fetch_all(db)
-    .await?;
-    reached.extend(pointers.into_iter().map(|r| (r.workspace_id, r.datatable)));
+    let mut next = 0;
+    while next < reached.len() {
+        let (w_id, name) = reached[next].clone();
+        next += 1;
+        let linked = sqlx::query_as::<_, (String, String)>(
+            r#"SELECT ws.workspace_id, dt.key
+               FROM workspace_settings ws
+               CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
+               WHERE EXISTS (
+                   SELECT 1 FROM (VALUES ('reference'), ('governed_by')) k(link)
+                   WHERE dt.value->k.link->>'workspace_id' = $1
+                     AND dt.value->k.link->>'datatable' = $2
+               )"#,
+        )
+        .bind(&w_id)
+        .bind(&name)
+        .fetch_all(db)
+        .await?;
+        for entry in linked {
+            if !reached.contains(&entry) {
+                reached.push(entry);
+            }
+        }
+    }
 
     let mut streams = Vec::new();
     for (w_id, name) in reached {
@@ -551,7 +579,7 @@ async fn list_usable_datatable_roles(
         };
         if can_use_datatable_role_in_governing_workspace(
             &db,
-            &governing.workspace_id,
+            governing.governing_workspace_id(),
             &w_id,
             tenants,
             &access,

@@ -247,6 +247,8 @@ pub struct DatatableAclInfo {
     /// Whether this caller may plan and apply changes: they administer the data table, on an
     /// edition that has the planner.
     pub editable: bool,
+    /// Whether the data table is a clone, whose grants stay as they were copied from its source.
+    pub clone: bool,
     /// Whether the server is Postgres 17 or later, which added the `MAINTAIN` table privilege.
     pub supports_maintain: bool,
     /// The database the target lives in, which no target carries itself.
@@ -328,13 +330,40 @@ async fn connect_as_admin_unchecked(
     let pg: PgDatabase = serde_json::from_value(resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {e}")))?;
     let dbname = pg.dbname.clone();
-    let (client, mut connection) = pg.connect(Some(db)).await?;
+    let (client, notices) = connect_with_notices(db, &pg).await?;
+    Ok((client, notices, dbname))
+}
+
+/// A connection to `pg`, and the notices Postgres sends on it — which is where a grant or revoke
+/// that changed nothing is reported ([`execute_acl_statements`]).
+pub(crate) async fn connect_with_notices(
+    db: &DB,
+    pg: &PgDatabase,
+) -> Result<(tokio_postgres::Client, mpsc::UnboundedReceiver<DbError>)> {
+    let (client, connection) = pg.connect(Some(db)).await?;
+    Ok((
+        client,
+        drive_with_notices(connection, windmill_common::TokioPgConnection::poll_message),
+    ))
+}
+
+type PollMessage<C> =
+    fn(
+        &mut C,
+        &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<std::result::Result<AsyncMessage, tokio_postgres::Error>>>;
+
+/// Drive `connection` in the background with `poll`, forwarding its notices.
+pub(crate) fn drive_with_notices<C: Send + 'static>(
+    mut connection: C,
+    poll: PollMessage<C>,
+) -> mpsc::UnboundedReceiver<DbError> {
     // Unbounded: the driver must never wait on the receiver, which only drains once the statement
     // the driver is carrying has completed.
     let (notices_tx, notices) = mpsc::unbounded_channel();
     tokio::spawn(async move {
         loop {
-            match std::future::poll_fn(|cx| connection.poll_message(cx)).await {
+            match std::future::poll_fn(|cx| poll(&mut connection, cx)).await {
                 Some(Ok(AsyncMessage::Notice(notice))) => {
                     let _ = notices_tx.send(notice);
                 }
@@ -347,7 +376,38 @@ async fn connect_as_admin_unchecked(
             }
         }
     });
-    Ok((client, notices, dbname))
+    notices
+}
+
+/// Run `statements` in order on `tx`, failing on the first that errors or that Postgres only warns
+/// about. A privilege the connection cannot pass on is a warning to Postgres (`01007` / `01006`),
+/// which then carries on having changed nothing; returning drops the transaction, rolling back
+/// everything before it.
+pub(crate) async fn execute_acl_statements(
+    tx: &tokio_postgres::Transaction<'_>,
+    notices: &mut mpsc::UnboundedReceiver<DbError>,
+    statements: &[String],
+) -> Result<()> {
+    while notices.try_recv().is_ok() {}
+    for statement in statements {
+        tx.batch_execute(statement).await.map_err(|e| {
+            Error::ExecutionErr(format!(
+                "Failed to run `{statement}`: {}",
+                pg_error_message(&e)
+            ))
+        })?;
+        while let Ok(notice) = notices.try_recv() {
+            if *notice.code() == SqlState::WARNING_PRIVILEGE_NOT_GRANTED
+                || *notice.code() == SqlState::WARNING_PRIVILEGE_NOT_REVOKED
+            {
+                return Err(Error::ExecutionErr(format!(
+                    "`{statement}` did not take effect ({}), so nothing was applied",
+                    notice.message()
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// An object whose ownership follows the schema's.
@@ -392,10 +452,12 @@ macro_rules! schema_owned_objects {
                           AND x.refobjsubid <> 0)))"
     };
 }
+#[allow(unused_imports)]
+pub(crate) use schema_owned_objects;
 
 /// The keyword `ALTER ... OWNER TO` takes for a kind of object, as `pg_identify_object` names the
 /// kind. A kind missing here is refused rather than skipped, which would leave it behind.
-fn owned_keyword(kind: &str) -> Option<&'static str> {
+pub(crate) fn owned_keyword(kind: &str) -> Option<&'static str> {
     Some(match kind {
         "table" => "TABLE",
         "view" => "VIEW",
@@ -1047,6 +1109,7 @@ async fn get_datatable_acl(
         owner: role_name_of(&owner),
         roles,
         editable,
+        clone: governing.governor.is_some(),
         supports_maintain,
         dbname,
         grants,
@@ -1545,27 +1608,7 @@ async fn apply_datatable_acl(
             pg_error_message(&e)
         ))
     })?;
-    for statement in &plan.statements {
-        pg_tx.batch_execute(statement).await.map_err(|e| {
-            Error::ExecutionErr(format!(
-                "Failed to run `{statement}`: {}",
-                pg_error_message(&e)
-            ))
-        })?;
-        // A privilege the connection cannot pass on is only a warning to Postgres, which then
-        // carries on having changed nothing. Returning drops the transaction, rolling back
-        // everything before it.
-        while let Ok(notice) = notices.try_recv() {
-            if *notice.code() == SqlState::WARNING_PRIVILEGE_NOT_GRANTED
-                || *notice.code() == SqlState::WARNING_PRIVILEGE_NOT_REVOKED
-            {
-                return Err(Error::ExecutionErr(format!(
-                    "`{statement}` did not take effect ({}), so nothing was applied",
-                    notice.message()
-                )));
-            }
-        }
-    }
+    execute_acl_statements(&pg_tx, &mut notices, &plan.statements).await?;
 
     // A schema's objects were listed before the transaction opened; one committed since would stay
     // with its old owner. One created while this transaction is still open can still slip past, as

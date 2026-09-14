@@ -495,24 +495,38 @@ pub(crate) async fn change_workspace_id(
     // A fork's data table entry names the workspace that governs it by id, so the rename has to
     // follow there too — anywhere, not just in the reparented children: a detached workspace can
     // point at this one without being its fork. Left behind, the pointer resolves to the archived
-    // shell and every job through it stops.
+    // shell and every job through it stops. A clone's `governed_by` names it the same way.
     info!("Re-pointing data table references to the new workspace id");
     sqlx::query!(
         r#"UPDATE workspace_settings ws
            SET datatable = (
                SELECT jsonb_set(ws.datatable, '{datatables}', jsonb_object_agg(
                    dt.key,
-                   CASE WHEN dt.value->'reference'->>'workspace_id' = $2
-                       THEN jsonb_set(dt.value, '{reference,workspace_id}', to_jsonb($1::text))
-                       ELSE dt.value END
+                   (SELECT CASE WHEN r.v->'governed_by'->>'workspace_id' = $2
+                               THEN jsonb_set(r.v, '{governed_by,workspace_id}', to_jsonb($1::text))
+                               ELSE r.v END
+                    FROM (SELECT CASE WHEN dt.value->'reference'->>'workspace_id' = $2
+                                     THEN jsonb_set(dt.value, '{reference,workspace_id}', to_jsonb($1::text))
+                                     ELSE dt.value END AS v) r)
                ))
                FROM jsonb_each(ws.datatable->'datatables') dt
            )
            WHERE jsonb_typeof(ws.datatable->'datatables') = 'object'
-             AND ws.datatable::text LIKE '%"reference"%'"#,
+             AND (ws.datatable::text LIKE '%"reference"%'
+                  OR ws.datatable::text LIKE '%"governed_by"%')"#,
         &rw.new_id,
         &old_id,
     )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "UPDATE datatable_clone SET
+             source_workspace_id = CASE WHEN source_workspace_id = $2 THEN $1 ELSE source_workspace_id END,
+             claimed_by_workspace_id = CASE WHEN claimed_by_workspace_id = $2 THEN $1 ELSE claimed_by_workspace_id END
+         WHERE source_workspace_id = $2 OR claimed_by_workspace_id = $2",
+    )
+    .bind(&rw.new_id)
+    .bind(&old_id)
     .execute(&mut *tx)
     .await?;
 
@@ -1397,6 +1411,7 @@ pub async fn drop_forked_datatable_databases(
         serde_json::from_value(datatable_config).unwrap_or_default();
 
     let mut errors: Vec<String> = Vec::new();
+    let mut dropped: Vec<String> = Vec::new();
 
     for dt_name in &req.datatable_names {
         // Only a clone is droppable, and a clone is terminal by construction: a kept data table is
@@ -1420,11 +1435,12 @@ pub async fn drop_forked_datatable_databases(
                 ));
                 continue;
             }
-            if let Err(e) = windmill_common::drop_custom_instance_database(&db, db_to_drop).await {
-                errors.push(format!(
+            match windmill_common::drop_custom_instance_database(&db, db_to_drop).await {
+                Ok(()) => dropped.push(db_to_drop.clone()),
+                Err(e) => errors.push(format!(
                     "Could not drop instance database '{}' for datatable://{}: {}",
                     db_to_drop, dt_name, e
-                ));
+                )),
             }
         } else {
             let fork_pg = match crate::workspaces::resolve_pg_source_checked(
@@ -1485,14 +1501,15 @@ pub async fn drop_forked_datatable_databases(
             match parent_pg.connect(Some(&db)).await {
                 Ok((client, connection)) => {
                     let join_handle = tokio::spawn(async move { connection.await });
-                    if let Err(e) = client
+                    match client
                         .execute(&format!("DROP DATABASE \"{}\"", db_to_drop), &[])
                         .await
                     {
-                        errors.push(format!(
+                        Ok(_) => dropped.push(db_to_drop.clone()),
+                        Err(e) => errors.push(format!(
                             "Could not drop database '{}' for datatable://{}: {}",
                             db_to_drop, dt_name, e
-                        ));
+                        )),
                     }
                     drop(client);
                     let _ = windmill_common::shutdown_pg_connection(join_handle).await;
@@ -1506,6 +1523,11 @@ pub async fn drop_forked_datatable_databases(
             }
         }
     }
+
+    sqlx::query("DELETE FROM datatable_clone WHERE dbname = ANY($1)")
+        .bind(&dropped)
+        .execute(&db)
+        .await?;
 
     Ok(Json(errors))
 }

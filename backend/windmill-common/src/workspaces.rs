@@ -1297,6 +1297,12 @@ pub struct DataTable {
     /// nothing local for a fork admin to widen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reference: Option<DataTableReference>,
+    /// Set on a *clone* — a terminal entry whose database was copied from the entry this names. The
+    /// copy holds that entry's rows, so who may connect as which role stays that entry's decision:
+    /// the clone carries no `permissions` of its own and is governed like a pointer, while
+    /// connecting to its own database.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub governed_by: Option<DataTableReference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forked_from: Option<DataTableForkedFrom>,
     /// Whether the SQL-migrations feature is opted in for this data table.
@@ -1355,9 +1361,16 @@ pub const DATATABLE_TENANT_WILDCARD: &str = "*";
 /// enough to survive a fork of a fork.
 const DATATABLE_REFERENCE_MAX_DEPTH: usize = 20;
 
-/// Exactly one of `database` and `reference` must be set. Called wherever an entry is persisted,
-/// so nothing downstream has to handle an entry that is both or neither.
+/// Exactly one of `database` and `reference` must be set, and a clone's `governed_by` leaves no
+/// `permissions` beside it. Called wherever an entry is persisted, so nothing downstream has to
+/// handle an entry that is both or neither, or a clone with a decision of its own.
 pub fn validate_datatable_shape(name: &str, dt: &DataTable) -> Result<()> {
+    if dt.governed_by.is_some() && (dt.database.is_none() || dt.permissions.is_some()) {
+        return Err(Error::BadRequest(format!(
+            "Data table '{name}' is a clone, which owns a database and takes its roles from the \
+             data table it was cloned from"
+        )));
+    }
     match (&dt.database, &dt.reference) {
         (Some(_), None) | (None, Some(_)) => Ok(()),
         (Some(_), Some(_)) => Err(Error::BadRequest(format!(
@@ -1445,23 +1458,28 @@ pub async fn read_datatable_entry(db: &DB, w_id: &str, name: &str) -> Result<Dat
     Ok(serde_json::from_value::<DataTable>(datatable.clone())?)
 }
 
-/// The terminal entry a reference chain lands on: the workspace that governs the data table, the
-/// entry name there, and the entry itself. A terminal entry resolves to itself.
+/// The terminal entry a reference chain lands on, and what governs it: the workspace and name of
+/// the entry that owns the database, the entry itself, and — for a clone — the entry its
+/// `governed_by` chain lands on. A terminal entry that is not a clone resolves to itself and
+/// governs itself.
 ///
-/// Every decision downstream — which database to connect to, whose `permissions` apply, whose
-/// members tenants are evaluated against, who may administer it — is taken on this, never on the
-/// entry the caller named.
+/// Every decision downstream is taken on this, never on the entry the caller named. Which database
+/// to connect to comes from `workspace_id` / `name` / `datatable.database`; whose `permissions`
+/// apply (already in `datatable.permissions`), whose members tenants are evaluated against and who
+/// may administer it come from [`GoverningDatatable::governing_workspace_id`].
 ///
 /// Authorization: resolving deliberately crosses into the governing workspace, so it answers for a
 /// workspace the caller may not belong to and checks nothing itself. It is the input to the
 /// checks, not one of them: callers MUST pass what it returns to
 /// [`can_use_datatable_role_in_governing_workspace`] or [`ensure_datatable_admin_access`] before
-/// acting on it, and MUST NOT return its `permissions` or `workspace_id` to a caller from
+/// acting on it, and MUST NOT return its `permissions` or workspace ids to a caller from
 /// elsewhere without gating on the answer.
 pub struct GoverningDatatable {
     pub workspace_id: String,
     pub name: String,
     pub datatable: DataTable,
+    /// For a clone, the entry whose `permissions` govern it. `None` when the entry governs itself.
+    pub governor: Option<DataTableReference>,
 }
 
 impl GoverningDatatable {
@@ -1473,6 +1491,13 @@ impl GoverningDatatable {
             .as_ref()
             .is_some_and(|d| d.resource_type == DataTableCatalogResourceType::Instance)
     }
+
+    /// The workspace whose admins administer the data table and whose members its tenants are.
+    pub fn governing_workspace_id(&self) -> &str {
+        self.governor
+            .as_ref()
+            .map_or(&self.workspace_id, |g| &g.workspace_id)
+    }
 }
 
 pub async fn resolve_governing_datatable(
@@ -1483,6 +1508,9 @@ pub async fn resolve_governing_datatable(
     let mut workspace_id = w_id.to_string();
     let mut name = name.to_string();
     let mut hops = 0;
+    // The clone a `governed_by` chain started from: it keeps its database, and takes the
+    // `permissions` of wherever the chain lands.
+    let mut clone: Option<(String, String, DataTable)> = None;
     for _ in 0..DATATABLE_REFERENCE_MAX_DEPTH {
         let datatable = read_datatable_entry(db, &workspace_id, &name)
             .await
@@ -1501,13 +1529,32 @@ pub async fn resolve_governing_datatable(
             })?;
         hops += 1;
         validate_datatable_shape(&name, &datatable)?;
-        match &datatable.reference {
-            None => return Ok(GoverningDatatable { workspace_id, name, datatable }),
-            Some(reference) => {
-                workspace_id = reference.workspace_id.clone();
-                name = reference.datatable.clone();
+        let next = match (&datatable.reference, &datatable.governed_by) {
+            (Some(reference), _) => reference.clone(),
+            (None, Some(governed_by)) => {
+                let governed_by = governed_by.clone();
+                if clone.is_none() {
+                    clone = Some((workspace_id.clone(), name.clone(), datatable));
+                }
+                governed_by
             }
-        }
+            (None, None) => {
+                return Ok(match clone {
+                    None => GoverningDatatable { workspace_id, name, datatable, governor: None },
+                    Some((clone_w_id, clone_name, mut clone_datatable)) => {
+                        clone_datatable.permissions = datatable.permissions;
+                        GoverningDatatable {
+                            workspace_id: clone_w_id,
+                            name: clone_name,
+                            datatable: clone_datatable,
+                            governor: Some(DataTableReference { workspace_id, datatable: name }),
+                        }
+                    }
+                });
+            }
+        };
+        workspace_id = next.workspace_id;
+        name = next.datatable;
     }
     Err(Error::BadRequest(format!(
         "Data table '{name}' points at another data table through more than \
@@ -1792,7 +1839,7 @@ pub async fn get_datatable_resource_from_db(
 
     if !can_use_datatable_role_in_governing_workspace(
         db,
-        &governing.workspace_id,
+        governing.governing_workspace_id(),
         w_id,
         tenants,
         &access,
@@ -1863,7 +1910,7 @@ pub async fn ensure_can_use_datatable_role(
     };
     if can_use_datatable_role_in_governing_workspace(
         db,
-        &governing.workspace_id,
+        governing.governing_workspace_id(),
         w_id,
         tenants,
         access,
@@ -1905,7 +1952,7 @@ pub async fn ensure_datatable_admin_access(
         .unwrap_or_default();
     if can_use_datatable_role_in_governing_workspace(
         db,
-        &governing.workspace_id,
+        governing.governing_workspace_id(),
         w_id,
         &admin,
         access,
@@ -1917,7 +1964,7 @@ pub async fn ensure_datatable_admin_access(
         Err(Error::NotAuthorized(format!(
             "Data table '{name}' is under roles; this reaches the whole database, so it is for \
              the admins of workspace '{}', which governs it.",
-            governing.workspace_id
+            governing.governing_workspace_id()
         )))
     }
 }
@@ -3411,6 +3458,7 @@ mod tests {
                 resource_path: "dt_main".to_string(),
             }),
             reference: None,
+            governed_by: None,
             forked_from: None,
             migrations_enabled: None,
             permissions: None,

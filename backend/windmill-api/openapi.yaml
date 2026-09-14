@@ -5785,6 +5785,45 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/clone_pg_database:
+    post:
+      summary: copy a datatable into a new database for a fork, with its owners and grants
+      description: |
+        Creates `target_dbname`, restores the datatable into it, and for a datatable under roles
+        replays the source's owners, grants and default privileges. Anything that fails after the
+        database is created drops it again. The fork request then takes the copy by name.
+      operationId: clonePgDatabase
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, target_dbname, fork_behavior]
+              properties:
+                source:
+                  type: string
+                  description: "The datatable to copy: 'datatable://name'"
+                target_dbname:
+                  type: string
+                  description: "Name of the database to create for the copy"
+                fork_behavior:
+                  type: string
+                  enum:
+                    - schema_only
+                    - schema_and_data
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/drop_forked_datatable_databases:
     post:
       summary: drop forked datatable databases
@@ -32733,6 +32772,15 @@ components:
             $ref: "#/components/schemas/DatatableRoleTenants"
         governing_workspace_id:
           type: string
+        clone_of:
+          type: object
+          description: for a clone, the data table whose roles it takes
+          required: [workspace_id, datatable]
+          properties:
+            workspace_id:
+              type: string
+            datatable:
+              type: string
         editable:
           type: boolean
         available_roles:
@@ -32983,6 +33031,9 @@ components:
         editable:
           type: boolean
           description: whether the caller may plan and apply changes
+        clone:
+          type: boolean
+          description: whether this is a clone, whose grants stay as they were copied
         supports_maintain:
           type: boolean
           description: whether the server is Postgres 17+, which added the MAINTAIN table privilege
@@ -35064,6 +35115,17 @@ components:
                 description: >-
                   The workspace and data table that govern this one. Server-owned: written by fork
                   creation, and carried across a settings save whatever the request says.
+                type: object
+                required: [workspace_id, datatable]
+                properties:
+                  workspace_id:
+                    type: string
+                  datatable:
+                    type: string
+              governed_by:
+                description: >-
+                  On a clone, the data table it was copied from, whose roles it takes. Server-owned
+                  like `reference`.
                 type: object
                 required: [workspace_id, datatable]
                 properties:

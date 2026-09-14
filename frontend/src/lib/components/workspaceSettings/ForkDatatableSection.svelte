@@ -71,11 +71,7 @@
 
 				const steps: ForkStep[] = [
 					{
-						label: `CREATE DATABASE "${newDbName}"`,
-						status: 'pending'
-					},
-					{
-						label: `pg_dump → pg_import (${behavior === 'schema_only' ? 'schema only' : 'schema + data'})`,
+						label: `Clone into "${newDbName}" (${behavior === 'schema_only' ? 'schema only' : 'schema + data'})`,
 						status: 'pending'
 					}
 				]
@@ -96,62 +92,56 @@
 
 	let completedJobs: DatatableCloneJob[] = $state([])
 
-	export function startCloning(queue: DatatableCloneJob[]) {
-		completedJobs = []
-		cloneQueue = queue
+	/** Returns false when every job of `queue` was already cloned, and there is nothing to run. */
+	export function startCloning(queue: DatatableCloneJob[]): boolean {
+		// A copy made for this same fork is still waiting for it when the fork request failed and is
+		// retried; cloning it again would collide with the database already there.
+		const alreadyCloned = (job: DatatableCloneJob) =>
+			completedJobs.some(
+				(done) =>
+					done.name === job.name &&
+					done._newDbName === job._newDbName &&
+					done.behavior === job.behavior
+			)
+		completedJobs = completedJobs.filter((done) =>
+			queue.some((job) => job.name === done.name && job._newDbName === done._newDbName)
+		)
+		cloneQueue = queue.filter((job) => !alreadyCloned(job))
+		if (cloneQueue.length === 0) {
+			return false
+		}
 		currentCloneJob = cloneQueue[0]
 		cloneModalOpen = true
+		return true
 	}
 
 	export function getCompletedCloneJobs(): DatatableCloneJob[] {
 		return completedJobs
 	}
 
-	async function executeCloneJob(job: DatatableCloneJob) {
+	async function executeCloneJob(job: DatatableCloneJob): Promise<boolean> {
 		cloneRunning = true
-		let stepIdx = 0
-
-		// Step 1: Create the database
-		job.steps[stepIdx].status = 'running'
+		const step = job.steps[0]
+		step.status = 'running'
+		step.error = undefined
 		try {
-			await WorkspaceService.createPgDatabase({
+			await WorkspaceService.clonePgDatabase({
 				workspace: job._sourceWorkspace,
 				requestBody: {
 					source: `datatable://${job.name}`,
-					target_dbname: job._newDbName
-				}
-			})
-			job.steps[stepIdx].status = 'done'
-		} catch (e: any) {
-			job.steps[stepIdx].status = 'error'
-			job.steps[stepIdx].error = e?.body ?? e?.message ?? String(e)
-			cloneRunning = false
-			return
-		}
-		stepIdx++
-
-		// Step 2: Import data
-		job.steps[stepIdx].status = 'running'
-		try {
-			await WorkspaceService.importPgDatabase({
-				workspace: job._sourceWorkspace,
-				requestBody: {
-					source: `datatable://${job.name}`,
-					target: `datatable://${job.name}`,
-					target_dbname_override: job._newDbName,
+					target_dbname: job._newDbName,
 					fork_behavior: job.behavior
 				}
 			})
-			job.steps[stepIdx].status = 'done'
+			step.status = 'done'
+			return true
 		} catch (e: any) {
-			job.steps[stepIdx].status = 'error'
-			job.steps[stepIdx].error = e?.body ?? e?.message ?? String(e)
+			step.status = 'error'
+			step.error = e?.body ?? e?.message ?? String(e)
+			return false
+		} finally {
 			cloneRunning = false
-			return
 		}
-		stepIdx++
-
-		cloneRunning = false
 	}
 
 	function advanceCloneQueue() {
@@ -209,8 +199,11 @@
 		open={cloneModalOpen}
 		loading={cloneRunning}
 		onConfirmed={async () => {
-			await executeCloneJob(currentCloneJob!)
-			advanceCloneQueue()
+			// A failed clone leaves no database behind, so the error stays on screen and confirming
+			// again retries it.
+			if (await executeCloneJob(currentCloneJob!)) {
+				advanceCloneQueue()
+			}
 		}}
 		onCanceled={() => {
 			cloneModalOpen = false
@@ -233,9 +226,9 @@
 
 		{#if currentCloneJob.resourceType === 'instance'}
 			<p class="text-xs text-secondary mt-2">
-				This will run <code
-					>CREATE DATABASE {currentCloneJob.steps[0]?.label.match(/"([^"]+)"/)?.[1] ?? ''}</code
-				> on the Windmill PostgreSQL instance.
+				This will run <code>CREATE DATABASE {currentCloneJob._newDbName}</code> on the Windmill PostgreSQL
+				instance. A data table under roles keeps its owners and grants in the copy, and its roles stay
+				decided where they are decided today.
 			</p>
 		{:else}
 			<p class="text-xs text-secondary mt-2">

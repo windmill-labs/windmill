@@ -287,32 +287,43 @@ async function createWorkspaceFork(
 
         try {
           log.info(
-            colors.blue(`  Creating database "${newDbName}" for datatable "${dt.name}"...`)
-          );
-
-          await wmill.createPgDatabase({
-            workspace: workspace.workspaceId,
-            requestBody: {
-              source: `datatable://${dt.name}`,
-              target_dbname: newDbName,
-            },
-          });
-
-          log.info(
             colors.blue(
-              `  Importing ${dtBehavior === "schema_only" ? "schema" : "schema + data"}...`
+              `  Cloning datatable "${dt.name}" (${dtBehavior === "schema_only" ? "schema" : "schema + data"}) into "${newDbName}"...`
             )
           );
 
-          await wmill.importPgDatabase({
-            workspace: workspace.workspaceId,
-            requestBody: {
-              source: `datatable://${dt.name}`,
-              target: `datatable://${dt.name}`,
-              target_dbname_override: newDbName,
-              fork_behavior: dtBehavior as "schema_only" | "schema_and_data",
-            },
-          });
+          const forkBehavior = dtBehavior as "schema_only" | "schema_and_data";
+          try {
+            await wmill.clonePgDatabase({
+              workspace: workspace.workspaceId,
+              requestBody: {
+                source: `datatable://${dt.name}`,
+                target_dbname: newDbName,
+                fork_behavior: forkBehavior,
+              },
+            });
+          } catch (e: any) {
+            // A server predating the single clone request: create, then import.
+            if (e?.status !== 404) {
+              throw e;
+            }
+            await wmill.createPgDatabase({
+              workspace: workspace.workspaceId,
+              requestBody: {
+                source: `datatable://${dt.name}`,
+                target_dbname: newDbName,
+              },
+            });
+            await wmill.importPgDatabase({
+              workspace: workspace.workspaceId,
+              requestBody: {
+                source: `datatable://${dt.name}`,
+                target: `datatable://${dt.name}`,
+                target_dbname_override: newDbName,
+                fork_behavior: forkBehavior,
+              },
+            });
+          }
 
           log.info(colors.green(`  ✓ Datatable "${dt.name}" cloned.`));
           forkedDatatables.push({ name: dt.name, new_dbname: newDbName });

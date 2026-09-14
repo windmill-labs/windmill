@@ -193,6 +193,12 @@
 						data table backed by that database can use one. This one is backed by a PostgreSQL
 						resource — grant access on that server directly.
 					</Alert>
+				{:else if info?.clone_of}
+					<Alert type="info" title="Governed by {info.clone_of.workspace_id}" size="xs">
+						This data table is a clone of <span class="font-mono">{info.clone_of.datatable}</span>
+						in workspace <span class="font-mono">{info.clone_of.workspace_id}</span>, so it takes
+						its roles from there. You are evaluated as a member of that workspace.
+					</Alert>
 				{:else if governing}
 					<Alert type="info" title="Governed by {governing}" size="xs">
 						This data table points at the one in workspace <span class="font-mono">{governing}</span
@@ -227,7 +233,8 @@
 				/>
 
 				{#if permissioned}
-					{#if availableRoles.length === 0}
+					<!-- The catalog is only sent to someone who may pick from it. -->
+					{#if editable && availableRoles.length === 0}
 						<Alert type="warning" title="No role defined on this instance" size="xs">
 							Only <span class="font-mono">admin</span> can be used until a superadmin adds a data table
 							role in the data table settings page.
