@@ -630,7 +630,7 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
     );
     assert_eq!(
         policy["on_behalf_of_email"], "group-wm_deployers@windmill.dev",
-        "app policy.on_behalf_of_email gets folder default email"
+        "the stored address is derived from that principal"
     );
 
     // 7b. Admin, non-matching path — acting user

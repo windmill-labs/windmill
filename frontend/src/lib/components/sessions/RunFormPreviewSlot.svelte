@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { setContext, untrack } from 'svelte'
-	import { Code } from 'lucide-svelte'
+	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import RunArgsFormDisplay from '$lib/components/copilot/chat/RunArgsFormDisplay.svelte'
 	import { isActiveRunForm, type ToolDisplayMessage } from '$lib/components/copilot/chat/shared'
 	import type { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -43,7 +43,9 @@
 		<!-- No rule under it, as ArtifactViewer's header has none: the fields scroll under a
 		     fade, and a border would draw that same boundary a second time. -->
 		<div class="flex items-center gap-2 p-3">
-			<Code class="h-4 w-4 shrink-0 text-accent" />
+			<div class="shrink-0">
+				<RowIcon kind={message.runForm.runnableKind ?? 'script'} size={16} />
+			</div>
 			<div class="min-w-0 flex-1">
 				<p class="truncate text-xs font-semibold text-emphasis">
 					Run {message.runForm.summary || message.runForm.path}

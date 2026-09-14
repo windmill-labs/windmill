@@ -22,6 +22,7 @@
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import { GitSyncService, ResourceService, VariableService } from '$lib/gen'
 
@@ -56,6 +57,10 @@
 	const validation = $derived(idx !== null ? gitSyncContext.getValidation(idx) : null)
 	const gitSyncTestJob = $derived(idx !== null ? gitSyncContext.gitSyncTestJobs?.[idx] : null)
 	let confirmingDelete = $state(false)
+
+	function pullStatusDate(status: { at: number }): string {
+		return new Date(status.at * 1000).toISOString()
+	}
 
 	// Enable/disable automatic repo → workspace pulls, managing the optional
 	// auto_pull object without binding into a possibly-undefined value.
@@ -919,10 +924,18 @@
 											{#if repo.auto_pull.last_pull_status.success}
 												Last synced{repo.auto_pull.last_pull_status.synced_sha
 													? ` to ${repo.auto_pull.last_pull_status.synced_sha.slice(0, 7)}`
-													: ''}.
+													: ''}
+												<TimeAgo
+													date={pullStatusDate(repo.auto_pull.last_pull_status)}
+													noSeconds
+												/>.
 											{:else}
 												<span class="text-red-600 dark:text-red-400">
-													Last sync failed{repo.auto_pull.last_pull_status.error
+													Last sync failed
+													<TimeAgo
+														date={pullStatusDate(repo.auto_pull.last_pull_status)}
+														noSeconds
+													/>{repo.auto_pull.last_pull_status.error
 														? `: ${repo.auto_pull.last_pull_status.error}`
 														: ''}.
 												</span>
@@ -1000,13 +1013,21 @@
 											{#if repo.auto_pull.last_pull_status.success}
 												Last synced{repo.auto_pull.last_pull_status.synced_sha
 													? ` to ${repo.auto_pull.last_pull_status.synced_sha.slice(0, 7)}`
-													: ''}.
+													: ''}
+												<TimeAgo
+													date={pullStatusDate(repo.auto_pull.last_pull_status)}
+													noSeconds
+												/>.
 												{viaWebhook
 													? ' Syncing instantly via webhook.'
 													: ' Checking the tracked branch about every minute.'}
 											{:else}
 												<span class="text-red-600 dark:text-red-400">
-													Last sync failed{repo.auto_pull.last_pull_status.error
+													Last sync failed
+													<TimeAgo
+														date={pullStatusDate(repo.auto_pull.last_pull_status)}
+														noSeconds
+													/>{repo.auto_pull.last_pull_status.error
 														? `: ${repo.auto_pull.last_pull_status.error}`
 														: ''}.
 												</span>

@@ -491,6 +491,13 @@ pub struct S3Key {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Policy {
     pub on_behalf_of: Option<String>,
+    /// The address `on_behalf_of` resolves to. Every write stores what the principal resolves
+    /// to, so it is not taken from the request except when a client names only the address —
+    /// which is how a cross-workspace deploy carries an identity — and it is rejected when the
+    /// two disagree. Optional: a policy without it executes by deriving from the principal, so
+    /// removing it is a change of default rather than of behavior — see
+    /// `docs/app-policy-email-removal.md`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
     //paths:
     // - script/<path>
@@ -2461,31 +2468,37 @@ async fn create_app_internal<'a>(
     }
     // Resolve the on-behalf-of defaults on the (non-RLS) pool *before* opening
     // the RLS transaction below: doing these lookups mid-transaction would hold
-    // a second simultaneous connection while `tx` is still checked out.
+    // a second simultaneous connection while `tx` is still checked out. The race this
+    // leaves with a concurrent rename or removal, including a freed username later
+    // rebinding the stored principal, is known and accepted: see `resolve_on_behalf_of`.
     let should_preserve = app.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed)
-        && app.policy.on_behalf_of.is_some();
+        && (app.policy.on_behalf_of.is_some() || app.policy.on_behalf_of_email.is_some());
 
-    if !should_preserve {
+    let mut preserved_on_behalf_of: Option<String> = None;
+    if should_preserve {
+        app.policy.on_behalf_of = windmill_common::resolve_on_behalf_of(
+            app.policy.on_behalf_of_email.as_deref(),
+            app.policy.on_behalf_of.as_deref(),
+            true,
+            &authed,
+            w_id,
+            &db,
+        )
+        .await?;
+    } else {
         let folder_default = if windmill_common::can_preserve_on_behalf_of(&authed) {
             windmill_common::folders::resolve_folder_default_permissioned_as(&db, w_id, &app.path)
                 .await?
         } else {
             None
         };
-        if let Some(default_permissioned_as) = folder_default {
-            let default_email = windmill_common::users::get_email_from_permissioned_as(
-                &default_permissioned_as,
-                w_id,
-                &db,
-            )
-            .await?;
-            app.policy.on_behalf_of = Some(default_permissioned_as);
-            app.policy.on_behalf_of_email = Some(default_email);
-        } else {
-            app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
-            app.policy.on_behalf_of_email = Some(authed.email.clone());
-        }
+        app.policy.on_behalf_of =
+            Some(folder_default.unwrap_or_else(|| username_to_permissioned_as(&authed.username)));
+    }
+    app.policy.on_behalf_of_email = stored_on_behalf_of_email(&app.policy, w_id, &db).await?;
+    if should_preserve {
+        preserved_on_behalf_of = audited_on_behalf_of(&app.policy, &authed);
     }
 
     // Reject a forged superadmin run identity in the (possibly preserved) policy.
@@ -2621,21 +2634,17 @@ async fn create_app_internal<'a>(
         None,
     )
     .await?;
-    if should_preserve {
-        if let Some(ref obo_email) = app.policy.on_behalf_of_email {
-            if obo_email != &authed.email {
-                audit_log(
-                    &mut *tx,
-                    &authed,
-                    "apps.on_behalf_of",
-                    ActionKind::Create,
-                    w_id,
-                    Some(&app.path),
-                    Some([("on_behalf_of", obo_email.as_str()), ("action", "create")].into()),
-                )
-                .await?;
-            }
-        }
+    if let Some(ref obo_email) = preserved_on_behalf_of {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "apps.on_behalf_of",
+            ActionKind::Create,
+            w_id,
+            Some(&app.path),
+            Some([("on_behalf_of", obo_email.as_str()), ("action", "create")].into()),
+        )
+        .await?;
     }
     let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
     if let Some(dm) = &app.deployment_message {
@@ -3392,19 +3401,33 @@ async fn update_app_internal<'a>(
         }
     }
 
-    // Reject a forged superadmin run identity in a preserved policy. Mirror the
-    // `should_preserve` gate below (only a preserved value is caller-controlled;
-    // otherwise the policy is rewritten to the deployer's own identity) and run
-    // it on the non-RLS pool before the transaction to avoid a second connection.
-    if let Some(npolicy) = ns.policy.as_ref() {
+    // Resolved on the (non-RLS) pool before the RLS transaction opens, for the reason
+    // `create_app` states, with the same known, accepted rename race (see
+    // `resolve_on_behalf_of`). Submitting a policy is how a deployer claims the app's execution
+    // identity; a source deploy that sent none claims nothing, so whoever the app already runs as
+    // stays.
+    let mut preserved_on_behalf_of: Option<String> = None;
+    if let Some(npolicy) = ns.policy.as_mut() {
         let should_preserve = ns.preserve_on_behalf_of.unwrap_or(false)
             && windmill_common::can_preserve_on_behalf_of(&authed)
-            && npolicy.on_behalf_of.is_some();
+            && (npolicy.on_behalf_of.is_some() || npolicy.on_behalf_of_email.is_some());
+
         if should_preserve {
-            windmill_common::auth::validate_on_behalf_of(
-                npolicy.on_behalf_of.as_deref(),
+            npolicy.on_behalf_of = windmill_common::resolve_on_behalf_of(
                 npolicy.on_behalf_of_email.as_deref(),
-            )?;
+                npolicy.on_behalf_of.as_deref(),
+                true,
+                &authed,
+                w_id,
+                &db,
+            )
+            .await?;
+        } else {
+            npolicy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
+        }
+        npolicy.on_behalf_of_email = stored_on_behalf_of_email(npolicy, w_id, &db).await?;
+        if should_preserve {
+            preserved_on_behalf_of = audited_on_behalf_of(npolicy, &authed);
         }
     }
 
@@ -3437,7 +3460,6 @@ async fn update_app_internal<'a>(
         reject_kind_change(path, raw_app, deployed_raw_app)?;
     }
 
-    let mut preserved_on_behalf_of: Option<String> = None;
     let npath = if ns.policy.is_some()
         || ns.path.is_some()
         || ns.summary.is_some()
@@ -3622,23 +3644,6 @@ async fn update_app_internal<'a>(
                         return Err(Error::PermissionDenied(msg));
                     }
                 }
-            }
-            let should_preserve = ns.preserve_on_behalf_of.unwrap_or(false)
-                && windmill_common::can_preserve_on_behalf_of(&authed)
-                && npolicy.on_behalf_of.is_some();
-
-            if should_preserve {
-                if let Some(ref obo_email) = npolicy.on_behalf_of_email {
-                    if obo_email != &authed.email {
-                        preserved_on_behalf_of = Some(obo_email.clone());
-                    }
-                }
-            } else if caller_sent_policy {
-                // Submitting a policy is how a deployer claims the app's
-                // execution identity. A source deploy that sent none is not
-                // claiming anything, so whoever the app already runs as stays.
-                npolicy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
-                npolicy.on_behalf_of_email = Some(authed.email.clone());
             }
             sqlb.set(
                 "policy",
@@ -3849,6 +3854,8 @@ fn digest(code: &str) -> String {
 async fn get_on_behalf_details_from_policy_and_authed(
     policy: &Policy,
     opt_authed: &Option<ApiAuthed>,
+    w_id: &str,
+    db: &DB,
 ) -> Result<(String, String, String)> {
     // A guest acts only through an app open to guests — or to everyone. A members-only
     // mode means the policy changed after the session was issued. Decided here, in the
@@ -3871,7 +3878,7 @@ async fn get_on_behalf_details_from_policy_and_authed(
                 .as_ref()
                 .map(|a| a.username.clone())
                 .unwrap_or_else(|| "anonymous".to_string());
-            let (permissioned_as, email) = get_on_behalf_of(&policy)?;
+            let (permissioned_as, email) = get_on_behalf_of(&policy, w_id, db).await?;
             (username, permissioned_as, email)
         }
         // Guest runs as the publisher exactly as Publisher does; the two differ only
@@ -3885,7 +3892,7 @@ async fn get_on_behalf_details_from_policy_and_authed(
                         "publisher execution mode requires authentication".to_string(),
                     )
                 })?;
-            let (permissioned_as, email) = get_on_behalf_of(&policy)?;
+            let (permissioned_as, email) = get_on_behalf_of(&policy, w_id, db).await?;
             (username, permissioned_as, email)
         }
         ExecutionMode::Viewer => {
@@ -4243,7 +4250,7 @@ async fn execute_component(
     }
 
     let (username, permissioned_as, email) =
-        get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
+        get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed, &w_id, &db).await?;
 
     let resolved_delete_secs =
         resolve_delete_after_secs(None, policy_triggerables.delete_after_secs);
@@ -4613,7 +4620,7 @@ async fn upload_s3_file_from_app(
         let s3_inputs = policy.s3_inputs.as_ref().unwrap();
 
         let (username, permissioned_as, email) =
-            get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
+            get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed, &w_id, &db).await?;
 
         let on_behalf_authed = fetch_api_authed_from_permissioned_as(
             permissioned_as.clone(),
@@ -5024,7 +5031,7 @@ async fn get_on_behalf_authed_from_app(
 
     let opt_authed = guest_caller_for_mode(opt_authed.clone(), policy.execution_mode(), path)?;
     let (username, permissioned_as, email) =
-        get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
+        get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed, &w_id, &db).await?;
 
     let on_behalf_authed =
         fetch_api_authed_from_permissioned_as(permissioned_as, email, &w_id, &db, Some(username))
@@ -5535,7 +5542,45 @@ async fn app_load_csv_preview() -> Result<()> {
     ))
 }
 
-fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
+/// The address to store beside the principal. Derived from it, never taken from the request, so
+/// the stored copy can only ever agree with the principal — the drift it used to allow is what
+/// this replaces.
+///
+/// Written unconditionally, including for the versions that could derive it instead: a replica
+/// predating that fallback fails outright when the key is absent, which would 400 every
+/// anonymous, publisher and guest app for the length of a rolling deploy. The write is what
+/// holds the key in place — see `docs/app-policy-email-removal.md`.
+async fn stored_on_behalf_of_email(policy: &Policy, w_id: &str, db: &DB) -> Result<Option<String>> {
+    let Some(permissioned_as) = policy.on_behalf_of.as_deref() else {
+        return Ok(None);
+    };
+    Ok(Some(
+        windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
+            .await?,
+    ))
+}
+
+/// The address to record in the `apps.on_behalf_of` audit entry: the one the app will run as,
+/// when it is not the deployer's own. `None` when they match — a deployer handing an app their
+/// own identity is not an on-behalf-of deploy.
+///
+/// Reads the address `stored_on_behalf_of_email` just resolved rather than looking it up again,
+/// so the audit row and the policy row can only ever name the same account.
+fn audited_on_behalf_of(policy: &Policy, authed: &ApiAuthed) -> Option<String> {
+    policy
+        .on_behalf_of_email
+        .as_deref()
+        .filter(|email| *email != authed.email)
+        .map(str::to_string)
+}
+
+/// The identity an anonymous, publisher or guest execution runs as.
+///
+/// `on_behalf_of_email` is optional: every write stores it, so it is present on anything this
+/// release deployed, and it is only derived for a policy that predates that. Deriving is the
+/// fallback rather than the rule so that removing the key later is a change of default, not a
+/// change of behavior — see `docs/app-policy-email-removal.md`.
+async fn get_on_behalf_of(policy: &Policy, w_id: &str, db: &DB) -> Result<(String, String)> {
     let permissioned_as = policy
         .on_behalf_of
         .as_ref()
@@ -5546,16 +5591,15 @@ fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
             )
         })?
         .to_string();
-    let email = policy
-        .on_behalf_of_email
-        .as_ref()
-        .ok_or_else(|| {
-            Error::BadRequest(
-                "on_behalf_of_email is missing in the app policy and is required for anonymous execution"
-                    .to_string(),
-            )
-        })?
-        .to_string();
+    let email = match policy.on_behalf_of_email.as_deref() {
+        Some(email) => email.to_string(),
+        // Cached on purpose, up to one notify poll stale: the accepted dispatch case
+        // `get_email_from_permissioned_as` documents.
+        None => {
+            windmill_common::users::get_email_from_permissioned_as(&permissioned_as, w_id, db)
+                .await?
+        }
+    };
     // Defence in depth against a policy that already carries a forged superadmin
     // sentinel (deployed before validation existed, or copied verbatim by a
     // workspace fork): the sentinels are internal-only and never a legitimate app
@@ -5702,7 +5746,25 @@ async fn build_args(
                 "email" => authed.as_ref().map(|a| serde_json::to_value(&a.email)),
                 "workspace" => Some(serde_json::to_value(&w_id)),
                 "groups" => authed.as_ref().map(|a| serde_json::to_value(&a.groups)),
-                "author" => Some(serde_json::to_value(&policy.on_behalf_of_email)),
+                // Same rule as `get_on_behalf_of`: the stored address, derived only when absent.
+                "author" => {
+                    let author = match (
+                        policy.on_behalf_of_email.as_deref(),
+                        policy.on_behalf_of.as_deref(),
+                    ) {
+                        (Some(email), _) => Some(email.to_string()),
+                        (None, Some(permissioned_as)) => Some(
+                            windmill_common::users::get_email_from_permissioned_as(
+                                permissioned_as,
+                                w_id,
+                                db,
+                            )
+                            .await?,
+                        ),
+                        (None, None) => None,
+                    };
+                    Some(serde_json::to_value(&author))
+                }
                 _ => {
                     return Err(Error::BadRequest(format!(
                         "context variable {} not allowed",

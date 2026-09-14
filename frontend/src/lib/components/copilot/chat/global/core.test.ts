@@ -220,6 +220,9 @@ vi.mock('$lib/gen', async () => {
 			createResource: vi.fn(async () => 'created'),
 			updateResource: vi.fn(async () => 'updated'),
 			deleteResource: vi.fn(async () => 'deleted'),
+			// A workspace with no skills, which is what makes `read_skill` refuse a path
+			// the model composed: the gate is membership in the listing.
+			listResource: vi.fn(async () => []),
 			getResourceValue: vi.fn(async () => ({ content: 'skill body' }))
 		}),
 		VariableService: wrapService(actual.VariableService, {
@@ -4479,8 +4482,10 @@ describe('global AI tools', () => {
 		const deployedForm = statuses.find((s) => s.runForm)?.runForm
 		expect(deployedForm.submitted).toBe(true)
 		expect(deployedForm.schema).toBeUndefined()
+		// skipPreprocessor: the form fills the main input schema, so a preprocessor would take
+		// these arguments for a webhook body and run main on its output instead.
 		expect(JobService.runScriptByPath).toHaveBeenCalledWith(
-			expect.objectContaining({ requestBody: { name: 'Ada' } })
+			expect.objectContaining({ requestBody: { name: 'Ada' }, skipPreprocessor: true })
 		)
 	})
 
@@ -4666,6 +4671,27 @@ describe('global AI tools', () => {
 		expect(JSON.stringify(statuses)).not.toContain(huge)
 	})
 
+	// A dropped pass-through fails silently: the argument is accepted and ignored, and the
+	// run just waits out the default budget.
+	it('run_script detaches on background and on wait_seconds', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/slow',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		// wait_seconds 0 detaches the same way, so one run of each pins both lines.
+		for (const detachArg of [{ background: true }, { wait_seconds: 0 }]) {
+			const onJobDetached = vi.fn()
+			await callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/slow', args: { name: 'Ada' }, ...detachArg },
+				{ ...toolCallbacks, onJobStarted: vi.fn(), onJobDetached }
+			)
+
+			expect(onJobDetached).toHaveBeenCalledWith('job-script-by-path')
+		}
+	})
+
 	// A schema with no fields still opens a form: an empty one is still the Run button, and
 	// that button is the whole confirmation this tool has. Skipping it because there is
 	// nothing to fill in starts the script with no confirmation at all.
@@ -4750,12 +4776,17 @@ describe('global AI tools', () => {
 		)
 	})
 
+	// The form offers the arguments the flow declares and no others, so a fixture flow that
+	// takes one has to say so — as a real flow does, since nothing else could render a field.
+	const FLOW_NAME_SCHEMA = { type: 'object', properties: { name: { type: 'string' } } }
+
 	it('test_run_flow previews draft flow content by path', async () => {
 		const modules = [{ id: 'start', value: { type: 'identity' } }]
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/draft-test',
 			summary: 'Draft test flow',
-			modules: JSON.stringify(modules)
+			modules: JSON.stringify(modules),
+			schema: JSON.stringify(FLOW_NAME_SCHEMA)
 		})
 
 		await withCompletedTestJob(() =>
@@ -4782,7 +4813,7 @@ describe('global AI tools', () => {
 			path: 'f/flows/deployed-test',
 			summary: 'Deployed test flow',
 			value: { modules },
-			schema: {}
+			schema: FLOW_NAME_SCHEMA
 		} as any)
 
 		await withCompletedTestJob(() =>
@@ -4816,7 +4847,7 @@ describe('global AI tools', () => {
 				path: 'u/admin/live_flow',
 				summary: 'Live flow',
 				value: { modules: [{ id: 'live_step', value: { type: 'identity' } }] },
-				schema: {},
+				schema: FLOW_NAME_SCHEMA,
 				edited_by: '',
 				edited_at: '',
 				archived: false,
@@ -4839,12 +4870,14 @@ describe('global AI tools', () => {
 					path: 'u/admin/live_flow',
 					args: { name: 'Ada' }
 				},
-				toolCallbacks,
+				{ ...toolCallbacks, requestRunArgs: async () => ({ name: 'Grace' }) },
 				{ testActiveFlow }
 			)
 		)
 
-		expect(testActiveFlow).toHaveBeenCalledWith('u/admin/live_flow_storage', { name: 'Ada' })
+		// What the form submitted, not what the model proposed: the editor runs the flow, but
+		// the arguments are the user's.
+		expect(testActiveFlow).toHaveBeenCalledWith('u/admin/live_flow_storage', { name: 'Grace' })
 		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
 		expect(JobService.runFlowPreview).not.toHaveBeenCalled()
 		expect(result).toContain('Result (SUCCESS)')
@@ -4858,7 +4891,7 @@ describe('global AI tools', () => {
 				path: 'u/admin/live_flow_fallback',
 				summary: 'Live flow fallback',
 				value: { modules: [{ id: 'fallback_step', value: { type: 'identity' } }] },
-				schema: {},
+				schema: FLOW_NAME_SCHEMA,
 				edited_by: '',
 				edited_at: '',
 				archived: false,
@@ -4898,6 +4931,110 @@ describe('global AI tools', () => {
 		})
 	})
 
+	// A flow reaches its run form the way a script does: opened on the flow's own input schema,
+	// with the dynamic-option picker the schema carries, and the run takes what came back.
+	it('test_run_flow opens the form on the flow schema and runs what it submitted', async () => {
+		const modules = [{ id: 'start', value: { type: 'identity' } }]
+		await callGlobalTool('write_flow', {
+			path: 'f/flows/formed-flow',
+			summary: 'Formed flow',
+			modules: JSON.stringify(modules),
+			schema: JSON.stringify({
+				...FLOW_NAME_SCHEMA,
+				'x-windmill-dyn-select-code': 'export function names() { return ["Ada"] }',
+				'x-windmill-dyn-select-lang': 'bun'
+			})
+		})
+
+		let form: any
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_flow',
+				{ path: 'f/flows/formed-flow', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, f) => {
+						form = f
+						return { name: 'Grace' }
+					}
+				}
+			)
+		)
+
+		expect(form.args).toEqual({ name: 'Ada' })
+		expect(form.runnableKind).toBe('flow')
+		expect(form.schema?.properties).toEqual(FLOW_NAME_SCHEMA.properties)
+		// The flow's own dynselect script, which the schema carries rather than a step.
+		expect({ code: form.code, lang: form.lang }).toEqual({
+			code: 'export function names() { return ["Ada"] }',
+			lang: 'bun'
+		})
+		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/flows/formed-flow',
+				value: { modules },
+				args: { name: 'Grace' }
+			}
+		})
+	})
+
+	// The form waits as long as the user does, so which editor is on screen is only known when
+	// they press Run — checking it when the card appeared would drive an editor they have since
+	// moved away from.
+	it('test_run_flow re-checks the editor on screen when the form is submitted', async () => {
+		const modules = [{ id: 'moved_step', value: { type: 'identity' } }]
+		seedBackendDraft(
+			'flow',
+			'u/admin/moved_flow',
+			{
+				path: 'u/admin/moved_flow',
+				summary: 'Moved flow',
+				value: { modules },
+				schema: FLOW_NAME_SCHEMA,
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {}
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: 'u/admin/moved_flow',
+			effectivePath: 'u/admin/moved_flow'
+		})
+		const testActiveFlow = vi.fn(async () => 'job-live-flow')
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_flow',
+				{ path: 'u/admin/moved_flow', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						// The preview panel moves to another flow while the form sits open.
+						UserDraft.setLiveEditorDraft({
+							workspace: WORKSPACE,
+							itemKind: 'flow',
+							storagePath: 'u/admin/other_flow',
+							effectivePath: 'u/admin/other_flow'
+						})
+						return form.args
+					}
+				},
+				{ testActiveFlow }
+			)
+		)
+
+		expect(testActiveFlow).not.toHaveBeenCalled()
+		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: { path: 'u/admin/moved_flow', value: { modules }, args: { name: 'Ada' } }
+		})
+	})
+
 	// The flow may be open in a session tab that isn't the one on screen: driving its editor
 	// would paint the run into a tab the user is not looking at.
 	it('test_run_flow previews rather than driving an editor the user is not looking at', async () => {
@@ -4908,7 +5045,7 @@ describe('global AI tools', () => {
 				path: 'u/admin/background_flow',
 				summary: 'Background flow',
 				value: { modules: [{ id: 'background_step', value: { type: 'identity' } }] },
-				schema: {},
+				schema: FLOW_NAME_SCHEMA,
 				edited_by: '',
 				edited_at: '',
 				archived: false,
@@ -4941,6 +5078,68 @@ describe('global AI tools', () => {
 				value: { modules: [{ id: 'background_step', value: { type: 'identity' } }] },
 				args: { name: 'Ada' }
 			}
+		})
+	})
+
+	// What separates a deployed run from a test run of the same flow: the form is built from the
+	// deployed schema rather than the draft's, and the editor open on that path is left alone —
+	// it holds the draft, so a deployed run painted into its graph would show steps that are not
+	// the ones running.
+	it('run_flow forms on the deployed flow and leaves the live editor alone', async () => {
+		seedBackendDraft(
+			'flow',
+			'u/admin/deployed_and_drafted',
+			{
+				path: 'u/admin/deployed_and_drafted',
+				summary: 'Draft of the deployed flow',
+				value: { modules: [{ id: 'draft_step', value: { type: 'identity' } }] },
+				schema: { type: 'object', properties: { draft_only: { type: 'string' } } },
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {}
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: 'u/admin/deployed_and_drafted',
+			effectivePath: 'u/admin/deployed_and_drafted'
+		})
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			path: 'u/admin/deployed_and_drafted',
+			summary: 'Deployed flow',
+			value: { modules: [{ id: 'deployed_step', value: { type: 'identity' } }] },
+			schema: FLOW_NAME_SCHEMA
+		} as any)
+		const testActiveFlow = vi.fn(async () => 'job-live-flow')
+
+		let form: any
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_flow',
+				{ path: 'u/admin/deployed_and_drafted', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, f) => {
+						form = f
+						return { name: 'Grace' }
+					}
+				},
+				{ testActiveFlow }
+			)
+		)
+
+		expect(form.runnableKind).toBe('flow')
+		expect(form.schema?.properties).toEqual(FLOW_NAME_SCHEMA.properties)
+		expect(testActiveFlow).not.toHaveBeenCalled()
+		expect(JobService.runFlowPreview).not.toHaveBeenCalled()
+		expect(JobService.runFlowByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'u/admin/deployed_and_drafted',
+			requestBody: { name: 'Grace' },
+			skipPreprocessor: true
 		})
 	})
 
@@ -5160,7 +5359,8 @@ describe('global AI tools', () => {
 				locked: 'fixed',
 				doc: bytes,
 				token: '$var:u/ada/prod_api_key'
-			}
+			},
+			skipPreprocessor: true
 		})
 		expect(result).toContain('does not declare force_delete')
 		expect(result).toContain('<file: 3 KB>')
@@ -5249,7 +5449,8 @@ describe('global AI tools', () => {
 		expect(JobService.runScriptByPath).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
 			path: 'f/scripts/greet',
-			requestBody: { name: 'Grace' }
+			requestBody: { name: 'Grace' },
+			skipPreprocessor: true
 		})
 		// The model must not assume its proposal is what ran.
 		expect(result).toContain('Ran with arguments: {"name":"Grace"}')
@@ -6084,13 +6285,16 @@ describe('session-only preview tools gating', () => {
 })
 
 describe('read_skill', () => {
-	it('refuses a path the user has not selected, without reading it', async () => {
+	// Every path is enabled by default now, so the listing is what keeps the tool to
+	// skills: without it the model could name any resource holding a string `content`
+	// and have it read back.
+	it('refuses a path that is not a skill in the workspace, without reading it', async () => {
 		localStorage.clear()
 		userStore.set({ username: 'bob', email: 'bob@windmill.dev', workspace_id: WORKSPACE } as any)
 
 		const res = await callGlobalTool('read_skill', { path: 'u/someone/private-notes' })
 
-		expect(res).toContain('not one of the skills selected')
+		expect(res).toContain('not one of the skills available')
 		expect(vi.mocked(ResourceService.getResourceValue)).not.toHaveBeenCalled()
 	})
 })

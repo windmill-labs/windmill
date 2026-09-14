@@ -14,10 +14,11 @@ pub mod git_sync_oss;
 
 #[cfg(feature = "private")]
 pub use git_sync_ee::{
-    enqueue_git_pull_dry_run, enqueue_git_pull_job, handle_deployment_metadata,
-    handle_deployment_metadata_batch, handle_fork_branch_creation, persist_auto_pull_state,
-    reconcile_and_enqueue_pull, reconcile_fork_branch_pull, record_auto_pull_failure,
-    record_synced_head, sweep_ci_test_checks, tally_deployed_object_changes,
+    clear_auto_pull_failure, enqueue_git_pull_dry_run, enqueue_git_pull_job,
+    handle_deployment_metadata, handle_deployment_metadata_batch, handle_fork_branch_creation,
+    persist_auto_pull_state, reconcile_and_enqueue_pull, reconcile_fork_branch_pull,
+    record_auto_pull_failure, record_synced_head, sweep_ci_test_checks,
+    tally_deployed_object_changes,
 };
 
 // The CI-test check exists only on enterprise builds; `private` alone (the CE image)
