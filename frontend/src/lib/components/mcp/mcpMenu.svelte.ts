@@ -8,6 +8,7 @@ import type { Item } from '$lib/utils'
 import type { AIChatManager } from '../copilot/chat/AIChatManager.svelte'
 import { isMcpEnabled, setMcpEnabled } from './enabledServers'
 import { cachedProviderKey, rememberProviderKey } from './iconCache'
+import { listableMcpResource } from './ownServers'
 import { loadProviderIcon } from './providerIcon'
 
 type Row = {
@@ -61,11 +62,13 @@ export class McpMenu {
 				perPage: 100
 			})
 			if (seq !== this.#seq) return
-			this.#rows = resources.map((r) => ({
-				path: r.path,
-				editedAt: r.edited_at,
-				enabled: isMcpEnabled(ws, r.path)
-			}))
+			this.#rows = resources
+				.filter((r) => listableMcpResource(r))
+				.map((r) => ({
+					path: r.path,
+					editedAt: r.edited_at,
+					enabled: isMcpEnabled(ws, r.path)
+				}))
 			this.#rowsWorkspace = ws
 			void this.#loadIcons(ws, seq)
 		} catch {
