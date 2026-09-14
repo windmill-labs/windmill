@@ -207,6 +207,41 @@ describe('sessionMirror flush', () => {
 		await __settleForTesting()
 	})
 
+	it('keeps a delete filed on the sync row while the first push is still in flight', async () => {
+		const s: Session = { id: 'sr', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
+		sessionState.sessions = [s]
+		await putSession(s)
+		let release!: (value: unknown) => void
+		pushMock.mockImplementationOnce(() => new Promise((r) => (release = r)))
+		const inFlight = __flushForTesting()
+		await vi.waitFor(() => expect(pushMock).toHaveBeenCalledTimes(1))
+
+		// Storage full at the moment of the delete, the push not yet answered.
+		const setItem = localStorage.setItem.bind(localStorage)
+		localStorage.setItem = (key: string, value: string) => {
+			if (key.includes('::r::')) throw new Error('QuotaExceededError')
+			setItem(key, value)
+		}
+		try {
+			deleteSession('sr')
+		} finally {
+			localStorage.setItem = setItem
+		}
+		await vi.waitFor(async () =>
+			expect((await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'sr')?.removed).toBe(true)
+		)
+		release({ enabled: true, results: [{ id: 'sr' }] })
+		await inFlight
+		// The push's own row write did not lose the removal.
+		expect((await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'sr')?.removed).toBe(true)
+
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sr' }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(pushMock.mock.calls[1][0].requestBody.removed).toEqual(['sr'])
+		expect((await __syncRowsForTesting(EMAIL)).some((r) => r.id === 'sr')).toBe(false)
+	})
+
 	it('keeps the marks when the push fails, and stops for a workspace without storage', async () => {
 		const s: Session = { id: 's2', name: 'session-2', createdAt: 1, workspace_id: 'ws' }
 		const never: Session = { id: 's2b', name: 'session-3', createdAt: 2, workspace_id: 'ws' }

@@ -151,12 +151,17 @@ up, so one deleted while backups are off does not come back once they are on, an
 removals of sessions never backed up from this browser, so a storage-less instance does not
 collect one mark per deleted session forever. A user delete whose removal mark cannot be written
 (localStorage full) is carried by the session's sync row instead (`removed`), which the flush
-and the restore read like a mark. Pull bodies are
+and the restore read like a mark; a session without a row yet (its first push may be in
+flight) gets a row saying only that, and every row write keeps a removal filed meanwhile, so
+the push's own row cannot erase it. Pull bodies are
 capped at 64 KB. Pull answers up to 20 ids within a 32 MB
 budget: a session's size is known from the listings before anything of it is read, one that
 would not fit is deferred unless it is the first of the answer, in which case its chats and
 artifacts are read in listing order only while they fit, and images beyond the budget are left
-out (they hydrate to placeholders). Nothing is read past the budget, whatever a session holds. A
+out (they hydrate to placeholders). The listings themselves stop at the budget and at 5000
+objects per session, so a session grown without bound by valid pushes cannot grow the answer's
+memory through its metadata either; removing a prefix and the re-key walk stream their
+listings too. Nothing is read past the budget, whatever a session holds. A
 restore takes the newest 50 sessions per workspace: every visible session gets a runtime, and
 each runtime's history load reads the whole chat store. On CE the push checks the storage quota
 and bumps usage by bytes written (an over-count on overwrites; the periodic recount settles it).

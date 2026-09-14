@@ -268,21 +268,29 @@ async function allSyncRows(email: string): Promise<MirrorSyncState[]> {
 	return (await (await syncDb(email))?.getAll('sync')) ?? []
 }
 
-/** The durable fallback for a user delete whose localStorage mark could not be written:
- * a row exists only for a session that was backed up, which is exactly when the copy in
- * the bucket has to go. */
-async function removeViaSyncRow(id: string): Promise<void> {
+/** The durable fallback for a user delete whose localStorage mark could not be written.
+ * A session with a row was backed up; one without may have its first push in flight, so
+ * it gets a row saying only that, which the push's own row write keeps (`writeSync`). An
+ * unsent draft gets nothing: it was never pushed. */
+async function removeViaSyncRow(id: string, ws: string | undefined): Promise<void> {
 	const email = getCurrentUserEmail()
 	if (!email) return
 	const row = await readSync(id, email)
 	if (row) await writeSync([{ ...row, removed: true }], email)
+	else if (ws) await writeSync([{ id, ws, head: '', chats: {}, images: {}, removed: true }], email)
 }
 
+/** Writes rows whole, except that a removal filed on a row meanwhile survives: the flush
+ * writes a session's row from state it read before the push, and the user may have deleted
+ * the session in between. */
 async function writeSync(states: MirrorSyncState[], email: string): Promise<void> {
 	const db = await syncDb(email)
 	if (!db || states.length === 0) return
 	const tx = db.transaction('sync', 'readwrite')
-	for (const s of states) await tx.store.put(s)
+	for (const s of states) {
+		const removed = s.removed || (await tx.store.get(s.id))?.removed
+		await tx.store.put(removed ? { ...s, removed: true } : s)
+	}
 	await tx.done
 }
 
@@ -969,7 +977,7 @@ if (BROWSER) {
 	onMirrorSignal((signal) => {
 		if (signal.kind === 'dirty') bumpDirty(signal.sessionId)
 		else if (!addRemoved(signal.sessionId, signal.workspaceId, true)) {
-			void removeViaSyncRow(signal.sessionId)
+			void removeViaSyncRow(signal.sessionId, signal.workspaceId)
 		}
 		scheduleFlush()
 	})

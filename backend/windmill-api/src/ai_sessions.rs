@@ -54,6 +54,8 @@ const MAX_CHATS_PER_ENTRY: usize = 100;
 const MAX_IMAGES_PER_ENTRY: usize = 500;
 const MAX_DELETES_PER_ENTRY: usize = 1000;
 const MAX_OPERATIONS_PER_PUSH: usize = 4000;
+/// Objects a pull lists under one session's prefix before giving up on the rest.
+const MAX_LISTED_OBJECTS: usize = 5000;
 const IO_CONCURRENCY: usize = 8;
 
 pub fn workspaced_service() -> Router {
@@ -161,25 +163,30 @@ impl Backend {
         }
     }
 
-    async fn list_keys(&self, prefix: &ObjectPath) -> Result<Vec<ObjectPath>> {
-        Ok(self
-            .list_entries(prefix)
-            .await?
-            .into_iter()
-            .map(|(key, _)| key)
-            .collect())
+    /// The entries under `prefix` in listing order, as many as fit `budget` bytes and
+    /// MAX_LISTED_OBJECTS; `true` when the listing was cut there. The listing is what
+    /// bounds a pull's memory: a session grows by valid pushes without limit.
+    async fn list_within(
+        &self,
+        prefix: &ObjectPath,
+        budget: usize,
+    ) -> Result<(Vec<(ObjectPath, usize)>, bool)> {
+        let mut entries = vec![];
+        let mut total = 0;
+        let mut stream = self.store.list(Some(prefix));
+        while let Some(meta) = stream.next().await {
+            let meta = meta.map_err(object_store_error_to_error)?;
+            let size = meta.size as usize;
+            if total + size > budget || entries.len() >= MAX_LISTED_OBJECTS {
+                return Ok((entries, true));
+            }
+            total += size;
+            entries.push((meta.location, size));
+        }
+        Ok((entries, false))
     }
 
     /// Keys under the prefix with their stored size.
-    async fn list_entries(&self, prefix: &ObjectPath) -> Result<Vec<(ObjectPath, usize)>> {
-        self.store
-            .list(Some(prefix))
-            .map_ok(|meta| (meta.location, meta.size as usize))
-            .try_collect()
-            .await
-            .map_err(object_store_error_to_error)
-    }
-
     /// Bytes written. Sealed up front so every stream item is owned: an item borrowing
     /// from the request makes the future higher-ranked over that lifetime, which the
     /// handler's `Send` bound cannot prove.
@@ -200,9 +207,15 @@ impl Backend {
         Ok(())
     }
 
+    /// Deletes as the listing streams, so a prefix of any size costs bounded memory.
     async fn delete_prefix(&self, prefix: &ObjectPath) -> Result<()> {
-        let keys = self.list_keys(prefix).await?;
-        self.delete_all(keys).await
+        self.store
+            .list(Some(prefix))
+            .map_err(object_store_error_to_error)
+            .try_for_each_concurrent(IO_CONCURRENCY, |meta| async move {
+                self.delete(&meta.location).await
+            })
+            .await
     }
 }
 
@@ -466,43 +479,38 @@ async fn pull_session(
         return Ok(PullStep::Absent);
     };
     let session_prefix = backend.session_prefix(sid);
-    let mut chat_keys = vec![];
+    // Sizes come from the listings, and the listings stop at the budget, so nothing is read
+    // past it even for the first session of the answer: one that outgrew it (chats
+    // accumulate over pushes) comes back with the objects that fit, in listing order,
+    // rather than being read whole.
+    let (entries, cut) = backend
+        .list_within(&session_prefix, budget.saturating_sub(head.len()))
+        .await?;
+    if cut && !first {
+        return Ok(PullStep::Deferred);
+    }
+    if cut {
+        tracing::warn!("AI session backup {sid} is beyond the pull budget; the rest left out");
+    }
+    let mut size = head.len();
+    let mut fetch = vec![];
     let mut artifacts_key = None;
-    let mut core = head.len();
-    for (key, bytes) in backend.list_entries(&session_prefix).await? {
+    for (key, bytes) in entries {
         let rel = key
             .as_ref()
             .strip_prefix(session_prefix.as_ref())
             .unwrap_or_default()
             .trim_start_matches('/');
         if rel == "artifacts.json" {
-            artifacts_key = Some((key, bytes));
-            core += bytes;
+            artifacts_key = Some(key);
+            size += bytes;
         } else if let Some(cid) = rel
             .strip_prefix("chats/")
             .and_then(|f| f.strip_suffix(".json"))
         {
-            chat_keys.push((cid.to_string(), key, bytes));
-            core += bytes;
+            fetch.push((cid.to_string(), key));
+            size += bytes;
         }
-    }
-    if !first && core > budget {
-        return Ok(PullStep::Deferred);
-    }
-    // Sizes come from the listings, so nothing is read past the budget even for the first
-    // session of the answer: one that outgrew it (chats accumulate over pushes) comes back
-    // with the chats that fit, in listing order, rather than being read whole.
-    let mut size = head.len();
-    let mut fetch = vec![];
-    for (cid, key, bytes) in chat_keys {
-        if size + bytes > budget {
-            tracing::warn!(
-                "AI session backup {sid} chat {cid} is beyond the pull budget; left out"
-            );
-            continue;
-        }
-        size += bytes;
-        fetch.push((cid, key));
     }
     let chats: Vec<PulledChat> = futures::stream::iter(fetch)
         .map(|(cid, key)| async move {
@@ -517,27 +525,24 @@ async fn pull_session(
         .map(|(cid, record)| Ok(PulledChat { id: cid, record: raw("chat", record)? }))
         .collect::<Result<_>>()?;
     let artifacts = match artifacts_key {
-        Some((key, bytes)) if size + bytes <= budget => {
-            size += bytes;
-            match backend.get(&key).await? {
-                Some(text) => Some(raw("artifacts", text)?),
-                None => None,
-            }
-        }
-        _ => None,
+        Some(key) => match backend.get(&key).await? {
+            Some(text) => Some(raw("artifacts", text)?),
+            None => None,
+        },
+        None => None,
     };
     let images_prefix = backend.images_prefix(sid);
+    let (entries, _) = backend
+        .list_within(&images_prefix, budget.saturating_sub(size))
+        .await?;
     let mut image_keys: Vec<(String, String, ObjectPath)> = vec![];
-    for (key, bytes) in backend.list_entries(&images_prefix).await? {
+    for (key, bytes) in entries {
         let Some(rel) = key.as_ref().strip_prefix(images_prefix.as_ref()) else {
             continue;
         };
         let Some((cid, iid)) = rel.trim_start_matches('/').split_once('/') else {
             continue;
         };
-        if size + bytes > budget {
-            continue;
-        }
         size += bytes;
         image_keys.push((cid.to_string(), iid.to_string(), key));
     }

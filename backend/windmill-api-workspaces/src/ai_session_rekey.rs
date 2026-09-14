@@ -9,9 +9,10 @@
 //! nothing unreadable and nothing under the old key for good.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use futures::{StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use magic_crypt::{MagicCrypt256, MagicCryptTrait};
 use windmill_common::error::{Error, Result};
 use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key};
@@ -136,19 +137,22 @@ async fn rekey(db: &DB, w_id: &str, store: Arc<dyn ObjectStore>) -> Result<usize
     }
     let current = get_workspace_key(w_id, db).await?;
     let prefix = ObjectPath::from(format!("{ROOT}/{w_id}"));
-    let objects: Vec<ObjectMeta> = store
+    // Objects are re-keyed as the listing streams: a workspace's backups are not bounded.
+    let rekeyed = AtomicUsize::new(0);
+    store
         .list(Some(&prefix))
-        .try_collect()
-        .await
-        .map_err(object_store_error_to_error)?;
-    let rekeyed = futures::stream::iter(objects)
-        .map(|meta| rekey_object(&store, &current, &previous, meta))
-        .buffer_unordered(IO_CONCURRENCY)
-        .try_fold(
-            0,
-            |acc, n| async move { Ok::<_, Error>(acc + usize::from(n)) },
-        )
+        .map_err(object_store_error_to_error)
+        .try_for_each_concurrent(IO_CONCURRENCY, |meta| {
+            let (rekeyed, store, current, previous) = (&rekeyed, &store, &current, &previous);
+            async move {
+                if rekey_object(store, current, previous, meta).await? {
+                    rekeyed.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok(())
+            }
+        })
         .await?;
+    let rekeyed = rekeyed.into_inner();
     // Every object listed reads under the current key now, or was rewritten by a push that
     // used it: the recorded keys have nothing left to open. The rows stay on any failure
     // above, for the next walk.
