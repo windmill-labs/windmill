@@ -1,0 +1,346 @@
+import type { FlowStatusModule } from '$lib/gen'
+import { parseStreamEvents, STREAM_EVENT_TYPES, type StreamEvent } from './chat/utils'
+
+/** The `agent_action` tag the worker puts on every message it records. */
+export type AgentAction = NonNullable<FlowStatusModule['agent_actions']>[number]
+
+export type AgentTokenUsage = {
+	input_tokens?: number
+	output_tokens?: number
+	total_tokens?: number
+	cache_read_input_tokens?: number
+	cache_write_input_tokens?: number
+}
+
+export type AgentMessage = {
+	role: string
+	content?: unknown
+	tool_calls?: Array<{
+		id?: string
+		type?: string
+		function?: { name?: string; arguments?: string }
+	}>
+	tool_call_id?: string
+	agent_action?: AgentAction
+	annotations?: Array<{ url: string; title?: string; start_index?: number; end_index?: number }>
+}
+
+/** The envelope every AI agent step returns, built by `AIAgentResult`. */
+export type AgentResult = {
+	output: unknown
+	messages: AgentMessage[]
+	usage?: AgentTokenUsage
+	wm_stream?: string
+}
+
+/** Every key `AIAgentResult` can serialize. `usage` and `wm_stream` are skipped when empty. */
+const ENVELOPE_KEYS = ['output', 'messages', 'usage', 'wm_stream']
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function hasRole(message: unknown): boolean {
+	return isRecord(message) && typeof message.role === 'string'
+}
+
+/**
+ * A job result is whatever its script returned, so a message that passed the
+ * shape check still has arbitrary anything underneath. Everything downstream
+ * reads these as `AgentMessage`, and a value of the wrong type there throws in
+ * the middle of rendering, taking the whole result viewer with it.
+ *
+ * So the coercion happens once, here: past this point the declared type is the
+ * real one, and no reader needs a guard of its own.
+ */
+function toAgentMessage(raw: Record<string, unknown>): AgentMessage {
+	const toolCalls = Array.isArray(raw.tool_calls)
+		? raw.tool_calls.filter(isRecord).map((call) => ({
+				id: typeof call.id === 'string' ? call.id : undefined,
+				type: typeof call.type === 'string' ? call.type : undefined,
+				function: isRecord(call.function)
+					? {
+							name: typeof call.function.name === 'string' ? call.function.name : undefined,
+							arguments:
+								typeof call.function.arguments === 'string' ? call.function.arguments : undefined
+						}
+					: undefined
+			}))
+		: undefined
+	const annotations = Array.isArray(raw.annotations)
+		? raw.annotations.filter(
+				(a): a is Record<string, unknown> => isRecord(a) && typeof a.url === 'string'
+			)
+		: undefined
+	return {
+		role: raw.role as string,
+		content: raw.content,
+		tool_calls: toolCalls,
+		tool_call_id: typeof raw.tool_call_id === 'string' ? raw.tool_call_id : undefined,
+		// The union is discriminated on `type`; an action without a string one
+		// matches no branch and is treated as untagged.
+		agent_action:
+			isRecord(raw.agent_action) && typeof raw.agent_action.type === 'string'
+				? (raw.agent_action as unknown as AgentAction)
+				: undefined,
+		annotations: annotations as AgentMessage['annotations']
+	}
+}
+
+function toAgentMessages(raw: unknown[]): AgentMessage[] {
+	return raw.map((message) => toAgentMessage(message as Record<string, unknown>))
+}
+
+/**
+ * Recognise the envelope by its shape rather than by a marker key the worker
+ * would have to add: sniffing works on runs that already completed, and the
+ * envelope is also what a nested agent hands back, where an added key would
+ * travel into the parent's conversation.
+ *
+ * The signature is deliberately closed — no key outside `ENVELOPE_KEYS`, and
+ * every message carrying a `role` — so an ordinary result that happens to have
+ * an `output` field cannot claim it.
+ *
+ * It stops short of also requiring a recognised `agent_action`, which would rule
+ * out a hand-written script returning this same shape. Not every completed run
+ * is guaranteed to tag a message (a run whose provider returns its answer
+ * through a structured-output tool leaves the final assistant message untagged),
+ * and the two failures are not symmetric: claiming a lookalike costs a viewer
+ * one click on the JSON toggle, while rejecting a real agent hides its answer
+ * with nothing on screen to say why.
+ */
+export function parseAgentResult(result: unknown): AgentResult | undefined {
+	if (!isRecord(result)) {
+		return undefined
+	}
+	const keys = Object.keys(result)
+	if (!keys.every((key) => ENVELOPE_KEYS.includes(key))) {
+		return undefined
+	}
+	if (!('output' in result) || !Array.isArray(result.messages)) {
+		return undefined
+	}
+	// An agent always records at least the message it was asked, so an empty list
+	// is someone else's result rather than a run that did nothing.
+	if (result.messages.length === 0 || !result.messages.every(hasRole)) {
+		return undefined
+	}
+	return {
+		output: result.output,
+		messages: toAgentMessages(result.messages),
+		usage: isRecord(result.usage) ? (result.usage as AgentTokenUsage) : undefined,
+		wm_stream: typeof result.wm_stream === 'string' ? result.wm_stream : undefined
+	}
+}
+
+/**
+ * A run stopped by `max_iterations` fails, so it returns an error rather than an
+ * envelope — but the worker attaches the conversation so far to it. That partial
+ * transcript is the whole reason to look at a run that hit the cap.
+ */
+export function parseAgentErrorMessages(result: unknown): AgentMessage[] | undefined {
+	if (!isRecord(result) || !isRecord(result.error)) {
+		return undefined
+	}
+	const inner = result.error.result
+	if (!isRecord(inner) || !Array.isArray(inner.messages)) {
+		return undefined
+	}
+	if (inner.messages.length === 0 || !inner.messages.every(hasRole)) {
+		return undefined
+	}
+	return toAgentMessages(inner.messages)
+}
+
+export type AgentResultSummary = {
+	toolCalls: number
+	webSearches: number
+	tokens: number | undefined
+	cachedTokens: number | undefined
+}
+
+function actionType(message: AgentMessage): string | undefined {
+	return message.agent_action?.type
+}
+
+export function summarizeAgentResult(result: AgentResult): AgentResultSummary {
+	let toolCalls = 0
+	let webSearches = 0
+	for (const message of result.messages) {
+		const type = actionType(message)
+		if (type === 'tool_call' || type === 'mcp_tool_call') {
+			toolCalls++
+		} else if (type === 'web_search') {
+			webSearches++
+		}
+	}
+	const usage = result.usage
+	// `total_tokens` is what providers report when they report anything; fall back
+	// to the parts so a provider that only sends the split still shows a count.
+	const tokens =
+		usage?.total_tokens ??
+		(usage?.input_tokens !== undefined || usage?.output_tokens !== undefined
+			? (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0)
+			: undefined)
+	return {
+		toolCalls,
+		webSearches,
+		tokens,
+		cachedTokens: usage?.cache_read_input_tokens
+	}
+}
+
+export type AgentStreamEntry =
+	| { kind: 'assistant'; content: string }
+	| { kind: 'tool'; callId: string; name: string; running: boolean; success?: boolean }
+
+export type AgentStream = {
+	/**
+	 * What the run has finished doing, in order — the same rows the completed
+	 * trace will show, so nothing on screen moves when the result lands.
+	 */
+	entries: AgentStreamEntry[]
+	/**
+	 * The text of the turn being written. It is not yet the output: a turn that
+	 * goes on to call a tool was narration, and only the run ending decides which
+	 * this was. So it stays unlabelled here and becomes one or the other.
+	 */
+	current: string
+	reasoning: string
+}
+
+/** How much of the stream has been folded in, so the next poll starts there. */
+export type AgentStreamProgress = { consumed: number; stream: AgentStream }
+
+export function emptyAgentStreamProgress(): AgentStreamProgress {
+	return { consumed: 0, stream: { entries: [], current: '', reasoning: '' } }
+}
+
+/**
+ * Any of these means a tool call is beginning, and which one arrives depends on
+ * the provider: the SSE parsers announce `tool_call`, while Bedrock streams only
+ * the arguments and the worker follows with `tool_execution`. Resetting on all
+ * three is idempotent and keeps the rule provider-independent.
+ */
+const TOOL_TURN_STARTED: StreamEvent['kind'][] = ['tool_call', 'tool_arguments', 'tool_execution']
+
+/**
+ * Whether `result_stream` is an agent's event stream rather than something a
+ * script printed. Reads only the first complete line, because it runs on every
+ * poll of a running job.
+ */
+export function isAgentStream(raw: string): boolean {
+	let start = 0
+	while (start < raw.length) {
+		const end = raw.indexOf('\n', start)
+		if (end === -1) {
+			// Only a partial first line so far; wait for the poll that completes it.
+			return false
+		}
+		const line = raw.slice(start, end)
+		if (line.trim() !== '') {
+			let parsed: unknown
+			// Parsed here rather than left to `parseStreamEvents`, which reports a line
+			// it cannot read: most streams reaching this check are a script's plain
+			// output, not a malformed event.
+			try {
+				parsed = JSON.parse(line)
+			} catch {
+				return false
+			}
+			return (
+				isRecord(parsed) &&
+				typeof parsed.type === 'string' &&
+				STREAM_EVENT_TYPES.includes(parsed.type)
+			)
+		}
+		start = end + 1
+	}
+	return false
+}
+
+/**
+ * Fold the events that arrived since `previous` into the answer so far.
+ *
+ * Incremental rather than a parse of the whole buffer: the stream only ever
+ * grows, a poll can arrive every 50ms, and a `tool_result` event carries the
+ * tool's entire output — so re-reading everything each time is quadratic in the
+ * number of events with a large constant.
+ */
+export function advanceAgentStream(
+	raw: string,
+	previous: AgentStreamProgress
+): AgentStreamProgress {
+	// A trailing line with no newline yet is still being written, so it stays
+	// unconsumed until the poll that completes it.
+	const complete = raw.lastIndexOf('\n') + 1
+	if (complete <= previous.consumed) {
+		return previous
+	}
+	const stream: AgentStream = { ...previous.stream, entries: [...previous.stream.entries] }
+	for (const event of parseStreamEvents(raw.slice(previous.consumed, complete))) {
+		if (event.kind === 'token') {
+			stream.current += event.content
+			continue
+		}
+		if (event.kind === 'reasoning') {
+			stream.reasoning += event.content
+			continue
+		}
+		// `result_stream` is whatever the job wrote, so a tool event can arrive
+		// without the fields its type promises. Such a line is not a turn boundary
+		// and not a row: keyed on nothing, it would draw an unlabelled card that
+		// every later nameless event joins.
+		if (typeof event.callId !== 'string' || typeof event.name !== 'string') {
+			continue
+		}
+		if (TOOL_TURN_STARTED.includes(event.kind)) {
+			if (stream.current !== '') {
+				// A model can narrate and request a tool in the same turn. The call
+				// settles what that text was: narration, not the output. It becomes a
+				// row rather than being dropped, so nothing vanishes from the screen
+				// only to reappear when the result lands.
+				stream.entries.push({ kind: 'assistant', content: stream.current })
+				stream.current = ''
+			}
+			// Thinking belongs to the turn that produced it, and a turn can think
+			// without narrating — extended thinking before a tool call is exactly
+			// that shape. So this clears on the boundary itself, not with the
+			// narration, or one turn's thoughts run into the next turn's.
+			stream.reasoning = ''
+		}
+		// The same call is announced, then argued, then executed, then answered.
+		// Keyed on `call_id` so those four events are one row rather than four.
+		const existing = stream.entries.find(
+			(e): e is Extract<AgentStreamEntry, { kind: 'tool' }> =>
+				e.kind === 'tool' && e.callId === event.callId
+		)
+		const settled = event.kind === 'tool_result'
+		if (existing) {
+			existing.running = !settled
+			existing.success = settled ? event.success : existing.success
+		} else {
+			stream.entries.push({
+				kind: 'tool',
+				callId: event.callId,
+				name: event.name,
+				running: !settled,
+				success: settled ? event.success : undefined
+			})
+		}
+	}
+	return { consumed: complete, stream }
+}
+
+/**
+ * Token counts run to five and six figures, where the exact digit is noise. The
+ * millions branch is not decoration: usage accumulates over every loop
+ * iteration, and each one re-sends the whole context.
+ */
+export function formatTokenCount(count: number): string {
+	if (count < 1000) {
+		return String(count)
+	}
+	const [scaled, unit] = count < 1_000_000 ? [count / 1000, 'k'] : [count / 1_000_000, 'M']
+	return `${scaled < 10 ? scaled.toFixed(1) : Math.round(scaled)}${unit}`
+}

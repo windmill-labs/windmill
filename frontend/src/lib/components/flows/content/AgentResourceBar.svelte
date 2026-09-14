@@ -1,9 +1,11 @@
 <script lang="ts">
+	import ResourceDescriptionField from '$lib/components/ResourceDescriptionField.svelte'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import Label from '$lib/components/Label.svelte'
+	import ResourcePathHint from '$lib/components/ResourcePathHint.svelte'
 	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -609,27 +611,29 @@
 		<div class="flex flex-col gap-4">
 			<p class="text-xs text-secondary">
 				Save this AI agent's configuration and tools as a reusable resource. Other flows can then
-				link to it, updates propagate automatically, and it gains a dataset of eval cases of its
-				own.
+				link to it, and updates propagate automatically.
 			</p>
-			<Path
-				bind:path={newPath}
-				bind:error={pathError}
-				initialPath=""
-				namePlaceholder="my_agent"
-				kind="resource"
-				workspaceOverride={ws}
-			/>
-			<label class="flex flex-col gap-1 text-xs">
-				<span class="text-secondary">Description</span>
-				<TextInput
-					bind:value={description}
-					inputProps={{ placeholder: 'What this agent does' }}
-					size="sm"
+			<!-- The path and description are the resource form's, field for field: this
+			     drawer creates a resource too, and ResourcePathHint exists so the screens
+			     that do cannot drift apart. -->
+			<Label label="Path">
+				<ResourcePathHint />
+				<Path
+					bind:path={newPath}
+					bind:error={pathError}
+					initialPath=""
+					namePlaceholder="my_agent"
+					kind="resource"
+					workspaceOverride={ws}
 				/>
-			</label>
+			</Label>
+			<ResourceDescriptionField
+				bind:description
+				label="Description"
+				placeholder="Describe what this agent does"
+			/>
 			{#if providerSaveError}
-				<p class="text-xs text-red-600 dark:text-red-400">
+				<p class="text-2xs text-red-600 dark:text-red-400">
 					{providerSaveError}
 				</p>
 			{/if}

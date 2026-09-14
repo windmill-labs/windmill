@@ -13,6 +13,21 @@ export type StreamEvent =
 	| { kind: 'tool_execution'; callId: string; name: string }
 	| { kind: 'tool_result'; callId: string; name: string; result: string; success: boolean }
 
+/**
+ * The `type` values the switch below reads. Classifying a stream needs these
+ * rather than the parser, which yields nothing for an event carrying nothing —
+ * an opening `token_delta` with no content is still proof of an agent. A case
+ * added below needs its name here, or a stream opening with it is misread.
+ */
+export const STREAM_EVENT_TYPES = [
+	'token_delta',
+	'reasoning_token_delta',
+	'tool_call',
+	'tool_call_arguments',
+	'tool_execution',
+	'tool_result'
+]
+
 export function parseStreamEvents(streamData: string): StreamEvent[] {
 	const events: StreamEvent[] = []
 	for (const line of streamData.trim().split('\n')) {
