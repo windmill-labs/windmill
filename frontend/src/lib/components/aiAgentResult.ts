@@ -225,6 +225,24 @@ export function emptyAgentStreamProgress(): AgentStreamProgress {
 const TOOL_TURN_STARTED: StreamEvent['kind'][] = ['tool_call', 'tool_arguments', 'tool_execution']
 
 /**
+ * The worker's wire names, for deciding whether a stream is an agent's at all.
+ *
+ * Membership rather than whether `parseStreamEvents` yields something: that drops
+ * an event carrying an empty payload, and a first `token_delta` with no content
+ * is what a provider opens with when it does not filter them (Bedrock does not).
+ * Reading the yield would answer "not an agent" for the whole run and leave a
+ * real one rendering as a wall of event objects.
+ */
+const STREAM_EVENT_TYPES = [
+	'token_delta',
+	'reasoning_token_delta',
+	'tool_call',
+	'tool_call_arguments',
+	'tool_execution',
+	'tool_result'
+]
+
+/**
  * Whether `result_stream` is an agent's event stream rather than something a
  * script printed. Reads only the first complete line, because it runs on every
  * poll of a running job.
@@ -239,15 +257,20 @@ export function isAgentStream(raw: string): boolean {
 		}
 		const line = raw.slice(start, end)
 		if (line.trim() !== '') {
-			// The JSON check is this function's own because `parseStreamEvents` reports
-			// a line it cannot read, and most streams reaching here are a script's
-			// plain output rather than a malformed event.
+			let parsed: unknown
+			// Parsed here rather than left to `parseStreamEvents`, which reports a line
+			// it cannot read: most streams reaching this check are a script's plain
+			// output, not a malformed event.
 			try {
-				JSON.parse(line)
+				parsed = JSON.parse(line)
 			} catch {
 				return false
 			}
-			return parseStreamEvents(line).length > 0
+			return (
+				isRecord(parsed) &&
+				typeof parsed.type === 'string' &&
+				STREAM_EVENT_TYPES.includes(parsed.type)
+			)
 		}
 		start = end + 1
 	}
@@ -280,6 +303,13 @@ export function advanceAgentStream(
 		}
 		if (event.kind === 'reasoning') {
 			stream.reasoning += event.content
+			continue
+		}
+		// `result_stream` is whatever the job wrote, so a tool event can arrive
+		// without the fields its type promises. Such a line is not a turn boundary
+		// and not a row: keyed on nothing, it would draw an unlabelled card that
+		// every later nameless event joins.
+		if (typeof event.callId !== 'string' || typeof event.name !== 'string') {
 			continue
 		}
 		if (TOOL_TURN_STARTED.includes(event.kind)) {
