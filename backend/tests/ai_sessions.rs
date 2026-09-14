@@ -297,6 +297,20 @@ async fn test_backup_writes_are_refused_for_the_wrong_owner_token_or_id(
     .await?;
     assert_eq!(resp.status(), 400, "{}", resp.text().await?);
 
+    // ...and across the whole request, not only per entry.
+    let sessions: Vec<Value> = (0..100)
+        .map(|i| {
+            json!({ "id": format!("s{i}"), "delete_chats": (0..50).map(|j| format!("c{j}")).collect::<Vec<_>>() })
+        })
+        .collect();
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "sessions": sessions }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+
     // A pull body is a handful of ids; a large one is refused before it is parsed.
     let resp = authed(
         client().post(format!("{base}/ai/sessions/pull")),

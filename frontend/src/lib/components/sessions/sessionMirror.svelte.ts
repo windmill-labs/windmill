@@ -51,6 +51,7 @@ import {
 	artifactsFingerprint,
 	headSig,
 	jsonBytes,
+	operationsOf,
 	planSessionPush,
 	splitEntry,
 	type ChatSnapshot,
@@ -68,9 +69,11 @@ const RETRY_MIN_MS = 30_000
 const RETRY_MAX_MS = 600_000
 /** Requests are packed up to about this many bytes; the server accepts four times that. */
 const REQUEST_TARGET_BYTES = 8 * 1024 * 1024
-/** The server's caps per request. */
+/** The server's caps per request and per entry. */
 const MAX_ENTRIES_PER_REQUEST = 100
 const MAX_REMOVED_PER_REQUEST = 200
+const MAX_IMAGES_PER_ENTRY = 500
+const MAX_OPERATIONS_PER_REQUEST = 4000
 /** A chat or a session's artifacts beyond this are left out of the backup rather than
  * sent: with the record and the deletes riding along, the largest entry stays well under
  * the server's 32 MB body cap. */
@@ -395,6 +398,7 @@ async function pushWorkspace(
 	const failed = new Set<string>()
 	let current: PushBody | undefined
 	let size = 0
+	let ops = 0
 
 	const send = async (body: PushBody): Promise<SendStatus> => {
 		if (getCurrentUserEmail() !== email) return 'abort'
@@ -449,13 +453,17 @@ async function pushWorkspace(
 		const body = current
 		current = undefined
 		size = 0
+		ops = 0
 		return send(body)
 	}
 	const append = async (entry: AISessionBackupPush): Promise<SendStatus> => {
 		const bytes = jsonBytes(entry)
+		const entryOps = operationsOf(entry)
 		if (
 			current &&
-			(current.sessions.length >= MAX_ENTRIES_PER_REQUEST || size + bytes > REQUEST_TARGET_BYTES)
+			(current.sessions.length >= MAX_ENTRIES_PER_REQUEST ||
+				ops + entryOps > MAX_OPERATIONS_PER_REQUEST ||
+				size + bytes > REQUEST_TARGET_BYTES)
 		) {
 			const status = await flushCurrent()
 			if (status !== 'ok') return status
@@ -463,6 +471,7 @@ async function pushWorkspace(
 		current ??= { owner: email, sessions: [] }
 		current.sessions.push(entry)
 		size += bytes
+		ops += entryOps
 		const a = attempted.get(entry.id)
 		if (a) a.parts += 1
 		return 'ok'
@@ -496,8 +505,9 @@ async function pushWorkspace(
 			continue
 		}
 		// A move: the copy in the old workspace goes on its own mark, so it is retried on
-		// its own if this push lands and its removal does not.
-		if (plan.removeFrom && wsState.get(plan.removeFrom) !== 'off') {
+		// its own if this push lands and its removal does not; that holds for an old
+		// workspace whose backups are off for now, which may hold the copy still.
+		if (plan.removeFrom) {
 			addRemoved(item.session.id, plan.removeFrom, false)
 			out.movedAny = true
 		}
@@ -515,7 +525,11 @@ async function pushWorkspace(
 			const data_url = await readImageDataUrl(id, email)
 			// Evicted since the plan was made; the next save of that chat drops the id.
 			if (!data_url) continue
-			if (images.length > 0 && imagesBytes + data_url.length > REQUEST_TARGET_BYTES) {
+			if (
+				images.length > 0 &&
+				(images.length >= MAX_IMAGES_PER_ENTRY ||
+					imagesBytes + data_url.length > REQUEST_TARGET_BYTES)
+			) {
 				const status = await append({ id: item.session.id, images })
 				if (status !== 'ok') return finish(status)
 				images = []

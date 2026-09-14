@@ -48,6 +48,7 @@ const MAX_REMOVED: usize = 200;
 const MAX_CHATS_PER_ENTRY: usize = 100;
 const MAX_IMAGES_PER_ENTRY: usize = 500;
 const MAX_DELETES_PER_ENTRY: usize = 1000;
+const MAX_OPERATIONS_PER_PUSH: usize = 4000;
 const IO_CONCURRENCY: usize = 8;
 
 pub fn workspaced_service() -> Router {
@@ -557,7 +558,8 @@ fn validate_push(req: &PushRequest) -> Result<()> {
         ));
     }
     // Every nested entry costs an object-store call (a deleted chat two), so the lists are
-    // bounded like the top-level ones; the browser sends far fewer.
+    // bounded per entry and across the request; the browser sends far fewer.
+    let mut operations = req.removed.len();
     for s in &req.sessions {
         if s.chats.len() > MAX_CHATS_PER_ENTRY
             || s.images.len() > MAX_IMAGES_PER_ENTRY
@@ -569,6 +571,10 @@ fn validate_push(req: &PushRequest) -> Result<()> {
                 s.id
             )));
         }
+        operations += s.chats.len() + s.images.len() + s.delete_chats.len() + s.delete_images.len();
+    }
+    if operations > MAX_OPERATIONS_PER_PUSH {
+        return Err(Error::BadRequest("too many pieces in one push".to_string()));
     }
     for sid in &req.removed {
         require_valid_id("session", sid)?;

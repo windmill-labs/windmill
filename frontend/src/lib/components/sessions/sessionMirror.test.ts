@@ -228,6 +228,30 @@ describe('sessionMirror flush', () => {
 		expect(pendingKeys()).toEqual(['d::s3'])
 	})
 
+	it('fails only the sessions of a request the server found too large', async () => {
+		const ids = Array.from({ length: 101 }, (_, i) => `t${i}`)
+		for (const id of ids) {
+			await putSession({ id, name: id, createdAt: 1, workspace_id: 'ws' })
+		}
+		const { ApiError } = await import('$lib/gen')
+		pushMock
+			.mockRejectedValueOnce(
+				new ApiError({ method: 'POST', url: '' } as never, { status: 413 } as never, 'too large')
+			)
+			.mockImplementation(
+				async ({ requestBody }: { requestBody: { sessions: { id: string }[] } }) => ({
+					enabled: true,
+					results: requestBody.sessions.map((s) => ({ id: s.id }))
+				})
+			)
+		await __flushForTesting()
+		// The second request still went out and settled its session; the first's stay marked.
+		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(pendingKeys()).toHaveLength(100)
+		const settled = pushMock.mock.calls[1][0].requestBody.sessions[0].id
+		expect(pendingKeys()).not.toContain(`d::${settled}`)
+	})
+
 	it('keeps the marks when the server refuses a request, for the next page load', async () => {
 		const s: Session = { id: 's4', name: 'session-4', createdAt: 1, workspace_id: 'ws' }
 		sessionState.sessions = [s]

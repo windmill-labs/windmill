@@ -82,7 +82,8 @@ remote state. Only a user-initiated `deleteSession` removes the backup; the work
 removals (`reconcileSessionsLifecycle`, `deleteSessionsForWorkspace`) leave it, so a session
 dropped by a wrong reconcile comes back on the next restore. Objects of deleted workspaces stay
 in the bucket. A session moved to another workspace is pushed whole into the new one, and the
-copy in the old one gets a removal mark of its own, retried independently until it lands.
+copy in the old one gets a removal mark of its own, retried independently until it lands, even
+when the old workspace's backups are off at the time (they may hold the copy still).
 
 A restore writes a session's artifacts and chats before its record, and records nothing for a
 session whose pieces could not be written: recording it would let the next flush push the
@@ -90,8 +91,9 @@ half-empty local state over the backup.
 
 ## Limits
 
-Push bodies are packed to about 8 MB, at most 100 entries and 200 removals each (the server's
-caps, with 32 MB on the body, and 100 chats, 500 images or 1000 deletes per entry); an entry that
+Push bodies are packed to about 8 MB (UTF-8 bytes as sent), at most 100 entries, 200 removals and
+4000 pieces each (the server's caps, with 32 MB on the body, and 100 chats, 500 images or 1000
+deletes per entry, since every piece is an object-store call); an entry that
 outgrows the target is split into chat-only parts with the head riding on the last. A chat above
 16 MB or a session's artifacts above 8 MB are left out with a console warning; a chat that grew
 past the cap after it was backed up has its copy deleted, so a restore never presents the old

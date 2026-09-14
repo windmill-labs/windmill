@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	artifactsFingerprint,
 	headSig,
+	jsonBytes,
 	planSessionPush,
 	splitEntry,
 	type ChatSnapshot,
@@ -148,6 +149,13 @@ describe('planSessionPush', () => {
 			sync: synced({ artifacts: artifactsFingerprint({ items, versions: [] }) })
 		})
 		expect(emptied?.entry?.artifacts).toEqual(noArtifacts)
+	})
+})
+
+describe('jsonBytes', () => {
+	it('counts the bytes the request carries, not UTF-16 code units', () => {
+		expect(jsonBytes('ab')).toBe(4)
+		expect(jsonBytes('日本')).toBe(8)
 	})
 })
 

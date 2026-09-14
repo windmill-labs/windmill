@@ -188,9 +188,20 @@ export function planSessionPush(input: PlanInput): PlannedPush | undefined {
 	}
 }
 
-/** Bytes a JSON body would carry for this value. */
+/** Bytes a JSON body would carry for this value, as sent: UTF-8, not UTF-16 code units,
+ * which would under-count a transcript in a non-Latin script by up to three times. */
 export function jsonBytes(value: unknown): number {
-	return JSON.stringify(value).length
+	return new TextEncoder().encode(JSON.stringify(value)).byteLength
+}
+
+/** Object-store calls the server makes for an entry, the unit its per-request cap counts. */
+export function operationsOf(entry: AISessionBackupPush): number {
+	return (
+		(entry.chats?.length ?? 0) +
+		(entry.images?.length ?? 0) +
+		(entry.delete_chats?.length ?? 0) +
+		(entry.delete_images?.length ?? 0)
+	)
 }
 
 export interface PushBody {
@@ -199,14 +210,15 @@ export interface PushBody {
 	removed?: string[]
 }
 
-/**
- * Break an entry that outgrows the target into chat-only entries, each written on its own,
- * with the head and everything else riding on the last one: the server writes an entry's
- * chats before its head, and the entries go out in order, so the head never lists a chat
- * that has not landed.
- */
+/** The server's cap on chats per entry. */
 export const MAX_CHATS_PER_ENTRY = 100
 
+/**
+ * Break an entry that outgrows the target, or the server's per-entry chat cap, into
+ * chat-only entries, each written on its own, with the head and everything else riding on
+ * the last one: the server writes an entry's chats before its head, and the entries go out
+ * in order, so the head never lists a chat that has not landed.
+ */
 export function splitEntry(entry: AISessionBackupPush, targetBytes: number): AISessionBackupPush[] {
 	if (
 		!entry.chats ||
