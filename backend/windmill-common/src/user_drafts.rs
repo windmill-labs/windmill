@@ -505,7 +505,8 @@ pub async fn overlay_or_draft_only<T: serde::Serialize + Send + 'static>(
     }
 }
 
-/// Delete the drafts an address owns, across every workspace.
+/// Delete the drafts an address owns, and the move records routing saves to them,
+/// across every workspace.
 ///
 /// `draft.email` carries no foreign key to `password`: a draft's owner is any principal the
 /// instance authenticates, and an external JWT's subject never has a `password` row. Deleting an
@@ -516,15 +517,18 @@ pub async fn overlay_or_draft_only<T: serde::Serialize + Send + 'static>(
 /// No authorization of its own: it acts instance-wide on whatever address it is handed, so the
 /// caller must already have authorized removing that account (superadmin, the account's own
 /// holder, or SCIM).
-pub async fn delete_drafts_of_email<'c>(
-    executor: impl sqlx::PgExecutor<'c>,
-    email: &str,
-) -> Result<()> {
+pub async fn delete_drafts_of_email(conn: &mut sqlx::PgConnection, email: &str) -> Result<()> {
     sqlx::query!("DELETE FROM draft WHERE email = $1", email)
-        .execute(executor)
+        .execute(&mut *conn)
+        .await?;
+    // The records routing saves to those drafts go with them: one left behind would send
+    // a later holder of the address to a draft that no longer exists.
+    sqlx::query!("DELETE FROM draft_move WHERE email = $1", email)
+        .execute(&mut *conn)
         .await?;
     Ok(())
 }
+
 
 /// Move the drafts an address owns onto its new address, for the same reason
 /// [`delete_drafts_of_email`] exists: no foreign key follows the rename, so drafts left behind are
@@ -558,6 +562,29 @@ pub async fn rename_drafts_of_email(
     .await?;
     sqlx::query!(
         "UPDATE draft SET email = $1 WHERE email = $2",
+        new_email,
+        old_email
+    )
+    .execute(&mut *conn)
+    .await?;
+    // The records that route saves to those drafts follow the same address, or a save
+    // still addressed to a path the account moved away from would start a second draft
+    // there. The destination's own records for a path win, as its drafts just did.
+    sqlx::query!(
+        "DELETE FROM draft_move dest
+         WHERE dest.email = $1
+           AND EXISTS (SELECT 1 FROM draft_move src
+                       WHERE src.email = $2
+                         AND src.workspace_id = dest.workspace_id
+                         AND src.old_path = dest.old_path
+                         AND src.typ = dest.typ)",
+        new_email,
+        old_email
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!(
+        "UPDATE draft_move SET email = $1 WHERE email = $2",
         new_email,
         old_email
     )

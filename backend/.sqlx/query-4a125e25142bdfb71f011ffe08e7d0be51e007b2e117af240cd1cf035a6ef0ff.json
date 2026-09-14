@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                 (SELECT typ::text FROM draft WHERE workspace_id = $1 AND path = $3\n                  AND typ::text = ANY($6::text[]) AND email = $4 LIMIT 1) as \"at_target\",\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5\n                        AND typ = $2 AND email = $4\n                        AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0\n                       ) as \"poisoned!\" ",
+  "query": "SELECT\n                 (SELECT typ::text FROM draft WHERE workspace_id = $1 AND path = $3\n                  AND typ::text = ANY($6::text[]) AND email = $4 LIMIT 1) as \"at_target\",\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5\n                        AND typ = $2 AND email = $4\n                        AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0\n                       ) as \"poisoned!\",\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5\n                        AND typ = $2 AND email IS NULL) as \"legacy!\" ",
   "describe": {
     "columns": [
       {
@@ -11,6 +11,11 @@
       {
         "ordinal": 1,
         "name": "poisoned!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "legacy!",
         "type_info": "Bool"
       }
     ],
@@ -60,8 +65,9 @@
     },
     "nullable": [
       null,
+      null,
       null
     ]
   },
-  "hash": "ba312a2cade7e7e3bca1788e151e23cf3a3b7cea9a676b1cedc2ae36290aab40"
+  "hash": "4a125e25142bdfb71f011ffe08e7d0be51e007b2e117af240cd1cf035a6ef0ff"
 }

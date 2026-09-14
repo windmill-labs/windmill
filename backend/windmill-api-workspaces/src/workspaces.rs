@@ -7326,8 +7326,10 @@ async fn clone_drafts(
         // sanitizer can carry a U+0000 escape, which `to_jsonb` rejects. Sanitizing on the
         // way in keeps such a row from either aborting the clone or arriving with its
         // principal unstripped. Escaped backslashes are parked on chr(1) first, so only an
-        // odd-parity backslash-u0000 (a real NUL) is removed. chr(92) spells the backslash
-        // so no escape sequence reaches this source file.
+        // odd-parity backslash-u0000 (a real NUL) is removed; chr(1) is lossless as a
+        // placeholder because a `json` value's text cannot hold a raw control byte (JSON
+        // escapes them), so nothing in the payload can collide with it. chr(92) spells the
+        // backslash so no escape sequence reaches this source file.
         r#"INSERT INTO draft (workspace_id, path, typ, value, created_at, email, base)
          SELECT $2, path, typ,
                 to_json(

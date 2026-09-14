@@ -762,7 +762,9 @@ async fn move_draft(
                  EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5
                         AND typ = $2 AND email = $4
                         AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0
-                       ) as "poisoned!" "#,
+                       ) as "poisoned!",
+                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5
+                        AND typ = $2 AND email IS NULL) as "legacy!" "#,
             &w_id,
             kind as UserDraftItemKind,
             new_path,
@@ -779,6 +781,14 @@ async fn move_draft(
             format!(
                 "'{path}' contains a NUL character and predates the sanitizer, so it cannot be \
                  {attempted}. Reopen it, re-save to rewrite it cleanly, then retry."
+            )
+        } else if row.legacy {
+            // The home list synthesizes a draft-only row for the legacy draft with the
+            // caller's own name on it, so this is reachable from the row menu. Only an
+            // admin can claim or discard that row, and only from the drafts page.
+            format!(
+                "'{path}' is a legacy workspace draft with no owner, so it cannot be moved. \
+                 A workspace admin can claim or discard it on the Review & deploy drafts page."
             )
         } else if let Some(occupant) = row.at_target.filter(|_| new_path != path) {
             // Naming the kind matters for the app pair: a classic-app draft refusing a
