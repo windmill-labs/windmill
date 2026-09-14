@@ -708,31 +708,36 @@ pub async fn move_drafts_for_path(
             "'{new_path}' already has a draft on it ({names}) — it must be moved or discarded first"
         )));
     }
-    // `draft.value` is `json`, so `to_jsonb` raises 22P05 on a row still carrying a
-    // NUL escape from before the write-time sanitizer. Such a row moves on its path
-    // column alone: one poisoned draft must not abort someone else's rename.
+    // `draft.value` is `json`, so a NUL escape left by a pre-sanitizer write makes
+    // `to_jsonb` raise 22P05. `clean` is `strip_json_nul`'s parity rule in SQL (escaped
+    // backslashes parked on chr(1), which a `json` value's text cannot hold, so nothing
+    // collides with it; chr(92) spells the backslash so no escape sequence reaches this
+    // file). A row whose keys need re-pointing is therefore rewritten clean rather than
+    // left naming the old path, and one that needs nothing keeps its value byte for byte.
     sqlx::query!(
-        r#"UPDATE draft
+        r#"UPDATE draft AS d
            SET path = $3::text,
-               value = CASE
-                   WHEN position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0
-                       THEN value
-                   WHEN to_jsonb(value) -> 'path' = to_jsonb($2::text)
-                     OR to_jsonb(value) -> 'draft_path' = to_jsonb($2::text)
-                       THEN to_json(
-                           to_jsonb(value)
-                           || CASE WHEN to_jsonb(value) -> 'path' = to_jsonb($2::text)
-                                   THEN jsonb_build_object('path', $3::text)
-                                   ELSE '{}'::jsonb END
-                           || CASE WHEN to_jsonb(value) -> 'draft_path' = to_jsonb($2::text)
-                                   THEN jsonb_build_object('draft_path', $3::text)
-                                   ELSE '{}'::jsonb END
-                       )
-                   ELSE value
-               END
-           WHERE workspace_id = $1
-             AND path = $2::text
-             AND typ::text = ANY($4::text[])"#,
+               value = (
+                   SELECT CASE
+                       WHEN s.clean -> 'path' = to_jsonb($2::text)
+                         OR s.clean -> 'draft_path' = to_jsonb($2::text)
+                           THEN to_json(
+                               s.clean
+                               || CASE WHEN s.clean -> 'path' = to_jsonb($2::text)
+                                       THEN jsonb_build_object('path', $3::text)
+                                       ELSE '{}'::jsonb END
+                               || CASE WHEN s.clean -> 'draft_path' = to_jsonb($2::text)
+                                       THEN jsonb_build_object('draft_path', $3::text)
+                                       ELSE '{}'::jsonb END
+                           )
+                       ELSE d.value
+                   END
+                   FROM (SELECT replace(replace(replace(d.value::text, chr(92) || chr(92), chr(1)),
+                                                chr(92) || 'u0000', ''), chr(1), chr(92) || chr(92))::jsonb AS clean) s
+               )
+           WHERE d.workspace_id = $1
+             AND d.path = $2::text
+             AND d.typ::text = ANY($4::text[])"#,
         w_id,
         old_path,
         new_path,

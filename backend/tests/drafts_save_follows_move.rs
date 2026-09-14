@@ -336,3 +336,36 @@ async fn test_redeploy_at_a_routed_path_ends_the_route(db: Pool<Postgres>) -> an
     );
     Ok(())
 }
+
+/// A draft written before the NUL sanitizer still has to follow a move: its path keys are
+/// what a deploy of it would land on, so the carry rewrites them, sanitizing the value it
+/// could not otherwise parse.
+#[sqlx::test(fixtures("base", "drafts_save_follows_move"))]
+async fn test_a_poisoned_draft_follows_a_rename(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // The teammate's row, rewritten the way a pre-sanitizer client left one: a real NUL
+    // escape in the content, both path keys naming the path the item is about to leave.
+    sqlx::query(
+        r#"UPDATE draft SET value = '{"path": "u/test-user/follow_a", "draft_path": "u/test-user/follow_a",
+             "parent_hash": "0000000000001b76", "summary": "A", "content": "a\u0000b"}'
+           WHERE email = 'test2@windmill.dev'"#,
+    )
+    .execute(&db)
+    .await?;
+
+    rename(port, HEAD_HASH, "u/test-user/follow_b").await?;
+
+    let row: (String, String, String) = sqlx::query_as(
+        "SELECT value::jsonb ->> 'path', value::jsonb ->> 'draft_path', value::jsonb ->> 'content'
+         FROM draft WHERE email = 'test2@windmill.dev'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(row.0, "u/test-user/follow_b", "typed path did not follow");
+    assert_eq!(row.1, "u/test-user/follow_b", "mirror did not follow");
+    assert_eq!(row.2, "ab", "the NUL survived the rewrite");
+    Ok(())
+}

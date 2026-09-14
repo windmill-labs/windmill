@@ -404,7 +404,9 @@ async fn update_draft(
     let is_own_discard = req.value.is_none() && !req.legacy;
 
     // The caller's own draft-only move outranks the move of the deployed item.
-    let moved_to = if req.legacy {
+    // `legacy` names the workspace-level row, which no move record covers, and it is
+    // delete-only: an upsert writes the caller's own row and is routed like any other.
+    let moved_to = if req.legacy && req.value.is_none() {
         None
     } else {
         sqlx::query_scalar!(
