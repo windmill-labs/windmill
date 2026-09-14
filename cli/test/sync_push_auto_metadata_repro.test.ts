@@ -168,7 +168,7 @@ test(
 // Customer scenario: a barrel file (f/lib/errors/index.ts) re-exports from
 // siblings (./types.ts, ./WorkflowError.ts, ...). An importer in a different
 // folder imports from the barrel. On a fresh DB, the dep job for the importer
-// fetches index.ts via raw_unpinned + temp_script_hash, but bun's resolver
+// fetches index.ts via raw + temp_script_hash, but bun's resolver
 // then has to resolve the barrel's *sibling* imports — and those need to be
 // in TEMP_SCRIPT_REFS too.
 test(
