@@ -14,12 +14,10 @@ export type StreamEvent =
 	| { kind: 'tool_result'; callId: string; name: string; result: string; success: boolean }
 
 /**
- * The `type` values the switch below reads, for callers that must recognise the
- * protocol before an event can be read from it: a `token_delta` carrying nothing
- * is dropped by the parser and is still proof the stream is an agent's.
- *
- * Add a name here whenever the switch gains a case, or a stream opening with the
- * new event is taken for something else entirely.
+ * The `type` values the switch below reads. Classifying a stream needs these
+ * rather than the parser, which yields nothing for an event carrying nothing —
+ * an opening `token_delta` with no content is still proof of an agent. A case
+ * added below needs its name here, or a stream opening with it is misread.
  */
 export const STREAM_EVENT_TYPES = [
 	'token_delta',
