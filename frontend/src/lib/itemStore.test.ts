@@ -530,6 +530,32 @@ describe('item store: one entry per key', () => {
 		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: kept })
 	})
 
+	it('keeps a draft written from outside at the key a save is moving onto', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const gate = deferred()
+		const b = { ...deployedRes, path: 'u/me/b' }
+		const temporary = newItemPath()
+		const { handle: moving } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: temporary },
+			{ workspace: 'w', path: temporary, template: b },
+			adapter({}, () => gate.promise)
+		)
+		await settle()
+		moving.value = { ...b, args: { a: 2 } }
+		const moved = moving.save()
+		await settle()
+		const chat = { ...b, description: 'written by the chat meanwhile' }
+		// Nobody holds the key yet, so the caller persists it itself.
+		expect(store.bridge.seed('w', 'resource', 'u/me/b', chat)).toBe(false)
+
+		gate.resolve()
+		expect(await moved).toMatchObject({ ok: true, moved: true })
+		expect(moving.deployed).toEqual({ ...b, args: { a: 2 } })
+		expect(moving.value).toEqual(chat)
+		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: chat })
+	})
+
 	it('keeps a change the draft comparison ignores in an editor a move replaces', async () => {
 		type Sched = { path: string; summary: string; permissioned_as?: string }
 		const rows = fakeRows()

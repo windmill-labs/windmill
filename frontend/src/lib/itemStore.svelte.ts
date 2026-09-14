@@ -757,6 +757,9 @@ export function createItemStore(ports: ItemRowPort) {
 	const entries = new Map<string, Entry<any>>()
 	/** The latest save moving onto a key, by that key, and when its move is done. */
 	const moves = new Map<string, { owner: Entry<any>; done: Promise<void> }>()
+	/** Drafts written from outside at a key while a save is moving onto it: newer than that write,
+	 *  so the entry arriving there takes them rather than clearing the row it finds. */
+	const arrivals = new Map<string, unknown>()
 
 	const internals: StoreInternals = {
 		release(entry) {
@@ -775,6 +778,11 @@ export function createItemStore(ports: ItemRowPort) {
 			const displaced = entries.get(to)
 			if (displaced && displaced !== entry) retire(displaced, entry)
 			entries.set(to, entry)
+			const arrived = arrivals.get(to)
+			if (arrived !== undefined) {
+				arrivals.delete(to)
+				entry.applyExternal(arrived)
+			}
 		},
 		/**
 		 * A save about to write the item at `key` and move onto it. It goes after the command
@@ -804,7 +812,9 @@ export function createItemStore(ports: ItemRowPort) {
 				turn: Promise.all(waits).then(() => (claimant.waitingOn = [])),
 				release() {
 					release()
-					if (moves.get(k) === move) moves.delete(k)
+					if (moves.get(k) !== move) return
+					moves.delete(k)
+					arrivals.delete(k)
 				}
 			}
 		},
@@ -929,8 +939,14 @@ export function createItemStore(ports: ItemRowPort) {
 
 	const bridge = {
 		seed(workspace: string, kind: UserDraftItemKind, path: string, value: unknown): boolean {
+			if (value === undefined || value === null) return false
 			const entry = find(workspace, kind, path)
-			if (!entry || value === undefined || value === null) return false
+			if (!entry) {
+				// Persisted as usual, and handed to the save moving onto this key when it lands.
+				const k = keyString({ workspace, kind: kind as ItemKind, path })
+				if (moves.has(k)) arrivals.set(k, snapshot(value))
+				return false
+			}
 			entry.applyExternal(value)
 			return true
 		},
@@ -946,7 +962,10 @@ export function createItemStore(ports: ItemRowPort) {
 		},
 		discard(workspace: string, kind: UserDraftItemKind, path: string): boolean {
 			const entry = find(workspace, kind, path)
-			if (!entry) return false
+			if (!entry) {
+				arrivals.delete(keyString({ workspace, kind: kind as ItemKind, path }))
+				return false
+			}
 			void entry.discard()
 			return true
 		},
