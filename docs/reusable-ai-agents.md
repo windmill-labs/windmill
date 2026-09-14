@@ -49,11 +49,12 @@ which memory it is:
   names two memories. A uuid is used as is. Nothing is generated at save time, so schedules,
   webhooks, evals and plain runs pass no id and run stateless.
 - **Step: history inputs.** Flow-local, so they stay on a linked step. `memory_id` overrides the
-  run's id, hashed the same way: a fixed value is one memory shared by every run, an expression such as
-  `flow_input.customer_id` one memory per key, and an expression that evaluates to nothing runs
+  run's id, hashed the same way: a fixed value is one memory shared by every run, an expression such
+  as `flow_input.customer_id` one memory per key, and an expression that evaluates to nothing runs
   stateless rather than falling back to the run's id. `messages` supplies the history itself and
-  bypasses memory; an expression that evaluates to null sends no history and still bypasses it. The editor writes at most one of them and never seeds a placeholder for
-  either, because a present key is the step's choice; if both are present, `messages` wins.
+  bypasses memory; an expression that evaluates to null sends no history and still bypasses it. The
+  editor writes at most one of them and never seeds a placeholder for either, because a present key
+  is the step's choice; if both are present, `messages` wins.
 
 The worker reconciles them once per agent invocation, nested agent tools included, in
 `resolve_history_source` (`windmill-worker/src/ai_executor.rs`):
@@ -63,9 +64,9 @@ The worker reconciles them once per agent invocation, nested agent tools include
 3. The memory id is the step's, else the run's, else a legacy id baked into the `auto` object.
 4. With no memory id the agent runs stateless and says so in the job log.
 
-Memory is stored per (memory id, step id), in `ai_agent_memory` or S3 at
-`memory/{workspace}/{memory id}/{step}.json`. The chat transcript (`flow_conversation_message`)
-always follows the run's id, even when a step sets its own. Nothing expires stored memory: deleting a chat conversation deletes
+Memory is stored per (memory id, step id), in `ai_agent_memory` or S3 at `memory/{workspace}/{memory
+id}/{step}.json`. The chat transcript (`flow_conversation_message`) always follows the run's id,
+even when a step sets its own. Nothing expires stored memory: deleting a chat conversation deletes
 its memory, and a memory named by a string id stays until it is overwritten.
 
 Compatibility runs one way. New workers read every older shape. The editor rewrites a legacy step
@@ -87,9 +88,10 @@ A flow does not wait for that deploy to see the draft:
 - Testing the flow, or a single linked step, runs the draft. `runFlowPreview` and `ModuleTest`
   substitute each linked step for the standalone step the draft would run as
   (`linkedAgentDrafts.ts`): `agent` cleared, the draft's brain as static input transforms, the
-  draft's tools on the step, and the step's own `user_message`/`user_attachments` kept on top —
-  the same overlay order `ai_executor.rs` applies to a linked step. `tool_inputs` is untouched,
-  since the worker overlays it in both branches.
+  draft's tools on the step, and the step's own flow-local inputs (`user_message`,
+  `user_attachments`, `memory_id`, `messages`) kept on top — the same overlay order `ai_executor.rs`
+  applies to a linked step. `tool_inputs` is untouched, since the worker overlays it in both
+  branches.
 - The step's linked card and the graph's tool nodes show the draft, with a *Draft* badge, so the
   editor describes what a test would run. Read-only surfaces (the deployed flow page, the run
   viewer) stay on the deployed agent: they resolve tools through `publishLinkedAgentTools` without

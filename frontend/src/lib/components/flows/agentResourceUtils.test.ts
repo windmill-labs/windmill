@@ -143,16 +143,23 @@ describe('nonStaticBrainKeys', () => {
 })
 
 describe('flowLocalInputs', () => {
-	it('keeps only user_message/user_attachments, dropping brain transforms', () => {
+	// Linking keeps exactly these on the step, history inputs included: dropping one would silently
+	// move a linked step onto the run's memory.
+	it('keeps the user message, attachments and history inputs, dropping brain transforms', () => {
 		expect(
 			flowLocalInputs({
 				provider: { type: 'static', value: {} },
+				memory: { type: 'static', value: { kind: 'window', context_length: 10 } },
 				user_message: { type: 'static', value: 'hi' },
-				user_attachments: { type: 'static', value: [] }
+				user_attachments: { type: 'static', value: [] },
+				memory_id: { type: 'javascript', expr: 'flow_input.customer_id' },
+				messages: { type: 'static', value: [{ role: 'user', content: 'earlier' }] }
 			} as any)
 		).toEqual({
 			user_message: { type: 'static', value: 'hi' },
-			user_attachments: { type: 'static', value: [] }
+			user_attachments: { type: 'static', value: [] },
+			memory_id: { type: 'javascript', expr: 'flow_input.customer_id' },
+			messages: { type: 'static', value: [{ role: 'user', content: 'earlier' }] }
 		})
 	})
 
