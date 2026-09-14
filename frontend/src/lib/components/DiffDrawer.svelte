@@ -102,19 +102,28 @@
 
 	async function selectVersion(id: string | undefined) {
 		if (!id || !versionLoader || !data || data.mode !== 'normal') return
+		const shown = selectedVersion
 		selectedVersion = id
 		const generation = ++versionLoadGeneration
 		loadingVersion = true
 		try {
 			const value = await versionLoader(id)
 			if (generation !== versionLoadGeneration) return
-			if (!value || !data || data.mode !== 'normal') return
+			if (!value || !data || data.mode !== 'normal') {
+				// Nothing loaded: the diff still shows the previous version, so the picker
+				// has to say so rather than name one the reader is not looking at.
+				selectedVersion = shown
+				return
+			}
 			const opt = data.versions?.find((v) => v.id === id)
 			data = {
 				...data,
 				deployed: prepareDiff(value),
 				deployedLabel: opt?.isHead ? headLabel : opt?.label
 			}
+		} catch (e) {
+			if (generation === versionLoadGeneration) selectedVersion = shown
+			throw e
 		} finally {
 			if (generation === versionLoadGeneration) loadingVersion = false
 		}

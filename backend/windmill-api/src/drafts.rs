@@ -402,13 +402,16 @@ async fn update_draft(
     // touch the caller's own row. Legacy (NULL-email) rows aren't owned by anyone
     // — they keep the write gate.
     let is_own_discard = req.value.is_none() && !req.legacy;
+    // `legacy` targets the workspace-level row and is delete-only: an upsert writes the
+    // caller's own row whatever it says. Every read of that rule goes through this.
+    let legacy_delete = req.value.is_none() && req.legacy;
 
     // Whose row this write is for: the caller's, or the workspace-level one on a legacy
     // DELETE (`legacy` is delete-only, so an upsert is the caller's own row either way).
     // It picks both the record that applies — an item's move (`email IS NULL`) covers the
     // legacy row too, since the same rename carried it — and the draft whose presence
     // means this path is still the write's own.
-    let owner: Option<&str> = (!(req.legacy && req.value.is_none())).then_some(email.as_str());
+    let owner: Option<&str> = (!legacy_delete).then_some(email.as_str());
     // The caller's own draft-only move outranks the move of the deployed item.
     let moved_to = sqlx::query_scalar!(
         r#"SELECT m.new_path FROM draft_move m
@@ -531,7 +534,7 @@ async fn update_draft(
             kind as UserDraftItemKind,
             req.last_sync,
             req.force,
-            req.legacy,
+            legacy_delete,
         )
         .fetch_optional(&db)
         .await?
@@ -558,9 +561,7 @@ async fn update_draft(
         email,
         path,
         kind as UserDraftItemKind,
-        // The legacy row is a delete target only: an upsert wrote the caller's own row,
-        // so a skipped one is its conflict, not the legacy row's absence.
-        req.legacy && req.value.is_none(),
+        legacy_delete,
     )
     .fetch_optional(&db)
     .await?;
