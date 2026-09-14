@@ -129,7 +129,7 @@ class ChatImpl implements Chat {
       status: 'submitted',
       error: undefined
     })
-    if (this.#state.history === 'local') this.#local.upsertConversation(touched)
+    this.#rememberConversation()
 
     try {
       turn.jobId = await this.#api.runFlow(
@@ -623,12 +623,22 @@ class ChatImpl implements Chat {
     return last
   }
 
+  /** Writes the current messages to local history; the conversation entry itself is `#rememberConversation`'s. */
   #persistLocal(): void {
     clearTimeout(this.#persistTimer)
     this.#persistTimer = undefined
     const id = this.#state.conversationId
     if (this.#state.history !== 'local' || !id) return
     this.#local.saveMessages(id, this.#state.messages)
+  }
+
+  /**
+   * Puts the current conversation at the head of local history. Only a turn moves
+   * a conversation there: merely viewing one must not reorder the list.
+   */
+  #rememberConversation(): void {
+    const id = this.#state.conversationId
+    if (this.#state.history !== 'local' || !id) return
     const conversation = this.#state.conversations.find((c) => c.id === id)
     if (conversation) this.#local.upsertConversation(conversation)
   }
@@ -638,6 +648,8 @@ class ChatImpl implements Chat {
     if (this.#state.history !== 'server' || this.#config.historyExplicit) return false
     if (e instanceof WindmillApiError && (e.status === 401 || e.status === 403)) {
       this.#set({ history: 'local' })
+      // The conversation now lives in the browser; list it there like one started local.
+      this.#rememberConversation()
       return true
     }
     return false
@@ -663,7 +675,7 @@ class ChatImpl implements Chat {
   #leaveConversation(): void {
     if (this.#turn) {
       this.#detachTurn()
-      this.#set({ messages: finalized(this.#state.messages) })
+      this.#set({ messages: finalized(this.#state.messages), status: 'idle' })
     }
     if (this.#persistTimer) this.#persistLocal()
   }

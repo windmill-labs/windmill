@@ -558,6 +558,39 @@ describe('createChat with server history', () => {
     expect([...storage.data.values()].join('')).not.toContain('hello')
   })
 
+  test('viewing an older local conversation does not reorder history', async () => {
+    const storage = memoryStorage()
+    const { fetch } = fetchMock(run, (c) =>
+      c.url.pathname === streamPath ? sse([{ type: 'update', completed: true, only_result: 'ok' }]) : undefined
+    )
+    const chat = createChat(options({ token: 'tok', storage }, fetch))
+    await chat.sendMessage('older')
+    const older = chat.getState().conversationId!
+    chat.newConversation()
+    await chat.sendMessage('newer')
+    const newer = chat.getState().conversationId!
+    await chat.selectConversation(older)
+    await new Promise((r) => setTimeout(r, 400))
+    const again = createChat(options({ token: 'tok', storage }, fetch))
+    expect((await again.loadConversations()).map((c) => c.id)).toEqual([newer, older])
+  })
+
+  test('destroying the chat mid-turn leaves it idle', async () => {
+    const { fetch } = fetchMock(run, (c) =>
+      c.url.pathname === streamPath
+        ? sse([{ type: 'update', new_result_stream: ndjson({ type: 'token_delta', content: 'partial' }), stream_offset: 1 }])
+        : undefined
+    )
+    const chat = createChat(options({ token: 'tok' }, fetch))
+    const turn = chat.sendMessage('hello')
+    await new Promise((r) => setTimeout(r, 50))
+    expect(chat.getState().status).toBe('streaming')
+    chat.destroy()
+    await turn
+    expect(chat.getState().status).toBe('idle')
+    expect(chat.getState().messages.every((m) => !m.pending)).toBe(true)
+  })
+
   test('destroying the chat during a local turn keeps what it showed', async () => {
     const storage = memoryStorage()
     const { fetch } = fetchMock(run, (c) =>
