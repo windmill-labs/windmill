@@ -1,4 +1,4 @@
-import { List, Plug, Plus } from 'lucide-svelte'
+import { List, Plus } from 'lucide-svelte'
 import type { Component } from 'svelte'
 import { get } from 'svelte/store'
 import { ResourceService } from '$lib/gen'
@@ -9,6 +9,7 @@ import type { AIChatManager } from '../copilot/chat/AIChatManager.svelte'
 import { isMcpEnabled, setMcpEnabled } from './enabledServers'
 import { cachedProviderKey, rememberProviderKey } from './iconCache'
 import { loadProviderIcon } from './providerIcon'
+import McpServerIcon from './McpServerIcon.svelte'
 
 type Row = {
 	path: string
@@ -164,19 +165,13 @@ export class McpMenu {
 		return [
 			...shown.map(({ path }) => ({
 				displayName: path,
+				icon: McpServerIcon,
 				// Getters, not snapshots: the menu stays open across a click, and it has
 				// to read through the live list rather than the row captured here, since
 				// a reload replaces every row object and a getter bound to the old one
 				// would go on reporting the state it was built with.
-				get icon() {
-					// Plug where the provider is unknown, so one nameless server does not
-					// pull its label out of line with the rest.
-					return row(path)?.icon ?? Plug
-				},
-				// Provider icons take css lengths and ignore lucide's `size`, so without
-				// this one of them renders at its 24px default among 14px menu icons.
 				get iconProps() {
-					return row(path)?.icon ? { width: '14px', height: '14px' } : undefined
+					return { icon: row(path)?.icon, size: 14 }
 				},
 				get toggle() {
 					return row(path)?.enabled ?? false

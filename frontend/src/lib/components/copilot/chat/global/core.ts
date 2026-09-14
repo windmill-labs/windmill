@@ -94,7 +94,7 @@ import {
 import { searchNpmPackagesTool } from '../script/core'
 import type { McpServer } from './mcpTools'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
-import { enabledSkillPaths } from '../skills/enabledSkills'
+import { isSkillEnabled } from '../skills/enabledSkills'
 import {
 	listSkillResources,
 	readSkillBody,
@@ -909,7 +909,9 @@ const testRunScriptToolDef = createToolDef(
 
 const runScriptSchema = z.object({
 	path: z.string().describe('Workspace path of the deployed script to run.'),
-	args: testRunArgsSchema
+	args: testRunArgsSchema,
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
 })
 
 const runScriptToolDef = createToolDef(
@@ -930,6 +932,20 @@ const testRunFlowToolDef = createToolDef(
 	testRunFlowSchema,
 	'test_run_flow',
 	'Execute a preview-style test run of a flow by path, preferring draft content when it exists. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.',
+	{ strict: false }
+)
+
+const runFlowSchema = z.object({
+	path: z.string().describe('Workspace path of the deployed flow to run.'),
+	args: testRunArgsSchema,
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
+})
+
+const runFlowToolDef = createToolDef(
+	runFlowSchema,
+	'run_flow',
+	'Run a DEPLOYED flow for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real"); otherwise use test_run_flow.',
 	{ strict: false }
 )
 
@@ -1348,7 +1364,7 @@ ${pipelineBullet}
 			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
 	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
 - For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
-- Default to test_run_script, test_run_flow, or test_run_step for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For run_script, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema, and fill in every one you can infer. test_run_script, run_script and test_run_flow all show the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat. runFlowByPath from the API catalog is the exception — it runs a deployed flow with no form at all: only for a flow the user asked to run deployed.
+- Default to test_run_script, test_run_flow, or test_run_step for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script or run_flow only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For those two, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema. test_run_script, test_run_flow, run_script and run_flow all show the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
@@ -1399,7 +1415,7 @@ Data Tables:
 			? `
 
 Skills:
-- Skills are reusable instruction sets the user selected for this chat, each covering a specific kind of task. The available skills are listed below by resource path and description.
+- Skills are reusable instruction sets available in this workspace, each covering a specific kind of task. The available skills are listed below by resource path and description.
 - When a user's request matches a skill's description, call read_skill with its exact path to load the full instructions BEFORE acting, then follow them.
 ${skills.map((s) => `- ${s.path}: ${s.description}`).join('\n')}`
 			: ''
@@ -2366,23 +2382,17 @@ export type ChatCommandItem = {
 }
 
 /**
- * The skills this user turned on in this workspace, for the global system prompt.
- * A readable `ai_skill` resource is only a candidate — enabling one is a personal
- * choice, since each enabled skill spends context on every turn.
+ * The skills in play in this workspace, for the global system prompt: every
+ * readable `ai_skill` resource except the ones this user turned off.
  */
 export async function loadWorkspaceSkills(workspace: string): Promise<AiSkillListItem[]> {
 	if (!workspace) return []
 	try {
-		const enabled = new Set(enabledSkillPaths(workspace))
-		if (enabled.size === 0) return []
-		// Filtered against what is actually readable now, so a skill that was
-		// deleted or whose folder access was revoked drops out instead of being
-		// advertised to the model as something read_skill can load.
 		// A truncated listing still carries most of the workspace, and the drawer is
 		// where that is surfaced; dropping everything here would silently empty the
 		// Skills section instead.
 		return (await listSkillResources(workspace)).skills
-			.filter((s) => enabled.has(s.path))
+			.filter((s) => isSkillEnabled(workspace, s.path))
 			.map(({ path, name, description }) => ({
 				path,
 				name,
@@ -2408,24 +2418,28 @@ export const readSkillTool: Tool<{}> = {
 	def: createToolDef(
 		readSkillSchema,
 		'read_skill',
-		'Load the full instructions for a selected AI skill by resource path. Skills are listed in the system prompt under "Skills"; call this before acting on a task a skill covers, then follow its instructions.'
+		'Load the full instructions for an AI skill by resource path. Skills are listed in the system prompt under "Skills"; call this before acting on a task a skill covers, then follow its instructions.'
 	),
 	planModeSafe: true,
 	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 		const parsed = readSkillSchema.parse(args)
 		const name = skillNameFromPath(parsed.path)
-		// The prompt lists only selected skills, but the tool takes a path the model
-		// composed, so the selection is enforced here too rather than assumed. Without
-		// it the tool reads any resource holding a string `content` — the user's own
-		// access, but not what "load a selected skill" says it does.
-		if (!enabledSkillPaths(workspace).includes(parsed.path)) {
-			toolCallbacks.setToolStatus(toolId, { content: `Skill "${name}" is not selected` })
-			return `"${parsed.path}" is not one of the skills selected for this chat. Only the paths listed under "Skills" in the system prompt can be read.`
-		}
 		toolCallbacks.setToolStatus(toolId, { content: `Reading skill "${name}"...` })
 		try {
-			// Bounded here rather than in the reader: any `ai_skill` resource can be
-			// selected, including ones written through git sync or the resource editor
+			// The prompt lists the skills in play, but the tool takes a path the model
+			// composed, so what may be read is checked here rather than assumed. Against
+			// the listing, not just the off-switch: any other path is now enabled too,
+			// and without this the tool reads any resource holding a string `content` —
+			// the user's own access, but not what "load a skill" says it does.
+			const isSkill = (await listSkillResources(workspace)).skills.some(
+				(s) => s.path === parsed.path
+			)
+			if (!isSkill || !isSkillEnabled(workspace, parsed.path)) {
+				toolCallbacks.setToolStatus(toolId, { content: `Skill "${name}" is not available` })
+				return `"${parsed.path}" is not one of the skills available to this chat. Only the paths listed under "Skills" in the system prompt can be read.`
+			}
+			// Bounded here rather than in the reader: any `ai_skill` resource is in play,
+			// including ones written through git sync or the resource editor
 			// that never passed the authoring form's limits, and an unbounded body
 			// would exhaust the context on one tool call. The editor reads the same
 			// resource untruncated, so opening a long skill cannot rewrite it short.
@@ -2434,7 +2448,7 @@ export const readSkillTool: Tool<{}> = {
 				MAX_SKILL_INSTRUCTIONS_LENGTH
 			)
 			toolCallbacks.setToolStatus(toolId, { content: `Read skill "${name}"` })
-			// Whether a selected skill is actually reached for. No key: the path is
+			// Whether a skill is actually reached for. No key: the path is
 			// workspace-authored text.
 			logFeatureUsage('ai_session', 'skill_read', { workspace })
 			return `Skill: ${parsed.path}\n\nInstructions:\n${instructions}`
@@ -3701,6 +3715,19 @@ export const globalTools: Tool<{}>[] = [
 		streamingLabel: 'Preparing the test form...',
 		confirmationMessage: 'Run a test of a flow',
 		queuedLabel: (args) => `Test ${args?.path ?? 'the flow'}`,
+		showDetails: true,
+		autoCollapseDetails: false
+	},
+	{
+		def: runFlowToolDef,
+		fn: async (ctx) => {
+			const parsed = runFlowSchema.parse(ctx.args)
+			return runDeployedFlow(parsed, ctx)
+		},
+		bypassedByAutoAccept: true,
+		streamingLabel: 'Preparing the run form...',
+		confirmationMessage: 'Run a deployed flow',
+		queuedLabel: (args) => `Run ${args?.path ?? 'a flow'}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -5774,8 +5801,56 @@ async function runDeployedScript(
 			// Bypassable like a test run: the posture is the user's standing answer, and a form
 			// it parks on is a card nobody is watching.
 			autoAcceptable: true,
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 			startJob: (submitted) =>
-				JobService.runScriptByPath({ workspace, path: args.path, requestBody: submitted })
+				JobService.runScriptByPath({
+					workspace,
+					path: args.path,
+					requestBody: submitted,
+					// As the script's own run page does: the form fills the main input schema, and a
+					// preprocessor would take these arguments for a webhook body and hand the script
+					// its own output instead.
+					skipPreprocessor: true
+				})
+		},
+		ctx
+	)
+}
+
+async function runDeployedFlow(
+	args: z.infer<typeof runFlowSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace } = ctx
+	// No live editor is driven here as a test run drives one: that editor holds the draft, and a
+	// deployed run painted into its graph would show steps that are not the ones running.
+	const flow = await FlowService.getFlowByPath({ workspace, path: args.path })
+	return runThroughForm(
+		{
+			path: args.path,
+			schema: (flow.schema as Record<string, any>) ?? {},
+			summary: flow.summary,
+			kind: 'run',
+			// No code/lang: the dynamic-option pickers come from the deployed flow, not an inline copy.
+			schemaNoun: 'deployed',
+			toolName: 'run_flow',
+			proposed: args.args,
+			startMessage: `Running "${args.path}"...`,
+			contextName: 'flow',
+			autoAcceptable: true,
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+			startJob: (submitted) =>
+				JobService.runFlowByPath({
+					workspace,
+					path: args.path,
+					requestBody: submitted,
+					// As the flow's own run page does: the form fills the main input schema, and a
+					// preprocessor would take these arguments for a webhook body and hand the flow
+					// its own output instead.
+					skipPreprocessor: true
+				})
 		},
 		ctx
 	)

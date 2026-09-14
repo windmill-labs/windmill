@@ -65,26 +65,26 @@ export class SkillsMenu {
 
 	async #toggle(ws: string, path: string, enabled: boolean) {
 		// A session whose fork is still staged has no workspace of its own yet, so `ws`
-		// is the PARENT: the selection would be stored under it and quietly stop
+		// is the PARENT: the choice would be stored under it and quietly stop
 		// applying the moment the first send commits the fork.
 		const pendingForkOf = this.#manager.sessionContextResolver?.()?.pendingForkOf
 		if (pendingForkOf !== undefined) {
 			sendUserToast(
-				`This session has not created its workspace yet, so the selection would be stored under "${pendingForkOf}". Send a message first.`,
+				`This session has not created its workspace yet, so the choice would be stored under "${pendingForkOf}". Send a message first.`,
 				true
 			)
 			return
 		}
 		if (!setSkillEnabled(ws, path, enabled)) {
-			sendUserToast('Could not save the selection for this account.', true)
+			sendUserToast('Could not save this choice for this account.', true)
 			return
 		}
 		const row = this.#row(path)
 		if (row) row.enabled = enabled
-		// Whether people select skills at all. Never the skill itself: a path is
+		// Whether people turn skills off at all. Never the skill itself: a path is
 		// workspace-authored text.
 		logFeatureUsage('ai_session', 'skill_toggle', { key: enabled ? 'on' : 'off', workspace: ws })
-		// The prompt lists exactly the enabled skills, so it has to be rebuilt
+		// The prompt lists exactly the skills that are on, so it has to be rebuilt
 		// before the next message rather than on the next mode change.
 		await this.#manager.refreshGlobalSkills(ws)
 	}
@@ -103,10 +103,10 @@ export class SkillsMenu {
 			void this.#load(ws)
 		}
 		const ambiguous = ambiguousSkillNames(this.#rows)
-		// Enabled first: those are the ones a quick visit is most likely about.
-		const ordered = [...this.#rows].sort(
-			(a, b) => Number(b.enabled) - Number(a.enabled) || a.path.localeCompare(b.path)
-		)
+		// By path. Ordering the ones that are on first would put every row in the same
+		// bucket now that skills start that way, and drop the one row it did move — a
+		// skill just turned off here — out of the shortcut that turns it back on.
+		const ordered = [...this.#rows].sort((a, b) => a.path.localeCompare(b.path))
 		const shown = ordered.slice(0, MAX_MENU_SKILLS)
 		const manage = () => {
 			closeMenu?.()

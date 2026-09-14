@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.809.0
+  version: 1.811.1
   title: Windmill API
 
   contact:
@@ -31188,6 +31188,14 @@ components:
         raw_string:
           type: boolean
           description: If true, passes the request body as a raw string instead of parsing as JSON
+        allowed_origins:
+          type: array
+          nullable: true
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 256
+          description: "Origins allowed to call this route cross-origin, matched against the request's Origin header (ignoring case) and echoed back on a match. When set, the list governs both the preflight and the response, overriding any Access-Control-Allow-Origin the runnable returns via wm_headers. Use ['*'] to opt out of any restriction, including the http_route_default_allowed_origins instance setting. An empty list is not a configuration and resolves exactly as null does. When null, the instance setting applies, or Access-Control-Allow-Origin: * if it is unset. Ignored on a static website, which has no authentication of its own and so hands out public files: restricting which browsers may read them protects nothing while breaking cross-origin webfonts and fetches. A single-file static asset is not exempt, since it can carry an authentication_method."
         error_handler_path:
           type: string
           description: Path to a script to run when the triggered job fails. A bare
@@ -31279,6 +31287,14 @@ components:
         raw_string:
           type: boolean
           description: If true, passes the request body as a raw string instead of parsing as JSON
+        allowed_origins:
+          type: array
+          nullable: true
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 256
+          description: "Origins allowed to call this route cross-origin, matched against the request's Origin header (ignoring case) and echoed back on a match. When set, the list governs both the preflight and the response, overriding any Access-Control-Allow-Origin the runnable returns via wm_headers. Use ['*'] to opt out of any restriction, including the http_route_default_allowed_origins instance setting. An empty list is not a configuration and resolves exactly as null does. When null, the instance setting applies, or Access-Control-Allow-Origin: * if it is unset. Ignored on a static website, which has no authentication of its own and so hands out public files: restricting which browsers may read them protects nothing while breaking cross-origin webfonts and fetches. A single-file static asset is not exempt, since it can carry an authentication_method."
         error_handler_path:
           type: string
           description: Path to a script to run when the triggered job fails. A bare
@@ -31377,6 +31393,14 @@ components:
         raw_string:
           type: boolean
           description: If true, passes the request body as a raw string instead of parsing as JSON
+        allowed_origins:
+          type: array
+          nullable: true
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 256
+          description: "Origins allowed to call this route cross-origin, matched against the request's Origin header (ignoring case) and echoed back on a match. When set, the list governs both the preflight and the response, overriding any Access-Control-Allow-Origin the runnable returns via wm_headers. Use ['*'] to opt out of any restriction, including the http_route_default_allowed_origins instance setting. An empty list is not a configuration and resolves exactly as null does. When null, the instance setting applies, or Access-Control-Allow-Origin: * if it is unset. Ignored on a static website, which has no authentication of its own and so hands out public files: restricting which browsers may read them protects nothing while breaking cross-origin webfonts and fetches. A single-file static asset is not exempt, since it can carry an authentication_method."
         error_handler_path:
           type: string
           description: Path to a script to run when the triggered job fails. A bare
@@ -34195,8 +34219,10 @@ components:
             checked when the session is minted and again on every guest request
         on_behalf_of:
           type: string
+          description: The user or group the app runs as in anonymous or publisher mode (e.g. 'u/admin' or 'g/mygroup'). The authority for the app's identity.
         on_behalf_of_email:
           type: string
+          description: Address of `on_behalf_of`, written through from it on every save and returned as stored. Optional; when absent it is derived from `on_behalf_of`. Sending it is optional too; it must name the same account as `on_behalf_of`, and a pair that disagrees is rejected.
         sandbox:
           type: boolean
           description: >
