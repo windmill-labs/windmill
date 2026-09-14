@@ -43,10 +43,15 @@
 
 	const share = $derived(status.current?.share)
 	const url = $derived(share && workspace ? sharedArtifactUrl(workspace, share.id) : undefined)
-	// A rename earns no version, so the name is compared too.
-	const outdated = $derived(
-		share !== undefined && (share.version !== version || share.name !== name.trim())
-	)
+	// Which way re-sharing would move the link: a newer version on screen is an update, an
+	// older one (a pinned approved plan, say) is a deliberate switch back, and the same version
+	// under another name is a rename, which earns no version of its own.
+	const change = $derived.by(() => {
+		if (!share) return undefined
+		if (share.version < version) return 'newer'
+		if (share.version > version) return 'older'
+		return share.name !== name.trim() ? 'renamed' : undefined
+	})
 
 	let saving = $state(false)
 
@@ -139,13 +144,25 @@
 						Expires {displayDate(share.expires_at)}
 					</span>
 				</div>
-				{#if outdated}
+				{#if change}
 					<div class="flex items-center justify-between gap-2">
 						<span class="font-normal text-secondary">
-							The link shows v{share.version}{share.name !== name.trim() ? ` (${share.name})` : ''}.
+							{#if change === 'newer'}
+								The link shows v{share.version}; v{version} is on screen.
+							{:else if change === 'older'}
+								The link shows v{share.version}, newer than the v{version} on screen.
+							{:else}
+								The link still shows the old name, “{share.name}”.
+							{/if}
 						</span>
 						<Button unifiedSize="sm" variant="accent" loading={saving} onClick={shareVersion}>
-							Update to v{version}
+							{#if change === 'newer'}
+								Update link to v{version}
+							{:else if change === 'older'}
+								Share v{version} instead
+							{:else}
+								Update name
+							{/if}
 						</Button>
 					</div>
 				{/if}
