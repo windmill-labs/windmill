@@ -157,8 +157,10 @@ export const AI_AGENT_SCHEMA: Schema = {
 		// Shown for image output as the roster it narrows is, even though neither is used there.
 		enabled_tools: {
 			type: 'array',
-			description:
-				'Which of the agent tools a run may call: a tool by the name the model is shown, an MCP server by its resource path, which carries every tool it exposes, and web search by "__wm_web_search". Unset carries every tool.',
+			// Deliberately short. It is the only place the field's text is always on screen rather than
+			// behind the row's tooltip, and the surface it shows on is the run form, which offers the
+			// names in a picker and has no unset state to explain.
+			description: 'Which of the agent tools a run may call.',
 			items: {
 				type: 'string'
 			}
