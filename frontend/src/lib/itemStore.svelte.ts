@@ -418,9 +418,11 @@ class Entry<V> {
 	}
 
 	/** Take over the edits of a deployed entry this one replaced at its key: each field its value
-	 *  changed from its own deployed side, so they stay a draft over what this entry deployed. */
+	 *  changed from its own deployed side, so they stay a draft over what this entry deployed.
+	 *  Compared exactly, as a save is: a field the draft comparison ignores (run-as) is an edit. */
 	carryEditsOf(old: Entry<V>): void {
-		if (old.origin !== 'deployed' || !old.dirty || this.value === undefined) return
+		if (old.origin !== 'deployed' || old.value === undefined || old.deployed === undefined) return
+		if (this.value === undefined) return
 		const edited = old.value as Record<string, unknown>
 		const base = old.deployed as Record<string, unknown>
 		const next = snapshot(this.value) as Record<string, unknown>

@@ -530,6 +530,34 @@ describe('item store: one entry per key', () => {
 		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: kept })
 	})
 
+	it('keeps a change the draft comparison ignores in an editor a move replaces', async () => {
+		type Sched = { path: string; summary: string; permissioned_as?: string }
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const s: Sched = { path: 's', summary: '', permissioned_as: 'u/a' }
+		const { handle: open } = store.acquire(
+			{ workspace: 'w', kind: 'trigger_schedule', path: 's' },
+			{ workspace: 'w', path: 's' },
+			{
+				load: async () => ({ deployed: structuredClone(s) }),
+				write: async () => {}
+			} as ItemAdapter<Sched>
+		)
+		const temporary = newItemPath()
+		const { handle: moving } = store.acquire(
+			{ workspace: 'w', kind: 'trigger_schedule', path: temporary },
+			{ workspace: 'w', path: temporary, template: s },
+			{ write: async () => {} } as ItemAdapter<Sched>
+		)
+		await settle()
+		open.value = { ...s, permissioned_as: 'u/b' }
+		expect(open.dirty).toBe(false)
+		moving.value = { ...s, summary: 'moved' }
+
+		expect(await moving.save()).toMatchObject({ ok: true, moved: true })
+		expect(open.value).toEqual({ ...s, summary: 'moved', permissioned_as: 'u/b' })
+	})
+
 	it('writes an item it moves onto after the saves queued there, and supersedes later ones', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
