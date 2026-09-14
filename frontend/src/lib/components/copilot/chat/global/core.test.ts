@@ -4358,6 +4358,43 @@ describe('global AI tools', () => {
 		expect(result).toContain('test logs')
 	})
 
+	// No parser emits `password`, so the stored schema is the only thing carrying it: an edit
+	// that rewrites the draft's schema from scratch, or a draft read that drops it, unmarks
+	// the field — and the form then takes the secret as a plain literal into the job's args.
+	it('test_run_script keeps the password marking of the script it previews', async () => {
+		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(true)
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/secretful',
+			language: 'bun',
+			schema: {
+				type: 'object',
+				properties: { token: { type: 'string', password: true } },
+				required: ['token']
+			}
+		} as any)
+
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/secretful',
+			language: 'bun',
+			content: 'export async function main(token: string) { return 1 }'
+		})
+
+		let form: any
+		await callGlobalTool(
+			'test_run_script',
+			{ path: 'f/scripts/secretful' },
+			{
+				...toolCallbacks,
+				requestRunArgs: async (_toolId, opened) => {
+					form = opened
+					return undefined
+				}
+			}
+		)
+
+		expect(form?.schema?.properties).toMatchObject({ token: { password: true } })
+	})
+
 	it('test_run_script previews deployed script content when no draft exists', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/deployed-test',
