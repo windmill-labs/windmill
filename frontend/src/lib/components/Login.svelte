@@ -1,4 +1,5 @@
 <script module lang="ts">
+	import { noteSessionEmail } from '$lib/onboardingProfile'
 	import type { LastLoginMethod } from '$lib/lastLoginMethod'
 
 	/** Feeds the login card a fixed instance configuration instead of the live one.
@@ -264,6 +265,9 @@
 
 		try {
 			await UserService.login({ requestBody })
+			// The session changed under a page that stays mounted: what was cached for the
+			// previous account must not be served to this one.
+			noteSessionEmail(email)
 		} catch (err) {
 			failLogin(loginErrorMessage(err), 'both', requestBody)
 			return
@@ -517,6 +521,9 @@
 	function finishOauthFlow(via: 'postMessage' | 'storage' | 'poll', win?: Window) {
 		if (oauthFlowDone) return
 		oauthFlowDone = true
+		// The popup replaced the session under this still-mounted page; whatever the
+		// previous account had cached must not be served to the new one.
+		noteSessionEmail(undefined)
 		confirmPendingLoginMethod()
 		console.log(`oauth: signaled via ${via}`)
 		if (win && !win.closed) win.close()

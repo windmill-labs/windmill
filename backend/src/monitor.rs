@@ -1784,6 +1784,23 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
     }
 
+    let expired_login_links_r: std::result::Result<Vec<String>, _> =
+        // Expired rows stay a day so an open still reports "expired" rather than "invalid".
+        sqlx::query_scalar(
+            "DELETE FROM login_link WHERE expiration <= now() - interval '1 day' RETURNING token_hash",
+        )
+            .fetch_all(db)
+            .await;
+
+    match expired_login_links_r {
+        Ok(hashes) => {
+            if !hashes.is_empty() {
+                tracing::info!("deleted {} expired login links", hashes.len())
+            }
+        }
+        Err(e) => tracing::error!("Error deleting login links: {}", e.to_string()),
+    }
+
     let pip_resolution_r = sqlx::query_scalar!(
         "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash",
     )
@@ -6151,7 +6168,10 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
 /// Force-complete a zombie job that handle_job_error failed to complete.
 /// This is a minimal fallback: it inserts a failed completed job and deletes
 /// from the queue in a single transaction, without schedule pushing or
-/// error handler logic that could cause the completion to fail.
+/// error handler logic. The one thing it keeps is the WAC parent notification,
+/// deliberately inside the transaction: if that fails, the whole completion
+/// rolls back and the job waits for the next sweep, which is cheaper than a
+/// parent parked for its full suspend window and a task run twice.
 async fn force_complete_zombie_job(
     db: &Pool<Postgres>,
     job_id: &Uuid,
@@ -6173,14 +6193,18 @@ async fn force_complete_zombie_job(
         "Zombie job {job_id} was not completed by handle_job_error, force-completing it"
     );
 
+    // Same `{"error": ...}` shape as every other failed job's result, so a WAC
+    // parent's failure record reads the name and message like any task failure.
     let error_value = serde_json::json!({
-        "message": error_message,
-        "name": "ExecutionErr",
+        "error": {
+            "message": error_message,
+            "name": "ExecutionErr",
+        }
     });
 
     let mut tx = db.begin().await?;
 
-    sqlx::query!(
+    let duration_ms = sqlx::query_scalar!(
         "INSERT INTO v2_job_completed
             (workspace_id, id, started_at, duration_ms, result, memory_peak, status, worker)
         SELECT q.workspace_id, q.id, q.started_at,
@@ -6189,18 +6213,49 @@ async fn force_complete_zombie_job(
         FROM v2_job_queue q
         LEFT JOIN v2_job_runtime r ON r.id = q.id
         WHERE q.id = $1
-        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb",
+        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb
+        RETURNING duration_ms AS \"duration_ms!\"",
         job_id,
         error_value,
     )
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
+
+    // A WAC parent parked on this job must learn of the failure here too, or it
+    // waits out its whole suspend window and runs the task again.
+    let mut wac_parent_ready = false;
+    if let Some(duration_ms) = duration_ms {
+        let parent = sqlx::query!(
+            "SELECT parent_job, flow_step_id FROM v2_job WHERE id = $1",
+            job_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(parent_job) = parent
+            .filter(|j| j.flow_step_id.is_none())
+            .and_then(|j| j.parent_job)
+        {
+            wac_parent_ready = windmill_common::wac::record_child_completion(
+                &mut tx,
+                &parent_job,
+                job_id,
+                false,
+                duration_ms,
+                &error_value.to_string(),
+            )
+            .await?;
+        }
+    }
 
     sqlx::query!("DELETE FROM v2_job_queue WHERE id = $1", job_id)
         .execute(&mut *tx)
         .await?;
 
     tx.commit().await?;
+
+    if wac_parent_ready {
+        windmill_common::wac::WAC_SUSPEND_READY.store(true, Ordering::Relaxed);
+    }
 
     tracing::info!("Force-completed zombie job {job_id}");
     Ok(())
