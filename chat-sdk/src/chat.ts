@@ -38,6 +38,8 @@ interface Turn {
   /** Id of the turn's user message; the answer is whatever follows it. */
   userMessageId: string
   jobId?: string
+  /** The flow job and its step jobs; a persisted answer carries one of them as `job_id`. */
+  jobIds?: Set<string>
   /** Id of the streaming assistant message; cleared when a tool call ends the round. */
   assistantId?: string
   streamedText: boolean
@@ -170,7 +172,7 @@ class ChatImpl implements Chat {
   }
 
   newConversation = (): void => {
-    this.#detachTurn()
+    this.#leaveConversation()
     this.#page = 1
     this.#set({
       conversationId: undefined,
@@ -184,7 +186,7 @@ class ChatImpl implements Chat {
 
   selectConversation = async (conversationId: string): Promise<void> => {
     if (conversationId === this.#state.conversationId) return
-    this.#detachTurn()
+    this.#leaveConversation()
     this.#page = 1
     this.#set({
       conversationId,
@@ -407,6 +409,8 @@ class ChatImpl implements Chat {
   async #finishTurn(turn: Turn, result: unknown, isNew: boolean): Promise<void> {
     if (!this.#turnActive(turn)) return
     if (this.#state.history === 'server') {
+      turn.jobIds = await this.#turnJobIds(turn)
+      if (!this.#turnActive(turn)) return
       const reconciled = await this.#reconcileTurn(turn)
       if (!this.#turnActive(turn)) return
       if (reconciled) {
@@ -479,11 +483,34 @@ class ChatImpl implements Chat {
     return this.#answered(turn)
   }
 
-  /** A persisted assistant message follows the turn's user message. Tool rows alone are not an answer. */
+  /**
+   * A persisted assistant message written by one of the turn's jobs follows the
+   * turn's user message. Tool rows alone are not an answer, and neither is a row
+   * from an earlier turn whose job outlived `stop()` (a token without `jobs:write`
+   * cannot cancel it), which can land after this turn's user row.
+   */
   #answered(turn: Turn): boolean {
     const messages = this.#state.messages
     const from = messages.findIndex((m) => m.id === turn.userMessageId)
-    return messages.some((m, i) => i > from && m.role === 'assistant' && m.seq !== undefined)
+    const ownJob = (m: ChatMessage) =>
+      turn.jobIds === undefined || (m.jobId !== undefined && turn.jobIds.has(m.jobId))
+    return messages.some((m, i) => i > from && m.role === 'assistant' && m.seq !== undefined && ownJob(m))
+  }
+
+  /** The flow job plus its step jobs, read once the flow completed. Unknown when the read fails. */
+  async #turnJobIds(turn: Turn): Promise<Set<string> | undefined> {
+    try {
+      const job = await this.#api.getFlowJob(turn.jobId!, turn.controller.signal)
+      const ids = new Set([turn.jobId!])
+      for (const m of job.flow_status?.modules ?? []) {
+        if (m.job) ids.add(m.job)
+        for (const j of m.flow_jobs ?? []) ids.add(j)
+      }
+      return ids
+    } catch (e) {
+      if (isAbortError(e)) throw e
+      return undefined
+    }
   }
 
   #failTurn(turn: Turn, e: unknown): void {
@@ -610,6 +637,19 @@ class ChatImpl implements Chat {
     if (!turn) return
     this.#turn = undefined
     turn.controller.abort()
+  }
+
+  /**
+   * Leaves the current conversation for another one. A turn still in flight is
+   * detached, and what it showed so far is kept: local history is only written
+   * when a turn settles, so it has to be written here or the message is lost.
+   */
+  #leaveConversation(): void {
+    if (this.#turn) {
+      this.#detachTurn()
+      this.#set({ messages: finalized(this.#state.messages) })
+      this.#persistLocal()
+    }
   }
 
   #set(patch: Partial<ChatState>): void {

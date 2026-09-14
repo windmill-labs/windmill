@@ -61,6 +61,11 @@ export interface CompletedJobResult {
   result?: unknown
 }
 
+/** The part of a flow job's status that names the jobs its steps ran as. */
+export interface FlowJobStatus {
+  flow_status?: { modules?: { job?: string | null; flow_jobs?: string[] | null }[] | null } | null
+}
+
 /** Thin client over the Windmill endpoints a chat-mode flow uses. */
 export class WindmillChatApi {
   readonly #baseUrl: string
@@ -126,6 +131,15 @@ export class WindmillChatApi {
       { signal }
     )
     return (await res.json()) as CompletedJobResult
+  }
+
+  /** A flow job with its status: the step job ids are what persisted messages carry as `job_id`. */
+  async getFlowJob(jobId: string, signal?: AbortSignal): Promise<FlowJobStatus> {
+    const res = await this.#request(`jobs_u/get/${encodeURIComponent(jobId)}`, {
+      query: { no_logs: 'true' },
+      signal
+    })
+    return (await res.json()) as FlowJobStatus
   }
 
   async cancelJob(jobId: string, reason = 'Stopped from the chat'): Promise<void> {

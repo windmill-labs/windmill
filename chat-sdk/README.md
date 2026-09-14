@@ -247,7 +247,7 @@ the chat needs:
 | Setup | Scopes |
 |---|---|
 | Public site, one token for everyone | `jobs:run:flows:f/support/assistant`, and `history: 'local'`. The token can run that one flow and follow its jobs, nothing else. |
-| Per-user tokens minted by your backend | The above plus `flow_conversations:write` for server-side history. Return them from an endpoint and pass `token: () => fetch(...)`. |
+| Per-user tokens minted by your backend | The above plus `flow_conversations:write`, with `history: 'server'` (an explicit token defaults to local history). Return them from an endpoint and pass `token: () => fetch(...)`. |
 | A Windmill user in the browser (raw app, embedded Windmill) | No token: the session is used. |
 
 The token's user must be allowed to run the flow. `stop()` closes the stream in any

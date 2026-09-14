@@ -467,6 +467,71 @@ describe('createChat with server history', () => {
     ])
   })
 
+  test('a late answer from a stopped job is not taken as the next turn answer', async () => {
+    let jobs = 0
+    let reads = 0
+    const { fetch } = fetchMock(
+      (c) => (c.method === 'POST' && c.url.pathname.includes('/jobs/run/f/') ? text(`job-${++jobs}`) : undefined),
+      // job-1 never completes: the connection just ends, so the turn keeps waiting.
+      (c) => (c.url.pathname.endsWith('/getupdate_sse/job-1') ? sse([{ type: 'update' }]) : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/getupdate_sse/job-2')
+          ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'second answer' } }])
+          : undefined,
+      // The run-only token cannot cancel: job-1 keeps running after stop().
+      (c) => (c.url.pathname.includes('/queue/cancel/') ? text('forbidden', 400) : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-2')
+          ? json({ flow_status: { modules: [{ job: 'step-2' }] } })
+          : undefined,
+      // Read 1 is stop()'s sync; the stopped job's answer lands after the second user row.
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json(
+              ++reads === 1
+                ? [messageRow(71, 'user', 'first')]
+                : reads === 2
+                  ? [messageRow(72, 'user', 'second'), messageRow(73, 'assistant', 'first answer, late', { job_id: 'step-1' })]
+                  : [messageRow(74, 'assistant', 'second answer', { job_id: 'step-2' })]
+            )
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    const first = chat.sendMessage('first')
+    await new Promise((r) => setTimeout(r, 50))
+    await chat.stop()
+    await first
+    await chat.sendMessage('second')
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.serverId])).toEqual([
+      ['user', 'first', 'row-71'],
+      ['user', 'second', 'row-72'],
+      ['assistant', 'first answer, late', 'row-73'],
+      ['assistant', 'second answer', 'row-74']
+    ])
+  })
+
+  test('switching conversations keeps what a local turn showed so far', async () => {
+    const storage = memoryStorage()
+    const { fetch } = fetchMock(run, (c) =>
+      c.url.pathname === streamPath
+        ? sse([{ type: 'update', new_result_stream: ndjson({ type: 'token_delta', content: 'partial' }), stream_offset: 1 }])
+        : undefined
+    )
+    const chat = createChat(options({ token: 'tok', storage }, fetch))
+    const turn = chat.sendMessage('hello')
+    await new Promise((r) => setTimeout(r, 50))
+    const id = chat.getState().conversationId!
+    chat.newConversation()
+    await turn
+    expect(chat.getState().messages).toEqual([])
+    await chat.selectConversation(id)
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.pending])).toEqual([
+      ['user', 'hello', false],
+      ['assistant', 'partial', false]
+    ])
+  })
+
   test('answers from the flow result when server history keeps failing', async () => {
     const { fetch } = fetchMock(
       run,
