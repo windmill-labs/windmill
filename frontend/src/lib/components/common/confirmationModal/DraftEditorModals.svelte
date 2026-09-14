@@ -141,9 +141,12 @@
 		const seg = EDITOR_SEGMENT[itemKind]
 		if (!seg) return
 		const query = { workspace, itemKind, path }
-		// The flush below saves again and can land here a second time.
+		// The flush below saves again and can land here a second time, and a second move
+		// can land while it runs: the last destination reported is the one to follow.
 		let relocating = false
+		let destination: string | undefined = undefined
 		return UserDraftDbSyncer.onRelocated(query, async (newPath) => {
+			destination = newPath
 			if (relocating) return
 			relocating = true
 			await onBeforeRelocate?.()
@@ -158,8 +161,9 @@
 				relocating = false
 				return
 			}
-			sendUserToast(`This item was moved to ${newPath}. You are now editing it there.`)
-			await goto(`${base}/${seg}/${newPath}`)
+			const target = destination ?? newPath
+			sendUserToast(`This item was moved to ${target}. You are now editing it there.`)
+			await goto(`${base}/${seg}/${target}`)
 		})
 	})
 </script>

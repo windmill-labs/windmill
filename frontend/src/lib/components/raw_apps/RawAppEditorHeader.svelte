@@ -401,11 +401,19 @@
 		})
 
 		deployedBy = deployedApp.created_by
+		const shownVersions = (deployedApp as { versions?: number[] }).versions
+		deployedVersionShown = Array.isArray(shownVersions)
+			? shownVersions[shownVersions.length - 1]
+			: undefined
 
 		// Normalize away post-deploy noise (see stripRawAppDiffNoise) so the
 		// diff/comparison only reflects what the editor actually changed.
 		deployedValue = replaceFalseWithUndefined(stripRawAppDiffNoise(deployedApp))
 	}
+
+	/** The app_version the payload in `deployedValue` came from, so the picker marks that
+	 *  one as head rather than trusting the history's first row. */
+	let deployedVersionShown: number | undefined = $state(undefined)
 
 	/** Deployed versions for the diff picker, newest first. Best-effort: losing the
 	 *  list costs the picker, not the diff. */
@@ -417,13 +425,15 @@
 				path: appPath
 			})
 			const total = history.length
+			// Head is the version the payload beside this list came from; see FlowBuilder.
+			const head = deployedVersionShown ?? history[0]?.version
 			return history.map((h, i) => {
 				const detail = [
 					h.created_by,
 					h.created_at ? new Date(h.created_at).toLocaleString() : undefined,
 					h.deployment_msg
 				].filter(Boolean)
-				const isHead = i === 0
+				const isHead = h.version === head
 				return {
 					id: String(h.version),
 					label: `v${total - i} · ${h.version}${isHead ? ' · latest' : ''}`,

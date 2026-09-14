@@ -93,6 +93,10 @@
 	let selectedVersion: string | undefined = $state(undefined)
 	let versionLoader: ((id: string) => Promise<Value | undefined>) | undefined = $state(undefined)
 	let headLabel: string | undefined = $state(undefined)
+	/** The deployed head as it was handed to `setDiff`. `data.deployed` follows the
+	 *  picker, and Restore always restores the head, so its enabled state compares
+	 *  against this rather than whichever version is on display. */
+	let headDeployed: Value | undefined = $state(undefined)
 	let loadingVersion = $state(false)
 	/** Which version load the spinner belongs to, counted rather than keyed on the id so
 	 *  re-picking the same version is still generation-safe. A response from any other
@@ -176,6 +180,7 @@
 			} = diff
 			versionLoader = loadVersion
 			headLabel = deployedLabel
+			headDeployed = !deployed.draft_only ? prepareDiff(deployed) : undefined
 			// A load still in flight belongs to the diff being replaced.
 			versionLoadGeneration++
 			loadingVersion = false
@@ -333,7 +338,8 @@
 					variant="default"
 					onClick={restoreDeployed}
 					disabled={!data.draft &&
-						orderedJsonStringify(data.deployed) === orderedJsonStringify(data.current)}
+						orderedJsonStringify(headDeployed ?? data.deployed) ===
+							orderedJsonStringify(data.current)}
 				>
 					Restore to deployed{data.draft ? ' and discard draft' : ''}
 				</Button>

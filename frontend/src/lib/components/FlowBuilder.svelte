@@ -189,6 +189,9 @@
 	// Used by multiplayer deploy collision warning
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
 	let deployedLabel: string | undefined = $state(undefined) // Names it in the diff
+	/** The flow_version the payload in `deployedValue` came from, so the picker marks that
+	 *  one as head rather than trusting the history's first row. */
+	let deployedVersionShown: number | undefined = $state(undefined)
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
@@ -486,6 +489,7 @@
 			workspace_id: undefined
 		})
 		deployedBy = flow.edited_by
+		deployedVersionShown = flow.version_id
 		// Names the deployed side of the diff. Without it the reader is shown two panes
 		// and told nothing about what the left one is.
 		deployedLabel = `Deployed${flow.version_id != null ? ` ${flow.version_id}` : ''}${flow.edited_by ? ` by ${flow.edited_by}` : ''} · latest`
@@ -1136,13 +1140,17 @@
 		try {
 			const history = await FlowService.getFlowHistory({ workspace: opWorkspace, path })
 			const total = history.length
+			// Head is the version the payload beside this list came from, not whatever the
+			// history now leads with: a deploy landing between the two fetches would
+			// otherwise label the shown (older) value as the latest.
+			const head = deployedVersionShown ?? history[0]?.id
 			return history.map((h, i) => {
 				const detail = [
 					h.created_by,
 					h.created_at ? new Date(h.created_at).toLocaleString() : undefined,
 					h.deployment_msg
 				].filter(Boolean)
-				const isHead = i === 0
+				const isHead = h.id === head
 				return {
 					id: String(h.id),
 					label: `v${total - i} · ${h.id}${isHead ? ' · latest' : ''}`,
