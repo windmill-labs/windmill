@@ -716,6 +716,13 @@ fn pending_step_key(job_ids: &Value, child_job: &Uuid) -> Option<String> {
 /// completion deletes its queue row and cascades to its status row, and the park
 /// (`suspend_wac_parent`) locks the queue row before writing the checkpoint, so
 /// any other order can deadlock against one of them.
+///
+/// Authorization: none is checked here. `child_job` is the job the caller is
+/// completing, which it already holds, and `parent_job` must be that job's
+/// persisted `v2_job.parent_job` (both callers read it from the child's row).
+/// The read that gates the counter mutation joins on that relationship, so a
+/// mismatched pair changes no parent's checkpoint or counter; job ids are global,
+/// so no workspace scoping is needed on top.
 pub async fn record_child_completion(
     tx: &mut Transaction<'_, Postgres>,
     parent_job: &Uuid,
@@ -725,10 +732,12 @@ pub async fn record_child_completion(
     result: &str,
 ) -> error::Result<bool> {
     let job_ids: Option<Option<Value>> = sqlx::query_scalar(
-        "SELECT workflow_as_code_status->'_checkpoint'->'pending_steps'->'job_ids' \
-         FROM v2_job_status WHERE id = $1",
+        "SELECT s.workflow_as_code_status->'_checkpoint'->'pending_steps'->'job_ids' \
+         FROM v2_job_status s JOIN v2_job c ON c.parent_job = s.id \
+         WHERE s.id = $1 AND c.id = $2",
     )
     .bind(parent_job)
+    .bind(child_job)
     .fetch_optional(&mut **tx)
     .await
     .map_err(|e| Error::internal_err(format!("Failed to read WAC parent {parent_job}: {e}")))?;
@@ -815,7 +824,8 @@ pub async fn record_child_completion(
 
     // The child's entry in the parent's timeline, keyed by child id. The parent may
     // already be completed (cancelled with its children still running), in which
-    // case the entry lives on its completed row instead.
+    // case the entry lives on its completed row instead. Errors propagate: a failed
+    // statement has already aborted the transaction, so there is nothing to continue with.
     let stamped: Option<i32> = sqlx::query_scalar(
         "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
             jsonb_set(

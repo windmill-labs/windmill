@@ -6173,9 +6173,13 @@ async fn force_complete_zombie_job(
         "Zombie job {job_id} was not completed by handle_job_error, force-completing it"
     );
 
+    // Same `{"error": ...}` shape as every other failed job's result, so a WAC
+    // parent's failure record reads the name and message like any task failure.
     let error_value = serde_json::json!({
-        "message": error_message,
-        "name": "ExecutionErr",
+        "error": {
+            "message": error_message,
+            "name": "ExecutionErr",
+        }
     });
 
     let mut tx = db.begin().await?;
@@ -6199,6 +6203,7 @@ async fn force_complete_zombie_job(
 
     // A WAC parent parked on this job must learn of the failure here too, or it
     // waits out its whole suspend window and runs the task again.
+    let mut wac_parent_ready = false;
     if let Some(duration_ms) = duration_ms {
         let parent = sqlx::query!(
             "SELECT parent_job, flow_step_id FROM v2_job WHERE id = $1",
@@ -6210,7 +6215,7 @@ async fn force_complete_zombie_job(
             .filter(|j| j.flow_step_id.is_none())
             .and_then(|j| j.parent_job)
         {
-            windmill_common::wac::record_child_completion(
+            wac_parent_ready = windmill_common::wac::record_child_completion(
                 &mut tx,
                 &parent_job,
                 job_id,
@@ -6227,6 +6232,10 @@ async fn force_complete_zombie_job(
         .await?;
 
     tx.commit().await?;
+
+    if wac_parent_ready {
+        windmill_common::wac::WAC_SUSPEND_READY.store(true, Ordering::Relaxed);
+    }
 
     tracing::info!("Force-completed zombie job {job_id}");
     Ok(())

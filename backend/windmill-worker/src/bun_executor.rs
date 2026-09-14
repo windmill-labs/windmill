@@ -3626,21 +3626,12 @@ pub async fn handle_wac_v2_output(
             let source_hash = job.runnable_id.map(|h| h.0.to_string());
             let mut tx = db.begin().await?;
 
-            crate::wac_executor::persist_inline_checkpoint_delta(
-                &mut tx,
-                &job.id,
-                source_hash.as_deref(),
-                &key,
-                value,
-                started_at.as_deref(),
-                duration_ms,
-            )
-            .await?;
-
             // Reset running=false so the job is immediately eligible for pickup.
             // Unlike dispatch (which sets suspend>0), inline checkpoints don't suspend —
             // the job should be re-run right away to continue past the cached step.
             // `prev` holds the pre-update row: RETURNING would see the cleared column.
+            // Runs before the checkpoint write so the queue row is locked ahead of the
+            // status row, the order every child completion takes.
             let segment_ms = sqlx::query_scalar!(
                 "WITH prev AS (SELECT started_at FROM v2_job_queue WHERE id = $1)
                  UPDATE v2_job_queue q SET running = false, started_at = null
@@ -3656,6 +3647,17 @@ pub async fn handle_wac_v2_output(
                 ))
             })?
             .flatten();
+
+            crate::wac_executor::persist_inline_checkpoint_delta(
+                &mut tx,
+                &job.id,
+                source_hash.as_deref(),
+                &key,
+                value,
+                started_at.as_deref(),
+                duration_ms,
+            )
+            .await?;
 
             tx.commit().await?;
             crate::wac_executor::end_wac_segment(conn, job, segment_ms);
