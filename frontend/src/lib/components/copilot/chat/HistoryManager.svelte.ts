@@ -191,6 +191,12 @@ async function backupDb(email: string): Promise<IDBPDatabase<ChatSchema> | undef
 	return db && db.name === scopedKeyFor(DB_NAME, email) ? db : undefined
 }
 
+/** Test-only: let go of the backup's handle so the next call opens the test's fresh
+ * IndexedDB rather than the connection a previous test left. */
+export function __resetBackupStoreForTesting(): void {
+	backupDbh.close()
+}
+
 /** Ids of the chats tagged with this session, or undefined when the store is unavailable. */
 export async function listSessionChatIds(
 	sessionId: string,

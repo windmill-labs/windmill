@@ -307,6 +307,27 @@ async function staleWorkspaceSync(ws: string, email: string): Promise<void> {
 	)
 }
 
+/** The server names the storage every answer comes from. A row recorded against another
+ * one describes objects the server no longer looks at (a new bucket starts empty): it
+ * goes stale and its session is marked again, so the next flush carries it whole. */
+async function adoptStorage(
+	ws: string,
+	storageId: string,
+	rows: Iterable<MirrorSyncState>,
+	email: string
+): Promise<boolean> {
+	const foreign = [...rows].filter(
+		(row) => row.ws === ws && !row.stale && !row.removed && row.storageId !== storageId
+	)
+	if (foreign.length === 0) return false
+	await writeSync(
+		foreign.map((row) => ({ ...row, stale: true })),
+		email
+	)
+	for (const row of foreign) bumpDirty(row.id)
+	return true
+}
+
 /** Sessions this browser has backed up nothing of yet, or whose backup went stale:
  * everything committed to a workspace gets a mark, once per page load. */
 async function backfillMarks(marks: PendingMarks, email: string): Promise<boolean> {
@@ -367,6 +388,8 @@ type SendStatus = 'ok' | 'off' | 'refused' | 'abort' | 'transient'
 
 interface WorkspaceOutcome {
 	status: SendStatus
+	/** The storage the server answered from, once it answered. */
+	storageId?: string
 	/** Sessions every part of which the server stored. */
 	settled: {
 		id: string
@@ -374,6 +397,7 @@ interface WorkspaceOutcome {
 		next: MirrorSyncState
 		removeFrom?: string
 		carried: boolean
+		storageId?: string
 	}[]
 	/** Marks with nothing behind them (an unsent draft, a session gone from the store). */
 	dropped: { id: string; v: number }[]
@@ -416,6 +440,7 @@ async function pushWorkspace(
 			complete: boolean
 			removeFrom?: string
 			carried: boolean
+			storageId?: string
 		}
 	>()
 	const failed = new Set<string>()
@@ -449,6 +474,7 @@ async function pushWorkspace(
 			return 'transient'
 		}
 		if (!res.enabled) return 'off'
+		out.storageId = res.storage_id
 		const errors = new Set<string>()
 		for (const r of res.results) {
 			if (r.error) {
@@ -460,6 +486,7 @@ async function pushWorkspace(
 			const a = attempted.get(entry.id)
 			if (!a) continue
 			a.parts -= 1
+			a.storageId = res.storage_id
 			if (errors.has(entry.id)) failed.add(entry.id)
 		}
 		for (const id of body.removed ?? []) {
@@ -508,7 +535,8 @@ async function pushWorkspace(
 					v: a.v,
 					next: a.next,
 					removeFrom: a.removeFrom,
-					carried: a.carried
+					carried: a.carried,
+					storageId: a.storageId
 				})
 			}
 		}
@@ -537,13 +565,16 @@ async function pushWorkspace(
 		// A move: the copy in the old workspace is filed for removal once this push has
 		// landed (see `settled`), never before, so the session is backed up somewhere at
 		// every point.
+		// A session with nothing to send gets no answer to name its storage: it keeps the
+		// one its row has, which the storage check below then judges like any other.
 		attempted.set(item.session.id, {
 			v: item.v,
 			next: plan.next,
 			parts: 0,
 			complete: nothingToSend,
 			removeFrom: plan.removeFrom,
-			carried: plan.carried
+			carried: plan.carried,
+			storageId: item.sync?.storageId
 		})
 		if (nothingToSend) continue
 		let images: AISessionBackupImage[] = []
@@ -664,7 +695,7 @@ async function flush(): Promise<void> {
 		}
 
 		let settledAny = false
-		let movedAny = false
+		let leftForNext = false
 		for (const [ws, w] of work) {
 			const out = await pushWorkspace(ws, w, email)
 			if (out.status === 'abort') return
@@ -689,15 +720,26 @@ async function flush(): Promise<void> {
 			// plans the move again rather than orphan the copy.
 			const recorded = out.settled.filter((s) => {
 				if (s.removeFrom && !addRemoved(s.id, s.removeFrom, false)) return false
-				if (s.removeFrom || s.carried) movedAny = true
+				if (s.removeFrom || s.carried) leftForNext = true
 				return true
 			})
 			// A session with deletes carried over stays one bump short of retired, so the
 			// next flush sends the rest.
 			await writeSync(
-				recorded.map((s) => ({ ...s.next, flushedV: s.carried ? s.v - 1 : s.v })),
+				recorded.map((s) => ({
+					...s.next,
+					flushedV: s.carried ? s.v - 1 : s.v,
+					storageId: s.storageId
+				})),
 				email
 			)
+			// After the rows above: a session recorded against the old storage that this flush
+			// pushed only in part is stale too, since the new storage holds just that part.
+			if (out.storageId !== undefined) {
+				const removed = new Set(out.removedDone.map((r) => r.id))
+				const rows = [...syncRows.values()].filter((row) => !removed.has(row.id))
+				if (await adoptStorage(ws, out.storageId, rows, email)) leftForNext = true
+			}
 			droppedDirty.push(...out.dropped.map((d) => d.id))
 			for (const r of out.removedDone) {
 				// The row describes this workspace's copy only; a session that moved on keeps
@@ -713,8 +755,9 @@ async function flush(): Promise<void> {
 		// Whatever is still marked is either waiting on the backoff timer, on a write that
 		// scheduled its own flush, or on a workspace that is off or refused for the page;
 		// none of it wants another flush in 15 s. What this flush left for the next one
-		// does: a moved session's removal from its old workspace, or carried-over deletes.
-		if (movedAny) scheduleFlush()
+		// does: a moved session's removal from its old workspace, carried-over deletes, or
+		// the sessions of a storage the server no longer answers from.
+		if (leftForNext) scheduleFlush()
 	})
 }
 
@@ -732,7 +775,8 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 function unpackBackup(
 	ws: string,
 	backup: AISessionBackup,
-	updatedAt: number
+	updatedAt: number,
+	storageId: string | undefined
 ):
 	| {
 			session: Session
@@ -787,7 +831,8 @@ function unpackBackup(
 		head: headSig(session),
 		chats: Object.fromEntries(chats.map((c) => [c.id, c.lastModified])),
 		images: Object.fromEntries(images.map((i) => [i.id, i.chatId])),
-		artifacts: artifactsFingerprint({ items, versions })
+		artifacts: artifactsFingerprint({ items, versions }),
+		storageId
 	}
 	return { session, chats, images, artifacts: { items, versions }, sync }
 }
@@ -807,13 +852,20 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 		return
 	}
 	if (!wsState.has(ws)) wsState.set(ws, 'on')
+	const rows = await allSyncRows(email)
+	if (
+		listing.storage_id !== undefined &&
+		(await adoptStorage(ws, listing.storage_id, rows, email))
+	) {
+		scheduleFlush()
+	}
 	const local = new Set<string>()
 	for (const s of (await readStoredSessions(email)) ?? []) local.add(s.id)
 	for (const s of sessionState.sessions) local.add(s.id)
 	// A removal names the workspace it is for: a session that moved here from another one
 	// still has that one's removal pending, and is ours to restore.
 	for (const r of readPending().removed) if (r.ws === ws) local.add(r.id)
-	for (const row of await allSyncRows(email)) if (row.removed && row.ws === ws) local.add(row.id)
+	for (const row of rows) if (row.removed && row.ws === ws) local.add(row.id)
 	const candidates = listing.sessions
 		.filter((s) => !local.has(s.id) && !isSessionTombstoned(s.id))
 		.slice(0, RESTORE_MAX)
@@ -838,7 +890,7 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 		// Ask again for what did not fit, one at a time so each answer is as small as can be.
 		for (const id of pulled.deferred) if (!ids.includes(id)) ids.unshift(id)
 		const unpacked = pulled.sessions
-			.map((b) => unpackBackup(ws, b, updatedAt.get(b.id) ?? Date.now()))
+			.map((b) => unpackBackup(ws, b, updatedAt.get(b.id) ?? Date.now(), pulled.storage_id))
 			.filter((u) => u !== undefined)
 		// A session's pieces land before its record, and a session whose pieces could not be
 		// written is left for the next restore: recording it now would let the next flush

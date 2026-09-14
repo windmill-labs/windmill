@@ -13212,6 +13212,9 @@ paths:
                 properties:
                   enabled:
                     type: boolean
+                  storage_id:
+                    type: string
+                    description: names the storage answered from; sync state recorded against another one is void
                   sessions:
                     type: array
                     items:
@@ -13253,6 +13256,8 @@ paths:
                 properties:
                   enabled:
                     type: boolean
+                  storage_id:
+                    type: string
                   sessions:
                     type: array
                     items:
@@ -13303,6 +13308,8 @@ paths:
                 properties:
                   enabled:
                     type: boolean
+                  storage_id:
+                    type: string
                   results:
                     type: array
                     items:

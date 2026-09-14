@@ -27,15 +27,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::sync::Arc;
 use windmill_api_auth::is_effectively_unscoped;
+use windmill_api_workspaces::ai_session_rekey::{open, previous_keys, spawn_rekey, ROOT};
 use windmill_common::error::{Error, JsonResult, Result};
 use windmill_common::utils::calculate_hash;
-use windmill_common::variables::build_crypt_with_key_suffix;
+use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key};
 use windmill_object_store::object_store_reexports::{
     ObjectStore, ObjectStoreError, Path as ObjectPath, PutPayload,
 };
-use windmill_object_store::{build_object_store_client, object_store_error_to_error};
+use windmill_object_store::{
+    build_object_store_client, object_store_error_to_error, ObjectStoreResource,
+};
 
-const ROOT: &str = "windmill_ai_sessions";
 const PUSH_BODY_LIMIT: usize = 32 * 1024 * 1024;
 /// A pull names at most MAX_PULL_IDS ids of 64 bytes; anything larger is not a pull.
 const PULL_BODY_LIMIT: usize = 64 * 1024;
@@ -71,7 +73,12 @@ pub fn workspaced_service() -> Router {
 struct Backend {
     store: Arc<dyn ObjectStore>,
     mc: MagicCrypt256,
+    /// The ciphers of rotations whose re-key walk has not finished: an object may still
+    /// be under one of them.
+    previous: Vec<MagicCrypt256>,
     prefix: String,
+    /// Names the storage the objects are in, for the browser's sync state.
+    storage_id: String,
 }
 
 impl Backend {
@@ -135,10 +142,9 @@ impl Backend {
             Err(e) => return Err(object_store_error_to_error(e)),
         };
         let bytes = result.bytes().await.map_err(object_store_error_to_error)?;
-        let text = self
-            .mc
-            .decrypt_bytes_to_bytes(&bytes)
-            .ok()
+        let text = std::iter::once(&self.mc)
+            .chain(&self.previous)
+            .find_map(|mc| open(mc, &bytes))
             .and_then(|plaintext| String::from_utf8(plaintext).ok());
         if text.is_none() {
             tracing::warn!("AI session backup object {key} does not decrypt for its reader");
@@ -285,9 +291,45 @@ async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backe
     let user = calculate_hash(&authed.email);
     // Keyed per user, not per workspace: anyone who can write the bucket could otherwise copy
     // another member's ciphertext under their own prefix and have `pull` decrypt it for them.
-    let mc = build_crypt_with_key_suffix(db, w_id, &user).await?;
+    let key = get_workspace_key(w_id, db).await?;
+    let mc = crypt_from_key_with_suffix(&key, &user);
+    // A rotation whose walk has not finished (or was cut short by a restart) leaves objects
+    // under the keys it replaced: read those too, and see the walk through.
+    let pending = previous_keys(db, w_id).await?;
+    let previous = pending
+        .iter()
+        .map(|key| crypt_from_key_with_suffix(key, &user))
+        .collect();
+    if !pending.is_empty() {
+        spawn_rekey(db.clone(), w_id.to_string(), store.clone());
+    }
     let prefix = format!("{ROOT}/{w_id}/{user}");
-    Ok(Some(Backend { store, mc, prefix }))
+    let storage_id = storage_id(&resource);
+    Ok(Some(Backend { store, mc, previous, prefix, storage_id }))
+}
+
+/// Names the storage the backups are in, so a browser can tell that its sync state was
+/// recorded against another one (a new bucket starts empty). Built from what locates the
+/// objects, not from the credentials, which rotate.
+fn storage_id(resource: &ObjectStoreResource) -> String {
+    let location = match resource {
+        ObjectStoreResource::S3(s) => format!(
+            "s3:{}:{}:{}:{}",
+            s.endpoint,
+            s.port.unwrap_or_default(),
+            s.region,
+            s.bucket
+        ),
+        ObjectStoreResource::Azure(a) => format!(
+            "azure:{}:{}:{}",
+            a.endpoint.as_deref().unwrap_or_default(),
+            a.account_name,
+            a.container_name
+        ),
+        ObjectStoreResource::Gcs(g) => format!("gcs:{}", g.bucket),
+        ObjectStoreResource::Filesystem(f) => format!("fs:{}", f.root_path),
+    };
+    calculate_hash(&location)[..16].to_string()
 }
 
 #[derive(Serialize)]
@@ -299,6 +341,9 @@ struct SessionListing {
 #[derive(Serialize)]
 struct ListResponse {
     enabled: bool,
+    /// The storage answered from; a browser whose sync state names another one starts over.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    storage_id: Option<String>,
     sessions: Vec<SessionListing>,
 }
 
@@ -311,7 +356,11 @@ async fn list(
 ) -> JsonResult<ListResponse> {
     require_plain_user_token(&authed)?;
     let Some(backend) = backend(&authed, &db, &w_id).await? else {
-        return Ok(Json(ListResponse { enabled: false, sessions: vec![] }));
+        return Ok(Json(ListResponse {
+            enabled: false,
+            storage_id: None,
+            sessions: vec![],
+        }));
     };
     let prefix = backend.sessions_prefix();
     let mut updated: std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> =
@@ -341,7 +390,11 @@ async fn list(
         .map(|(id, updated_at)| SessionListing { id, updated_at })
         .collect();
     sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-    Ok(Json(ListResponse { enabled: true, sessions }))
+    Ok(Json(ListResponse {
+        enabled: true,
+        storage_id: Some(backend.storage_id.clone()),
+        sessions,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -375,6 +428,8 @@ struct PulledSession {
 #[derive(Serialize)]
 struct PullResponse {
     enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    storage_id: Option<String>,
     sessions: Vec<PulledSession>,
     /// Ids that did not fit the response budget; ask for them again.
     deferred: Vec<String>,
@@ -516,6 +571,7 @@ async fn pull(
     let Some(backend) = backend(&authed, &db, &w_id).await? else {
         return Ok(Json(PullResponse {
             enabled: false,
+            storage_id: None,
             sessions: vec![],
             deferred: vec![],
         }));
@@ -533,7 +589,12 @@ async fn pull(
             }
         }
     }
-    Ok(Json(PullResponse { enabled: true, sessions, deferred }))
+    Ok(Json(PullResponse {
+        enabled: true,
+        storage_id: Some(backend.storage_id),
+        sessions,
+        deferred,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -587,6 +648,8 @@ struct PushResult {
 #[derive(Serialize)]
 struct PushResponse {
     enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    storage_id: Option<String>,
     results: Vec<PushResult>,
 }
 
@@ -737,7 +800,11 @@ async fn push(
     }
     validate_push(&req)?;
     let Some(backend) = backend(&authed, &db, &w_id).await? else {
-        return Ok(Json(PushResponse { enabled: false, results: vec![] }));
+        return Ok(Json(PushResponse {
+            enabled: false,
+            storage_id: None,
+            results: vec![],
+        }));
     };
     #[cfg(not(feature = "enterprise"))]
     {
@@ -788,5 +855,9 @@ async fn push(
     }
     #[cfg(feature = "enterprise")]
     let _ = written;
-    Ok(Json(PushResponse { enabled: true, results }))
+    Ok(Json(PushResponse {
+        enabled: true,
+        storage_id: Some(backend.storage_id),
+        results,
+    }))
 }

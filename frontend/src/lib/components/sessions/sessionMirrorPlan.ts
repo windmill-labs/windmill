@@ -31,6 +31,9 @@ export interface MirrorSyncState {
 	/** The user deleted the session and its removal mark could not be written to
 	 * localStorage (full): the row itself carries the removal, until it lands. */
 	removed?: boolean
+	/** The storage the push landed in, as the server names it. A row recorded against
+	 * another storage describes objects the server no longer looks at. */
+	storageId?: string
 }
 
 /**

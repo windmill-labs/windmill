@@ -43,6 +43,7 @@ vi.mock('../copilot/chat/HistoryManager.svelte', async (orig) => {
 
 import { superadmin, userStore, usersWorkspaceStore, type UserExt } from '$lib/stores'
 import HistoryManager, {
+	__resetBackupStoreForTesting,
 	__resetLegacyChatClaimForTesting,
 	readStoredChat
 } from '../copilot/chat/HistoryManager.svelte'
@@ -96,6 +97,7 @@ beforeEach(async () => {
 	;(globalThis as any).indexedDB = new IDBFactory()
 	localStorage.clear()
 	__resetLegacyChatClaimForTesting()
+	__resetBackupStoreForTesting()
 	__resetMirrorForTesting()
 	pushMock.mockReset()
 	listMock.mockReset()
@@ -334,6 +336,61 @@ describe('sessionMirror flush', () => {
 		expect(pushMock.mock.calls[2][0].requestBody.sessions[0].head.workspace_id).toBe('ws2')
 		// The removal waits for the old workspace's backups to be on again.
 		expect(removalKeys()).toEqual(['r::mv::ws'])
+		expect(await pendingDirty()).toEqual([])
+	})
+
+	it('pushes every session whole again once the server answers from another storage', async () => {
+		const a: Session = {
+			id: 'sa',
+			name: 'session-1',
+			createdAt: 1,
+			workspace_id: 'ws',
+			chatId: 'ca'
+		}
+		const b: Session = { id: 'sb', name: 'session-2', createdAt: 2, workspace_id: 'ws' }
+		sessionState.sessions = [a, b]
+		await putSession(a)
+		await putSession(b)
+		const hm = new HistoryManager()
+		await hm.init()
+		hm.setSessionId('sa')
+		hm.setCurrentChatId('ca')
+		await hm.saveChat(
+			[{ role: 'user', content: 'hello' } as never],
+			[{ role: 'user', content: 'hello' } as never]
+		)
+		pushMock.mockResolvedValueOnce({
+			enabled: true,
+			storage_id: 'bucket-1',
+			results: [{ id: 'sa' }, { id: 'sb' }]
+		})
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(1)
+
+		// Only `sa`'s record changes, and the answer names a new storage: it holds `sb`
+		// nowhere and `sa` only in the part that went, so both are backed up whole again.
+		await putSession({ ...a, summary: 'changed' })
+		pushMock.mockResolvedValueOnce({
+			enabled: true,
+			storage_id: 'bucket-2',
+			results: [{ id: 'sa' }]
+		})
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(pushMock.mock.calls[1][0].requestBody.sessions[0].chats).toBeUndefined()
+		expect(await pendingDirty()).toEqual(['sa', 'sb'])
+
+		pushMock.mockResolvedValueOnce({
+			enabled: true,
+			storage_id: 'bucket-2',
+			results: [{ id: 'sa' }, { id: 'sb' }]
+		})
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(3)
+		const entries = pushMock.mock.calls[2][0].requestBody.sessions
+		expect(entries.map((s: { id: string }) => s.id).sort()).toEqual(['sa', 'sb'])
+		expect(entries.every((s: { head?: unknown }) => s.head !== undefined)).toBe(true)
+		expect(entries.find((s: { id: string }) => s.id === 'sa').chats).toHaveLength(1)
 		expect(await pendingDirty()).toEqual([])
 	})
 

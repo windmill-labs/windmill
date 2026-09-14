@@ -74,6 +74,31 @@ fn copy_dir(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()>
     Ok(())
 }
 
+/// No file under `dir` still holds the bytes its copy under `snapshot` has.
+fn all_rewritten(dir: &std::path::Path, snapshot: &std::path::Path) -> bool {
+    let files = files_under(dir);
+    !files.is_empty()
+        && files.iter().all(|(path, bytes)| {
+            let rel = path.strip_prefix(dir).expect("under dir");
+            std::fs::read(snapshot.join(rel)).ok().as_ref() != Some(bytes)
+        })
+}
+
+async fn wait_for_rekey(db: &Pool<Postgres>) -> anyhow::Result<()> {
+    for _ in 0..100 {
+        let pending: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM ai_session_backup_rekey WHERE workspace_id = 'test-workspace'",
+        )
+        .fetch_one(db)
+        .await?;
+        if pending == 0 {
+            return Ok(());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    anyhow::bail!("the re-key walk did not finish")
+}
+
 /// Every file under the storage root, as bytes.
 fn files_under(root: &std::path::Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
     let mut out = vec![];
@@ -229,8 +254,14 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     assert_eq!(s1["chats"][0]["id"], "c2");
     assert_eq!(s1["images"], json!([]));
 
-    // Rotating the workspace key re-keys the backup objects (off the request), so what was
-    // written under the previous key stays readable.
+    // Rotating the workspace key re-keys the backup objects off the request: they read back
+    // at once through the previous key, and still once the walk has rewritten them.
+    let original_key: String =
+        sqlx::query_scalar("SELECT key FROM workspace_key WHERE workspace_id = 'test-workspace'")
+            .fetch_one(&db)
+            .await?;
+    let snapshot = tempfile::tempdir()?;
+    copy_dir(&first, snapshot.path())?;
     let resp = authed(
         client().post(format!("{base}/workspaces/encryption_key")),
         "SECRET_TOKEN",
@@ -239,20 +270,45 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     .send()
     .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
-    let mut after_rotation = json!(null);
-    for _ in 0..50 {
-        let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
-        if pulled["sessions"].as_array().is_some_and(|s| !s.is_empty()) {
-            after_rotation = pulled;
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
+    let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
     assert_eq!(
-        after_rotation["sessions"][0]["head"], head,
-        "the backup must read under the rotated key: {after_rotation}"
+        pulled["sessions"][0]["head"], head,
+        "the backup must read while the walk runs: {pulled}"
     );
-    assert_eq!(after_rotation["sessions"][0]["chats"][0]["id"], "c2");
+    wait_for_rekey(&db).await?;
+    assert!(
+        all_rewritten(&first, snapshot.path()),
+        "every object must be rewritten under the new key"
+    );
+    let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
+    assert_eq!(
+        pulled["sessions"][0]["head"], head,
+        "the backup must read under the rotated key alone: {pulled}"
+    );
+    assert_eq!(pulled["sessions"][0]["chats"][0]["id"], "c2");
+
+    // A walk cut short (a restart) leaves objects under the previous key with the rotation
+    // still recorded: the next use of the backups reads them through that key and finishes
+    // the walk.
+    copy_dir(snapshot.path(), &first)?;
+    sqlx::query(
+        "INSERT INTO ai_session_backup_rekey (workspace_id, previous_key) VALUES ('test-workspace', $1)",
+    )
+    .bind(&original_key)
+    .execute(&db)
+    .await?;
+    let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
+    assert_eq!(
+        pulled["sessions"][0]["head"], head,
+        "objects left under the previous key must read: {pulled}"
+    );
+    wait_for_rekey(&db).await?;
+    assert!(
+        all_rewritten(&first, snapshot.path()),
+        "the walk a pull started must rewrite every object"
+    );
+    let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
+    assert_eq!(pulled["sessions"][0]["head"], head);
 
     // Removal empties both prefixes.
     let resp = push(
@@ -264,6 +320,10 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     assert_eq!(resp.status(), 200);
     let listing = list(&base, "SECRET_TOKEN").await?;
     assert_eq!(listing["sessions"], json!([]));
+    assert!(
+        listing["storage_id"].is_string(),
+        "an answer names its storage: {listing}"
+    );
     assert!(
         files_under(storage_dir.path()).is_empty(),
         "removal must leave no object behind"

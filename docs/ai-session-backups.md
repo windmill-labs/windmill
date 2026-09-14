@@ -61,7 +61,15 @@ member who copies another user's ciphertext under their own prefix gets nothing 
 object that does not decrypt for its reader is treated as absent. Rotating the workspace key
 (`set_encryption_key`) re-keys every backup object off the request, the way it re-encrypts the
 workspace's secrets, unless `skip_reencrypt` was asked for; the user segment of an object's key
-is the cipher suffix, so the walk needs no email. The server builds every key from ids it validated
+is the cipher suffix, so the walk needs no email (`windmill-api-workspaces/src/ai_session_rekey.rs`).
+The rotation records the key it replaced (`ai_session_backup_rekey`) in its own transaction;
+until the walk has found every object under the current key and dropped that record, the read
+path decrypts with the recorded keys too and every use of the backups starts the walk again, so
+a server restart mid-walk leaves nothing unreadable and nothing under the old key for good. The
+walk writes each object conditionally on the version it read (`PutMode::Update`): a push or a
+delete landing in between used the current key already, and rewriting over it would bring back
+what it replaced. The filesystem store has no conditional writes and keeps that window. The
+server builds every key from ids it validated
 (`[A-Za-z0-9_-]{1,64}`) and the caller's own email; the client never names a key, and the
 workspace storage permission rules are not consulted (the same stance as volumes). Only an
 unscoped user token may reach the routes: a job token can carry an `on_behalf_of` identity and
@@ -107,6 +115,13 @@ session backed up somewhere at every point.
 A restore writes a session's artifacts and chats before its record, and records nothing for a
 session whose pieces could not be written: recording it would let the next flush push the
 half-empty local state over the backup.
+
+Every answer names the storage it came from (`storage_id`, a hash of what locates the objects:
+endpoint, region and bucket, not the credentials, which rotate). A sync row records it, and a
+row naming another storage goes stale and its session is marked again: a workspace pointed at
+a new bucket holds nothing, and the server looks nowhere else, so the next flush carries the
+session whole. The listing a restore starts with runs the same check, so a storage switch is
+noticed at the first push after it or on the next page load, whichever comes first.
 
 ## Limits
 
