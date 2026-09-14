@@ -303,8 +303,9 @@ async function createWorkspaceFork(
               },
             });
           } catch (e: any) {
-            // A server predating the single clone request: create, then import.
-            if (e?.status !== 404) {
+            // A server predating the single clone request answers the unknown route with an
+            // empty 404: create, then import. A 404 carrying a message is a real error.
+            if (e?.status !== 404 || e?.body) {
               throw e;
             }
             await wmill.createPgDatabase({

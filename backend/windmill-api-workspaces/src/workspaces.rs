@@ -8052,16 +8052,24 @@ async fn apply_forked_datatable(
     // may connect as one of them — as the copy itself was.
     crate::datatable_permissions::ensure_reaches_datatable(db, parent_w_id, &fdt.name, authed)
         .await?;
-    // The copy holds the rows of what governs the source, so that entry keeps deciding who reaches
-    // them. Settled from the source as it resolves now: the settings clone may have handed the fork
-    // a pointer, or a clone of its own.
-    let governed_by = serde_json::to_value(governing.governor.clone().unwrap_or_else(|| {
-        windmill_common::workspaces::DataTableReference {
-            workspace_id: governing.workspace_id.clone(),
-            datatable: governing.name.clone(),
-        }
-    }))
-    .map_err(|e| Error::internal_err(format!("serializing a clone's governor: {e}")))?;
+    // Under roles, the copy holds rows the source's roles decide who reaches, so that entry keeps
+    // deciding. Settled from the source as it resolves now: the settings clone may have handed the
+    // fork a pointer, or a clone of its own. A copy of a data table without roles is the fork's,
+    // as it was before roles existed: everyone reached all of it already.
+    let governed_by = governing
+        .datatable
+        .permissions
+        .is_some()
+        .then(|| {
+            serde_json::to_value(governing.governor.clone().unwrap_or_else(|| {
+                windmill_common::workspaces::DataTableReference {
+                    workspace_id: governing.workspace_id.clone(),
+                    datatable: governing.name.clone(),
+                }
+            }))
+        })
+        .transpose()
+        .map_err(|e| Error::internal_err(format!("serializing a clone's governor: {e}")))?;
 
     // Snapshot the schema from the source (parent) datatable
     let schema = snapshot_datatable_schema(db, parent_w_id, &fdt.name).await?;
@@ -8142,13 +8150,18 @@ async fn apply_forked_datatable(
         .await?;
     }
 
-    // The settings clone copied the source's `permissions` along; a clone keeps none of its own.
+    // The settings clone copied the source's `permissions` along, and a clone of a clone its
+    // `governed_by`: a clone keeps no `permissions` of its own, and a link only under roles.
     sqlx::query(
         r#"UPDATE workspace_settings
            SET datatable = jsonb_set(
-               jsonb_set(
-                   datatable #- ARRAY['datatables', $2, 'permissions'],
-                   ARRAY['datatables', $2, 'governed_by'], $3::jsonb),
+               CASE WHEN $3::jsonb IS NULL
+                   THEN datatable #- ARRAY['datatables', $2, 'permissions']
+                                  #- ARRAY['datatables', $2, 'governed_by']
+                   ELSE jsonb_set(
+                       datatable #- ARRAY['datatables', $2, 'permissions'],
+                       ARRAY['datatables', $2, 'governed_by'], $3::jsonb)
+               END,
                ARRAY['datatables', $2, 'forked_from'], $4::jsonb
            )
            WHERE workspace_id = $1"#,
