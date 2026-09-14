@@ -113,3 +113,50 @@ async fn test_save_by_id_follows_a_rename(db: Pool<Postgres>) -> anyhow::Result<
 
     Ok(())
 }
+
+/// A draft-only move rewrites both path keys. The open editor's next save still
+/// carries the typed path it had, which names neither the row's old nor new path;
+/// the row's own keys have to win, or the save walks the item back.
+#[sqlx::test(fixtures("base", "drafts_save_by_id"))]
+async fn test_save_by_id_keeps_a_draft_only_move(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/drafts/move/script/u/test-user/draft_store"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({ "new_path": "u/test-user/moved" }))
+        .send()
+        .await?;
+    assert!(resp.status().is_success(), "move failed: {}", resp.text().await?);
+
+    let saved: Value = client
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/drafts/update/script/u/test-user/draft_store"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({
+            "id": 9002,
+            "value": {
+                "path": "u/test-user/friendly",
+                "draft_path": "u/test-user/friendly",
+                "summary": "D",
+                "content": "edited after the move"
+            }
+        }))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(saved["path"], "u/test-user/moved", "{saved}");
+
+    let draft = own_draft_value(port, "u/test-user/moved").await?;
+    assert_eq!(draft["content"], "edited after the move", "{draft}");
+    assert_eq!(draft["path"], "u/test-user/moved", "{draft}");
+    assert_eq!(draft["draft_path"], "u/test-user/moved", "{draft}");
+    Ok(())
+}

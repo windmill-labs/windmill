@@ -1,29 +1,18 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO draft (workspace_id, email, path, typ, value, created_at, base)\n               VALUES ($1, $2, $3, $4, $5::text::json, COALESCE($8::timestamptz, now()), $9)\n               ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL\n               DO UPDATE SET value = EXCLUDED.value, created_at = EXCLUDED.created_at,\n                             base = EXCLUDED.base\n               WHERE $7::bool = true\n                  OR $6::timestamptz IS NULL\n                  OR draft.created_at <= $6::timestamptz\n               RETURNING id, path, created_at",
+  "query": "SELECT created_at FROM draft WHERE id = $1 AND workspace_id = $2 AND typ = $3 AND email = $4",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
-        "type_info": "Int8"
-      },
-      {
-        "ordinal": 1,
-        "name": "path",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 2,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Varchar",
-        "Varchar",
-        "Varchar",
+        "Int8",
+        "Text",
         {
           "Custom": {
             "name": "draft_kind",
@@ -59,18 +48,12 @@
             }
           }
         },
-        "Text",
-        "Timestamptz",
-        "Bool",
-        "Timestamptz",
         "Text"
       ]
     },
     "nullable": [
-      false,
-      false,
       false
     ]
   },
-  "hash": "0a8e315e6a808c9a8704d5cbdc607a011dba4472741df120c2a556c87fe2825f"
+  "hash": "52d6106995c012e69302bf3e9e66c5c0db0244e391632e933b55491f9fde30cd"
 }

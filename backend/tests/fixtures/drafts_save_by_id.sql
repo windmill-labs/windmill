@@ -14,3 +14,9 @@ INSERT INTO draft (id, workspace_id, path, typ, value, email, base)
 VALUES (9001, 'test-workspace', 'u/test-user/byid_a', 'script',
         '{"path": "u/test-user/byid_a", "parent_hash": "0000000000001b76", "summary": "A", "content": "draft"}',
         'test@windmill.dev', '0000000000001b76');
+
+-- A draft-only script parked at a generated storage key, its typed path elsewhere.
+INSERT INTO draft (id, workspace_id, path, typ, value, email)
+VALUES (9002, 'test-workspace', 'u/test-user/draft_store', 'script',
+        '{"path": "u/test-user/friendly", "draft_path": "u/test-user/friendly", "summary": "D", "content": "draft"}',
+        'test@windmill.dev');

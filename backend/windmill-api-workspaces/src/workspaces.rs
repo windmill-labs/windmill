@@ -7315,12 +7315,12 @@ async fn clone_drafts(
     // filtered like `clone_scripts`: the address the draft still carries re-derives the
     // clone's own principal at deploy time, which is the more accurate answer of the two.
     sqlx::query!(
-        "INSERT INTO draft (workspace_id, path, typ, value, created_at, email)
+        "INSERT INTO draft (workspace_id, path, typ, value, created_at, email, base)
          SELECT $2, path, typ,
                 CASE WHEN typ IN ('script', 'flow')
                      THEN to_json(to_jsonb(value) - 'on_behalf_of')
                      ELSE value END,
-                created_at, email
+                created_at, email, base
          FROM draft
          WHERE workspace_id = $1 AND (email = $3 OR email IS NULL)",
         source_workspace_id,

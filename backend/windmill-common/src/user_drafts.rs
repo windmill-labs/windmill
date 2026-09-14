@@ -640,8 +640,11 @@ pub async fn delete_own_draft_for_path(
 ///
 /// The value keeps its base version: a move is a deploy like any other, so every
 /// draft on the item is now behind the head, which the editor reports through
-/// the ordinary stale-draft prompt. Its path keys follow only where they still
-/// name `old_path` (see [`DRAFT_PATH_KEYS`]).
+/// the ordinary stale-draft prompt. Of its two path keys (`path`, `draft_path`),
+/// one still naming `old_path` is not a rename the user staged — the editors write
+/// the item's own path there on every save — so it follows the row, or deploying
+/// the draft would send the item back where it came from. Any other value is a
+/// staged rename, and is kept.
 ///
 /// A draft already at `new_path` (a never-deployed item, or one left on an
 /// archived script there) occupies that path the way a deployed item does, and
@@ -694,15 +697,15 @@ pub async fn move_drafts_for_path(
                value = CASE
                    WHEN position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0
                        THEN value
-                   WHEN to_jsonb(value) -> $5::text = to_jsonb($2::text)
-                     OR to_jsonb(value) -> $6::text = to_jsonb($2::text)
+                   WHEN to_jsonb(value) -> 'path' = to_jsonb($2::text)
+                     OR to_jsonb(value) -> 'draft_path' = to_jsonb($2::text)
                        THEN to_json(
                            to_jsonb(value)
-                           || CASE WHEN to_jsonb(value) -> $5::text = to_jsonb($2::text)
-                                   THEN jsonb_build_object($5::text, $3::text)
+                           || CASE WHEN to_jsonb(value) -> 'path' = to_jsonb($2::text)
+                                   THEN jsonb_build_object('path', $3::text)
                                    ELSE '{}'::jsonb END
-                           || CASE WHEN to_jsonb(value) -> $6::text = to_jsonb($2::text)
-                                   THEN jsonb_build_object($6::text, $3::text)
+                           || CASE WHEN to_jsonb(value) -> 'draft_path' = to_jsonb($2::text)
+                                   THEN jsonb_build_object('draft_path', $3::text)
                                    ELSE '{}'::jsonb END
                        )
                    ELSE value
@@ -714,36 +717,10 @@ pub async fn move_drafts_for_path(
         old_path,
         new_path,
         &typs as &[&str],
-        DRAFT_PATH_KEYS[0],
-        DRAFT_PATH_KEYS[1],
     )
     .execute(&mut **tx)
     .await?;
     Ok(())
-}
-
-/// The two keys a full-page editor's draft value can hold a path in: `path` and
-/// `draft_path` (which one is the deploy target depends on the kind, see
-/// `typed_path_field`). One still equal to the path the row sits at is not a
-/// rename the user staged — the editors write the item's own path there on every
-/// save — so when the row moves it has to move too, or deploying the draft sends
-/// the item back where it came from. Any other value is a staged rename, kept.
-const DRAFT_PATH_KEYS: [&str; 2] = ["path", "draft_path"];
-
-/// `value` with each of [`DRAFT_PATH_KEYS`] that equals `from` re-pointed at `to`,
-/// or `None` when none does (the value is then already right as it is).
-pub fn repoint_draft_path_keys(value: &str, from: &str, to: &str) -> Option<String> {
-    let mut obj = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(value).ok()?;
-    let mut changed = false;
-    for key in DRAFT_PATH_KEYS {
-        if let Some(v) = obj.get_mut(key) {
-            if v.as_str() == Some(from) {
-                *v = serde_json::Value::String(to.to_string());
-                changed = true;
-            }
-        }
-    }
-    changed.then(|| serde_json::to_string(&obj).ok()).flatten()
 }
 
 /// Fetch the authed user's draft as a standalone payload, for "get by path"
@@ -823,24 +800,4 @@ pub async fn decrypt_draft_secret_value(db: &DB, w_id: &str, value: &str) -> Res
     let encrypted = value.strip_prefix(ENCRYPTED_DRAFT_PREFIX).unwrap_or(value);
     let mc = crate::variables::build_crypt(db, w_id).await?;
     crate::variables::decrypt(&mc, encrypted.to_string()).map_err(|_| draft_decrypt_error())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::repoint_draft_path_keys;
-    use serde_json::{json, Value};
-
-    #[test]
-    fn repoints_only_keys_still_naming_the_old_path() {
-        let flow = r#"{"path":"f/a","draft_path":"f/staged","summary":"s"}"#;
-        let out: Value =
-            serde_json::from_str(&repoint_draft_path_keys(flow, "f/a", "f/b").unwrap()).unwrap();
-        assert_eq!(
-            out,
-            json!({"path": "f/b", "draft_path": "f/staged", "summary": "s"})
-        );
-
-        let staged = r#"{"path":"f/staged"}"#;
-        assert_eq!(repoint_draft_path_keys(staged, "f/a", "f/b"), None);
-    }
 }

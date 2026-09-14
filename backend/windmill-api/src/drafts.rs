@@ -17,9 +17,7 @@ use serde::{Deserialize, Serialize};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    user_drafts::{
-        repoint_draft_path_keys, DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX,
-    },
+    user_drafts::{DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
     users::resolve_username_to_email,
     utils::{check_proper_path, strip_json_nul},
     variables::{build_crypt, encrypt},
@@ -472,53 +470,123 @@ async fn update_draft(
         // escape and later make any `->>`/`to_jsonb` extraction raise `22P05`.
         // Strip it here so a NUL never reaches the column.
         let serialized = strip_json_nul(&serialized);
-        // An editor still open on the path the row moved away from writes that path
-        // into the value; kept, it would deploy the item back there.
-        let serialized = if followed && path != url_path {
-            repoint_draft_path_keys(&serialized, url_path, path)
-                .map_or(serialized, std::borrow::Cow::Owned)
-        } else {
-            serialized
-        };
         // `base` is derived here from the value's per-kind field rather than sent
         // by the client, so every writer (editors, chat, CLI) fills it the same way.
         let base = draft_lineage(kind, value.0.get()).and_then(|l| l.as_text(kind));
-        // Upsert. The conflict check rides on the DO UPDATE WHERE clause —
-        // when the row is newer than `last_sync`, RETURNING yields nothing.
-        // `created_at` defaults to `now()` but the migration overrides it ($8)
-        // so a migrated draft keeps its original age instead of jumping to top.
-        sqlx::query!(
-            r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at, base)
-               VALUES ($1, $2, $3, $4, $5::text::json, COALESCE($8::timestamptz, now()), $9)
-               ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
-               DO UPDATE SET value = EXCLUDED.value, created_at = EXCLUDED.created_at,
-                             base = EXCLUDED.base
-               WHERE $7::bool = true
-                  OR $6::timestamptz IS NULL
-                  OR draft.created_at <= $6::timestamptz
-               RETURNING id, path, created_at"#,
-            &w_id,
-            email,
-            path,
-            kind as UserDraftItemKind,
-            serialized.as_ref(),
-            req.last_sync,
-            req.force,
-            req.created_at,
-            base.as_deref(),
-        )
-        .fetch_optional(&db)
-        .await?
-        .map(|r| (r.created_at, Some(r.id), Some(r.path)))
+
+        let mut written = None;
+        if let Some(id) = req.id.filter(|_| followed) {
+            // By id, in one statement, so a move committing after the lookup above
+            // still takes this write along; a path-keyed upsert would plant a new row
+            // at the path the row left. Where the row sits elsewhere than the URL,
+            // the editor's path keys predate the move: the row's own keys win, and
+            // one naming the URL path follows the row (see `move_drafts_for_path`).
+            // A pre-sanitizer NUL escape in the stored value makes `to_jsonb` raise,
+            // so such a row contributes no keys.
+            written = sqlx::query!(
+                r#"UPDATE draft AS d
+                   SET value = CASE
+                           WHEN d.path = $4 THEN $5::text::json
+                           ELSE (
+                               SELECT to_json(
+                                   s.new
+                                   || CASE WHEN NOT s.new ? 'path' THEN '{}'::jsonb
+                                           WHEN s.old ? 'path' THEN jsonb_build_object('path', s.old -> 'path')
+                                           WHEN s.new -> 'path' = to_jsonb($4::text) THEN jsonb_build_object('path', d.path)
+                                           ELSE '{}'::jsonb END
+                                   || CASE WHEN NOT s.new ? 'draft_path' THEN '{}'::jsonb
+                                           WHEN s.old ? 'draft_path' THEN jsonb_build_object('draft_path', s.old -> 'draft_path')
+                                           WHEN s.new -> 'draft_path' = to_jsonb($4::text) THEN jsonb_build_object('draft_path', d.path)
+                                           ELSE '{}'::jsonb END
+                               )
+                               FROM (SELECT $5::text::jsonb AS new,
+                                            CASE WHEN position(chr(92) || 'u0000' in replace(d.value::text, chr(92) || chr(92), '')) > 0
+                                                 THEN '{}'::jsonb
+                                                 ELSE to_jsonb(d.value) END AS old) s
+                           )
+                       END,
+                       created_at = COALESCE($8::timestamptz, now()),
+                       base = $9
+                   WHERE d.id = $3 AND d.workspace_id = $1 AND d.typ = $10 AND d.email = $2
+                     AND ($7::bool = true
+                          OR $6::timestamptz IS NULL
+                          OR d.created_at <= $6::timestamptz)
+                   RETURNING d.id, d.path, d.created_at"#,
+                &w_id,
+                email,
+                id,
+                url_path,
+                serialized.as_ref(),
+                req.last_sync,
+                req.force,
+                req.created_at,
+                base.as_deref(),
+                kind as UserDraftItemKind,
+            )
+            .fetch_optional(&db)
+            .await?
+            .map(|r| (r.created_at, Some(r.id), Some(r.path)));
+            if written.is_none() {
+                let existing = sqlx::query_scalar!(
+                    "SELECT created_at FROM draft WHERE id = $1 AND workspace_id = $2 AND typ = $3 AND email = $4",
+                    id,
+                    &w_id,
+                    kind as UserDraftItemKind,
+                    email,
+                )
+                .fetch_optional(&db)
+                .await?;
+                if let Some(ts) = existing {
+                    return Ok(Json(SaveDraftResponse {
+                        status: SaveDraftStatus::Conflict,
+                        current_timestamp: ts,
+                        id: None,
+                        path: None,
+                    }));
+                }
+            }
+        }
+        if written.is_none() {
+            // Upsert: no id, or its row is gone since the lookup, which is then a
+            // first save again. The conflict check rides on the DO UPDATE WHERE
+            // clause — when the row is newer than `last_sync`, RETURNING yields
+            // nothing. `created_at` defaults to `now()` but the migration overrides
+            // it ($8) so a migrated draft keeps its original age.
+            written = sqlx::query!(
+                r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at, base)
+                   VALUES ($1, $2, $3, $4, $5::text::json, COALESCE($8::timestamptz, now()), $9)
+                   ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
+                   DO UPDATE SET value = EXCLUDED.value, created_at = EXCLUDED.created_at,
+                                 base = EXCLUDED.base
+                   WHERE $7::bool = true
+                      OR $6::timestamptz IS NULL
+                      OR draft.created_at <= $6::timestamptz
+                   RETURNING id, path, created_at"#,
+                &w_id,
+                email,
+                path,
+                kind as UserDraftItemKind,
+                serialized.as_ref(),
+                req.last_sync,
+                req.force,
+                req.created_at,
+                base.as_deref(),
+            )
+            .fetch_optional(&db)
+            .await?
+            .map(|r| (r.created_at, Some(r.id), Some(r.path)));
+        }
+        written
     } else {
         // Delete, same conflict rule in the WHERE clause. Returns NULL when
         // the row was too new (conflict) OR already absent (idempotent) —
         // disambiguated below. `legacy` ($7) retargets to the NULL-email row.
+        // A followed row is deleted by id ($8), for the same reason it is written by id.
         sqlx::query_scalar!(
             r#"DELETE FROM draft
                WHERE workspace_id = $1
                  AND email IS NOT DISTINCT FROM (CASE WHEN $7::bool THEN NULL::text ELSE $2 END)
-                 AND path = $3
+                 AND (CASE WHEN $8::bigint IS NULL THEN path = $3 ELSE id = $8 END)
                  AND typ = $4
                  AND ($6::bool = true
                       OR $5::timestamptz IS NULL
@@ -531,6 +599,7 @@ async fn update_draft(
             req.last_sync,
             req.force,
             req.legacy,
+            req.id.filter(|_| followed),
         )
         .fetch_optional(&db)
         .await?
@@ -553,12 +622,14 @@ async fn update_draft(
         r#"SELECT created_at FROM draft
            WHERE workspace_id = $1
              AND email IS NOT DISTINCT FROM (CASE WHEN $5::bool THEN NULL::text ELSE $2 END)
-             AND path = $3 AND typ = $4"#,
+             AND (CASE WHEN $6::bigint IS NULL THEN path = $3 ELSE id = $6 END)
+             AND typ = $4"#,
         &w_id,
         email,
         path,
         kind as UserDraftItemKind,
         req.legacy,
+        req.id.filter(|_| followed && req.value.is_none()),
     )
     .fetch_optional(&db)
     .await?;
@@ -822,12 +893,12 @@ async fn migrate_legacy_draft(
                 r#"WITH legacy AS (
                        DELETE FROM draft
                        WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email IS NULL
-                       RETURNING value
+                       RETURNING value, base
                    )
-                   INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
-                   SELECT $1, $4, $2, $3, value, now() FROM legacy
+                   INSERT INTO draft (workspace_id, email, path, typ, value, created_at, base)
+                   SELECT $1, $4, $2, $3, value, now(), base FROM legacy
                    ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
-                   DO UPDATE SET value = EXCLUDED.value, created_at = now()
+                   DO UPDATE SET value = EXCLUDED.value, created_at = now(), base = EXCLUDED.base
                    RETURNING 1 as "one!""#,
                 &w_id,
                 path,

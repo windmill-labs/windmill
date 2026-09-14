@@ -1,19 +1,29 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM draft\n               WHERE workspace_id = $1\n                 AND email IS NOT DISTINCT FROM (CASE WHEN $7::bool THEN NULL::text ELSE $2 END)\n                 AND path = $3\n                 AND typ = $4\n                 AND ($6::bool = true\n                      OR $5::timestamptz IS NULL\n                      OR created_at <= $5::timestamptz)\n               RETURNING now() as \"now!\"",
+  "query": "INSERT INTO draft (workspace_id, email, path, typ, value, created_at, base)\n                   VALUES ($1, $2, $3, $4, $5::text::json, COALESCE($8::timestamptz, now()), $9)\n                   ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL\n                   DO UPDATE SET value = EXCLUDED.value, created_at = EXCLUDED.created_at,\n                                 base = EXCLUDED.base\n                   WHERE $7::bool = true\n                      OR $6::timestamptz IS NULL\n                      OR draft.created_at <= $6::timestamptz\n                   RETURNING id, path, created_at",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "now!",
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Text",
-        "Text",
+        "Varchar",
+        "Varchar",
+        "Varchar",
         {
           "Custom": {
             "name": "draft_kind",
@@ -49,14 +59,18 @@
             }
           }
         },
+        "Text",
         "Timestamptz",
         "Bool",
-        "Bool"
+        "Timestamptz",
+        "Text"
       ]
     },
     "nullable": [
-      null
+      false,
+      false,
+      false
     ]
   },
-  "hash": "2bed492ef32edf36e60e8a03268fa25bfb67dd641153d1ca23f7d0d2ae73624e"
+  "hash": "49775ee6ef7a059fb8c6eaa4cb9a1bf45481295367f0a5dfa21b380ec271ece3"
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH legacy AS (\n                       DELETE FROM draft\n                       WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email IS NULL\n                       RETURNING value\n                   )\n                   INSERT INTO draft (workspace_id, email, path, typ, value, created_at)\n                   SELECT $1, $4, $2, $3, value, now() FROM legacy\n                   ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL\n                   DO UPDATE SET value = EXCLUDED.value, created_at = now()\n                   RETURNING 1 as \"one!\"",
+  "query": "WITH legacy AS (\n                       DELETE FROM draft\n                       WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email IS NULL\n                       RETURNING value, base\n                   )\n                   INSERT INTO draft (workspace_id, email, path, typ, value, created_at, base)\n                   SELECT $1, $4, $2, $3, value, now(), base FROM legacy\n                   ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL\n                   DO UPDATE SET value = EXCLUDED.value, created_at = now(), base = EXCLUDED.base\n                   RETURNING 1 as \"one!\"",
   "describe": {
     "columns": [
       {
@@ -55,5 +55,5 @@
       null
     ]
   },
-  "hash": "46f00a75b2e7e4ac70758a9687070f68bc0421f1aa228f80157adda63191d33b"
+  "hash": "1c6859291963a9ca38d73f500213a575bfcd4469524f0dc8812470737759f02b"
 }
