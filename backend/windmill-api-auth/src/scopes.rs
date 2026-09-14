@@ -1073,12 +1073,15 @@ fn scope_grants_access(
 /// the caller's own row; `email` and `allowed_domain_auto_invite` are derived from the
 /// token itself and touch no table.
 ///
-/// `settings/global/automate_username_creation` is the one instance setting on the list.
-/// `get_global_setting` exempts a handful of keys from its own super-admin gate, that one
-/// among them, so the boolean is already readable by every authenticated user; it is here
-/// because the CLI reads it before creating a user during a git-sync push, which runs as a
-/// job. The other ungated keys have no such caller, so they stay confined — being ungated
-/// earns a key nothing on its own.
+/// Three instance settings are on the list. `get_global_setting` exempts a handful of keys
+/// from its own super-admin gate, these among them, so each is already readable by every
+/// authenticated user; each is here because the CLI reads it from a job:
+/// `automate_username_creation` before creating a user during a git-sync push, `uid` and
+/// `hub_base_url` when `u/admin/hub_sync` pulls resource types from the Hub. The other
+/// ungated keys have no such caller, so they stay confined — being ungated earns a key
+/// nothing on its own. Listing a gated key earns it nothing either: `require_super_admin`
+/// refuses every job token, so `hub_api_secret`, which that pull reads for a private Hub,
+/// stays out of a job's reach whatever this list says.
 ///
 /// Deliberately absent, as each crosses that line: `users/list_invites` (returns the
 /// workspace ids the identity was invited to), `users/tokens/list` (credential metadata
@@ -1096,6 +1099,8 @@ fn is_global_read_open_to_job_token(route_path: &str) -> bool {
             | "/api/users/tutorial_progress"
             | "/api/workspaces/allowed_domain_auto_invite"
             | "/api/settings/global/automate_username_creation"
+            | "/api/settings/global/uid"
+            | "/api/settings/global/hub_base_url"
             | "/api/docs/search"
             | "/api/docs/page"
             | "/api/integrations/hub/list"

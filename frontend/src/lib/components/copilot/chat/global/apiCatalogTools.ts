@@ -37,6 +37,7 @@ const COVERED_ENDPOINTS: Record<string, string> = {
 	listResource: 'list_workspace_items (it includes your drafts)',
 	listSchedules: 'list_workspace_items (it includes your drafts)',
 	runScriptByPath: 'run_script (it shows the user an argument form to confirm)',
+	runFlowByPath: 'run_flow (it shows the user an argument form to confirm)',
 	deleteScriptByPath: 'delete_workspace_item',
 	deleteScriptByHash: 'delete_workspace_item',
 	deleteFlowByPath: 'delete_workspace_item',
