@@ -40,7 +40,13 @@ export interface AgentFieldSpec {
 	 *  before. Also what the add menu seeds the field with, so a new row opens showing what it
 	 *  overrides. */
 	implicit?: unknown
-	/** The same value written for a reader, shown under the field's name in the add menu. */
+	/** What the add menu opens the field on, where that is not `implicit`. Only a field whose empty
+	 *  value is a choice of its own needs one: an empty `enabled_tools` advertises no tools, so its
+	 *  row opens on an empty list to keep what is shown and what a run does the same thing, which
+	 *  leaves an absent field as the only way to say every tool. */
+	seed?: unknown
+	/** Shown under the field's name in the add menu: `implicit` written for a reader, or, for a field
+	 *  with a `seed`, what adding the row does, since the two are no longer the same thing. */
 	defaultHint?: string
 	/** Ignored for image output, so the field hides while `output_type` is `'image'`. */
 	textOnly?: boolean
@@ -115,9 +121,9 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		group: 'tools',
 		label: 'Enabled tools',
 		tooltip:
-			'Whether a run carries every tool above or only the ones listed, so it costs no more than it needs. Listing none at all leaves the agent with no tools. Set it to an expression to decide per run. An MCP server listed here carries every tool it exposes, which its own include and exclude lists decide.',
-		implicit: { kind: 'all' },
-		defaultHint: 'Default: all of them'
+			'Which of the agent tools a run carries, so it costs no more than it needs. Selecting none leaves the agent with no tools, and unsetting the field gives it all of them. Set it to an expression to decide per run. An MCP server selected here carries every tool it exposes, which its own include and exclude lists decide.',
+		seed: [],
+		defaultHint: 'Opens empty. Unset for all tools.'
 	},
 	{
 		key: 'max_iterations',

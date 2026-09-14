@@ -536,12 +536,8 @@ pub async fn handle_ai_agent_job(
     };
 
     // Narrow the roster to the tools this run enabled, before the loop below pays a script or hub
-    // fetch per tool. Everything downstream works on the names alone: `All` and an absent field
-    // are the same run.
-    let enabled_tools = match args.enabled_tools.as_ref() {
-        Some(EnabledTools::Only { tools }) => Some(tools.as_slice()),
-        Some(EnabledTools::All) | None => None,
-    };
+    // fetch per tool.
+    let enabled_tools = args.enabled_tools.as_deref();
     // Taken before the narrowing consumes the roster, and only by a run that narrows: they are what
     // its names are matched against, so they are also what tells it a name matched nothing.
     let roster_names: Vec<String> = match enabled_tools {

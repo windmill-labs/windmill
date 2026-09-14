@@ -19,8 +19,8 @@ every workspace via the standard cached-resource-type sync, like other built-in 
 - The step keeps only the flow-local inputs (`user_message`, `user_attachments`, `enabled_tools`)
   in its own `input_transforms`; the brain and tools stay in the resource (read-only in the step).
   `enabled_tools` says which of the roster this step may call, narrowing one use of a shared agent
-  without touching the agent: `{kind: 'all'}` as an absent field does, `{kind: 'only', tools: [...]}`
-  for a list, tagged like `memory` so the form reads it the same way.
+  without touching the agent: an absent field carries every tool, a list carries the ones it names,
+  and an empty list carries none.
 - The agent carries its tools' default input bindings verbatim as authored (static, AI-filled,
   or flow expressions), so saving round-trips losslessly. Each host flow overrides what it
   needs: `tool_inputs` stores per-tool overrides (a diff from the resource tool's own

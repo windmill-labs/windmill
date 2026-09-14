@@ -43,7 +43,7 @@
 	import type VariableEditor from '$lib/components/VariableEditor.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import ResizeTransitionWrapper from '$lib/components/common/ResizeTransitionWrapper.svelte'
-	import { Plus, X } from 'lucide-svelte'
+	import { AlertTriangle, Plus, X } from 'lucide-svelte'
 	import type { PickableProperties } from '../previousResults'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { toolEnabledName, type AgentTool } from '../agentToolUtils'
@@ -176,8 +176,7 @@
 			.filter((name): name is string => !!name)
 		const properties = schemaProperties
 		untrack(() => {
-			const list = properties['enabled_tools']?.oneOf?.find((variant) => variant.title === 'only')
-				?.properties?.tools
+			const list = properties['enabled_tools']
 			if (list && !deepEqual(list.items?.enum, names)) {
 				list.items = { ...(list.items ?? { type: 'string' }), enum: names }
 			}
@@ -250,9 +249,10 @@
 
 	function addField(spec: AgentFieldSpec) {
 		// `flowInfers` re-seeds every key on load, so adding cannot mean creating the key: it means
-		// showing the row, seeded at what a run does today so the field opens on what it overrides.
+		// showing the row. Seeded at what a run does today, so the field opens on what it overrides,
+		// except where an empty value is a choice of its own rather than the absent one (`seed`).
 		if (args) {
-			args[spec.key] = { type: 'static', value: structuredClone(spec.implicit) }
+			args[spec.key] = { type: 'static', value: structuredClone(spec.seed ?? spec.implicit) }
 		}
 		visible.add(spec.key)
 	}
@@ -269,6 +269,17 @@
 		// once hiding a row is routine.
 		delete inputCheck[spec.key]
 	}
+
+	// Holding `enabled_tools` and naming nothing advertises no tools at all. That is a choice the
+	// field has to allow, and the one the row opens on, so it says so where it is made rather than
+	// leaving it to be discovered in a run. Only a static list can be read here: an expression's
+	// value exists only once the run it decides is under way.
+	let noToolsEnabled = $derived.by(() => {
+		const transform = args?.['enabled_tools']
+		return (
+			transform?.type === 'static' && Array.isArray(transform.value) && transform.value.length === 0
+		)
+	})
 
 	let emptyArgNames = $derived(
 		[...visible].filter((key) => {
@@ -408,6 +419,14 @@
 												{/if}
 											{/snippet}
 										</InputTransformForm>
+										{#if spec.key === 'enabled_tools' && noToolsEnabled}
+											<div
+												class="mt-1 flex items-center gap-1 text-2xs text-yellow-600 dark:text-yellow-400"
+											>
+												<AlertTriangle size={12} />
+												Nothing selected: the agent runs with no tools.
+											</div>
+										{/if}
 									</div>
 								{/if}
 							</ResizeTransitionWrapper>

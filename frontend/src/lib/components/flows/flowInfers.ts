@@ -151,46 +151,17 @@ export const AI_AGENT_SCHEMA: Schema = {
 				resourceType: 's3object'
 			}
 		},
-		// Tagged like `memory` so the form reads the same way: the variant says whether a run carries
-		// the whole roster or a list, and an empty list under `only` is a choice rather than a field
-		// nobody filled in. The step's own roster fills the list's `items.enum` in, so the static
-		// editor offers the tools this agent actually has (`AiAgentStepInputs`).
+		// The step's own roster fills `items.enum` in, so the static editor offers the tools this
+		// agent actually has (`AiAgentStepInputs`). Absence, not an empty list, is what carries every
+		// tool: a step that holds the field and names nothing has chosen to advertise none.
 		// Shown for image output as the roster it narrows is, even though neither is used there.
 		enabled_tools: {
-			type: 'object',
-			description: 'Which of the agent tools a run may call.',
-			oneOf: [
-				{
-					type: 'object',
-					title: 'all',
-					properties: {
-						kind: {
-							type: 'string',
-							enum: ['all'],
-							description: 'Carry every tool the agent has'
-						}
-					}
-				},
-				{
-					type: 'object',
-					title: 'only',
-					properties: {
-						kind: {
-							type: 'string',
-							enum: ['only'],
-							description: 'Carry only the tools listed'
-						},
-						tools: {
-							type: 'array',
-							description: 'Tool names and MCP servers',
-							items: {
-								type: 'string'
-							}
-						}
-					},
-					required: ['kind']
-				}
-			]
+			type: 'array',
+			description:
+				'Which of the agent tools a run may call, named as the model is shown them, except an MCP server, which is named by its resource path and carries every tool it exposes. Unset carries every tool.',
+			items: {
+				type: 'string'
+			}
 		},
 		max_completion_tokens: {
 			type: 'number',

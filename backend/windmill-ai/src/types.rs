@@ -74,19 +74,6 @@ impl Default for OutputType {
     }
 }
 
-/// Which of the agent's tools a run may call.
-#[derive(Deserialize, Debug, Clone)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-pub enum EnabledTools {
-    All,
-    Only {
-        /// By the name the model is shown, except an MCP server, which the model is shown nothing
-        /// of and which is named by its resource path. Empty advertises nothing.
-        #[serde(default)]
-        tools: Vec<String>,
-    },
-}
-
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Memory {
@@ -116,7 +103,7 @@ struct AIAgentArgsRaw {
     streaming: Option<bool>,
     max_iterations: Option<usize>,
     memory: Option<Memory>,
-    enabled_tools: Option<EnabledTools>,
+    enabled_tools: Option<Vec<String>>,
     // Legacy field for backward compatibility
     messages_context_length: Option<usize>,
     #[serde(default)]
@@ -137,8 +124,9 @@ pub struct AIAgentArgs {
     pub streaming: Option<bool>,
     pub max_iterations: Option<usize>,
     pub memory: Option<Memory>,
-    /// Which of the agent's tools this run may call. `None` is the whole roster, as `All` is.
-    pub enabled_tools: Option<EnabledTools>,
+    /// Which of the agent's tools this run may call; `narrow_roster` holds what the names are and
+    /// what `None` means.
+    pub enabled_tools: Option<Vec<String>>,
     pub credentials_check: bool,
 }
 
