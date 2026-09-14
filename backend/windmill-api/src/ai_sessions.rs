@@ -37,6 +37,8 @@ use windmill_object_store::{build_object_store_client, object_store_error_to_err
 
 const ROOT: &str = "windmill_ai_sessions";
 const PUSH_BODY_LIMIT: usize = 32 * 1024 * 1024;
+/// A pull names at most MAX_PULL_IDS ids of 64 bytes; anything larger is not a pull.
+const PULL_BODY_LIMIT: usize = 64 * 1024;
 /// A pull answer larger than this hands the remaining ids back as `deferred`.
 const PULL_RESPONSE_BUDGET: usize = 32 * 1024 * 1024;
 const MAX_HEAD_BYTES: usize = 1024 * 1024;
@@ -48,7 +50,10 @@ const IO_CONCURRENCY: usize = 8;
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list))
-        .route("/pull", post(pull))
+        .route(
+            "/pull",
+            post(pull).layer(DefaultBodyLimit::max(PULL_BODY_LIMIT)),
+        )
         .route(
             "/push",
             post(push).layer(DefaultBodyLimit::max(PUSH_BODY_LIMIT)),

@@ -367,7 +367,12 @@ async function pushWorkspace(
 		unavailable: false
 	}
 	// Parts of a session still to be acknowledged, and the sessions the server refused.
-	const attempted = new Map<string, { v: number; next: MirrorSyncState; parts: number }>()
+	// `complete` once every part of the session has been appended: a session whose first
+	// part is still to come when a request fails has nothing behind it yet.
+	const attempted = new Map<
+		string,
+		{ v: number; next: MirrorSyncState; parts: number; complete: boolean }
+	>()
 	const failed = new Set<string>()
 	let current: PushBody | undefined
 	let size = 0
@@ -438,7 +443,9 @@ async function pushWorkspace(
 	const finish = (status: SendStatus): WorkspaceOutcome => {
 		out.status = status
 		for (const [id, a] of attempted) {
-			if (a.parts === 0 && !failed.has(id)) out.settled.push({ id, v: a.v, next: a.next })
+			if (a.complete && a.parts === 0 && !failed.has(id)) {
+				out.settled.push({ id, v: a.v, next: a.next })
+			}
 		}
 		out.anyFailed = failed.size > 0
 		return out
@@ -466,8 +473,14 @@ async function pushWorkspace(
 		if (plan.removeFrom && wsState.get(plan.removeFrom) !== 'off') {
 			addRemoved(item.session.id, plan.removeFrom, false)
 		}
-		attempted.set(item.session.id, { v: item.v, next: plan.next, parts: 0 })
-		if (!plan.entry && plan.images.length === 0) continue
+		const nothingToSend = !plan.entry && plan.images.length === 0
+		attempted.set(item.session.id, {
+			v: item.v,
+			next: plan.next,
+			parts: 0,
+			complete: nothingToSend
+		})
+		if (nothingToSend) continue
 		let images: AISessionBackupImage[] = []
 		let imagesBytes = 0
 		for (const { chat_id, id } of plan.images) {
@@ -491,6 +504,7 @@ async function pushWorkspace(
 			const status = await append(part)
 			if (status !== 'ok') return finish(status)
 		}
+		attempted.get(item.session.id)!.complete = true
 	}
 	return finish(await flushCurrent())
 }
@@ -521,9 +535,12 @@ async function flush(): Promise<void> {
 
 		for (const r of marks.removed) {
 			const ws = r.ws ?? (await readSync(r.id, email))?.ws
-			// Nowhere to remove it from (an unsent draft, a workspace without storage): done.
-			if (!ws || wsState.get(ws) === 'off') consumedRemoved.push(r.key)
-			else if (wsState.get(ws) !== 'refused') workFor(ws).removed.push({ id: r.id, key: r.key })
+			// Nowhere to remove it from (an unsent draft): done. A workspace whose backups are
+			// off keeps its removals for when they are on again, or the session would come back.
+			if (!ws) consumedRemoved.push(r.key)
+			else if (!wsState.has(ws) || wsState.get(ws) === 'on') {
+				workFor(ws).removed.push({ id: r.id, key: r.key })
+			}
 		}
 		for (const d of marks.dirty) {
 			const session = byId.get(d.id)
@@ -550,7 +567,6 @@ async function flush(): Promise<void> {
 				wsState.set(ws, 'off')
 				await forgetWorkspaceSync(ws, email)
 				for (const item of w.items) consumedDirty.push({ id: item.session.id, v: item.v })
-				for (const r of w.removed) consumedRemoved.push(r.key)
 				continue
 			}
 			if (out.status === 'refused') {
@@ -575,7 +591,9 @@ async function flush(): Promise<void> {
 		if (getCurrentUserEmail() !== email) return
 		for (const { id, v } of consumedDirty) clearDirty(id, v)
 		for (const key of consumedRemoved) removeKey(key)
-		if (hasPending()) scheduleFlush()
+		// Whatever is still marked is either waiting on the backoff timer, on a write that
+		// scheduled its own flush, or on a workspace that is off or refused for the page;
+		// none of it wants another flush in 15 s.
 	})
 }
 

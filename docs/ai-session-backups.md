@@ -95,7 +95,10 @@ caps, with 32 MB on the body); an entry that outgrows the target is split into c
 with the head riding on the last, and a chat above 24 MB is left out with a console warning. A
 request the server refuses (a 4xx other than 404/403/409) stops the backup for the page but keeps
 the marks and the sync state, so the next load tries again; a session the server reports it could
-not store stays marked and is retried with backoff. Pull answers up to 20 ids within a 32 MB
+not store stays marked and is retried with backoff. A workspace that answers `enabled: false`
+keeps its removal marks (only its dirty marks and sync state are dropped): a session deleted
+while backups are off must not come back from the bucket once they are on again. Pull bodies
+are capped at 64 KB. Pull answers up to 20 ids within a 32 MB
 budget: a session's size is known from the listings before anything of it is read, one that
 would not fit is deferred (unless it is the first of the answer), and images beyond the budget
 are left out (they hydrate to placeholders). A

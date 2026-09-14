@@ -164,14 +164,45 @@ describe('sessionMirror flush', () => {
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(2)
 
-		// The workspace answered that it has nowhere to keep backups: no further request,
-		// and a delete there has nothing to remove, so its mark is consumed rather than
-		// rescheduling a flush for the life of the tab.
+		// The workspace answered that it has nowhere to keep backups: no further request.
+		// A delete there keeps its removal mark for when backups are on again, or the
+		// session would come back from the bucket; the dirty mark is dropped.
 		await putSession({ ...s, summary: 'changed' })
 		deleteSession('s2')
 		await flush()
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(pendingKeys()).toEqual(['r::s2::ws'])
+	})
+
+	it('settles nothing of a request that failed, even a session whose parts were still to come', async () => {
+		// Enough sessions for two requests: the first fails, the second is never sent.
+		const ids = Array.from({ length: 101 }, (_, i) => `m${i}`)
+		for (const id of ids) {
+			await putSession({ id, name: id, createdAt: 1, workspace_id: 'ws' })
+		}
+		pushMock.mockRejectedValueOnce(new TypeError('network'))
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(1)
+		expect(pushMock.mock.calls[0][0].requestBody.sessions).toHaveLength(100)
+		expect(pendingKeys()).toHaveLength(101)
+
+		// Once the backoff lapses, every one of them is carried again.
+		__resetMirrorForTesting()
+		pushMock.mockImplementation(
+			async ({ requestBody }: { requestBody: { sessions: { id: string }[] } }) => ({
+				enabled: true,
+				results: requestBody.sessions.map((s) => ({ id: s.id }))
+			})
+		)
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(3)
+		expect(
+			pushMock.mock.calls
+				.slice(1)
+				.flatMap((c) => c[0].requestBody.sessions.map((s: { id: string }) => s.id))
+				.sort()
+		).toEqual([...ids].sort())
 		expect(pendingKeys()).toEqual([])
 	})
 

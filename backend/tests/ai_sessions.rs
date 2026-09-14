@@ -285,6 +285,17 @@ async fn test_backup_writes_are_refused_for_the_wrong_owner_token_or_id(
     .await?;
     assert_eq!(resp.status(), 400, "{}", resp.text().await?);
 
+    // A pull body is a handful of ids; a large one is refused before it is parsed.
+    let resp = authed(
+        client().post(format!("{base}/ai/sessions/pull")),
+        "SECRET_TOKEN",
+    )
+    .header("Content-Type", "application/json")
+    .body(format!("{{\"ids\":[\"{}\"]}}", "a".repeat(100_000)))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 413, "{}", resp.text().await?);
+
     // A scoped token (here `jobs:read`) is minted for something narrower than the user's
     // whole assistant history.
     let resp = authed(
