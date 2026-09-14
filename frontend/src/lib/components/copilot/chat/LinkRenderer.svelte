@@ -13,6 +13,7 @@
 		type WindmillItemKind,
 		type WorkspaceItemTargetKind
 	} from './workspaceItems.svelte'
+	import { safeHref } from './safeHref'
 
 	type Props = {
 		href?: string
@@ -45,20 +46,7 @@
 	const previewAction = $derived(available?.type === 'open_item_preview' ? available : undefined)
 	const drawerAction = $derived(available?.type === 'open_created_resource' ? available : undefined)
 
-	// The markdown is authored by a model, or by another member for a shared artifact, and the
-	// renderer passes `javascript:` and `data:` hrefs through untouched. Relative links resolve
-	// against this page, so they stay.
-	const SAFE_PROTOCOLS = ['http:', 'https:', 'mailto:']
-	const safeHref = $derived.by(() => {
-		if (!href) return undefined
-		try {
-			return SAFE_PROTOCOLS.includes(new URL(href, window.location.href).protocol)
-				? href
-				: undefined
-		} catch {
-			return undefined
-		}
-	})
+	const allowedHref = $derived(safeHref(href, window.location.href))
 
 	const modifier = newTabModifier()
 
@@ -83,7 +71,7 @@
 	}
 </script>
 
-{#if safeHref}
+{#if allowedHref}
 	{#if wmKind}
 		<!-- Only a preview pill can change icon, so only it is worth tracking the modifier for. -->
 		<span
@@ -91,7 +79,7 @@
 			{@attach previewAction ? modifier.attach : undefined}
 		>
 			<a
-				href={safeHref}
+				href={allowedHref}
 				target={previewAction ? undefined : '_blank'}
 				rel={previewAction ? undefined : 'noopener noreferrer'}
 				title={title || hint}
@@ -134,10 +122,11 @@
 			{/if}
 		</span>
 	{:else}
-		<a href={safeHref} target="_blank" rel="noopener noreferrer" {title}>
+		<a href={allowedHref} target="_blank" rel="noopener noreferrer" {title}>
 			{@render children?.()}
 		</a>
 	{/if}
-{:else if href}
+{:else}
+	<!-- An empty or unsafe href still has text; drop only the link. -->
 	{@render children?.()}
 {/if}

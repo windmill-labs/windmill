@@ -141,3 +141,44 @@ async fn only_the_author_or_an_admin_can_unshare(db: Pool<Postgres>) -> anyhow::
 
     Ok(())
 }
+
+/// The id is compared against a `VARCHAR(255)` column on every route that takes one, and a
+/// NUL in it would otherwise reach Postgres and come back as a 500.
+#[sqlx::test(fixtures("base"))]
+async fn a_malformed_artifact_id_is_refused_on_every_route(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace/ai/shared_artifacts",
+        server.addr.port()
+    );
+    let client = reqwest::Client::new();
+
+    for bad_id in ["", "a\0b", &"x".repeat(256)] {
+        let resp = client
+            .get(format!("{base}/status"))
+            .query(&[("artifact_id", bad_id)])
+            .header("Authorization", MEMBER)
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 400, "status accepted {bad_id:?}");
+
+        let resp = client
+            .post(format!("{base}/share"))
+            .header("Authorization", MEMBER)
+            .json(&json!({
+                "artifact_id": bad_id,
+                "name": "Plan",
+                "kind": "md",
+                "version": 1,
+                "content": "x",
+            }))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 400, "share accepted {bad_id:?}");
+    }
+
+    Ok(())
+}

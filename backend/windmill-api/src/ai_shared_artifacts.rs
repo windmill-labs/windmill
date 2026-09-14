@@ -107,6 +107,23 @@ fn expires_at(shared_at: DateTime<Utc>, retention_secs: i64) -> DateTime<Utc> {
     shared_at + chrono::Duration::seconds(retention_secs)
 }
 
+/// The browser-side artifact id, as every handler that takes one must check it: it is compared
+/// against a `VARCHAR(255)` column, and Postgres answers a NUL in a text parameter with an
+/// opaque 500.
+fn check_artifact_id(artifact_id: &str) -> Result<()> {
+    if artifact_id.is_empty() || artifact_id.chars().count() > MAX_ARTIFACT_ID_CHARS {
+        return Err(Error::BadRequest(format!(
+            "Artifact id must be between 1 and {MAX_ARTIFACT_ID_CHARS} characters"
+        )));
+    }
+    if artifact_id.contains('\0') {
+        return Err(Error::BadRequest(
+            "Artifact id cannot contain NUL characters".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Share an artifact, or move the caller's existing link for it to this content. Re-sharing
 /// keeps the link and restarts its retention window.
 async fn share_artifact(
@@ -121,12 +138,7 @@ async fn share_artifact(
             "Artifact name must be between 1 and {MAX_NAME_CHARS} characters"
         )));
     }
-    if payload.artifact_id.is_empty() || payload.artifact_id.chars().count() > MAX_ARTIFACT_ID_CHARS
-    {
-        return Err(Error::BadRequest(format!(
-            "Artifact id must be between 1 and {MAX_ARTIFACT_ID_CHARS} characters"
-        )));
-    }
+    check_artifact_id(&payload.artifact_id)?;
     if payload.content.len() > MAX_CONTENT_BYTES {
         return Err(Error::BadRequest(format!(
             "Artifact content is {} bytes, above the {MAX_CONTENT_BYTES} byte limit",
@@ -139,12 +151,9 @@ async fn share_artifact(
         ));
     }
     // Postgres rejects NUL in text columns with an opaque 500.
-    if [name, &payload.artifact_id, &payload.content]
-        .iter()
-        .any(|s| s.contains('\0'))
-    {
+    if name.contains('\0') || payload.content.contains('\0') {
         return Err(Error::BadRequest(
-            "Artifact name, id and content cannot contain NUL characters".to_string(),
+            "Artifact name and content cannot contain NUL characters".to_string(),
         ));
     }
 
@@ -208,6 +217,7 @@ async fn get_share_status(
     Path(w_id): Path<String>,
     Query(query): Query<ShareStatusQuery>,
 ) -> JsonResult<ShareStatus> {
+    check_artifact_id(&query.artifact_id)?;
     let retention_secs = ai_shared_artifact_retention_secs();
     let share = sqlx::query!(
         "SELECT id, name, kind, version, created_by, shared_at FROM ai_shared_artifact

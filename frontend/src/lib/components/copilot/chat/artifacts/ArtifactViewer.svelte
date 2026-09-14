@@ -5,6 +5,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { currentVersion, type ArtifactVersion, type PersistedArtifact } from './artifactsDB'
+	import CodeDisplay from '../script/CodeDisplay.svelte'
 	import ArtifactBody from './ArtifactBody.svelte'
 	import ArtifactExportButton from './ArtifactExportButton.svelte'
 	import ArtifactShareButton from './ArtifactShareButton.svelte'
@@ -239,7 +240,7 @@
 		{#if restoringPin}
 			<!-- Deliberately blank until the pinned snapshot lands; see restoringPin. -->
 		{:else}
-			<ArtifactBody content={shown.content} {source} />
+			<ArtifactBody content={shown.content} {source} pre={CodeDisplay} />
 		{/if}
 	</div>
 </div>
