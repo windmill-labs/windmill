@@ -616,6 +616,58 @@ describe('item store: one entry per key', () => {
 		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: null })
 	})
 
+	it('keeps a draft written again after a discard, and drops one parked for the move', async () => {
+		const b = { ...deployedRes, path: 'u/me/b' }
+		const moveOnto = async (
+			openBefore: boolean,
+			outside: (store: ReturnType<typeof createItemStore>, open: () => void) => void
+		) => {
+			const rows = fakeRows()
+			const store = createItemStore(rows.port)
+			const gate = deferred()
+			const temporary = newItemPath()
+			const { handle: moving } = store.acquire(
+				{ workspace: 'w', kind: 'resource', path: temporary },
+				{ workspace: 'w', path: temporary, template: b },
+				adapter({}, () => gate.promise)
+			)
+			await settle()
+			moving.value = { ...b, args: { a: 2 } }
+			const moved = moving.save()
+			await settle()
+			const open = () =>
+				store.acquire(
+					{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
+					{ workspace: 'w', path: 'u/me/b' },
+					adapter({ deployed: b })
+				)
+			if (openBefore) open()
+			outside(store, open)
+			gate.resolve()
+			expect(await moved).toMatchObject({ ok: true, moved: true })
+			return { moving, rows }
+		}
+		// Deleted, then written again: the newer draft is the one that survives the move.
+		const again = { ...b, description: 'written again after the delete' }
+		const first = await moveOnto(true, (store) => {
+			store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'first draft' })
+			store.bridge.discard('w', 'resource', 'u/me/b')
+			store.bridge.seed('w', 'resource', 'u/me/b', again)
+		})
+		expect(first.moving.value).toEqual(again)
+		expect(first.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: again })
+
+		// Parked for the move before anyone held the key, then deleted once an editor does: the
+		// discard is asked for the key, so the parked draft goes with it.
+		const second = await moveOnto(false, (store, open) => {
+			store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'parked draft' })
+			open()
+			store.bridge.discard('w', 'resource', 'u/me/b')
+		})
+		expect(second.moving.dirty).toBe(false)
+		expect(second.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: null })
+	})
+
 	it('keeps a change the draft comparison ignores in an editor a move replaces', async () => {
 		type Sched = { path: string; summary: string; permissioned_as?: string }
 		const rows = fakeRows()
