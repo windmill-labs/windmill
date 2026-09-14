@@ -6180,7 +6180,7 @@ async fn force_complete_zombie_job(
 
     let mut tx = db.begin().await?;
 
-    sqlx::query!(
+    let duration_ms = sqlx::query_scalar!(
         "INSERT INTO v2_job_completed
             (workspace_id, id, started_at, duration_ms, result, memory_peak, status, worker)
         SELECT q.workspace_id, q.id, q.started_at,
@@ -6189,12 +6189,38 @@ async fn force_complete_zombie_job(
         FROM v2_job_queue q
         LEFT JOIN v2_job_runtime r ON r.id = q.id
         WHERE q.id = $1
-        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb",
+        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb
+        RETURNING duration_ms AS \"duration_ms!\"",
         job_id,
         error_value,
     )
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
+
+    // A WAC parent parked on this job must learn of the failure here too, or it
+    // waits out its whole suspend window and runs the task again.
+    if let Some(duration_ms) = duration_ms {
+        let parent = sqlx::query!(
+            "SELECT parent_job, flow_step_id FROM v2_job WHERE id = $1",
+            job_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(parent_job) = parent
+            .filter(|j| j.flow_step_id.is_none())
+            .and_then(|j| j.parent_job)
+        {
+            windmill_common::wac::record_child_completion(
+                &mut tx,
+                &parent_job,
+                job_id,
+                false,
+                duration_ms,
+                &error_value.to_string(),
+            )
+            .await?;
+        }
+    }
 
     sqlx::query!("DELETE FROM v2_job_queue WHERE id = $1", job_id)
         .execute(&mut *tx)
