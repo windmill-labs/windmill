@@ -14,7 +14,7 @@ switch that decides whether this chat carries its tools.
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { isMcpEnabled, setMcpEnabled } from '$lib/components/mcp/enabledServers'
-	import { listableMcpResource } from '$lib/components/mcp/ownServers'
+	import { listableMcpResource, mcpViewer } from '$lib/components/mcp/ownServers'
 	import { loadProviderIcon } from '$lib/components/mcp/providerIcon'
 	import {
 		cachedProviderKey,
@@ -274,13 +274,15 @@ switch that decides whether this chat carries its tools.
 		loading = true
 		loadError = undefined
 		try {
-			const resources = (
-				await ResourceService.listResource({
+			const [listed, viewer] = await Promise.all([
+				ResourceService.listResource({
 					workspace: target,
 					resourceType: 'mcp',
 					perPage: 100
-				})
-			).filter((r) => listableMcpResource(r))
+				}),
+				mcpViewer(target)
+			])
+			const resources = listed.filter((r) => listableMcpResource(r, viewer))
 			if (seq !== loadSeq) return
 			servers = resources.map((r) => ({
 				path: r.path,

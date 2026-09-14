@@ -8,7 +8,7 @@ import type { Item } from '$lib/utils'
 import type { AIChatManager } from '../copilot/chat/AIChatManager.svelte'
 import { isMcpEnabled, setMcpEnabled } from './enabledServers'
 import { cachedProviderKey, rememberProviderKey } from './iconCache'
-import { listableMcpResource } from './ownServers'
+import { listableMcpResource, mcpViewer } from './ownServers'
 import { loadProviderIcon } from './providerIcon'
 
 type Row = {
@@ -56,14 +56,17 @@ export class McpMenu {
 	async #load(ws: string) {
 		const seq = ++this.#seq
 		try {
-			const resources = await ResourceService.listResource({
-				workspace: ws,
-				resourceType: 'mcp',
-				perPage: 100
-			})
+			const [resources, viewer] = await Promise.all([
+				ResourceService.listResource({
+					workspace: ws,
+					resourceType: 'mcp',
+					perPage: 100
+				}),
+				mcpViewer(ws)
+			])
 			if (seq !== this.#seq) return
 			this.#rows = resources
-				.filter((r) => listableMcpResource(r))
+				.filter((r) => listableMcpResource(r, viewer))
 				.map((r) => ({
 					path: r.path,
 					editedAt: r.edited_at,
