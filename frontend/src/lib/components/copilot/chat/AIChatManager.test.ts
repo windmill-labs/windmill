@@ -580,11 +580,11 @@ describe('AIChatManager global skills', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(model)
 	})
 
-	// Only selected skills reach the prompt, and the selection is keyed by
-	// workspace and account (see skills/enabledSkills.ts).
-	function selectSkills(workspace: string, ...paths: string[]) {
+	// Every readable skill reaches the prompt; only the paths someone decided about
+	// are stored, keyed by workspace and account (see skills/enabledSkills.ts).
+	function turnOffSkills(workspace: string, ...paths: string[]) {
 		const stored = JSON.parse(localStorage.getItem('wm_skills_enabled') ?? '{}')
-		stored[`${workspace}:${TEST_EMAIL}`] = paths
+		stored[`${workspace}:${TEST_EMAIL}`] = Object.fromEntries(paths.map((p) => [p, false]))
 		localStorage.setItem('wm_skills_enabled', JSON.stringify(stored))
 	}
 
@@ -594,8 +594,6 @@ describe('AIChatManager global skills', () => {
 			resolveParentSkills = resolve
 		})
 		mocks.workspace = 'parent'
-		selectSkills('parent', 'f/skills/parent-skill')
-		selectSkills('child', 'f/skills/child-skill')
 		mocks.listResource.mockImplementation(({ workspace }: { workspace: string }) => {
 			if (workspace === 'parent') {
 				return parentSkills
@@ -639,12 +637,12 @@ describe('AIChatManager global skills', () => {
 		expect(manager.systemMessage.content).not.toContain('parent-skill')
 	})
 
-	it('leaves a readable but unselected skill out of the prompt', async () => {
+	it('leaves a skill turned off out of the prompt', async () => {
 		mocks.listResource.mockResolvedValue([
-			{ path: 'f/skills/selected', description: 'the one turned on' },
-			{ path: 'f/skills/unselected', description: 'readable but never turned on' }
+			{ path: 'f/skills/selected', description: 'left on, like every skill starts' },
+			{ path: 'f/skills/unselected', description: 'the one turned off' }
 		])
-		selectSkills('test_workspace', 'f/skills/selected')
+		turnOffSkills('test_workspace', 'f/skills/unselected')
 
 		const manager = new AIChatManager()
 		manager.isSessionChat = true
@@ -659,7 +657,6 @@ describe('AIChatManager global skills', () => {
 		mocks.listResource.mockResolvedValue([
 			{ path: 'u/admin/review-code', description: 'review code for bugs' }
 		])
-		selectSkills('test_workspace', 'u/admin/review-code')
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
 			const userMessage = config.messages[config.messages.length - 1]
 			expect(userMessage.content).toContain('Use the skill at "u/admin/review-code". find bugs')
@@ -686,7 +683,6 @@ describe('AIChatManager global skills', () => {
 			{ path: 'u/admin/deploy', description: 'personal deploy steps' },
 			{ path: 'f/team/deploy', description: 'the team deploy steps' }
 		])
-		selectSkills('test_workspace', 'u/admin/deploy', 'f/team/deploy')
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
 			// Picking either one would silently apply instructions the user did not
 			// choose, so the text is left alone for the model to ask about.

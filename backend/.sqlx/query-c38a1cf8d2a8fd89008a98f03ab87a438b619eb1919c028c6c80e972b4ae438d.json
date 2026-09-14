@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) as \"count!\"\n           FROM git_sync_synced_head h\n           JOIN v2_job_completed pc ON pc.id = h.job_id\n           JOIN v2_job j ON j.workspace_id = h.workspace_id\n             AND j.kind IN ('dependencies', 'flowdependencies', 'appdependencies')\n             AND j.created_at >= pc.started_at\n             AND j.created_at <= COALESCE(h.tests_dispatched_at, now())\n           JOIN v2_job_completed c ON c.id = j.id AND c.status IN ('failure', 'canceled')\n           WHERE h.workspace_id = $1 AND h.repo_resource_path = $4\n             AND h.branch = $3 AND h.sha = $2\n             AND h.source = 'pull'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c38a1cf8d2a8fd89008a98f03ab87a438b619eb1919c028c6c80e972b4ae438d"
+}

@@ -35,9 +35,9 @@ export function useListHighlight(opts: {
 		untrack(() => (index = resting))
 	})
 
-	function move(delta: number) {
+	function land(next: number) {
 		const count = opts.count()
-		if (count === 0) return
+		if (count === 0 || next < 0 || next >= count) return
 		pointerOwns = false
 		// Rows are tabbable, so focus can sit on one. Enter then activates whatever is
 		// focused, which has to stay the highlighted row — so any row counts, not just
@@ -47,16 +47,29 @@ export function useListHighlight(opts: {
 		const focusedId = document.activeElement?.id
 		const rowWasFocused =
 			!!focusedId && Array.from({ length: count }, (_, i) => opts.rowId(i)).includes(focusedId)
-		index = index < 0 ? (delta > 0 ? 0 : count - 1) : (index + delta + count) % count
+		index = next
 		const row = document.getElementById(opts.rowId(index))
 		row?.scrollIntoView({ block: 'nearest' })
 		if (rowWasFocused) row?.focus()
+	}
+
+	function move(delta: number) {
+		const count = opts.count()
+		if (count === 0) return
+		land(index < 0 ? (delta > 0 ? 0 : count - 1) : (index + delta + count) % count)
 	}
 
 	return {
 		get index() {
 			return index
 		},
+		/** Step the highlight, for a list whose own keys move it beyond Up and Down —
+		 * a tree stepping into the children a folder just revealed. */
+		move,
+		/** Put the highlight on a row named outright, rather than a step from wherever
+		 * it is — the row a caller's own key landed on, or the one that has focus. A
+		 * step cannot say this: from nothing lit it can only reach an end of the list. */
+		moveTo: land,
 		/** Wire to each row's `onMouseEnter`. */
 		hovered(i: number) {
 			if (pointerOwns) index = i

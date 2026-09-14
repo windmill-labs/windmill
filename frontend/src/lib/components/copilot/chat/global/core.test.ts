@@ -220,6 +220,9 @@ vi.mock('$lib/gen', async () => {
 			createResource: vi.fn(async () => 'created'),
 			updateResource: vi.fn(async () => 'updated'),
 			deleteResource: vi.fn(async () => 'deleted'),
+			// A workspace with no skills, which is what makes `read_skill` refuse a path
+			// the model composed: the gate is membership in the listing.
+			listResource: vi.fn(async () => []),
 			getResourceValue: vi.fn(async () => ({ content: 'skill body' }))
 		}),
 		VariableService: wrapService(actual.VariableService, {
@@ -318,8 +321,9 @@ vi.mock('./rawAppBundlerBridge', () => ({
 
 vi.mock('$lib/infer', async () => ({
 	...(await vi.importActual<any>('$lib/infer')),
-	// Avoid the wasm parser in unit tests: the script deploy path infers the arg
-	// schema but tolerates failure, and these tests don't assert on the schema.
+	// Avoid the wasm parser in unit tests. A no-op passes the seeded schema through
+	// untouched, which is what lets the password-marking test pin how a schema is
+	// seeded in and carried out without pinning inference's own merge rules.
 	inferArgs: vi.fn(async () => {})
 }))
 
@@ -4355,6 +4359,43 @@ describe('global AI tools', () => {
 		expect(result).toContain('test logs')
 	})
 
+	// No parser emits `password`, so the stored schema is the only thing carrying it: an edit
+	// that rewrites the draft's schema from scratch, or a draft read that drops it, unmarks
+	// the field — and the form then takes the secret as a plain literal into the job's args.
+	it('test_run_script keeps the password marking of the script it previews', async () => {
+		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(true)
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/secretful',
+			language: 'bun',
+			schema: {
+				type: 'object',
+				properties: { token: { type: 'string', password: true } },
+				required: ['token']
+			}
+		} as any)
+
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/secretful',
+			language: 'bun',
+			content: 'export async function main(token: string) { return 1 }'
+		})
+
+		let form: any
+		await callGlobalTool(
+			'test_run_script',
+			{ path: 'f/scripts/secretful' },
+			{
+				...toolCallbacks,
+				requestRunArgs: async (_toolId, opened) => {
+					form = opened
+					return undefined
+				}
+			}
+		)
+
+		expect(form?.schema?.properties).toMatchObject({ token: { password: true } })
+	})
+
 	it('test_run_script previews deployed script content when no draft exists', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/deployed-test',
@@ -4479,8 +4520,10 @@ describe('global AI tools', () => {
 		const deployedForm = statuses.find((s) => s.runForm)?.runForm
 		expect(deployedForm.submitted).toBe(true)
 		expect(deployedForm.schema).toBeUndefined()
+		// skipPreprocessor: the form fills the main input schema, so a preprocessor would take
+		// these arguments for a webhook body and run main on its output instead.
 		expect(JobService.runScriptByPath).toHaveBeenCalledWith(
-			expect.objectContaining({ requestBody: { name: 'Ada' } })
+			expect.objectContaining({ requestBody: { name: 'Ada' }, skipPreprocessor: true })
 		)
 	})
 
@@ -4664,6 +4707,27 @@ describe('global AI tools', () => {
 		const persisted = statuses.filter((s) => s.parameters !== undefined).at(-1)?.parameters
 		expect(persisted).toEqual({ reason: 'WINDMILL_TOO_BIG' })
 		expect(JSON.stringify(statuses)).not.toContain(huge)
+	})
+
+	// A dropped pass-through fails silently: the argument is accepted and ignored, and the
+	// run just waits out the default budget.
+	it('run_script detaches on background and on wait_seconds', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/slow',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		// wait_seconds 0 detaches the same way, so one run of each pins both lines.
+		for (const detachArg of [{ background: true }, { wait_seconds: 0 }]) {
+			const onJobDetached = vi.fn()
+			await callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/slow', args: { name: 'Ada' }, ...detachArg },
+				{ ...toolCallbacks, onJobStarted: vi.fn(), onJobDetached }
+			)
+
+			expect(onJobDetached).toHaveBeenCalledWith('job-script-by-path')
+		}
 	})
 
 	// A schema with no fields still opens a form: an empty one is still the Run button, and
@@ -5055,6 +5119,68 @@ describe('global AI tools', () => {
 		})
 	})
 
+	// What separates a deployed run from a test run of the same flow: the form is built from the
+	// deployed schema rather than the draft's, and the editor open on that path is left alone —
+	// it holds the draft, so a deployed run painted into its graph would show steps that are not
+	// the ones running.
+	it('run_flow forms on the deployed flow and leaves the live editor alone', async () => {
+		seedBackendDraft(
+			'flow',
+			'u/admin/deployed_and_drafted',
+			{
+				path: 'u/admin/deployed_and_drafted',
+				summary: 'Draft of the deployed flow',
+				value: { modules: [{ id: 'draft_step', value: { type: 'identity' } }] },
+				schema: { type: 'object', properties: { draft_only: { type: 'string' } } },
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {}
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: 'u/admin/deployed_and_drafted',
+			effectivePath: 'u/admin/deployed_and_drafted'
+		})
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			path: 'u/admin/deployed_and_drafted',
+			summary: 'Deployed flow',
+			value: { modules: [{ id: 'deployed_step', value: { type: 'identity' } }] },
+			schema: FLOW_NAME_SCHEMA
+		} as any)
+		const testActiveFlow = vi.fn(async () => 'job-live-flow')
+
+		let form: any
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_flow',
+				{ path: 'u/admin/deployed_and_drafted', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, f) => {
+						form = f
+						return { name: 'Grace' }
+					}
+				},
+				{ testActiveFlow }
+			)
+		)
+
+		expect(form.runnableKind).toBe('flow')
+		expect(form.schema?.properties).toEqual(FLOW_NAME_SCHEMA.properties)
+		expect(testActiveFlow).not.toHaveBeenCalled()
+		expect(JobService.runFlowPreview).not.toHaveBeenCalled()
+		expect(JobService.runFlowByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'u/admin/deployed_and_drafted',
+			requestBody: { name: 'Grace' },
+			skipPreprocessor: true
+		})
+	})
+
 	it('test_run_step previews rawscript steps from the draft flow', async () => {
 		const content = 'export async function main(name: string) {\n\treturn name.toUpperCase()\n}'
 		await callGlobalTool('write_flow', {
@@ -5271,7 +5397,8 @@ describe('global AI tools', () => {
 				locked: 'fixed',
 				doc: bytes,
 				token: '$var:u/ada/prod_api_key'
-			}
+			},
+			skipPreprocessor: true
 		})
 		expect(result).toContain('does not declare force_delete')
 		expect(result).toContain('<file: 3 KB>')
@@ -5360,7 +5487,8 @@ describe('global AI tools', () => {
 		expect(JobService.runScriptByPath).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
 			path: 'f/scripts/greet',
-			requestBody: { name: 'Grace' }
+			requestBody: { name: 'Grace' },
+			skipPreprocessor: true
 		})
 		// The model must not assume its proposal is what ran.
 		expect(result).toContain('Ran with arguments: {"name":"Grace"}')
@@ -6195,13 +6323,16 @@ describe('session-only preview tools gating', () => {
 })
 
 describe('read_skill', () => {
-	it('refuses a path the user has not selected, without reading it', async () => {
+	// Every path is enabled by default now, so the listing is what keeps the tool to
+	// skills: without it the model could name any resource holding a string `content`
+	// and have it read back.
+	it('refuses a path that is not a skill in the workspace, without reading it', async () => {
 		localStorage.clear()
 		userStore.set({ username: 'bob', email: 'bob@windmill.dev', workspace_id: WORKSPACE } as any)
 
 		const res = await callGlobalTool('read_skill', { path: 'u/someone/private-notes' })
 
-		expect(res).toContain('not one of the skills selected')
+		expect(res).toContain('not one of the skills available')
 		expect(vi.mocked(ResourceService.getResourceValue)).not.toHaveBeenCalled()
 	})
 })

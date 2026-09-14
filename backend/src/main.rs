@@ -46,7 +46,8 @@ use windmill_common::{
         CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
+        HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
         HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
         INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
@@ -135,7 +136,8 @@ use crate::monitor::{
     reload_bun_install_min_release_age_setting, reload_bunfig_install_scopes_setting,
     reload_critical_alert_mute_ui_setting, reload_critical_alert_mute_zombie_job_restart_setting,
     reload_critical_alerts_on_token_expiry_setting, reload_critical_error_channels_setting,
-    reload_extra_pip_index_url_setting, reload_http_route_workspaced_route_setting,
+    reload_extra_pip_index_url_setting, reload_http_route_default_allowed_origins_setting,
+    reload_http_route_workspaced_route_setting,
     reload_hub_api_secret_setting, reload_hub_base_url_setting,
     reload_instance_events_webhook_setting, reload_job_default_timeout_setting,
     reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
@@ -1913,6 +1915,17 @@ async fn process_notify_event(
             );
             windmill_api::auth::invalidate_token_from_cache(payload);
         }
+        "notify_user_email_change" => {
+            // `<workspace_id>:<username>`, or `*:<username>` from a `password` change, which
+            // knows the name but no workspace. Workspace ids can't contain ':'.
+            if let Some(username) = payload.strip_prefix("*:") {
+                tracing::info!("Superadmin identity change detected, invalidating: {username}");
+                windmill_common::users::invalidate_email_cache_for_username(username);
+            } else if let Some((workspace_id, username)) = payload.split_once(':') {
+                tracing::info!("User email change detected, invalidating cache: {payload}");
+                windmill_common::users::invalidate_email_cache(workspace_id, username);
+            }
+        }
         "notify_app_policy_change" => {
             // payload is `<workspace_id>:<path>`; workspace ids can't contain ':'.
             if server_mode {
@@ -2132,6 +2145,11 @@ async fn process_notify_event(
                 APP_WORKSPACED_ROUTE_SETTING => {
                     if let Err(e) = reload_app_workspaced_route_setting(db).await {
                         tracing::error!(error = %e, "Could not reload app workspaced route setting");
+                    }
+                }
+                HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING => {
+                    if let Err(e) = reload_http_route_default_allowed_origins_setting(db).await {
+                        tracing::error!(error = %e, "Could not reload http route default allowed origins setting");
                     }
                 }
                 HTTP_ROUTE_WORKSPACED_ROUTE_SETTING => {

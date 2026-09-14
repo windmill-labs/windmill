@@ -7,7 +7,6 @@
 // import { get } from 'svelte/store'
 
 import { deepEqual } from 'fast-equals'
-import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
 import type { CompletedJob, Job, RunnableKind, Script, ScriptLang, Retry } from './gen'
@@ -815,7 +814,8 @@ export function addDeterminant(word: string): string {
 	return (/^[aeiou]/i.test(word) ? 'an ' : 'a ') + word
 }
 
-export { capitalize } from './sharedUtils'
+// Not from './sharedUtils': that module drags the app policy code into every page.
+export { capitalize } from './utils/capitalize'
 
 export function addWhitespaceBeforeCapitals(word?: string): string {
 	if (!word) {
@@ -1483,27 +1483,6 @@ export function orderedJsonStringify(obj: any, space?: string | number) {
 	return JSON.stringify(obj, (Array.from(allKeys) as string[]).sort(), space)
 }
 
-function sortObjectKeys(obj: any): any {
-	if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
-		const sortedObj: any = {}
-		Object.keys(obj)
-			.sort()
-			.forEach((key) => {
-				sortedObj[key] = sortObjectKeys(obj[key])
-			})
-		return sortedObj
-	} else if (Array.isArray(obj)) {
-		return obj.map((item) => sortObjectKeys(item))
-	} else {
-		return obj
-	}
-}
-
-export function orderedYamlStringify(obj: any) {
-	const sortedObj = sortObjectKeys(obj)
-	return YAML.stringify(sortedObj)
-}
-
 function evalJs(expr: string) {
 	let template = `
 return function (fields) {
@@ -2039,7 +2018,7 @@ import tokensFile from './assets/tokens/tokens.json'
 import githubDarkTokens from './assets/tokens/githubDark.json'
 import { darkModeName, lightModeName } from './assets/tokens/colorTokensConfig'
 import BarsStaggered from './components/icons/BarsStaggered.svelte'
-import { GitIcon } from './components/icons'
+import GitIcon from './components/icons/GitIcon.svelte'
 import { Bot, Code, Package } from 'lucide-svelte'
 import type { DbInput } from './components/dbTypes'
 export function getCssColor(
