@@ -783,7 +783,8 @@ async fn move_draft(
         } else if let Some(occupant) = row.at_target.filter(|_| new_path != path) {
             // Naming the kind matters for the app pair: a classic-app draft refusing a
             // raw-app move is invisible in the raw-app list the caller is looking at.
-            format!("You already have a {} draft at '{new_path}'", occupant.replace('_', " "))
+            let occupant = occupant.replace('_', " ");
+            format!("You already have a draft at '{new_path}' ({occupant})")
         } else {
             format!("You have no draft at '{path}'")
         }));

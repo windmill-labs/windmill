@@ -269,3 +269,36 @@ async fn test_a_teammates_draft_follows_with_its_base(db: Pool<Postgres>) -> any
     );
     Ok(())
 }
+
+/// An item move and then the owner's own move of what is left: the two records have
+/// different scopes, so the owner's move has to extend the chain in its own scope or
+/// a save addressed to the first path stops at the abandoned middle one.
+#[sqlx::test(fixtures("base", "drafts_save_follows_move"))]
+async fn test_an_owner_move_extends_an_item_move(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    rename(port, HEAD_HASH, "u/test-user/follow_b").await?;
+    // Archiving the script at the new path leaves the carried draft as a draft-only
+    // item, which its owner can move through `/drafts/move`.
+    sqlx::query("UPDATE script SET archived = true WHERE path = 'u/test-user/follow_b'")
+        .execute(&db)
+        .await?;
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/drafts/move/script/u/test-user/follow_b"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({ "new_path": "u/test-user/follow_c" }))
+        .send()
+        .await?;
+    assert!(resp.status().is_success(), "move failed: {}", resp.text().await?);
+
+    assert_eq!(
+        save_at(port, "u/test-user/follow_a", "after both moves").await?,
+        "u/test-user/follow_c",
+        "a save at the first path stopped at the path the owner's move left"
+    );
+    Ok(())
+}

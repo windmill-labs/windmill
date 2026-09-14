@@ -95,7 +95,7 @@ async fn test_draft_move_refuses_the_other_app_kind(db: Pool<Postgres>) -> anyho
     let body = resp.text().await?;
     assert_eq!(status, 400, "move onto a classic app draft was allowed: {body}");
     assert!(
-        body.contains("already have a app draft"),
+        body.contains("already have a draft at 'u/test-user/mvtaken_app' (app)"),
         "the refusal did not name the occupying kind: {body}"
     );
 

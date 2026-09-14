@@ -355,11 +355,13 @@
 				? { ...deployedScript, ...draftFromBackend }
 				: (deployedScript as EditableScript)
 			savedScript = structuredClone($state.snapshot(effectiveScript))
-			// The draft's base is the version it forked from and only the user moves
-			// it (by discarding or rebasing). Seeding it from the head here would let
-			// the next autosave persist the head as the base, so a draft behind the
-			// deploy reads as up to date after one open.
-			const parentHash = topHash ?? backendScript.draft_base ?? backendScript.hash
+			// The draft's base is the version it forked from and only the user moves it
+			// (by discarding or rebasing). A draft keeps the base it has, unknown included
+			// (staleness then falls back to the timestamps); seeding the head over it here
+			// would let the next autosave persist the head as the base, so a draft behind
+			// the deploy would read as up to date after one open. Only a fresh checkout
+			// forks from the head.
+			const parentHash = topHash ?? (hasOwnDraft ? backendScript.draft_base : backendScript.hash)
 			// Baseline for the autosave `discardIf`: the deployed script with the
 			// same `parent_hash` graft the seed below applies and the schema as the
 			// mounted editor holds it, so the unedited draft compares equal.

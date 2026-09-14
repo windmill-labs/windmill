@@ -607,9 +607,6 @@ function createRuntime(session: Session): SessionRuntime {
 						saved.val = undefined
 					}
 					await initFlow(aiDraft, store, stateStore, workspace)
-					// Only a draft with no base takes the head; see loadScript.
-					if (deployedVersionId != null && store.val && store.val.version_id == null)
-						store.val.version_id = deployedVersionId
 					slot.loadedPath = path
 					slot.loadedWorkspace = workspace
 					return
@@ -618,7 +615,8 @@ function createRuntime(session: Session): SessionRuntime {
 				// No local draft yet — seed from `result.draft ?? result`.
 				const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
 				saved.val = result as SavedFlow
-				const flow: Flow = ((result as SavedFlow).draft ?? (result as Flow)) as Flow
+				const serverDraft = (result as SavedFlow).draft as Flow | undefined
+				const flow: Flow = (serverDraft ?? (result as Flow)) as Flow
 				// Seed the per-tab last_sync from the server draft's timestamp so the
 				// seeding save below attaches a matching last_sync and the server can
 				// reject stale writes (see loadRawApp). Without this a server draft —
@@ -631,7 +629,10 @@ function createRuntime(session: Session): SessionRuntime {
 				)
 				UserDraft.save('flow', path, flow, { workspace })
 				await initFlow(flow, store, stateStore, workspace)
-				if (deployedVersionId != null && store.val && store.val.version_id == null)
+				// A draft keeps the base it forked from, unknown included (it then falls
+				// back to the timestamps); only a fresh checkout takes the head, which is
+				// also what keeps it from always diffing. See loadScript.
+				if (deployedVersionId != null && store.val && !serverDraft)
 					store.val.version_id = deployedVersionId
 				slot.loadedPath = path
 				slot.loadedWorkspace = workspace
@@ -697,12 +698,6 @@ function createRuntime(session: Session): SessionRuntime {
 								schema: emptySchema(),
 								language: (aiDraft.language ?? 'bun') as any
 							}
-					// Only a draft with no base takes the head: `draft.base` is derived from
-					// `parent_hash` on every save, so stamping the head over a fork base
-					// tells the server this draft is up to date when it is not.
-					if (saved.val?.hash && baseline.parent_hash == null) {
-						baseline.parent_hash = saved.val.hash
-					}
 					baseline.content = aiDraft.content
 					if (aiDraft.language) baseline.language = aiDraft.language
 					if (aiDraft.summary !== undefined) baseline.summary = aiDraft.summary
@@ -717,11 +712,13 @@ function createRuntime(session: Session): SessionRuntime {
 				saved.val = result as SavedScript
 				// Clone before mutating, else `baseline` aliases `result` and
 				// `baseline.parent_hash` corrupts the diff baseline.
-				const baseline = structuredClone(
-					((result as SavedScript).draft as NewScript | undefined) ?? (result as NewScript)
-				)
-				// See the ai-draft branch above: the head only seeds a draft that has no base.
-				if (baseline.parent_hash == null) baseline.parent_hash = result.hash
+				const serverDraft = (result as SavedScript).draft as NewScript | undefined
+				const baseline = structuredClone(serverDraft ?? (result as NewScript))
+				// Only a fresh checkout forks from the head. A draft keeps the base it has,
+				// unknown included: `draft.base` is derived from `parent_hash` on every
+				// save, so stamping the head over it would say this draft is up to date
+				// when it is not. An unknown base falls back to the timestamps.
+				if (!serverDraft) baseline.parent_hash = result.hash
 				// Seed the per-tab last_sync from the server draft's timestamp so the
 				// seeding save below attaches a matching last_sync and the server can
 				// reject stale writes (see loadRawApp). Without this a server draft —

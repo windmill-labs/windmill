@@ -367,6 +367,13 @@
 		const effectiveFlow: Flow = draftFromBackend
 			? ({ ...deployedFlow, ...draftFromBackend } as Flow)
 			: (deployedFlow as Flow)
+		// The merge above would hand a draft with no base the deployed one, and the next
+		// autosave would persist it as `draft.base`: a draft behind the deploy would read
+		// as up to date after one open. A draft keeps the base it has, unknown included
+		// (staleness then falls back to the timestamps).
+		if (draftFromBackend && (draftFromBackend as any).version_id == null) {
+			delete (effectiveFlow as any).version_id
+		}
 		savedFlow = structuredClone($state.snapshot(effectiveFlow)) as Flow
 		// Baseline for the autosave `discardIf`: the deployed flow WITHOUT the
 		// draft overlay (matches the unedited seed when no draft exists).

@@ -720,7 +720,8 @@ pub async fn move_drafts_for_path(
 /// addressed to `old_path` lands on them (see `update_draft`). `email` scopes the
 /// record to one user's draft-only move; `None` is a deployed item's move, for everyone.
 ///
-/// Kept to one hop: records pointing at `old_path` are re-pointed, and records
+/// Kept to one hop: records pointing at `old_path` are re-pointed (an owner's move
+/// copies another scope's into its own rather than re-pointing it), and records
 /// leaving either path are replaced, since `new_path` now holds the item.
 ///
 /// **The caller must have authorized the move first.** A record routes every later
@@ -765,6 +766,30 @@ pub async fn record_draft_move(
     )
     .execute(&mut **tx)
     .await?;
+    // An owner's move must not re-point what everyone else follows, so the records
+    // ending at `old_path` in another scope are copied into this one: a save addressed
+    // to the start of that chain still reaches this destination in one hop.
+    if email.is_some() {
+        sqlx::query!(
+            "INSERT INTO draft_move (workspace_id, typ, old_path, new_path, email)
+             SELECT m.workspace_id, m.typ, m.old_path, $4, $5::text
+             FROM draft_move m
+             WHERE m.workspace_id = $1 AND m.typ::text = ANY($2::text[])
+               AND m.new_path = $3 AND m.email IS DISTINCT FROM $5::text
+               AND NOT EXISTS (
+                   SELECT 1 FROM draft_move o
+                   WHERE o.workspace_id = m.workspace_id AND o.typ = m.typ
+                     AND o.old_path = m.old_path AND o.email = $5::text
+               )",
+            w_id,
+            &typs as &[&str],
+            old_path,
+            new_path,
+            email,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
     sqlx::query!(
         "INSERT INTO draft_move (workspace_id, typ, old_path, new_path, email)
          SELECT $1, t::draft_kind, $3, $4, $5 FROM unnest($2::text[]) t",
