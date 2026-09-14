@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { ResourceService, type GetMcpToolsResponse } from '$lib/gen'
 import { createToolDef, type Tool } from '../shared'
 import { enabledMcpPaths } from '$lib/components/mcp/enabledServers'
-import { listableMcpResource, mcpViewer } from '$lib/components/mcp/ownServers'
+import { isOwnOrSharedMcpPath, MCP_LIST_PER_PAGE, mcpViewer } from '$lib/components/mcp/ownServers'
 
 /**
  * Access to the MCP servers the user has connected (resources of type `mcp`)
@@ -97,12 +97,14 @@ export async function loadMcpServers(workspace: string): Promise<McpServer[]> {
 			ResourceService.listResource({
 				workspace,
 				resourceType: 'mcp',
-				perPage: 100
+				perPage: MCP_LIST_PER_PAGE
 			}),
 			mcpViewer(workspace)
 		])
 		return resources
-			.filter((r) => enabled.includes(r.path) && listableMcpResource(r, viewer))
+			.filter(
+				(r) => enabled.includes(r.path) && isOwnOrSharedMcpPath(r.path, r.extra_perms, viewer)
+			)
 			.map((r) => ({ path: r.path, editedAt: r.edited_at }))
 	} catch (e) {
 		console.error('Failed to load MCP servers', e)

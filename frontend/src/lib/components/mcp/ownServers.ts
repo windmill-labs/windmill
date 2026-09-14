@@ -5,6 +5,11 @@ import { getWorkspaceRole } from '$lib/user'
 /** The principals an `extra_perms` entry can name to grant this user access. */
 export type McpViewer = { username: string | undefined; pgroups: string[] }
 
+/** Wide enough that a workspace's whole MCP catalog arrives at once: the filter
+ * below runs after the server's LIMIT, so a short page could drop the viewer's
+ * own rows while foreign `u/` rows fill it. */
+export const MCP_LIST_PER_PAGE = 1000
+
 /**
  * Whether the chat lists this MCP server. A server under another user's `u/`
  * prefix carries that person's credentials, and an admin's database role lets
@@ -40,11 +45,4 @@ export async function mcpViewer(workspace: string): Promise<McpViewer> {
 		return { username: role.user.username, pgroups: role.user.pgroups ?? [] }
 	}
 	return { username: undefined, pgroups: [] }
-}
-
-export function listableMcpResource(
-	r: { path: string; extra_perms?: Record<string, unknown> },
-	viewer: McpViewer
-): boolean {
-	return isOwnOrSharedMcpPath(r.path, r.extra_perms, viewer)
 }

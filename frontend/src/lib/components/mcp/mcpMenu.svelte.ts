@@ -8,7 +8,7 @@ import type { Item } from '$lib/utils'
 import type { AIChatManager } from '../copilot/chat/AIChatManager.svelte'
 import { isMcpEnabled, setMcpEnabled } from './enabledServers'
 import { cachedProviderKey, rememberProviderKey } from './iconCache'
-import { listableMcpResource, mcpViewer } from './ownServers'
+import { isOwnOrSharedMcpPath, MCP_LIST_PER_PAGE, mcpViewer } from './ownServers'
 import { loadProviderIcon } from './providerIcon'
 
 type Row = {
@@ -60,13 +60,13 @@ export class McpMenu {
 				ResourceService.listResource({
 					workspace: ws,
 					resourceType: 'mcp',
-					perPage: 100
+					perPage: MCP_LIST_PER_PAGE
 				}),
 				mcpViewer(ws)
 			])
 			if (seq !== this.#seq) return
 			this.#rows = resources
-				.filter((r) => listableMcpResource(r, viewer))
+				.filter((r) => isOwnOrSharedMcpPath(r.path, r.extra_perms, viewer))
 				.map((r) => ({
 					path: r.path,
 					editedAt: r.edited_at,
