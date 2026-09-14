@@ -620,7 +620,11 @@ describe('item store: one entry per key', () => {
 		const b = { ...deployedRes, path: 'u/me/b' }
 		const moveOnto = async (
 			openBefore: boolean,
-			outside: (store: ReturnType<typeof createItemStore>, open: () => void) => void,
+			outside: (
+				store: ReturnType<typeof createItemStore>,
+				open: () => void,
+				moving: ItemHandle<Res>
+			) => void,
 			refuse?: string
 		) => {
 			const rows = fakeRows()
@@ -648,7 +652,7 @@ describe('item store: one entry per key', () => {
 				).handle
 			}
 			if (openBefore) open()
-			outside(store, open)
+			outside(store, open, moving)
 			gate.resolve()
 			expect(await moved).toMatchObject(refuse ? { ok: false } : { ok: true, moved: true })
 			await settle()
@@ -686,6 +690,16 @@ describe('item store: one entry per key', () => {
 		)
 		expect(failed.shown.value).toEqual(again)
 		expect(failed.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: again })
+
+		// A draft parked for the move, then Discard clicked on the editor doing the moving: the
+		// discard came last, so the parked draft does not come back with the item.
+		const discardedAfterParking = await moveOnto(false, (store, open, moving) => {
+			store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'parked draft' })
+			open()
+			void moving.discard()
+		})
+		expect(discardedAfterParking.moving.dirty).toBe(false)
+		expect(discardedAfterParking.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: null })
 
 		// Deleted last: the delete is what holds, however many drafts preceded it.
 		const deleted = await moveOnto(true, (store) => {

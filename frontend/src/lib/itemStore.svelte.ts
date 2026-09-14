@@ -803,7 +803,11 @@ export function createItemStore(ports: ItemRowPort) {
 			const arrived = arrivals.get(to)
 			if (arrived !== undefined) {
 				arrivals.delete(to)
+				// Parked before anything this entry has been asked since, so applying it now does not
+				// make it the latest ask: a discard asked meanwhile still outranks it.
+				const asked = entry.lastOutsideAsk
 				entry.applyExternal(arrived)
+				entry.lastOutsideAsk = asked
 			}
 		},
 		/**
