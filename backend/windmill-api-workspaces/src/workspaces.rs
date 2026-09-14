@@ -7318,25 +7318,32 @@ async fn clone_drafts(
         // A script hash is content-addressed and copied as-is, so a script draft's base
         // still names a version the clone has. `clone_flows` / `clone_apps` mint new
         // `flow_version` / `app_version` ids, so those drafts arrive with no base (their
-        // staleness falls back to the timestamps) rather than one naming a version of
-        // the source workspace. A pre-sanitizer NUL escape makes `to_jsonb` raise, so
-        // such a row is copied untouched.
-        "INSERT INTO draft (workspace_id, path, typ, value, created_at, email, base)
+        // staleness falls back to the timestamps) rather than one naming a version of the
+        // source workspace, and the lineage field goes with it so the next autosave cannot
+        // re-derive the source id.
+        //
+        // `clean` is `strip_json_nul`'s parity rule in SQL: a draft written before that
+        // sanitizer can carry a U+0000 escape, which `to_jsonb` rejects. Sanitizing on the
+        // way in keeps such a row from either aborting the clone or arriving with its
+        // principal unstripped. Escaped backslashes are parked on chr(1) first, so only an
+        // odd-parity backslash-u0000 (a real NUL) is removed. chr(92) spells the backslash
+        // so no escape sequence reaches this source file.
+        r#"INSERT INTO draft (workspace_id, path, typ, value, created_at, email, base)
          SELECT $2, path, typ,
-                CASE WHEN position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0
-                     THEN value
-                     ELSE to_json(
-                         CASE WHEN typ IN ('script', 'flow')
-                              THEN to_jsonb(value) - 'on_behalf_of'
-                              ELSE to_jsonb(value) END
-                         - CASE WHEN typ = 'flow' THEN 'version_id'
-                                WHEN typ IN ('app', 'raw_app') THEN 'parent_version'
-                                ELSE '' END
-                     ) END,
+                to_json(
+                    CASE WHEN typ IN ('script', 'flow') THEN clean - 'on_behalf_of' ELSE clean END
+                    - CASE WHEN typ = 'flow' THEN 'version_id'
+                           WHEN typ IN ('app', 'raw_app') THEN 'parent_version'
+                           ELSE '' END
+                ),
                 created_at, email,
                 CASE WHEN typ = 'script' THEN base END
-         FROM draft
-         WHERE workspace_id = $1 AND (email = $3 OR email IS NULL)",
+         FROM (
+             SELECT d.path, d.typ, d.created_at, d.email, d.base,
+                    replace(replace(replace(d.value::text, chr(92) || chr(92), chr(1)), chr(92) || 'u0000', ''), chr(1), chr(92) || chr(92))::jsonb AS clean
+             FROM draft d
+             WHERE d.workspace_id = $1 AND (d.email = $3 OR d.email IS NULL)
+         ) s"#,
         source_workspace_id,
         target_workspace_id,
         authed_email,
