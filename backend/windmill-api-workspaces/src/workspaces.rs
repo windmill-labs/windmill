@@ -2752,6 +2752,18 @@ fn truncate_column_default(default: String) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_dev_workspace_copies_into_the_fork_database_namespace() {
+        assert_eq!(
+            forked_datatable_dbname("wm-fork-my-fork", "main"),
+            "wm_fork_my_fork__main"
+        );
+        assert_eq!(
+            forked_datatable_dbname("my-dev", "main"),
+            "wm_fork_my_dev__main"
+        );
+    }
+
     /// The header of a pg_dump, followed by an object whose body also holds a `SET`.
     const DUMP: &str = "--\n\
         -- PostgreSQL database dump\n\
@@ -8484,6 +8496,17 @@ async fn create_workspace_fork(
     .map_err(|e| Error::internal_err(format!("Creating the fork stopped unexpectedly: {e}")))?
 }
 
+/// The database a data table of the fork or dev workspace `fork_id` is copied into, as the wizard
+/// and the CLI derive it. A dev workspace's id has no `wm-fork-` prefix, and its copies are dropped
+/// by the same `wm_fork_` rule as a fork's. Dev workspace `x` and fork `wm-fork-x` share a name, as
+/// their branches do: the second to copy a data table of that name is refused at `CREATE`.
+fn forked_datatable_dbname(fork_id: &str, datatable: &str) -> String {
+    let suffix = fork_id
+        .strip_prefix(windmill_common::workspaces::WM_FORK_PREFIX)
+        .unwrap_or(fork_id);
+    format!("wm_fork_{}__{datatable}", suffix.replace('-', "_"))
+}
+
 /// Everything about a fork's data tables that can be refused before a git branch or a database is
 /// created, and that the fork request re-checks.
 ///
@@ -8505,16 +8528,7 @@ async fn validate_forked_datatables(
                 fdt.name
             )));
         }
-        // A dev workspace's id carries no `wm-fork-` prefix, and its copies are dropped by the same
-        // `wm_fork_` rule as a fork's.
-        let expected = format!(
-            "wm_fork_{}__{}",
-            nw.id
-                .strip_prefix("wm-fork-")
-                .unwrap_or(&nw.id)
-                .replace('-', "_"),
-            fdt.name
-        );
+        let expected = forked_datatable_dbname(&nw.id, &fdt.name);
         if fdt.new_dbname != expected {
             return Err(Error::BadRequest(format!(
                 "Data table '{}' of fork '{}' is copied into database '{expected}', not '{}'",
