@@ -349,7 +349,13 @@ type SendStatus = 'ok' | 'off' | 'refused' | 'abort' | 'transient'
 interface WorkspaceOutcome {
 	status: SendStatus
 	/** Sessions every part of which the server stored. */
-	settled: { id: string; v: number; next: MirrorSyncState; removeFrom?: string }[]
+	settled: {
+		id: string
+		v: number
+		next: MirrorSyncState
+		removeFrom?: string
+		carried: boolean
+	}[]
 	/** Marks with nothing behind them (an unsent draft, a session gone from the store). */
 	dropped: { id: string; v: number }[]
 	/** Removal marks the server carried out. */
@@ -384,7 +390,14 @@ async function pushWorkspace(
 	// part is still to come when a request fails has nothing behind it yet.
 	const attempted = new Map<
 		string,
-		{ v: number; next: MirrorSyncState; parts: number; complete: boolean; removeFrom?: string }
+		{
+			v: number
+			next: MirrorSyncState
+			parts: number
+			complete: boolean
+			removeFrom?: string
+			carried: boolean
+		}
 	>()
 	const failed = new Set<string>()
 	let current: PushBody | undefined
@@ -471,7 +484,13 @@ async function pushWorkspace(
 		out.status = status
 		for (const [id, a] of attempted) {
 			if (a.complete && a.parts === 0 && !failed.has(id)) {
-				out.settled.push({ id, v: a.v, next: a.next, removeFrom: a.removeFrom })
+				out.settled.push({
+					id,
+					v: a.v,
+					next: a.next,
+					removeFrom: a.removeFrom,
+					carried: a.carried
+				})
 			}
 		}
 		out.anyFailed = failed.size > 0
@@ -504,7 +523,8 @@ async function pushWorkspace(
 			next: plan.next,
 			parts: 0,
 			complete: nothingToSend,
-			removeFrom: plan.removeFrom
+			removeFrom: plan.removeFrom,
+			carried: plan.carried
 		})
 		if (nothingToSend) continue
 		let images: AISessionBackupImage[] = []
@@ -570,9 +590,14 @@ async function flush(): Promise<void> {
 		}
 		const droppedDirty: string[] = []
 		const consumedRemoved: string[] = []
+		// Read once: retired marks are not reclaimed (a mark cannot be deleted without a
+		// window in which a bump is lost), so there is one per session ever backed up.
+		const syncRows = new Map(
+			((await (await syncDb(email))?.getAll('sync')) ?? []).map((row) => [row.id, row])
+		)
 
 		for (const r of marks.removed) {
-			const sync = await readSync(r.id, email)
+			const sync = syncRows.get(r.id)
 			const ws = r.ws ?? sync?.ws
 			// Nowhere to remove it from (an unsent draft): done. A workspace whose backups are
 			// off keeps the removal of a session that was backed up, for when they are on
@@ -586,24 +611,27 @@ async function flush(): Promise<void> {
 		}
 		for (const d of marks.dirty) {
 			const session = byId.get(d.id)
-			if (!session || session.transient || !session.workspace_id) {
+			// Gone from the store, so nothing can bump it again; an unsent draft keeps its
+			// mark, since it may commit to a workspace while this flush runs.
+			if (!session) {
 				droppedDirty.push(d.id)
 				continue
 			}
+			if (session.transient || !session.workspace_id) continue
 			const state = wsState.get(session.workspace_id)
-			if (state === 'off') droppedDirty.push(d.id)
-			else if (state !== 'refused') {
-				const sync = await readSync(d.id, email)
-				// Retired: a push already covered this counter.
-				if (sync && !sync.stale && (sync.flushedV ?? -1) >= d.v) continue
-				// A stale row plans like no row at all: the whole session goes again. One naming
-				// another workspace still says where the old copy is, stale or not.
-				workFor(session.workspace_id).items.push({
-					session,
-					v: d.v,
-					sync: sync?.stale && sync.ws === session.workspace_id ? undefined : sync
-				})
-			}
+			// Left in place for a workspace that is off or refused: a move into it must still
+			// remember the old copy, and a mark costs one lookup per flush.
+			if (state === 'off' || state === 'refused') continue
+			const sync = syncRows.get(d.id)
+			// Retired: a push already covered this counter.
+			if (sync && !sync.stale && (sync.flushedV ?? -1) >= d.v) continue
+			// A stale row plans like no row at all: the whole session goes again. One naming
+			// another workspace still says where the old copy is, stale or not.
+			workFor(session.workspace_id).items.push({
+				session,
+				v: d.v,
+				sync: sync?.stale && sync.ws === session.workspace_id ? undefined : sync
+			})
 		}
 
 		let settledAny = false
@@ -614,11 +642,10 @@ async function flush(): Promise<void> {
 			if (out.status === 'off') {
 				wsState.set(ws, 'off')
 				await staleWorkspaceSync(ws, email)
-				for (const item of w.items) droppedDirty.push(item.session.id)
 				// Same rule as the loop above: a removal is worth keeping only for a session
 				// that was backed up from here.
 				for (const r of w.removed) {
-					if (!(await readSync(r.id, email))) consumedRemoved.push(r.key)
+					if (!syncRows.has(r.id)) consumedRemoved.push(r.key)
 				}
 				continue
 			}
@@ -628,8 +655,10 @@ async function flush(): Promise<void> {
 			}
 			if (out.status === 'transient' || out.anyFailed || out.unavailable) backOff()
 			else settledAny = true
+			// A session with deletes carried over stays one bump short of retired, so the
+			// next flush sends the rest.
 			await writeSync(
-				out.settled.map((s) => ({ ...s.next, flushedV: s.v })),
+				out.settled.map((s) => ({ ...s.next, flushedV: s.carried ? s.v - 1 : s.v })),
 				email
 			)
 			// The new workspace holds the moved session now; the old copy can go.
@@ -638,6 +667,7 @@ async function flush(): Promise<void> {
 					addRemoved(s.id, s.removeFrom, false)
 					movedAny = true
 				}
+				if (s.carried) movedAny = true
 			}
 			droppedDirty.push(...out.dropped.map((d) => d.id))
 			for (const r of out.removedDone) {
@@ -653,8 +683,8 @@ async function flush(): Promise<void> {
 		for (const key of consumedRemoved) removeKey(key)
 		// Whatever is still marked is either waiting on the backoff timer, on a write that
 		// scheduled its own flush, or on a workspace that is off or refused for the page;
-		// none of it wants another flush in 15 s. The one mark this flush wrote itself, a
-		// moved session's removal from its old workspace, does.
+		// none of it wants another flush in 15 s. What this flush left for the next one
+		// does: a moved session's removal from its old workspace, or carried-over deletes.
 		if (movedAny) scheduleFlush()
 	})
 }

@@ -195,6 +195,9 @@ describe('sessionMirror flush', () => {
 		pushMock.mockResolvedValueOnce({ enabled: false, results: [] })
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(3)
+		// The reconcile that runs after login may have re-read the list from the store
+		// before `never` was in it; deleteSession only acts on sessions it can see.
+		sessionState.sessions = [s, never]
 		deleteSession('s2')
 		deleteSession('s2b')
 		await flush()

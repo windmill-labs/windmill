@@ -20,7 +20,9 @@ hidden, and 10 s after load for marks a crash left behind. Marks are persisted i
 marking different sessions at once rewrite each other's mark away. A dirty mark is a counter
 bumped on every write; a push retires it by recording the counter it covered on the session's
 sync row rather than deleting the mark, since two localStorage calls cannot compare-and-delete
-and a bump landing between them would be lost. Losing the last
+and a bump landing between them would be lost; retired marks are not reclaimed (one small key per
+session ever backed up), and the marks of unsent drafts and of workspaces that are off stay too,
+each costing one lookup per flush. Only a session gone from the store has its mark deleted. Losing the last
 seconds of a device that never comes back is accepted; a tab that closes normally keeps its marks.
 
 A flush plans and sends one session at a time, filling requests of about 8 MB as it goes, so a
@@ -99,7 +101,7 @@ Push bodies are packed to about 8 MB (UTF-8 bytes as sent), at most 100 entries,
 4000 pieces each (the server's caps, with 32 MB on the body, and 100 chats, 500 images or 1000
 deletes per entry, since every piece is an object-store call); an entry that
 outgrows the target is split into chat-only parts with the head riding on the last, and deletes
-past the per-entry cap are carried over to the next push. A chat above
+past the per-entry cap are carried over to the next push, which the session stays marked for. A chat above
 16 MB or a session's artifacts above 8 MB are left out with a console warning; a chat that grew
 past the cap after it was backed up has its copy deleted, so a restore never presents the old
 transcript as the current one. A 413 fails only the sessions of that request. A

@@ -103,8 +103,10 @@ describe('planSessionPush', () => {
 			sync: synced({ chats: prevChats, images: {} })
 		})
 		expect(plan?.entry?.delete_chats).toHaveLength(1000)
-		// Still listed as pushed, so the next plan finds them gone again.
+		// Still listed as pushed, so the next plan finds them gone again, and the session
+		// stays marked for that plan.
 		expect(Object.keys(plan?.next.chats ?? {})).toHaveLength(5)
+		expect(plan?.carried).toBe(true)
 	})
 
 	it('deletes a chat that is gone and an image its chat evicted', () => {

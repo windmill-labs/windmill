@@ -116,6 +116,9 @@ export interface PlannedPush {
 	/** The workspace the session was backed up in before it moved. */
 	removeFrom?: string
 	next: MirrorSyncState
+	/** Deletes past the per-entry cap were left in `next` for the following push, so the
+	 * session must stay marked once this one lands. */
+	carried: boolean
 }
 
 /** `undefined` for a session with nowhere to go: an unsent draft has no workspace yet. */
@@ -129,6 +132,7 @@ export function planSessionPush(input: PlanInput): PlannedPush | undefined {
 
 	const entry: AISessionBackupPush = { id: session.id }
 	let changed = false
+	let carried = false
 	const sig = headSig(session)
 	if (prev?.head !== sig) {
 		entry.head = sessionHead(session)
@@ -170,14 +174,20 @@ export function planSessionPush(input: PlanInput): PlannedPush | undefined {
 		// the following push finds it gone again.
 		if (gone.length > 0) {
 			entry.delete_chats = gone.slice(0, MAX_DELETES_PER_ENTRY)
-			for (const id of gone.slice(MAX_DELETES_PER_ENTRY)) next.chats[id] = prev.chats[id]
+			for (const id of gone.slice(MAX_DELETES_PER_ENTRY)) {
+				next.chats[id] = prev.chats[id]
+				carried = true
+			}
 			changed = true
 		}
 		if (evicted.length > 0) {
 			entry.delete_images = evicted
 				.slice(0, MAX_DELETES_PER_ENTRY)
 				.map(([id, chatId]) => ({ chat_id: chatId, id }))
-			for (const [id, chatId] of evicted.slice(MAX_DELETES_PER_ENTRY)) next.images[id] = chatId
+			for (const [id, chatId] of evicted.slice(MAX_DELETES_PER_ENTRY)) {
+				next.images[id] = chatId
+				carried = true
+			}
 			changed = true
 		}
 	}
@@ -194,7 +204,8 @@ export function planSessionPush(input: PlanInput): PlannedPush | undefined {
 		entry: changed ? entry : undefined,
 		images,
 		removeFrom,
-		next
+		next,
+		carried
 	}
 }
 
