@@ -523,9 +523,9 @@ struct CreateWorkspaceFork {
 struct ForkedDatatableInfo {
     name: String,
     new_dbname: String,
-    /// What this request copies into `new_dbname`, which it creates. Absent when the caller created
-    /// and filled `new_dbname` itself beforehand (`create_pg_database` then `import_pg_database`),
-    /// which a data table under roles refuses.
+    /// What this request copies into `new_dbname`, which it creates. Optional only so that the
+    /// entry older CLIs send — naming a database they created and filled themselves — is refused
+    /// with a message rather than a parse error.
     #[serde(default)]
     fork_behavior: Option<DataTableForkBehavior>,
 }
@@ -7948,7 +7948,7 @@ async fn apply_forked_datatable(
     parent_w_id: &str,
     forked_w_id: &str,
     fdt: &ForkedDatatableInfo,
-    copy: Option<&crate::datatable_clone::MadeCopy>,
+    copy: &crate::datatable_clone::MadeCopy,
 ) -> Result<()> {
     windmill_common::validate_dbname(&fdt.new_dbname)?;
     if !fdt.new_dbname.starts_with("wm_fork_") {
@@ -7964,27 +7964,11 @@ async fn apply_forked_datatable(
     let locked = crate::datatable_clone::lock_settings_rows(tx, &before).await?;
     let governing = ensure_datatable_is_clonable(db, parent_w_id, &fdt.name).await?;
     let under_roles = governing.datatable.permissions.is_some();
-    let unchanged = match copy {
-        Some(copy) => {
-            crate::datatable_clone::same_database(
-                &governing.datatable.database,
-                &Some(copy.source_database.clone()),
-            ) && copy.replayed == under_roles
-                && crate::datatable_clone::lock_settings_rows(tx, &governing).await? == locked
-        }
-        None => {
-            // A database the caller copied itself carries no grant for any role.
-            if under_roles {
-                return Err(Error::BadRequest(format!(
-                    "Data table '{}' is under roles, so its copy has to carry its owners and \
-                     grants: have this request make the copy, by naming its `fork_behavior`. \
-                     An outdated Windmill CLI does not.",
-                    fdt.name
-                )));
-            }
-            true
-        }
-    };
+    let unchanged = crate::datatable_clone::same_database(
+        &governing.datatable.database,
+        &Some(copy.source_database.clone()),
+    ) && copy.replayed == under_roles
+        && crate::datatable_clone::lock_settings_rows(tx, &governing).await? == locked;
     if !unchanged {
         return Err(Error::BadRequest(format!(
             "Data table '{}' changed while it was being copied for this fork — its database, or \
@@ -8503,10 +8487,9 @@ async fn create_workspace_fork(
 /// Everything about a fork's data tables that can be refused before a git branch or a database is
 /// created, and that the fork request re-checks.
 ///
-/// Each data table is copied into the database named after the fork being created and itself —
-/// the name its clients derive. The fork's id is free, so that database is this fork's: naming any
-/// other would let a data table without roles become the fork's way into a copy made for another
-/// fork, reached without that copy's governance, and dropped with this fork.
+/// Every data table is copied by the fork request, into a database it creates: an entry naming a
+/// database that already exists could reach a copy made for another fork — one left behind by a
+/// deleted fork included — without that copy's governance.
 async fn validate_forked_datatables(
     db: &DB,
     authed: &ApiAuthed,
@@ -8515,6 +8498,13 @@ async fn validate_forked_datatables(
 ) -> Result<()> {
     let mut names = HashSet::new();
     for fdt in &nw.forked_datatables {
+        if fdt.fork_behavior.is_none() {
+            return Err(Error::BadRequest(format!(
+                "Data table '{}' names no `fork_behavior`: the fork request makes the copy of each \
+                 data table itself. Update the Windmill CLI.",
+                fdt.name
+            )));
+        }
         let expected = format!("{}__{}", nw.id.replace('-', "_"), fdt.name);
         if fdt.new_dbname != expected {
             return Err(Error::BadRequest(format!(
@@ -8538,7 +8528,8 @@ async fn validate_forked_datatables(
     .await
 }
 
-/// The copies a fork request asks this request to make.
+/// The copies a fork request asks this request to make. [`validate_forked_datatables`] refuses an
+/// entry without a `fork_behavior`.
 fn copy_requests(
     forked_datatables: &[ForkedDatatableInfo],
 ) -> Vec<crate::datatable_clone::CopyRequest<'_>> {
@@ -8555,7 +8546,7 @@ fn copy_requests(
         .collect()
 }
 
-/// Write the fork, with its data tables pointed at `copies` and those the caller copied itself.
+/// Write the fork, with its data tables pointed at `copies`.
 async fn write_workspace_fork(
     db: DB,
     authed: ApiAuthed,
@@ -8671,7 +8662,9 @@ async fn write_workspace_fork(
 
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {
-        let copy = copies.iter().find(|c| c.name == fdt.name);
+        let copy = copies.iter().find(|c| c.name == fdt.name).ok_or_else(|| {
+            Error::internal_err(format!("No copy was made of data table '{}'", fdt.name))
+        })?;
         apply_forked_datatable(
             &db,
             &mut tx,

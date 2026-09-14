@@ -694,42 +694,18 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
     .await?;
     assert_eq!(resp.status(), 401, "{}", resp.text().await?);
 
-    // An entry naming a database that is not its own — here the copy made for another data table —
-    // would reach that copy without its governance.
-    let resp = authed(
-        client().post(format!(
-            "http://localhost:{port}/api/w/test-workspace/workspaces/create_fork"
-        )),
-        "SECRET_TOKEN",
-    )
-    .json(
-        &json!({"id": "wm-fork-copy", "name": "copy", "forked_datatables": [
-            {"name": "main", "new_dbname": target, "fork_behavior": "schema_only"},
-            {"name": "other", "new_dbname": target}
-        ]}),
-    )
-    .send()
-    .await?;
-    assert_eq!(resp.status(), 400);
-    assert!(
-        resp.text()
-            .await?
-            .contains("is copied into database 'wm_fork_copy__other'"),
-        "an alias of a governed copy was accepted"
-    );
-    assert!(!database_exists(&db, target).await?);
-
-    // A database the caller created and filled itself carries no grant for any role.
+    // A database the request did not create — whatever the data table, under roles or not — may be
+    // a copy left behind by a deleted fork, which the entry would reach without its governance.
     let resp = fork(
         "SECRET_TOKEN",
-        json!({"name": "main", "new_dbname": target}),
+        json!({"name": "other", "new_dbname": "wm_fork_copy__other"}),
     )
     .send()
     .await?;
     assert_eq!(resp.status(), 400);
     assert!(
         resp.text().await?.contains("fork_behavior"),
-        "a copy without its grants was taken"
+        "a database the fork did not create was taken"
     );
     assert!(!workspace_exists(&db, "wm-fork-copy").await?);
 

@@ -287,10 +287,9 @@ async function createWorkspaceFork(
         const newDbName = `${trueWorkspaceId.replace(/-/g, "_")}__${dt.name}`;
 
         const forkBehavior = dtBehavior as "schema_only" | "schema_and_data";
-        // A data table under roles is copied by the fork request itself, which replays its owners
-        // and grants; servers old enough not to report `permissioned` cannot copy one at all. Any
-        // other is copied here first, which every server accepts.
-        if (dt.permissioned) {
+        // A server that reports `permissioned` copies each data table in the fork request itself,
+        // and refuses a database copied beforehand. An older one only takes a database copied here.
+        if (typeof dt.permissioned === "boolean") {
           log.info(
             colors.blue(
               `  Datatable "${dt.name}" will be cloned (${forkBehavior === "schema_only" ? "schema" : "schema + data"}) into "${newDbName}" when the fork is created.`
