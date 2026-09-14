@@ -174,6 +174,18 @@
 		return linkedMemory ? memoryIdUnusedNote(linkedMemory.memory) : undefined
 	})
 
+	// The messages a legacy `manual` memory sends, so providing messages on the step starts from them
+	// rather than from an empty list that would silently drop them.
+	let manualMemoryMessages = $derived.by(() => {
+		const memory: any =
+			'memory' in schemaProperties
+				? args?.memory?.type === 'static'
+					? args.memory.value
+					: undefined
+				: linkedMemory?.memory
+		return memory?.kind === 'manual' ? (memory.messages as unknown[] | undefined) : undefined
+	})
+
 	let scopedFields = $derived(
 		AGENT_FIELDS.filter(
 			(spec) =>
@@ -416,6 +428,7 @@
 												tooltip={spec.tooltip}
 												{chatInputEnabled}
 												{memoryUnusedNote}
+												seedMessages={manualMemoryMessages}
 												onRemoveKey={(key) => delete inputCheck[key]}
 											>
 												{#snippet field(key, error)}

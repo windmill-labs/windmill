@@ -16,6 +16,9 @@
 		chatInputEnabled?: boolean
 		/** Why no memory id applies to this step, when the agent reads no memory. */
 		memoryUnusedNote?: string
+		/** What providing messages starts from: the list a legacy `manual` memory already sends, which the
+		 *  step's own messages replace at runtime. */
+		seedMessages?: unknown[]
 		/** The step's editor for one history input, with the error to show under it. */
 		field: Snippet<[AgentHistoryKey, string | undefined]>
 		/** Called for each key this row removes, so the form forgets its validity. */
@@ -28,6 +31,7 @@
 		tooltip = undefined,
 		chatInputEnabled = false,
 		memoryUnusedNote = undefined,
+		seedMessages = undefined,
 		field,
 		onRemoveKey = undefined
 	}: Props = $props()
@@ -50,7 +54,12 @@
 		remove('memory_id')
 		remove('messages')
 		if (next === 'here') args.memory_id = { type: 'static', value: '' }
-		if (next === 'messages') args.messages = { type: 'static', value: [] }
+		if (next === 'messages') {
+			args.messages = {
+				type: 'static',
+				value: structuredClone($state.snapshot(seedMessages ?? []))
+			}
+		}
 	}
 </script>
 
@@ -59,7 +68,11 @@
 		<FieldHeader {label} simpleTooltip={tooltip} displayType={false} />
 	</div>
 	{#if memoryUnusedNote}
-		<p class="text-xs text-secondary">{memoryUnusedNote}</p>
+		<!-- The step's own messages replace whatever the memory setting would send, so the note stops
+		     applying once they are provided. -->
+		{#if source !== 'messages'}
+			<p class="text-xs text-secondary">{memoryUnusedNote}</p>
+		{/if}
 		{#if source === 'here'}
 			<div class="flex items-center gap-2">
 				<Badge color="yellow" small>Ignored</Badge>
