@@ -18,6 +18,15 @@ export interface ConversationWithDraft extends FlowConversation {
 	isDraft?: boolean
 }
 
+// Per-turn stream state, kept across SSE reconnects to the same job.
+interface StreamTurnState {
+	accumulatedContent: string
+	assistantMessageId: string
+	// Last offset the server reported; sent back on reconnect so the stream resumes
+	// after the deltas already rendered rather than replaying from the start.
+	streamOffset: number | undefined
+}
+
 export class FlowChatManager {
 	// State
 	messages = $state<ChatMessage[]>([])
@@ -484,174 +493,176 @@ export class FlowChatManager {
 			this.currentEventSource.close()
 		}
 
-		// Track stream state for this message
-		let accumulatedContent = ''
-		let assistantMessageId = ''
-		let isCompleted = false
-
 		try {
 			const jobId = await this.#onRunFlow?.(messageContent, currentConversationId, additionalInputs)
 			if (!jobId) {
 				console.error('No jobId returned from onRunFlow')
 				return
 			}
+			this.currentJobId = jobId
 
-			// Build the EventSource URL
-			const streamUrl = `/api/w/${this.#workspace()}/jobs_u/getupdate_sse/${jobId}`
-			const url = new URL(streamUrl, window.location.origin)
-			url.searchParams.set('poll_delay_ms', '50')
-			url.searchParams.set('fast', 'true')
-			url.searchParams.set('only_result', 'true')
-			// Create EventSource connection
-			const eventSource = new EventSource(url.toString())
-			this.currentEventSource = eventSource
-
-			// start polling
 			this.startPolling(currentConversationId, isNewConversation)
 
-			eventSource.onmessage = async (event) => {
-				try {
-					const data = JSON.parse(event.data)
-					const type = data.type
-
-					// Handle timeout - reconnect to SSE
-					if (type === 'timeout') {
-						eventSource.close()
-						this.currentEventSource = undefined
-						// Reconnect
-						this.handleStreamingMessage(
-							messageContent,
-							currentConversationId,
-							isNewConversation,
-							additionalInputs
-						)
-						return
-					}
-
-					// Handle ping - just ignore
-					if (type === 'ping') {
-						return
-					}
-
-					// Handle error
-					if (type === 'error') {
-						eventSource.close()
-						this.currentEventSource = undefined
-						console.error('SSE error:', data)
-						sendUserToast('Stream error: ' + (data.error || 'Unknown error'), true)
-						this.cleanup()
-						return
-					}
-
-					// Handle not found
-					if (type === 'not_found') {
-						eventSource.close()
-						this.currentEventSource = undefined
-						console.error('Job not found')
-						sendUserToast('Job not found', true)
-						this.cleanup()
-						return
-					}
-
-					if (type === 'update') {
-						if (data.flow_stream_job_id) {
-							this.currentJobId = data.flow_stream_job_id
-						}
-						// Process new stream content
-						if (data.new_result_stream) {
-							// Stop polling since we are receiving last step streaming
-							this.stopPolling()
-							const {
-								type,
-								content: newContent,
-								success
-							} = parseStreamDeltas(data.new_result_stream)
-							accumulatedContent += newContent
-
-							// Create tool message if type is tool_result
-							if (type === 'tool_result') {
-								// set last message streaming to false
-								this.messages = this.messages.map((msg) =>
-									msg.id === this.messages[this.messages.length - 1].id
-										? { ...msg, streaming: false }
-										: msg
-								)
-
-								this.messages = [
-									...this.messages,
-									{
-										id: 'temp-' + randomUUID(),
-										content: newContent,
-										created_at: new Date().toISOString(),
-										created_seq: 0,
-										message_type: 'tool',
-										conversation_id: currentConversationId,
-										job_id: '',
-										loading: false,
-										streaming: false,
-										success
-									}
-								]
-								// Reset assistant message ID since we are creating a tool message
-								assistantMessageId = ''
-								accumulatedContent = ''
-							}
-
-							// Create message on first content
-							else if (
-								type === 'message' &&
-								assistantMessageId.length === 0 &&
-								accumulatedContent.length > 0
-							) {
-								assistantMessageId = 'temp-' + randomUUID()
-								this.messages = [
-									...this.messages,
-									{
-										id: assistantMessageId,
-										content: accumulatedContent,
-										created_at: new Date().toISOString(),
-										created_seq: 0,
-										message_type: 'assistant',
-										conversation_id: currentConversationId,
-										job_id: '',
-										loading: false,
-										streaming: true
-									}
-								]
-							} else {
-								// Update existing message
-								this.messages = this.messages.map((msg) =>
-									msg.id === assistantMessageId ? { ...msg, content: accumulatedContent } : msg
-								)
-							}
-						}
-
-						// Handle completion
-						if (data.completed) {
-							isCompleted = true
-							// Do a final poll to get all messages from database
-							if (this.selectedConversationId) {
-								await this.pollConversationMessages(this.selectedConversationId, {
-									removeTempMessages: true
-								})
-							}
-							this.cleanup()
-						}
-					}
-				} catch (error) {
-					console.error('Error processing stream event:', error)
-				}
-			}
-
-			eventSource.onerror = (error) => {
-				if (isCompleted) return
-				console.error('EventSource error:', error)
-				sendUserToast('Stream error occurred', true)
-				this.cleanup()
-			}
+			this.#followJob(jobId, currentConversationId, {
+				accumulatedContent: '',
+				assistantMessageId: '',
+				streamOffset: undefined
+			})
 		} catch (error) {
 			console.error('Stream connection error:', error)
 			sendUserToast('Failed to connect to stream', true)
+			this.cleanup()
+		}
+	}
+
+	// Opens an SSE connection on an already-running job. The server closes every
+	// stream after TIMEOUT_SSE_STREAM, so a timeout re-enters here with the same
+	// job and turn state rather than starting a new run.
+	#followJob(jobId: string, currentConversationId: string, turn: StreamTurnState) {
+		const streamUrl = `/api/w/${this.#workspace()}/jobs_u/getupdate_sse/${jobId}`
+		const url = new URL(streamUrl, window.location.origin)
+		url.searchParams.set('poll_delay_ms', '50')
+		url.searchParams.set('fast', 'true')
+		url.searchParams.set('only_result', 'true')
+		if (turn.streamOffset !== undefined) {
+			url.searchParams.set('stream_offset', turn.streamOffset.toString())
+		}
+		const eventSource = new EventSource(url.toString())
+		this.currentEventSource = eventSource
+		let isCompleted = false
+
+		eventSource.onmessage = async (event) => {
+			try {
+				const data = JSON.parse(event.data)
+				const type = data.type
+
+				if (type === 'timeout') {
+					eventSource.close()
+					this.currentEventSource = undefined
+					this.#followJob(jobId, currentConversationId, turn)
+					return
+				}
+
+				// Handle ping - just ignore
+				if (type === 'ping') {
+					return
+				}
+
+				// Handle error
+				if (type === 'error') {
+					eventSource.close()
+					this.currentEventSource = undefined
+					console.error('SSE error:', data)
+					sendUserToast('Stream error: ' + (data.error || 'Unknown error'), true)
+					this.cleanup()
+					return
+				}
+
+				// Handle not found
+				if (type === 'not_found') {
+					eventSource.close()
+					this.currentEventSource = undefined
+					console.error('Job not found')
+					sendUserToast('Job not found', true)
+					this.cleanup()
+					return
+				}
+
+				if (type === 'update') {
+					if (data.flow_stream_job_id) {
+						this.currentJobId = data.flow_stream_job_id
+					}
+					if (data.stream_offset !== undefined) {
+						turn.streamOffset = data.stream_offset
+					}
+					// Process new stream content
+					if (data.new_result_stream) {
+						// Stop polling since we are receiving last step streaming
+						this.stopPolling()
+						const { type, content: newContent, success } = parseStreamDeltas(data.new_result_stream)
+						turn.accumulatedContent += newContent
+
+						// Create tool message if type is tool_result
+						if (type === 'tool_result') {
+							// set last message streaming to false
+							this.messages = this.messages.map((msg) =>
+								msg.id === this.messages[this.messages.length - 1].id
+									? { ...msg, streaming: false }
+									: msg
+							)
+
+							this.messages = [
+								...this.messages,
+								{
+									id: 'temp-' + randomUUID(),
+									content: newContent,
+									created_at: new Date().toISOString(),
+									created_seq: 0,
+									message_type: 'tool',
+									conversation_id: currentConversationId,
+									job_id: '',
+									loading: false,
+									streaming: false,
+									success
+								}
+							]
+							// Reset assistant message ID since we are creating a tool message
+							turn.assistantMessageId = ''
+							turn.accumulatedContent = ''
+						}
+
+						// Create message on first content
+						else if (
+							type === 'message' &&
+							turn.assistantMessageId.length === 0 &&
+							turn.accumulatedContent.length > 0
+						) {
+							turn.assistantMessageId = 'temp-' + randomUUID()
+							this.messages = [
+								...this.messages,
+								{
+									id: turn.assistantMessageId,
+									content: turn.accumulatedContent,
+									created_at: new Date().toISOString(),
+									created_seq: 0,
+									message_type: 'assistant',
+									conversation_id: currentConversationId,
+									job_id: '',
+									loading: false,
+									streaming: true
+								}
+							]
+						} else {
+							// Update existing message
+							this.messages = this.messages.map((msg) =>
+								msg.id === turn.assistantMessageId
+									? { ...msg, content: turn.accumulatedContent }
+									: msg
+							)
+						}
+					}
+
+					// Handle completion
+					if (data.completed) {
+						isCompleted = true
+						// Do a final poll to get all messages from database
+						if (this.selectedConversationId) {
+							await this.pollConversationMessages(this.selectedConversationId, {
+								removeTempMessages: true
+							})
+						}
+						this.cleanup()
+					}
+				}
+			} catch (error) {
+				console.error('Error processing stream event:', error)
+			}
+		}
+
+		eventSource.onerror = (error) => {
+			if (isCompleted) return
+			console.error('EventSource error:', error)
+			sendUserToast('Stream error occurred', true)
 			this.cleanup()
 		}
 	}
