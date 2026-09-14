@@ -6,6 +6,7 @@
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import { loadHubApps } from '$lib/hub'
+	import { loadHubIntegrationDisplayNames } from '$lib/components/pickerPopularity'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { Alert } from '$lib/components/common'
 	import { disableHubStore } from '$lib/stores'
@@ -36,6 +37,7 @@
 
 	onMount(async () => {
 		if ($disableHubStore) return
+		void loadHubIntegrationDisplayNames()
 		const result = await loadHubApps()
 		if (result === undefined) {
 			hubNotAvailable = true

@@ -1,8 +1,12 @@
 import { get } from 'svelte/store'
-import { ResourceService } from '$lib/gen'
+import { IntegrationService, ResourceService } from '$lib/gen'
 import { disableHubStore } from '$lib/stores'
 import { createCache } from '$lib/utils'
-import { isCustomResourceTypeName, setHubResourceTypeDisplayNames } from './resourceTypeDisplay'
+import {
+	isCustomResourceTypeName,
+	setHubIntegrationDisplayNames,
+	setHubResourceTypeDisplayNames
+} from './resourceTypeDisplay'
 
 /**
  * How often something has been picked or used, keyed by integration or resource type name.
@@ -62,6 +66,22 @@ export async function hubResourceTypePicks(workspace: string): Promise<Popularit
 export async function loadHubResourceTypeDisplayNames(workspace: string): Promise<void> {
 	if (get(disableHubStore)) return
 	await hubInfoCached({ workspace })
+}
+
+const hubIntegrationNamesCached = createCache(
+	(_: Record<string, never>) =>
+		IntegrationService.listHubIntegrations().then(setHubIntegrationDisplayNames, () => {}),
+	{ invalidateMs: CACHE_MS }
+)
+
+/**
+ * Fill `integrationDisplayName` for a picker whose integrations come from its own items rather
+ * than the hub's integration list, as the hub app and flow pickers do. Unfiltered: `kind`
+ * narrows by script kind, so asking for an app or a flow would name nothing.
+ */
+export function loadHubIntegrationDisplayNames(): Promise<void> {
+	if (get(disableHubStore)) return Promise.resolve()
+	return hubIntegrationNamesCached({})
 }
 
 /**
