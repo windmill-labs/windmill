@@ -2595,6 +2595,13 @@ async fn create_app_internal<'a>(
         .execute(&mut *tx)
         .await?;
     }
+    windmill_common::user_drafts::clear_draft_moves_from(
+        &mut tx,
+        &w_id,
+        &[UserDraftItemKind::App, UserDraftItemKind::RawApp],
+        &app.path,
+    )
+    .await?;
     let id = sqlx::query_scalar!(
         "INSERT INTO app
             (workspace_id, path, summary, policy, versions, custom_path, labels)

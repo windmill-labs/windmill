@@ -714,6 +714,13 @@ async fn create_flow(
         .execute(&mut *tx)
         .await?;
     }
+    windmill_common::user_drafts::clear_draft_moves_from(
+        &mut tx,
+        &w_id,
+        &[UserDraftItemKind::Flow],
+        &nf.path,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,

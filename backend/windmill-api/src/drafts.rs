@@ -306,11 +306,6 @@ pub struct SaveDraftRequest {
     /// keep their age instead of all resurfacing to the top as freshly created.
     #[serde(default)]
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
-    /// The draft row to write, when the client has saved or loaded it before.
-    /// Addresses the row wherever a move took it; the URL path is only the
-    /// fallback when the id names no row of the caller's any more.
-    #[serde(default)]
-    pub id: Option<i64>,
 }
 
 #[derive(Serialize, Debug)]
@@ -326,11 +321,8 @@ pub struct SaveDraftResponse {
     /// On `saved`: when the change was applied (client remembers it as the
     /// next `last_sync`). On `conflict`: the existing row's `created_at`.
     pub current_timestamp: chrono::DateTime<chrono::Utc>,
-    /// `saved` upserts only: the row's id, to save by from now on.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<i64>,
-    /// `saved` upserts only: where the row is. Differs from the URL path once a
-    /// move has carried the row elsewhere; the editor follows it there.
+    /// `saved` upserts only: where the draft is. Differs from the URL path when
+    /// the item had moved away from it; the editor follows it there.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
 }
@@ -390,10 +382,9 @@ fn draft_lineage(kind: UserDraftItemKind, value: &str) -> Option<DraftBaseVersio
 /// `last_sync` (and `force` is false) the op is skipped and the response is
 /// `status = conflict` + the server's current timestamp.
 ///
-/// The row is addressed by `id` when the client has one, and by the URL path
-/// otherwise. An id follows the row wherever a move took it, so an editor left
-/// open across a rename writes at the item's current path instead of planting
-/// a phantom draft at the one it left; the response names that path.
+/// A save addressed to a path its item moved away from lands where the move took
+/// the drafts (`draft_move`), unless the caller still has a draft of their own at
+/// that path. The response names where it landed.
 async fn update_draft(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -412,32 +403,36 @@ async fn update_draft(
     // — they keep the write gate.
     let is_own_discard = req.value.is_none() && !req.legacy;
 
-    // Where the row is now. `None` when the id names no row of ours any more
-    // (discarded elsewhere, or deleted with its item): the URL path then applies,
-    // as it does for a first save.
-    let row_path = match req.id {
-        Some(id) => {
-            sqlx::query_scalar!(
-                "SELECT path FROM draft WHERE id = $1 AND workspace_id = $2 AND typ = $3 AND email = $4",
-                id,
-                &w_id,
-                kind as UserDraftItemKind,
-                email,
-            )
-            .fetch_optional(&db)
-            .await?
-        }
-        None => None,
+    // The caller's own draft-only move outranks the move of the deployed item.
+    let moved_to = if req.legacy {
+        None
+    } else {
+        sqlx::query_scalar!(
+            r#"SELECT m.new_path FROM draft_move m
+               WHERE m.workspace_id = $1 AND m.typ = $2 AND m.old_path = $3
+                 AND (m.email IS NULL OR m.email = $4)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM draft d
+                     WHERE d.workspace_id = $1 AND d.typ = $2 AND d.path = $3 AND d.email = $4
+                 )
+               ORDER BY m.email IS NULL
+               LIMIT 1"#,
+            &w_id,
+            kind as UserDraftItemKind,
+            url_path,
+            email,
+        )
+        .fetch_optional(&db)
+        .await?
     };
-    let followed = row_path.is_some();
-    let path: &str = row_path.as_deref().unwrap_or(url_path);
+    let path: &str = moved_to.as_deref().unwrap_or(url_path);
 
     // Everything past here writes, so the gate applies from here on. Answered
-    // without the path when the row was followed: the move may have taken it
-    // somewhere the caller cannot see.
+    // without the path when the item moved: it may have gone somewhere the caller
+    // cannot see.
     if !is_own_discard {
         match require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await {
-            Err(Error::NotAuthorized(_)) if followed => {
+            Err(Error::NotAuthorized(_)) if moved_to.is_some() => {
                 return Err(Error::NotAuthorized(
                     "this draft's item was moved to a path you cannot write".to_string(),
                 ));
@@ -461,120 +456,67 @@ async fn update_draft(
         // `base` is derived here from the value's per-kind field rather than sent
         // by the client, so every writer (editors, chat, CLI) fills it the same way.
         let base = draft_lineage(kind, value.0.get()).and_then(|l| l.as_text(kind));
-
-        let mut written = None;
-        if let Some(id) = req.id.filter(|_| followed) {
-            // By id, in one statement, so a move committing after the lookup above
-            // still takes this write along; a path-keyed upsert would plant a new row
-            // at the path the row left. Where the row sits elsewhere than the URL,
-            // the editor's path keys predate the move: the row's own keys win, and
-            // one naming the URL path follows the row (see `move_drafts_for_path`).
-            // A pre-sanitizer NUL escape in the stored value makes `to_jsonb` raise,
-            // so such a row contributes no keys.
-            written = sqlx::query!(
-                r#"UPDATE draft AS d
-                   SET value = CASE
-                           WHEN d.path = $4 THEN $5::text::json
-                           ELSE (
-                               SELECT to_json(
-                                   s.new
-                                   || CASE WHEN NOT s.new ? 'path' THEN '{}'::jsonb
-                                           WHEN s.old ? 'path' THEN jsonb_build_object('path', s.old -> 'path')
-                                           WHEN s.new -> 'path' = to_jsonb($4::text) THEN jsonb_build_object('path', d.path)
-                                           ELSE '{}'::jsonb END
-                                   || CASE WHEN NOT s.new ? 'draft_path' THEN '{}'::jsonb
-                                           WHEN s.old ? 'draft_path' THEN jsonb_build_object('draft_path', s.old -> 'draft_path')
-                                           WHEN s.new -> 'draft_path' = to_jsonb($4::text) THEN jsonb_build_object('draft_path', d.path)
-                                           ELSE '{}'::jsonb END
-                               )
-                               FROM (SELECT $5::text::jsonb AS new,
-                                            CASE WHEN position(chr(92) || 'u0000' in replace(d.value::text, chr(92) || chr(92), '')) > 0
-                                                 THEN '{}'::jsonb
-                                                 ELSE to_jsonb(d.value) END AS old) s
-                           )
+        // Upsert. The conflict check rides on the DO UPDATE WHERE clause —
+        // when the row is newer than `last_sync`, RETURNING yields nothing.
+        // `created_at` defaults to `now()` but the migration overrides it ($8)
+        // so a migrated draft keeps its original age instead of jumping to top.
+        //
+        // A moved save ($10) carries the path keys its editor had before the move.
+        // One naming the path it addressed ($11) follows to where it landed; a draft
+        // already there keeps the keys the move gave it. A pre-sanitizer NUL escape
+        // in that draft makes `to_jsonb` raise, so it takes the incoming keys.
+        sqlx::query!(
+            r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at, base)
+               VALUES ($1, $2, $3::text, $4,
+                       CASE WHEN $10::bool
+                            THEN to_json($5::text::jsonb || jsonb_strip_nulls(jsonb_build_object(
+                                'path', CASE WHEN $5::text::jsonb -> 'path' = to_jsonb($11::text)
+                                             THEN to_jsonb($3::text) END,
+                                'draft_path', CASE WHEN $5::text::jsonb -> 'draft_path' = to_jsonb($11::text)
+                                                   THEN to_jsonb($3::text) END)))
+                            ELSE $5::text::json
                        END,
-                       created_at = COALESCE($8::timestamptz, now()),
-                       base = $9
-                   WHERE d.id = $3 AND d.workspace_id = $1 AND d.typ = $10 AND d.email = $2
-                     AND ($7::bool = true
-                          OR $6::timestamptz IS NULL
-                          OR d.created_at <= $6::timestamptz)
-                   RETURNING d.id, d.path, d.created_at"#,
-                &w_id,
-                email,
-                id,
-                url_path,
-                serialized.as_ref(),
-                req.last_sync,
-                req.force,
-                req.created_at,
-                base.as_deref(),
-                kind as UserDraftItemKind,
-            )
-            .fetch_optional(&db)
-            .await?
-            .map(|r| (r.created_at, Some(r.id), Some(r.path)));
-            if written.is_none() {
-                let existing = sqlx::query_scalar!(
-                    "SELECT created_at FROM draft WHERE id = $1 AND workspace_id = $2 AND typ = $3 AND email = $4",
-                    id,
-                    &w_id,
-                    kind as UserDraftItemKind,
-                    email,
-                )
-                .fetch_optional(&db)
-                .await?;
-                if let Some(ts) = existing {
-                    return Ok(Json(SaveDraftResponse {
-                        status: SaveDraftStatus::Conflict,
-                        current_timestamp: ts,
-                        id: None,
-                        path: None,
-                    }));
-                }
-            }
-        }
-        if written.is_none() {
-            // Upsert: no id, or its row is gone since the lookup, which is then a
-            // first save again. The conflict check rides on the DO UPDATE WHERE
-            // clause — when the row is newer than `last_sync`, RETURNING yields
-            // nothing. `created_at` defaults to `now()` but the migration overrides
-            // it ($8) so a migrated draft keeps its original age.
-            written = sqlx::query!(
-                r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at, base)
-                   VALUES ($1, $2, $3, $4, $5::text::json, COALESCE($8::timestamptz, now()), $9)
-                   ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
-                   DO UPDATE SET value = EXCLUDED.value, created_at = EXCLUDED.created_at,
-                                 base = EXCLUDED.base
-                   WHERE $7::bool = true
-                      OR $6::timestamptz IS NULL
-                      OR draft.created_at <= $6::timestamptz
-                   RETURNING id, path, created_at"#,
-                &w_id,
-                email,
-                path,
-                kind as UserDraftItemKind,
-                serialized.as_ref(),
-                req.last_sync,
-                req.force,
-                req.created_at,
-                base.as_deref(),
-            )
-            .fetch_optional(&db)
-            .await?
-            .map(|r| (r.created_at, Some(r.id), Some(r.path)));
-        }
-        written
+                       COALESCE($8::timestamptz, now()), $9)
+               ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
+               DO UPDATE SET value = CASE
+                                 WHEN NOT $10::bool
+                                   OR position(chr(92) || 'u0000' in replace(draft.value::text, chr(92) || chr(92), '')) > 0
+                                     THEN EXCLUDED.value
+                                 ELSE to_json((to_jsonb(EXCLUDED.value) - 'path' - 'draft_path')
+                                     || jsonb_strip_nulls(jsonb_build_object(
+                                         'path', to_jsonb(draft.value) -> 'path',
+                                         'draft_path', to_jsonb(draft.value) -> 'draft_path')))
+                             END,
+                             created_at = EXCLUDED.created_at,
+                             base = EXCLUDED.base
+               WHERE $7::bool = true
+                  OR $6::timestamptz IS NULL
+                  OR draft.created_at <= $6::timestamptz
+               RETURNING path, created_at"#,
+            &w_id,
+            email,
+            path,
+            kind as UserDraftItemKind,
+            serialized.as_ref(),
+            req.last_sync,
+            req.force,
+            req.created_at,
+            base.as_deref(),
+            moved_to.is_some(),
+            url_path,
+        )
+        .fetch_optional(&db)
+        .await?
+        .map(|r| (r.created_at, Some(r.path)))
     } else {
         // Delete, same conflict rule in the WHERE clause. Returns NULL when
         // the row was too new (conflict) OR already absent (idempotent) —
         // disambiguated below. `legacy` ($7) retargets to the NULL-email row.
-        // A followed row is deleted by id ($8), for the same reason it is written by id.
         sqlx::query_scalar!(
             r#"DELETE FROM draft
                WHERE workspace_id = $1
                  AND email IS NOT DISTINCT FROM (CASE WHEN $7::bool THEN NULL::text ELSE $2 END)
-                 AND (CASE WHEN $8::bigint IS NULL THEN path = $3 ELSE id = $8 END)
+                 AND path = $3
                  AND typ = $4
                  AND ($6::bool = true
                       OR $5::timestamptz IS NULL
@@ -587,18 +529,16 @@ async fn update_draft(
             req.last_sync,
             req.force,
             req.legacy,
-            req.id.filter(|_| followed),
         )
         .fetch_optional(&db)
         .await?
-        .map(|ts| (ts, None, None))
+        .map(|ts| (ts, None))
     };
 
-    if let Some((ts, id, path)) = applied {
+    if let Some((ts, path)) = applied {
         return Ok(Json(SaveDraftResponse {
             status: SaveDraftStatus::Saved,
             current_timestamp: ts,
-            id,
             path,
         }));
     }
@@ -610,14 +550,12 @@ async fn update_draft(
         r#"SELECT created_at FROM draft
            WHERE workspace_id = $1
              AND email IS NOT DISTINCT FROM (CASE WHEN $5::bool THEN NULL::text ELSE $2 END)
-             AND (CASE WHEN $6::bigint IS NULL THEN path = $3 ELSE id = $6 END)
-             AND typ = $4"#,
+             AND path = $3 AND typ = $4"#,
         &w_id,
         email,
         path,
         kind as UserDraftItemKind,
         req.legacy,
-        req.id.filter(|_| followed && req.value.is_none()),
     )
     .fetch_optional(&db)
     .await?;
@@ -626,7 +564,6 @@ async fn update_draft(
         Some(ts) => Ok(Json(SaveDraftResponse {
             status: SaveDraftStatus::Conflict,
             current_timestamp: ts,
-            id: None,
             path: None,
         })),
         // Delete + nothing-was-there ⇒ report success with server's NOW().
@@ -637,7 +574,6 @@ async fn update_draft(
             Ok(Json(SaveDraftResponse {
                 status: SaveDraftStatus::Saved,
                 current_timestamp: now,
-                id: None,
                 path: None,
             }))
         }
@@ -658,8 +594,8 @@ pub struct MoveDraftRequest {
 /// keys inside its value — there is no deployed row, schedule or trigger to
 /// cascade to.
 ///
-/// The owner's own open editor follows: it saves by the row's id, so its next
-/// autosave lands at the new path and it is told where that is.
+/// The owner's own open editor follows: its next save, still addressed to the old
+/// path, lands at the new one through the move record, and it is told where.
 ///
 /// Scoped to the caller's own row on purpose: two users can each have a draft
 /// at the same never-deployed path, and those are two separate items.
@@ -743,6 +679,9 @@ async fn move_draft(
         }
     }
 
+    // One transaction with the move record, so a save addressed to the old path
+    // never sees the row gone without knowing where it went.
+    let mut tx = db.begin().await?;
     let moved = sqlx::query_scalar!(
         r#"UPDATE draft
            SET path = $3,
@@ -787,8 +726,20 @@ async fn move_draft(
         req.summary,
         mirror_field,
     )
-    .fetch_optional(&db)
+    .fetch_optional(&mut *tx)
     .await?;
+    if moved.is_some() && new_path != path {
+        windmill_common::user_drafts::record_draft_move(
+            &mut tx,
+            &w_id,
+            &[kind],
+            path,
+            new_path,
+            Some(&authed.email),
+        )
+        .await?;
+    }
+    tx.commit().await?;
 
     if moved.is_none() {
         let row = sqlx::query!(

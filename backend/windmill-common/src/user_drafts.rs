@@ -240,10 +240,6 @@ pub struct WithDraftOverlay {
     pub is_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_saved_at: Option<DateTime<Utc>>,
-    /// The draft row's id. The editor saves by it from then on, so its writes
-    /// follow the row through a move.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_id: Option<i64>,
     /// The deployed version the draft forked from (`draft.base`), as text
     /// whatever the kind. The editor compares it to the head it loaded to tell
     /// a draft that is behind. Absent when there is no draft or it was never
@@ -335,7 +331,6 @@ where
             inner: Box::new(deployed),
             is_draft: false,
             draft_saved_at: None,
-            draft_id: None,
             draft_base: None,
             no_deployed: false,
             draft: None,
@@ -356,7 +351,7 @@ where
     // NULL-email workspace draft. `NULLS LAST` + `LIMIT 1` drops the legacy
     // row when an owned one exists.
     let row = sqlx::query!(
-        r#"SELECT id, value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+        r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
                   created_at, base
            FROM draft
            WHERE workspace_id = $1
@@ -378,7 +373,6 @@ where
             inner: Box::new(deployed),
             is_draft: false,
             draft_saved_at: None,
-            draft_id: None,
             draft_base: None,
             no_deployed: false,
             draft: None,
@@ -392,7 +386,6 @@ where
         inner: Box::new(deployed),
         is_draft: true,
         draft_saved_at: Some(row.created_at),
-        draft_id: Some(row.id),
         draft_base: row.base,
         no_deployed: false,
         draft: Some(draft_json),
@@ -720,6 +713,79 @@ pub async fn move_drafts_for_path(
     )
     .execute(&mut **tx)
     .await?;
+    record_draft_move(tx, w_id, kinds, old_path, new_path, None).await
+}
+
+/// Record that the drafts at `old_path` now live at `new_path`, so a draft save still
+/// addressed to `old_path` lands on them (see `update_draft`). `email` scopes the
+/// record to one user's draft-only move; `None` is a deployed item's move, for everyone.
+///
+/// Kept to one hop: records pointing at `old_path` are re-pointed, and records
+/// leaving either path are replaced, since `new_path` now holds the item.
+pub async fn record_draft_move(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    kinds: &[UserDraftItemKind],
+    old_path: &str,
+    new_path: &str,
+    email: Option<&str>,
+) -> Result<()> {
+    let typs = kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
+    sqlx::query!(
+        "DELETE FROM draft_move
+         WHERE workspace_id = $1 AND typ::text = ANY($2::text[])
+           AND old_path IN ($3, $4) AND ($5::text IS NULL OR email = $5)",
+        w_id,
+        &typs as &[&str],
+        old_path,
+        new_path,
+        email,
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE draft_move SET new_path = $4
+         WHERE workspace_id = $1 AND typ::text = ANY($2::text[])
+           AND new_path = $3 AND ($5::text IS NULL OR email = $5)",
+        w_id,
+        &typs as &[&str],
+        old_path,
+        new_path,
+        email,
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO draft_move (workspace_id, typ, old_path, new_path, email)
+         SELECT $1, t::draft_kind, $3, $4, $5 FROM unnest($2::text[]) t",
+        w_id,
+        &typs as &[&str],
+        old_path,
+        new_path,
+        email,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Drop the move records leaving `path`: an item was just created there, and saves
+/// addressed to it are its own.
+pub async fn clear_draft_moves_from(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    kinds: &[UserDraftItemKind],
+    path: &str,
+) -> Result<()> {
+    let typs = kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
+    sqlx::query!(
+        "DELETE FROM draft_move WHERE workspace_id = $1 AND typ::text = ANY($2::text[]) AND old_path = $3",
+        w_id,
+        &typs as &[&str],
+        path,
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -740,7 +806,7 @@ pub async fn fetch_draft_only(
 ) -> Result<Option<WithDraftOverlay>> {
     // Own draft first, legacy NULL-email row as fallback (see `maybe_overlay_draft`).
     let row = sqlx::query!(
-        r#"SELECT id, value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+        r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
                   created_at, base
            FROM draft
            WHERE workspace_id = $1
@@ -772,7 +838,6 @@ pub async fn fetch_draft_only(
         inner: Box::new(draft_json.clone()),
         is_draft: true,
         draft_saved_at: Some(row.created_at),
-        draft_id: Some(row.id),
         draft_base: row.base,
         no_deployed: true,
         draft: Some(draft_json),

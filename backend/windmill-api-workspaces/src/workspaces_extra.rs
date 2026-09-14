@@ -382,6 +382,13 @@ pub(crate) async fn change_workspace_id(
     )
     .execute(&mut *tx)
     .await?;
+    sqlx::query!(
+        "UPDATE draft_move SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
 
     info!("Updating favorite table");
     sqlx::query!(

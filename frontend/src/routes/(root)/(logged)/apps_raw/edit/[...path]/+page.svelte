@@ -307,10 +307,7 @@
 		if (getDraft) {
 			otherDraftsUsers = (backendApp.other_drafts_users ?? []) as OtherDraftUser[]
 		}
-		draftSync.recordRemoteSync(
-			backendApp.draft_saved_at as string | undefined,
-			backendApp.draft_id as number | undefined
-		)
+		draftSync.recordRemoteSync(backendApp.draft_saved_at as string | undefined)
 		isNewApp = !!backendApp.no_deployed
 		// Per-response, NOT sticky: a later no-own-draft load in the same editor
 		// must reset this so it can't wrongly force overlay mode.

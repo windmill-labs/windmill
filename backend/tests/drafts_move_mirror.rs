@@ -8,7 +8,7 @@
 //!
 //! This pins `move_draft`, including that a draft with no mirror never gains one.
 //! A deploy's carry follows the keys only where they still name the old path
-//! (`drafts_save_by_id` pins that).
+//! (`drafts_save_follows_move` pins that).
 
 use serde_json::Value;
 use sqlx::{Pool, Postgres};

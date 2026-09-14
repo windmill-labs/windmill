@@ -1,9 +1,10 @@
-//! A draft saved by row id lands where the row is, not where the editor was.
+//! A draft save addressed to a path its item moved away from lands on the moved draft.
 //!
-//! A rename carries every draft on the item to the new path. An editor left open
-//! across it is still bound to the old path; saving by the row's id writes at the
-//! item's current path and the response names it, so the editor can follow. A
-//! save by path would instead have planted a phantom draft at the old location.
+//! A move carries every draft on the item to the new path and records where they
+//! went. An editor left open across it still saves to the old path; the server puts
+//! the save on the moved draft, keeps the path keys the move gave it, and names the
+//! new path so the editor can follow. Without the record the save would plant a
+//! phantom draft-only item at the old location.
 
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
@@ -12,7 +13,6 @@ use windmill_test_utils::*;
 
 /// Hex form of script hash 7030, the way the API takes a parent hash.
 const HEAD_HASH: &str = "0000000000001b76";
-const DRAFT_ID: i64 = 9001;
 
 async fn own_draft_value(port: u16, path: &str) -> anyhow::Result<Value> {
     let draft: Value = reqwest::Client::new()
@@ -41,12 +41,12 @@ async fn own_draft_paths(port: u16) -> anyhow::Result<Vec<String>> {
         .iter()
         .filter(|d| d["kind"] == "script")
         .filter_map(|d| d["path"].as_str().map(String::from))
-        .filter(|p| p.starts_with("u/test-user/byid_"))
+        .filter(|p| p.starts_with("u/test-user/follow_"))
         .collect())
 }
 
-#[sqlx::test(fixtures("base", "drafts_save_by_id"))]
-async fn test_save_by_id_follows_a_rename(db: Pool<Postgres>) -> anyhow::Result<()> {
+#[sqlx::test(fixtures("base", "drafts_save_follows_move"))]
+async fn test_save_follows_a_rename(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -60,7 +60,7 @@ async fn test_save_by_id_follows_a_rename(db: Pool<Postgres>) -> anyhow::Result<
         ))
         .header("Authorization", "Bearer SECRET_TOKEN")
         .json(&json!({
-            "path": "u/test-user/byid_b",
+            "path": "u/test-user/follow_b",
             "parent_hash": HEAD_HASH,
             "summary": "A",
             "description": "",
@@ -72,23 +72,22 @@ async fn test_save_by_id_follows_a_rename(db: Pool<Postgres>) -> anyhow::Result<
         .send()
         .await?;
     assert_eq!(resp.status(), 201, "rename failed: {}", resp.text().await?);
-    assert_eq!(own_draft_paths(port).await?, vec!["u/test-user/byid_b"]);
+    assert_eq!(own_draft_paths(port).await?, vec!["u/test-user/follow_b"]);
     // A script draft's `path` is where deploying it lands, so it moves with the row.
     assert_eq!(
-        own_draft_value(port, "u/test-user/byid_b").await?["path"],
-        "u/test-user/byid_b"
+        own_draft_value(port, "u/test-user/follow_b").await?["path"],
+        "u/test-user/follow_b"
     );
 
-    // The editor is still on the old path but saves by id, writing that path back.
+    // The editor is still on the old path and writes that path back into the value.
     let saved: Value = client
         .post(format!(
-            "http://localhost:{port}/api/w/test-workspace/drafts/update/script/u/test-user/byid_a"
+            "http://localhost:{port}/api/w/test-workspace/drafts/update/script/u/test-user/follow_a"
         ))
         .header("Authorization", "Bearer SECRET_TOKEN")
         .json(&json!({
-            "id": DRAFT_ID,
             "value": {
-                "path": "u/test-user/byid_a",
+                "path": "u/test-user/follow_a",
                 "parent_hash": HEAD_HASH,
                 "summary": "A",
                 "content": "edited after the move"
@@ -99,26 +98,25 @@ async fn test_save_by_id_follows_a_rename(db: Pool<Postgres>) -> anyhow::Result<
         .json()
         .await?;
     assert_eq!(saved["status"], "saved", "save refused: {saved}");
-    assert_eq!(saved["id"], DRAFT_ID);
     assert_eq!(
-        saved["path"], "u/test-user/byid_b",
+        saved["path"], "u/test-user/follow_b",
         "save did not follow the row: {saved}"
     );
 
     // The write landed on the carried row; nothing reappeared at the old path.
-    assert_eq!(own_draft_paths(port).await?, vec!["u/test-user/byid_b"]);
-    let draft = own_draft_value(port, "u/test-user/byid_b").await?;
+    assert_eq!(own_draft_paths(port).await?, vec!["u/test-user/follow_b"]);
+    let draft = own_draft_value(port, "u/test-user/follow_b").await?;
     assert_eq!(draft["content"], "edited after the move", "{draft}");
-    assert_eq!(draft["path"], "u/test-user/byid_b", "{draft}");
+    assert_eq!(draft["path"], "u/test-user/follow_b", "{draft}");
 
     Ok(())
 }
 
-/// A draft-only move rewrites both path keys. The open editor's next save still
-/// carries the typed path it had, which names neither the row's old nor new path;
-/// the row's own keys have to win, or the save walks the item back.
-#[sqlx::test(fixtures("base", "drafts_save_by_id"))]
-async fn test_save_by_id_keeps_a_draft_only_move(db: Pool<Postgres>) -> anyhow::Result<()> {
+/// A draft-only move rewrites both path keys. The owner's open editor still carries
+/// the typed path it had, which names neither the old nor the new path; the moved
+/// draft's own keys have to win, or the save walks the item back.
+#[sqlx::test(fixtures("base", "drafts_save_follows_move"))]
+async fn test_save_follows_a_draft_only_move(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -140,7 +138,6 @@ async fn test_save_by_id_keeps_a_draft_only_move(db: Pool<Postgres>) -> anyhow::
         ))
         .header("Authorization", "Bearer SECRET_TOKEN")
         .json(&json!({
-            "id": 9002,
             "value": {
                 "path": "u/test-user/friendly",
                 "draft_path": "u/test-user/friendly",

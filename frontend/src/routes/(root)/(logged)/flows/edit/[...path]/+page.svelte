@@ -346,10 +346,7 @@
 		if (getDraft) {
 			otherDraftsUsers = (backendFlow.other_drafts_users ?? []) as OtherDraftUser[]
 		}
-		draftSync.recordRemoteSync(
-			backendFlow.draft_saved_at as string | undefined,
-			backendFlow.draft_id
-		)
+		draftSync.recordRemoteSync(backendFlow.draft_saved_at as string | undefined)
 		// Re-evaluate per load: true for draft-only paths, false once deployed.
 		isNewFlow = !!backendFlow.no_deployed
 		// Per-response, NOT sticky: a later no-own-draft load in the same editor

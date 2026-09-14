@@ -2403,17 +2403,26 @@ async fn create_script_internal<'c>(
                 tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
             }
         }
-    } else if !skip_draft_deletion {
-        // See the matching branch above — only wipe the deployer's own
-        // draft (plus the legacy NULL-email row).
-        sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script' \
-             AND (email = $3 OR email IS NULL)",
-            ns.path,
+    } else {
+        if !skip_draft_deletion {
+            // See the matching branch above — only wipe the deployer's own
+            // draft (plus the legacy NULL-email row).
+            sqlx::query!(
+                "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script' \
+                 AND (email = $3 OR email IS NULL)",
+                ns.path,
+                &w_id,
+                &authed.email,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        windmill_common::user_drafts::clear_draft_moves_from(
+            &mut tx,
             &w_id,
-            &authed.email,
+            &[UserDraftItemKind::Script],
+            &ns.path,
         )
-        .execute(&mut *tx)
         .await?;
     }
     if p_hashes.is_some() && !p_hashes.unwrap().is_empty() {

@@ -9789,10 +9789,6 @@ paths:
                   type: string
                   format: date-time
                   description: Upsert-only override for the stored creation timestamp. Normal saves omit it (stamped server-side); the localStorage→DB migration passes the draft's original write time so migrated drafts keep their age.
-                id:
-                  type: integer
-                  format: int64
-                  description: The draft row to write, from a previous save's `id` or the get-by-path `draft_id`. Addresses the row wherever a move took it; the URL path only applies when the id names no row of the caller's any more.
       responses:
         "200":
           description: save result
@@ -9807,13 +9803,9 @@ paths:
                   current_timestamp:
                     type: string
                     format: date-time
-                  id:
-                    type: integer
-                    format: int64
-                    description: "`saved` upserts only: the row's id, to save by from now on."
                   path:
                     type: string
-                    description: "`saved` upserts only: where the row is. Differs from the URL path once a move has carried the row elsewhere; the editor follows it there."
+                    description: "`saved` upserts only: where the draft is. Differs from the URL path when the item had moved away from it; the editor follows it there."
                 required: [status, current_timestamp]
 
   /w/{workspace}/drafts/move/{kind}/{path}:
@@ -26822,10 +26814,6 @@ components:
         draft_saved_at:
           type: string
           format: date-time
-        draft_id:
-          type: integer
-          format: int64
-          description: The draft row's id. Pass it as `id` on updateDraft so saves follow the row through a move.
         draft_base:
           type: string
           description: |

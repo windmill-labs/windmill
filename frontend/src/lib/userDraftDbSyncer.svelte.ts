@@ -215,16 +215,9 @@ const syncLocked = new Map<string, (() => void) | undefined>()
 const conflicts = new SvelteMap<string, DraftConflictInfo>()
 
 /**
- * The server row id per key, learned from the load (`draft_id`) or the first
- * save. Sent with every later save so the write addresses the row wherever a
- * move took it, rather than the path this editor was opened on.
- */
-const draftIds = new Map<string, number>()
-
-/**
  * Per-key listeners fired when a save lands at a path other than the key's:
- * the item was moved while the editor was open, and the row followed it. The
- * editor follows too (see `onRelocated`).
+ * the item was moved while the editor was open, and the server put the save
+ * where the move took its drafts. The editor follows too (see `onRelocated`).
  */
 const relocationListeners = new Map<string, Set<(newPath: string) => void>>()
 
@@ -305,8 +298,7 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 				// `last_sync` (first-ever save) hits the backend's "treat as
 				// fresh" branch.
 				last_sync: opts.force ? undefined : lastSync,
-				force: opts.force ?? false,
-				id: draftIds.get(key)
+				force: opts.force ?? false
 			}
 		})
 		if (resp.status === 'conflict') {
@@ -323,10 +315,8 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		// resp.status === 'saved' — advance lastSync (or drop on delete).
 		if (opts.value === null) {
 			clearLastSync(opts.workspace, opts.itemKind, opts.path)
-			draftIds.delete(key)
 		} else {
 			setLastSync(opts.workspace, opts.itemKind, opts.path, resp.current_timestamp)
-			if (resp.id != null) draftIds.set(key, resp.id)
 		}
 		// postSave is the only place a draft's server-side existence changes,
 		// so it's the single source for the list pages' `*` hint
@@ -350,7 +340,7 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		// cached state the same way an upsert does. Listener errors must never
 		// make a committed save read as failed.
 		notifyAnySaved({ workspace: opts.workspace, itemKind: opts.itemKind, path: opts.path })
-		// The row was carried elsewhere by a move and the save followed it. Last,
+		// The item had moved and the save landed where its drafts went. Last,
 		// so the editor that reacts (by leaving this path) sees a settled key.
 		if (opts.value !== null && resp.path && resp.path !== opts.path) {
 			const listeners = relocationListeners.get(key)
@@ -405,8 +395,7 @@ function flushOnPageHide(): void {
 				body: JSON.stringify({
 					value: opts.value,
 					last_sync: opts.force ? undefined : lastSync,
-					force: opts.force ?? false,
-					id: draftIds.get(key)
+					force: opts.force ?? false
 				}),
 				keepalive: true
 			}).catch((e) => {
@@ -550,25 +539,14 @@ export const UserDraftDbSyncer = {
 	 * Seed the per-tab `last_sync` after an editor reads a draft from the
 	 * server. Pass the response's `draft_saved_at` so the next save sends a
 	 * matching `last_sync`; pass `undefined` when no draft existed (next
-	 * save omits `last_sync`, the backend's first-push branch). `draftId` is
-	 * the row's id from the same response; with it the next save addresses
-	 * the row rather than the path, so it follows a move.
+	 * save omits `last_sync`, the backend's first-push branch).
 	 */
-	recordRemoteSync(
-		query: UserDraftLastSyncQuery,
-		draftSavedAt: string | undefined,
-		draftId?: number
-	): void {
+	recordRemoteSync(query: UserDraftLastSyncQuery, draftSavedAt: string | undefined): void {
 		const key = draftKey(query.workspace, query.itemKind, query.path)
 		if (draftSavedAt) {
 			setLastSync(query.workspace, query.itemKind, query.path, draftSavedAt)
 		} else {
 			clearLastSync(query.workspace, query.itemKind, query.path)
-		}
-		if (draftId != null) {
-			draftIds.set(key, draftId)
-		} else {
-			draftIds.delete(key)
 		}
 		// Back in sync with the server: clear any conflict / failure.
 		conflicts.delete(key)
@@ -651,8 +629,8 @@ export const UserDraftDbSyncer = {
 
 	/**
 	 * Subscribe to saves for a draft key that landed at another path: the item
-	 * was moved while this editor was open and the row followed it. Fired with
-	 * the row's current path, after the save is fully accounted for. Returns an
+	 * was moved while this editor was open. Fired with the path the save landed
+	 * at, after the save is fully accounted for. Returns an
 	 * unsubscribe.
 	 */
 	onRelocated(query: UserDraftLastSyncQuery, listener: (newPath: string) => void): () => void {

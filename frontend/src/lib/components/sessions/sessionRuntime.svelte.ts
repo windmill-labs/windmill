@@ -625,8 +625,7 @@ function createRuntime(session: Session): SessionRuntime {
 				// (carrying its own last_sync) is rejected as a conflict.
 				UserDraftDbSyncer.recordRemoteSync(
 					{ workspace, itemKind: 'flow', path },
-					(result as SavedFlow).draft_saved_at,
-					(result as SavedFlow).draft_id
+					(result as SavedFlow).draft_saved_at
 				)
 				UserDraft.save('flow', path, flow, { workspace })
 				await initFlow(flow, store, stateStore, workspace)
@@ -724,8 +723,7 @@ function createRuntime(session: Session): SessionRuntime {
 				// (carrying its own last_sync) is rejected as a conflict.
 				UserDraftDbSyncer.recordRemoteSync(
 					{ workspace, itemKind: 'script', path },
-					(result as SavedScript).draft_saved_at,
-					(result as SavedScript).draft_id
+					(result as SavedScript).draft_saved_at
 				)
 				UserDraft.save<NewScript>('script', path, baseline, { workspace })
 				store.val = baseline
@@ -852,8 +850,7 @@ function createRuntime(session: Session): SessionRuntime {
 				// as fresh and overwrites unconditionally).
 				UserDraftDbSyncer.recordRemoteSync(
 					{ workspace, itemKind: 'raw_app', path },
-					(result as any).draft_saved_at as string | undefined,
-					(result as any).draft_id as number | undefined
+					(result as any).draft_saved_at as string | undefined
 				)
 				UserDraft.save('raw_app', path, runtimeRawAppToDraft(runtimeValue), { workspace })
 				store.val = runtimeValue
