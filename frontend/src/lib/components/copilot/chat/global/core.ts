@@ -148,6 +148,7 @@ import type { SessionArtifactsStore } from '../artifacts/artifactsState.svelte'
 import type { Runnable } from '$lib/components/apps/inputType'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
+import type { Schema } from '$lib/common'
 import { inferArgs } from '$lib/infer'
 import {
 	resourceRequestSchema,
@@ -3424,7 +3425,8 @@ export const globalTools: Tool<{}>[] = [
 					draftCountByType.set(draft.type, count + 1)
 					byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
 						...draft,
-						value: undefined
+						value: undefined,
+						schema: undefined
 					})
 				}
 			}
@@ -5033,11 +5035,14 @@ const SCRIPT_SPEC: WriteSpec<NewScript, ScriptDraftArgs> = {
 					language: args.language,
 					kind: 'script'
 				}
-		// Infer the arg schema from the content at save time, like the editor does,
-		// so the persisted draft is the single source of truth at deploy. Keep the
-		// previous schema (or empty) on failure rather than blanking it.
+		// Into the schema the base carries, as the editor does at save: `inferArgs` re-seeds
+		// each arg from the properties it is handed, and those are the only copy of
+		// `password`, enums, formats and titles — no parser emits them. A clone, so a parse
+		// failure leaves the previous schema rather than half of one.
 		try {
-			const schema = emptySchema()
+			const schema = structuredClone(
+				draft.schema?.properties ? draft.schema : emptySchema()
+			) as Schema
 			await inferArgs(draft.language, draft.content, schema)
 			draft.schema = schema
 		} catch (e) {
@@ -5224,10 +5229,9 @@ async function loadScriptForEdit(
 	}
 }
 
-/** The fields a test form offers, for code that may never have been deployed. A draft the
- * chat wrote carries the schema it inferred at write time; anything else — a draft written
- * elsewhere, a deployed script whose schema predates an edit — is inferred here from the
- * content that is about to run, so the form cannot offer a field the code no longer takes. */
+/** The fields a test form offers, for code that may never have been deployed. The stored
+ * schema wins wherever it declares fields — a draft's or the deployed script's; only one
+ * declaring nothing is inferred here, from the content about to run. */
 async function schemaForTestRun(script: {
 	content: string
 	language: ScriptLang
