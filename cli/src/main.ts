@@ -48,6 +48,7 @@ import job from "./commands/job/job.ts";
 import group from "./commands/group/group.ts";
 import audit from "./commands/audit/audit.ts";
 import token from "./commands/token/token.ts";
+import trash from "./commands/trash/trash.ts";
 import generateMetadata from "./commands/generate-metadata/generate-metadata.ts";
 import docs from "./commands/docs/docs.ts";
 import config from "./commands/config/config.ts";
@@ -214,6 +215,7 @@ const command = new Command()
   .command("group", group)
   .command("audit", audit)
   .command("token", token)
+  .command("trash", trash)
   .command("generate-metadata", generateMetadata)
   .command("docs", docs)
   .command("config", config)

@@ -293,6 +293,108 @@ paths:
                 items:
                   $ref: "#/components/schemas/AuditLog"
 
+  /w/{workspace}/trash/list:
+    get:
+      summary: list the workspace trashbin (requires admin privilege)
+      operationId: listTrash
+      tags:
+        - trash
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: item_kind
+          in: query
+          description: >
+            only return items of this kind: script, flow, app, schedule, variable,
+            resource, or a trigger kind such as http_trigger
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: which page to return (starts at 0, default 0)
+          schema:
+            type: integer
+        - name: per_page
+          in: query
+          description: number of items to return for a given page (default 100, max 1000)
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: the trashed items, most recently deleted first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TrashItem"
+
+  /w/{workspace}/trash/get/{id}:
+    get:
+      summary: get a trashed item with the data it was deleted with (requires admin privilege)
+      operationId: getTrashItem
+      tags:
+        - trash
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: the trashed item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrashItemWithData"
+
+  /w/{workspace}/trash/restore/{id}:
+    post:
+      summary: restore a trashed item to its path (requires admin privilege)
+      operationId: restoreTrashItem
+      tags:
+        - trash
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: item restored
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/trash/delete/{id}:
+    delete:
+      summary: permanently delete a trashed item (requires admin privilege)
+      operationId: permanentlyDeleteTrashItem
+      tags:
+        - trash
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: item permanently deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/trash/empty:
+    post:
+      summary: permanently delete every item in the workspace trashbin (requires admin privilege)
+      operationId: emptyTrash
+      tags:
+        - trash
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: trashbin emptied
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /auth/login:
     post:
       security: []
@@ -29821,6 +29923,51 @@ components:
         - username
         - operation
         - action_kind
+
+    TrashItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        workspace_id:
+          type: string
+        item_kind:
+          type: string
+          description: script, flow, app, schedule, variable, resource, or a trigger kind such as http_trigger
+        item_path:
+          type: string
+        deleted_by:
+          type: string
+        deleted_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          description: when the item is permanently deleted unless restored first
+      required:
+        - id
+        - workspace_id
+        - item_kind
+        - item_path
+        - deleted_by
+        - deleted_at
+        - expires_at
+
+    TrashItemWithData:
+      allOf:
+        - $ref: "#/components/schemas/TrashItem"
+        - type: object
+          properties:
+            item_data:
+              type: object
+              additionalProperties: true
+              description: >
+                the deleted rows as they were stored; the shape depends on the kind, and a
+                secret variable's value stays encrypted
+          required:
+            - item_data
 
     MainArgSignature:
       type: object
