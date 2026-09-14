@@ -3833,6 +3833,40 @@ async fn edit_datatable_config(
         .cloned()
         .collect();
 
+    // Roles follow an entry only through a declared rename. A save that drops an entry under roles
+    // and adds another on the same database without one — which is how a settings sync sends a
+    // rename — would leave that database answering everyone as `admin`.
+    for name in &removed {
+        let Some(old_db) = old_datatables
+            .get(name)
+            .filter(|old| old.permissions.is_some())
+            .and_then(|old| old.database.as_ref())
+        else {
+            continue;
+        };
+        let added_on_same_database =
+            new_config
+                .settings
+                .datatables
+                .iter()
+                .find_map(|(added, dt)| {
+                    let db = dt.database.as_ref()?;
+                    (!old_datatables.contains_key(added)
+                        && !new_config.renames.iter().any(|r| &r.to == added)
+                        && db.resource_type == old_db.resource_type
+                        && db.resource_path == old_db.resource_path)
+                        .then_some(added)
+                });
+        if let Some(added) = added_on_same_database {
+            return Err(Error::BadRequest(format!(
+                "Data table '{name}' is under roles, and this save removes it while adding '{added}' \
+                 on the same database. Its roles would not carry over, leaving that database open to \
+                 everyone as `admin`. Rename it from the data table settings, which carries its \
+                 roles, or turn its roles off first."
+            )));
+        }
+    }
+
     let config: serde_json::Value = serde_json::to_value(new_config.settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
 
