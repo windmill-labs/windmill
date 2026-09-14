@@ -32943,7 +32943,8 @@ components:
           type: array
           description: >-
             the roles the grant comes from, each once — who granted it, or for a default privilege
-            the role whose future objects it covers. A revoke takes it back from every one of them.
+            the role whose future objects it covers. A revoke of some of the grant's privileges
+            takes them back from every source that gave them.
           items:
             $ref: "#/components/schemas/AclSource"
 
@@ -32965,8 +32966,8 @@ components:
           description: >-
             whether the data table's connection can take back what role gave. On an object that is
             the owner, when the connection acts for the owner, and otherwise the connection itself;
-            for a default privilege, a creating role the connection acts for. A grant with a source
-            out of reach is not revocable from here.
+            for a default privilege, a creating role the connection acts for. What a source out of
+            reach gave is not revocable from here; privileges only other sources gave still are.
 
     DatatableAclInfo:
       type: object

@@ -165,7 +165,7 @@
 				<span class="text-xs font-semibold text-emphasis">Grants</span>
 				<span class="text-xs text-secondary">
 					{target.kind === 'database'
-						? 'What each role may do on the database itself: CREATE is the right to create schemas in it.'
+						? 'What each role may do on the database itself — CREATE is the right to create schemas in it — and what default privileges set database-wide give it on what is created later, in every schema. No schema can take those back.'
 						: 'What each role may do here, beyond what it owns.'}
 				</span>
 			</div>
@@ -221,7 +221,8 @@
 											class="text-2xs text-secondary"
 											title="A default privilege covers only the roles it was granted for: grant it again to cover these"
 										>
-											· not for what {uncovered.join(', ')} create
+											· not for what {uncovered.join(', ')}
+											{uncovered.length === 1 ? 'creates' : 'create'}
 										</span>
 									{/if}
 								</Cell>
