@@ -8,7 +8,7 @@ import type { ChatJob, DisplayMessage } from './shared'
 import { expanded, messageDraft } from './chatDraft'
 import { createLongHash } from '$lib/editorLangUtils'
 import { userScopedDb, type UserScopedDbMigrateDeps } from '$lib/userScopedDb'
-import { scopedKey, scopedKeyFor } from '$lib/userScopedStorage'
+import { emailOfScopedKey, scopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { markSessionDirty } from '$lib/components/sessions/sessionMirrorSignal'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 import type { PersistedContextUsage } from './tokenUsage'
@@ -396,7 +396,7 @@ export default class HistoryManager {
 		this.savedChats = { ...this.savedChats, [chatId]: updated }
 		await this.enqueueDbWrite(async (db) => {
 			await db.put('chats', updated)
-			markSessionDirty(sessionId, chatId)
+			markSessionDirty(sessionId, chatId, emailOfScopedKey(DB_NAME, db.name))
 		})
 	}
 
@@ -673,7 +673,13 @@ export default class HistoryManager {
 				const keep = this.keptImageIds(refs)
 				await this.writeKeptImageBlobs(db, updatedChat.id, blobs, keep)
 				await db.put('chats', updatedChat)
-				if (updatedChat.sessionId) markSessionDirty(updatedChat.sessionId, updatedChat.id)
+				if (updatedChat.sessionId) {
+					markSessionDirty(
+						updatedChat.sessionId,
+						updatedChat.id,
+						emailOfScopedKey(DB_NAME, db.name)
+					)
+				}
 				// Best-effort: the record is already committed, so a failed cleanup
 				// (e.g. a user switch closed this handle mid-op) must not turn a
 				// successful save into a rejection — the orphans are reclaimed by
@@ -706,7 +712,7 @@ export default class HistoryManager {
 			await db.delete('chats', id)
 			const keys = await imageKeysForChat(db, id)
 			await Promise.all(keys.map((key) => db.delete('images', key)))
-			if (sessionId) markSessionDirty(sessionId, id)
+			if (sessionId) markSessionDirty(sessionId, id, emailOfScopedKey(DB_NAME, db.name))
 		}).catch((err) => console.error('Could not delete chat', err))
 	}
 

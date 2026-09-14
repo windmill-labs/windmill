@@ -118,6 +118,12 @@ function pendingBase(): string | undefined {
 	return scopedKey(PENDING_PREFIX)
 }
 
+/** The marks of the user a write landed for: the current user unless the signal says
+ * otherwise (its store's user, when the user changed while the write was pending). */
+function pendingBaseFor(email: string | undefined): string | undefined {
+	return email ? scopedKeyFor(PENDING_PREFIX, email) : pendingBase()
+}
+
 function dirtyKey(base: string, sessionId: string): string {
 	return `${base}::d::${sessionId}`
 }
@@ -149,8 +155,8 @@ function readPending(): PendingMarks {
 	return marks
 }
 
-function bumpDirty(sessionId: string): void {
-	const base = pendingBase()
+function bumpDirty(sessionId: string, email?: string): void {
+	const base = pendingBaseFor(email)
 	if (!base) return
 	try {
 		const key = dirtyKey(base, sessionId)
@@ -172,8 +178,13 @@ function dropDirty(sessionId: string): void {
 
 /** False when the mark could not be written (storage full): the caller must not act as if
  * the removal were scheduled. */
-function addRemoved(sessionId: string, ws: string | undefined, dropDirty: boolean): boolean {
-	const base = pendingBase()
+function addRemoved(
+	sessionId: string,
+	ws: string | undefined,
+	dropDirty: boolean,
+	email?: string
+): boolean {
+	const base = pendingBaseFor(email)
 	if (!base) return false
 	try {
 		if (dropDirty) localStorage.removeItem(dirtyKey(base, sessionId))
@@ -272,8 +283,11 @@ async function allSyncRows(email: string): Promise<MirrorSyncState[]> {
  * A session with a row was backed up; one without may have its first push in flight, so
  * it gets a row saying only that, which the push's own row write keeps (`writeSync`). An
  * unsent draft gets nothing: it was never pushed. */
-async function removeViaSyncRow(id: string, ws: string | undefined): Promise<void> {
-	const email = getCurrentUserEmail()
+async function removeViaSyncRow(
+	id: string,
+	ws: string | undefined,
+	email = getCurrentUserEmail()
+): Promise<void> {
 	if (!email) return
 	const row = await readSync(id, email)
 	if (row) await writeSync([{ ...row, removed: true }], email)
@@ -975,11 +989,12 @@ export function restoreSessionBackups(currentWorkspace: string): void {
 
 if (BROWSER) {
 	onMirrorSignal((signal) => {
-		if (signal.kind === 'dirty') bumpDirty(signal.sessionId)
-		else if (!addRemoved(signal.sessionId, signal.workspaceId, true)) {
-			void removeViaSyncRow(signal.sessionId, signal.workspaceId)
+		if (signal.kind === 'dirty') bumpDirty(signal.sessionId, signal.email)
+		else if (!addRemoved(signal.sessionId, signal.workspaceId, true, signal.email)) {
+			void removeViaSyncRow(signal.sessionId, signal.workspaceId, signal.email)
 		}
-		scheduleFlush()
+		// A mark for another user waits for that user's next load.
+		if (!signal.email || signal.email === getCurrentUserEmail()) scheduleFlush()
 	})
 	onUserChange((email) => {
 		clearTimers()

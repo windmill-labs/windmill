@@ -13217,8 +13217,12 @@ paths:
                     description: names the storage answered from; sync state recorded against another one is void
                   sessions:
                     type: array
+                    description: the newest 500 at most
                     items:
                       $ref: "#/components/schemas/AISessionBackupListing"
+                  truncated:
+                    type: boolean
+                    description: the user has more sessions than the answer names
 
   /w/{workspace}/ai/sessions/pull:
     post:

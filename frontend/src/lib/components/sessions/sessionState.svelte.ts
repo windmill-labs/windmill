@@ -24,7 +24,7 @@ import { workspaceRootId } from './sessionScope.svelte'
 import { clearSessionRecovered } from './sessionRecoveryNotice.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
-import { scopedKeyFor } from '$lib/userScopedStorage'
+import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
 import { markSessionDirty, markSessionRemoved } from './sessionMirrorSignal'
@@ -446,7 +446,7 @@ async function deleteSessionRow(db: IDBPDatabase<SessionSchema>, id: string): Pr
 async function putSessionRow(db: IDBPDatabase<SessionSchema>, s: Session): Promise<void> {
 	if (deletedSessionIds.has(s.id)) return
 	await db.put('sessions', s)
-	markSessionDirty(s.id)
+	markSessionDirty(s.id, undefined, emailOfScopedKey(SESSIONS_DB, db.name))
 }
 
 // Write-behind a single session record. Transient sessions are in-memory only
@@ -1235,7 +1235,7 @@ async function patchStoredSessionChatId(s: Session, chatId: string): Promise<voi
 			stored.chatId = chatId
 			await tx.store.put(stored)
 			await tx.done
-			markSessionDirty(s.id)
+			markSessionDirty(s.id, undefined, emailOfScopedKey(SESSIONS_DB, db.name))
 			return
 		}
 		await tx.done

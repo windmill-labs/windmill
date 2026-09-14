@@ -48,6 +48,7 @@ import HistoryManager, {
 	readStoredChat
 } from '../copilot/chat/HistoryManager.svelte'
 import { deleteSession, putSession, sessionState, type Session } from './sessionState.svelte'
+import { markSessionDirty } from './sessionMirrorSignal'
 import {
 	__flushForTesting,
 	__resetMirrorForTesting,
@@ -459,6 +460,12 @@ describe('sessionMirror flush', () => {
 		expect(pushMock).toHaveBeenCalledTimes(2)
 		expect(await pendingDirty()).toEqual(['sp'])
 		expect(await __syncRowsForTesting(EMAIL)).toEqual([])
+	})
+
+	it('files a mark under the user whose store the write landed in', async () => {
+		markSessionDirty('sw', undefined, 'other@x.com')
+		expect(localStorage.getItem('windmill_sessions_mirror_pending::other@x.com::d::sw')).toBe('1')
+		expect(pendingKeys()).toEqual([])
 	})
 
 	it('keeps the marks when the server refuses a request, for the next page load', async () => {

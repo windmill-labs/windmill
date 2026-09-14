@@ -61,6 +61,12 @@ export function scopedKeyFor(base: string, email: string): string {
 	return `${base}::${email}`
 }
 
+// The email a scoped key or database name was built for, so a write that landed in a
+// store can name the user it belongs to even after the current user changed.
+export function emailOfScopedKey(base: string, key: string): string | undefined {
+	return key.startsWith(`${base}::`) ? key.slice(base.length + 2) : undefined
+}
+
 // Register a callback invoked whenever the scoping email changes. Fired once
 // immediately with the current email (prevEmail undefined) so a surface that
 // registers after the email already resolved still hydrates.

@@ -24,6 +24,9 @@ and a bump landing between them would be lost; retired marks are not reclaimed (
 session ever backed up), and the marks of unsent drafts and of workspaces that are off stay too,
 each costing one lookup per flush. Only a session gone from the store has its mark deleted. Losing the last
 seconds of a device that never comes back is accepted; a tab that closes normally keeps its marks.
+A signal names the user whose store the write landed in (read off the store's scoped name), so
+a write that completes after the logged-in user changed marks that user's session, for their
+next load, rather than the current user's.
 
 A flush plans and sends one session at a time, filling requests of about 8 MB as it goes, so a
 first backfill of a large history never holds more than one request's worth of records and
@@ -161,7 +164,8 @@ artifacts are read in listing order only while they fit, and images beyond the b
 out (they hydrate to placeholders). The listings themselves stop at the budget and at 5000
 objects per session, so a session grown without bound by valid pushes cannot grow the answer's
 memory through its metadata either; removing a prefix and the re-key walk stream their
-listings too. Nothing is read past the budget, whatever a session holds. A
+listings too. `list` scans at most 50 000 objects and tracks 10 000 sessions, and answers
+with the newest 500 (`truncated` says when there were more); the restore takes 50 of them. Nothing is read past the budget, whatever a session holds. A
 restore takes the newest 50 sessions per workspace: every visible session gets a runtime, and
 each runtime's history load reads the whole chat store. On CE the push checks the storage quota
 and bumps usage by bytes written (an over-count on overwrites; the periodic recount settles it).

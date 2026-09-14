@@ -2,7 +2,7 @@
 // active chat's rotation, so chatId-keying would drop artifacts on each new conversation.
 import { type DBSchema as IDBSchema, type IDBPObjectStore, type IDBPTransaction } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
-import { scopedKeyFor } from '$lib/userScopedStorage'
+import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { markSessionDirty } from '$lib/components/sessions/sessionMirrorSignal'
 
 export type ArtifactKind = 'md' | 'html'
@@ -122,7 +122,7 @@ export async function putArtifact(artifact: PersistedArtifact): Promise<void> {
 		// A rejected write (most likely QuotaExceededError) leaves the artifact usable for the
 		// session but unpersisted — degrade like the reads rather than throwing at the caller.
 		await db.put('items', artifact)
-		markSessionDirty(artifact.sessionId)
+		markSessionDirty(artifact.sessionId, undefined, emailOfScopedKey(ARTIFACTS_DB, db.name))
 	} catch (err) {
 		console.error('Could not persist artifact', err)
 	}
@@ -328,7 +328,9 @@ export async function mutateArtifact(
 		abort()
 	}
 	const outcome = await settled
-	if (outcome === 'saved') markSessionDirty(edit.artifact.sessionId)
+	if (outcome === 'saved' && db) {
+		markSessionDirty(edit.artifact.sessionId, undefined, emailOfScopedKey(ARTIFACTS_DB, db.name))
+	}
 	return { outcome, artifact: edit.artifact }
 }
 
@@ -403,7 +405,7 @@ export async function deleteArtifact(id: string): Promise<void> {
 		await items.delete(id)
 		await deleteVersionsIn(tx.objectStore('versions'), id)
 		await tx.done
-		if (sessionId) markSessionDirty(sessionId)
+		if (sessionId) markSessionDirty(sessionId, undefined, emailOfScopedKey(ARTIFACTS_DB, db.name))
 	} catch (err) {
 		console.error('Could not delete artifact', err)
 	}

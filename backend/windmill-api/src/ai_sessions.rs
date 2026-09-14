@@ -56,6 +56,11 @@ const MAX_DELETES_PER_ENTRY: usize = 1000;
 const MAX_OPERATIONS_PER_PUSH: usize = 4000;
 /// Objects a pull lists under one session's prefix before giving up on the rest.
 const MAX_LISTED_OBJECTS: usize = 5000;
+/// Objects a listing of the user's sessions scans, sessions it tracks, and sessions it
+/// answers with (the newest).
+const MAX_LIST_SCAN: usize = 50_000;
+const MAX_LIST_SESSIONS: usize = 10_000;
+const LIST_MAX: usize = 500;
 const IO_CONCURRENCY: usize = 8;
 
 pub fn workspaced_service() -> Router {
@@ -363,6 +368,9 @@ struct ListResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     storage_id: Option<String>,
     sessions: Vec<SessionListing>,
+    /// The user has more sessions than the answer names.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    truncated: bool,
 }
 
 /// A session is listed once its head landed; a push that failed between its chats and its
@@ -378,15 +386,24 @@ async fn list(
             enabled: false,
             storage_id: None,
             sessions: vec![],
+            truncated: false,
         }));
     };
     let prefix = backend.sessions_prefix();
-    let mut updated: std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> =
+    let mut updated: std::collections::HashMap<String, (chrono::DateTime<chrono::Utc>, bool)> =
         Default::default();
-    let mut with_head = std::collections::HashSet::new();
     let mut stream = backend.store.list(Some(&prefix));
+    let mut scanned = 0;
+    let mut truncated = false;
+    // Sessions accumulate over valid pushes without limit; the scan and what it keeps
+    // are bounded, and the answer carries the newest LIST_MAX of what was scanned.
     while let Some(meta) = stream.next().await {
         let meta = meta.map_err(object_store_error_to_error)?;
+        scanned += 1;
+        if scanned > MAX_LIST_SCAN || updated.len() >= MAX_LIST_SESSIONS {
+            truncated = true;
+            break;
+        }
         // `Path` drops the trailing delimiter, so the remainder starts with one.
         let Some(rel) = meta.location.as_ref().strip_prefix(prefix.as_ref()) else {
             continue;
@@ -394,24 +411,25 @@ async fn list(
         let Some((sid, rest)) = rel.trim_start_matches('/').split_once('/') else {
             continue;
         };
-        if rest == "head.json" {
-            with_head.insert(sid.to_string());
-        }
-        let entry = updated.entry(sid.to_string()).or_insert(meta.last_modified);
-        if meta.last_modified > *entry {
-            *entry = meta.last_modified;
-        }
+        let entry = updated
+            .entry(sid.to_string())
+            .or_insert((meta.last_modified, false));
+        entry.0 = entry.0.max(meta.last_modified);
+        entry.1 |= rest == "head.json";
     }
     let mut sessions: Vec<SessionListing> = updated
         .into_iter()
-        .filter(|(sid, _)| with_head.contains(sid))
-        .map(|(id, updated_at)| SessionListing { id, updated_at })
+        .filter(|(_, (_, with_head))| *with_head)
+        .map(|(id, (updated_at, _))| SessionListing { id, updated_at })
         .collect();
     sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    truncated |= sessions.len() > LIST_MAX;
+    sessions.truncate(LIST_MAX);
     Ok(Json(ListResponse {
         enabled: true,
         storage_id: Some(backend.storage_id.clone()),
         sessions,
+        truncated,
     }))
 }
 
