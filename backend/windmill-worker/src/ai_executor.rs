@@ -453,9 +453,9 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    // A linked step takes its brain and tools from the resource and keeps only the flow-local
-    // inputs (user message, attachments, memory id and messages) of its own; both stay rigid, so the one thing it may
-    // bind to this flow is the tools' inputs, overlaid from `tool_inputs` below.
+    // A linked step takes its brain and tools from the resource and keeps only the flow-local inputs
+    // (user message, attachments, memory id and messages) of its own; both stay rigid, so the one
+    // thing it may bind to this flow is the tools' inputs, overlaid from `tool_inputs` below.
     let (mut args, tools): (AIAgentArgs, Vec<AgentTool>) = if let Some(agent_ref) = agent.as_deref()
     {
         let agent_path = agent_ref

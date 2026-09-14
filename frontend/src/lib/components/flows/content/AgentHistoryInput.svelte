@@ -14,8 +14,8 @@
 		label: string
 		tooltip?: string
 		chatInputEnabled?: boolean
-		/** The agent keeps no memory, so no memory id applies to this step. */
-		memoryOff?: boolean
+		/** Why no memory id applies to this step, when the agent reads no memory. */
+		memoryUnusedNote?: string
 		/** The step's editor for one history input, with the error to show under it. */
 		field: Snippet<[AgentHistoryKey, string | undefined]>
 		/** Called for each key this row removes, so the form forgets its validity. */
@@ -27,7 +27,7 @@
 		label,
 		tooltip = undefined,
 		chatInputEnabled = false,
-		memoryOff = false,
+		memoryUnusedNote = undefined,
 		field,
 		onRemoveKey = undefined
 	}: Props = $props()
@@ -58,11 +58,8 @@
 	<div class="flex min-h-7 items-end">
 		<FieldHeader {label} simpleTooltip={tooltip} displayType={false} />
 	</div>
-	{#if memoryOff}
-		<p class="text-xs text-secondary">
-			This agent's memory is off, so no memory id applies. Turn memory on in the agent to change
-			this.
-		</p>
+	{#if memoryUnusedNote}
+		<p class="text-xs text-secondary">{memoryUnusedNote}</p>
 		{#if source === 'here'}
 			<div class="flex items-center gap-2">
 				<Badge color="yellow" small>Ignored</Badge>

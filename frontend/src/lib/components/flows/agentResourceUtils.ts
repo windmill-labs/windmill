@@ -121,7 +121,8 @@ export function inputTransformsToAgentConfig(
 
 /**
  * Reduce the AI agent schema to only the flow-local inputs. Used when a step is linked to a saved
- * agent: the brain fields come from the resource, so only user_message/user_attachments stay editable.
+ * agent: the brain fields come from the resource, so only the user message, attachments and history
+ * inputs stay editable.
  */
 export function flowLocalAgentSchema(schema: any): any {
 	if (!schema?.properties) {

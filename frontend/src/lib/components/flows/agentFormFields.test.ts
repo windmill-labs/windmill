@@ -4,6 +4,7 @@ import {
 	AGENT_FIELD_BY_KEY,
 	AGENT_FIELDS,
 	AGENT_HISTORY_KEYS,
+	memoryIdUnusedNote,
 	agentFieldIsSet,
 	agentStreamingEnabled,
 	initialVisibleAgentFields
@@ -125,5 +126,18 @@ describe('agentStreamingEnabled', () => {
 		expect(
 			agentStreamingEnabled(step({ output_type: { type: 'javascript', expr: 'flow_input.o' } }))
 		).toBe(false)
+	})
+})
+
+describe('memoryIdUnusedNote', () => {
+	// Mirrors the worker's order: offering a memory id that a run would ignore misleads the author.
+	it('offers a memory id only when the policy reads memory', () => {
+		expect(memoryIdUnusedNote(undefined)).toMatch(/off/)
+		expect(memoryIdUnusedNote({ kind: 'off' })).toMatch(/off/)
+		expect(memoryIdUnusedNote({ kind: 'window', context_length: 0 })).toMatch(/off/)
+		expect(memoryIdUnusedNote({ kind: 'auto' })).toMatch(/off/)
+		expect(memoryIdUnusedNote({ kind: 'manual', messages: [] })).toMatch(/fixed list/)
+		expect(memoryIdUnusedNote({ kind: 'window', context_length: 10 })).toBeUndefined()
+		expect(memoryIdUnusedNote({ kind: 'auto', context_length: 4, memory_id: 'x' })).toBeUndefined()
 	})
 })

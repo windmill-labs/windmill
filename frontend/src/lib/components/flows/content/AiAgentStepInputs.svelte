@@ -41,7 +41,7 @@
 		AGENT_FIELDS,
 		AGENT_HISTORY_ROW,
 		AGENT_TOOLS_ROW,
-		memoryPolicyIsOff,
+		memoryIdUnusedNote,
 		AGENT_FIELD_GROUPS,
 		agentFieldAppliesTo,
 		initialVisibleAgentFields,
@@ -164,14 +164,14 @@
 
 	// The brain edited here, or the linked agent's. An expression, or a linked agent still loading,
 	// reads as keeping memory, so the history row never offers less than a run may use.
-	let memoryOff = $derived.by(() => {
+	let memoryUnusedNote = $derived.by(() => {
 		if ('memory' in schemaProperties) {
 			const transform = args?.memory
 			return transform == undefined || transform.type === 'static'
-				? memoryPolicyIsOff(transform?.value)
-				: false
+				? memoryIdUnusedNote(transform?.value)
+				: undefined
 		}
-		return linkedMemory ? memoryPolicyIsOff(linkedMemory.memory) : false
+		return linkedMemory ? memoryIdUnusedNote(linkedMemory.memory) : undefined
 	})
 
 	let scopedFields = $derived(
@@ -415,7 +415,7 @@
 												label={spec.label}
 												tooltip={spec.tooltip}
 												{chatInputEnabled}
-												{memoryOff}
+												{memoryUnusedNote}
 												onRemoveKey={(key) => delete inputCheck[key]}
 											>
 												{#snippet field(key, error)}

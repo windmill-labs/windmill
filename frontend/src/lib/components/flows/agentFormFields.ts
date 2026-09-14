@@ -44,6 +44,19 @@ export function memoryPolicyIsOff(memory: any): boolean {
 	return false
 }
 
+/** Why a step's history row offers no memory id, when it offers none: the agent keeps no memory, or
+ *  its memory setting supplies a fixed list of messages, which the worker sends before it would
+ *  read any memory. */
+export function memoryIdUnusedNote(memory: any): string | undefined {
+	if (memory?.kind === 'manual') {
+		return 'This agent sends a fixed list of messages set in its memory, so no memory id applies.'
+	}
+	if (memoryPolicyIsOff(memory)) {
+		return "This agent's memory is off, so no memory id applies. Turn memory on in the agent to change this."
+	}
+	return undefined
+}
+
 /** A memory setting in words, for a linked agent's summary. */
 export function describeMemoryPolicy(memory: any): string {
 	if (memory?.kind === 'manual') return 'Provided messages'

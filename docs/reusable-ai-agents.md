@@ -65,7 +65,8 @@ The worker reconciles them once per agent invocation, nested agent tools include
 
 Memory is stored per (memory id, step id), in `ai_agent_memory` or S3 at
 `memory/{workspace}/{memory id}/{step}.json`. The chat transcript (`flow_conversation_message`)
-always follows the run's id, even when a step sets its own.
+always follows the run's id, even when a step sets its own. Nothing expires stored memory: deleting a chat conversation deletes
+its memory, and a memory named by a string id stays until it is overwritten.
 
 Compatibility runs one way. New workers read every older shape. The editor rewrites a legacy step
 only when the author changes it, so a flow nobody edits keeps running on older workers, while a
