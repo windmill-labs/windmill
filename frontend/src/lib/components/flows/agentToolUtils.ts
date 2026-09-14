@@ -99,6 +99,16 @@ export function toolDisplayName(tool: AgentTool): string | undefined {
 	return tool?.summary || value?.path || value?.resource_path || undefined
 }
 
+/** The name `enabled_tools` holds a tool by, which is what the roster shows it as except for an MCP
+ *  server displayed by the resource path it was authored with: a name carrying that `$res:` is
+ *  resolved to the resource's own value before the step runs, so it would reach the worker as an
+ *  object where a name is expected and fail the step outright. */
+export function toolEnabledName(tool: AgentTool): string | undefined {
+	const name = toolDisplayName(tool)
+	const value = tool?.value as Record<string, any>
+	return name && name === value?.resource_path ? name.replace(/^\$res:/, '') : name
+}
+
 /**
  * Create an AI Agent tool (nested agent)
  */
