@@ -934,3 +934,39 @@ async fn a_settings_save_dropping_a_governing_entry_names_the_forks_it_strands(
     );
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn a_save_replacing_an_entry_under_roles_on_its_database_is_refused(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    // A rename as a settings sync sends it: the whole map, no `renames`.
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{}/api/w/test-workspace/workspaces/edit_datatable_config",
+            server.addr.port()
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "settings": { "datatables": {
+        "main_renamed": { "database": { "resource_type": "instance", "resource_path": "dt_main" } }
+    } } }))
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(
+        status, 400,
+        "a save dropped the roles of the database it kept: {body}"
+    );
+
+    let still_governed: bool = sqlx::query_scalar(
+        "SELECT (datatable->'datatables'->'main') ? 'permissions' FROM workspace_settings
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert!(still_governed, "the refused save still took effect");
+    Ok(())
+}
