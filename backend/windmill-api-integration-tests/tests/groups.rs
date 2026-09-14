@@ -913,3 +913,68 @@ async fn test_preserve_orphaned_members_migration(db: Pool<Postgres>) -> anyhow:
 
     Ok(())
 }
+
+/// A membership row whose value is not an email (an IdP object id a SCIM sync stored before
+/// member values were validated) must not break the workspace's instance-group save: the
+/// reconciler skips it and still provisions the valid members. The admin endpoint refuses to
+/// add such a value in the first place.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_instance_group_member_that_is_not_an_email_is_skipped(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let global_base = format!("http://localhost:{port}/api/groups");
+    let ws_base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+    const ENTRA_OBJECT_ID: &str = "ef40ea04-1a9e-4a84-9e65-cb1baa81dfed";
+
+    let resp = authed(client().post(format!("{global_base}/create")))
+        .json(&json!({ "name": "entra_grp" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "create");
+    let resp = authed(client().post(format!("{global_base}/adduser/entra_grp")))
+        .json(&json!({ "email": "kept@example.com" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "adduser");
+
+    let resp = authed(client().post(format!("{global_base}/adduser/entra_grp")))
+        .json(&json!({ "email": ENTRA_OBJECT_ID }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "adduser must refuse a value that is not an email"
+    );
+
+    sqlx::query("INSERT INTO email_to_igroup (email, igroup) VALUES ($1, 'entra_grp')")
+        .bind(ENTRA_OBJECT_ID)
+        .execute(&db)
+        .await?;
+
+    let resp = authed(client().post(format!("{ws_base}/edit_instance_groups")))
+        .json(&json!({
+            "groups": ["entra_grp"],
+            "roles": { "entra_grp": "developer" }
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "edit: {}", resp.text().await?);
+
+    let members: Vec<String> = sqlx::query_scalar(
+        "SELECT email FROM usr WHERE workspace_id = 'test-workspace'
+         AND added_via->>'source' = 'instance_group' ORDER BY email",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        members,
+        vec!["kept@example.com"],
+        "valid member provisioned, non-email one skipped"
+    );
+
+    Ok(())
+}

@@ -22,7 +22,10 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, paginate, Pagination},
 };
-use windmill_common::{db::UserDB, users::username_to_permissioned_as};
+use windmill_common::{
+    db::UserDB,
+    users::{username_to_permissioned_as, VALID_EMAIL},
+};
 
 use serde::{Deserialize, Serialize};
 use sqlx::{query_scalar, FromRow, Postgres, Transaction};
@@ -972,6 +975,15 @@ async fn add_user_igroup(
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
 
+    // `email_to_igroup` has no shape constraint of its own; `usr`, which the member is
+    // promoted into on reconcile, has `proper_email`, and a value failing it there would
+    // roll back every member of the group.
+    if !VALID_EMAIL.is_match(&email) {
+        return Err(Error::BadRequest(format!(
+            "'{email}' is not a valid email address"
+        )));
+    }
+
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     // FOR UPDATE: the group row is the group-level mutex, taken before the workspace
@@ -1424,6 +1436,16 @@ async fn overwrite_igroups(
 
         if let Some(emails) = &igroup.emails {
             for email in emails.iter() {
+                // An export can carry a member the source instance stored before ingest
+                // validated member values; it is dropped rather than failing the import.
+                if !VALID_EMAIL.is_match(email) {
+                    tracing::warn!(
+                        "Skipping member '{}' of imported instance group '{}': not an email address",
+                        email,
+                        igroup.name
+                    );
+                    continue;
+                }
                 sqlx::query!(
                     "INSERT INTO email_to_igroup (email, igroup) VALUES ($1, $2)",
                     email,
