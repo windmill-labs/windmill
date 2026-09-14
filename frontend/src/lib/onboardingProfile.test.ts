@@ -28,7 +28,7 @@ describe('parseOnboardingProfile', () => {
 			parseOnboardingProfile({
 				touch_point: 'outbound:q3',
 				workspace_name: '  Acme  ',
-				hub_projects: ['uptime-monitor', 42, ''],
+				hub_projects: ['uptime-monitor', 42, '', 'uptime-monitor'],
 				starter_prompts: [
 					{ label: 'Sync', prompt: 'Sync HubSpot to Postgres' },
 					{ label: 'no prompt' },

@@ -40,9 +40,10 @@ function str(v: unknown, max: number): string | undefined {
 	return t && t.length <= max ? t : undefined
 }
 
+/** Distinct entries in their first order: a repeated slug would pin one project twice. */
 function strList(v: unknown, max: number): string[] | undefined {
 	if (!Array.isArray(v)) return undefined
-	const out = v.map((x) => str(x, max)).filter((x): x is string => !!x)
+	const out = [...new Set(v.map((x) => str(x, max)).filter((x): x is string => !!x))]
 	return out.length ? out.slice(0, MAX_LIST) : undefined
 }
 
