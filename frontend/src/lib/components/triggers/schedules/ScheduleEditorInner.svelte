@@ -301,6 +301,15 @@
 		})
 	})
 
+	// The page anchor names the schedule on screen, which a save the drawer outlived may have
+	// deployed under another path.
+	$effect(() => {
+		const path = schedulePath
+		if (mode === 'edit' && path && untrack(() => drawer?.isOpen())) {
+			setPageDrawerAnchor(SCHEDULES_PATH, path)
+		}
+	})
+
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,

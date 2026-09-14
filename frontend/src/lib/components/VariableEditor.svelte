@@ -50,7 +50,7 @@
 	// default comes from the navigation store.
 	let curWs = $derived(workspace ?? $workspaceStore)
 
-	/** The variable opened for editing, where it is stored: a rename the drawer outlived moves it. */
+	/** The variable opened for editing; `undefined` for one the drawer is creating. */
 	let editPath: string | undefined = $state(undefined)
 	/** Each workspace's item in the drawer: where it is stored, or a temporary path while creating
 	 *  one. */
@@ -170,25 +170,6 @@
 		return meta ? (meta.extra_perms ?? {}) : undefined
 	}
 
-	// Open the selected workspace's version of the item alongside the others.
-	$effect(() => {
-		const ws = selected
-		if (!ws || workspaces.length === 0) return
-		untrack(() => {
-			if (workspaces.includes(ws)) return
-			paths[ws] = editPath ?? paths[workspaces[0]]
-			workspaces.push(ws)
-		})
-	})
-
-	// The page anchor names the variable on screen, which a rename the drawer outlived moves.
-	$effect(() => {
-		const path = editPath
-		if (path !== undefined && untrack(() => drawer?.isOpen())) {
-			setPageDrawerAnchor(VARIABLES_PATH, path)
-		}
-	})
-
 	let drawer: Drawer | undefined = $state()
 
 	const deployTo = resource(
@@ -197,20 +178,50 @@
 			ws ? (await WorkspaceService.getDeployTo({ workspace: ws })).deploy_to : undefined
 	)
 
+	const selectedItem = $derived(selected ? items[selected] : undefined)
+	// Where the item on screen is stored: its own key once it has one, which a save the drawer
+	// outlived may have created or renamed. Each workspace's item has its own.
+	const shownPath = $derived.by(() => {
+		const at = selectedItem?.key.path ?? (selected ? paths[selected] : undefined)
+		return at && !isTemporaryPath(at) ? at : undefined
+	})
 	// `selected`, not `curWs`: WsSpecificVersions re-points this drawer at another
 	// workspace's version of the variable, and the session must act on the one the
 	// user is looking at.
 	const sessionSource = $derived(
-		pageDrawerSessionSource(VARIABLES_PATH, editPath, selected ?? curWs)
+		pageDrawerSessionSource(VARIABLES_PATH, shownPath, selected ?? curWs)
 	)
-	const selectedItem = $derived(selected ? items[selected] : undefined)
 	// A variable this drawer created is edited from then on: the drawer stays open on it when an
 	// edit was typed during the create.
 	const edit = $derived(editPath !== undefined || selectedItem?.origin === 'deployed')
-	const initialPath = $derived(
-		editPath ??
-			(selectedItem && !isTemporaryPath(selectedItem.key.path) ? selectedItem.key.path : '')
-	)
+	const initialPath = $derived(shownPath ?? '')
+
+	// The path last on screen: what the workspace-version picker lists, and where a workspace it
+	// adds opens, since that workspace has no item of its own yet when it is selected.
+	let pickerPath = $state<string | undefined>(undefined)
+	$effect(() => {
+		const path = shownPath
+		if (path !== undefined) untrack(() => (pickerPath = path))
+	})
+
+	// Open the selected workspace's version of the item alongside the others.
+	$effect(() => {
+		const ws = selected
+		if (!ws || workspaces.length === 0) return
+		untrack(() => {
+			if (workspaces.includes(ws)) return
+			paths[ws] = pickerPath ?? paths[workspaces[0]]
+			workspaces.push(ws)
+		})
+	})
+
+	// The page anchor names the variable on screen, which a rename the drawer outlived moves.
+	$effect(() => {
+		const path = shownPath
+		if (editPath !== undefined && path !== undefined && untrack(() => drawer?.isOpen())) {
+			setPageDrawerAnchor(VARIABLES_PATH, path)
+		}
+	})
 	const current = $derived(selectedItem?.value)
 	// `undefined` until the selected workspace's permissions and acting user have both
 	// landed — a pending verdict is neither a grant nor the denial the read-only alert
@@ -220,7 +231,7 @@
 		if (!selected || editPath === undefined) return true
 		const perms = extraPermsOf(selected)
 		if (!perms || !acting.resolved(selected)) return undefined
-		return canWrite(editPath ?? '', perms, acting.in(selected))
+		return canWrite(shownPath ?? '', perms, acting.in(selected))
 	})
 	const dirtyWorkspaces = $derived(Object.keys(items).filter((ws) => items[ws].dirty))
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
@@ -264,6 +275,7 @@
 		pathError = ''
 		acting.forgetFailures()
 		paths = { [ws]: path }
+		pickerPath = undefined
 		workspaces = [ws]
 		selected = ws
 		session++
@@ -301,17 +313,15 @@
 		const targets = dirtyWorkspaces.map((ws) => items[ws])
 		const updated = edit
 		const opening = session
-		const shown = selected
 		closeOnSettle = true
 		const outcomes = await saveEach(targets)
-		// A save the drawer outlives may have created or renamed what it shows: follow each item to
-		// where it is stored, keeping its handle rather than reading it afresh.
+		// A save the drawer outlives may have created or renamed its items: follow each to where it
+		// is stored, keeping its handle rather than reading it afresh.
 		if (session === opening) {
 			for (const ws of workspaces) {
 				const at = items[ws]?.key.path
 				if (at && !isTemporaryPath(at) && at !== paths[ws]) paths[ws] = at
 			}
-			if (editPath !== undefined && shown && paths[shown]) editPath = paths[shown]
 		}
 		const failed = outcomes.find((o) => !o.ok && !o.skipped)
 		if (failed && !failed.ok) {
@@ -392,7 +402,12 @@
 			<!-- Only for a variable opened for editing: one created here holds the other workspaces
 				under its temporary key, which names nothing in them. -->
 			{#if editPath !== undefined && curWs}
-				<WsSpecificVersions kind="variable" workspaceId={curWs} {initialPath} bind:selected />
+				<WsSpecificVersions
+					kind="variable"
+					workspaceId={curWs}
+					initialPath={pickerPath ?? initialPath}
+					bind:selected
+				/>
 			{/if}
 			<Button
 				on:click={save}
