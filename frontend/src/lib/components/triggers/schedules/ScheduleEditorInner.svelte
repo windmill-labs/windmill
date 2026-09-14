@@ -55,9 +55,9 @@
 	import { onUserInput } from '$lib/userDraftEditGate'
 	import { isTemporaryPath, newItemPath, useItem, type ItemAdapter } from '$lib/itemStore.svelte'
 	import {
-		draftOnlyScheduleCfg,
 		newScheduleCfg,
 		normalizeScheduleCfg,
+		scheduleCfgAfterWrite,
 		scheduleCfgOf,
 		scheduleFormOf,
 		type NewScheduleOptions,
@@ -198,7 +198,7 @@
 					: undefined
 				return {
 					deployed: no_deployed ? undefined : normalizeScheduleCfg(deployedSchedule),
-					draft: no_deployed && loadedDraft ? draftOnlyScheduleCfg(loadedDraft) : loadedDraft,
+					draft: loadedDraft,
 					draftSavedAt: draft_saved_at
 				}
 			} catch (err) {
@@ -207,11 +207,9 @@
 			}
 		},
 		async write({ workspace, path, value, deployed }) {
-			await writeScheduleCfg(
-				value,
-				deployed !== undefined || standsForDeployed.has(path),
-				workspace
-			)
+			const update = deployed !== undefined || standsForDeployed.has(path)
+			await writeScheduleCfg(value, update, workspace)
+			return scheduleCfgAfterWrite(value, update, deployed)
 		}
 	}
 

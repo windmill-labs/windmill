@@ -174,13 +174,18 @@ export function normalizeScheduleCfg(raw: ScheduleCfg): ScheduleCfg {
 }
 
 /**
- * A schedule that exists only as a draft, as deploying it will leave it: deploying one creates
- * it, and a create always enables it (`writeScheduleCfg`), so the draft has to carry the state
- * that create produces. Left as stored, a disabled draft would record `enabled: false` against
- * a server that says otherwise, and later updates omit the field, so nothing corrects it.
+ * What the server holds once `writeScheduleCfg` has written `cfg`. Neither endpoint takes
+ * `enabled` from it (a create enables the schedule, an update leaves the field as it was), and
+ * a later update cannot correct it, so recording what was sent could show a running schedule as
+ * disabled for good. `deployed` is the schedule an update was measured against, if known.
  */
-export function draftOnlyScheduleCfg(cfg: ScheduleCfg): ScheduleCfg {
-	return { ...cfg, enabled: true }
+export function scheduleCfgAfterWrite(
+	cfg: ScheduleCfg,
+	update: boolean,
+	deployed: ScheduleCfg | undefined
+): ScheduleCfg {
+	const enabled = !update ? true : deployed ? deployed.enabled : cfg.enabled
+	return normalizeScheduleCfg({ ...cfg, enabled })
 }
 
 /** The handlers a new schedule starts with, from the workspace's defaults. */
@@ -263,8 +268,7 @@ export async function newScheduleCfg(opts: NewScheduleOptions): Promise<Schedule
 		cron_version: s?.cron_version ?? 'v2',
 		timezone: s?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
 		paused_until: s?.paused_until ?? undefined,
-		// A create always enables the schedule (`writeScheduleCfg`), so that is where a new one
-		// starts: the deployed side a create records is the value it sent.
+		// A create always enables the schedule (`writeScheduleCfg`), so that is where a new one starts.
 		enabled: true,
 		summary: s?.summary ?? '',
 		labels: s?.labels ?? undefined,

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-	draftOnlyScheduleCfg,
 	normalizeScheduleCfg,
+	scheduleCfgAfterWrite,
 	scheduleCfgOf,
 	scheduleFormOf
 } from './scheduleCfg'
@@ -43,15 +43,18 @@ describe('schedule config normalization', () => {
 		expect(once).not.toHaveProperty('edited_by')
 	})
 
-	// Deploying a draft-only schedule creates it, and a create always enables it. A draft that
-	// kept its stored state would show a disabled schedule the server has enabled, and later
-	// updates omit the field, so nothing would ever correct it.
-	it('records a draft-only schedule as enabled, however it was stored', () => {
-		expect(
-			draftOnlyScheduleCfg(normalizeScheduleCfg({ ...deployed, enabled: false }))
-		).toMatchObject({ enabled: true })
+	// Neither endpoint takes `enabled` from the config, and the item records this as its deployed
+	// side: a disabled config recorded as sent would show a running schedule as disabled for good.
+	it('records the enabled state a write leaves on the server, not the one sent', () => {
+		const disabled = normalizeScheduleCfg({ ...deployed, enabled: false })
+		const created = scheduleCfgAfterWrite(disabled, false, undefined)
+		// Serialized like the form's own config, since saves compare them exactly.
+		expect(JSON.stringify(created)).toBe(JSON.stringify(normalizeScheduleCfg(deployed)))
 		const { enabled: _dropped, ...withoutEnabled } = deployed
-		expect(draftOnlyScheduleCfg(normalizeScheduleCfg(withoutEnabled))).toMatchObject({
+		expect(
+			scheduleCfgAfterWrite(normalizeScheduleCfg(withoutEnabled), false, undefined)
+		).toMatchObject({ enabled: true })
+		expect(scheduleCfgAfterWrite(disabled, true, normalizeScheduleCfg(deployed))).toMatchObject({
 			enabled: true
 		})
 	})

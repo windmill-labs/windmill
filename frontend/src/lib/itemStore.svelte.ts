@@ -58,7 +58,10 @@ export type ItemWriteContext<V> = ItemKey & {
 
 export type ItemAdapter<V> = {
 	load?: (key: ItemKey) => Promise<ItemLoad<V>>
-	write?: (ctx: ItemWriteContext<V>) => Promise<void>
+	/** Resolves to what the server holds after the write, when that is not `value`: an endpoint
+	 *  that sets a field on its own (a schedule create enabling it) would otherwise be recorded
+	 *  as holding what was sent. */
+	write?: (ctx: ItemWriteContext<V>) => Promise<V | void>
 	/** Where a save puts `value`. Defaults to its `path` field. */
 	pathOf?: (value: V) => string
 	/**
@@ -351,20 +354,23 @@ class Entry<V> {
 				return { ok: true, path: from.path, moved: false }
 			}
 			const to = (adapter.pathOf ?? ((v: V) => (v as { path: string }).path))(sent)
+			let held: V
 			try {
 				if (!adapter.write) throw new Error('This item cannot be saved')
-				await adapter.write({
-					...from,
-					value: sent,
-					deployed: this.origin === 'deployed' ? snapshot(this.deployed) : undefined,
-					meta: this.meta
-				})
+				held =
+					(await adapter.write({
+						...from,
+						value: sent,
+						deployed: this.origin === 'deployed' ? snapshot(this.deployed) : undefined,
+						meta: this.meta
+					})) ?? sent
 			} catch (e) {
 				this.error = errorMessage(e)
 				return { ok: false, error: this.error }
 			}
 			this.error = undefined
-			this.deployed = { ...sent, ...this.patched } as V
+			if (held !== sent) this.adopt(sent, held)
+			this.deployed = { ...held, ...this.patched } as V
 			this.origin = 'deployed'
 			this.template = undefined
 			const moved = to !== from.path
@@ -377,6 +383,22 @@ class Entry<V> {
 		const result = this.queue.then(body).finally(started)
 		this.queue = result.catch(() => {})
 		return result
+	}
+
+	/** Give the value each field the server set otherwise than `sent` asked, unless the user has
+	 *  changed that field since: left as sent, it would read as a draft of a change nobody made. */
+	private adopt(sent: V, held: V): void {
+		if (this.value === undefined) return
+		const s = sent as Record<string, unknown>
+		const h = held as Record<string, unknown>
+		const next = snapshot(this.value) as Record<string, unknown>
+		let changed = false
+		for (const k of new Set([...Object.keys(s), ...Object.keys(h)])) {
+			if (deepEqual(s[k], h[k]) || !deepEqual(next[k], s[k])) continue
+			next[k] = h[k]
+			changed = true
+		}
+		if (changed) this.replaceValue(next as V)
 	}
 
 	discard(): Promise<DiscardOutcome> {

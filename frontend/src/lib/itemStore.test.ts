@@ -308,6 +308,35 @@ describe('item store: commands', () => {
 		expect(await item.save()).toMatchObject({ ok: true })
 		expect(writes).toEqual([{ path: 's', permissioned_as: 'u/b' }])
 	})
+
+	it('records what a write left on the server, and gives the value the fields it set', async () => {
+		type Sched = { path: string; enabled: boolean; summary: string }
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const gate = deferred()
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'trigger_schedule', path: 's' },
+			{ workspace: 'w', path: 's' },
+			{
+				load: async () => ({ draft: { path: 's', enabled: false, summary: '' } }),
+				write: async (ctx) => {
+					await gate.promise
+					return { ...ctx.value, enabled: true }
+				}
+			} as ItemAdapter<Sched>
+		)
+		await settle()
+
+		const saving = item.save()
+		item.value = { path: 's', enabled: false, summary: 'typed during the save' }
+		gate.resolve()
+		expect(await saving).toMatchObject({ ok: true })
+
+		const kept = { path: 's', enabled: true, summary: 'typed during the save' }
+		expect(item.deployed).toEqual({ path: 's', enabled: true, summary: '' })
+		expect(item.value).toEqual(kept)
+		expect(rows.writes.at(-1)).toEqual({ path: 's', value: kept })
+	})
 })
 
 describe('item store: outside writes', () => {
