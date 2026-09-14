@@ -161,10 +161,10 @@ function bumpDirty(sessionId: string): void {
 	}
 }
 
-/** Drop a dirty mark with nothing behind it (a session gone from the store, an unsent
- * draft, a workspace with no storage). A mark whose push landed is not dropped but retired
- * through `flushedV` on the sync row: two localStorage calls cannot compare-and-delete, and
- * a bump landing between them would be lost. */
+/** Drop the dirty mark of a session gone from the store, the one case nothing can bump
+ * again. Every other mark stays: one whose push landed is retired through `flushedV` on
+ * the sync row (two localStorage calls cannot compare-and-delete, and a bump landing
+ * between them would be lost), and a draft's or an off workspace's waits its turn. */
 function dropDirty(sessionId: string): void {
 	const base = pendingBase()
 	if (base) removeKey(dirtyKey(base, sessionId))
@@ -575,7 +575,18 @@ async function flush(): Promise<void> {
 			backOff()
 			return
 		}
-		if (marks.dirty.length === 0 && marks.removed.length === 0) return
+		// Read once: retired marks are not reclaimed (a mark cannot be deleted without a
+		// window in which a bump is lost), so there is one per session ever backed up, and
+		// telling them apart from live ones is what lets a flush with nothing to do stop
+		// here, before the sessions store.
+		const syncRows = new Map(
+			((await (await syncDb(email))?.getAll('sync')) ?? []).map((row) => [row.id, row])
+		)
+		const live = marks.dirty.filter((d) => {
+			const sync = syncRows.get(d.id)
+			return !(sync && !sync.stale && (sync.flushedV ?? -1) >= d.v)
+		})
+		if (live.length === 0 && marks.removed.length === 0) return
 		const stored = await readStoredSessions(email)
 		if (!stored) {
 			backOff()
@@ -590,11 +601,6 @@ async function flush(): Promise<void> {
 		}
 		const droppedDirty: string[] = []
 		const consumedRemoved: string[] = []
-		// Read once: retired marks are not reclaimed (a mark cannot be deleted without a
-		// window in which a bump is lost), so there is one per session ever backed up.
-		const syncRows = new Map(
-			((await (await syncDb(email))?.getAll('sync')) ?? []).map((row) => [row.id, row])
-		)
 
 		for (const r of marks.removed) {
 			const sync = syncRows.get(r.id)
@@ -609,7 +615,7 @@ async function flush(): Promise<void> {
 				workFor(ws).removed.push({ id: r.id, key: r.key })
 			} else if (wsState.get(ws) === 'off' && !sync) consumedRemoved.push(r.key)
 		}
-		for (const d of marks.dirty) {
+		for (const d of live) {
 			const session = byId.get(d.id)
 			// Gone from the store, so nothing can bump it again; an unsent draft keeps its
 			// mark, since it may commit to a workspace while this flush runs.
@@ -623,8 +629,6 @@ async function flush(): Promise<void> {
 			// remember the old copy, and a mark costs one lookup per flush.
 			if (state === 'off' || state === 'refused') continue
 			const sync = syncRows.get(d.id)
-			// Retired: a push already covered this counter.
-			if (sync && !sync.stale && (sync.flushedV ?? -1) >= d.v) continue
 			// A stale row plans like no row at all: the whole session goes again. One naming
 			// another workspace still says where the old copy is, stale or not.
 			workFor(session.workspace_id).items.push({
@@ -649,10 +653,9 @@ async function flush(): Promise<void> {
 				}
 				continue
 			}
-			if (out.status === 'refused') {
-				wsState.set(ws, 'refused')
-				continue
-			}
+			// Refused stops the workspace for the page, but what the earlier requests of this
+			// flush stored is recorded like any other.
+			if (out.status === 'refused') wsState.set(ws, 'refused')
 			if (out.status === 'transient' || out.anyFailed || out.unavailable) backOff()
 			else settledAny = true
 			// A session with deletes carried over stays one bump short of retired, so the
