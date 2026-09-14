@@ -212,12 +212,13 @@ pub struct AclGrant {
     /// `None` for the target itself, else the object inside it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub object: Option<AclObject>,
-    /// `TABLES` / `SEQUENCES` / `FUNCTIONS` when this is a default privilege, which applies to
-    /// objects that do not exist yet.
+    /// `TABLES` / `SEQUENCES` / `FUNCTIONS` / `TYPES` (or, on the database, `SCHEMAS`) when this
+    /// is a default privilege, which applies to objects that do not exist yet.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub future: Option<String>,
     /// Where the grant comes from, each role once: who granted it, or for a default privilege the
-    /// role whose future objects it covers. A revoke takes it back from every one of them.
+    /// role whose future objects it covers. A revoke of some of the privileges takes them back from
+    /// every source that gave them.
     pub sources: Vec<AclSource>,
 }
 
@@ -231,8 +232,8 @@ pub struct AclSource {
     pub privileges: Vec<String>,
     /// Whether this data table's connection can take back what `role` gave: on an object only the
     /// owner's grants when it acts for the owner, or else its own (`grant_source!`); for a default
-    /// privilege, a creating role it acts for. A grant with any source out of reach is not
-    /// revocable from here.
+    /// privilege, a creating role it acts for. What a source out of reach gave is not revocable
+    /// from here; privileges only other sources gave still are.
     pub reachable: bool,
 }
 
@@ -466,11 +467,12 @@ macro_rules! database_wide_defaults {
     };
 }
 
-/// `TABLES`, `SEQUENCES` or `FUNCTIONS`, as a `defaclobjtype` names them.
+/// `TABLES`, `SEQUENCES`, `FUNCTIONS` or `TYPES`, as a `defaclobjtype` names them.
 fn default_objects_keyword(objtype: &str) -> &'static str {
     match objtype {
         "r" => "TABLES",
         "S" => "SEQUENCES",
+        "T" => "TYPES",
         _ => "FUNCTIONS",
     }
 }
@@ -481,7 +483,8 @@ fn default_objects_keyword(objtype: &str) -> &'static str {
 #[derive(Debug, PartialEq)]
 pub(crate) struct FormerOwnerDefaults {
     pub(crate) pg_role: String,
-    /// (creating role, `TABLES` / `SEQUENCES` / `FUNCTIONS`), one per default privilege it holds.
+    /// (creating role, `TABLES` / `SEQUENCES` / `FUNCTIONS` / `TYPES`), one per default privilege
+    /// it holds.
     pub(crate) defaults: Vec<(String, &'static str)>,
 }
 
@@ -504,7 +507,7 @@ async fn read_former_owner_defaults(
                 database_wide_defaults!(),
                 ") g
                  WHERE n.nspname = $1 AND g.grantee = n.nspowner
-                   AND g.defaclobjtype IN ('r', 'S', 'f')
+                   AND g.defaclobjtype IN ('r', 'S', 'f', 'T')
                    AND n.nspowner <> (SELECT oid FROM pg_roles WHERE rolname = $2)
                  ORDER BY 2, 3
                  LIMIT 1"
@@ -542,7 +545,7 @@ async fn read_former_owner_defaults(
              JOIN pg_default_acl d ON d.defaclnamespace = n.oid
              CROSS JOIN LATERAL aclexplode(d.defaclacl) a
              WHERE n.nspname = $1 AND a.grantee = n.nspowner
-               AND d.defaclobjtype IN ('r', 'S', 'f')
+               AND d.defaclobjtype IN ('r', 'S', 'f', 'T')
                AND n.nspowner <> (SELECT oid FROM pg_roles WHERE rolname = $2)
              ORDER BY 2, 3",
             &[&schema, &new_owner],
@@ -1746,7 +1749,10 @@ mod tests {
                 "CREATE SCHEMA owned AUTHORIZATION pg_read_all_data;
                  ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO pg_read_all_data;
                  ALTER DEFAULT PRIVILEGES IN SCHEMA owned
-                     GRANT SELECT, INSERT ON TABLES TO pg_read_all_data;",
+                     GRANT SELECT, INSERT ON TABLES TO pg_read_all_data;
+                 CREATE SCHEMA creators AUTHORIZATION pg_monitor;
+                 ALTER DEFAULT PRIVILEGES FOR ROLE pg_monitor
+                     GRANT SELECT ON TABLES TO pg_read_all_stats;",
             )
             .await
             .unwrap();
@@ -1761,8 +1767,15 @@ mod tests {
             .iter()
             .find(|g| g.grantee == "pg_read_all_data" && g.future.as_deref() == Some("TABLES"))
             .unwrap_or_else(|| panic!("{grants:?}"));
-        // The creator's own privileges come with the entry, not with a grant.
         assert_eq!(database_wide.privileges, ["SELECT"]);
+        // A database-wide entry also holds its creator's own privileges, which come with creating
+        // and are no grant: neither a row nor a refusal may stem from them.
+        assert!(
+            !grants
+                .iter()
+                .any(|g| g.future.is_some() && (g.grantee == creator || g.grantee == "pg_monitor")),
+            "{grants:?}"
+        );
         assert_eq!(
             database_wide.sources.len(),
             1,
@@ -1804,6 +1817,41 @@ mod tests {
         assert!(
             matches!(&moved, Err(Error::BadRequest(m)) if m.contains("database-wide")),
             "{moved:?}"
+        );
+        let moved_from_creator =
+            read_former_owner_defaults(&client, "creators", "pg_write_all_data").await;
+        assert!(
+            matches!(moved_from_creator, Ok(None)),
+            "{moved_from_creator:?}"
+        );
+    }
+
+    /// Defaults on types go with a schema's owner like the other kinds: once a database-wide
+    /// default takes PUBLIC's USAGE on types away, they are all that reaches a new type.
+    #[sqlx::test(migrations = false)]
+    async fn a_schemas_former_owner_defaults_include_types(pool: sqlx::PgPool) {
+        let client = catalog_client(&pool).await;
+        client
+            .batch_execute(
+                "CREATE SCHEMA typed AUTHORIZATION pg_read_all_data;
+                 ALTER DEFAULT PRIVILEGES IN SCHEMA typed GRANT USAGE ON TYPES TO pg_read_all_data;",
+            )
+            .await
+            .unwrap();
+        let creator: String = client
+            .query_one("SELECT current_user::text", &[])
+            .await
+            .unwrap()
+            .get(0);
+        let former = read_former_owner_defaults(&client, "typed", "pg_write_all_data")
+            .await
+            .unwrap();
+        assert_eq!(
+            former,
+            Some(FormerOwnerDefaults {
+                pg_role: "pg_read_all_data".to_string(),
+                defaults: vec![(creator, "TYPES")],
+            })
         );
     }
 
