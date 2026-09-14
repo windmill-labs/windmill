@@ -94,6 +94,19 @@ describe('planSessionPush', () => {
 		expect(plan?.next.images).toEqual({})
 	})
 
+	it('carries deletes past the per-entry cap over to the next push', () => {
+		const prevChats = Object.fromEntries(Array.from({ length: 1005 }, (_, i) => [`c${i}`, 10]))
+		const plan = planSessionPush({
+			session: session(),
+			chats: [],
+			artifacts: noArtifacts,
+			sync: synced({ chats: prevChats, images: {} })
+		})
+		expect(plan?.entry?.delete_chats).toHaveLength(1000)
+		// Still listed as pushed, so the next plan finds them gone again.
+		expect(Object.keys(plan?.next.chats ?? {})).toHaveLength(5)
+	})
+
 	it('deletes a chat that is gone and an image its chat evicted', () => {
 		const plan = planSessionPush({
 			session: session(),
@@ -156,6 +169,7 @@ describe('jsonBytes', () => {
 	it('counts the bytes the request carries, not UTF-16 code units', () => {
 		expect(jsonBytes('ab')).toBe(4)
 		expect(jsonBytes('日本')).toBe(8)
+		expect(jsonBytes('😀')).toBe(6)
 	})
 })
 

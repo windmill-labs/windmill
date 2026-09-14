@@ -24,6 +24,10 @@ export interface MirrorSyncState {
 	 * next push carries everything again. Kept rather than deleted, so a removal still
 	 * knows a backup existed. */
 	stale?: boolean
+	/** The dirty mark's counter this push covered. A mark is pending while its counter is
+	 * above this; retiring it here rather than deleting the mark means a tab bumping the
+	 * counter while another flushes can never have its bump erased. */
+	flushedV?: number
 }
 
 /**
@@ -157,17 +161,23 @@ export function planSessionPush(input: PlanInput): PlannedPush | undefined {
 	}
 	if (prev) {
 		const gone = Object.keys(prev.chats).filter((id) => next.chats[id] === undefined)
-		if (gone.length > 0) {
-			entry.delete_chats = gone
-			changed = true
-		}
 		// An image evicted by the per-chat cap, from a chat that is still there (a deleted
 		// chat takes its images with it server-side).
-		const evicted = Object.entries(prev.images)
-			.filter(([id, chatId]) => next.images[id] === undefined && next.chats[chatId] !== undefined)
-			.map(([id, chatId]) => ({ chat_id: chatId, id }))
+		const evicted = Object.entries(prev.images).filter(
+			([id, chatId]) => next.images[id] === undefined && next.chats[chatId] !== undefined
+		)
+		// Past the server's cap per entry, the rest stays in `next` as if still pushed, so
+		// the following push finds it gone again.
+		if (gone.length > 0) {
+			entry.delete_chats = gone.slice(0, MAX_DELETES_PER_ENTRY)
+			for (const id of gone.slice(MAX_DELETES_PER_ENTRY)) next.chats[id] = prev.chats[id]
+			changed = true
+		}
 		if (evicted.length > 0) {
 			entry.delete_images = evicted
+				.slice(0, MAX_DELETES_PER_ENTRY)
+				.map(([id, chatId]) => ({ chat_id: chatId, id }))
+			for (const [id, chatId] of evicted.slice(MAX_DELETES_PER_ENTRY)) next.images[id] = chatId
 			changed = true
 		}
 	}
@@ -189,9 +199,22 @@ export function planSessionPush(input: PlanInput): PlannedPush | undefined {
 }
 
 /** Bytes a JSON body would carry for this value, as sent: UTF-8, not UTF-16 code units,
- * which would under-count a transcript in a non-Latin script by up to three times. */
+ * which would under-count a transcript in a non-Latin script by up to three times. Counted
+ * rather than encoded: the values measured are the multi-megabyte ones. */
 export function jsonBytes(value: unknown): number {
-	return new TextEncoder().encode(JSON.stringify(value)).byteLength
+	const text = JSON.stringify(value)
+	let bytes = 0
+	for (let i = 0; i < text.length; i++) {
+		const c = text.charCodeAt(i)
+		if (c < 0x80) bytes += 1
+		else if (c < 0x800) bytes += 2
+		else if (c >= 0xd800 && c <= 0xdbff) {
+			// A surrogate pair is one four-byte code point.
+			bytes += 4
+			i++
+		} else bytes += 3
+	}
+	return bytes
 }
 
 /** Object-store calls the server makes for an entry, the unit its per-request cap counts. */
@@ -210,8 +233,9 @@ export interface PushBody {
 	removed?: string[]
 }
 
-/** The server's cap on chats per entry. */
+/** The server's caps on chats and on each delete list per entry. */
 export const MAX_CHATS_PER_ENTRY = 100
+export const MAX_DELETES_PER_ENTRY = 1000
 
 /**
  * Break an entry that outgrows the target, or the server's per-entry chat cap, into

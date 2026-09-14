@@ -149,11 +149,6 @@ function readPending(): PendingMarks {
 	return marks
 }
 
-function hasPending(): boolean {
-	const marks = readPending()
-	return marks.dirty.length > 0 || marks.removed.length > 0
-}
-
 function bumpDirty(sessionId: string): void {
 	const base = pendingBase()
 	if (!base) return
@@ -166,14 +161,13 @@ function bumpDirty(sessionId: string): void {
 	}
 }
 
-/** Clear a dirty mark, unless it was bumped since the flush read it. */
-function clearDirty(sessionId: string, v: number): void {
+/** Drop a dirty mark with nothing behind it (a session gone from the store, an unsent
+ * draft, a workspace with no storage). A mark whose push landed is not dropped but retired
+ * through `flushedV` on the sync row: two localStorage calls cannot compare-and-delete, and
+ * a bump landing between them would be lost. */
+function dropDirty(sessionId: string): void {
 	const base = pendingBase()
-	if (!base) return
-	try {
-		const key = dirtyKey(base, sessionId)
-		if (Number(localStorage.getItem(key)) === v) localStorage.removeItem(key)
-	} catch {}
+	if (base) removeKey(dirtyKey(base, sessionId))
 }
 
 function addRemoved(sessionId: string, ws: string | undefined, dropDirty: boolean): void {
@@ -355,7 +349,7 @@ type SendStatus = 'ok' | 'off' | 'refused' | 'abort' | 'transient'
 interface WorkspaceOutcome {
 	status: SendStatus
 	/** Sessions every part of which the server stored. */
-	settled: { id: string; v: number; next: MirrorSyncState }[]
+	settled: { id: string; v: number; next: MirrorSyncState; removeFrom?: string }[]
 	/** Marks with nothing behind them (an unsent draft, a session gone from the store). */
 	dropped: { id: string; v: number }[]
 	/** Removal marks the server carried out. */
@@ -364,8 +358,6 @@ interface WorkspaceOutcome {
 	anyFailed: boolean
 	/** Some store could not be read; its marks stay for a later flush. */
 	unavailable: boolean
-	/** A session moved workspace and left a removal mark for the old one behind. */
-	movedAny: boolean
 }
 
 /**
@@ -385,15 +377,14 @@ async function pushWorkspace(
 		dropped: [],
 		removedDone: [],
 		anyFailed: false,
-		unavailable: false,
-		movedAny: false
+		unavailable: false
 	}
 	// Parts of a session still to be acknowledged, and the sessions the server refused.
 	// `complete` once every part of the session has been appended: a session whose first
 	// part is still to come when a request fails has nothing behind it yet.
 	const attempted = new Map<
 		string,
-		{ v: number; next: MirrorSyncState; parts: number; complete: boolean }
+		{ v: number; next: MirrorSyncState; parts: number; complete: boolean; removeFrom?: string }
 	>()
 	const failed = new Set<string>()
 	let current: PushBody | undefined
@@ -480,7 +471,7 @@ async function pushWorkspace(
 		out.status = status
 		for (const [id, a] of attempted) {
 			if (a.complete && a.parts === 0 && !failed.has(id)) {
-				out.settled.push({ id, v: a.v, next: a.next })
+				out.settled.push({ id, v: a.v, next: a.next, removeFrom: a.removeFrom })
 			}
 		}
 		out.anyFailed = failed.size > 0
@@ -504,19 +495,16 @@ async function pushWorkspace(
 			out.dropped.push({ id: item.session.id, v: item.v })
 			continue
 		}
-		// A move: the copy in the old workspace goes on its own mark, so it is retried on
-		// its own if this push lands and its removal does not; that holds for an old
-		// workspace whose backups are off for now, which may hold the copy still.
-		if (plan.removeFrom) {
-			addRemoved(item.session.id, plan.removeFrom, false)
-			out.movedAny = true
-		}
 		const nothingToSend = !plan.entry && plan.images.length === 0
+		// A move: the copy in the old workspace is filed for removal once this push has
+		// landed (see `settled`), never before, so the session is backed up somewhere at
+		// every point.
 		attempted.set(item.session.id, {
 			v: item.v,
 			next: plan.next,
 			parts: 0,
-			complete: nothingToSend
+			complete: nothingToSend,
+			removeFrom: plan.removeFrom
 		})
 		if (nothingToSend) continue
 		let images: AISessionBackupImage[] = []
@@ -580,7 +568,7 @@ async function flush(): Promise<void> {
 			if (!w) work.set(ws, (w = { items: [], removed: [] }))
 			return w
 		}
-		const consumedDirty: { id: string; v: number }[] = []
+		const droppedDirty: string[] = []
 		const consumedRemoved: string[] = []
 
 		for (const r of marks.removed) {
@@ -599,18 +587,21 @@ async function flush(): Promise<void> {
 		for (const d of marks.dirty) {
 			const session = byId.get(d.id)
 			if (!session || session.transient || !session.workspace_id) {
-				consumedDirty.push(d)
+				droppedDirty.push(d.id)
 				continue
 			}
 			const state = wsState.get(session.workspace_id)
-			if (state === 'off') consumedDirty.push(d)
+			if (state === 'off') droppedDirty.push(d.id)
 			else if (state !== 'refused') {
-				// A stale row plans like no row at all: the whole session goes again.
 				const sync = await readSync(d.id, email)
+				// Retired: a push already covered this counter.
+				if (sync && !sync.stale && (sync.flushedV ?? -1) >= d.v) continue
+				// A stale row plans like no row at all: the whole session goes again. One naming
+				// another workspace still says where the old copy is, stale or not.
 				workFor(session.workspace_id).items.push({
 					session,
 					v: d.v,
-					sync: sync?.stale ? undefined : sync
+					sync: sync?.stale && sync.ws === session.workspace_id ? undefined : sync
 				})
 			}
 		}
@@ -619,12 +610,11 @@ async function flush(): Promise<void> {
 		let movedAny = false
 		for (const [ws, w] of work) {
 			const out = await pushWorkspace(ws, w, email)
-			movedAny ||= out.movedAny
 			if (out.status === 'abort') return
 			if (out.status === 'off') {
 				wsState.set(ws, 'off')
 				await staleWorkspaceSync(ws, email)
-				for (const item of w.items) consumedDirty.push({ id: item.session.id, v: item.v })
+				for (const item of w.items) droppedDirty.push(item.session.id)
 				// Same rule as the loop above: a removal is worth keeping only for a session
 				// that was backed up from here.
 				for (const r of w.removed) {
@@ -639,10 +629,17 @@ async function flush(): Promise<void> {
 			if (out.status === 'transient' || out.anyFailed || out.unavailable) backOff()
 			else settledAny = true
 			await writeSync(
-				out.settled.map((s) => s.next),
+				out.settled.map((s) => ({ ...s.next, flushedV: s.v })),
 				email
 			)
-			consumedDirty.push(...out.settled, ...out.dropped)
+			// The new workspace holds the moved session now; the old copy can go.
+			for (const s of out.settled) {
+				if (s.removeFrom) {
+					addRemoved(s.id, s.removeFrom, false)
+					movedAny = true
+				}
+			}
+			droppedDirty.push(...out.dropped.map((d) => d.id))
 			for (const r of out.removedDone) {
 				// The row describes this workspace's copy only; a session that moved on keeps
 				// the row its new workspace wrote.
@@ -652,7 +649,7 @@ async function flush(): Promise<void> {
 		}
 		if (settledAny && Date.now() >= retryAt) retryMs = RETRY_MIN_MS
 		if (getCurrentUserEmail() !== email) return
-		for (const { id, v } of consumedDirty) clearDirty(id, v)
+		for (const id of droppedDirty) dropDirty(id)
 		for (const key of consumedRemoved) removeKey(key)
 		// Whatever is still marked is either waiting on the backoff timer, on a write that
 		// scheduled its own flush, or on a workspace that is off or refused for the page;
@@ -851,7 +848,7 @@ if (BROWSER) {
 	// A tab going to the background may not come back: carry what it has now.
 	if (typeof document !== 'undefined') {
 		document.addEventListener('visibilitychange', () => {
-			if (document.visibilityState === 'hidden' && hasPending()) runFlush()
+			if (document.visibilityState === 'hidden') runFlush()
 		})
 	}
 }
@@ -859,6 +856,11 @@ if (BROWSER) {
 /** Test-only: run a flush now, outside the timers. */
 export function __flushForTesting(): Promise<void | undefined> {
 	return enqueue(flush)
+}
+
+/** Test-only: what the sync table holds for the user. */
+export async function __syncRowsForTesting(email: string): Promise<MirrorSyncState[]> {
+	return (await (await syncDb(email))?.getAll('sync')) ?? []
 }
 
 /** Test-only: wait for whatever flush or restore is queued. */

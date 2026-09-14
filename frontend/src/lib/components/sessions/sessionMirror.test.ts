@@ -51,6 +51,7 @@ import {
 	__flushForTesting,
 	__resetMirrorForTesting,
 	__settleForTesting,
+	__syncRowsForTesting,
 	restoreSessionBackups
 } from './sessionMirror.svelte'
 
@@ -70,6 +71,25 @@ function pendingKeys(): string[] {
 		if (key?.startsWith(PENDING_PREFIX)) keys.push(key.slice(PENDING_PREFIX.length))
 	}
 	return keys.sort()
+}
+
+function removalKeys(): string[] {
+	return pendingKeys().filter((k) => k.startsWith('r::'))
+}
+
+/** Sessions whose dirty counter no push has covered yet. */
+async function pendingDirty(): Promise<string[]> {
+	const flushed = new Map<string, number>()
+	for (const r of await __syncRowsForTesting(EMAIL)) {
+		flushed.set(r.id, r.stale ? -1 : (r.flushedV ?? -1))
+	}
+	const out: string[] = []
+	for (const key of pendingKeys()) {
+		if (!key.startsWith('d::')) continue
+		const id = key.slice(3)
+		if (Number(localStorage.getItem(PENDING_PREFIX + key)) > (flushed.get(id) ?? -1)) out.push(id)
+	}
+	return out.sort()
 }
 
 beforeEach(async () => {
@@ -128,7 +148,7 @@ describe('sessionMirror flush', () => {
 		// The record keeps its blob ref; bytes travel as the image object only.
 		expect(JSON.stringify(entry.chats[0].record)).not.toContain(IMAGE)
 		expect(entry.artifacts).toBeUndefined()
-		expect(pendingKeys()).toEqual([])
+		expect(await pendingDirty()).toEqual([])
 
 		// Reading the session is not a change the backup keeps.
 		await putSession({ ...s, lastSeenCount: 2, lastActivityAt: 99 })
@@ -158,13 +178,13 @@ describe('sessionMirror flush', () => {
 		pushMock.mockRejectedValueOnce(new TypeError('network'))
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(1)
-		expect(pendingKeys()).toEqual(['d::s2'])
+		expect(await pendingDirty()).toEqual(['s2'])
 		// Still marked: the retry carries it again once the backoff lapses.
 		__resetMirrorForTesting()
 		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 's2' }] })
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(2)
-		expect(pendingKeys()).toEqual([])
+		expect(await pendingDirty()).toEqual([])
 
 		// The storage goes away: no further request for the page. A delete keeps its
 		// removal mark only for a session that was backed up (s2), for when backups are on
@@ -193,7 +213,7 @@ describe('sessionMirror flush', () => {
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(1)
 		expect(pushMock.mock.calls[0][0].requestBody.sessions).toHaveLength(100)
-		expect(pendingKeys()).toHaveLength(101)
+		expect(await pendingDirty()).toHaveLength(101)
 
 		// Once the backoff lapses, every one of them is carried again.
 		__resetMirrorForTesting()
@@ -211,7 +231,7 @@ describe('sessionMirror flush', () => {
 				.flatMap((c) => c[0].requestBody.sessions.map((s: { id: string }) => s.id))
 				.sort()
 		).toEqual([...ids].sort())
-		expect(pendingKeys()).toEqual([])
+		expect(await pendingDirty()).toEqual([])
 	})
 
 	it('backs off when the server could not store a session, keeping its mark', async () => {
@@ -225,7 +245,7 @@ describe('sessionMirror flush', () => {
 		// Still marked, but not re-sent until the backoff lapses.
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(1)
-		expect(pendingKeys()).toEqual(['d::s3'])
+		expect(await pendingDirty()).toEqual(['s3'])
 	})
 
 	it('fails only the sessions of a request the server found too large', async () => {
@@ -247,9 +267,35 @@ describe('sessionMirror flush', () => {
 		await __flushForTesting()
 		// The second request still went out and settled its session; the first's stay marked.
 		expect(pushMock).toHaveBeenCalledTimes(2)
-		expect(pendingKeys()).toHaveLength(100)
+		expect(await pendingDirty()).toHaveLength(100)
 		const settled = pushMock.mock.calls[1][0].requestBody.sessions[0].id
-		expect(pendingKeys()).not.toContain(`d::${settled}`)
+		expect(await pendingDirty()).not.toContain(settled)
+	})
+
+	it('moves a session whole into its new workspace and files the old copy for removal', async () => {
+		const s: Session = { id: 'mv', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
+		sessionState.sessions = [s]
+		await putSession(s)
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'mv' }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(1)
+
+		// The old workspace's backups go off before the move: its rows go stale, but they
+		// still say where the copy is.
+		await putSession({ ...s, summary: 'changed' })
+		pushMock.mockResolvedValueOnce({ enabled: false, results: [] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(2)
+
+		await putSession({ ...s, summary: 'changed', workspace_id: 'ws2' })
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'mv' }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(3)
+		expect(pushMock.mock.calls[2][0].workspace).toBe('ws2')
+		expect(pushMock.mock.calls[2][0].requestBody.sessions[0].head.workspace_id).toBe('ws2')
+		// The removal waits for the old workspace's backups to be on again.
+		expect(removalKeys()).toEqual(['r::mv::ws'])
+		expect(await pendingDirty()).toEqual([])
 	})
 
 	it('keeps the marks when the server refuses a request, for the next page load', async () => {
@@ -267,7 +313,7 @@ describe('sessionMirror flush', () => {
 		await putSession({ ...s, summary: 'changed' })
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(1)
-		expect(pendingKeys()).toEqual(['d::s4'])
+		expect(await pendingDirty()).toEqual(['s4'])
 	})
 })
 
