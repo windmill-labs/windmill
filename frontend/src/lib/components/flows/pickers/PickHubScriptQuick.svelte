@@ -1,12 +1,6 @@
 <script module lang="ts">
-	let listHubIntegrationsCached = createCache(
-		({ kind }: { kind: HubScriptKind & string; refreshCount?: number }) =>
-			IntegrationService.listHubIntegrations({ kind }).then((integrations) => {
-				setHubIntegrationDisplayNames(integrations)
-				return integrations
-			}),
-		{ initial: { kind: 'script', refreshCount: 0 }, invalidateMs: 1000 * 60 }
-	)
+	// Warm the list the step picker opens on before it first mounts.
+	listHubIntegrationsShared('script').catch(() => {})
 
 	let listHubScriptsCached = createCache(
 		async ({
@@ -43,8 +37,8 @@
 	import { Skeleton } from '$lib/components/common'
 	import { classNames, createCache } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
-	import { setHubIntegrationDisplayNames } from '$lib/components/resourceTypeDisplay'
-	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
+	import { listHubIntegrationsShared } from '$lib/components/displayNameLoaders'
+	import { ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Circle, ExternalLink } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
@@ -118,7 +112,7 @@
 			hubNotAvailable = false
 			// Independent reads, so they share one round trip before first paint.
 			const [integrations, local] = await Promise.all([
-				listHubIntegrationsCached({ kind: filterKind, refreshCount }),
+				listHubIntegrationsShared(filterKind, refreshCount),
 				$workspaceStore ? localCountsByIntegration($workspaceStore) : {}
 			])
 			const hubPicks = Object.fromEntries(integrations.map((x) => [x.name, x.picks ?? 0]))

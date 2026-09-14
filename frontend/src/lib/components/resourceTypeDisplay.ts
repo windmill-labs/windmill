@@ -193,20 +193,35 @@ const hubIntegrationNames = new SvelteMap<string, string>()
 type Named = { name: string; display_name?: string | null }
 
 /**
- * Updates only the entries it is given: one without a name drops any name kept for it, which is
- * how a hub predating display names reverts to inferred labels. Entries it is not given are left
- * alone on purpose, since callers pass single rows and `kind`-filtered listings.
+ * Updates only the names a listing carries: one it carries without a label drops any label kept
+ * for it, which is how a hub predating display names reverts to inferred labels. Names it does not
+ * carry are left alone on purpose, since callers pass `kind`-filtered listings. A listing can carry
+ * one name twice (a workspace's own copy of a hub type beside the `admins` row, in no fixed order),
+ * so a label from either entry wins over none.
  */
 function recordNames(names: SvelteMap<string, string>, entries: Named[]): void {
+	const labels = new Map<string, string | undefined>()
 	for (const entry of entries) {
 		const label = entry.display_name?.trim()
-		if (label) names.set(entry.name, label)
-		else names.delete(entry.name)
+		if (label) labels.set(entry.name, label)
+		else if (!labels.has(entry.name)) labels.set(entry.name, undefined)
+	}
+	for (const [name, label] of labels) {
+		if (label) names.set(name, label)
+		else names.delete(name)
 	}
 }
 
 export function setResourceTypeDisplayNames(types: Named[]): void {
 	recordNames(resourceTypeNames, types)
+}
+
+/**
+ * Records the name a single row carries, and never clears one: reading one type can return a
+ * workspace's nameless copy of a named hub type. A name the hub drops is cleared by the next listing.
+ */
+export function addResourceTypeDisplayName(type: Named): void {
+	if (type.display_name?.trim()) recordNames(resourceTypeNames, [type])
 }
 
 export function setHubIntegrationDisplayNames(integrations: Named[]): void {

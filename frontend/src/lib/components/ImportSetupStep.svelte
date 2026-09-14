@@ -20,8 +20,8 @@
 	import { OauthService } from '$lib/gen'
 	import { registryCcCapableFor } from '$lib/components/oauthRegistry'
 	import {
-		resourceTypeDisplayName,
-		setResourceTypeDisplayNames
+		addResourceTypeDisplayName,
+		resourceTypeDisplayName
 	} from '$lib/components/resourceTypeDisplay'
 	import { loadResourceTypeDisplayName } from '$lib/components/displayNameLoaders'
 	import { applyOneMigration } from '$lib/components/workspaceSettings/projectInstall'
@@ -409,7 +409,7 @@
 			let requirementsUnknown = false
 			try {
 				const rt = await ResourceService.getResourceType({ workspace, path: r.resource_type })
-				setResourceTypeDisplayNames([rt])
+				addResourceTypeDisplayName(rt)
 				const schema = rt?.schema as { required?: string[] } | undefined
 				required = schema?.required ?? []
 			} catch {

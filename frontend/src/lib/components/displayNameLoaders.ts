@@ -2,7 +2,7 @@ import { get } from 'svelte/store'
 import { IntegrationService, ResourceService } from '$lib/gen'
 import { disableHubStore } from '$lib/stores'
 import { createCache } from '$lib/utils'
-import { setHubIntegrationDisplayNames, setResourceTypeDisplayNames } from './resourceTypeDisplay'
+import { addResourceTypeDisplayName, setHubIntegrationDisplayNames } from './resourceTypeDisplay'
 
 /**
  * Loads what `resourceTypeDisplayName` and `integrationDisplayName` read: a type's stored name for a
@@ -15,7 +15,7 @@ const CACHE_MS = 60_000
 const resourceTypeRowCached = createCache(
 	({ workspace, name }: { workspace: string; name: string }) =>
 		ResourceService.getResourceType({ workspace, path: name }).then(
-			(rt) => setResourceTypeDisplayNames([rt]),
+			(rt) => addResourceTypeDisplayName(rt),
 			() => {}
 		),
 	{ invalidateMs: CACHE_MS, maxSize: 50 }
@@ -29,22 +29,32 @@ export function loadResourceTypeDisplayName(workspace: string, name: string): Pr
 	return resourceTypeRowCached({ workspace, name })
 }
 
+/** Bumped by every failed read, so the next caller keys a fresh read rather than the rejection. */
+let failedReads = 0
+
 const hubIntegrationsCached = createCache(
-	({ kind }: { kind?: string }) =>
-		IntegrationService.listHubIntegrations({ kind }).then((integrations) => {
-			setHubIntegrationDisplayNames(integrations)
-			return integrations
-		}),
+	({ kind }: { kind?: string; refresh: number; attempt: number }) =>
+		IntegrationService.listHubIntegrations({ kind }).then(
+			(integrations) => {
+				setHubIntegrationDisplayNames(integrations)
+				return integrations
+			},
+			(error) => {
+				failedReads += 1
+				throw error
+			}
+		),
 	{ invalidateMs: CACHE_MS }
 )
 
 /**
  * The hub's integration list, read once a minute per `kind` however many pickers ask, recording
- * each integration's name on the way. A failed read is kept for that minute too, and rejects, so
- * a picker can say the hub is unavailable.
+ * each integration's name on the way. A failed read rejects, so a picker can say the hub is
+ * unavailable, but is not kept: the next caller reads again. `refresh` is a picker's refresh
+ * count, and a new value reads again too.
  */
-export function listHubIntegrationsShared(kind?: string) {
-	return hubIntegrationsCached({ kind })
+export function listHubIntegrationsShared(kind?: string, refresh = 0) {
+	return hubIntegrationsCached({ kind, refresh, attempt: failedReads })
 }
 
 /**

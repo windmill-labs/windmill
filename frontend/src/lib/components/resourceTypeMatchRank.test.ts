@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
 	addResourceTitle,
+	addResourceTypeDisplayName,
 	integrationDisplayName,
 	resourceTypeDisplayName,
 	setHubIntegrationDisplayNames,
@@ -77,6 +78,21 @@ describe('resourceTypeDisplayName', () => {
 		])
 		expect(resourceTypeDisplayName('gsheets')).toBe('Google Sheets')
 		expect(resourceTypeDisplayName('smtp')).toBe('SMTP')
+	})
+
+	it('keeps a name when a nameless row shares it, in either order', () => {
+		for (const rows of [
+			[{ name: 'gdrive', display_name: 'Google Drive' }, { name: 'gdrive' }],
+			[{ name: 'gdrive' }, { name: 'gdrive', display_name: 'Google Drive' }]
+		]) {
+			setResourceTypeDisplayNames([{ name: 'gdrive' }])
+			expect(resourceTypeDisplayName('gdrive')).toBe('Gdrive')
+			setResourceTypeDisplayNames(rows)
+			expect(resourceTypeDisplayName('gdrive')).toBe('Google Drive')
+		}
+		// Reading one type never clears a name: that row can be the nameless copy.
+		addResourceTypeDisplayName({ name: 'gdrive' })
+		expect(resourceTypeDisplayName('gdrive')).toBe('Google Drive')
 	})
 })
 

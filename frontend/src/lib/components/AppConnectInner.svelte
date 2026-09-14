@@ -5,6 +5,7 @@
 	import LabelsInput from './LabelsInput.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
+		addResourceTypeDisplayName,
 		isCustomResourceTypeName,
 		resourceTypeDisplayName,
 		resourceTypeMatchRank,
@@ -631,7 +632,7 @@
 				workspace: effectiveWorkspace,
 				path: resourceType
 			})
-			setResourceTypeDisplayNames([resourceTypeInfo])
+			addResourceTypeDisplayName(resourceTypeInfo)
 			const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
 			const newArgsKeys = Object.keys(props).filter((x) => props?.[x]?.type == 'string') ?? []
 
