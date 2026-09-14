@@ -687,9 +687,10 @@ pub async fn persist_inline_checkpoint_delta(
 /// body launched directly (`runScript` and friends).
 fn pending_step_key(job_ids: &Value, child_job: &Uuid) -> Option<String> {
     let child = child_job.to_string();
-    job_ids.as_object()?.iter().find_map(|(key, id)| {
-        (id.as_str() == Some(child.as_str())).then(|| key.clone())
-    })
+    job_ids
+        .as_object()?
+        .iter()
+        .find_map(|(key, id)| (id.as_str() == Some(child.as_str())).then(|| key.clone()))
 }
 
 /// Record a completed child on its WAC parent, in the child's completion transaction.
@@ -711,9 +712,10 @@ fn pending_step_key(job_ids: &Value, child_job: &Uuid) -> Option<String> {
 /// counter that belongs to a later round.
 ///
 /// Lock order: the parent's queue row, then its status row, then (by the caller)
-/// the child's queue row. A cancel walks parent then children, and the parent's
-/// own completion deletes its queue row and cascades to its status row, so any
-/// other order can deadlock against them.
+/// the child's queue row. A cancel walks parent then children, the parent's own
+/// completion deletes its queue row and cascades to its status row, and the park
+/// (`suspend_wac_parent`) locks the queue row before writing the checkpoint, so
+/// any other order can deadlock against one of them.
 pub async fn record_child_completion(
     tx: &mut Transaction<'_, Postgres>,
     parent_job: &Uuid,
@@ -784,9 +786,7 @@ pub async fn record_child_completion(
                 .bind(parent_job)
                 .fetch_optional(&mut **tx)
                 .await
-                .map_err(|e| {
-                    Error::internal_err(format!("Failed to unsuspend WAC parent: {e}"))
-                })?;
+                .map_err(|e| Error::internal_err(format!("Failed to unsuspend WAC parent: {e}")))?;
                 parent_ready = suspend == Some(0);
                 if parent_ready {
                     sqlx::query(

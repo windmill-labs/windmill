@@ -2918,6 +2918,26 @@ pub async fn handle_wac_v2_output(
             {
                 let mut tx = db.begin().await?;
 
+                // Park before writing the checkpoint. This locks the queue row ahead of the
+                // status row, the order `record_child_completion` takes, so a stale child
+                // finishing while the parent re-dispatches cannot deadlock this transaction.
+                // A cancel already on the row is also seen before anything is written, and
+                // every child pushed after the commit finds a parked parent to decrement.
+                match crate::wac_executor::suspend_wac_parent(
+                    &mut tx,
+                    &job.id,
+                    &job.workspace_id,
+                    num_steps as i32,
+                    14.0 * 24.0 * 3600.0,
+                )
+                .await?
+                {
+                    WacPark::Parked(ms) => segment_ms = ms,
+                    WacPark::Cancelled(cancel) => {
+                        return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                    }
+                }
+
                 // Update checkpoint with pending steps
                 update_checkpoint_for_dispatch(&mut checkpoint, &steps, &mode, &job_ids);
                 let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
@@ -2965,25 +2985,6 @@ pub async fn handle_wac_v2_output(
                             "Failed to update WAC timeline status: {e}"
                         ))
                     })?;
-                }
-
-                // Suspend parent before children become visible, so a child that
-                // completes immediately finds a parked parent to decrement.
-                match crate::wac_executor::suspend_wac_parent(
-                    &mut tx,
-                    &job.id,
-                    &job.workspace_id,
-                    num_steps as i32,
-                    14.0 * 24.0 * 3600.0,
-                )
-                .await?
-                {
-                    WacPark::Parked(ms) => segment_ms = ms,
-                    // Returning here drops `tx`, unwriting the checkpoint and the timeline
-                    // entries, so no child is ever pushed against a parent that never parked.
-                    WacPark::Cancelled(cancel) => {
-                        return Err(wac_cancelled_mid_segment(cancel, canceled_by))
-                    }
                 }
 
                 tx.commit().await?;
@@ -3314,6 +3315,23 @@ pub async fn handle_wac_v2_output(
 
             let mut tx = db.begin().await?;
 
+            // Park first: the queue row is locked before the status row, the order every
+            // child completion takes.
+            let segment_ms = match crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
+                timeout_secs,
+            )
+            .await?
+            {
+                WacPark::Parked(ms) => ms,
+                WacPark::Cancelled(cancel) => {
+                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                }
+            };
+
             // Save checkpoint
             let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
                 error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
@@ -3468,22 +3486,6 @@ pub async fn handle_wac_v2_output(
                 })?;
             }
 
-            // Suspend parent with suspend=1 (waiting for 1 approval event)
-            let segment_ms = match crate::wac_executor::suspend_wac_parent(
-                &mut tx,
-                &job.id,
-                &job.workspace_id,
-                1,
-                timeout_secs,
-            )
-            .await?
-            {
-                WacPark::Parked(ms) => ms,
-                WacPark::Cancelled(cancel) => {
-                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
-                }
-            };
-
             tx.commit().await?;
             crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
@@ -3520,6 +3522,24 @@ pub async fn handle_wac_v2_output(
             });
 
             let mut tx = db.begin().await?;
+
+            // Park first: the queue row is locked before the status row, the order every
+            // child completion takes. suspend=1 (not 0) so the suspended pull query only
+            // picks it up when `suspend_until <= now()`, not via `suspend <= 0`.
+            let segment_ms = match crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
+                sleep_secs,
+            )
+            .await?
+            {
+                WacPark::Parked(ms) => ms,
+                WacPark::Cancelled(cancel) => {
+                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                }
+            };
 
             // Save checkpoint
             let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
@@ -3568,23 +3588,6 @@ pub async fn handle_wac_v2_output(
                     error::Error::internal_err(format!("Failed to write sleep timeline: {e}"))
                 })?;
             }
-
-            // Use suspend=1 (not 0) so the suspended pull query only picks it up
-            // when `suspend_until <= now()`, not via `suspend <= 0`.
-            let segment_ms = match crate::wac_executor::suspend_wac_parent(
-                &mut tx,
-                &job.id,
-                &job.workspace_id,
-                1,
-                sleep_secs,
-            )
-            .await?
-            {
-                WacPark::Parked(ms) => ms,
-                WacPark::Cancelled(cancel) => {
-                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
-                }
-            };
 
             tx.commit().await?;
             crate::wac_executor::end_wac_segment(conn, job, segment_ms);
