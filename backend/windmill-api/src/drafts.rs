@@ -557,7 +557,9 @@ async fn update_draft(
         email,
         path,
         kind as UserDraftItemKind,
-        req.legacy,
+        // The legacy row is a delete target only: an upsert wrote the caller's own row,
+        // so a skipped one is its conflict, not the legacy row's absence.
+        req.legacy && req.value.is_none(),
     )
     .fetch_optional(&db)
     .await?;

@@ -94,19 +94,20 @@
 	let versionLoader: ((id: string) => Promise<Value | undefined>) | undefined = $state(undefined)
 	let headLabel: string | undefined = $state(undefined)
 	let loadingVersion = $state(false)
-	/** The version load the spinner belongs to. A response for anything else is stale —
-	 *  a slower earlier pick, or one outlived by a drawer reset — and neither replaces
-	 *  the diff nor clears the spinner, which the picker's `disabled` rides on. */
-	let pendingVersionLoad: string | undefined = undefined
+	/** Which version load the spinner belongs to, counted rather than keyed on the id so
+	 *  re-picking the same version is still generation-safe. A response from any other
+	 *  generation is stale — a slower earlier pick, or one outlived by a drawer reset —
+	 *  and neither replaces the diff nor clears the spinner, which `disabled` rides on. */
+	let versionLoadGeneration = 0
 
 	async function selectVersion(id: string | undefined) {
 		if (!id || !versionLoader || !data || data.mode !== 'normal') return
 		selectedVersion = id
-		pendingVersionLoad = id
+		const generation = ++versionLoadGeneration
 		loadingVersion = true
 		try {
 			const value = await versionLoader(id)
-			if (pendingVersionLoad !== id) return
+			if (generation !== versionLoadGeneration) return
 			if (!value || !data || data.mode !== 'normal') return
 			const opt = data.versions?.find((v) => v.id === id)
 			data = {
@@ -115,10 +116,7 @@
 				deployedLabel: opt?.isHead ? headLabel : opt?.label
 			}
 		} finally {
-			if (pendingVersionLoad === id) {
-				pendingVersionLoad = undefined
-				loadingVersion = false
-			}
+			if (generation === versionLoadGeneration) loadingVersion = false
 		}
 	}
 
@@ -170,7 +168,7 @@
 			versionLoader = loadVersion
 			headLabel = deployedLabel
 			// A load still in flight belongs to the diff being replaced.
-			pendingVersionLoad = undefined
+			versionLoadGeneration++
 			loadingVersion = false
 			selectedVersion = versions?.find((v) => v.isHead)?.id
 			data = {
