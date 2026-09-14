@@ -1,5 +1,5 @@
 import { deepEqual } from 'fast-equals'
-import type { InputTransform } from '$lib/gen'
+import type { InputTransform, MemoryConfig } from '$lib/gen'
 
 /**
  * How the AI agent form presents `AI_AGENT_SCHEMA`: which group a field belongs to, what it is
@@ -24,6 +24,35 @@ export const AGENT_FIELD_GROUPS: { id: AgentFieldGroup; label: string }[] = [
 /** The tool roster, which reads `flowModule.value.tools` rather than an `input_transforms` key.
  *  It lives in the registry so the groups keep a single ordering. */
 export const AGENT_TOOLS_ROW = 'tools'
+
+/** The step's history row, which edits `memory_id` and `messages` as one choice between them. */
+export const AGENT_HISTORY_ROW = 'history'
+
+/** A step's own history inputs. Never seeded with a placeholder: a run reads a present key as the
+ *  step's choice, so only the history row writes them, and only one at a time. */
+export const AGENT_HISTORY_KEYS = ['memory_id', 'messages'] as const
+export type AgentHistoryKey = (typeof AGENT_HISTORY_KEYS)[number]
+
+/** What a new agent remembers. An agent with no memory written still runs without, as it always has. */
+export const DEFAULT_AGENT_MEMORY: MemoryConfig = { kind: 'window', context_length: 10 }
+
+/** Whether a memory setting keeps nothing, mirroring the worker: absent, `off`, or a message count of
+ *  0 for `window` and its older spelling `auto`. */
+export function memoryPolicyIsOff(memory: any): boolean {
+	if (memory == undefined || memory.kind === 'off') return true
+	if (memory.kind === 'window' || memory.kind === 'auto') return !memory.context_length
+	return false
+}
+
+/** A memory setting in words, for a linked agent's summary. */
+export function describeMemoryPolicy(memory: any): string {
+	if (memory?.kind === 'manual') return 'Provided messages'
+	if (memoryPolicyIsOff(memory)) return 'Off'
+	if (memory.kind === 'window' || memory.kind === 'auto') {
+		return `Keep last ${memory.context_length} messages`
+	}
+	return String(memory.kind ?? 'configured')
+}
 
 export interface AgentFieldSpec {
 	key: string
@@ -85,10 +114,19 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		key: 'memory',
 		group: 'messages',
 		label: 'Memory',
-		tooltip:
-			'History sent between the system message and the user message. Windmill can keep it for you, or you can supply the messages yourself.',
+		tooltip: 'How much of its history the agent sends with each request.',
 		implicit: { kind: 'off' },
 		defaultHint: 'Default: off',
+		textOnly: true
+	},
+	{
+		key: AGENT_HISTORY_ROW,
+		group: 'messages',
+		label: 'History',
+		tooltip:
+			'Which memory this step reads and writes, or the messages this flow provides in its place. Sent between the system message and the user message.',
+		core: true,
+		virtual: true,
 		textOnly: true
 	},
 	{
@@ -210,6 +248,10 @@ export function agentFieldAppliesTo(
 	spec: AgentFieldSpec,
 	schemaProperties: Record<string, any> | undefined
 ): boolean {
+	// The history inputs belong to the step, so they stay on a linked step's reduced schema.
+	if (spec.key === AGENT_HISTORY_ROW) {
+		return Boolean(schemaProperties && 'memory_id' in schemaProperties)
+	}
 	// A virtual row has no schema key to look for, so it keys off the brain being editable here.
 	if (spec.virtual) return Boolean(schemaProperties && 'provider' in schemaProperties)
 	return Boolean(schemaProperties && spec.key in schemaProperties)
@@ -227,6 +269,10 @@ export function initialVisibleAgentFields(
 	for (const spec of AGENT_FIELDS) {
 		if (!agentFieldAppliesTo(spec, schemaProperties)) continue
 		if (agentFieldIsSet(spec, args?.[spec.key])) visible.add(spec.key)
+	}
+	// The history row stands for these keys; a form listing a run's inputs shows whichever is set.
+	for (const key of AGENT_HISTORY_KEYS) {
+		if (args?.[key] && schemaProperties && key in schemaProperties) visible.add(key)
 	}
 	return visible
 }

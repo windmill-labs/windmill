@@ -6,7 +6,6 @@ import {
 	type Job,
 	type RestartedFrom,
 	type OpenFlow,
-	type MemoryConfig,
 	type FlowValue,
 	type Retry
 } from '$lib/gen'
@@ -112,7 +111,6 @@ export function filteredContentForExport(flow: ExtendedOpenFlow) {
 }
 
 import { dfs as dfsApply } from './dfs'
-import { randomUUID } from '$lib/utils/uuid'
 
 export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	tag?: string
@@ -141,24 +139,8 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 		if (mod.value.type == 'rawscript' && mod.value.assets?.length == 0) {
 			mod.value.assets = undefined
 		}
-		// Generate memory_id for AI agents with auto memory if not already set
-		// Only if chat input is not enabled, as otherwise memory id is based on conversation id
-		if (!newFlow.value.chat_input_enabled && mod.value.type === 'aiagent') {
-			const memoryTransform = mod.value.input_transforms?.memory
-			if (memoryTransform?.type === 'static' && memoryTransform.value) {
-				const memoryValue = memoryTransform.value as MemoryConfig
-				if (
-					memoryValue.kind === 'auto' &&
-					memoryValue.context_length &&
-					memoryValue.context_length > 0 &&
-					!memoryValue.memory_id
-				) {
-					memoryTransform.value = {
-						...memoryValue,
-						memory_id: randomUUID()
-					}
-				}
-			}
+		if (mod.value.type === 'aiagent') {
+			normalizeAgentHistory(mod.value.input_transforms, newFlow.value.chat_input_enabled ?? false)
 		}
 	})
 	if (newFlow.value.concurrency_key == '') {
@@ -166,6 +148,33 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	}
 
 	return newFlow
+}
+
+/**
+ * A chat flow runs with the conversation as its memory id, so an id an older editor baked into a
+ * step's memory was never read there and is dropped. Anywhere else it still applies to runs that
+ * pass none, and stays until the author converts it. An empty static memory id reads as unset at
+ * runtime, so it is not persisted either.
+ */
+export function normalizeAgentHistory(
+	inputTransforms: Record<string, any> | undefined,
+	chatInputEnabled: boolean
+) {
+	if (!inputTransforms) return
+	const memory = inputTransforms.memory
+	if (
+		chatInputEnabled &&
+		memory?.type === 'static' &&
+		memory.value?.kind === 'auto' &&
+		memory.value.memory_id
+	) {
+		const { memory_id: _, ...policy } = memory.value
+		memory.value = policy
+	}
+	const memoryId = inputTransforms.memory_id
+	if (memoryId?.type === 'static' && !String(memoryId.value ?? '').trim()) {
+		delete inputTransforms.memory_id
+	}
 }
 
 export function getDefaultExpr(

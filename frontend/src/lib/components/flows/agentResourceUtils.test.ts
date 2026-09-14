@@ -77,7 +77,7 @@ describe('summarizeAgentBrain', () => {
 			output_schema: { type: 'object' } as any
 		})
 		expect(rows).toEqual([
-			{ label: 'Memory', value: 'auto' },
+			{ label: 'Memory', value: 'Keep last 20 messages' },
 			{ label: 'Output schema', value: 'configured' }
 		])
 	})

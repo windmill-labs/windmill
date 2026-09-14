@@ -14,7 +14,11 @@
 	import { getResourceTypes } from './resourceTypesStore'
 	import { twMerge } from 'tailwind-merge'
 	import { workspaceStore } from '$lib/stores'
-	import { AGENT_FIELDS, initialVisibleAgentFields } from './flows/agentFormFields'
+	import {
+		AGENT_FIELDS,
+		AGENT_HISTORY_KEYS,
+		initialVisibleAgentFields
+	} from './flows/agentFormFields'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
@@ -58,7 +62,10 @@
 		const transforms = (mod.value as { input_transforms?: Record<string, unknown> })
 			?.input_transforms
 		const visible = initialVisibleAgentFields(transforms, schema?.properties)
-		const known = new Set(AGENT_FIELDS.filter((f) => !f.runInput).map((f) => f.key))
+		const known = new Set<string>([
+			...AGENT_FIELDS.filter((f) => !f.runInput).map((f) => f.key),
+			...AGENT_HISTORY_KEYS
+		])
 		return all.filter((key) => !known.has(key) || visible.has(key))
 	})
 

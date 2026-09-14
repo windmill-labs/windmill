@@ -16,8 +16,9 @@ every workspace via the standard cached-resource-type sync, like other built-in 
 - The brain config and tools are resolved at runtime from the resource
   (`windmill-worker/src/ai_executor.rs`): the brain is interpolated, so a nested provider `$res:`
   credential resolves automatically.
-- The step keeps only the flow-local inputs (`user_message`, `user_attachments`) in its own
-  `input_transforms`; the brain and tools stay in the resource (read-only in the step).
+- The step keeps only the flow-local inputs (`user_message`, `user_attachments`, and the history
+  inputs `memory_id` and `messages`) in its own `input_transforms`; the brain and tools stay in the
+  resource (read-only in the step).
 - The agent carries its tools' default input bindings verbatim as authored (static, AI-filled,
   or flow expressions), so saving round-trips losslessly. Each host flow overrides what it
   needs: `tool_inputs` stores per-tool overrides (a diff from the resource tool's own
@@ -32,6 +33,45 @@ A linked agent's tools appear as display-only graph tool nodes (clicking one sel
 agent step); below the step's inputs, each tool gets a section with the standard schema-aware
 input editors (prop picker included) and a read-only view of its code — edits persist into
 `tool_inputs`.
+
+## Memory
+
+Memory is split between three owners, so a saved agent carries how much to remember and never
+which memory it is:
+
+- **Agent: memory policy.** `memory` is a brain key, so it moves with a saved agent.
+  `{ kind: window, context_length }` replays the last N messages and `{ kind: off }` keeps none.
+  An absent `memory` means off. `auto` and `manual` are the older spellings and are still read.
+- **Run: memory id.** `flow_status.memory_id`, set when the run is queued: the chat conversation
+  id, an app chat session id, or the `memory_id` run parameter. Any string is accepted, and one
+  that is not a uuid is hashed to a v5 uuid (`memory_key` in
+  `windmill-common/src/flow_conversations.rs`). Nothing is generated at save time, so schedules,
+  webhooks, evals and plain runs pass no id and run stateless.
+- **Step: history inputs.** Flow-local, so they stay on a linked step. `memory_id` overrides the
+  run's id: a fixed value is one memory shared by every run, an expression such as
+  `flow_input.customer_id` one memory per key, and an expression that evaluates to nothing runs
+  stateless rather than falling back to the run's id. `messages` supplies the history itself and
+  bypasses memory. The editor writes at most one of them and never seeds a placeholder for
+  either, because a present key is the step's choice; if both are present, `messages` wins.
+
+The worker reconciles them once per agent invocation, nested agent tools included, in
+`resolve_history_source` (`windmill-worker/src/ai_executor.rs`):
+
+1. `messages`, or a legacy `manual` memory, is the history. Nothing is read or written.
+2. A policy that is off runs stateless.
+3. The memory id is the step's, else the run's, else a legacy id baked into the `auto` object.
+4. With no memory id the agent runs stateless and says so in the job log.
+
+Memory is stored per (memory id, step id), in `ai_agent_memory` or S3 at
+`memory/{workspace}/{memory id}/{step}.json`. The chat transcript (`flow_conversation_message`)
+always follows the run's id, even when a step sets its own.
+
+Compatibility runs one way. New workers read every older shape. The editor rewrites a legacy step
+only when the author changes it, so a flow nobody edits keeps running on older workers, while a
+step saved with `window` or a history input needs a worker that knows them. An id an older editor
+baked into `memory` stays a fallback behind the run's id until the author chooses *Keep as
+override* or *Use the run's memory id*. In a chat flow it is dropped on save, since the
+conversation id always took precedence there.
 
 ## Drafts
 

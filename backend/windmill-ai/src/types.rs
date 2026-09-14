@@ -78,15 +78,26 @@ impl Default for OutputType {
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Memory {
     Off,
+    Window {
+        context_length: usize,
+    },
+    /// Written before `window`. Its `memory_id` stays a fallback behind the run's memory id.
     Auto {
         #[serde(default)]
         context_length: usize,
         #[serde(default)]
         memory_id: Option<Uuid>,
     },
+    /// Written before the step's `messages` input, which it is equivalent to.
     Manual {
         messages: Vec<OpenAIMessage>,
     },
+}
+
+fn deserialize_present<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<serde_json::Value>, D::Error> {
+    <serde_json::Value as serde::Deserialize>::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -103,6 +114,11 @@ struct AIAgentArgsRaw {
     streaming: Option<bool>,
     max_iterations: Option<usize>,
     memory: Option<Memory>,
+    // A null must stay distinguishable from an absent key: a step whose own memory id evaluates to
+    // nothing runs stateless instead of falling back to the run's memory id.
+    #[serde(default, deserialize_with = "deserialize_present")]
+    memory_id: Option<serde_json::Value>,
+    messages: Option<Vec<OpenAIMessage>>,
     // Legacy field for backward compatibility
     messages_context_length: Option<usize>,
     #[serde(default)]
@@ -123,6 +139,10 @@ pub struct AIAgentArgs {
     pub streaming: Option<bool>,
     pub max_iterations: Option<usize>,
     pub memory: Option<Memory>,
+    /// Memory id set on the step, overriding the run's. Empty when its expression produced none.
+    pub memory_id: Option<String>,
+    /// History supplied by the flow, replayed without reading or writing memory.
+    pub messages: Option<Vec<OpenAIMessage>>,
     pub credentials_check: bool,
 }
 
@@ -135,12 +155,17 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
         });
 
         // Backward compatibility: if context_length is 0, use off mode
-        let memory = memory.map(|memory| {
-            if let Memory::Auto { context_length: 0, .. } = memory {
+        let memory = memory.map(|memory| match memory {
+            Memory::Auto { context_length: 0, .. } | Memory::Window { context_length: 0 } => {
                 Memory::Off
-            } else {
-                memory
             }
+            memory => memory,
+        });
+
+        let memory_id = raw.memory_id.map(|value| match value {
+            serde_json::Value::Null => String::new(),
+            serde_json::Value::String(s) => s.trim().to_string(),
+            value => value.to_string(),
         });
 
         AIAgentArgs {
@@ -155,6 +180,8 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
             streaming: raw.streaming,
             max_iterations: raw.max_iterations,
             memory,
+            memory_id,
+            messages: raw.messages,
             credentials_check: raw.credentials_check.unwrap_or(false),
         }
     }

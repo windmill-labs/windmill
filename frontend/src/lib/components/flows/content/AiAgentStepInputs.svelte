@@ -39,6 +39,9 @@
 	import type { AgentTool } from '../agentToolUtils'
 	import {
 		AGENT_FIELDS,
+		AGENT_HISTORY_ROW,
+		AGENT_TOOLS_ROW,
+		memoryPolicyIsOff,
 		AGENT_FIELD_GROUPS,
 		agentFieldAppliesTo,
 		initialVisibleAgentFields,
@@ -46,6 +49,8 @@
 		type AgentFieldSpec
 	} from '../agentFormFields'
 	import AgentToolRoster from './AgentToolRoster.svelte'
+	import AgentMemoryInput from './AgentMemoryInput.svelte'
+	import AgentHistoryInput from './AgentHistoryInput.svelte'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any> }
@@ -89,6 +94,9 @@
 		onDeleteTool?: (toolId: string) => void
 		/** Where the tool picker's popover belongs, for a surface that is not the flow editor. */
 		toolPickerPortal?: string
+		/** A linked agent's memory, once its config has loaded: whether it keeps any decides what the
+		 *  step's history row offers. */
+		linkedMemory?: { memory: unknown } | undefined
 	}
 
 	let {
@@ -118,7 +126,8 @@
 		onSelectTool = undefined,
 		onAddTool = undefined,
 		onDeleteTool = undefined,
-		toolPickerPortal = undefined
+		toolPickerPortal = undefined,
+		linkedMemory = undefined
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $workspaceStore)
@@ -152,6 +161,18 @@
 	let fieldAiEnabled = $derived(enableAi && !staticOnly && !noJavascript)
 
 	let schemaProperties = $derived((schema?.properties ?? {}) as Record<string, any>)
+
+	// The brain edited here, or the linked agent's. An expression, or a linked agent still loading,
+	// reads as keeping memory, so the history row never offers less than a run may use.
+	let memoryOff = $derived.by(() => {
+		if ('memory' in schemaProperties) {
+			const transform = args?.memory
+			return transform == undefined || transform.type === 'static'
+				? memoryPolicyIsOff(transform?.value)
+				: false
+		}
+		return linkedMemory ? memoryPolicyIsOff(linkedMemory.memory) : false
+	})
 
 	let scopedFields = $derived(
 		AGENT_FIELDS.filter(
@@ -252,6 +273,64 @@
 	)
 </script>
 
+{#snippet unsetButton(spec: AgentFieldSpec)}
+	{#if !spec.core && !readOnly}
+		<Button
+			variant="subtle"
+			unifiedSize="2xs"
+			iconOnly
+			startIcon={{ icon: X }}
+			wrapperClasses="ml-1"
+			title="Unset {spec.label}"
+			on:click={() => removeField(spec)}
+		/>
+	{/if}
+{/snippet}
+
+{#snippet transformField(
+	key: string,
+	label: string,
+	tooltip: string | undefined,
+	removable: AgentFieldSpec | undefined,
+	error: string | undefined = undefined
+)}
+	<InputTransformForm
+		{previousModuleId}
+		bind:arg={args[key]}
+		bind:schema
+		argName={key}
+		{label}
+		headerTooltip={tooltip}
+		hideDescription
+		subtleControls
+		argExtra={schemaProperties[key] ?? {}}
+		{error}
+		bind:inputCheck={() => inputCheck[key] ?? false, (value) => (inputCheck[key] = value)}
+		bind:extraLib={() => extraLib ?? 'missing extraLib', (v) => (extraLib = v)}
+		{variableEditor}
+		{itemPicker}
+		bind:pickForField
+		{pickableProperties}
+		enableAi={fieldAiEnabled}
+		{helperScript}
+		{isAgentTool}
+		{allowedAiTransforms}
+		noDynamicToggle={staticOnly}
+		noConnect={staticOnly || noConnect}
+		noJavascript={staticOnly || noJavascript}
+		s3StorageConfigured={s3Storage.current}
+		{chatInputEnabled}
+		{workspace}
+		otherArgs={Object.fromEntries(Object.entries(args ?? {}).filter(([other]) => other !== key))}
+	>
+		{#snippet labelExtra()}
+			{#if removable}
+				{@render unsetButton(removable)}
+			{/if}
+		{/snippet}
+	</InputTransformForm>
+{/snippet}
+
 {#snippet addFieldMenu()}
 	{@const candidates = addableIn()}
 	{#if candidates.length > 0}
@@ -317,7 +396,7 @@
 					<div class="flex flex-col gap-6">
 						{#each rows as spec (spec.key)}
 							<ResizeTransitionWrapper innerClass="w-full" vertical>
-								{#if spec.virtual}
+								{#if spec.key === AGENT_TOOLS_ROW}
 									<AgentToolRoster
 										{tools}
 										{onSelectTool}
@@ -330,53 +409,41 @@
 									     `args`, and a read-only viewer's edit is rejected by the server. Dimmed
 									     with it, so a field that ignores a click looks like it meant to. -->
 									<div class="w-full {readOnly ? 'opacity-60' : ''}" inert={readOnly}>
-										<InputTransformForm
-											{previousModuleId}
-											bind:arg={args[spec.key]}
-											bind:schema
-											argName={spec.key}
-											label={spec.label}
-											headerTooltip={spec.tooltip}
-											hideDescription
-											subtleControls
-											argExtra={schemaProperties[spec.key] ?? {}}
-											bind:inputCheck={
-												() => inputCheck[spec.key] ?? false,
-												(value) => (inputCheck[spec.key] = value)
-											}
-											bind:extraLib={() => extraLib ?? 'missing extraLib', (v) => (extraLib = v)}
-											{variableEditor}
-											{itemPicker}
-											bind:pickForField
-											{pickableProperties}
-											enableAi={fieldAiEnabled}
-											{helperScript}
-											{isAgentTool}
-											{allowedAiTransforms}
-											noDynamicToggle={staticOnly}
-											noConnect={staticOnly || noConnect}
-											noJavascript={staticOnly || noJavascript}
-											s3StorageConfigured={s3Storage.current}
-											{chatInputEnabled}
-											{workspace}
-											otherArgs={Object.fromEntries(
-												Object.entries(args ?? {}).filter(([key]) => key !== spec.key)
-											)}
-										>
-											{#snippet labelExtra()}
-												{#if !spec.core && !readOnly}
-													<Button
-														variant="subtle"
-														unifiedSize="2xs"
-														iconOnly
-														startIcon={{ icon: X }}
-														wrapperClasses="ml-1"
-														title="Unset {spec.label}"
-														on:click={() => removeField(spec)}
-													/>
-												{/if}
-											{/snippet}
-										</InputTransformForm>
+										{#if spec.key === AGENT_HISTORY_ROW}
+											<AgentHistoryInput
+												bind:args
+												label={spec.label}
+												tooltip={spec.tooltip}
+												{chatInputEnabled}
+												{memoryOff}
+												onRemoveKey={(key) => delete inputCheck[key]}
+											>
+												{#snippet field(key, error)}
+													{@render transformField(
+														key,
+														key === 'memory_id' ? 'Memory id' : 'Messages',
+														undefined,
+														undefined,
+														error
+													)}
+												{/snippet}
+											</AgentHistoryInput>
+										{:else if spec.key === 'memory' && args?.memory?.type !== 'javascript' && args?.memory?.type !== 'ai'}
+											<AgentMemoryInput
+												bind:args
+												label={spec.label}
+												tooltip={spec.tooltip}
+												{chatInputEnabled}
+												historyOnStep={scopedFields.some((f) => f.key === AGENT_HISTORY_ROW)}
+												s3StorageConfigured={s3Storage.current}
+											>
+												{#snippet labelExtra()}
+													{@render unsetButton(spec)}
+												{/snippet}
+											</AgentMemoryInput>
+										{:else}
+											{@render transformField(spec.key, spec.label, spec.tooltip, spec)}
+										{/if}
 									</div>
 								{/if}
 							</ResizeTransitionWrapper>

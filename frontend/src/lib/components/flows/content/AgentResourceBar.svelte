@@ -49,7 +49,8 @@
 		moduleId,
 		opWorkspace = undefined,
 		flowPath = '',
-		fromAgentEditor = false
+		fromAgentEditor = false,
+		linkedMemory = $bindable()
 	}: {
 		agent: string | undefined
 		inputTransforms: Record<string, InputTransform>
@@ -67,6 +68,8 @@
 		// backend supports it, but only a flow can author it, and a second editor over a second draft
 		// is the wrong way in.
 		fromAgentEditor?: boolean
+		// The linked agent's memory once its config has loaded, for the step's history row.
+		linkedMemory?: { memory: unknown } | undefined
 	} = $props()
 
 	let ws = $derived(opWorkspace ?? $workspaceStore)
@@ -185,6 +188,9 @@
 	let linkedInfo = $derived(
 		loadedInfo?.ws === ws && loadedInfo?.path === agent ? loadedInfo : undefined
 	)
+	$effect(() => {
+		linkedMemory = linkedInfo ? { memory: linkedInfo.config?.memory } : undefined
+	})
 	let inheritedTools = $derived(linkedInfo?.tools ?? [])
 	let brainParams = $derived(summarizeAgentBrain(linkedInfo?.config))
 	let providerPath = $derived(linkedInfo?.providerPath)
@@ -328,6 +334,12 @@
 		// Tool inputs are saved verbatim: the agent carries its tools' default bindings (static, AI or
 		// flow expressions) as authored. Host flows override per-step via tool_inputs, never here.
 		const value = inputTransformsToAgentConfig(inputTransforms, tools)
+		// An id an older editor baked into this step names the flow's memory. The agent is shared by
+		// every step linking it, and each of those takes its memory id from its own run.
+		if (value.memory && typeof value.memory === 'object' && 'memory_id' in value.memory) {
+			const { memory_id: _, ...memory } = value.memory as Record<string, unknown>
+			value.memory = memory
+		}
 		// The editor stays live during the requests below, so remember what linking would discard:
 		// every brain transform and the tools. Comparing the saved config instead would miss a
 		// non-static brain edit, which the resource cannot hold yet linking still strips.

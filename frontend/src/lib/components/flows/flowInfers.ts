@@ -4,6 +4,7 @@ import type { Schema } from '$lib/common'
 import { emptySchema } from '$lib/utils'
 import type { FlowModule, InputTransform } from '$lib/gen'
 import { AGENT_FLOW_LOCAL_KEYS } from './agentResourceUtils'
+import { AGENT_HISTORY_KEYS } from './agentFormFields'
 
 export const AI_AGENT_SCHEMA: Schema = {
 	$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -39,102 +40,77 @@ export const AI_AGENT_SCHEMA: Schema = {
 		},
 		memory: {
 			type: 'object',
-			description: 'History sent between the system message and the user message.',
+			description: 'How much of its history the agent sends with each request.',
 			oneOf: [
+				{
+					type: 'object',
+					title: 'window',
+					properties: {
+						kind: { type: 'string', enum: ['window'] },
+						context_length: {
+							type: 'number',
+							description: 'Number of most recent messages to load and store.',
+							default: 10
+						}
+					},
+					required: ['kind', 'context_length']
+				},
 				{
 					type: 'object',
 					title: 'off',
 					properties: {
-						kind: {
-							type: 'string',
-							enum: ['off'],
-							description: 'Disable conversation memory'
-						}
+						kind: { type: 'string', enum: ['off'] }
 					}
-				},
-				{
-					type: 'object',
-					title: 'auto',
-					properties: {
-						kind: {
-							type: 'string',
-							enum: ['auto'],
-							default: 'auto',
-							description: 'Automatically manage conversation history'
-						},
-						context_length: {
-							type: 'number',
-							description:
-								'Number of most recent messages to store and load. Set to 0 to disable memory.',
-							default: 5
-						},
-						memory_id: {
-							type: 'string',
-							format: 'uuid',
-							'x-auto-generate': true,
-							description:
-								'Custom memory identifier. Each unique ID maintains separate conversation history.',
-							hideWhenChatEnabled: true
-						}
+				}
+			],
+			showExpr: "fields.output_type !== 'image'"
+		},
+		memory_id: {
+			type: 'string',
+			description:
+				'Names the memory this step reads and writes, overriding the memory id the run was started with.',
+			showExpr: "fields.output_type !== 'image'"
+		},
+		messages: {
+			type: 'array',
+			description:
+				'Messages sent before the user message, supplied by this flow instead of read from memory.',
+			items: {
+				type: 'object',
+				properties: {
+					role: {
+						type: 'string',
+						enum: ['user', 'assistant', 'system']
 					},
-					required: ['kind'],
-					'x-no-s3-storage-workspace-warning':
-						'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. If you need to store more messages, you should use S3 storage in your workspace settings.'
-				},
-				{
-					type: 'object',
-					title: 'manual',
-					properties: {
-						kind: {
-							type: 'string',
-							enum: ['manual'],
-							description:
-								'Manually provide conversation messages, bypassing automatic memory management'
-						},
-						messages: {
-							type: 'array',
-							description: 'Array of conversation messages to use as history',
-							items: {
-								type: 'object',
-								properties: {
-									role: {
-										type: 'string',
-										enum: ['user', 'assistant', 'system']
-									},
-									content: {
-										type: 'string'
-									},
-									tool_calls: {
-										type: 'array',
-										nullable: true,
-										items: {
-											type: 'object',
-											properties: {
-												id: { type: 'string' },
-												type: { type: 'string' },
-												function: {
-													type: 'object',
-													properties: {
-														name: { type: 'string' },
-														arguments: { type: 'string' }
-													}
-												}
-											}
-										}
-									},
-									tool_call_id: {
-										type: 'string',
-										nullable: true,
-										description: 'The ID of the tool call this message is responding to'
+					content: {
+						type: 'string'
+					},
+					tool_calls: {
+						type: 'array',
+						nullable: true,
+						items: {
+							type: 'object',
+							properties: {
+								id: { type: 'string' },
+								type: { type: 'string' },
+								function: {
+									type: 'object',
+									properties: {
+										name: { type: 'string' },
+										arguments: { type: 'string' }
 									}
-								},
-								required: ['role']
+								}
 							}
 						}
 					},
-					required: ['kind', 'messages']
-				}
-			],
+					tool_call_id: {
+						type: 'string',
+						nullable: true,
+						description: 'The ID of the tool call this message is responding to'
+					}
+				},
+				required: ['role']
+			},
 			showExpr: "fields.output_type !== 'image'"
 		},
 		output_schema: {
@@ -176,6 +152,8 @@ export const AI_AGENT_SCHEMA: Schema = {
 		'system_prompt',
 		'streaming',
 		'memory',
+		'memory_id',
+		'messages',
 		'output_schema',
 		'user_attachments',
 		'max_completion_tokens',
@@ -285,10 +263,13 @@ export async function loadSchemaFromModule(
 			: Object.keys(AI_AGENT_SCHEMA.properties ?? {})
 		return {
 			input_transforms: keys.reduce((accu, key) => {
-				accu[key] = input_transforms[key] ?? {
-					type: 'static',
-					value: undefined
-				}
+				const transform =
+					input_transforms[key] ??
+					// A present history input is the step's choice at runtime, so it gets no placeholder.
+					((AGENT_HISTORY_KEYS as readonly string[]).includes(key)
+						? undefined
+						: { type: 'static', value: undefined })
+				if (transform) accu[key] = transform
 				return accu
 			}, {}),
 			schema: AI_AGENT_SCHEMA

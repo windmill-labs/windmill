@@ -3,6 +3,7 @@ import { AI_AGENT_SCHEMA } from './flowInfers'
 import {
 	AGENT_FIELD_BY_KEY,
 	AGENT_FIELDS,
+	AGENT_HISTORY_KEYS,
 	agentFieldIsSet,
 	agentStreamingEnabled,
 	initialVisibleAgentFields
@@ -61,6 +62,7 @@ describe('initialVisibleAgentFields', () => {
 			max_iterations: { type: 'static', value: 10 }
 		}
 		expect([...initialVisibleAgentFields(legacy, schemaProperties)].sort()).toEqual([
+			'history',
 			'provider',
 			'system_prompt',
 			'tools',
@@ -77,7 +79,8 @@ describe('initialVisibleAgentFields', () => {
 	})
 
 	it('covers every schema key, so no field can only be reached through the raw doc', () => {
-		const registered = new Set(AGENT_FIELDS.map((f) => f.key))
+		// The history keys are reached through the history row, which edits them as one choice.
+		const registered = new Set<string>([...AGENT_FIELDS.map((f) => f.key), ...AGENT_HISTORY_KEYS])
 		expect(Object.keys(schemaProperties).filter((k) => !registered.has(k))).toEqual([])
 	})
 })

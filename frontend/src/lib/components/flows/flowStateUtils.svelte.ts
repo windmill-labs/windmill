@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_MEMORY } from './agentFormFields'
 import type { Schema } from '$lib/common'
 import {
 	ScriptService,
@@ -214,7 +215,8 @@ export async function createAiAgent(
 				...(agentPath
 					? {}
 					: {
-							provider: { type: 'static', value: providerValue }
+							provider: { type: 'static', value: providerValue },
+							memory: { type: 'static', value: structuredClone(DEFAULT_AGENT_MEMORY) }
 						}),
 				user_message: { type: 'static', value: undefined }
 			}

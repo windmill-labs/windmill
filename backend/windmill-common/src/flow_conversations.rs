@@ -7,6 +7,24 @@ use crate::db::DB;
 use crate::error::Result;
 use crate::utils::truncate_with_ellipsis;
 
+/// Changing it detaches every memory stored under a string memory id.
+const MEMORY_ID_NAMESPACE: Uuid = Uuid::from_u128(0x6f1c2d4e_8a3b_5c7d_9e0f_1a2b3c4d5e6f);
+
+/// Memory is stored and carried in `flow_status.memory_id` as a uuid. Any other string names a
+/// memory through a name-based (v5) uuid, so the same string reaches the same memory on every run.
+pub fn memory_key(memory_id: &str) -> Uuid {
+    let memory_id = memory_id.trim();
+    Uuid::parse_str(memory_id).unwrap_or_else(|_| {
+        use sha1::{Digest, Sha1};
+        let mut hasher = Sha1::new();
+        hasher.update(MEMORY_ID_NAMESPACE.as_bytes());
+        hasher.update(memory_id.as_bytes());
+        let mut bytes = [0u8; 16];
+        bytes.copy_from_slice(&hasher.finalize()[..16]);
+        uuid::Builder::from_sha1_bytes(bytes).into_uuid()
+    })
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
 #[sqlx(type_name = "MESSAGE_TYPE", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]

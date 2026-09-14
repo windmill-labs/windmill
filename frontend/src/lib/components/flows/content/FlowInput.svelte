@@ -48,6 +48,7 @@
 	import { deepEqual } from 'fast-equals'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
+	import { AGENT_HISTORY_KEYS, DEFAULT_AGENT_MEMORY } from '../agentFormFields'
 	import { agentStreamingEnabled } from '../agentFormFields'
 	import { nextId } from '../flowModuleNextId'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
@@ -564,7 +565,7 @@
 		const aiAgentModules = flowStore.val.value.modules.filter((m) => m.value.type === 'aiagent')
 
 		if (aiAgentModules.length === 0) {
-			// No AI agent exists, create one with context memory set to 10
+			// No AI agent exists, so create one reading the chat's user message
 			const aiAgentId = nextId(flowStateStore.val, flowStore.val)
 			flowStore.val.value.modules = [
 				...flowStore.val.value.modules,
@@ -578,8 +579,8 @@
 								if (key === 'user_message') {
 									accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
 								} else if (key === 'memory') {
-									accu[key] = { type: 'static', value: { kind: 'auto', context_length: 10 } }
-								} else {
+									accu[key] = { type: 'static', value: structuredClone(DEFAULT_AGENT_MEMORY) }
+								} else if (!(AGENT_HISTORY_KEYS as readonly string[]).includes(key)) {
 									accu[key] = {
 										type: 'static',
 										value: undefined
@@ -593,14 +594,14 @@
 				}
 			]
 			sendUserToast(
-				'Chat mode enabled. AI agent created with user message input and context memory set to 10.',
+				'Chat mode enabled. AI agent created with the user message as its input.',
 				false
 			)
 		} else if (aiAgentModules.length === 1) {
 			// Exactly one AI agent exists: fill in defaults only for inputs the
 			// user hasn't configured, so re-enabling chat mode on an already
 			// configured agent doesn't clobber a custom user_message expression
-			// or a deliberate memory choice (e.g. off).
+			// or memory, which chat mode leaves to the agent.
 			const aiAgent = aiAgentModules[0]
 			const value = aiAgent.value as AiAgent
 
@@ -622,14 +623,6 @@
 					expr: 'flow_input.user_message'
 				}
 				applied.push('user message input')
-			}
-
-			if (isUnconfigured(value.input_transforms['memory'])) {
-				value.input_transforms['memory'] = {
-					type: 'static',
-					value: { kind: 'auto', context_length: 10 }
-				}
-				applied.push('context memory set to 10')
 			}
 
 			sendUserToast(
