@@ -3405,7 +3405,7 @@ pub async fn run_worker(
                         let suspend_first = suspend_first_success
                             || rand::random::<f64>() < likelihood_of_suspend
                             || last_suspend_first.elapsed().as_secs_f64() > 5.0
-                            || crate::result_processor::WAC_SUSPEND_READY
+                            || windmill_common::wac::WAC_SUSPEND_READY
                                 .swap(false, Ordering::Relaxed);
 
                         if suspend_first {
