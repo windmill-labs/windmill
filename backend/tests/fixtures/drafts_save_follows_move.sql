@@ -20,3 +20,10 @@ INSERT INTO draft (workspace_id, path, typ, value, email)
 VALUES ('test-workspace', 'u/test-user/draft_store', 'script',
         '{"path": "u/test-user/friendly", "draft_path": "u/test-user/friendly", "summary": "D", "content": "draft"}',
         'test@windmill.dev');
+
+-- A teammate's draft on the same deployed script, forked from the same head. The
+-- rename must carry it too, without touching the version it forked from.
+INSERT INTO draft (workspace_id, path, typ, value, email, base)
+VALUES ('test-workspace', 'u/test-user/follow_a', 'script',
+        '{"path": "u/test-user/follow_a", "draft_path": "u/test-user/follow_a", "parent_hash": "0000000000001b76", "summary": "A", "content": "teammate draft"}',
+        'test2@windmill.dev', '0000000000001b76');

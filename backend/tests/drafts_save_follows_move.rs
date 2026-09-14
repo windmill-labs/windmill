@@ -239,3 +239,33 @@ async fn test_move_back_ends_the_record(db: Pool<Postgres>) -> anyhow::Result<()
     assert_eq!(own_draft_paths(port).await?, vec!["u/test-user/follow_a"]);
     Ok(())
 }
+
+/// A rename carries a teammate's row too: both its path keys follow, and the version
+/// it forked from does not move. A restamp there would clear their out-of-date prompt
+/// and let them deploy over the mover's version believing they were current.
+#[sqlx::test(fixtures("base", "drafts_save_follows_move"))]
+async fn test_a_teammates_draft_follows_with_its_base(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    rename(port, HEAD_HASH, "u/test-user/follow_b").await?;
+
+    // Read from the pool: the teammate's row is another user's, and this asserts on
+    // `base`, which no endpoint exposes for someone else's draft.
+    let row: (String, String, Option<String>) = sqlx::query_as(
+        "SELECT value::jsonb ->> 'path', value::jsonb ->> 'draft_path', base
+         FROM draft WHERE workspace_id = 'test-workspace' AND typ = 'script'
+           AND email = 'test2@windmill.dev'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(row.0, "u/test-user/follow_b", "typed path did not follow");
+    assert_eq!(row.1, "u/test-user/follow_b", "mirror did not follow");
+    assert_eq!(
+        row.2.as_deref(),
+        Some(HEAD_HASH),
+        "the teammate's base was restamped by someone else's rename"
+    );
+    Ok(())
+}

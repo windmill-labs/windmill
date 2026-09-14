@@ -757,8 +757,8 @@ async fn move_draft(
     if moved.is_none() {
         let row = sqlx::query!(
             r#"SELECT
-                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $3
-                        AND typ::text = ANY($6::text[]) AND email = $4) as "at_target!",
+                 (SELECT typ::text FROM draft WHERE workspace_id = $1 AND path = $3
+                  AND typ::text = ANY($6::text[]) AND email = $4 LIMIT 1) as "at_target",
                  EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5
                         AND typ = $2 AND email = $4
                         AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0
@@ -780,8 +780,10 @@ async fn move_draft(
                 "'{path}' contains a NUL character and predates the sanitizer, so it cannot be \
                  {attempted}. Reopen it, re-save to rewrite it cleanly, then retry."
             )
-        } else if row.at_target && new_path != path {
-            format!("You already have a draft at '{new_path}'")
+        } else if let Some(occupant) = row.at_target.filter(|_| new_path != path) {
+            // Naming the kind matters for the app pair: a classic-app draft refusing a
+            // raw-app move is invisible in the raw-app list the caller is looking at.
+            format!("You already have a {} draft at '{new_path}'", occupant.replace('_', " "))
         } else {
             format!("You have no draft at '{path}'")
         }));

@@ -94,7 +94,10 @@ async fn test_draft_move_refuses_the_other_app_kind(db: Pool<Postgres>) -> anyho
     let status = resp.status();
     let body = resp.text().await?;
     assert_eq!(status, 400, "move onto a classic app draft was allowed: {body}");
-    assert!(body.contains("already have a draft"), "unexpected refusal: {body}");
+    assert!(
+        body.contains("already have a app draft"),
+        "the refusal did not name the occupying kind: {body}"
+    );
 
     // Both drafts are untouched.
     let list: Vec<Value> = reqwest::Client::new()
@@ -106,12 +109,19 @@ async fn test_draft_move_refuses_the_other_app_kind(db: Pool<Postgres>) -> anyho
         .await?
         .json()
         .await?;
-    let mut kinds = list
+    let mut at = list
         .iter()
         .filter(|d| matches!(d["kind"].as_str(), Some("app") | Some("raw_app")))
-        .filter_map(|d| d["kind"].as_str())
+        .filter_map(|d| Some((d["kind"].as_str()?, d["path"].as_str()?)))
         .collect::<Vec<_>>();
-    kinds.sort();
-    assert_eq!(kinds, vec!["app", "raw_app"], "{list:?}");
+    at.sort();
+    assert_eq!(
+        at,
+        vec![
+            ("app", "u/test-user/mvtaken_app"),
+            ("raw_app", "u/test-user/mvtaken_raw")
+        ],
+        "{list:?}"
+    );
     Ok(())
 }
