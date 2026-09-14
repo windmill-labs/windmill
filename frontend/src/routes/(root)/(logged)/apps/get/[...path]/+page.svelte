@@ -1,11 +1,11 @@
 <script lang="ts">
 	/*
-	 * WIN-2006: in-workspace low-code app viewer. Thin wrapper over the shared
+	 * WIN-2006: in-workspace app viewer. Thin wrapper over the shared
 	 * InWorkspaceAppViewer, which renders the app sandboxed (opaque iframe / scoped
-	 * token) through the same machinery as the public viewer. Raw apps use the
-	 * sibling /apps_raw/get route, which wraps the same component.
+	 * token) through the same machinery as the public viewer. Raw apps also render
+	 * here — links to an app point at this route whatever its kind; the sibling
+	 * /apps_raw/get route wraps the same component.
 	 */
-	import { base } from '$lib/base'
 	import InWorkspaceAppViewer from '$lib/components/apps/editor/InWorkspaceAppViewer.svelte'
 	import { Skeleton } from '$lib/components/common'
 	import { workspaceStore } from '$lib/stores'
@@ -24,7 +24,7 @@
 	     must fully remount — otherwise the previous app (and in sandbox mode its
 	     path-scoped token) sticks around. -->
 	{#key `${workspace}/${path}`}
-		<InWorkspaceAppViewer {workspace} {path} editHref="{base}/apps/edit/{path}?nodraft=true" />
+		<InWorkspaceAppViewer {workspace} {path} />
 	{/key}
 {:else}
 	<Skeleton layout={[10]} />

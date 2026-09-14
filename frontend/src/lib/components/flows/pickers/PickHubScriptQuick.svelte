@@ -44,12 +44,17 @@
 	import { Circle, ExternalLink } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { disableHubStore, hubBaseUrlStore, userStore } from '$lib/stores'
+	import { disableHubStore, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import { get } from 'svelte/store'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Alert } from '$lib/components/common'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import { logHubScriptPick } from '$lib/utils/featureUsage'
+	import {
+		alphabetical,
+		byPopularity,
+		localCountsByIntegration
+	} from '$lib/components/pickerPopularity'
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 
@@ -94,9 +99,10 @@
 	}: Props = $props()
 
 	let allApps: string[] = $state([])
+	let popularity: (a: string, b: string) => number = $state(alphabetical)
 	$effect(() => {
 		if (filter.length > 0) {
-			apps = Array.from(new Set(items?.map((x) => x.app) ?? [])).sort()
+			apps = Array.from(new Set(items?.map((x) => x.app) ?? [])).sort(popularity)
 		} else {
 			apps = allApps
 		}
@@ -106,9 +112,14 @@
 		if ($disableHubStore) return
 		try {
 			hubNotAvailable = false
-			allApps = (await listHubIntegrationsCached({ kind: filterKind, refreshCount })).map(
-				(x) => x.name
-			)
+			// Independent reads, so they share one round trip before first paint.
+			const [integrations, local] = await Promise.all([
+				listHubIntegrationsCached({ kind: filterKind, refreshCount }),
+				$workspaceStore ? localCountsByIntegration($workspaceStore) : {}
+			])
+			const hubPicks = Object.fromEntries(integrations.map((x) => [x.name, x.picks ?? 0]))
+			popularity = byPopularity(hubPicks, local)
+			allApps = integrations.map((x) => x.name).sort(popularity)
 		} catch (err) {
 			console.error('Failed to fetch hub integrations:', err)
 			allApps = []

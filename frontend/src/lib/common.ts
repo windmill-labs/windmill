@@ -35,6 +35,8 @@ export interface SchemaProperty {
 	}
 	min?: number
 	max?: number
+	/** Height a string field's text area opens at, in rows. */
+	minRows?: number
 	currency?: string
 	currencyLocale?: string
 	multiselect?: boolean

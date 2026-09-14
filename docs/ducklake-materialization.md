@@ -606,8 +606,10 @@ how-to (extract-engine choice, cursor recipes, schema-drift handling, worked
 examples) lives in windmilldocs `core_concepts/63_pipelines` → "Ingestion
 (EL)"; this section records only what future feature work must not break.
 
-- **`// materialize` is DuckDB-only** (deploy-rejected elsewhere, managed and
-  `manual` alike — `windmill-api-scripts/src/scripts.rs`), and the SDK
+- **A `ducklake://` `// materialize` is DuckDB-only** (deploy-rejected
+  elsewhere, managed and `manual` alike — `windmill-api-scripts/src/scripts.rs`;
+  a `dbt://` warehouse-relation target is the one any language but dbt's own may
+  declare, and it is track-only — see `docs/dbt-runtime.md`), and the SDK
   materialize helpers (`upsert_partition` / `upsertPartition`) build their SQL
   inside the SDK, so the asset parsers cannot see the write. A polyglot node
   that "writes the lake directly" therefore deploys with **no output edge** —

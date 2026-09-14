@@ -77,7 +77,7 @@
 	const sessionScopedManager = getContext<AIChatManager | undefined>('aiChatManager')
 </script>
 
-{#if SUPPORTED_LANGUAGES.has(lang)}
+{#if SUPPORTED_LANGUAGES.has(lang) && !$copilotInfo.workspaceDisabled}
 	{#if sessionScopedManager}
 		<Button
 			title="Fix the failing run in this chat"

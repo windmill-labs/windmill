@@ -67,6 +67,20 @@ mount {
 #[cfg(not(debug_assertions))]
 pub const DEV_CONF_NSJAIL: &str = "";
 
+/// Tells a `spawn_blocking` task to stop when the future awaiting it goes away.
+///
+/// Dropping a `JoinHandle` detaches the task rather than cancelling it, so a
+/// cancelled or timed-out phase otherwise leaves the blocking pool working on an
+/// answer nobody will read. Hold one of these beside the handle and have the
+/// blocking loop check the flag.
+pub(crate) struct AbortOnDrop(pub(crate) std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// Turn a JSON value into the string a shell/CLI arg should receive: a JSON string
 /// becomes its inner value, anything else is re-serialized compactly.
 pub(crate) fn raw_to_string(x: &str) -> String {

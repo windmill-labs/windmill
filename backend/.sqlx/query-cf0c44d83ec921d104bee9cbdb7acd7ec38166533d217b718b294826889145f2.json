@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM guest_activity WHERE day < CURRENT_DATE - 60",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "cf0c44d83ec921d104bee9cbdb7acd7ec38166533d217b718b294826889145f2"
+}

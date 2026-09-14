@@ -14,16 +14,21 @@
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import ImportSetupRow from '$lib/components/ImportSetupRow.svelte'
 	import AppConnectDrawer from '$lib/components/AppConnectDrawer.svelte'
+	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
+	import Select from '$lib/components/select/Select.svelte'
+	import { applyRetarget, seesWholeWorkspace } from '$lib/importWizard/retargetDeployed'
 	import { OauthService } from '$lib/gen'
 	import { registryCcCapableFor } from '$lib/components/oauthRegistry'
 	import { resourceTypeDisplayName } from '$lib/components/resourceTypeDisplay'
 	import { applyOneMigration } from '$lib/components/workspaceSettings/projectInstall'
 	import { probeMigrationsApplied } from '$lib/importWizard/probe'
 	import {
+		projectReferencesResource,
 		retargetProjectExport,
 		type ProjectExport,
 		type ProjectMigration
 	} from '$lib/components/workspaceSettings/projectBundle'
+	import { superadmin, userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { escapeHtml } from '$lib/utils'
 
@@ -43,12 +48,31 @@
 		 *  own slug and `installProject` retargets them, so reading the raw paths here would
 		 *  look for stubs that are not where they landed. */
 		folder?: string
-		onSkip: () => void
-		onFinish: () => void
+		/** Left with `outstanding` rows still unfilled, which the caller may want to count. */
+		onSkip: (outstanding: number) => void
+		/** Off where the surface already names the step, e.g. a dialog whose title is it. */
+		showHeading?: boolean
+		/** Fill the height given, actions pinned to the bottom. See ImportProjectStep. */
+		fillHeight?: boolean
+		/**
+		 * Finished. `checked` is false where the export could not be read: the step then has no
+		 * idea what is outstanding, so it offers Finish rather than blocking — and a caller
+		 * counting outcomes must not read that as a step that came out clean.
+		 */
+		onFinish: (checked: boolean) => void
 		onBack?: () => void
 	}
 
-	let { workspace, slug, folder, onSkip, onFinish, onBack }: Props = $props()
+	let {
+		workspace,
+		slug,
+		folder,
+		onSkip,
+		onFinish,
+		onBack,
+		showHeading = true,
+		fillHeight = false
+	}: Props = $props()
 
 	type Row = {
 		name: string
@@ -82,6 +106,17 @@
 		 * is absent, and removing the row reports "all set" over a credential nobody filled.
 		 */
 		unreadable?: boolean
+		/**
+		 * The workspace resource this row was pointed at. The project's items reference it
+		 * directly now, so this is what the row has to say instead of the path it used to name.
+		 */
+		reusedFrom?: string
+		/**
+		 * The empty placeholder is still at this row's path, because the retarget could not
+		 * account for every item that might read it. Worth saying: the workspace has a resource
+		 * on it that looks unfinished and is not.
+		 */
+		stubKept?: boolean
 	}
 
 	let loading = $state(true)
@@ -89,8 +124,37 @@
 	let rows = $state<Row[]>([])
 	let blanks = $state<Blank[]>([])
 	let projectResources: { path: string; resource_type: string }[] = []
+	/**
+	 * The subset of `projectResources` the checklist asks about: the ones something in the
+	 * project actually points at. The rest are created and left alone — see
+	 * `projectReferencesResource`. Kept apart from `projectResources` because the full list
+	 * is still what a stub may not be replaced by.
+	 */
+	let askableResources: { path: string; resource_type: string }[] = []
 	let working = $state(false)
 	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
+
+	/** The folder the import wrote into, which is where every rewritable referrer lives. */
+	const targetFolder = $derived(folder?.trim() || slug)
+
+	/**
+	 * Resources the workspace already has, by resource type — what a stub can be replaced
+	 * by. Empty for a workspace this import created, which is why the choice is offered
+	 * rather than imposed: with nothing to choose from the button goes straight to the
+	 * editor, exactly as it did before.
+	 */
+	let candidates = $state<Record<string, string[]>>({})
+	/**
+	 * How many candidates are worth reading back to find the unfilled ones. Past this a
+	 * workspace holds too many resources of these types to be the case worth filtering —
+	 * one project's stub offered as another's credential — and they are all offered rather
+	 * than costing a request each.
+	 */
+	const CANDIDATE_READ_CAP = 40
+	/** The credential row whose choice dialog is open. */
+	let choosing = $state<Blank | undefined>(undefined)
+	let chosenPath = $state<string | undefined>(undefined)
+	let reusing = $state(false)
 
 	const pendingTables = $derived(rows.filter((r) => r.status !== 'done'))
 	// Split because the two say different things to the user: one data table was never
@@ -248,7 +312,7 @@
 			// Retargeted the same way the import was, so these are where the stubs actually
 			// landed. `retargetProjectExport` is a no-op when the folder is the slug, which is
 			// every new-workspace import.
-			const target = folder?.trim() || slug
+			const target = targetFolder
 			const retargeted = retargetProjectExport(exportData, exportData.project?.slug ?? slug, target)
 			// Contained for the same reason the import contains: a crafted export can name a
 			// path outside the folder, and offering that for editing would reach a resource
@@ -256,6 +320,20 @@
 			projectResources = (retargeted.resources ?? [])
 				.map((r) => ({ path: String(r.path), resource_type: String((r as any).resource_type) }))
 				.filter((r) => r.path.startsWith(`f/${target}/`))
+			// Asked against the export as published, not the retargeted copy: a path the project
+			// spells out in code is not rewritten by the retarget, so only the raw export has
+			// its references and its resource paths agreeing. `resourceCount` asks the same
+			// question the same way, and the step and the stepper have to give one answer.
+			// Paired by position, not by reconstructing the retargeted path: `retargetProjectExport`
+			// maps `resources` in order, and an external path the bundle pulled in lands at
+			// `f/<folder>/<name>` with a `_2` suffix on collision, which no slicing recovers.
+			const askable = new Set(
+				(retargeted.resources ?? [])
+					.map((r, i) => [String(r.path), (exportData.resources ?? [])[i]] as const)
+					.filter(([, raw]) => raw && projectReferencesResource(exportData, String(raw.path)))
+					.map(([path]) => path)
+			)
+			askableResources = projectResources.filter((r) => askable.has(r.path))
 			await refreshBlanks()
 		} catch (e: any) {
 			loadError = e?.body ?? e?.message ?? String(e)
@@ -347,13 +425,19 @@
 	 * it only moves a row from outstanding to done.
 	 */
 	async function refreshBlanks(): Promise<void> {
-		const fresh = await findBlankResources(projectResources)
+		const fresh = await findBlankResources(askableResources)
 		const stillBlank = new Map(fresh.map((b) => [b.path, b]))
 		if (blanks.length === 0) {
 			blanks = fresh
+			await loadCandidates()
 			return
 		}
 		blanks = blanks.map((b) => {
+			// A row pointed at another resource is settled once its own stub is gone: the
+			// project's items read the chosen resource and nothing is left at this path. A row
+			// whose stub was kept is not settled, and re-reading it is how filling that stub in
+			// finally closes the row.
+			if (b.reusedFrom && !b.stubKept) return b
 			const f = stillBlank.get(b.path)
 			// Every field the fresh read decides is taken from it, not merged selectively: these
 			// describe what is at the path *now*. Keeping a stale `unreadable` leaves a resource
@@ -369,12 +453,15 @@
 					justSaved: false
 				}
 			}
-			// Gone from the blank list entirely: it was read, and it is filled.
+			// Gone from the blank list entirely: it was read, and it is filled. `stubKept` goes
+			// with it — the placeholder the items this run could not move read is a credential
+			// now, so there is nothing left to tell anyone to fill in.
 			return {
 				...b,
 				missing: [],
 				unreadable: undefined,
 				occupiedBy: undefined,
+				stubKept: undefined,
 				done: true,
 				justSaved: !b.done
 			}
@@ -386,6 +473,169 @@
 				const row = blanks.find((x) => x.path === b.path)
 				if (row) row.justSaved = false
 			}, 1500)
+		}
+		await loadCandidates()
+	}
+
+	/**
+	 * Which existing resources each outstanding row could be replaced by. Re-read on every
+	 * refresh rather than once: a resource created from the editor here is a candidate for
+	 * the rows below it.
+	 *
+	 * The project's own resources are never offered — one of this project's stubs standing
+	 * in for another is a reference to something equally unfilled.
+	 */
+	async function loadCandidates(): Promise<void> {
+		const types = [...new Set(blanks.map((b) => b.resourceType))]
+		if (types.length === 0) {
+			candidates = {}
+			return
+		}
+		const own = new Set(projectResources.map((r) => r.path))
+		const next: Record<string, string[]> = Object.fromEntries(types.map((t) => [t, []]))
+		try {
+			// One call for every type at once — `resource_type` takes a comma-separated list —
+			// and every page of it: `perPage` is what bounds the answer, so without the loop a
+			// workspace past one page would have the rest of its resources silently hidden.
+			for (let page = 1; page <= 100; page++) {
+				const rows = await ResourceService.listResource({
+					workspace,
+					resourceType: types.join(','),
+					page,
+					perPage: 100
+				})
+				for (const r of rows) {
+					if (own.has(r.path)) continue
+					next[r.resource_type ?? '']?.push(r.path)
+				}
+				if (rows.length < 100) break
+			}
+		} catch {
+			// Offer nothing rather than a partial list: every row then behaves as it did before
+			// this choice existed, which is a working way to fill a credential.
+			candidates = {}
+			return
+		}
+		// An unfilled resource is never the answer to "which credential should this use" —
+		// another project's stub above all, which the path filter above cannot recognise.
+		const paths = Object.values(next).flat()
+		if (paths.length <= CANDIDATE_READ_CAP) {
+			const settled = await Promise.all(paths.map(async (p) => [p, await isUnfilled(p)] as const))
+			const unfilled = new Set(settled.filter(([, empty]) => empty).map(([p]) => p))
+			for (const t of Object.keys(next)) next[t] = next[t].filter((p) => !unfilled.has(p))
+		}
+		candidates = next
+	}
+
+	/**
+	 * Whether a resource holds nothing. Same test the checklist uses to call one of the
+	 * project's own resources blank, so a resource this drops is exactly one the wizard
+	 * would have asked someone to fill in.
+	 */
+	async function isUnfilled(path: string): Promise<boolean> {
+		try {
+			const found = await ResourceService.getResource({ workspace, path })
+			const value = found?.value
+			if (!value || typeof value !== 'object') return true
+			return !Object.values(value).some((v) => v !== undefined && v !== null && v !== '')
+		} catch {
+			// A read that fails says nothing about the value, and offering it is what this did
+			// before the check existed.
+			return false
+		}
+	}
+
+	/**
+	 * The row's one action. A workspace that already has a resource of this type gets the
+	 * choice first — reusing what is there is usually the answer, and entering the same
+	 * credentials a second time is the thing worth avoiding. With nothing to choose from
+	 * there is no choice to make, so it goes straight where it always went.
+	 */
+	function startFilling(b: Blank): void {
+		// A kept-stub row has already been pointed at a resource; what is left is the empty
+		// placeholder the items this run could not move still read. Reusing a second resource
+		// would move nothing — every rewritable referrer is off the stub — and would relabel
+		// the row after a retarget that did nothing.
+		if (b.done || b.stubKept || (candidates[b.resourceType] ?? []).length === 0) {
+			fillDirectly(b)
+			return
+		}
+		chosenPath = undefined
+		choosing = b
+	}
+
+	/** Connect where the instance can, hand-fill otherwise. */
+	function fillDirectly(b: Blank): void {
+		if (canConnectType(b.resourceType)) appConnect?.open(b.resourceType, b.path)
+		else resourceEditor?.initEdit(b.path)
+	}
+
+	/**
+	 * The chooser's way out: close it and do what the button did before there was a choice.
+	 * The row is read out of the state first — closing the dialog unmounts the block that
+	 * would otherwise be holding it.
+	 */
+	function fillNewInstead(): void {
+		const b = choosing
+		choosing = undefined
+		if (b) fillDirectly(b)
+	}
+
+	/**
+	 * Point the project at an existing resource: every imported item that referenced the stub
+	 * is rewritten to the chosen path. Nothing is copied. The stub is deleted only when
+	 * `applyRetarget` can account for every item that might read it, and kept otherwise — so
+	 * the toast says how many items moved, and whether the placeholder is still there.
+	 */
+	async function reuseChosen(): Promise<void> {
+		const b = choosing
+		const target = chosenPath
+		if (!b || !target) return
+		reusing = true
+		working = true
+		try {
+			const outcome = await applyRetarget({
+				workspace,
+				folder: targetFolder,
+				from: b.path,
+				to: target,
+				// Asked of this workspace, not of whichever one the user record still describes:
+				// reloading on this step leaves `$userStore` pointing at the previous workspace.
+				seesWholeWorkspace: seesWholeWorkspace($userStore, !!$superadmin, workspace)
+			})
+			const moved = `${outcome.rewritten.length} item${outcome.rewritten.length === 1 ? '' : 's'}`
+			if (outcome.error) {
+				sendUserToast(
+					`Could not point the project at ${target}: ${outcome.error}. ${moved} had already been updated, and ${b.path} was kept.`,
+					true
+				)
+				return
+			}
+			choosing = undefined
+			const row = blanks.find((x) => x.path === b.path)
+			if (row) {
+				row.reusedFrom = target
+				row.stubKept = !outcome.stubDeleted
+				// Settled only when the stub is gone. A kept stub is empty and is still what
+				// every item the scan could not move reads, so the row stays outstanding and
+				// keeps its action: filling it in is the thing left to do.
+				row.done = outcome.stubDeleted
+				row.justSaved = outcome.stubDeleted
+			}
+			await refreshBlanks()
+			sendUserToast(
+				outcome.stubDeleted
+					? `The project now uses ${target} — ${moved} updated.`
+					: `The project now uses ${target} — ${moved} updated. ${b.path} was kept, because some items could not be checked.`
+			)
+		} catch (e: any) {
+			sendUserToast(
+				`Could not point the project at ${target}: ${e?.body ?? e?.message ?? String(e)}`,
+				true
+			)
+		} finally {
+			reusing = false
+			working = false
 		}
 	}
 
@@ -479,7 +729,7 @@
 			})
 			if (!confirmed) return
 		}
-		onSkip()
+		onSkip(outstanding)
 	}
 
 	/**
@@ -505,9 +755,11 @@
 	}
 </script>
 
-<div class="flex flex-col gap-4">
+<div class="flex flex-col gap-4 {fillHeight ? 'flex-1' : ''}">
 	<div>
-		<h2 class="text-sm font-semibold text-emphasis">Finish setting up</h2>
+		{#if showHeading}
+			<h2 class="text-sm font-semibold text-emphasis">Finish setting up</h2>
+		{/if}
 		<!-- Reads as what the user gets out of it, not as what the import failed to do:
 		     the step is skippable, so it has to say why finishing is worth their time. -->
 		<p class="mt-0.5 text-xs text-secondary">
@@ -549,7 +801,7 @@
 						{#if row.status === 'done'}
 							<Check size={20} class="text-emerald-600" />
 						{:else if row.status === 'running'}
-							<Loader2 size={20} class="animate-spin text-blue-500" />
+							<Loader2 size={20} class="animate-spin text-accent" />
 						{:else if row.status === 'failed'}
 							<X size={20} class="text-red-500" />
 						{:else if row.status === 'unknown'}
@@ -692,7 +944,18 @@
 								</div>
 							{/snippet}
 							{#snippet detail()}
-								{#if b.occupiedBy}
+								{#if b.reusedFrom}
+									<span class="truncate text-secondary">
+										now uses <span class="font-mono">{b.reusedFrom}</span>
+									</span>
+									{#if b.stubKept}
+										<!-- Not a footnote: some items were not moved and still read this path,
+										     so the empty resource on it is a credential someone has to fill in. -->
+										<span class="truncate text-hint">
+											some items still read <span class="font-mono">{b.path}</span> — fill it in too
+										</span>
+									{/if}
+								{:else if b.occupiedBy}
 									<span class="truncate text-secondary">
 										a {resourceTypeDisplayName(b.occupiedBy)} resource already holds this path — the
 										project did not get this one
@@ -719,15 +982,16 @@
 									<span class="whitespace-nowrap text-2xs text-hint">
 										{b.occupiedBy ? 'Resolve in the workspace' : 'Check the workspace'}
 									</span>
+								{:else if b.reusedFrom && !b.stubKept}
+									<!-- No action either: this row is done with, whether its own path was
+									     deleted with the retarget or filled in afterwards. -->
+									<span class="whitespace-nowrap text-2xs text-hint">Reused</span>
 								{:else}
 									<Button
 										variant={b.done ? 'subtle' : 'accent'}
 										unifiedSize="sm"
 										disabled={working}
-										onClick={() =>
-											canConnect
-												? appConnect?.open(b.resourceType, b.path)
-												: resourceEditor?.initEdit(b.path)}
+										onClick={() => startFilling(b)}
 									>
 										{b.done ? 'Saved' : canConnect ? 'Connect' : 'Fill in'}
 									</Button>
@@ -739,36 +1003,16 @@
 			</div>
 		{/if}
 
-		<!-- Three different things to say, and which one depends on what is left. A missing
-		     credential degrades the project; a missing data table ends it, because every app
-		     queries tables that do not exist. Only the credential case is offered as
-		     skippable — saying "you can skip this" above a missing data table would be
-		     telling the user something that is not true. -->
+		<!-- Two things to say, and which one depends on what is left. A missing credential
+		     degrades the project; a missing data table ends it, because every app queries tables
+		     that do not exist — but that case is not stated here: Skip already asks to confirm
+		     it, in the words the user is about to act on. Nor is it offered as skippable, which
+		     would be telling the user something that is not true.  -->
 		{#if outstanding === 0}
 			<Alert type="success" title="You're all set" size="xs">
 				Everything this project needs is configured. Finish, and it is ready to run.
 			</Alert>
-		{:else if pendingTables.length > 0}
-			<Alert
-				type="warning"
-				title={missingTables.length > 0
-					? 'The project will not run without this'
-					: 'This could not be checked'}
-				size="xs"
-			>
-				{#if missingTables.length > 0}
-					The tables {missingTables.length === 1 ? 'this data table holds' : 'these data tables hold'}
-					do not exist, and the project's apps and flows read them. Every one of those fails as soon
-					as it opens.
-				{/if}
-				{#if uncheckedTables.length > 0}
-					{#if missingTables.length > 0}<br /><br />{/if}
-					{uncheckedTables.length === 1 ? 'One data table is' : 'Some data tables are'} set up, but
-					{uncheckedTables.length === 1 ? 'its' : 'their'} schema could not be read, so whether the
-					project's tables are there is unknown. Check again once the database is reachable.
-				{/if}
-			</Alert>
-		{:else}
+		{:else if pendingTables.length === 0}
 			<Alert type="info" title="You can skip this" size="xs" collapsible>
 				The project's apps and flows will fail wherever they read a credential that is still
 				missing. Everything else it imported works either way, and you can fill these in from the
@@ -777,7 +1021,11 @@
 		{/if}
 	{/if}
 
-	<div class="mt-2 flex items-center justify-between">
+	<div
+		class="mt-2 flex items-center justify-between {fillHeight
+			? 'sticky bottom-0 mt-auto bg-surface pb-1 pt-3'
+			: ''}"
+	>
 		{#if onBack}
 			<Button
 				variant="subtle"
@@ -808,7 +1056,7 @@
 				variant="accent"
 				unifiedSize="sm"
 				disabled={working || loading || (outstanding > 0 && !loadError)}
-				onClick={onFinish}
+				onClick={() => onFinish(!loadError)}
 			>
 				Finish setup →
 			</Button>
@@ -859,3 +1107,55 @@
 <!-- `on:refresh` fires once the connection has been written into the stub — the same moment
      a save is — so the rows settle the same way either route was taken. -->
 <AppConnectDrawer bind:this={appConnect} {workspace} on:refresh={() => void refreshBlanks()} />
+
+<!-- What "Fill in" opens when the workspace already has a resource of the row's type.
+     Portalled to the body for the reason the confirmation above is: this step renders inside
+     the wizard page's CenteredModal, which is its own stacking context. -->
+<Modal2
+	title={choosing ? `Set up ${resourceTypeDisplayName(choosing.resourceType)}` : ''}
+	target="body"
+	fixedWidth="xs"
+	fixedHeight="adaptive"
+	formStyling
+	closeOnOutsideClick={!reusing}
+	bind:isOpen={
+		() => choosing !== undefined,
+		(v) => {
+			if (!v && !reusing) choosing = undefined
+		}
+	}
+>
+	{#if choosing}
+		{@const forRow = choosing}
+		{@const existing = candidates[forRow.resourceType] ?? []}
+		<div class="flex w-full flex-col gap-4 text-xs">
+			<p class="text-secondary">
+				This workspace already has {existing.length}
+				{resourceTypeDisplayName(forRow.resourceType)}
+				{existing.length === 1 ? 'resource' : 'resources'}. Use one and this project's apps, flows
+				and triggers are pointed at it.
+			</p>
+			<Select
+				bind:value={chosenPath}
+				items={existing.map((p) => ({ value: p, label: p }))}
+				placeholder="Pick a resource"
+				disabled={reusing}
+				clearable
+				class="w-full"
+			/>
+			<div class="flex items-center justify-between gap-2">
+				<Button variant="subtle" unifiedSize="sm" disabled={reusing} onClick={fillNewInstead}>
+					{canConnectType(forRow.resourceType) ? 'Connect a new one' : 'Fill in a new one'}
+				</Button>
+				<Button
+					variant="accent"
+					unifiedSize="sm"
+					disabled={!chosenPath || reusing}
+					onClick={() => void reuseChosen()}
+				>
+					{reusing ? 'Pointing the project at it…' : 'Use this resource'}
+				</Button>
+			</div>
+		</div>
+	{/if}
+</Modal2>

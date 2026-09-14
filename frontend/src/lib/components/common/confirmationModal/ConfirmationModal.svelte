@@ -23,6 +23,12 @@
 		/** Tailwind z-index class for the modal root. Override to stack this modal
 		 * above another modal that's already open (both default to `z-[9999]`). */
 		zIndexClass?: string
+		/** Render into `body` instead of where this component sits. Needed when an ancestor
+		 * creates a stacking context the dialog has to escape — a drawer paints over the page
+		 * whatever the dialog's z-index, and a `transform`, `filter` or `overflow` on the way
+		 * up confines it. Off by default: it moves the dialog out of its DOM position, so opt
+		 * in per call site rather than assuming every caller wants it. */
+		alwaysPortal?: boolean
 		children?: Snippet
 		onConfirmed?: () => void | Promise<void>
 		onCanceled?: () => void
@@ -40,6 +46,7 @@
 		id,
 		trashbin = false,
 		zIndexClass = 'z-[9999]',
+		alwaysPortal = false,
 		children,
 		onConfirmed,
 		onCanceled
@@ -141,7 +148,11 @@
 
 <svelte:window onkeydowncapture={onKeyDown} />
 
-<ConditionalPortal condition={!!hostEl} target={hostEl} class="contents">
+<ConditionalPortal
+	condition={alwaysPortal || !!hostEl}
+	target={hostEl}
+	class={hostEl ? 'contents' : undefined}
+>
 	{#if open}
 		<div
 			transition:fadeFast|local

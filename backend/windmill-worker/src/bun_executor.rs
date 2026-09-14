@@ -13,7 +13,7 @@ use itertools::Itertools;
 use serde_json::value::RawValue;
 
 use uuid::Uuid;
-use windmill_parser_ts::remove_pinned_imports;
+use windmill_parser_ts::{remove_pinned_import_specifiers, remove_pinned_imports};
 
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInfo};
 
@@ -1146,6 +1146,81 @@ pub async fn generate_bun_bundle(
     Ok(())
 }
 
+/// [`generate_bun_bundle`], built once more with the version pins dropped from the import
+/// specifiers of `main.ts` if it fails. The lockfile pins those versions, but bun fails on a
+/// pinned specifier except where it tolerates a failed import (in a `try`, under a `.catch`, in
+/// dead code). Such a script builds as written and must keep that bundle, so only failures retry.
+async fn generate_bun_bundle_unpinning_imports(
+    job_dir: &str,
+    w_id: &str,
+    job_id: &Uuid,
+    worker_name: &str,
+    db: Option<&Connection>,
+    timeout: Option<i32>,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    common_bun_proc_envs: &HashMap<String, String>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+) -> Result<()> {
+    let built = generate_bun_bundle(
+        job_dir,
+        w_id,
+        job_id,
+        worker_name,
+        db,
+        timeout,
+        mem_peak,
+        canceled_by,
+        common_bun_proc_envs,
+        occupancy_metrics,
+    )
+    .await;
+    // Without a job, a failed build comes back as an `ExecutionErr`; with one, that variant is a
+    // cancellation or timeout, which must not be retried.
+    let build_failed = match &built {
+        Err(error::Error::ExitStatus(..)) => true,
+        Err(_) => db.is_none(),
+        Ok(()) => false,
+    };
+    if !build_failed {
+        return built;
+    }
+    let Some(unpinned) = read_file_content(&format!("{job_dir}/main.ts"))
+        .await
+        .ok()
+        .and_then(|main| {
+            remove_pinned_import_specifiers(&main)
+                .ok()
+                .filter(|u| *u != main)
+        })
+    else {
+        return built;
+    };
+    write_file(job_dir, "main.ts", &unpinned)?;
+    if let Some(db) = db {
+        append_logs(
+            job_id,
+            w_id,
+            "\nbundling again with the imports' versions taken from the lockfile\n",
+            db,
+        )
+        .await;
+    }
+    generate_bun_bundle(
+        job_dir,
+        w_id,
+        job_id,
+        worker_name,
+        db,
+        timeout,
+        mem_peak,
+        canceled_by,
+        common_bun_proc_envs,
+        occupancy_metrics,
+    )
+    .await
+}
+
 struct PulledCodebase {
     is_esm: bool,
 }
@@ -1305,7 +1380,7 @@ pub async fn prebundle_bun_script(
 
     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
-    generate_bun_bundle(
+    generate_bun_bundle_unpinning_imports(
         job_dir,
         w_id,
         job_id,
@@ -1784,8 +1859,19 @@ pub async fn handle_bun_job(
         if modules.as_ref().is_some_and(|m| !m.is_empty()) {
             let bundle_path = std::path::Path::new(job_dir).join("out").join("main.js");
             if bundle_path.exists() {
+                // The lock-generation build kept every `pkg@version` specifier, and bun resolves
+                // a pinned specifier outside node_modules, loading a second copy of the package.
+                // The bundle holds the user's code too, so only the specifiers are rewritten, and
+                // a bundle the parser rejects still runs as built, pins and all.
                 let bundled = std::fs::read_to_string(&bundle_path)?;
-                write_file(job_dir, "main.ts", &bundled)?;
+                let unpinned = remove_pinned_import_specifiers(&bundled).unwrap_or_else(|e| {
+                    tracing::warn!(
+                        job_id = %job.id,
+                        "could not unpin the modules bundle, running it as built: {e:#}"
+                    );
+                    bundled
+                });
+                write_file(job_dir, "main.ts", &unpinned)?;
             }
         }
         "\n\n--- BUN CODE EXECUTION ---\n".to_string()
@@ -1899,8 +1985,12 @@ pub async fn handle_bun_job(
 
         // Kept comment-free — this string is written out per job.
         // `_takePendingStepFailure` / `_takePendingSuspend` hand back what the body
-        // caught and swallowed; honour them instead of reporting a `complete` (see
-        // `_pendingStepFailure` in client.ts). Optional: npm clients may predate them.
+        // caught and swallowed; honour them instead of reporting a bare `complete`
+        // (see client.ts). Optional: npm clients may predate them.
+        // `_warnUnobservedTaskFailures` reports what the body never awaited, and so
+        // belongs only on the paths that end the round for good. A round that
+        // dispatches, sleeps, checkpoints or waits for approval replays later and
+        // re-registers the same failures from the checkpoint — keep those quiet.
         let wrapper_content = if is_wac_v2 {
             format!(
                 r#"
@@ -1958,6 +2048,7 @@ async function run() {{
         if (trailing.length > 0) {{
             return {{ type: "dispatch", mode: trailing.length > 1 ? "parallel" : "sequential", steps: trailing }};
         }}
+        ctx._warnUnobservedTaskFailures?.();
         return {{ type: "complete", result: result ?? null }};
     }} catch (e) {{
         setWorkflowCtx(null);
@@ -1970,13 +2061,14 @@ async function run() {{
                 return {{ type: "inline_checkpoint", key: dispatch.key, result: dispatch.result ?? null, started_at: dispatch.started_at, duration_ms: dispatch.duration_ms }};
             }}
             if (dispatch.mode === "approval") {{
-                return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form, self_approval_disabled: dispatch.self_approval_disabled }};
+                return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form, self_approval_disabled: dispatch.self_approval_disabled, skin: dispatch.skin, description: dispatch.description }};
             }}
             if (dispatch.mode === "sleep") {{
                 return {{ type: "sleep", key: dispatch.key, seconds: dispatch.seconds }};
             }}
             return {{ type: "dispatch", mode: dispatch.mode ?? "sequential", steps: dispatch.steps ?? [] }};
         }}
+        ctx._warnUnobservedTaskFailures?.();
         const failed = ctx._takePendingStepFailure?.();
         if (failed) {{
             throw failed.error;
@@ -2185,7 +2277,7 @@ try {{
 
     if !codebase.is_some() && !has_bundle_cache {
         if build_cache {
-            generate_bun_bundle(
+            generate_bun_bundle_unpinning_imports(
                 job_dir,
                 &job.workspace_id,
                 &job.id,
@@ -2572,7 +2664,8 @@ try {{
 
     // WAC v2 post-execution: parse output and handle dispatch/suspend
     if is_wac_v2 {
-        return handle_wac_v2_output(result, job, conn, modules, new_args.as_ref()).await;
+        return handle_wac_v2_output(result, job, conn, canceled_by, modules, new_args.as_ref())
+            .await;
     }
 
     Ok(result)
@@ -2602,11 +2695,13 @@ pub async fn handle_wac_v2_output(
     result: Box<RawValue>,
     job: &MiniPulledJob,
     conn: &Connection,
+    canceled_by: &mut Option<CanceledBy>,
     modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
     preprocessed_args: Option<&HashMap<String, Box<RawValue>>>,
 ) -> error::Result<Box<RawValue>> {
     use crate::wac_executor::{
-        load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch, WacOutput,
+        load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch,
+        wac_cancelled_mid_segment, WacOutput, WacPark,
     };
     use serde_json::Value;
     use windmill_common::get_latest_flow_version_info_for_path;
@@ -2819,6 +2914,7 @@ pub async fn handle_wac_v2_output(
 
             // Step 1: Save checkpoint, suspend parent, and seed child checkpoints
             // in a single transaction — all BEFORE children become visible.
+            let segment_ms;
             {
                 let mut tx = db.begin().await?;
 
@@ -2871,24 +2967,24 @@ pub async fn handle_wac_v2_output(
                     })?;
                 }
 
-                // Suspend parent before children become visible.
-                // Keep running = true so the normal pull query ignores it.
-                // The suspended pull query picks it up when suspend reaches 0
-                // (it checks: suspend_until IS NOT NULL AND suspend <= 0).
-                let suspend_count = num_steps as i32;
-                sqlx::query!(
-                    "UPDATE v2_job_queue SET suspend = $2, suspend_until = now() + interval '14 day' WHERE id = $1",
-                    job.id,
-                    suspend_count,
+                // Suspend parent before children become visible, so a child that
+                // completes immediately finds a parked parent to decrement.
+                match crate::wac_executor::suspend_wac_parent(
+                    &mut tx,
+                    &job.id,
+                    &job.workspace_id,
+                    num_steps as i32,
+                    14.0 * 24.0 * 3600.0,
                 )
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    error::Error::internal_err(format!(
-                        "Failed to suspend WAC parent job {}: {e}",
-                        job.id
-                    ))
-                })?;
+                .await?
+                {
+                    WacPark::Parked(ms) => segment_ms = ms,
+                    // Returning here drops `tx`, unwriting the checkpoint and the timeline
+                    // entries, so no child is ever pushed against a parent that never parked.
+                    WacPark::Cancelled(cancel) => {
+                        return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                    }
+                }
 
                 tx.commit().await?;
             }
@@ -3167,10 +3263,17 @@ pub async fn handle_wac_v2_output(
                 .execute(db)
                 .await;
 
-                // Unsuspend parent so the error propagates instead of a 14-day hang
+                // Unsuspend parent so the error propagates instead of a 14-day hang.
+                // Unlike the other suspend exits this one completes the job for real, so
+                // it needs its segment start back — the in-memory copy is what the pull
+                // stamped, before the suspend cleared the column.
                 let _ = sqlx::query!(
-                    "UPDATE v2_job_queue SET suspend = 0, suspend_until = NULL WHERE id = $1",
+                    "UPDATE v2_job_queue
+                     SET suspend = 0, suspend_until = NULL,
+                         started_at = coalesce(started_at, $2, now())
+                     WHERE id = $1",
                     job.id,
+                    job.started_at,
                 )
                 .execute(db)
                 .await;
@@ -3183,12 +3286,13 @@ pub async fn handle_wac_v2_output(
                 "WAC v2 parent job suspended"
             );
 
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
             Err(error::Error::WacSuspended(format!(
                 "WAC v2 job {} suspended waiting for {} child job(s)",
                 job.id, num_steps
             )))
         }
-        WacOutput::Approval { key, timeout, form, self_approval_disabled } => {
+        WacOutput::Approval { key, timeout, form, self_approval_disabled, skin, description } => {
             let db = match conn {
                 Connection::Sql(db) => db,
                 _ => {
@@ -3304,15 +3408,19 @@ pub async fn handle_wac_v2_output(
             };
 
             // Store approval form metadata for the approval page endpoint
-            let approval_meta = serde_json::json!({
+            let mut approval_meta = serde_json::json!({
                 "key": key,
                 "form": form,
                 "timeout": timeout_secs as u32,
                 "self_approval_disabled": sad,
+                "skin": skin.unwrap_or_default(),
                 "resume": resume_url,
                 "cancel": cancel_url,
                 "approvalPage": approval_page_url,
             });
+            if let Some(description) = description.filter(|d| !d.is_null()) {
+                approval_meta["description"] = description;
+            }
             sqlx::query(
                 "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
                     COALESCE(workflow_as_code_status, '{}'::jsonb),
@@ -3361,15 +3469,23 @@ pub async fn handle_wac_v2_output(
             }
 
             // Suspend parent with suspend=1 (waiting for 1 approval event)
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = 1, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
-                job.id,
+            let segment_ms = match crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
                 timeout_secs,
             )
-            .execute(&mut *tx)
-            .await?;
+            .await?
+            {
+                WacPark::Parked(ms) => ms,
+                WacPark::Cancelled(cancel) => {
+                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                }
+            };
 
             tx.commit().await?;
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
             tracing::info!(
                 job_id = %job.id,
@@ -3453,18 +3569,25 @@ pub async fn handle_wac_v2_output(
                 })?;
             }
 
-            // Suspend parent — it will auto-resume when suspend_until passes.
             // Use suspend=1 (not 0) so the suspended pull query only picks it up
             // when `suspend_until <= now()`, not via `suspend <= 0`.
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = 1, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
-                job.id,
+            let segment_ms = match crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
                 sleep_secs,
             )
-            .execute(&mut *tx)
-            .await?;
+            .await?
+            {
+                WacPark::Parked(ms) => ms,
+                WacPark::Cancelled(cancel) => {
+                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                }
+            };
 
             tx.commit().await?;
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
             tracing::info!(
                 job_id = %job.id,
@@ -3514,19 +3637,25 @@ pub async fn handle_wac_v2_output(
             // Reset running=false so the job is immediately eligible for pickup.
             // Unlike dispatch (which sets suspend>0), inline checkpoints don't suspend —
             // the job should be re-run right away to continue past the cached step.
-            sqlx::query!(
-                "UPDATE v2_job_queue SET running = false, started_at = null WHERE id = $1",
+            // `prev` holds the pre-update row: RETURNING would see the cleared column.
+            let segment_ms = sqlx::query_scalar!(
+                "WITH prev AS (SELECT started_at FROM v2_job_queue WHERE id = $1)
+                 UPDATE v2_job_queue q SET running = false, started_at = null
+                 FROM prev WHERE q.id = $1
+                 RETURNING (extract(epoch FROM now() - prev.started_at) * 1000)::bigint",
                 job.id,
             )
-            .execute(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(|e| {
                 error::Error::internal_err(format!(
                     "Failed to reset running state for inline checkpoint: {e}"
                 ))
-            })?;
+            })?
+            .flatten();
 
             tx.commit().await?;
+            crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
             Err(error::Error::WacSuspended(format!(
                 "WAC v2 job {} inline checkpoint for step {}",

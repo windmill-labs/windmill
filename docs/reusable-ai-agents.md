@@ -22,21 +22,53 @@ every workspace via the standard cached-resource-type sync, like other built-in 
   or flow expressions), so saving round-trips losslessly. Each host flow overrides what it
   needs: `tool_inputs` stores per-tool overrides (a diff from the resource tool's own
   transforms) that overlay onto the matching tools at runtime. Editing on a linked step edits
-  the flow's use of the agent; editing under the "Editing" banner edits the agent itself.
+  the flow's use of the agent; editing in the agent editor edits the agent itself.
 
 In the flow editor, the AI agent step's **Step Input** tab shows a single read-only card
 (*linked to <path>*, with the inherited brain + tools and an explanatory tooltip) plus
-*Edit* (fork into the editable step, Save changes upserts back and re-links) and *Unlink*
-(fork the resolved config — including any `tool_inputs` — back into the step as a one-off).
-While editing, the step is the only copy of the edits: Cancel drops them and re-links (asking
-first when there is something to drop), and the unsaved-changes badge opens a diff against the
-deployed agent whose Discard changes is Cancel without the question. What a fork is an edit of,
-and the deployed baseline the edits are judged against, live in `agentEditStore` (in memory), so
-a reload brings the step back as a standalone agent with no path to save back to.
+*Edit*, which opens the agent editor over the flow, and *Unlink* (fork the resolved config —
+including any `tool_inputs` — back into the step as a one-off).
 A linked agent's tools appear as display-only graph tool nodes (clicking one selects the
 agent step); below the step's inputs, each tool gets a section with the standard schema-aware
 input editors (prop picker included) and a read-only view of its code — edits persist into
 `tool_inputs`.
+
+## Drafts
+
+The agent editor edits the resource through a **per-user resource draft** (`draft` table,
+`item_kind = 'resource'`), autosaved by `useAgentDraft` and deployed by the editor's own Deploy
+button. It is the same draft row the generic resource editor writes and the Review & Deploy page
+lists, so an agent can be deployed from any of them.
+
+A flow does not wait for that deploy to see the draft:
+
+- Testing the flow, or a single linked step, runs the draft. `runFlowPreview` and `ModuleTest`
+  substitute each linked step for the standalone step the draft would run as
+  (`linkedAgentDrafts.ts`): `agent` cleared, the draft's brain as static input transforms, the
+  draft's tools on the step, and the step's own `user_message`/`user_attachments` kept on top —
+  the same overlay order `ai_executor.rs` applies to a linked step. `tool_inputs` is untouched,
+  since the worker overlays it in both branches.
+- The step's linked card and the graph's tool nodes show the draft, with a *Draft* badge, so the
+  editor describes what a test would run. Read-only surfaces (the deployed flow page, the run
+  viewer) stay on the deployed agent: they resolve tools through `publishLinkedAgentTools` without
+  the draft flag.
+- Deploying the flow lists every linked agent that has a draft in the confirmation dialog, beside
+  the draft triggers. Deploying one writes the resource and drops the draft; leaving one out keeps
+  its draft untouched, and the flow runs the agent as currently deployed. That is the one place
+  the two kinds differ: an undeployed draft trigger is deleted, because it belongs to the flow,
+  while an agent draft belongs to a resource other flows also use.
+
+Because a draft is per-user, a flow test can behave differently for two people looking at the same
+flow. That is the same contract as a flow draft, and deploying the agent is what makes it shared.
+
+Inlining has a consequence worth knowing: a preview job's `raw_flow` then carries the agent's
+config, where a linked step used to carry only the path and leave the resolution to the worker. So
+an agent's prompt and tool set are readable by whoever can read that preview job, which is a wider
+set than whoever can read the resource when the agent sits in a more restricted folder than the
+flow. No credential travels with it — the provider stays a `$res:` reference, resolved at run time
+as the runner. The agent editor's own test pane has inlined the same way since drafts existed;
+closing the gap would mean the preview carrying a draft *reference* the worker resolves, rather
+than the config.
 
 Sharing works through standard resource folder permissions (save agents under `f/...`).
 

@@ -416,17 +416,53 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
 
             let mut headers = HeaderMap::new();
 
+            // A reverse proxy consumes hop-by-hop headers instead of forwarding them and
+            // drops every header named by `Connection`, so a script could use one to strip
+            // the sandbox headers this function adds before they reach the browser.
+            const HOP_BY_HOP_HEADERS: [&str; 9] = [
+                "connection",
+                "keep-alive",
+                "proxy-authenticate",
+                "proxy-authorization",
+                "proxy-connection",
+                "te",
+                "trailer",
+                "transfer-encoding",
+                "upgrade",
+            ];
+
             if let Some(windmill_headers) = windmill_headers {
                 for (k, v) in windmill_headers {
                     let k = HeaderName::from_str(k.as_str()).map_err(|err| {
                         Error::internal_err(format!("Invalid header name {k}: {err}"))
                     })?;
+                    if HOP_BY_HOP_HEADERS.contains(&k.as_str()) {
+                        return Err(Error::ExecutionErr(format!(
+                            "windmill_headers cannot set the hop-by-hop header \"{k}\""
+                        )));
+                    }
                     let v = HeaderValue::from_str(v.as_str()).map_err(|err| {
                         Error::internal_err(format!("Invalid header value {v}: {err}"))
                     })?;
                     headers.insert(k, v);
                 }
             }
+
+            // The script controls the content type and body, and run_wait_result and sync
+            // HTTP routes are reachable by top-level GET navigation with the session cookie:
+            // sandbox the document into an opaque origin so HTML can never run with the
+            // viewer's session. Inserted after `wm_headers` so a script cannot override it.
+            headers.insert(
+                http::header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            );
+            headers.insert(
+                http::header::CONTENT_SECURITY_POLICY,
+                HeaderValue::from_static(
+                    "sandbox allow-scripts allow-forms allow-popups \
+                     allow-popups-to-escape-sandbox allow-downloads allow-modals",
+                ),
+            );
 
             if let Some(content_type) = windmill_content_type {
                 let serialized_json_result = result_value
@@ -1104,6 +1140,56 @@ mod result_to_response_tests {
             resp.headers().get(http::header::CONTENT_TYPE).unwrap(),
             "text/html"
         );
+        assert_sandboxed(resp.headers());
         assert_eq!(body_bytes(resp).await, b"<h1>hi</h1>");
+    }
+
+    fn assert_sandboxed(headers: &HeaderMap) {
+        assert_eq!(
+            headers.get(http::header::X_CONTENT_TYPE_OPTIONS).unwrap(),
+            "nosniff"
+        );
+        let csp = headers
+            .get(http::header::CONTENT_SECURITY_POLICY)
+            .expect("content-security-policy")
+            .to_str()
+            .unwrap();
+        assert!(csp.starts_with("sandbox "), "csp: {csp}");
+        assert!(!csp.contains("allow-same-origin"), "csp: {csp}");
+    }
+
+    #[tokio::test]
+    async fn custom_headers_cannot_override_sandbox() {
+        // wm_headers is script-controlled: a content-type set there replaces the JSON
+        // one even without wm_content_type, and the sandbox headers must survive an
+        // attempt to override them.
+        let resp = result_to_response(
+            raw(
+                r#"{"wm_headers":{"content-type":"text/html","content-security-policy":"default-src *","x-content-type-options":"none"},"result":"<h1>hi</h1>"}"#,
+            ),
+            true,
+        )
+        .expect("response");
+
+        assert_eq!(
+            resp.headers().get(http::header::CONTENT_TYPE).unwrap(),
+            "text/html"
+        );
+        assert_sandboxed(resp.headers());
+    }
+
+    #[tokio::test]
+    async fn hop_by_hop_custom_headers_are_rejected() {
+        // A proxy drops every header named by `Connection`, which would strip the
+        // sandbox headers on the way to the browser.
+        for name in ["connection", "Connection", "transfer-encoding", "upgrade"] {
+            let res = result_to_response(
+                raw(&format!(
+                    r#"{{"wm_content_type":"text/html","wm_headers":{{"{name}":"content-security-policy, x-content-type-options"}},"result":"<h1>hi</h1>"}}"#
+                )),
+                true,
+            );
+            assert!(res.is_err(), "hop-by-hop header must be rejected: {name}");
+        }
     }
 }

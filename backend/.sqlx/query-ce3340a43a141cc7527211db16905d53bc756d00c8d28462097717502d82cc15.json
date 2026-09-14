@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT elem\n        FROM workspace_settings, jsonb_array_elements(git_credentials) AS elem\n        WHERE workspace_id = $1 AND elem->>'repo_identity' = $2\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "elem",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ce3340a43a141cc7527211db16905d53bc756d00c8d28462097717502d82cc15"
+}

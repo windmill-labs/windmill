@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ai_free_token_usage (email, cost_nanos, updated_at)\n         VALUES ($1, GREATEST(0, $2::bigint), now())\n         ON CONFLICT (email) DO UPDATE\n         SET cost_nanos = GREATEST(0, ai_free_token_usage.cost_nanos + $2::bigint),\n             updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f08ef43b4523c74fcbfc7879c147e1bf2c9a0d11e9841caafca62d85c9fb4c8f"
+}

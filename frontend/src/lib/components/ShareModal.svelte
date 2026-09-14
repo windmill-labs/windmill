@@ -252,7 +252,7 @@
 			{/if}
 			<div class="flex flex-col gap-2">
 				<span class="text-sm font-semibold text-emphasis"
-					>Extra permissions ({acls?.length ?? 0})</span
+					>Extra members ({acls?.length ?? 0})</span
 				>
 				{#if linkedVarPaths.length > 0}
 					<div class="flex flex-col gap-1.5 p-3 border rounded bg-surface-secondary text-xs">
@@ -299,7 +299,7 @@
 								size="lg"
 								variant="accent"
 								disabled={!newOwner}
-								on:click={() => addAcl(newOwner, write)}>Add permission</Button
+								on:click={() => addAcl(newOwner, write)}>Add member</Button
 							>
 						</div>
 					{/if}
@@ -307,7 +307,7 @@
 						<TableCustom>
 							{#snippet headerRow()}
 								<tr>
-									<th>owner</th>
+									<th>member</th>
 									<th></th>
 									<th></th>
 								</tr>

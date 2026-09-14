@@ -99,6 +99,7 @@
 	}}
 	{disabled}
 	{id}
+	data-tab-selected={isSelected ? 'true' : undefined}
 >
 	<div
 		class={twMerge(

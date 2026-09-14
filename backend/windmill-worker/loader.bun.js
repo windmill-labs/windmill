@@ -105,9 +105,11 @@ const p = {
       const normalized = (isRelative ? join(dirname(file_path), pathNoExt) : pathNoExt.slice(1)).replace(/\\/g, "/");
       const hash = TEMP_SCRIPT_REFS?.[normalized];
 
+      // Lock generation substitutes `raw`: the dependency scan reads versions from the
+      // `pkg@version` specifiers in imported scripts, which `raw_unpinned` strips.
       const url = (isRelative
-        ? `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${file_path}/../${args.path}${endExt}`
-        : `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${args.path}${endExt}`
+        ? `${base_internal_url}/api/w/${w_id}/scripts/RAW_GET_ENDPOINT/p/${file_path}/../${args.path}${endExt}`
+        : `${base_internal_url}/api/w/${w_id}/scripts/RAW_GET_ENDPOINT/p/${args.path}${endExt}`
       ) + (hash ? `?temp_script_hash=${hash}` : "");
       const file = isRelative
         ? resolve("./" + file_path + "/../" + args.path + ".url")

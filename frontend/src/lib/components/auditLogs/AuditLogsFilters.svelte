@@ -216,6 +216,8 @@
 		INSTANCE_GROUPS_SCIM_CREATE: 'instance_groups.scim_create',
 		INSTANCE_GROUPS_SCIM_DELETE: 'instance_groups.scim_delete',
 		INSTANCE_GROUPS_SCIM_UPDATE: 'instance_groups.scim_update',
+		INSTANCE_GROUPS_JIT_ADDUSER: 'instance_groups.jit_adduser',
+		INSTANCE_GROUPS_JIT_REMOVEUSER: 'instance_groups.jit_removeuser',
 		VARIABLES_DECRYPT_SECRET: 'variables.decrypt_secret',
 		WORKSPACES_READ_ENCRYPTION_KEY: 'workspaces.read_encryption_key',
 		WORKSPACES_EDIT_COMMAND_SCRIPT: 'workspaces.edit_command_script',
