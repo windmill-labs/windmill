@@ -7,7 +7,7 @@ import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { formatTimestamp } from "../../utils/utils.ts";
+import { apiErrorMessage, formatTimestamp } from "../../utils/utils.ts";
 
 async function list(
   opts: GlobalOptions & {
@@ -29,7 +29,8 @@ async function list(
   const items = await wmill.listTrash({
     workspace: workspace.workspaceId,
     itemKind: opts.kind,
-    // The endpoint counts pages from 0; every other list in the CLI counts from 1.
+    // The trash endpoint counts pages from 0, unlike the API's other list
+    // endpoints whose `page` starts at 1; the flag counts from 1 like those.
     page: opts.page === undefined ? undefined : opts.page - 1,
     perPage: opts.limit,
   });
@@ -89,16 +90,6 @@ async function get(opts: GlobalOptions & { json?: boolean }, id: number) {
   console.log(JSON.stringify(item.item_data, null, 2));
 }
 
-function describeError(e: unknown): string {
-  const err = e as { name?: string; body?: unknown; message?: string };
-  if (err?.name === "ApiError") {
-    return typeof err.body === "string"
-      ? err.body
-      : JSON.stringify(err.body ?? err.message);
-  }
-  return String(e);
-}
-
 async function restore(opts: GlobalOptions, ...ids: number[]) {
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
@@ -114,7 +105,9 @@ async function restore(opts: GlobalOptions, ...ids: number[]) {
       log.info(colors.green(message));
     } catch (e) {
       failed += 1;
-      log.error(`Could not restore trash item ${id}: ${describeError(e)}`);
+      log.error(
+        `Could not restore trash item ${id}: ${apiErrorMessage(e) ?? String(e)}`
+      );
     }
   }
   if (failed > 0) {
@@ -131,8 +124,8 @@ const command = new Command()
     "--kind <kind:string>",
     "Only items of this kind: script, flow, app, schedule, variable, resource or a trigger kind such as http_trigger"
   )
-  .option("--limit <limit:number>", "Number of items to return (default 100, max 1000)")
-  .option("--page <page:number>", "Page to return, starting at 1")
+  .option("--limit <limit:integer>", "Number of items to return (default 100, max 1000)")
+  .option("--page <page:integer>", "Page to return, starting at 1")
   .action(list as any)
   .command("list", "List trashed items, most recently deleted first")
   .option("--json", "Output as JSON (for piping to jq)")
@@ -140,8 +133,8 @@ const command = new Command()
     "--kind <kind:string>",
     "Only items of this kind: script, flow, app, schedule, variable, resource or a trigger kind such as http_trigger"
   )
-  .option("--limit <limit:number>", "Number of items to return (default 100, max 1000)")
-  .option("--page <page:number>", "Page to return, starting at 1")
+  .option("--limit <limit:integer>", "Number of items to return (default 100, max 1000)")
+  .option("--page <page:integer>", "Page to return, starting at 1")
   .action(list as any)
   .command("get", "Show a trashed item and the data it was deleted with")
   .arguments("<id:integer>")

@@ -1,8 +1,3 @@
-/**
- * Integration test for `wmill trash`: an item a delete sent to the workspace
- * trashbin can be listed, inspected and restored from the CLI.
- */
-
 import { expect, test, describe } from "bun:test";
 import { withTestBackend } from "./test_backend.ts";
 import { setupWorkspaceProfile, ensureFolder } from "./new_commands_helpers.ts";
@@ -46,12 +41,15 @@ describe("trash command", () => {
       expect(get.code).toBe(0);
       expect(JSON.parse(get.stdout).item_data.row.value).toBe("kept");
 
+      // A bogus second id: the first restore must still go through, and the
+      // failure must show in the exit code.
       const restore = await backend.runCLICommand(
-        ["trash", "restore", String(item.id)],
+        ["trash", "restore", String(item.id), "999999999"],
         tempDir
       );
-      expect(restore.code).toBe(0);
+      expect(restore.code).toBe(1);
       expect(restore.stdout).toContain(`variable '${path}' restored`);
+      expect(restore.stderr).toContain("999999999");
 
       resp = await api(`variables/get/${path}`);
       expect(resp.status).toBe(200);
