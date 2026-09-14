@@ -121,7 +121,7 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		group: 'tools',
 		label: 'Enabled tools',
 		tooltip:
-			'Which of the agent tools a run carries, so it costs no more than it needs. Selecting none leaves the agent with no tools, and unsetting the field gives it all of them. Set it to an expression to decide per run, naming each one the way this list does: a tool by its own name, an MCP server by its resource path, and web search by "web-search". An MCP server carries every tool it exposes, which its own include and exclude lists decide.',
+			'Which of the agent tools a run carries, so it costs no more than it needs. Selecting none leaves the agent with no tools, and unsetting the field gives it all of them. Set it to an expression to decide per run, naming each one the way this list does: a tool by its own name, an MCP server by its resource path, and web search by "__wm_web_search". An MCP server carries every tool it exposes, which its own include and exclude lists decide.',
 		seed: [],
 		defaultHint: 'Default: all of them'
 	},

@@ -248,10 +248,23 @@ fn overlay_tool_inputs(
 /// editor's label is not one: a flow module tool could carry the same one, and enabling that tool
 /// would then silently turn web search on with it.
 ///
-/// The hyphen is what makes the name unshareable. A flow module tool's name must match
-/// `TOOL_NAME_REGEX`, which allows only letters, digits and underscores, so nothing else in a
-/// roster can answer to this.
-const WEBSEARCH_ENABLED_NAME: &str = "web-search";
+/// Reserved, on the `__wm_` prefix this codebase uses for names it keeps for itself, and held that
+/// way by `flow_module_tool_name` refusing to advertise a tool that takes it.
+const WEBSEARCH_ENABLED_NAME: &str = "__wm_web_search";
+
+/// The name a flow module tool is advertised to the model under.
+///
+/// Rejected rather than skipped: a tool the model is never shown is a tool the agent silently does
+/// not have, and a run that quietly drops one is harder to explain than a run that will not start.
+fn flow_module_tool_name(summary: Option<&str>) -> Result<&str, Error> {
+    match summary {
+        Some(name) if name == WEBSEARCH_ENABLED_NAME => Err(Error::internal_err(format!(
+            "Invalid tool name: {name:?} is reserved for enabling web search"
+        ))),
+        Some(name) if TOOL_NAME_REGEX.is_match(name) => Ok(name),
+        other => Err(Error::internal_err(format!("Invalid tool name: {other:?}"))),
+    }
+}
 
 /// The name a run enables a roster entry by: the name the model is shown, except for an entry the
 /// model is shown nothing of, which cannot be named by a label others may share. An MCP server is
@@ -625,12 +638,7 @@ pub async fn handle_ai_agent_job(
         let job = job;
         let user_description = tool_descriptions.get(&t.id).cloned();
         async move {
-            let Some(summary) = t.summary.as_ref().filter(|s| TOOL_NAME_REGEX.is_match(s)) else {
-                return Err(Error::internal_err(format!(
-                    "Invalid tool name: {:?}",
-                    t.summary
-                )));
-            };
+            let summary = flow_module_tool_name(t.summary.as_deref())?;
 
             // Extract schema, input_transforms, and an auto-derived description from the module value
             let module_value = t.get_value()?;
@@ -741,7 +749,7 @@ pub async fn handle_ai_agent_job(
                 def: ToolDef {
                     r#type: "function".to_string(),
                     function: ToolDefFunction {
-                        name: summary.clone(),
+                        name: summary.to_string(),
                         description: Some(description),
                         parameters: schema.unwrap_or_else(|| {
                             to_raw_value(&serde_json::json!({
@@ -2047,17 +2055,19 @@ mod tests {
                 ["w"]
             );
         }
+    }
 
-        // The reserved name is one nothing else in a roster can answer to, so enabling a tool
-        // cannot switch web search on beside it: a tool named after it would be rejected by
-        // `TOOL_NAME_REGEX`, which is what the hyphen is there to stay outside of.
-        assert!(!TOOL_NAME_REGEX.is_match(WEBSEARCH_ENABLED_NAME));
-        let mut collision = vec![named("t", "web_search")];
-        collision.push(websearch("w", None));
-        assert_eq!(
-            ids(&narrow_roster(collision, Some(&["web_search".to_string()]))),
-            ["t"]
-        );
+    #[test]
+    fn a_tool_cannot_take_the_name_web_search_is_enabled_by() {
+        // Nothing else in a roster may answer to the reserved name, or enabling that tool would
+        // switch web search on beside it. Held here rather than by the shape of the name, which is
+        // an ordinary identifier: the run refuses to start instead.
+        assert!(TOOL_NAME_REGEX.is_match(WEBSEARCH_ENABLED_NAME));
+        assert!(flow_module_tool_name(Some(WEBSEARCH_ENABLED_NAME)).is_err());
+
+        assert_eq!(flow_module_tool_name(Some("get_user")).unwrap(), "get_user");
+        assert!(flow_module_tool_name(Some("get user")).is_err());
+        assert!(flow_module_tool_name(None).is_err());
     }
 
     #[test]

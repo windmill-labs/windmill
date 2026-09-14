@@ -43,7 +43,10 @@ describe('toolEnabledName', () => {
 
 	it('reserves that name against every other kind', () => {
 		// A flow module tool cannot be called it, so enabling a tool never enables web search beside
-		// it. `getToolNameError` is the rule that holds, and the hyphen is what stays outside it.
-		expect(getToolNameError(WEBSEARCH_ENABLED_NAME)).toBeDefined()
+		// it. Nothing about the name itself stops that — it is an ordinary identifier — so the rule
+		// is `getToolNameError` refusing it, as `flow_module_tool_name` does on the worker.
+		expect(getToolNameError(WEBSEARCH_ENABLED_NAME)).toBe(
+			`'${WEBSEARCH_ENABLED_NAME}' is a reserved name`
+		)
 	})
 })

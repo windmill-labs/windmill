@@ -3,6 +3,12 @@ import { loadStoredConfig } from '../aiProviderStorage'
 import { AI_AGENT_SCHEMA } from './flowInfers'
 import { forbiddenIds } from './idUtils'
 
+/** What every websearch entry is named by, mirroring `WEBSEARCH_ENABLED_NAME` in `ai_executor.rs`.
+ *  Reserved rather than merely conventional: `getToolNameError` refuses it to a flow module tool,
+ *  as the worker does, or that tool would answer to the same name and be switched on with web
+ *  search. */
+export const WEBSEARCH_ENABLED_NAME = '__wm_web_search'
+
 /**
  * A tool's `summary` is the name the LLM sees, and the worker rejects any name that does not match
  * `^[a-zA-Z0-9_]+$` (`ai_executor.rs`), so an unvalidated name fails on every run of the flow.
@@ -29,7 +35,7 @@ export function getToolNameError(
 	if (!/^[a-zA-Z0-9_]+$/.test(name)) {
 		return 'Tool name must only contain letters, numbers and underscores'
 	}
-	if (forbiddenIds.includes(name)) {
+	if (forbiddenIds.includes(name) || name === WEBSEARCH_ENABLED_NAME) {
 		return `'${name}' is a reserved name`
 	}
 	if (siblingNames && siblingNames.filter((n) => n === name).length > 1) {
@@ -98,12 +104,6 @@ export function toolDisplayName(tool: AgentTool): string | undefined {
 	const value = tool?.value as Record<string, any>
 	return tool?.summary || value?.path || value?.resource_path || undefined
 }
-
-/** What every websearch entry is named by, mirroring `WEBSEARCH_ENABLED_NAME` in `ai_executor.rs`.
- *  The hyphen is load-bearing: it is what stops a flow module tool, whose name `getToolNameError`
- *  holds to letters, digits and underscores, from answering to the same name and being switched on
- *  with web search. */
-export const WEBSEARCH_ENABLED_NAME = 'web-search'
 
 /** The name `enabled_tools` holds a tool by: the name the model is shown, except for an entry the
  *  model is shown nothing of, which is named by whatever identifies it instead. An MCP server is
