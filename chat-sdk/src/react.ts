@@ -22,7 +22,8 @@ export type UseWindmillChat = ChatState &
  * and a token function, all recreate it. A token function is read through a ref
  * on every call, so a new closure per render changes what the next call runs and
  * nothing else; pass a `storageKey` per user when local history must not be shared.
- * The callbacks are read through refs too.
+ * The callbacks and `inputs` are read the same way: the latest render's values go
+ * with the next message.
  */
 export function useWindmillChat(options: ChatOptions): UseWindmillChat {
   const latest = useRef(options)
@@ -52,7 +53,8 @@ export function useWindmillChat(options: ChatOptions): UseWindmillChat {
     () => ({
       ...state,
       chat,
-      sendMessage: chat.sendMessage,
+      sendMessage: (text, options) =>
+        chat.sendMessage(text, { ...options, inputs: { ...latest.current.inputs, ...options?.inputs } }),
       stop: chat.stop,
       newConversation: chat.newConversation,
       selectConversation: chat.selectConversation,

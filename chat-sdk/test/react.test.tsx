@@ -48,8 +48,21 @@ describe('useWindmillChat', () => {
 
     const session = render({ ...base }).chat
     expect(session).not.toBe(fn1)
-    expect(render({ ...base, token: () => 'fn-3' }).chat).not.toBe(session)
-    expect(render({ ...base, token: () => 'fn-3', storageKey: 'someone-else' }).chat).not.toBe(session)
+    const fn3 = render({ ...base, token: () => 'fn-3' }).chat
+    expect(fn3).not.toBe(session)
+    expect(render({ ...base, token: () => 'fn-3', storageKey: 'someone-else' }).chat).not.toBe(fn3)
+    unmount()
+  })
+
+  test('the latest inputs go with the next message', async () => {
+    const { fetch, calls } = fetchMock((c) => (c.method === 'POST' ? new Response('job-1') : undefined))
+    const { render, unmount } = mountHook()
+    render({ ...base, fetch, token: 'tok', inputs: { docId: 'first' } })
+    const hook = render({ ...base, fetch, token: 'tok', inputs: { docId: 'second' } })
+    // The run's stream never answers here; only the request matters.
+    void hook.sendMessage('hi', { inputs: { extra: true } }).catch(() => {})
+    await new Promise((r) => setTimeout(r, 20))
+    expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ docId: 'second', extra: true, user_message: 'hi' })
     unmount()
   })
 

@@ -18,8 +18,9 @@ const MAX_CONVERSATIONS = 100
 
 /**
  * Conversation history in the browser, for a credential shared by every visitor
- * (server history would show them each other's chats). One key per flow; every
- * operation re-reads the store so several tabs stay consistent.
+ * (server history would show them each other's chats). One key per flow, and per
+ * `storageKey` when the caller sets one; every operation re-reads the store so
+ * several tabs stay consistent.
  */
 export function createLocalHistory(storage: StorageLike | undefined, key: string): LocalHistory {
   const store = storage ?? defaultStorage()
