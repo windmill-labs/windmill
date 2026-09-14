@@ -444,11 +444,12 @@
 			return
 		}
 
-		// Build forked_datatables info from completed clone jobs
+		// The fork request makes these copies, and drops them if the fork is not created
 		const forkedDatatables = forkDatatableSection
-			? forkDatatableSection.getCompletedCloneJobs().map((job) => ({
+			? forkDatatableSection.getConfirmedCloneJobs().map((job) => ({
 					name: job.name,
-					new_dbname: job._newDbName
+					new_dbname: job._newDbName,
+					fork_behavior: job.behavior
 				}))
 			: []
 

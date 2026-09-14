@@ -239,6 +239,7 @@ async function createWorkspaceFork(
   interface ForkedDatatableInfo {
     name: string;
     new_dbname: string;
+    fork_behavior?: "schema_only" | "schema_and_data";
   }
   const forkedDatatables: ForkedDatatableInfo[] = [];
 
@@ -285,46 +286,52 @@ async function createWorkspaceFork(
 
         const newDbName = `${trueWorkspaceId.replace(/-/g, "_")}__${dt.name}`;
 
-        try {
+        const forkBehavior = dtBehavior as "schema_only" | "schema_and_data";
+        // A data table under roles is copied by the fork request itself, which replays its owners
+        // and grants; servers old enough not to report `permissioned` cannot copy one at all. Any
+        // other is copied here first, which every server accepts.
+        if (dt.permissioned) {
           log.info(
             colors.blue(
-              `  Cloning datatable "${dt.name}" (${dtBehavior === "schema_only" ? "schema" : "schema + data"}) into "${newDbName}"...`
+              `  Datatable "${dt.name}" will be cloned (${forkBehavior === "schema_only" ? "schema" : "schema + data"}) into "${newDbName}" when the fork is created.`
+            )
+          );
+          forkedDatatables.push({
+            name: dt.name,
+            new_dbname: newDbName,
+            fork_behavior: forkBehavior,
+          });
+          continue;
+        }
+
+        try {
+          log.info(
+            colors.blue(`  Creating database "${newDbName}" for datatable "${dt.name}"...`)
+          );
+
+          await wmill.createPgDatabase({
+            workspace: workspace.workspaceId,
+            requestBody: {
+              source: `datatable://${dt.name}`,
+              target_dbname: newDbName,
+            },
+          });
+
+          log.info(
+            colors.blue(
+              `  Importing ${forkBehavior === "schema_only" ? "schema" : "schema + data"}...`
             )
           );
 
-          const forkBehavior = dtBehavior as "schema_only" | "schema_and_data";
-          try {
-            await wmill.clonePgDatabase({
-              workspace: workspace.workspaceId,
-              requestBody: {
-                source: `datatable://${dt.name}`,
-                target_dbname: newDbName,
-                fork_behavior: forkBehavior,
-              },
-            });
-          } catch (e: any) {
-            // A server predating the single clone request answers the unknown route with an
-            // empty 404: create, then import. A 404 carrying a message is a real error.
-            if (e?.status !== 404 || e?.body) {
-              throw e;
-            }
-            await wmill.createPgDatabase({
-              workspace: workspace.workspaceId,
-              requestBody: {
-                source: `datatable://${dt.name}`,
-                target_dbname: newDbName,
-              },
-            });
-            await wmill.importPgDatabase({
-              workspace: workspace.workspaceId,
-              requestBody: {
-                source: `datatable://${dt.name}`,
-                target: `datatable://${dt.name}`,
-                target_dbname_override: newDbName,
-                fork_behavior: forkBehavior,
-              },
-            });
-          }
+          await wmill.importPgDatabase({
+            workspace: workspace.workspaceId,
+            requestBody: {
+              source: `datatable://${dt.name}`,
+              target: `datatable://${dt.name}`,
+              target_dbname_override: newDbName,
+              fork_behavior: forkBehavior,
+            },
+          });
 
           log.info(colors.green(`  ✓ Datatable "${dt.name}" cloned.`));
           forkedDatatables.push({ name: dt.name, new_dbname: newDbName });

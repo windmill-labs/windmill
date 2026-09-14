@@ -1,20 +1,9 @@
 <script module lang="ts">
-	export type ForkStep = {
-		label: string
-		status: 'pending' | 'running' | 'done' | 'error'
-		error?: string
-	}
-
 	export type DatatableCloneJob = {
 		name: string
 		resourceType: string
 		behavior: 'schema_only' | 'schema_and_data'
-		steps: ForkStep[]
 		_newDbName: string
-		_isInstance: boolean
-		_sourceWorkspace: string
-		_targetWorkspace: string
-		_resourcePath: string
 	}
 </script>
 
@@ -27,7 +16,6 @@
 	import Label from '../Label.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
-	import { Check, X, Loader2 } from 'lucide-svelte'
 
 	interface Props {
 		// Workspace whose datatables are cloned into the fork (the fork's base). Falls back to the
@@ -52,7 +40,6 @@
 	let cloneModalOpen = $state(false)
 	let currentCloneJob: DatatableCloneJob | undefined = $state(undefined)
 	let cloneQueue: DatatableCloneJob[] = $state([])
-	let cloneRunning = $state(false)
 
 	export function hasDatatables(): boolean {
 		return (allDatatables.current?.length ?? 0) > 0
@@ -64,75 +51,32 @@
 				const behavior = datatableBehaviors[dt.name] ?? 'keep_original'
 				return behavior !== 'keep_original'
 			})
-			.map((dt) => {
-				const behavior = datatableBehaviors[dt.name] as 'schema_only' | 'schema_and_data'
-				const isInstance = dt.resource_type === 'instance'
-				const newDbName = `${targetWorkspaceId.replace(/-/g, '_')}__${dt.name}`
-
-				const steps: ForkStep[] = [
-					{
-						label: `Clone into "${newDbName}" (${behavior === 'schema_only' ? 'schema only' : 'schema + data'})`,
-						status: 'pending'
-					}
-				]
-
-				return {
-					name: dt.name,
-					resourceType: dt.resource_type,
-					behavior,
-					steps,
-					_newDbName: newDbName,
-					_isInstance: isInstance,
-					_sourceWorkspace: effectiveSource!,
-					_targetWorkspace: targetWorkspaceId,
-					_resourcePath: dt.resource_path
-				}
-			})
+			.map((dt) => ({
+				name: dt.name,
+				resourceType: dt.resource_type,
+				behavior: datatableBehaviors[dt.name] as 'schema_only' | 'schema_and_data',
+				_newDbName: `${targetWorkspaceId.replace(/-/g, '_')}__${dt.name}`
+			}))
 	}
 
-	let completedJobs: DatatableCloneJob[] = $state([])
+	let confirmedJobs: DatatableCloneJob[] = $state([])
 
-	// Every job runs again when the fork request is retried: the server answers a copy it already
-	// made as done, and replaces one that no longer matches the data table.
+	// Each clone is only confirmed here: the fork request makes the copies, and drops them if the
+	// fork is not created.
 	export function startCloning(queue: DatatableCloneJob[]) {
-		completedJobs = []
+		confirmedJobs = []
 		cloneQueue = queue
 		currentCloneJob = cloneQueue[0]
 		cloneModalOpen = true
 	}
 
-	export function getCompletedCloneJobs(): DatatableCloneJob[] {
-		return completedJobs
-	}
-
-	async function executeCloneJob(job: DatatableCloneJob): Promise<boolean> {
-		cloneRunning = true
-		const step = job.steps[0]
-		step.status = 'running'
-		step.error = undefined
-		try {
-			await WorkspaceService.clonePgDatabase({
-				workspace: job._sourceWorkspace,
-				requestBody: {
-					source: `datatable://${job.name}`,
-					target_dbname: job._newDbName,
-					fork_behavior: job.behavior
-				}
-			})
-			step.status = 'done'
-			return true
-		} catch (e: any) {
-			step.status = 'error'
-			step.error = e?.body ?? e?.message ?? String(e)
-			return false
-		} finally {
-			cloneRunning = false
-		}
+	export function getConfirmedCloneJobs(): DatatableCloneJob[] {
+		return confirmedJobs
 	}
 
 	function advanceCloneQueue() {
 		if (currentCloneJob) {
-			completedJobs.push(currentCloneJob)
+			confirmedJobs.push(currentCloneJob)
 		}
 		const idx = cloneQueue.indexOf(currentCloneJob!)
 		if (idx < cloneQueue.length - 1) {
@@ -181,16 +125,9 @@
 {#if cloneModalOpen && currentCloneJob}
 	<ConfirmationModal
 		title="Clone datatable: {currentCloneJob.name}"
-		confirmationText={cloneRunning ? 'Running...' : 'Start'}
+		confirmationText="Confirm"
 		open={cloneModalOpen}
-		loading={cloneRunning}
-		onConfirmed={async () => {
-			// A failed clone leaves no database behind, so the error stays on screen and confirming
-			// again retries it.
-			if (await executeCloneJob(currentCloneJob!)) {
-				advanceCloneQueue()
-			}
-		}}
+		onConfirmed={advanceCloneQueue}
 		onCanceled={() => {
 			cloneModalOpen = false
 			currentCloneJob = undefined
@@ -212,39 +149,16 @@
 
 		{#if currentCloneJob.resourceType === 'instance'}
 			<p class="text-xs text-secondary mt-2">
-				This will run <code>CREATE DATABASE {currentCloneJob._newDbName}</code> on the Windmill PostgreSQL
-				instance. A data table under roles keeps its owners and grants in the copy, and its roles stay
-				decided where they are decided today.
+				Creating the fork will run <code>CREATE DATABASE {currentCloneJob._newDbName}</code> on the Windmill
+				PostgreSQL instance. A data table under roles keeps its owners and grants in the copy, and its
+				roles stay decided where they are decided today.
 			</p>
 		{:else}
 			<p class="text-xs text-secondary mt-2">
-				This will run <code>CREATE DATABASE</code> on the resource's PostgreSQL server.
+				Creating the fork will run <code>CREATE DATABASE {currentCloneJob._newDbName}</code> on the resource's
+				PostgreSQL server.
 			</p>
 		{/if}
-
-		<div class="mt-4 flex flex-col gap-2">
-			{#each currentCloneJob.steps as step}
-				<div class="flex items-center gap-2 text-xs">
-					{#if step.status === 'done'}
-						<Check class="w-4 h-4 shrink-0 text-green-500" />
-					{:else if step.status === 'running'}
-						<Loader2 class="w-4 h-4 shrink-0 animate-spin text-blue-500" />
-					{:else if step.status === 'error'}
-						<X class="w-4 h-4 shrink-0 text-red-500" />
-					{:else}
-						<div class="w-4 h-4 shrink-0 rounded-full border border-gray-300"></div>
-					{/if}
-					<span
-						class:text-tertiary={step.status === 'pending'}
-						class:font-medium={step.status === 'running'}
-					>
-						{step.label}
-					</span>
-				</div>
-				{#if step.error}
-					<p class="text-2xs text-red-500 ml-6">{step.error}</p>
-				{/if}
-			{/each}
-		</div>
+		<p class="text-xs text-secondary mt-2"> If the fork cannot be created, the copy is dropped. </p>
 	</ConfirmationModal>
 {/if}
