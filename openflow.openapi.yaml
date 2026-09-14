@@ -1077,8 +1077,8 @@ components:
                 A tool is named as the model is shown it. An entry the model is shown nothing of is
                 named by what identifies it instead: an MCP server by its resource path, carrying
                 every tool it exposes (which of them stays that entry's include_tools/exclude_tools),
-                and a websearch entry by the reserved name 'web search', whatever summary it carries.
-                Example: ['get_user', 'u/admin/github_mcp', 'web search']
+                and a websearch entry by the reserved name 'web-search', whatever summary it carries.
+                Example: ['get_user', 'u/admin/github_mcp', 'web-search']
             max_completion_tokens:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'

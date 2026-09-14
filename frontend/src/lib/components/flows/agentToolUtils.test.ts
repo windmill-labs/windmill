@@ -43,7 +43,7 @@ describe('toolEnabledName', () => {
 
 	it('reserves that name against every other kind', () => {
 		// A flow module tool cannot be called it, so enabling a tool never enables web search beside
-		// it. `getToolNameError` is the rule that holds, and the space is what stays outside it.
+		// it. `getToolNameError` is the rule that holds, and the hyphen is what stays outside it.
 		expect(getToolNameError(WEBSEARCH_ENABLED_NAME)).toBeDefined()
 	})
 })

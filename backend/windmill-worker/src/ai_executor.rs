@@ -248,10 +248,10 @@ fn overlay_tool_inputs(
 /// editor's label is not one: a flow module tool could carry the same one, and enabling that tool
 /// would then silently turn web search on with it.
 ///
-/// The space is what makes the name unshareable. A flow module tool's name must match
-/// `TOOL_NAME_REGEX`, and a resource path carries no spaces either, so nothing else in a roster can
-/// answer to this.
-const WEBSEARCH_ENABLED_NAME: &str = "web search";
+/// The hyphen is what makes the name unshareable. A flow module tool's name must match
+/// `TOOL_NAME_REGEX`, which allows only letters, digits and underscores, so nothing else in a
+/// roster can answer to this.
+const WEBSEARCH_ENABLED_NAME: &str = "web-search";
 
 /// The name a run enables a roster entry by: the name the model is shown, except for an entry the
 /// model is shown nothing of, which cannot be named by a label others may share. An MCP server is
@@ -2050,7 +2050,7 @@ mod tests {
 
         // The reserved name is one nothing else in a roster can answer to, so enabling a tool
         // cannot switch web search on beside it: a tool named after it would be rejected by
-        // `TOOL_NAME_REGEX`, which is what the space is there to stay outside of.
+        // `TOOL_NAME_REGEX`, which is what the hyphen is there to stay outside of.
         assert!(!TOOL_NAME_REGEX.is_match(WEBSEARCH_ENABLED_NAME));
         let mut collision = vec![named("t", "web_search")];
         collision.push(websearch("w", None));

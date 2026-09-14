@@ -100,10 +100,10 @@ export function toolDisplayName(tool: AgentTool): string | undefined {
 }
 
 /** What every websearch entry is named by, mirroring `WEBSEARCH_ENABLED_NAME` in `ai_executor.rs`.
- *  The space is load-bearing: it is what stops a flow module tool, whose name `getToolNameError`
+ *  The hyphen is load-bearing: it is what stops a flow module tool, whose name `getToolNameError`
  *  holds to letters, digits and underscores, from answering to the same name and being switched on
  *  with web search. */
-export const WEBSEARCH_ENABLED_NAME = 'web search'
+export const WEBSEARCH_ENABLED_NAME = 'web-search'
 
 /** The name `enabled_tools` holds a tool by: the name the model is shown, except for an entry the
  *  model is shown nothing of, which is named by whatever identifies it instead. An MCP server is
