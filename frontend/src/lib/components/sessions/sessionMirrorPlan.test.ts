@@ -79,6 +79,20 @@ describe('planSessionPush', () => {
 		expect(plan?.next.images).toEqual({ i1: 'c1', i2: 'c2' })
 	})
 
+	it('deletes the copy of a chat that grew too large to back up, instead of keeping a stale one', () => {
+		const plan = planSessionPush({
+			session: session(),
+			chats: [{ id: 'c1', lastModified: 11, imageIds: ['i1'], omitted: true }],
+			artifacts: noArtifacts,
+			sync: synced()
+		})
+		expect(plan?.entry?.delete_chats).toEqual(['c1'])
+		expect(plan?.entry?.chats).toBeUndefined()
+		expect(plan?.images).toEqual([])
+		expect(plan?.next.chats).toEqual({})
+		expect(plan?.next.images).toEqual({})
+	})
+
 	it('deletes a chat that is gone and an image its chat evicted', () => {
 		const plan = planSessionPush({
 			session: session(),
@@ -156,5 +170,11 @@ describe('splitEntry', () => {
 		// Within the target, or a single chat: nothing to split.
 		expect(splitEntry(entry, 10_000)).toEqual([entry])
 		expect(splitEntry({ id: 's', chats: [big('c1')] }, 10)).toHaveLength(1)
+		// The server's per-entry chat cap splits too, however small the chats.
+		const many = {
+			id: 's',
+			chats: Array.from({ length: 250 }, (_, i) => ({ id: `c${i}`, record: {} }))
+		}
+		expect(splitEntry(many, 1_000_000).map((p) => p.chats?.length)).toEqual([100, 100, 50])
 	})
 })

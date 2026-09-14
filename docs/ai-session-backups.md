@@ -91,9 +91,12 @@ half-empty local state over the backup.
 ## Limits
 
 Push bodies are packed to about 8 MB, at most 100 entries and 200 removals each (the server's
-caps, with 32 MB on the body); an entry that outgrows the target is split into chat-only parts
-with the head riding on the last, and a chat above 24 MB is left out with a console warning. A
-request the server refuses (a 4xx other than 404/403/409) stops the backup for the page but keeps
+caps, with 32 MB on the body, and 100 chats, 500 images or 1000 deletes per entry); an entry that
+outgrows the target is split into chat-only parts with the head riding on the last. A chat above
+16 MB or a session's artifacts above 8 MB are left out with a console warning; a chat that grew
+past the cap after it was backed up has its copy deleted, so a restore never presents the old
+transcript as the current one. A 413 fails only the sessions of that request. A
+request the server refuses (any other 4xx but 404/403/409) stops the backup for the page but keeps
 the marks and the sync state, so the next load tries again; a session the server reports it could
 not store stays marked and is retried with backoff. A workspace that answers `enabled: false`
 drops its dirty marks and marks its sync rows stale (the next push after storage returns carries

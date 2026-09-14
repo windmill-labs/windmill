@@ -71,8 +71,11 @@ const REQUEST_TARGET_BYTES = 8 * 1024 * 1024
 /** The server's caps per request. */
 const MAX_ENTRIES_PER_REQUEST = 100
 const MAX_REMOVED_PER_REQUEST = 200
-/** A chat beyond this is left out of the backup rather than sent. */
-const MAX_CHAT_BYTES = 24 * 1024 * 1024
+/** A chat or a session's artifacts beyond this are left out of the backup rather than
+ * sent: with the record and the deletes riding along, the largest entry stays well under
+ * the server's 32 MB body cap. */
+const MAX_CHAT_BYTES = 16 * 1024 * 1024
+const MAX_ARTIFACTS_BYTES = 8 * 1024 * 1024
 const PULL_BATCH = 5
 /** Newest sessions restored per workspace: every visible session gets a runtime, and each
  * runtime's history load reads the whole chat store. */
@@ -244,6 +247,9 @@ async function withUserLock(email: string, fn: () => Promise<void>): Promise<voi
 	if (!locks) return fn()
 	await locks.request(`wm-ai-sessions-mirror::${email}`, { ifAvailable: true }, async (lock) => {
 		if (lock) await fn()
+		// The other tab's flush read the marks before this one's were written: try again
+		// once it is done, rather than wait for the next write or load.
+		else scheduleFlush()
 	})
 }
 
@@ -322,13 +328,17 @@ async function planFor(
 		const imageIds = (await listChatImageIds(id, email)) ?? []
 		if (jsonBytes(record) > MAX_CHAT_BYTES) {
 			console.warn(`AI session chat ${id} is too large to back up; leaving it out`)
-			chats.push({ id, lastModified: record.lastModified, imageIds })
+			chats.push({ id, lastModified: record.lastModified, imageIds, omitted: true })
 			continue
 		}
 		chats.push({ id, lastModified: record.lastModified, record, imageIds })
 	}
-	const artifacts = await readSessionArtifacts(session.id, email)
+	let artifacts = await readSessionArtifacts(session.id, email)
 	if (!artifacts) return 'unavailable'
+	if (jsonBytes(artifacts) > MAX_ARTIFACTS_BYTES) {
+		console.warn(`AI session ${session.id} artifacts are too large to back up; leaving them out`)
+		artifacts = { items: [], versions: [] }
+	}
 	return planSessionPush({ session, chats, artifacts, sync })
 }
 
@@ -396,6 +406,14 @@ async function pushWorkspace(
 			// 404: a build without object storage. 403: nothing this token may back up.
 			if (status === 404 || status === 403) return 'off'
 			if (status === 409) return 'abort'
+			// Too large is a fact about the sessions in this body, not the workspace: they
+			// stay marked (and retried with backoff), the others go on.
+			if (status === 413) {
+				console.error('Session backup push too large', e)
+				for (const entry of body.sessions) failed.add(entry.id)
+				for (const id of body.removed ?? []) failed.add(id)
+				return 'ok'
+			}
 			if (status !== undefined && status < 500 && status !== 429) {
 				console.error('Session backup push refused', e)
 				return 'refused'
@@ -593,6 +611,11 @@ async function flush(): Promise<void> {
 				wsState.set(ws, 'off')
 				await staleWorkspaceSync(ws, email)
 				for (const item of w.items) consumedDirty.push({ id: item.session.id, v: item.v })
+				// Same rule as the loop above: a removal is worth keeping only for a session
+				// that was backed up from here.
+				for (const r of w.removed) {
+					if (!(await readSync(r.id, email))) consumedRemoved.push(r.key)
+				}
 				continue
 			}
 			if (out.status === 'refused') {

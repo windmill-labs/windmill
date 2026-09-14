@@ -87,9 +87,12 @@ export interface ChatSnapshot {
 	id: string
 	lastModified: number
 	/** The stored record; absent for a chat that did not change since the last push, whose
-	 * bytes the caller did not read, or one too large to back up. */
+	 * bytes the caller did not read. */
 	record?: unknown
 	imageIds: string[]
+	/** Too large to back up: planned as if it did not exist, so a copy pushed while it was
+	 * smaller is deleted rather than restored one day as the current transcript. */
+	omitted?: boolean
 }
 
 export interface PlanInput {
@@ -138,6 +141,7 @@ export function planSessionPush(input: PlanInput): PlannedPush | undefined {
 	const images: { chat_id: string; id: string }[] = []
 	const pushedChats: { id: string; record: Record<string, unknown> }[] = []
 	for (const chat of chats) {
+		if (chat.omitted) continue
 		next.chats[chat.id] = chat.lastModified
 		if (prev?.chats[chat.id] !== chat.lastModified && chat.record !== undefined) {
 			pushedChats.push({ id: chat.id, record: chat.record as Record<string, unknown> })
@@ -201,15 +205,26 @@ export interface PushBody {
  * chats before its head, and the entries go out in order, so the head never lists a chat
  * that has not landed.
  */
+export const MAX_CHATS_PER_ENTRY = 100
+
 export function splitEntry(entry: AISessionBackupPush, targetBytes: number): AISessionBackupPush[] {
-	if (!entry.chats || entry.chats.length <= 1 || jsonBytes(entry) <= targetBytes) return [entry]
+	if (
+		!entry.chats ||
+		entry.chats.length <= 1 ||
+		(entry.chats.length <= MAX_CHATS_PER_ENTRY && jsonBytes(entry) <= targetBytes)
+	) {
+		return [entry]
+	}
 	const { chats, ...rest } = entry
 	const parts: AISessionBackupPush[] = []
 	let current: typeof chats = []
 	let size = 0
 	for (const chat of chats) {
 		const bytes = jsonBytes(chat)
-		if (current.length > 0 && size + bytes > targetBytes) {
+		if (
+			current.length > 0 &&
+			(current.length >= MAX_CHATS_PER_ENTRY || size + bytes > targetBytes)
+		) {
 			parts.push({ id: entry.id, chats: current })
 			current = []
 			size = 0

@@ -285,6 +285,18 @@ async fn test_backup_writes_are_refused_for_the_wrong_owner_token_or_id(
     .await?;
     assert_eq!(resp.status(), 400, "{}", resp.text().await?);
 
+    // Nested lists are bounded too: each entry is an object-store call.
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s1", "delete_chats": (0..1001).map(|i| format!("c{i}")).collect::<Vec<_>>() }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+
     // A pull body is a handful of ids; a large one is refused before it is parsed.
     let resp = authed(
         client().post(format!("{base}/ai/sessions/pull")),
