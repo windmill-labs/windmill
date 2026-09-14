@@ -545,7 +545,8 @@ async fn read_former_owner_defaults(
              JOIN pg_default_acl d ON d.defaclnamespace = n.oid
              CROSS JOIN LATERAL aclexplode(d.defaclacl) a
              WHERE n.nspname = $1 AND a.grantee = n.nspowner
-               -- What the owner gives itself on what it creates adds nothing to owning it.
+               -- What the owner gives itself is about the objects it creates, not about owning
+               -- the schema, so a move leaves it alone.
                AND a.grantee <> d.defaclrole
                AND d.defaclobjtype IN ('r', 'S', 'f', 'T')
                AND n.nspowner <> (SELECT oid FROM pg_roles WHERE rolname = $2)
@@ -1061,6 +1062,8 @@ async fn read_grants(client: &tokio_postgres::Client, target: &AclTarget) -> Res
     // not with a grant a revoke here could take back. Each row ends with its source — the grantor,
     // or a default privilege's creating role — and whether this connection can take back what it
     // gave.
+    // Column-level grants (`pg_attribute.attacl`) are not supported yet: they are neither read here
+    // nor revocable from the editor.
     let mut rows = match target {
         AclTarget::Database => {
             let mut out = client
