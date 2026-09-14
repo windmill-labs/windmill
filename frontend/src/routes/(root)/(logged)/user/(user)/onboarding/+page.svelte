@@ -52,17 +52,18 @@
 	// The survey was skipped, so the last step has nothing to go back to.
 	let skippedSurvey = $state(false)
 
-	// An invited account arrives with its source already known — the invite that brought
-	// them here is how they heard about us — so that question is never asked and its
-	// answer rides along on submit. Resolved before first paint: rendering the source
-	// step and yanking it away a frame later reads as a glitch.
+	// An invited account arrives with the survey already answered: the invite that brought
+	// them here is how they heard about us, and their use case was researched before it was
+	// sent. Neither question is asked; the known source is recorded and they go straight to
+	// naming their workspace. Resolved before first paint: rendering a survey step and
+	// yanking it away a frame later reads as a glitch.
 	let invitedTouchPoint = $state<string | null>(null)
 	let profileReady = $state(false)
 	async function loadInviteProfile() {
 		const profile = await onboardingProfile()
 		if (profile?.touch_point) {
 			invitedTouchPoint = profile.touch_point
-			currentStep = STEP_USE_CASE
+			await skip()
 		}
 		profileReady = true
 	}
@@ -162,13 +163,13 @@
 	}
 
 	async function continueToWorkspaces() {
-		if ((!selectedSource && !invitedTouchPoint) || isSubmitting) return
+		if (!selectedSource || isSubmitting) return
 
 		isSubmitting = true
 		try {
 			await UserService.submitOnboardingData({
 				requestBody: {
-					touch_point: selectedSource ?? invitedTouchPoint ?? undefined,
+					touch_point: selectedSource,
 					use_case: useCaseText
 				}
 			})
@@ -292,20 +293,15 @@
 			</div>
 
 			<div class="flex flex-row justify-between items-center pt-4 gap-4">
-				{#if invitedTouchPoint}
-					<!-- The source step was never shown, so there is nothing behind this one. -->
-					<div></div>
-				{:else}
-					<Button
-						color="light"
-						variant="border"
-						startIcon={{ icon: ArrowLeft }}
-						size="xs"
-						on:click={goToPreviousStep}
-					>
-						Previous
-					</Button>
-				{/if}
+				<Button
+					color="light"
+					variant="border"
+					startIcon={{ icon: ArrowLeft }}
+					size="xs"
+					on:click={goToPreviousStep}
+				>
+					Previous
+				</Button>
 				<Button
 					color="blue"
 					variant="contained"
@@ -320,9 +316,7 @@
 
 			<div class="flex justify-center mt-4">
 				<div class="flex items-center gap-2">
-					{#if !invitedTouchPoint}
-						<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
-					{/if}
+					<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
 					<div class="w-2 h-2 rounded-full bg-blue-500"></div>
 					{#if !alreadyPlaced}
 						<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
@@ -356,15 +350,16 @@
 				{/snippet}
 			</SimpleCreateWorkspace>
 
-			<div class="flex justify-center mt-4">
-				<div class="flex items-center gap-2">
-					{#if !invitedTouchPoint}
+			{#if !invitedTouchPoint}
+				<!-- The only step an invited account sees: no progress to show. -->
+				<div class="flex justify-center mt-4">
+					<div class="flex items-center gap-2">
 						<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
-					{/if}
-					<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
-					<div class="w-2 h-2 rounded-full bg-blue-500"></div>
+						<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
+						<div class="w-2 h-2 rounded-full bg-blue-500"></div>
+					</div>
 				</div>
-			</div>
+			{/if}
 		</div>
 	</CenteredModal>
 {/if}
