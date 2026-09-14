@@ -180,8 +180,11 @@ class Entry<V> {
 	/** Replaced by an entry that moved onto its key: it no longer owns the row there, and a write
 	 *  reaching its turn does nothing, as its handles show the item that replaced it. */
 	retired = false
-	/** The key a save of this entry is waiting to move onto, while it waits its turn there. */
-	awaiting: ItemKey | undefined
+	/** The command running now, past its turn: what a move onto this key waits for. */
+	running: Promise<unknown> | undefined
+	/** The entries a save of this entry waits for before moving: a move skips waiting for any
+	 *  that waits for it in turn, which would never end. */
+	waitingOn: Entry<any>[] = []
 	handles = new Set<Handle<V>>()
 	stopWatch: (() => void) | undefined
 	/** Fields a `patch` has put on the deployed side ahead of the server; a save landing
@@ -255,25 +258,27 @@ class Entry<V> {
 	private run<T>(fn: () => Promise<T>): Promise<T> {
 		this.commands++
 		this.refs++
-		const result = this.queue.then(fn).finally(() => {
-			this.commands--
-			this.store.release(this)
-		})
+		const result = this.queue
+			.then(() => this.turn(fn))
+			.finally(() => {
+				this.commands--
+				this.store.release(this)
+			})
 		this.queue = result.catch(() => {})
 		return result
 	}
 
-	/** Let a move onto this key go next: resolves once the commands queued so far have run, and
-	 *  holds any queued after until `until`. */
-	hold(until: Promise<void>): Promise<unknown> {
-		const turn = this.queue
-		this.queue = turn.then(() => until)
-		return turn
-	}
-
-	/** A new entry at a key a move is heading for: its commands, its first load included, wait. */
-	startAfter(move: Promise<void>): void {
-		this.queue = move
+	/** A command's turn: after any other entry's move onto this key, whichever entry was here
+	 *  first, arrived during it or was put here by an earlier move. */
+	private async turn<T>(fn: () => Promise<T>): Promise<T> {
+		await this.store.moveSettled(this)
+		const running = fn()
+		this.running = running
+		try {
+			return await running
+		} finally {
+			if (this.running === running) this.running = undefined
+		}
 	}
 
 	/** Count a command as started now, ahead of its turn in the queue; returns its release. */
@@ -362,6 +367,7 @@ class Entry<V> {
 	/** `started`: the release `begin` handed out, for a save already counted as started. */
 	save(adapter: ItemAdapter<V>, started?: () => void, asked = this.ask()): Promise<SaveOutcome> {
 		const body = async (): Promise<SaveOutcome> => {
+			if (this.retired) return superseded
 			const sent = asked ?? this.ask()
 			if (sent === undefined) return { ok: false, error: this.error ?? 'Nothing to save' }
 			const from = this.key
@@ -406,7 +412,7 @@ class Entry<V> {
 			}
 		}
 		if (!started) return this.run(body)
-		const result = this.queue.then(body).finally(started)
+		const result = this.queue.then(() => this.turn(body)).finally(started)
 		this.queue = result.catch(() => {})
 		return result
 	}
@@ -588,10 +594,8 @@ class Entry<V> {
 type StoreInternals = {
 	release(entry: Entry<any>): void
 	rekey(entry: Entry<any>, from: ItemKey): void
-	claim(
-		key: ItemKey,
-		claimant: Entry<any>
-	): { turn: Promise<unknown>; release: () => void } | undefined
+	claim(key: ItemKey, claimant: Entry<any>): { turn: Promise<unknown>; release: () => void }
+	moveSettled(entry: Entry<any>): Promise<void>
 }
 
 export type ItemHandle<V> = {
@@ -731,8 +735,8 @@ export type ItemAcquisition<V> = { handle: ItemHandle<V>; release(): void }
 
 export function createItemStore(ports: ItemRowPort) {
 	const entries = new Map<string, Entry<any>>()
-	/** Saves moving onto a key, by that key: each settles once its move is done. */
-	const moves = new Map<string, Promise<void>>()
+	/** The latest save moving onto a key, by that key, and when its move is done. */
+	const moves = new Map<string, { owner: Entry<any>; done: Promise<void> }>()
 
 	const internals: StoreInternals = {
 		release(entry) {
@@ -753,40 +757,54 @@ export function createItemStore(ports: ItemRowPort) {
 			entries.set(to, entry)
 		},
 		/**
-		 * A save about to write the item at `key` and move onto it. It goes after whatever is queued
-		 * at that key (the entry holding it, or a move already heading there), and until it is done
-		 * everything else at that key waits: that holder's later commands, an entry acquired there
-		 * meanwhile, another move. So one write to the item lands at a time, and whatever the move
-		 * retires is idle by then. Not when the holder is itself waiting to move onto the claimant:
-		 * each would wait for the other.
+		 * A save about to write the item at `key` and move onto it. It goes after the command
+		 * running at that key and the move already heading there, and every other command at that
+		 * key waits for it when its turn comes (`moveSettled`), whichever entry issues it. So one
+		 * write to the item lands at a time, and whatever the move retires is idle by then. It does
+		 * not wait for an entry that waits for it in turn: each would wait for the other.
 		 */
 		claim(key, claimant) {
 			const k = keyString(key)
 			const holder = entries.get(k)
-			if (holder === claimant || (holder && waitsFor(holder, claimant))) return undefined
+			const previous = moves.get(k)
 			let release!: () => void
-			const released = new Promise<void>((r) => (release = r))
-			const turn = holder ? holder.hold(released) : (moves.get(k) ?? Promise.resolve())
-			moves.set(k, released)
-			claimant.awaiting = key
+			const move = { owner: claimant, done: new Promise<void>((r) => (release = r)) }
+			moves.set(k, move)
+			const waits: Promise<unknown>[] = []
+			claimant.waitingOn = []
+			if (previous && !waitsFor(previous.owner, claimant)) {
+				waits.push(previous.done)
+				claimant.waitingOn.push(previous.owner)
+			}
+			if (holder?.running && !waitsFor(holder, claimant)) {
+				waits.push(holder.running.catch(() => {}))
+				claimant.waitingOn.push(holder)
+			}
 			return {
-				turn: turn.then(() => (claimant.awaiting = undefined)),
+				turn: Promise.all(waits).then(() => (claimant.waitingOn = [])),
 				release() {
 					release()
-					if (moves.get(k) === released) moves.delete(k)
+					if (moves.get(k) === move) moves.delete(k)
 				}
+			}
+		},
+		async moveSettled(entry) {
+			let move = moves.get(keyString(entry.key))
+			while (move && move.owner !== entry) {
+				await move.done
+				move = moves.get(keyString(entry.key))
 			}
 		}
 	}
 
 	function waitsFor(from: Entry<any>, target: Entry<any>): boolean {
 		const seen = new Set<Entry<any>>()
-		for (let e = from; e.awaiting && !seen.has(e); ) {
+		const pending = [from]
+		for (let e = pending.pop(); e; e = pending.pop()) {
+			if (e === target) return true
+			if (seen.has(e)) continue
 			seen.add(e)
-			const next = entries.get(keyString(e.awaiting))
-			if (!next) return false
-			if (next === target) return true
-			e = next
+			pending.push(...e.waitingOn)
 		}
 		return false
 	}
@@ -835,8 +853,6 @@ export function createItemStore(ports: ItemRowPort) {
 			entry = new Entry<V>(key, ports, internals)
 			entry.settles = adapter.settles ?? false
 			entry.absorbs = adapter.absorbs
-			const move = moves.get(k)
-			if (move) entry.startAfter(move)
 			entries.set(k, entry)
 			if (isTemporaryPath(key.path) && spec.template !== undefined) entry.initNew(spec.template)
 			else void entry.load(adapter)

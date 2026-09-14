@@ -581,6 +581,44 @@ describe('item store: one entry per key', () => {
 		expect(order).toEqual(['moved: moving'])
 		expect(opened.value?.description).toBe('moving')
 	})
+
+	it('holds an entry an earlier move put at a key while a later move is heading there', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const order: string[] = []
+		const gate = deferred()
+		const b = { ...deployedRes, path: 'u/me/b' }
+		const creating = (write: (ctx: ItemWriteContext<Res>) => Promise<void>) => {
+			const path = newItemPath()
+			return store.acquire(
+				{ workspace: 'w', kind: 'resource', path },
+				{ workspace: 'w', path, template: b },
+				adapter({}, write)
+			).handle
+		}
+		const first = creating(async (ctx) => void order.push(ctx.value.description))
+		const second = creating(async (ctx) => {
+			await gate.promise
+			order.push(ctx.value.description)
+		})
+		await settle()
+		first.value = { ...b, description: 'first' }
+		second.value = { ...b, description: 'second' }
+		const firstMove = first.save()
+		const secondMove = second.save()
+		expect(await firstMove).toMatchObject({ ok: true, moved: true })
+
+		first.value = { ...b, description: 'saved again through the first' }
+		const later = first.save()
+		await settle()
+		expect(order).toEqual(['first'])
+
+		gate.resolve()
+		expect(await secondMove).toMatchObject({ ok: true, moved: true })
+		expect(await later).toMatchObject({ ok: false })
+		expect(order).toEqual(['first', 'second'])
+		expect(first.value?.description).toBe('second')
+	})
 })
 
 describe('item store: conflicts', () => {
