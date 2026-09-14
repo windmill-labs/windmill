@@ -500,284 +500,59 @@ describe('item store: one entry per key', () => {
 		])
 	})
 
-	it('keeps what was typed in an editor a move replaces, as a draft over what it wrote', async () => {
+	it('writes the item it stands for without becoming it', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
-		const gate = deferred()
 		const b = { ...deployedRes, path: 'u/me/b' }
+		const temporary = newItemPath()
+		const a = adapter({})
+		const { handle: panel } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: temporary },
+			{ workspace: 'w', path: temporary, template: b, standsFor: 'u/me/b' },
+			a
+		)
+		await settle()
+		panel.value = { ...b, description: 'from the panel' }
+
+		expect(await panel.save()).toMatchObject({ ok: true, path: 'u/me/b', moved: false })
+		expect(a.writes[0].standsFor).toBe('u/me/b')
+		// Still its own item under its own key, and a temporary key never holds a row: the config
+		// it was opened on stays its caller's draft, not the item's. The only row it touches is the
+		// one left at the item it wrote, which predates that write.
+		expect(panel.key.path).toBe(temporary)
+		expect(rows.writes).toEqual([{ path: 'u/me/b', value: null }])
+	})
+
+	it('has whoever holds an item re-read it when someone else writes it', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const b = { ...deployedRes, path: 'u/me/b' }
+		// What the server holds: the editor's own edits reach it as its draft row.
+		let deployed = b
+		let draft: Res | undefined
 		const { handle: open } = store.acquire(
 			{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
 			{ workspace: 'w', path: 'u/me/b' },
-			adapter({ deployed: b })
-		)
-		const temporary = newItemPath()
-		const { handle: moving } = store.acquire(
-			{ workspace: 'w', kind: 'resource', path: temporary },
-			{ workspace: 'w', path: temporary, template: b },
-			adapter({}, () => gate.promise)
+			adapter(async () => ({ deployed, draft }))
 		)
 		await settle()
-		moving.value = { ...b, args: { a: 2 } }
-		const moved = moving.save()
-		await settle()
-		open.value = { ...b, description: 'typed while it moved' }
+		open.value = { ...b, description: 'typed in the open editor' }
+		draft = { ...b, description: 'typed in the open editor' }
 
-		gate.resolve()
-		expect(await moved).toMatchObject({ ok: true, moved: true })
-		const kept = { ...b, args: { a: 2 }, description: 'typed while it moved' }
+		const temporary = newItemPath()
+		const { handle: panel } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: temporary },
+			{ workspace: 'w', path: temporary, template: b, standsFor: 'u/me/b' },
+			adapter({}, async (ctx) => void (deployed = { ...ctx.value }))
+		)
+		await settle()
+		panel.value = { ...b, args: { a: 2 } }
+		expect(await panel.save()).toMatchObject({ ok: true, path: 'u/me/b' })
+
+		// The write landed under it, and its own edits came back over it from its row.
 		expect(open.deployed).toEqual({ ...b, args: { a: 2 } })
-		expect(open.value).toEqual(kept)
-		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: kept })
-	})
-
-	it('keeps a draft written from outside at the key a save is moving onto', async () => {
-		const rows = fakeRows()
-		const store = createItemStore(rows.port)
-		const gate = deferred()
-		const b = { ...deployedRes, path: 'u/me/b' }
-		const temporary = newItemPath()
-		const { handle: moving } = store.acquire(
-			{ workspace: 'w', kind: 'resource', path: temporary },
-			{ workspace: 'w', path: temporary, template: b },
-			adapter({}, () => gate.promise)
-		)
-		await settle()
-		moving.value = { ...b, args: { a: 2 } }
-		const moved = moving.save()
-		await settle()
-		const chat = { ...b, description: 'written by the chat meanwhile' }
-		// Nobody holds the key yet, so the caller persists it itself.
-		expect(store.bridge.seed('w', 'resource', 'u/me/b', chat)).toBe(false)
-
-		gate.resolve()
-		expect(await moved).toMatchObject({ ok: true, moved: true })
-		expect(moving.deployed).toEqual({ ...b, args: { a: 2 } })
-		expect(moving.value).toEqual(chat)
-		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: chat })
-	})
-
-	it('keeps a draft written from outside to an editor that opened during the move', async () => {
-		const rows = fakeRows()
-		const store = createItemStore(rows.port)
-		const gate = deferred()
-		const b = { ...deployedRes, path: 'u/me/b' }
-		const temporary = newItemPath()
-		const { handle: moving } = store.acquire(
-			{ workspace: 'w', kind: 'resource', path: temporary },
-			{ workspace: 'w', path: temporary, template: b },
-			adapter({}, () => gate.promise)
-		)
-		await settle()
-		moving.value = { ...b, args: { a: 2 } }
-		const moved = moving.save()
-		await settle()
-		const { handle: opened } = store.acquire(
-			{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
-			{ workspace: 'w', path: 'u/me/b' },
-			adapter({ deployed: b })
-		)
-		const chat = { ...b, description: 'written by the chat meanwhile' }
-		// The opened editor holds the key, so the store persists it.
-		expect(store.bridge.seed('w', 'resource', 'u/me/b', chat)).toBe(true)
-
-		gate.resolve()
-		expect(await moved).toMatchObject({ ok: true, moved: true })
-		expect(opened.value).toEqual(chat)
-		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: chat })
-	})
-
-	it('lets a discard asked before a move lands win over the edits it drops', async () => {
-		const rows = fakeRows()
-		const store = createItemStore(rows.port)
-		const gate = deferred()
-		const b = { ...deployedRes, path: 'u/me/b' }
-		const temporary = newItemPath()
-		const { handle: moving } = store.acquire(
-			{ workspace: 'w', kind: 'resource', path: temporary },
-			{ workspace: 'w', path: temporary, template: b },
-			adapter({}, () => gate.promise)
-		)
-		await settle()
-		moving.value = { ...b, args: { a: 2 } }
-		const moved = moving.save()
-		await settle()
-		const { handle: opened } = store.acquire(
-			{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
-			{ workspace: 'w', path: 'u/me/b' },
-			adapter({ deployed: b })
-		)
-		store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'written by the chat' })
-		store.bridge.discard('w', 'resource', 'u/me/b')
-
-		gate.resolve()
-		expect(await moved).toMatchObject({ ok: true, moved: true })
-		expect(opened.value).toEqual({ ...b, args: { a: 2 } })
-		expect(opened.dirty).toBe(false)
-		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: null })
-	})
-
-	it('keeps a draft written again after a discard, and drops one parked for the move', async () => {
-		const b = { ...deployedRes, path: 'u/me/b' }
-		const moveOnto = async (
-			openBefore: boolean,
-			outside: (
-				store: ReturnType<typeof createItemStore>,
-				open: () => void,
-				moving: ItemHandle<Res>
-			) => void,
-			refuse?: string
-		) => {
-			const rows = fakeRows()
-			const store = createItemStore(rows.port)
-			const gate = deferred()
-			const temporary = newItemPath()
-			const { handle: moving } = store.acquire(
-				{ workspace: 'w', kind: 'resource', path: temporary },
-				{ workspace: 'w', path: temporary, template: b },
-				adapter({}, async () => {
-					await gate.promise
-					if (refuse) throw new Error(refuse)
-				})
-			)
-			await settle()
-			moving.value = { ...b, args: { a: 2 } }
-			const moved = moving.save()
-			await settle()
-			let opened: ItemHandle<Res> | undefined
-			const open = () => {
-				opened = store.acquire(
-					{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
-					{ workspace: 'w', path: 'u/me/b' },
-					adapter({ deployed: b })
-				).handle
-			}
-			if (openBefore) open()
-			outside(store, open, moving)
-			gate.resolve()
-			expect(await moved).toMatchObject(refuse ? { ok: false } : { ok: true, moved: true })
-			await settle()
-			// A refused move leaves the item where it was, with the editor that opened on it.
-			return { moving, shown: refuse ? opened! : moving, rows }
-		}
-		// Deleted, then written again: the newer draft is the one that survives the move.
-		const again = { ...b, description: 'written again after the delete' }
-		const first = await moveOnto(true, (store) => {
-			store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'first draft' })
-			store.bridge.discard('w', 'resource', 'u/me/b')
-			store.bridge.seed('w', 'resource', 'u/me/b', again)
-		})
-		expect(first.moving.value).toEqual(again)
-		expect(first.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: again })
-
-		// The same draft written again is an ask of its own, unchanged value or not.
-		const same = await moveOnto(true, (store) => {
-			store.bridge.seed('w', 'resource', 'u/me/b', again)
-			store.bridge.discard('w', 'resource', 'u/me/b')
-			store.bridge.seed('w', 'resource', 'u/me/b', again)
-		})
-		expect(same.moving.value).toEqual(again)
-		expect(same.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: again })
-
-		// The move failing changes none of that: the last ask is still the one that holds.
-		const failed = await moveOnto(
-			true,
-			(store) => {
-				store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'first draft' })
-				store.bridge.discard('w', 'resource', 'u/me/b')
-				store.bridge.seed('w', 'resource', 'u/me/b', again)
-			},
-			'refused by the server'
-		)
-		expect(failed.shown.value).toEqual(again)
-		expect(failed.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: again })
-
-		// A draft parked for the move, then Discard clicked on the editor doing the moving: the
-		// discard came last, so the parked draft does not come back with the item.
-		const discardedAfterParking = await moveOnto(false, (store, open, moving) => {
-			store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'parked draft' })
-			open()
-			void moving.discard()
-		})
-		expect(discardedAfterParking.moving.dirty).toBe(false)
-		expect(discardedAfterParking.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: null })
-
-		// The other way round: Discard first, then a draft parked for the move. The parked draft was
-		// asked last, so it is what the item arrives with.
-		const parkedAfterDiscard = await moveOnto(false, (store, _open, moving) => {
-			void moving.discard()
-			store.bridge.seed('w', 'resource', 'u/me/b', again)
-		})
-		expect(parkedAfterDiscard.moving.value).toEqual(again)
-		expect(parkedAfterDiscard.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: again })
-
-		// A draft parked for the move, then a newer one written to the editor that opened over it:
-		// the newer one holds, and the parked one does not come back with the item.
-		const newerThanParked = { ...b, description: 'written after the parked one' }
-		const parkedThenWritten = await moveOnto(false, (store, open) => {
-			store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'parked draft' })
-			open()
-			store.bridge.seed('w', 'resource', 'u/me/b', newerThanParked)
-		})
-		expect(parkedThenWritten.moving.value).toEqual(newerThanParked)
-		expect(parkedThenWritten.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: newerThanParked })
-
-		// A draft written into the editor loading at the destination, then Discard on the mover: the
-		// discard came last, so the draft it carries over does not survive it either.
-		const writtenThenDiscarded = await moveOnto(false, (store, open, moving) => {
-			open()
-			store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'chat draft' })
-			void moving.discard()
-		})
-		expect(writtenThenDiscarded.moving.dirty).toBe(false)
-		expect(writtenThenDiscarded.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: null })
-
-		// Deleted last: the delete is what holds, however many drafts preceded it.
-		const deleted = await moveOnto(true, (store) => {
-			store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'first draft' })
-			store.bridge.discard('w', 'resource', 'u/me/b')
-			store.bridge.seed('w', 'resource', 'u/me/b', again)
-			store.bridge.discard('w', 'resource', 'u/me/b')
-		})
-		expect(deleted.moving.dirty).toBe(false)
-		expect(deleted.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: null })
-
-		// Parked for the move before anyone held the key, then deleted once an editor does: the
-		// discard is asked for the key, so the parked draft goes with it.
-		const second = await moveOnto(false, (store, open) => {
-			store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'parked draft' })
-			open()
-			store.bridge.discard('w', 'resource', 'u/me/b')
-		})
-		expect(second.moving.dirty).toBe(false)
-		expect(second.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: null })
-	})
-
-	it('keeps a change the draft comparison ignores in an editor a move replaces', async () => {
-		type Sched = { path: string; summary: string; permissioned_as?: string }
-		const rows = fakeRows()
-		const store = createItemStore(rows.port)
-		const s: Sched = { path: 's', summary: '', permissioned_as: 'u/a' }
-		const { handle: open } = store.acquire(
-			{ workspace: 'w', kind: 'trigger_schedule', path: 's' },
-			{ workspace: 'w', path: 's' },
-			{
-				load: async () => ({ deployed: structuredClone(s) }),
-				write: async () => {}
-			} as ItemAdapter<Sched>
-		)
-		const temporary = newItemPath()
-		const { handle: moving } = store.acquire(
-			{ workspace: 'w', kind: 'trigger_schedule', path: temporary },
-			{ workspace: 'w', path: temporary, template: s },
-			{ write: async () => {} } as ItemAdapter<Sched>
-		)
-		await settle()
-		open.value = { ...s, permissioned_as: 'u/b' }
-		expect(open.dirty).toBe(false)
-		moving.value = { ...s, summary: 'moved' }
-
-		expect(await moving.save()).toMatchObject({ ok: true, moved: true })
-		expect(open.value).toEqual({ ...s, summary: 'moved', permissioned_as: 'u/b' })
+		expect(open.value).toEqual(draft)
+		expect(open.dirty).toBe(true)
 	})
 
 	it('writes an item it moves onto after the saves queued there, and supersedes later ones', async () => {
@@ -897,9 +672,9 @@ describe('item store: one entry per key', () => {
 		expect(await secondMove).toMatchObject({ ok: true, moved: true })
 		expect(await later).toMatchObject({ ok: false })
 		expect(order).toEqual(['first', 'second'])
+		// Its handle follows the item to the entry that now holds the key.
 		expect(first.deployed?.description).toBe('second')
-		// Not written, but not lost either: a draft over what the later move wrote.
-		expect(first.value?.description).toBe('saved again through the first')
+		expect(first.value?.description).toBe('second')
 	})
 })
 

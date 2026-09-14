@@ -177,9 +177,9 @@
 	let session = $state(0)
 	let fixedTemplate: ScheduleCfg | undefined = undefined
 	const newTemplates = new Map<string, NewScheduleOptions>()
-	// Temporary keys holding a config the caller supplied for a schedule that already exists:
-	// saving one updates that schedule rather than creating it.
-	const standsForDeployed = new Set<string>()
+	// The deployed schedule a caller-supplied config describes: saving updates that schedule, and
+	// the item stays under its temporary key, so the caller's draft is not the schedule's own.
+	let standsFor: string | undefined = undefined
 
 	const scheduleAdapter: ItemAdapter<ScheduleCfg> = {
 		settles: true,
@@ -206,8 +206,8 @@
 				throw err
 			}
 		},
-		async write({ workspace, path, value, deployed }) {
-			const update = deployed !== undefined || standsForDeployed.has(path)
+		async write({ workspace, value, deployed, standsFor: stands }) {
+			const update = deployed !== undefined || stands !== undefined
 			await writeScheduleCfg(value, update, workspace)
 			return scheduleCfgAfterWrite(value, update, deployed)
 		}
@@ -215,7 +215,7 @@
 
 	const item = useItem<ScheduleCfg>(
 		'trigger_schedule',
-		() => ({ workspace: wsId, path: itemPath, session, template: fixedTemplate }),
+		() => ({ workspace: wsId, path: itemPath, session, template: fixedTemplate, standsFor }),
 		scheduleAdapter
 	)
 
@@ -327,11 +327,12 @@
 			mode = 'fixed'
 			fixedTemplate = normalizeScheduleCfg({ ...defaultCfg, path: defaultCfg.path ?? ePath })
 			itemPath = newItemPath()
-			standsForDeployed.add(itemPath)
+			standsFor = ePath
 		} else {
 			mode = 'edit'
 			fixedTemplate = undefined
 			itemPath = ePath
+			standsFor = undefined
 		}
 		session++
 	}
@@ -355,6 +356,7 @@
 			? ''
 			: (defaultValues?.path ?? (trigger?.isPrimary ? initialScriptPath : ''))
 		fixedTemplate = undefined
+		standsFor = undefined
 		const temporary = newItemPath()
 		newTemplates.set(temporary, {
 			workspace: wsId!,

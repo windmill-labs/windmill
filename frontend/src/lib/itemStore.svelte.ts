@@ -53,6 +53,8 @@ export type ItemWriteContext<V> = ItemKey & {
 	value: V
 	/** `undefined` when the write must create rather than update. */
 	deployed: V | undefined
+	/** The deployed item this value describes, when it is not the one at `path`. */
+	standsFor: string | undefined
 	meta: unknown
 }
 
@@ -138,11 +140,6 @@ function errorMessage(e: unknown): string {
  *  item's revision for another's. */
 let nextRevision = 1
 
-/** Stamps every write and discard asked of an item, so the one asked last can be told from the
- *  one that reaches it last: a draft parked for a save moving onto a key arrives after asks the
- *  entry there has already recorded. */
-let nextAsk = 1
-
 const superseded = { ok: false, error: 'Another save of this item replaced this one' } as const
 
 class Entry<V> {
@@ -180,15 +177,15 @@ class Entry<V> {
 
 	settles = false
 	absorbs: ((next: V, deployed: V) => boolean) | undefined
+	/** The deployed item this one's value describes, for an entry kept under a temporary key. */
+	standsFor: string | undefined
+	/** How this item is read and written, from whoever opened it first. */
+	adapter: ItemAdapter<V> | undefined
 	refs = 0
 	disposed = false
 	/** Replaced by an entry that moved onto its key: it no longer owns the row there, and a write
 	 *  reaching its turn does nothing, as its handles show the item that replaced it. */
 	retired = false
-	/** Discards asked and still waiting for their turn, and the last ask made of this item, stamped
-	 *  when it was made: of a write and a discard, the one asked later is the one that holds. */
-	discardsAsked = 0
-	lastAsk: { kind: 'write' | 'discard'; at: number } | undefined
 	/** The command running now, past its turn: what a move onto this key waits for. */
 	running: Promise<unknown> | undefined
 	/** The entries a save of this entry waits for before moving: a move skips waiting for any
@@ -238,12 +235,6 @@ class Entry<V> {
 			}
 		}
 		this.reconcile()
-	}
-
-	/** Keep the latest of the asks made of this item, by when each was asked. */
-	private recordAsk(kind: 'write' | 'discard', at: number): void {
-		if (at < (this.lastAsk?.at ?? 0)) return
-		this.lastAsk = { kind, at }
 	}
 
 	/** Mirror `dirty ? value : null` to the draft row. The only place a row is written. */
@@ -356,15 +347,15 @@ class Entry<V> {
 		})
 	}
 
+	/** Read the item again after someone else wrote it. The edits on screen are in the draft row,
+	 *  so they come back over what was written; one typed since the read was asked for stays. */
+	reread(): Promise<CommandOutcome> {
+		if (!this.loaded || this.retired || !this.adapter) return Promise.resolve({ ok: true })
+		return this.load(this.adapter)
+	}
+
 	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
-	/** `askedAt`: when the write was made, for one that reaches this entry later than it was asked
-	 *  (parked while a move was heading here, or carried over from the entry a move replaced). */
-	applyExternal(value: V, askedAt: number = nextAsk++): number {
-		// An ask older than the one that holds changes nothing, value included.
-		if (askedAt < (this.lastAsk?.at ?? 0)) return this.revision
-		// Before the unchanged-value return: re-writing the same draft is still an ask, and which
-		// ask came last is what outranks a discard still waiting for its turn.
-		this.recordAsk('write', askedAt)
+	applyExternal(value: V): number {
 		if (this.loaded && serialize(value) === serialize(this.value)) return this.revision
 		this.pristine = false
 		this.removed = false
@@ -400,9 +391,14 @@ class Entry<V> {
 			if (this.origin === 'deployed' && serialize(sent) === serialize(this.deployed)) {
 				return { ok: true, path: from.path, moved: false }
 			}
-			const to = (adapter.pathOf ?? ((v: V) => (v as { path: string }).path))(sent)
-			const moved = to !== from.path
-			const claim = moved ? this.store.claim({ ...from, path: to }, this) : undefined
+			// Where the write lands, and whether this entry becomes the item there: one that stands
+			// for a deployed item writes it and stays where it is.
+			const to =
+				this.standsFor ?? (adapter.pathOf ?? ((v: V) => (v as { path: string }).path))(sent)
+			const elsewhere = to !== from.path
+			const moved = elsewhere && this.standsFor === undefined
+			const claim = elsewhere ? this.store.claim({ ...from, path: to }, this) : undefined
+			let wrote = false
 			try {
 				await claim?.turn
 				if (this.retired) return superseded
@@ -414,12 +410,14 @@ class Entry<V> {
 							...from,
 							value: sent,
 							deployed: this.origin === 'deployed' ? snapshot(this.deployed) : undefined,
+							standsFor: this.standsFor,
 							meta: this.meta
 						})) ?? sent
 				} catch (e) {
 					this.error = errorMessage(e)
 					return { ok: false, error: this.error }
 				}
+				wrote = true
 				this.error = undefined
 				if (held !== sent) this.adopt(sent, held)
 				this.deployed = { ...held, ...this.patched } as V
@@ -428,44 +426,18 @@ class Entry<V> {
 				if (moved) this.moveTo(to)
 				this.reconcile()
 				await this.settleRows(moved ? [from, this.key] : [this.key])
-				return { ok: true, path: to, moved }
 			} finally {
+				// Before telling the key: whoever re-reads it takes its turn there, which this holds.
 				claim?.release()
 			}
+			// The item at `to` has changed under whoever else is showing it.
+			if (elsewhere && wrote) await this.store.changed({ ...from, path: to }, this)
+			return { ok: true, path: to, moved }
 		}
 		if (!started) return this.run(body)
 		const result = this.queue.then(() => this.turn(body)).finally(started)
 		this.queue = result.catch(() => {})
 		return result
-	}
-
-	/** Take over the edits of a deployed entry this one replaced at its key: each field its value
-	 *  changed from its own deployed side, so they stay a draft over what this entry deployed.
-	 *  Compared exactly, as a save is: a field the draft comparison ignores (run-as) is an edit. */
-	carryEditsOf(old: Entry<V>): void {
-		// A discard asked before the move landed wins over the edits it was asked to drop; had it
-		// run first, it would have dropped anything typed after it too.
-		if (old.value === undefined || this.value === undefined) return
-		if (old.discardsAsked > 0 && old.lastAsk?.kind !== 'write') return
-		// Not loaded yet (its read waits behind the move): only an outside write can have filled it,
-		// and nothing has persisted that write but this entry.
-		if (!old.loaded) {
-			this.applyExternal(old.value, old.lastAsk?.at)
-			return
-		}
-		if (old.origin !== 'deployed' || old.deployed === undefined) return
-		const edited = old.value as Record<string, unknown>
-		const base = old.deployed as Record<string, unknown>
-		const next = snapshot(this.value) as Record<string, unknown>
-		let changed = false
-		for (const k of new Set([...Object.keys(edited), ...Object.keys(base)])) {
-			if (deepEqual(edited[k], base[k])) continue
-			next[k] = snapshot(edited[k])
-			changed = true
-		}
-		if (!changed) return
-		this.pristine = false
-		this.replaceValue(next as V)
 	}
 
 	/** Give the value each field the server set otherwise than `sent` asked, unless the user has
@@ -485,13 +457,7 @@ class Entry<V> {
 	}
 
 	discard(): Promise<DiscardOutcome> {
-		this.discardsAsked++
-		this.recordAsk('discard', nextAsk++)
 		return this.run(async () => {
-			this.discardsAsked--
-			// A draft written again after this discard was asked outranks it, however the move it
-			// waited for turned out: the ask that came last is the one that holds.
-			if (this.lastAsk?.kind === 'write') return { removed: false }
 			if (!this.loaded || this.retired) return { removed: false }
 			if (this.origin === 'draft') {
 				const kept = snapshot(this.value)
@@ -653,6 +619,7 @@ type StoreInternals = {
 	rekey(entry: Entry<any>, from: ItemKey): void
 	claim(key: ItemKey, claimant: Entry<any>): { turn: Promise<unknown>; release: () => void }
 	moveSettled(entry: Entry<any>): Promise<void>
+	changed(key: ItemKey, by: Entry<any>): Promise<void>
 }
 
 export type ItemHandle<V> = {
@@ -693,6 +660,12 @@ export type ItemSpec<V> = {
 	template?: V
 	/** Tells two openings of the same item apart: a new value lets an idle item be read afresh. */
 	session?: unknown
+	/**
+	 * This item's value describes the deployed item at this path, from a config its caller holds
+	 * (a runnable's trigger panel): saving writes that item without becoming it. Kept under its own
+	 * temporary key, so the caller's draft stays the caller's and one entry owns the item's row.
+	 */
+	standsFor?: string
 	valid?: () => boolean
 	writable?: () => boolean
 }
@@ -794,11 +767,6 @@ export function createItemStore(ports: ItemRowPort) {
 	const entries = new Map<string, Entry<any>>()
 	/** The latest save moving onto a key, by that key, and when its move is done. */
 	const moves = new Map<string, { owner: Entry<any>; done: Promise<void> }>()
-	/** Drafts written from outside at a key while a save is moving onto it, stamped when they were
-	 *  written: newer than that write, so the entry arriving there takes them rather than clearing
-	 *  the row it finds, unless it has been asked something later still. */
-	const arrivals = new Map<string, { value: unknown; at: number }>()
-
 	const internals: StoreInternals = {
 		release(entry) {
 			entry.refs--
@@ -816,13 +784,6 @@ export function createItemStore(ports: ItemRowPort) {
 			const displaced = entries.get(to)
 			if (displaced && displaced !== entry) retire(displaced, entry)
 			entries.set(to, entry)
-			const arrived = arrivals.get(to)
-			if (arrived !== undefined) {
-				arrivals.delete(to)
-				// It was asked when it was parked, not now: whichever of it and the asks this entry
-				// recorded meanwhile came last is the one that holds.
-				entry.applyExternal(arrived.value, arrived.at)
-			}
 		},
 		/**
 		 * A save about to write the item at `key` and move onto it. It goes after the command
@@ -852,11 +813,24 @@ export function createItemStore(ports: ItemRowPort) {
 				turn: Promise.all(waits).then(() => (claimant.waitingOn = [])),
 				release() {
 					release()
-					if (moves.get(k) !== move) return
-					moves.delete(k)
-					arrivals.delete(k)
+					if (moves.get(k) === move) moves.delete(k)
 				}
 			}
+		},
+		/**
+		 * The item at `key` was written by another entry. Whoever holds it re-reads it: the edits on
+		 * screen there are in its draft row, so they come back over what was just written. With
+		 * nobody there, the row that is left predates the write and goes.
+		 */
+		async changed(key, by) {
+			const holder = entries.get(keyString(key))
+			if (holder === by) return
+			if (holder) {
+				await holder.reread()
+				return
+			}
+			ports.write(key, null)
+			await ports.flush(key)
 		},
 		async moveSettled(entry) {
 			let move = moves.get(keyString(entry.key))
@@ -880,12 +854,11 @@ export function createItemStore(ports: ItemRowPort) {
 	}
 
 	/**
-	 * An entry moved onto a key another live entry holds. One key has one row writer, so the
-	 * old one stops writing and every handle on it moves to the entry that now is the item. Its
-	 * deployed side is superseded by the write; the edits on screen over it are not.
+	 * An entry moved onto a key another live entry holds: a create or a rename onto the path a
+	 * draft-only item occupies, which the write supersedes. One key has one row writer, so the old
+	 * one stops writing and every handle on it moves to the entry that now is the item.
 	 */
 	function retire(old: Entry<any>, into: Entry<any>): void {
-		into.carryEditsOf(old)
 		old.retired = true
 		old.stopWatch?.()
 		for (const handle of old.handles) {
@@ -924,6 +897,8 @@ export function createItemStore(ports: ItemRowPort) {
 			entry = new Entry<V>(key, ports, internals)
 			entry.settles = adapter.settles ?? false
 			entry.absorbs = adapter.absorbs
+			entry.adapter = adapter
+			entry.standsFor = spec.standsFor
 			entries.set(k, entry)
 			if (isTemporaryPath(key.path) && spec.template !== undefined) entry.initNew(spec.template)
 			else void entry.load(adapter)
@@ -981,12 +956,9 @@ export function createItemStore(ports: ItemRowPort) {
 		seed(workspace: string, kind: UserDraftItemKind, path: string, value: unknown): boolean {
 			if (value === undefined || value === null) return false
 			const entry = find(workspace, kind, path)
-			if (!entry) {
-				// Persisted as usual, and handed to the save moving onto this key when it lands.
-				const k = keyString({ workspace, kind: kind as ItemKind, path })
-				if (moves.has(k)) arrivals.set(k, { value: snapshot(value), at: nextAsk++ })
-				return false
-			}
+			// With nobody holding the key, the caller persists it as a row; an entry arriving there
+			// reads it like any other draft.
+			if (!entry) return false
 			entry.applyExternal(value)
 			return true
 		},
@@ -1001,9 +973,6 @@ export function createItemStore(ports: ItemRowPort) {
 			return { value: entry.dirty && entry.origin !== 'new' ? snapshot(entry.value) : undefined }
 		},
 		discard(workspace: string, kind: UserDraftItemKind, path: string): boolean {
-			// The discard is asked for the key, whoever holds it: a draft parked for a save moving
-			// onto that key goes with it, however it was parked.
-			arrivals.delete(keyString({ workspace, kind: kind as ItemKind, path }))
 			const entry = find(workspace, kind, path)
 			if (!entry) return false
 			void entry.discard()
