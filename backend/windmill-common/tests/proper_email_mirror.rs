@@ -16,6 +16,9 @@ async fn proper_email_mirror_agrees_with_usr_constraint(db: Pool<Postgres>) -> a
         "\"quoted local\"@example.com",
         "alice@[192.168.0.1]",
         "ef40ea04-1a9e-4a84-9e65-cb1baa81dfed",
+        // Unicode case folding would map the long s and the Kelvin sign into `[a-z]`.
+        "u\u{17f}er@example.com",
+        "alice@example\u{212a}.com",
         "alice",
         "alice@example",
         "alice@@example.com",

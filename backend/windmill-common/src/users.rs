@@ -18,9 +18,11 @@ lazy_static::lazy_static! {
     /// (`20220620210708_regex_fix`, case-insensitive), so a value passes here exactly when those
     /// tables store it. Unlike [`VALID_EMAIL`] it admits quoted local parts and IP-literal
     /// domains, which matters wherever an address the tables may already hold is judged.
-    /// `windmill-common/tests/proper_email_mirror.rs` pins the two against each other.
+    /// `(?i-u)`: Postgres `~*` folds ASCII only, whereas a Unicode `(?i)` would also let a
+    /// long s (U+017F) or the Kelvin sign match `[a-z]`. The mirror must never accept more
+    /// than the constraint; `windmill-common/tests/proper_email_mirror.rs` pins the two.
     pub static ref PROPER_EMAIL: regex::Regex = regex::Regex::new(
-        r##"(?i)^(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9]))\.){3}(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9])|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])$"##
+        r##"(?i-u)^(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9]))\.){3}(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9])|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])$"##
     ).unwrap();
 }
 
@@ -471,6 +473,8 @@ mod tests {
         for email in [
             "ef40ea04-1a9e-4a84-9e65-cb1baa81dfed",
             "\"quoted local\"@example.com",
+            "u\u{17f}er@example.com",
+            "alice@example\u{212a}.com",
             "alice",
             "alice@example",
             "alice@example.com\nbob@example.com",
