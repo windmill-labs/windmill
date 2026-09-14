@@ -6611,7 +6611,7 @@ export async function push(
     if (deletedSecretBearing.length > 0) {
       log.info(
         colors.gray(
-          `${describeSecretBearingChanges(deletedSecretBearing)} deleted. The workspace trashbin keeps a deleted item for three days; a workspace admin can restore it from Workspace settings -> Trashbin.`,
+          `${describeSecretBearingChanges(deletedSecretBearing)} deleted. The workspace trashbin keeps a deleted item for three days; a workspace admin can restore it with \`wmill trash list\` and \`wmill trash restore <id>\`, or from Workspace settings -> Trashbin.`,
         ),
       );
     }
