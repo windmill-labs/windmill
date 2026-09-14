@@ -1,5 +1,5 @@
 import type { FlowStatusModule } from '$lib/gen'
-import { parseStreamEvents, type StreamEvent } from './chat/utils'
+import { parseStreamEvents, STREAM_EVENT_TYPES, type StreamEvent } from './chat/utils'
 
 /** The `agent_action` tag the worker puts on every message it records. */
 export type AgentAction = NonNullable<FlowStatusModule['agent_actions']>[number]
@@ -223,24 +223,6 @@ export function emptyAgentStreamProgress(): AgentStreamProgress {
  * three is idempotent and keeps the rule provider-independent.
  */
 const TOOL_TURN_STARTED: StreamEvent['kind'][] = ['tool_call', 'tool_arguments', 'tool_execution']
-
-/**
- * The worker's wire names, for deciding whether a stream is an agent's at all.
- *
- * Membership rather than whether `parseStreamEvents` yields something: that drops
- * an event carrying an empty payload, and a first `token_delta` with no content
- * is what a provider opens with when it does not filter them (Bedrock does not).
- * Reading the yield would answer "not an agent" for the whole run and leave a
- * real one rendering as a wall of event objects.
- */
-const STREAM_EVENT_TYPES = [
-	'token_delta',
-	'reasoning_token_delta',
-	'tool_call',
-	'tool_call_arguments',
-	'tool_execution',
-	'tool_result'
-]
 
 /**
  * Whether `result_stream` is an agent's event stream rather than something a
