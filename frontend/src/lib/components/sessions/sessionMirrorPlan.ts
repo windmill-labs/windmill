@@ -191,14 +191,6 @@ export interface PushBody {
 	removed?: string[]
 }
 
-export interface PackLimits {
-	/** Requests are packed up to about this many bytes; an entry larger than it goes alone. */
-	targetBytes: number
-	/** The server's caps per request. */
-	maxSessions: number
-	maxRemoved: number
-}
-
 /**
  * Break an entry that outgrows the target into chat-only entries, each written on its own,
  * with the head and everything else riding on the last one: the server writes an entry's
@@ -223,44 +215,4 @@ export function splitEntry(entry: AISessionBackupPush, targetBytes: number): AIS
 	}
 	parts.push({ ...rest, chats: current })
 	return parts
-}
-
-/**
- * Pack a workspace's entries into requests within the server's limits. Images go first,
- * as entries of their own: the server needs nothing else to store one, and a session's
- * images alone can outweigh a whole request. Removals fill the first request(s).
- */
-export function packRequests(
-	owner: string,
-	imageEntries: AISessionBackupPush[],
-	entries: AISessionBackupPush[],
-	removed: string[],
-	limits: PackLimits
-): PushBody[] {
-	const requests: PushBody[] = []
-	let current: PushBody | undefined
-	let size = 0
-	const add = (entry: AISessionBackupPush) => {
-		const bytes = jsonBytes(entry)
-		if (
-			!current ||
-			current.sessions.length >= limits.maxSessions ||
-			(size > 0 && size + bytes > limits.targetBytes)
-		) {
-			current = { owner, sessions: [] }
-			requests.push(current)
-			size = 0
-		}
-		current.sessions.push(entry)
-		size += bytes
-	}
-	for (const entry of imageEntries) add(entry)
-	for (const entry of entries) for (const part of splitEntry(entry, limits.targetBytes)) add(part)
-	for (let i = 0; i < removed.length; i += limits.maxRemoved) {
-		const chunk = removed.slice(i, i + limits.maxRemoved)
-		const at = i / limits.maxRemoved
-		if (at < requests.length) requests[at].removed = chunk
-		else requests.push({ owner, sessions: [], removed: chunk })
-	}
-	return requests
 }

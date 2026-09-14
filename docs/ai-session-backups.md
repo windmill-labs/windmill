@@ -16,8 +16,14 @@ is billed, so the backup deliberately does not follow that rate. Local writes on
 dirty (`sessionMirrorSignal.ts`, import-free so the stores never depend on the backup). A flush
 runs 15 s after the marks go quiet, at most 2 min after the first unflushed mark, when the tab is
 hidden, and 10 s after load for marks a crash left behind. Marks are persisted in localStorage
-(shared by the user's tabs) for that reason. Losing the last seconds of a device that never comes
-back is accepted; a tab that closes normally keeps its marks.
+(shared by the user's tabs) for that reason, one key per mark: a shared blob would let two tabs
+marking different sessions at once rewrite each other's mark away. A dirty mark is a counter
+bumped on every write and cleared only if it did not move during the flush. Losing the last
+seconds of a device that never comes back is accepted; a tab that closes normally keeps its marks.
+
+A flush plans and sends one session at a time, filling requests of about 8 MB as it goes, so a
+first backfill of a large history never holds more than one request's worth of records and
+images in memory.
 
 ## What a push carries
 
@@ -75,7 +81,12 @@ and skips ids the user deleted in this page) and never overwrites or deletes a l
 remote state. Only a user-initiated `deleteSession` removes the backup; the workspace-lifecycle
 removals (`reconcileSessionsLifecycle`, `deleteSessionsForWorkspace`) leave it, so a session
 dropped by a wrong reconcile comes back on the next restore. Objects of deleted workspaces stay
-in the bucket.
+in the bucket. A session moved to another workspace is pushed whole into the new one, and the
+copy in the old one gets a removal mark of its own, retried independently until it lands.
+
+A restore writes a session's artifacts and chats before its record, and records nothing for a
+session whose pieces could not be written: recording it would let the next flush push the
+half-empty local state over the backup.
 
 ## Limits
 
@@ -84,7 +95,10 @@ caps, with 32 MB on the body); an entry that outgrows the target is split into c
 with the head riding on the last, and a chat above 24 MB is left out with a console warning. A
 request the server refuses (a 4xx other than 404/403/409) stops the backup for the page but keeps
 the marks and the sync state, so the next load tries again; a session the server reports it could
-not store stays marked and is retried with backoff. Pull answers up to 20 ids and defers what does not fit 32 MB. A
+not store stays marked and is retried with backoff. Pull answers up to 20 ids within a 32 MB
+budget: a session's size is known from the listings before anything of it is read, one that
+would not fit is deferred (unless it is the first of the answer), and images beyond the budget
+are left out (they hydrate to placeholders). A
 restore takes the newest 50 sessions per workspace: every visible session gets a runtime, and
 each runtime's history load reads the whole chat store. On CE the push checks the storage quota
 and bumps usage by bytes written (an over-count on overwrites; the periodic recount settles it).

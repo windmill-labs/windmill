@@ -7,12 +7,21 @@ vi.mock('esm-env', async (importOriginal) => ({
 	BROWSER: true
 }))
 
-const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }))
+const { pushMock, listMock, pullMock } = vi.hoisted(() => ({
+	pushMock: vi.fn(),
+	listMock: vi.fn(),
+	pullMock: vi.fn()
+}))
 vi.mock('$lib/gen', async (orig) => {
 	const actual = await orig<typeof import('$lib/gen')>()
 	return {
 		...actual,
-		AiService: { ...actual.AiService, pushAiSessionBackups: pushMock },
+		AiService: {
+			...actual.AiService,
+			pushAiSessionBackups: pushMock,
+			listAiSessionBackups: listMock,
+			pullAiSessionBackups: pullMock
+		},
 		WorkspaceService: {
 			...actual.WorkspaceService,
 			listUserWorkspaces: vi.fn().mockResolvedValue([]),
@@ -21,21 +30,47 @@ vi.mock('$lib/gen', async (orig) => {
 	}
 })
 
+// The chat store during a restore: real, or unreachable for one session.
+const { chatImport } = vi.hoisted(() => ({ chatImport: { unavailable: false } }))
+vi.mock('../copilot/chat/HistoryManager.svelte', async (orig) => {
+	const actual = await orig<typeof import('../copilot/chat/HistoryManager.svelte')>()
+	return {
+		...actual,
+		importStoredChats: (...args: Parameters<typeof actual.importStoredChats>) =>
+			chatImport.unavailable ? Promise.resolve(false) : actual.importStoredChats(...args)
+	}
+})
+
 import { superadmin, userStore, usersWorkspaceStore, type UserExt } from '$lib/stores'
 import HistoryManager, {
-	__resetLegacyChatClaimForTesting
+	__resetLegacyChatClaimForTesting,
+	readStoredChat
 } from '../copilot/chat/HistoryManager.svelte'
 import { deleteSession, putSession, sessionState, type Session } from './sessionState.svelte'
-import { __flushForTesting, __resetMirrorForTesting } from './sessionMirror.svelte'
+import {
+	__flushForTesting,
+	__resetMirrorForTesting,
+	__settleForTesting,
+	restoreSessionBackups
+} from './sessionMirror.svelte'
 
 const EMAIL = 'mirror@x.com'
 const IMAGE = 'data:image/png;base64,AAAA'
-const PENDING_KEY = `windmill_sessions_mirror_pending::${EMAIL}`
+const PENDING_PREFIX = `windmill_sessions_mirror_pending::${EMAIL}::`
 
 function asUser(email: string): UserExt {
 	return { email, username: email.split('@')[0] } as unknown as UserExt
 }
 const flush = () => new Promise<void>((r) => setTimeout(r, 0))
+
+function pendingKeys(): string[] {
+	const keys: string[] = []
+	for (let i = 0; i < localStorage.length; i++) {
+		const key = localStorage.key(i)
+		if (key?.startsWith(PENDING_PREFIX)) keys.push(key.slice(PENDING_PREFIX.length))
+	}
+	return keys.sort()
+}
 
 beforeEach(async () => {
 	;(globalThis as any).indexedDB = new IDBFactory()
@@ -43,6 +78,9 @@ beforeEach(async () => {
 	__resetLegacyChatClaimForTesting()
 	__resetMirrorForTesting()
 	pushMock.mockReset()
+	listMock.mockReset()
+	pullMock.mockReset()
+	chatImport.unavailable = false
 	superadmin.set(false)
 	usersWorkspaceStore.set(undefined)
 	userStore.set(undefined)
@@ -90,6 +128,7 @@ describe('sessionMirror flush', () => {
 		// The record keeps its blob ref; bytes travel as the image object only.
 		expect(JSON.stringify(entry.chats[0].record)).not.toContain(IMAGE)
 		expect(entry.artifacts).toBeUndefined()
+		expect(pendingKeys()).toEqual([])
 
 		// Reading the session is not a change the backup keeps.
 		await putSession({ ...s, lastSeenCount: 2, lastActivityAt: 99 })
@@ -106,6 +145,7 @@ describe('sessionMirror flush', () => {
 			sessions: [],
 			removed: ['s1']
 		})
+		expect(pendingKeys()).toEqual([])
 		hm.close()
 	})
 
@@ -117,6 +157,7 @@ describe('sessionMirror flush', () => {
 		pushMock.mockRejectedValueOnce(new TypeError('network'))
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(1)
+		expect(pendingKeys()).toEqual(['d::s2'])
 		// Still marked: the retry carries it again once the backoff lapses.
 		__resetMirrorForTesting()
 		pushMock.mockResolvedValueOnce({ enabled: false, results: [] })
@@ -131,7 +172,7 @@ describe('sessionMirror flush', () => {
 		await flush()
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(2)
-		expect(localStorage.getItem(PENDING_KEY)).toBeNull()
+		expect(pendingKeys()).toEqual([])
 	})
 
 	it('backs off when the server could not store a session, keeping its mark', async () => {
@@ -145,6 +186,77 @@ describe('sessionMirror flush', () => {
 		// Still marked, but not re-sent until the backoff lapses.
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(1)
-		expect(JSON.parse(localStorage.getItem(PENDING_KEY) ?? '{}').dirty?.s3).toBeDefined()
+		expect(pendingKeys()).toEqual(['d::s3'])
+	})
+
+	it('keeps the marks when the server refuses a request, for the next page load', async () => {
+		const s: Session = { id: 's4', name: 'session-4', createdAt: 1, workspace_id: 'ws' }
+		sessionState.sessions = [s]
+		await putSession(s)
+
+		const { ApiError } = await import('$lib/gen')
+		pushMock.mockRejectedValue(
+			new ApiError({ method: 'POST', url: '' } as never, { status: 400 } as never, 'quota')
+		)
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(1)
+		// Nothing more for this page, marks untouched by the follow-up flush.
+		await putSession({ ...s, summary: 'changed' })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(1)
+		expect(pendingKeys()).toEqual(['d::s4'])
+	})
+})
+
+describe('sessionMirror restore', () => {
+	const backup = {
+		id: 's9',
+		head: { id: 's9', workspace_id: 'ws', createdAt: 5, chatId: 'c9', summary: 'remote' },
+		chats: [
+			{
+				id: 'c9',
+				record: {
+					id: 'c9',
+					sessionId: 's9',
+					title: 't',
+					lastModified: 7,
+					actualMessages: [],
+					displayMessages: [{ role: 'user', content: 'hi' }]
+				}
+			}
+		],
+		images: []
+	}
+
+	it('brings back a session the browser lacks, and records nothing for one whose chats could not be written', async () => {
+		listMock.mockResolvedValue({
+			enabled: true,
+			sessions: [{ id: 's9', updated_at: '2026-09-14T00:00:00Z' }]
+		})
+		pullMock.mockResolvedValue({ enabled: true, sessions: [backup], deferred: [] })
+		usersWorkspaceStore.set({ email: EMAIL, workspaces: [] } as never)
+
+		chatImport.unavailable = true
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		expect(pullMock).toHaveBeenCalledTimes(1)
+		expect(sessionState.sessions.map((s) => s.id)).toEqual([])
+		// Not recorded as restored: the next restore tries again, and no flush can push a
+		// transcript-less copy over the backup.
+		__resetMirrorForTesting()
+		chatImport.unavailable = false
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		expect(pullMock).toHaveBeenCalledTimes(2)
+		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s9']))
+		const restored = sessionState.sessions[0]
+		expect(restored.name).toBe('session-1')
+		expect(restored.summary).toBe('remote')
+		expect(restored.lastSeenCount).toBe(1)
+		expect((await readStoredChat('c9', EMAIL))?.displayMessages).toHaveLength(1)
+
+		// Restored state is what the backup holds: nothing to push.
+		await __flushForTesting()
+		expect(pushMock).not.toHaveBeenCalled()
 	})
 })

@@ -3,8 +3,8 @@
 //
 // IndexedDB stays the store every write lands in; the funnels there only mark a session
 // dirty (sessionMirrorSignal). A flush runs once the marks have been quiet for a while,
-// bounded by a maximum delay so a long turn still gets backed up part-way, and sends one
-// batched request per workspace carrying only the pieces whose marker moved
+// bounded by a maximum delay so a long turn still gets backed up part-way, and sends
+// batched requests per workspace carrying only the pieces whose marker moved
 // (sessionMirrorPlan). Marks are persisted, so a crash leaves them for the next load.
 //
 // What a flush is for is decided per workspace: `enabled: false` (no storage, or the
@@ -22,7 +22,6 @@ import {
 import { userWorkspaces } from '$lib/stores'
 import { userScopedDb } from '$lib/userScopedDb'
 import { getCurrentUserEmail, onUserChange, scopedKey, scopedKeyFor } from '$lib/userScopedStorage'
-import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { workspaceRootId } from './sessionScope.svelte'
 import { onMirrorSignal } from './sessionMirrorSignal'
@@ -52,12 +51,12 @@ import {
 	artifactsFingerprint,
 	headSig,
 	jsonBytes,
-	packRequests,
 	planSessionPush,
+	splitEntry,
 	type ChatSnapshot,
 	type MirrorSyncState,
-	type PackLimits,
-	type PlannedPush
+	type PlannedPush,
+	type PushBody
 } from './sessionMirrorPlan'
 
 /** A flush waits for the marks to go quiet this long. */
@@ -69,25 +68,17 @@ const RETRY_MIN_MS = 30_000
 const RETRY_MAX_MS = 600_000
 /** Requests are packed up to about this many bytes; the server accepts four times that. */
 const REQUEST_TARGET_BYTES = 8 * 1024 * 1024
+/** The server's caps per request. */
+const MAX_ENTRIES_PER_REQUEST = 100
+const MAX_REMOVED_PER_REQUEST = 200
 /** A chat beyond this is left out of the backup rather than sent. */
 const MAX_CHAT_BYTES = 24 * 1024 * 1024
 const PULL_BATCH = 5
 /** Newest sessions restored per workspace: every visible session gets a runtime, and each
  * runtime's history load reads the whole chat store. */
 const RESTORE_MAX = 50
-const PENDING_KEY = 'windmill_sessions_mirror_pending'
+const PENDING_PREFIX = 'windmill_sessions_mirror_pending'
 const SYNC_DB = 'windmill-sessions-mirror'
-
-interface DirtyMark {
-	/** Bumped on every mark, so a flush clears only marks it has fully carried. */
-	v: number
-	chats: string[]
-}
-
-interface PendingMarks {
-	dirty: Record<string, DirtyMark>
-	removed: { id: string; ws?: string }[]
-}
 
 interface MirrorSchema extends DBSchema {
 	sync: { key: string; value: MirrorSyncState }
@@ -105,48 +96,95 @@ async function syncDb(email: string) {
 	return db && db.name === scopedKeyFor(SYNC_DB, email) ? db : undefined
 }
 
-// --- Pending marks (localStorage, shared by every tab of the user) ---
+// --- Pending marks ---
+//
+// One localStorage key per mark, shared by every tab of the user: a dirty mark holds a
+// counter bumped on every write, a removal mark the workspace to remove from. Keying each
+// mark on its own is what lets two tabs mark different sessions at the same time without
+// one rewriting the other's mark away, as a single JSON blob would.
 
-function emptyMarks(): PendingMarks {
-	return { dirty: {}, removed: [] }
+interface PendingMarks {
+	dirty: { id: string; v: number }[]
+	removed: { id: string; ws?: string; key: string }[]
+}
+
+function pendingBase(): string | undefined {
+	return scopedKey(PENDING_PREFIX)
+}
+
+function dirtyKey(base: string, sessionId: string): string {
+	return `${base}::d::${sessionId}`
+}
+
+function removedKey(base: string, sessionId: string, ws: string | undefined): string {
+	return `${base}::r::${sessionId}::${ws ?? ''}`
 }
 
 function readPending(): PendingMarks {
-	const key = scopedKey(PENDING_KEY)
-	if (!key) return emptyMarks()
+	const marks: PendingMarks = { dirty: [], removed: [] }
+	const base = pendingBase()
+	if (!base) return marks
 	try {
-		const raw = getLocalSetting(key)
-		if (!raw) return emptyMarks()
-		const parsed = JSON.parse(raw)
-		return {
-			dirty: typeof parsed?.dirty === 'object' && parsed.dirty ? parsed.dirty : {},
-			removed: Array.isArray(parsed?.removed) ? parsed.removed : []
+		for (let i = 0; i < localStorage.length; i++) {
+			const key = localStorage.key(i)
+			if (!key || !key.startsWith(`${base}::`)) continue
+			const rest = key.slice(base.length + 2)
+			if (rest.startsWith('d::')) {
+				const v = Number(localStorage.getItem(key))
+				marks.dirty.push({ id: rest.slice(3), v: Number.isFinite(v) ? v : 0 })
+			} else if (rest.startsWith('r::')) {
+				const [id, ws] = rest.slice(3).split('::')
+				marks.removed.push({ id, ws: ws || undefined, key })
+			}
 		}
-	} catch {
-		return emptyMarks()
-	}
-}
-
-function writePending(marks: PendingMarks): void {
-	const key = scopedKey(PENDING_KEY)
-	if (!key) return
-	const empty = Object.keys(marks.dirty).length === 0 && marks.removed.length === 0
-	try {
-		storeLocalSetting(key, empty ? undefined : JSON.stringify(marks))
 	} catch (e) {
-		console.error('Could not persist session backup marks', e)
+		console.error('Could not read session backup marks', e)
+	}
+	return marks
+}
+
+function hasPending(): boolean {
+	const marks = readPending()
+	return marks.dirty.length > 0 || marks.removed.length > 0
+}
+
+function bumpDirty(sessionId: string): void {
+	const base = pendingBase()
+	if (!base) return
+	try {
+		const key = dirtyKey(base, sessionId)
+		const v = Number(localStorage.getItem(key) ?? '0')
+		localStorage.setItem(key, String((Number.isFinite(v) ? v : 0) + 1))
+	} catch (e) {
+		console.error('Could not persist session backup mark', e)
 	}
 }
 
-function hasPending(marks = readPending()): boolean {
-	return Object.keys(marks.dirty).length > 0 || marks.removed.length > 0
+/** Clear a dirty mark, unless it was bumped since the flush read it. */
+function clearDirty(sessionId: string, v: number): void {
+	const base = pendingBase()
+	if (!base) return
+	try {
+		const key = dirtyKey(base, sessionId)
+		if (Number(localStorage.getItem(key)) === v) localStorage.removeItem(key)
+	} catch {}
 }
 
-function addDirty(marks: PendingMarks, sessionId: string, chatId?: string): void {
-	const mark = marks.dirty[sessionId] ?? { v: 0, chats: [] }
-	mark.v += 1
-	if (chatId && !mark.chats.includes(chatId)) mark.chats.push(chatId)
-	marks.dirty[sessionId] = mark
+function addRemoved(sessionId: string, ws: string | undefined, dropDirty: boolean): void {
+	const base = pendingBase()
+	if (!base) return
+	try {
+		if (dropDirty) localStorage.removeItem(dirtyKey(base, sessionId))
+		localStorage.setItem(removedKey(base, sessionId, ws), '1')
+	} catch (e) {
+		console.error('Could not persist session backup mark', e)
+	}
+}
+
+function removeKey(key: string): void {
+	try {
+		localStorage.removeItem(key)
+	} catch {}
 }
 
 // --- Scheduling ---
@@ -156,8 +194,12 @@ let maxTimer: ReturnType<typeof setTimeout> | undefined
 let retryTimer: ReturnType<typeof setTimeout> | undefined
 let retryAt = 0
 let retryMs = RETRY_MIN_MS
-/** Workspaces whose storage answered this page load. */
-const wsState = new Map<string, 'on' | 'off'>()
+/**
+ * Workspaces whose storage answered this page load. `off`: nowhere to keep backups.
+ * `refused`: the server rejected what this page sends; nothing more is sent for the page,
+ * but the marks and the sync state stay, so the next load tries again.
+ */
+const wsState = new Map<string, 'on' | 'off' | 'refused'>()
 let backfilled = false
 const restoredWorkspaces = new Set<string>()
 
@@ -207,10 +249,6 @@ async function withUserLock(email: string, fn: () => Promise<void>): Promise<voi
 
 // --- Flush ---
 
-function disableWorkspace(ws: string): void {
-	wsState.set(ws, 'off')
-}
-
 function statusOf(e: unknown): number | undefined {
 	return e instanceof ApiError ? e.status : undefined
 }
@@ -253,36 +291,26 @@ async function backfillMarks(marks: PendingMarks, email: string): Promise<void> 
 	const db = await syncDb(email)
 	if (!sessions || !db) return
 	const known = new Set((await db.getAllKeys('sync')).map(String))
+	const marked = new Set(marks.dirty.map((d) => d.id))
 	for (const s of sessions) {
-		if (s.workspace_id && !known.has(s.id) && !marks.dirty[s.id]) addDirty(marks, s.id)
+		if (s.workspace_id && !known.has(s.id) && !marked.has(s.id)) {
+			bumpDirty(s.id)
+			marks.dirty.push({ id: s.id, v: 1 })
+		}
 	}
 }
 
 /** Read what the stores hold for a dirty session and plan its push. `undefined` when the
- * session is gone, unsent, or its store is unavailable. */
+ * session has nowhere to go (unsent), `unavailable` when a store could not be read. */
 async function planFor(
 	session: Session,
-	mark: DirtyMark,
 	sync: MirrorSyncState | undefined,
 	email: string
 ): Promise<PlannedPush | undefined | 'unavailable'> {
 	const chatIds = await listSessionChatIds(session.id, email)
 	if (!chatIds) return 'unavailable'
-	const prev = sync?.ws === session.workspace_id ? sync : undefined
 	const chats: ChatSnapshot[] = []
 	for (const id of chatIds) {
-		// A chat the marks did not name and the last push carried has not changed: its
-		// record and image set are exactly what was pushed, so neither is read again.
-		if (prev && prev.chats[id] !== undefined && !mark.chats.includes(id)) {
-			chats.push({
-				id,
-				lastModified: prev.chats[id],
-				imageIds: Object.entries(prev.images)
-					.filter(([, chatId]) => chatId === id)
-					.map(([imageId]) => imageId)
-			})
-			continue
-		}
 		const record = await readStoredChat(id, email)
 		if (!record) continue
 		const imageIds = (await listChatImageIds(id, email)) ?? []
@@ -298,80 +326,173 @@ async function planFor(
 	return planSessionPush({ session, chats, artifacts, sync })
 }
 
-const PACK_LIMITS: PackLimits = {
-	targetBytes: REQUEST_TARGET_BYTES,
-	maxSessions: 100,
-	maxRemoved: 200
-}
-
-/** Load a plan's images and split them into request-sized entries. */
-async function imageEntries(plan: PlannedPush, email: string): Promise<AISessionBackupPush[]> {
-	const entries: AISessionBackupPush[] = []
-	let current: AISessionBackupImage[] = []
-	let size = 0
-	for (const { chat_id, id } of plan.images) {
-		const data_url = await readImageDataUrl(id, email)
-		// Evicted since the plan was made; the next save of that chat drops the id.
-		if (!data_url) continue
-		if (size > 0 && size + data_url.length > REQUEST_TARGET_BYTES) {
-			entries.push({ id: plan.next.id, images: current })
-			current = []
-			size = 0
-		}
-		current.push({ chat_id, id, data_url })
-		size += data_url.length
-	}
-	if (current.length > 0) entries.push({ id: plan.next.id, images: current })
-	return entries
-}
-
 interface WorkspaceWork {
-	plans: { plan: PlannedPush; mark: DirtyMark }[]
-	removed: string[]
+	items: { session: Session; v: number; sync?: MirrorSyncState }[]
+	removed: { id: string; key: string }[]
+}
+
+type SendStatus = 'ok' | 'off' | 'refused' | 'abort' | 'transient'
+
+interface WorkspaceOutcome {
+	status: SendStatus
+	/** Sessions every part of which the server stored. */
+	settled: { id: string; v: number; next: MirrorSyncState }[]
+	/** Marks with nothing behind them (an unsent draft, a session gone from the store). */
+	dropped: { id: string; v: number }[]
+	/** Removal marks the server carried out. */
+	removedDone: { id: string; key: string }[]
+	/** Some session the server could not store. */
+	anyFailed: boolean
+	/** Some store could not be read; its marks stay for a later flush. */
+	unavailable: boolean
 }
 
 /**
- * Outcome per session id; absent means the requests failed transiently as a whole.
- * `off`: the workspace has nowhere to keep backups, forget what was pushed there.
- * `refused`: the server rejected what this page sends, stop for the page but keep the marks
- * and what was pushed so far, so the next load tries again with whatever changed.
+ * Plan and send a workspace's sessions one at a time, filling requests of about
+ * REQUEST_TARGET_BYTES as it goes, so a first backfill never holds more than one
+ * request's worth of records and images at once. Removals go first, in their own
+ * request(s).
  */
-type PushOutcome = { failed: Set<string>; disabled?: 'off' | 'refused'; abort: boolean } | undefined
-
-async function pushWorkspace(ws: string, work: WorkspaceWork, email: string): Promise<PushOutcome> {
-	const images: AISessionBackupPush[] = []
-	const entries: AISessionBackupPush[] = []
-	for (const { plan } of work.plans) {
-		images.push(...(await imageEntries(plan, email)))
-		if (plan.entry) entries.push(plan.entry)
+async function pushWorkspace(
+	ws: string,
+	work: WorkspaceWork,
+	email: string
+): Promise<WorkspaceOutcome> {
+	const out: WorkspaceOutcome = {
+		status: 'ok',
+		settled: [],
+		dropped: [],
+		removedDone: [],
+		anyFailed: false,
+		unavailable: false
 	}
+	// Parts of a session still to be acknowledged, and the sessions the server refused.
+	const attempted = new Map<string, { v: number; next: MirrorSyncState; parts: number }>()
 	const failed = new Set<string>()
-	for (const requestBody of packRequests(email, images, entries, work.removed, PACK_LIMITS)) {
-		if (getCurrentUserEmail() !== email) return { failed, abort: true }
+	let current: PushBody | undefined
+	let size = 0
+
+	const send = async (body: PushBody): Promise<SendStatus> => {
+		if (getCurrentUserEmail() !== email) return 'abort'
 		let res
 		try {
-			res = await AiService.pushAiSessionBackups({ workspace: ws, requestBody })
+			res = await AiService.pushAiSessionBackups({ workspace: ws, requestBody: body })
 		} catch (e) {
 			const status = statusOf(e)
 			// 404: a build without object storage. 403: nothing this token may back up.
-			if (status === 404 || status === 403) return { failed, disabled: 'off', abort: false }
-			if (status === 409) return { failed, abort: true }
+			if (status === 404 || status === 403) return 'off'
+			if (status === 409) return 'abort'
 			if (status !== undefined && status < 500 && status !== 429) {
 				console.error('Session backup push refused', e)
-				return { failed, disabled: 'refused', abort: false }
+				return 'refused'
 			}
 			console.warn('Session backup push failed, retrying later', e)
-			return undefined
+			return 'transient'
 		}
-		if (!res.enabled) return { failed, disabled: 'off', abort: false }
+		if (!res.enabled) return 'off'
+		const errors = new Set<string>()
 		for (const r of res.results) {
 			if (r.error) {
 				console.warn(`Session backup of ${r.id} failed: ${r.error}`)
-				failed.add(r.id)
+				errors.add(r.id)
 			}
 		}
+		for (const entry of body.sessions) {
+			const a = attempted.get(entry.id)
+			if (!a) continue
+			a.parts -= 1
+			if (errors.has(entry.id)) failed.add(entry.id)
+		}
+		for (const id of body.removed ?? []) {
+			if (errors.has(id)) failed.add(id)
+			else {
+				const mark = work.removed.find((r) => r.id === id)
+				if (mark) out.removedDone.push(mark)
+			}
+		}
+		return 'ok'
 	}
-	return { failed, abort: false }
+	const flushCurrent = async (): Promise<SendStatus> => {
+		if (!current) return 'ok'
+		const body = current
+		current = undefined
+		size = 0
+		return send(body)
+	}
+	const append = async (entry: AISessionBackupPush): Promise<SendStatus> => {
+		const bytes = jsonBytes(entry)
+		if (
+			current &&
+			(current.sessions.length >= MAX_ENTRIES_PER_REQUEST || size + bytes > REQUEST_TARGET_BYTES)
+		) {
+			const status = await flushCurrent()
+			if (status !== 'ok') return status
+		}
+		current ??= { owner: email, sessions: [] }
+		current.sessions.push(entry)
+		size += bytes
+		const a = attempted.get(entry.id)
+		if (a) a.parts += 1
+		return 'ok'
+	}
+	const finish = (status: SendStatus): WorkspaceOutcome => {
+		out.status = status
+		for (const [id, a] of attempted) {
+			if (a.parts === 0 && !failed.has(id)) out.settled.push({ id, v: a.v, next: a.next })
+		}
+		out.anyFailed = failed.size > 0
+		return out
+	}
+
+	for (let i = 0; i < work.removed.length; i += MAX_REMOVED_PER_REQUEST) {
+		const chunk = work.removed.slice(i, i + MAX_REMOVED_PER_REQUEST)
+		const status = await send({ owner: email, sessions: [], removed: chunk.map((r) => r.id) })
+		if (status !== 'ok') return finish(status)
+	}
+
+	for (const item of work.items) {
+		if (getCurrentUserEmail() !== email) return finish('abort')
+		const plan = await planFor(item.session, item.sync, email)
+		if (plan === 'unavailable') {
+			out.unavailable = true
+			continue
+		}
+		if (!plan) {
+			out.dropped.push({ id: item.session.id, v: item.v })
+			continue
+		}
+		// A move: the copy in the old workspace goes on its own mark, so it is retried on
+		// its own if this push lands and its removal does not.
+		if (plan.removeFrom && wsState.get(plan.removeFrom) !== 'off') {
+			addRemoved(item.session.id, plan.removeFrom, false)
+		}
+		attempted.set(item.session.id, { v: item.v, next: plan.next, parts: 0 })
+		if (!plan.entry && plan.images.length === 0) continue
+		let images: AISessionBackupImage[] = []
+		let imagesBytes = 0
+		for (const { chat_id, id } of plan.images) {
+			const data_url = await readImageDataUrl(id, email)
+			// Evicted since the plan was made; the next save of that chat drops the id.
+			if (!data_url) continue
+			if (images.length > 0 && imagesBytes + data_url.length > REQUEST_TARGET_BYTES) {
+				const status = await append({ id: item.session.id, images })
+				if (status !== 'ok') return finish(status)
+				images = []
+				imagesBytes = 0
+			}
+			images.push({ chat_id, id, data_url })
+			imagesBytes += data_url.length
+		}
+		if (images.length > 0) {
+			const status = await append({ id: item.session.id, images })
+			if (status !== 'ok') return finish(status)
+		}
+		for (const part of plan.entry ? splitEntry(plan.entry, REQUEST_TARGET_BYTES) : []) {
+			const status = await append(part)
+			if (status !== 'ok') return finish(status)
+		}
+	}
+	return finish(await flushCurrent())
 }
 
 async function flush(): Promise<void> {
@@ -385,112 +506,76 @@ async function flush(): Promise<void> {
 	await withUserLock(email, async () => {
 		const marks = readPending()
 		await backfillMarks(marks, email)
-		if (!hasPending(marks)) return
+		if (marks.dirty.length === 0 && marks.removed.length === 0) return
 		const stored = await readStoredSessions(email)
 		if (!stored) return
 		const byId = new Map(stored.map((s) => [s.id, s]))
 		const work = new Map<string, WorkspaceWork>()
 		const workFor = (ws: string) => {
 			let w = work.get(ws)
-			if (!w) work.set(ws, (w = { plans: [], removed: [] }))
+			if (!w) work.set(ws, (w = { items: [], removed: [] }))
 			return w
 		}
-		// Marks with nothing to push, cleared at the end alongside the successful ones.
-		const done: { id: string; v: number }[] = []
-		const settledSync: MirrorSyncState[] = []
+		const consumedDirty: { id: string; v: number }[] = []
+		const consumedRemoved: string[] = []
 
-		// A store that could not be read (an open waiting behind another tab's upgrade)
-		// keeps its marks for a later flush; consuming them would lose the change for good.
-		let unavailable = false
-		for (const [id, mark] of Object.entries(marks.dirty)) {
-			const session = byId.get(id)
-			const sync = await readSync(id, email)
-			const plan =
-				session && !session.transient ? await planFor(session, mark, sync, email) : undefined
-			if (plan === 'unavailable') {
-				unavailable = true
-				continue
-			}
-			if (!plan) {
-				done.push({ id, v: mark.v })
-				continue
-			}
-			if (plan.removeFrom && wsState.get(plan.removeFrom) !== 'off') {
-				workFor(plan.removeFrom).removed.push(id)
-			}
-			if (wsState.get(plan.workspaceId) === 'off') {
-				done.push({ id, v: mark.v })
-				continue
-			}
-			if (!plan.entry && plan.images.length === 0) {
-				// Nothing the backup keeps changed; remember what the stores hold now.
-				if (JSON.stringify(plan.next) !== JSON.stringify(sync)) settledSync.push(plan.next)
-				done.push({ id, v: mark.v })
-				continue
-			}
-			workFor(plan.workspaceId).plans.push({ plan, mark })
-		}
-		const removedDone = new Set<string>()
 		for (const r of marks.removed) {
 			const ws = r.ws ?? (await readSync(r.id, email))?.ws
 			// Nowhere to remove it from (an unsent draft, a workspace without storage): done.
-			if (ws && wsState.get(ws) !== 'off') workFor(ws).removed.push(r.id)
-			else removedDone.add(r.id)
+			if (!ws || wsState.get(ws) === 'off') consumedRemoved.push(r.key)
+			else if (wsState.get(ws) !== 'refused') workFor(ws).removed.push({ id: r.id, key: r.key })
+		}
+		for (const d of marks.dirty) {
+			const session = byId.get(d.id)
+			if (!session || session.transient || !session.workspace_id) {
+				consumedDirty.push(d)
+				continue
+			}
+			const state = wsState.get(session.workspace_id)
+			if (state === 'off') consumedDirty.push(d)
+			else if (state !== 'refused') {
+				workFor(session.workspace_id).items.push({
+					session,
+					v: d.v,
+					sync: await readSync(d.id, email)
+				})
+			}
 		}
 
-		let abort = false
+		let settledAny = false
 		for (const [ws, w] of work) {
-			if (abort) break
-			const outcome = await pushWorkspace(ws, w, email)
-			if (!outcome) {
-				backOff()
-				continue
-			}
-			if (outcome.abort) {
-				abort = true
-				break
-			}
-			if (outcome.disabled === 'refused') {
-				disableWorkspace(ws)
-				continue
-			}
-			if (outcome.disabled === 'off') {
-				disableWorkspace(ws)
+			const out = await pushWorkspace(ws, w, email)
+			if (out.status === 'abort') return
+			if (out.status === 'off') {
+				wsState.set(ws, 'off')
 				await forgetWorkspaceSync(ws, email)
-				for (const { plan, mark } of w.plans) done.push({ id: plan.next.id, v: mark.v })
-				for (const id of w.removed) removedDone.add(id)
+				for (const item of w.items) consumedDirty.push({ id: item.session.id, v: item.v })
+				for (const r of w.removed) consumedRemoved.push(r.key)
 				continue
 			}
-			// A session the server could not store stays marked and is carried again, but
-			// not every 15 s: a bucket refusing writes would otherwise be sent the whole
-			// payload over and over.
-			if (outcome.failed.size > 0) backOff()
-			else retryMs = RETRY_MIN_MS
-			for (const { plan, mark } of w.plans) {
-				if (outcome.failed.has(plan.next.id)) continue
-				settledSync.push(plan.next)
-				done.push({ id: plan.next.id, v: mark.v })
+			if (out.status === 'refused') {
+				wsState.set(ws, 'refused')
+				continue
 			}
-			for (const id of w.removed) if (!outcome.failed.has(id)) removedDone.add(id)
+			if (out.status === 'transient' || out.anyFailed || out.unavailable) backOff()
+			else settledAny = true
+			await writeSync(
+				out.settled.map((s) => s.next),
+				email
+			)
+			consumedDirty.push(...out.settled, ...out.dropped)
+			for (const r of out.removedDone) {
+				// The row describes this workspace's copy only; a session that moved on keeps
+				// the row its new workspace wrote.
+				if ((await readSync(r.id, email))?.ws === ws) await deleteSync([r.id], email)
+				consumedRemoved.push(r.key)
+			}
 		}
-		if (unavailable) backOff()
-		if (abort || getCurrentUserEmail() !== email) return
-
-		await writeSync(settledSync, email)
-		// A removal that also moved the session elsewhere keeps its (new) sync row.
-		const movedIds = new Set(settledSync.map((s) => s.id))
-		await deleteSync(
-			[...removedDone].filter((id) => !movedIds.has(id)),
-			email
-		)
-		// Re-read: marks raised while this flush ran must stay.
-		const latest = readPending()
-		for (const { id, v } of done) {
-			if (latest.dirty[id]?.v === v) delete latest.dirty[id]
-		}
-		latest.removed = latest.removed.filter((r) => !removedDone.has(r.id))
-		writePending(latest)
-		if (hasPending(latest) && !abort) scheduleFlush()
+		if (settledAny && Date.now() >= retryAt) retryMs = RETRY_MIN_MS
+		if (getCurrentUserEmail() !== email) return
+		for (const { id, v } of consumedDirty) clearDirty(id, v)
+		for (const key of consumedRemoved) removeKey(key)
+		if (hasPending()) scheduleFlush()
 	})
 }
 
@@ -574,15 +659,15 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 		listing = await AiService.listAiSessionBackups({ workspace: ws })
 	} catch (e) {
 		const status = statusOf(e)
-		if (status === 404 || status === 403) disableWorkspace(ws)
+		if (status === 404 || status === 403) wsState.set(ws, 'off')
 		else console.warn('Could not list session backups', e)
 		return
 	}
 	if (!listing.enabled) {
-		disableWorkspace(ws)
+		wsState.set(ws, 'off')
 		return
 	}
-	wsState.set(ws, 'on')
+	if (!wsState.has(ws)) wsState.set(ws, 'on')
 	const local = new Set<string>()
 	for (const s of (await readStoredSessions(email)) ?? []) local.add(s.id)
 	for (const s of sessionState.sessions) local.add(s.id)
@@ -605,7 +690,7 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 			return
 		}
 		if (!pulled.enabled) {
-			disableWorkspace(ws)
+			wsState.set(ws, 'off')
 			return
 		}
 		// Ask again for what did not fit, one at a time so each answer is as small as can be.
@@ -620,7 +705,7 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 		for (const u of unpacked) {
 			try {
 				if (!(await importArtifacts(u.artifacts.items, u.artifacts.versions, email))) continue
-				await importStoredChats(u.chats, u.images, email)
+				if (!(await importStoredChats(u.chats, u.images, email))) continue
 				ready.push(u)
 			} catch (e) {
 				console.error(`Could not restore session ${u.session.id}`, e)
@@ -666,15 +751,8 @@ export function restoreSessionBackups(currentWorkspace: string): void {
 
 if (BROWSER) {
 	onMirrorSignal((signal) => {
-		const marks = readPending()
-		if (signal.kind === 'dirty') {
-			addDirty(marks, signal.sessionId, signal.chatId)
-		} else {
-			delete marks.dirty[signal.sessionId]
-			marks.removed = marks.removed.filter((r) => r.id !== signal.sessionId)
-			marks.removed.push({ id: signal.sessionId, ws: signal.workspaceId })
-		}
-		writePending(marks)
+		if (signal.kind === 'dirty') bumpDirty(signal.sessionId)
+		else addRemoved(signal.sessionId, signal.workspaceId, true)
 		scheduleFlush()
 	})
 	onUserChange((email) => {
@@ -698,6 +776,11 @@ if (BROWSER) {
 /** Test-only: run a flush now, outside the timers. */
 export function __flushForTesting(): Promise<void | undefined> {
 	return enqueue(flush)
+}
+
+/** Test-only: wait for whatever flush or restore is queued. */
+export function __settleForTesting(): Promise<void> {
+	return enqueue(async () => {})
 }
 
 /** Test-only: forget every page-lifetime decision. */

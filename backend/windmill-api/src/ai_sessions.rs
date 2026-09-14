@@ -142,9 +142,19 @@ impl Backend {
     }
 
     async fn list_keys(&self, prefix: &ObjectPath) -> Result<Vec<ObjectPath>> {
+        Ok(self
+            .list_entries(prefix)
+            .await?
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect())
+    }
+
+    /// Keys under the prefix with their stored size.
+    async fn list_entries(&self, prefix: &ObjectPath) -> Result<Vec<(ObjectPath, usize)>> {
         self.store
             .list(Some(prefix))
-            .map_ok(|meta| meta.location)
+            .map_ok(|meta| (meta.location, meta.size as usize))
             .try_collect()
             .await
             .map_err(object_store_error_to_error)
@@ -338,17 +348,31 @@ fn raw(kind: &str, text: String) -> Result<Box<RawValue>> {
         .map_err(|e| Error::internal_err(format!("stored {kind} is not JSON: {e}")))
 }
 
-/// Fetch one session whole: its head, then every chat, image and artifact object found
-/// under its prefixes. `None` when it has no head.
-async fn pull_session(backend: &Backend, sid: &str) -> Result<Option<(PulledSession, usize)>> {
+enum PullStep {
+    Absent,
+    Deferred,
+    Fetched(PulledSession, usize),
+}
+
+/// Fetch one session: its head, then every chat and artifact object under its prefix, and
+/// as many of its images as the budget allows (a missing image hydrates to a placeholder
+/// in the browser). Sizes come from the listings, so a session that would not fit is
+/// deferred before anything of it is read, unless it is the first of the response, which
+/// must carry something. `Absent` when it has no head.
+async fn pull_session(
+    backend: &Backend,
+    sid: &str,
+    budget: usize,
+    first: bool,
+) -> Result<PullStep> {
     let Some(head) = backend.get(&backend.head_key(sid)).await? else {
-        return Ok(None);
+        return Ok(PullStep::Absent);
     };
-    let mut size = head.len();
     let session_prefix = backend.session_prefix(sid);
     let mut chat_keys = vec![];
     let mut artifacts_key = None;
-    for key in backend.list_keys(&session_prefix).await? {
+    let mut core = head.len();
+    for (key, bytes) in backend.list_entries(&session_prefix).await? {
         let rel = key
             .as_ref()
             .strip_prefix(session_prefix.as_ref())
@@ -356,13 +380,19 @@ async fn pull_session(backend: &Backend, sid: &str) -> Result<Option<(PulledSess
             .trim_start_matches('/');
         if rel == "artifacts.json" {
             artifacts_key = Some(key);
+            core += bytes;
         } else if let Some(cid) = rel
             .strip_prefix("chats/")
             .and_then(|f| f.strip_suffix(".json"))
         {
             chat_keys.push((cid.to_string(), key));
+            core += bytes;
         }
     }
+    if !first && core > budget {
+        return Ok(PullStep::Deferred);
+    }
+    let mut size = head.len();
     let chats: Vec<PulledChat> = futures::stream::iter(chat_keys)
         .map(|(cid, key)| async move {
             let record = backend.get(&key).await?;
@@ -378,29 +408,6 @@ async fn pull_session(backend: &Backend, sid: &str) -> Result<Option<(PulledSess
             Ok(PulledChat { id: cid, record: raw("chat", record)? })
         })
         .collect::<Result<_>>()?;
-    let images_prefix = backend.images_prefix(sid);
-    let image_keys: Vec<(String, String, ObjectPath)> = backend
-        .list_keys(&images_prefix)
-        .await?
-        .into_iter()
-        .filter_map(|key| {
-            let rel = key.as_ref().strip_prefix(images_prefix.as_ref())?;
-            let (cid, iid) = rel.trim_start_matches('/').split_once('/')?;
-            Some((cid.to_string(), iid.to_string(), key))
-        })
-        .collect();
-    let images: Vec<ImageObject> = futures::stream::iter(image_keys)
-        .map(|(chat_id, id, key)| async move {
-            let data_url = backend.get(&key).await?;
-            Ok::<_, Error>(data_url.map(|data_url| ImageObject { chat_id, id, data_url }))
-        })
-        .buffer_unordered(IO_CONCURRENCY)
-        .try_collect::<Vec<_>>()
-        .await?
-        .into_iter()
-        .flatten()
-        .inspect(|img| size += img.data_url.len())
-        .collect();
     let artifacts = match artifacts_key {
         Some(key) => match backend.get(&key).await? {
             Some(text) => {
@@ -411,10 +418,36 @@ async fn pull_session(backend: &Backend, sid: &str) -> Result<Option<(PulledSess
         },
         None => None,
     };
-    Ok(Some((
+    let images_prefix = backend.images_prefix(sid);
+    let mut image_keys: Vec<(String, String, ObjectPath)> = vec![];
+    for (key, bytes) in backend.list_entries(&images_prefix).await? {
+        let Some(rel) = key.as_ref().strip_prefix(images_prefix.as_ref()) else {
+            continue;
+        };
+        let Some((cid, iid)) = rel.trim_start_matches('/').split_once('/') else {
+            continue;
+        };
+        if size + bytes > budget {
+            continue;
+        }
+        size += bytes;
+        image_keys.push((cid.to_string(), iid.to_string(), key));
+    }
+    let images: Vec<ImageObject> = futures::stream::iter(image_keys)
+        .map(|(chat_id, id, key)| async move {
+            let data_url = backend.get(&key).await?;
+            Ok::<_, Error>(data_url.map(|data_url| ImageObject { chat_id, id, data_url }))
+        })
+        .buffer_unordered(IO_CONCURRENCY)
+        .try_collect::<Vec<_>>()
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
+    Ok(PullStep::Fetched(
         PulledSession { id: sid.to_string(), head: raw("head", head)?, chats, images, artifacts },
         size,
-    )))
+    ))
 }
 
 async fn pull(
@@ -443,13 +476,13 @@ async fn pull(
     let mut deferred = vec![];
     let mut budget = PULL_RESPONSE_BUDGET;
     for sid in req.ids {
-        if budget == 0 {
-            deferred.push(sid);
-            continue;
-        }
-        if let Some((session, size)) = pull_session(&backend, &sid).await? {
-            budget = budget.saturating_sub(size);
-            sessions.push(session);
+        match pull_session(&backend, &sid, budget, sessions.is_empty()).await? {
+            PullStep::Absent => {}
+            PullStep::Deferred => deferred.push(sid),
+            PullStep::Fetched(session, size) => {
+                budget = budget.saturating_sub(size);
+                sessions.push(session);
+            }
         }
     }
     Ok(Json(PullResponse { enabled: true, sessions, deferred }))

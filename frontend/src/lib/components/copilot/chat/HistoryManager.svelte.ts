@@ -229,15 +229,16 @@ export interface RestoredImage {
 
 /**
  * Write restored chats and image blobs, leaving any that already exist alone: a record
- * this browser wrote since is newer than the backup it came from.
+ * this browser wrote since is newer than the backup it came from. False when the store
+ * could not be reached, which the caller must not record as a restore.
  */
 export async function importStoredChats(
 	chats: StoredChat[],
 	images: RestoredImage[],
 	email: string
-): Promise<void> {
+): Promise<boolean> {
 	const db = await backupDb(email)
-	if (!db) return
+	if (!db) return false
 	const tx = db.transaction(['chats', 'images'], 'readwrite')
 	const chatStore = tx.objectStore('chats')
 	const imageStore = tx.objectStore('images')
@@ -251,6 +252,7 @@ export async function importStoredChats(
 		if ((await chatStore.getKey(chat.id)) === undefined) await chatStore.put(chat)
 	}
 	await tx.done
+	return true
 }
 
 export default class HistoryManager {
