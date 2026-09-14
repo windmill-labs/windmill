@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { createChat } from '../src/chat'
 import type { ChatOptions } from '../src/types'
-import { fetchMock, json, memoryStorage, messageRow, ndjson, sse, text, type Route } from './support'
+import { fetchMock, json, memoryStorage, messageRow, ndjson, sse, sseTimed, text, type Route } from './support'
 
 const BASE = 'http://wm.test'
 const FLOW = 'f/chat/agent'
@@ -419,6 +419,51 @@ describe('createChat with server history', () => {
     expect(chat.getState().messages.map((m) => [m.role, m.content, m.serverId])).toEqual([
       ['user', 'hi', 'row-41'],
       ['assistant', 'From a script', undefined]
+    ])
+  })
+
+  test('an answer the poller merged before completion is not appended again', async () => {
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sseTimed([{ type: 'update' }, 1400, { type: 'update', completed: true, only_result: { windmill_chat_answer: 'From a script' } }])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json([messageRow(51, 'user', 'hi'), messageRow(52, 'assistant', 'From a script')])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('hi')
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.serverId])).toEqual([
+      ['user', 'hi', 'row-51'],
+      ['assistant', 'From a script', 'row-52']
+    ])
+  })
+
+  test('a tool row alone is not the answer of a turn that streamed no text', async () => {
+    let reads = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { output: 'Answer', messages: [] } }])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json(++reads === 1 ? [messageRow(61, 'user', 'hi'), messageRow(62, 'tool', 'Used lookup tool')] : [messageRow(63, 'assistant', 'Answer')])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('hi')
+    expect(reads).toBe(2)
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.serverId])).toEqual([
+      ['user', 'hi', 'row-61'],
+      ['tool', 'Used lookup tool', 'row-62'],
+      ['assistant', 'Answer', 'row-63']
     ])
   })
 

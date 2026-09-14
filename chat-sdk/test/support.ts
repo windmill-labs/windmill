@@ -51,6 +51,21 @@ export function sse(events: object[]): Response {
   })
 }
 
+/** Like `sse`, but a number in the list pauses that many milliseconds before the next frame. */
+export function sseTimed(events: (object | number)[]): Response {
+  const encoder = new TextEncoder()
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      for (const e of events) {
+        if (typeof e === 'number') await new Promise((r) => setTimeout(r, e))
+        else controller.enqueue(encoder.encode(`data: ${JSON.stringify(e)}\n\n`))
+      }
+      controller.close()
+    }
+  })
+  return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+}
+
 export function ndjson(...events: object[]): string {
   return events.map((e) => JSON.stringify(e)).join('\n') + '\n'
 }

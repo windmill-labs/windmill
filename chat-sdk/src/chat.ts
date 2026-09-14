@@ -35,6 +35,8 @@ const RECONCILE_DELAY_MS = 400
 interface Turn {
   controller: AbortController
   conversationId: string
+  /** Id of the turn's user message; the answer is whatever follows it. */
+  userMessageId: string
   jobId?: string
   /** Id of the streaming assistant message; cleared when a tool call ends the round. */
   assistantId?: string
@@ -99,7 +101,12 @@ class ChatImpl implements Chat {
     }
     const isNew = this.#state.conversationId === undefined
     const conversationId = this.#state.conversationId ?? randomId()
-    const turn: Turn = { controller: new AbortController(), conversationId, streamedText: false }
+    const turn: Turn = {
+      controller: new AbortController(),
+      conversationId,
+      userMessageId: `pending-${randomId()}`,
+      streamedText: false
+    }
     this.#turn = turn
 
     const timestamp = now()
@@ -112,7 +119,7 @@ class ChatImpl implements Chat {
       conversations: [touched, ...this.#state.conversations.filter((c) => c.id !== conversationId)],
       messages: [
         ...this.#state.messages,
-        { id: `pending-${randomId()}`, role: 'user', content, success: true, createdAt: timestamp, pending: true }
+        { id: turn.userMessageId, role: 'user', content, success: true, createdAt: timestamp, pending: true }
       ],
       status: 'submitted',
       error: undefined
@@ -439,12 +446,13 @@ class ChatImpl implements Chat {
    * are written by the worker in their own transactions, each of which can trail
    * the flow's completion, so a streamed message whose row hasn't landed stays and
    * the list is re-read a few times before the rest is kept as streamed.
-   * Returns false when no answer row came back: history fell back to local, the read
-   * was refused or kept failing, or only the user row had landed. The caller then
-   * finishes the turn from the flow result, so an answer is never lost to history.
+   * Returns false when the server holds no answer for the turn: history fell back to
+   * local, the read was refused or kept failing, or no assistant row has landed. The
+   * caller then finishes the turn from the flow result, so an answer is never lost
+   * to history. Whether a row counts is read from the message list, not from what
+   * this read returned: the turn's polling may have merged the answer already.
    */
   async #reconcileTurn(turn: Turn): Promise<boolean> {
-    let answered = false
     for (let attempt = 1; attempt <= RECONCILE_ATTEMPTS; attempt++) {
       let rows: FlowConversationMessage[]
       try {
@@ -457,18 +465,25 @@ class ChatImpl implements Chat {
         if (isAbortError(e)) throw e
         if (this.#fallBackToLocal(e)) return false
         const refused = e instanceof WindmillApiError && (e.status === 401 || e.status === 403)
-        if (refused || attempt === RECONCILE_ATTEMPTS) return answered
+        if (refused || attempt === RECONCILE_ATTEMPTS) return this.#answered(turn)
         await sleep(RECONCILE_DELAY_MS, turn.controller.signal)
         continue
       }
       if (!this.#turnActive(turn)) return true
-      answered ||= rows.some((r) => r.message_type !== 'user')
       this.#mergeRows(rows)
-      if (answered && !this.#state.messages.some((m) => m.pending && m.content)) break
+      if (this.#answered(turn) && !this.#state.messages.some((m) => m.pending && m.content)) break
       if (attempt < RECONCILE_ATTEMPTS) await sleep(RECONCILE_DELAY_MS, turn.controller.signal)
     }
-    if (this.#turnActive(turn)) this.#set({ messages: finalized(this.#state.messages) })
-    return answered
+    if (!this.#turnActive(turn)) return true
+    this.#set({ messages: finalized(this.#state.messages) })
+    return this.#answered(turn)
+  }
+
+  /** A persisted assistant message follows the turn's user message. Tool rows alone are not an answer. */
+  #answered(turn: Turn): boolean {
+    const messages = this.#state.messages
+    const from = messages.findIndex((m) => m.id === turn.userMessageId)
+    return messages.some((m, i) => i > from && m.role === 'assistant' && m.seq !== undefined)
   }
 
   #failTurn(turn: Turn, e: unknown): void {
