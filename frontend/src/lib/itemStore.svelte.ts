@@ -357,8 +357,9 @@ class Entry<V> {
 	}
 
 	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
-	/** `askedAt`: when the write was made, for one parked while a move was heading here. */
-	applyExternal(value: V, askedAt = nextAsk++): number {
+	/** `askedAt`: when the write was made, for one that reaches this entry later than it was asked
+	 *  (parked while a move was heading here, or carried over from the entry a move replaced). */
+	applyExternal(value: V, askedAt: number = nextAsk++): number {
 		// An ask older than the one that holds changes nothing, value included.
 		if (askedAt < (this.lastAsk?.at ?? 0)) return this.revision
 		// Before the unchanged-value return: re-writing the same draft is still an ask, and which
@@ -449,7 +450,7 @@ class Entry<V> {
 		// Not loaded yet (its read waits behind the move): only an outside write can have filled it,
 		// and nothing has persisted that write but this entry.
 		if (!old.loaded) {
-			this.applyExternal(old.value)
+			this.applyExternal(old.value, old.lastAsk?.at)
 			return
 		}
 		if (old.origin !== 'deployed' || old.deployed === undefined) return

@@ -721,6 +721,16 @@ describe('item store: one entry per key', () => {
 		expect(parkedThenWritten.moving.value).toEqual(newerThanParked)
 		expect(parkedThenWritten.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: newerThanParked })
 
+		// A draft written into the editor loading at the destination, then Discard on the mover: the
+		// discard came last, so the draft it carries over does not survive it either.
+		const writtenThenDiscarded = await moveOnto(false, (store, open, moving) => {
+			open()
+			store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'chat draft' })
+			void moving.discard()
+		})
+		expect(writtenThenDiscarded.moving.dirty).toBe(false)
+		expect(writtenThenDiscarded.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: null })
+
 		// Deleted last: the delete is what holds, however many drafts preceded it.
 		const deleted = await moveOnto(true, (store) => {
 			store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'first draft' })
