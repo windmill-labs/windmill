@@ -995,7 +995,7 @@ pub async fn run_agent(
         .map(|m| !m.is_empty())
         .unwrap_or(false);
 
-    // An empty list, such as a messages expression that evaluated to null, is no conversation to send.
+    // An empty list, as a messages expression evaluating to null gives, is no conversation to send.
     if !matches!(&history, HistorySource::Messages(m) if !m.is_empty()) && !has_user_message {
         return Err(Error::internal_err(
             "Either 'messages' or 'user_message' must be provided".to_string(),
