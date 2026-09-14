@@ -910,12 +910,15 @@ fn redact_git_sync_webhook_secrets(git_sync: &mut serde_json::Value) {
 }
 
 /// Zero the server-owned auto-pull fields (webhook id/secret/url/error, synced
-/// sha, last pull status) on a client-supplied `AutoPullSettings`. The client only
-/// controls `enabled` / `mode` / `poll_interval_s`; the rest is written by the
-/// server (webhook creation, poller) and must never be trusted from the request —
-/// otherwise a caller could inject a webhook id/secret or fake sync state.
-fn clear_client_supplied_auto_pull_state(
+/// sha, last pull status) on a client-supplied `AutoPullSettings`, and stamp who
+/// pulls run as: `saver_email` while auto pull is on. The client only controls
+/// `enabled` / `mode` / `poll_interval_s`; the rest is written by the server (webhook
+/// creation, poller, this save) and must never be trusted from the request —
+/// otherwise a caller could inject a webhook id/secret, fake sync state, or pick who
+/// pulls run as.
+fn sanitize_client_auto_pull(
     auto_pull: &mut windmill_common::workspaces::AutoPullSettings,
+    saver_email: &str,
 ) {
     auto_pull.webhook_id = None;
     auto_pull.webhook_secret = None;
@@ -923,6 +926,7 @@ fn clear_client_supplied_auto_pull_state(
     auto_pull.webhook_error = None;
     auto_pull.last_synced_sha = std::collections::HashMap::new();
     auto_pull.last_pull_status = None;
+    auto_pull.enabled_by = auto_pull.enabled.then(|| saver_email.to_string());
 }
 
 /// Whether a git-sync repository tracking `tracked` rules out `label_branch` as a dev workspace's
@@ -1362,6 +1366,22 @@ mod git_sync_deploy_mode_tests {
     use super::{deploys_on_push_branch, has_runnable_delivery};
     use serde_json::json;
     use windmill_common::workspaces::{AutoPullMode, AutoPullSettings};
+
+    #[test]
+    fn a_save_stamps_the_saver_over_any_client_supplied_stamp() {
+        let mut ap = AutoPullSettings {
+            enabled: true,
+            enabled_by: Some("forged@example.com".to_string()),
+            ..Default::default()
+        };
+        super::sanitize_client_auto_pull(&mut ap, "saver@example.com");
+        assert_eq!(ap.enabled_by.as_deref(), Some("saver@example.com"));
+
+        ap.enabled = false;
+        ap.enabled_by = Some("forged@example.com".to_string());
+        super::sanitize_client_auto_pull(&mut ap, "saver@example.com");
+        assert_eq!(ap.enabled_by, None, "auto pull off carries no stamp");
+    }
 
     fn auto_pull(mode: AutoPullMode, webhook_id: Option<i64>) -> AutoPullSettings {
         AutoPullSettings { enabled: true, mode, webhook_id, ..Default::default() }
@@ -3983,7 +4003,7 @@ async fn edit_git_sync_config(
         // stay clean.
         for repo in git_sync_settings.repositories.iter_mut() {
             if let Some(ap) = repo.auto_pull.as_mut() {
-                clear_client_supplied_auto_pull_state(ap);
+                sanitize_client_auto_pull(ap, &authed.email);
             }
             repo.open_pr_error = None;
             repo.credential = None;
@@ -4230,7 +4250,7 @@ async fn edit_git_sync_repository(
     // existing repo re-derives it from the DB (carried over below) and a new one
     // starts clean.
     if let Some(ap) = new_config.repository.auto_pull.as_mut() {
-        clear_client_supplied_auto_pull_state(ap);
+        sanitize_client_auto_pull(ap, &authed.email);
     }
     new_config.repository.open_pr_error = None;
     new_config.repository.credential = None;

@@ -186,6 +186,35 @@ Routing — an event/poll result is `(repo, ref, head_sha, sender)`:
   filters): fan out, each workspace pulls with its own filters; `wmill.yaml` in
   the repo stays authoritative for include/exclude.
 
+Identity — a pull applies changes as a real workspace admin, never a reserved identity.
+The schedules, triggers and app policies it deploys persist their deployer as the identity
+they run as, and `validate_on_behalf_of` refuses reserved sentinels there, so a real admin
+is what keeps those deployable and revocable (demote or remove the admin and what runs
+under them stops).
+
+- The admin is `auto_pull.enabled_by`, stamped server-side with the email of whoever last
+  saved the git sync settings with auto pull on. Re-saving as another admin rotates it.
+- A stamp naming someone who is no longer an active admin (demoted, or deactivated in the
+  workspace or on the instance), and not an active instance superadmin either, fails the
+  pull rather than falling back to someone else. A superadmin who is not a member runs it
+  under their instance username, and only while no member of the workspace holds that
+  username: `u/<username>` resolves through the workspace's members before the email. A
+  repository whose settings predate the stamp runs as the workspace's first active admin
+  until they are saved again.
+- The identity is resolved before the deploy check is posted, and a failure to resolve it
+  or to enqueue is recorded on the repository's status, not returned: a returned error
+  would fail the webhook delivery, and hosts disable hooks whose deliveries keep failing.
+  The next push or poll retries.
+- Fork pulls run as the parent repository's identity, stamped or not, resolved in the
+  parent (revoking that admin there stops fork pulls too), and first add that admin to
+  the fork as an admin member, since a plain fork carries only its creator. The fork's
+  owner cannot be the identity: a non-admin's `wmill sync push` diffs against what it can
+  see, so an item in a folder it cannot read reads as a create and the push fails on every
+  commit. CI tests do run as the owner (Phase 7), because they only execute.
+- Known and accepted: repo writers control the pull's includes through `wmill.yaml`, so a
+  fork's owner can commit a user file that makes them admin of the fork and read the
+  parent secrets it cloned, as with the `push-on-merge-to-forks` Action this replaces.
+
 Loop prevention (pull → deploys → deployment callback → commit → push event):
 
 1. Skip events whose sender is the app bot (`windmill-sync-helper[bot]` /

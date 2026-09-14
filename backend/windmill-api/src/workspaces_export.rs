@@ -1607,6 +1607,7 @@ pub(crate) async fn tarball_workspace(
                             "webhook_error",
                             "last_synced_sha",
                             "last_pull_status",
+                            "enabled_by",
                         ] {
                             auto_pull.remove(field);
                         }

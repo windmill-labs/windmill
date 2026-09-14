@@ -34919,6 +34919,9 @@ components:
             type: string
         last_pull_status:
           $ref: "#/components/schemas/AutoPullStatus"
+        enabled_by:
+          type: string
+          description: Email of the admin automatic pulls apply changes as. Set by the server when the settings are saved.
       required:
         - enabled
 
