@@ -1,6 +1,0 @@
--- Deliberately empty. On an instance where 20250205131523 succeeded, this grant
--- came from its ALTER DEFAULT PRIVILEGES when the sequence was created, and
--- `relacl` keeps no record distinguishing that from the GRANT in this migration's
--- up — so a REVOKE here would strip a privilege the instance had before this
--- migration ran, and leave every autosave failing with `permission denied for
--- sequence`.
