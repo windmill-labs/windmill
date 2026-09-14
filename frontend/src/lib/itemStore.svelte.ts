@@ -474,6 +474,9 @@ class Entry<V> {
 		this.lastOutsideAsk = 'discard'
 		return this.run(async () => {
 			this.discardsAsked--
+			// A draft written again after this discard was asked outranks it, however the move it
+			// waited for turned out: the ask that came last is the one that holds.
+			if (this.lastOutsideAsk === 'write') return { removed: false }
 			if (!this.loaded || this.retired) return { removed: false }
 			if (this.origin === 'draft') {
 				const kept = snapshot(this.value)

@@ -620,7 +620,8 @@ describe('item store: one entry per key', () => {
 		const b = { ...deployedRes, path: 'u/me/b' }
 		const moveOnto = async (
 			openBefore: boolean,
-			outside: (store: ReturnType<typeof createItemStore>, open: () => void) => void
+			outside: (store: ReturnType<typeof createItemStore>, open: () => void) => void,
+			refuse?: string
 		) => {
 			const rows = fakeRows()
 			const store = createItemStore(rows.port)
@@ -629,23 +630,30 @@ describe('item store: one entry per key', () => {
 			const { handle: moving } = store.acquire(
 				{ workspace: 'w', kind: 'resource', path: temporary },
 				{ workspace: 'w', path: temporary, template: b },
-				adapter({}, () => gate.promise)
+				adapter({}, async () => {
+					await gate.promise
+					if (refuse) throw new Error(refuse)
+				})
 			)
 			await settle()
 			moving.value = { ...b, args: { a: 2 } }
 			const moved = moving.save()
 			await settle()
-			const open = () =>
-				store.acquire(
+			let opened: ItemHandle<Res> | undefined
+			const open = () => {
+				opened = store.acquire(
 					{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
 					{ workspace: 'w', path: 'u/me/b' },
 					adapter({ deployed: b })
-				)
+				).handle
+			}
 			if (openBefore) open()
 			outside(store, open)
 			gate.resolve()
-			expect(await moved).toMatchObject({ ok: true, moved: true })
-			return { moving, rows }
+			expect(await moved).toMatchObject(refuse ? { ok: false } : { ok: true, moved: true })
+			await settle()
+			// A refused move leaves the item where it was, with the editor that opened on it.
+			return { moving, shown: refuse ? opened! : moving, rows }
 		}
 		// Deleted, then written again: the newer draft is the one that survives the move.
 		const again = { ...b, description: 'written again after the delete' }
@@ -665,6 +673,19 @@ describe('item store: one entry per key', () => {
 		})
 		expect(same.moving.value).toEqual(again)
 		expect(same.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: again })
+
+		// The move failing changes none of that: the last ask is still the one that holds.
+		const failed = await moveOnto(
+			true,
+			(store) => {
+				store.bridge.seed('w', 'resource', 'u/me/b', { ...b, description: 'first draft' })
+				store.bridge.discard('w', 'resource', 'u/me/b')
+				store.bridge.seed('w', 'resource', 'u/me/b', again)
+			},
+			'refused by the server'
+		)
+		expect(failed.shown.value).toEqual(again)
+		expect(failed.rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: again })
 
 		// Deleted last: the delete is what holds, however many drafts preceded it.
 		const deleted = await moveOnto(true, (store) => {
