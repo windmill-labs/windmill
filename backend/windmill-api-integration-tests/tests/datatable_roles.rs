@@ -640,7 +640,10 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
     let test_db: String = sqlx::query_scalar("SELECT current_database()::text")
         .fetch_one(&db)
         .await?;
-    let target = format!("wm_fork_{}", test_db.trim_start_matches('_').to_lowercase());
+    let target = format!(
+        "wm_fork_{}",
+        test_db[test_db.len().saturating_sub(24)..].to_lowercase()
+    );
 
     // Rows are a workspace admin's to copy, as they were before roles.
     let resp = authed(
@@ -654,6 +657,21 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
     .send()
     .await?;
     assert_eq!(resp.status(), 403, "{}", resp.text().await?);
+    assert!(!database_exists(&db, &target).await?);
+
+    // Even the schema alone lists every table, which a member covered by no role cannot read in
+    // the parent.
+    let resp = authed(
+        client().post(format!("{parent}/clone_pg_database")),
+        "SECRET_TOKEN_3",
+    )
+    .json(
+        &json!({"source": "datatable://main", "target_dbname": target,
+                      "fork_behavior": "schema_only"}),
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 401, "{}", resp.text().await?);
     assert!(!database_exists(&db, &target).await?);
 
     // The copy an admin asks for goes ahead in an edition that replays grants, and is refused
@@ -672,7 +690,7 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
     assert_ne!(resp.status(), 200);
     let body = resp.text().await?;
     #[cfg(all(feature = "private", feature = "enterprise"))]
-    assert!(!body.contains("Enterprise Edition"), "{body}");
+    assert!(body.contains("pg_dump"), "{body}");
     #[cfg(not(all(feature = "private", feature = "enterprise")))]
     assert!(body.contains("Enterprise Edition"), "{body}");
     assert!(!database_exists(&db, &target).await?);

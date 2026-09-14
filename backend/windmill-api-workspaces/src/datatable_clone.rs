@@ -35,6 +35,7 @@ use windmill_common::workspaces::{
 use windmill_common::{PgDatabase, DB};
 
 use crate::datatable_acl::connect_with_notices;
+use crate::datatable_permissions::ensure_reaches_datatable;
 use crate::workspaces::{
     create_database_on_server, ensure_datatable_is_clonable, pg_dump_database, pg_import_dump,
     record_datatable_clone, DumpFile, PgDumpOptions,
@@ -51,10 +52,10 @@ pub struct ClonePgDatabaseRequest {
 
 /// Copy data table `source` of this workspace into a new database `target_dbname`.
 ///
-/// Who may copy is what it was before data table roles: anyone for the schema, an admin of this
-/// workspace for the rows. A copy of a data table under roles is safe to hand to a fork because
-/// the fork takes it governed by the source's roles, and the replay gives those roles exactly the
-/// privileges they hold on the source.
+/// Who may copy is what it was before data table roles — anyone for the schema, an admin of this
+/// workspace for the rows — narrowed under roles to whoever may connect as one of them. A copy of
+/// a data table under roles is safe to hand to a fork because the fork takes it governed by the
+/// source's roles, and the replay gives those roles exactly the privileges they hold on the source.
 pub(crate) async fn clone_pg_database(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -100,15 +101,45 @@ pub(crate) async fn clone_pg_database(
                 .to_string(),
         ));
     }
+    // Even a copy of the schema alone shows every table of the data table, which under roles only
+    // those who may connect as one of them can read — through the catalogs, whatever the role.
+    ensure_reaches_datatable(&db, &w_id, &name, &authed).await?;
     let governing = ensure_datatable_is_clonable(&db, &w_id, &name).await?;
     if governing.datatable.permissions.is_some() {
         crate::datatable_replay_oss::ensure_replay()?;
     }
 
+    let behavior = if schema_only {
+        "schema_only"
+    } else {
+        "schema_and_data"
+    };
+    // A copy runs to completion even when the request carrying it times out, so asking again is how
+    // a caller learns it finished: the same copy, recorded and not yet taken, is answered as done
+    // rather than refused for a name already in use.
+    let finished = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM datatable_clone
+             WHERE dbname = $1 AND source_workspace_id = $2 AND source_datatable = $3
+               AND created_by = $4 AND fork_behavior = $5 AND claimed_by_workspace_id IS NULL)",
+    )
+    .bind(&req.target_dbname)
+    .bind(&w_id)
+    .bind(&name)
+    .bind(&authed.email)
+    .bind(behavior)
+    .fetch_one(&db)
+    .await?;
+    if finished {
+        return Ok(format!(
+            "Data table '{name}' is already cloned into '{}'",
+            req.target_dbname
+        ));
+    }
+
     // Detached from the request: a client that goes away mid-copy must still leave either a
     // finished copy or no database at all, and dropping the handler's future would skip the
     // cleanup.
-    let clone = CloneJob { db, authed, w_id, name, target: req.target_dbname, schema_only };
+    let clone = CloneJob { db, authed, w_id, name, target: req.target_dbname, behavior };
     tokio::spawn(clone.run(governing))
         .await
         .map_err(|e| Error::internal_err(format!("The clone stopped unexpectedly: {e}")))?
@@ -120,7 +151,8 @@ struct CloneJob {
     w_id: String,
     name: String,
     target: String,
-    schema_only: bool,
+    /// `schema_only` or `schema_and_data`.
+    behavior: &'static str,
 }
 
 impl CloneJob {
@@ -137,7 +169,7 @@ impl CloneJob {
         let dump = pg_dump_database(
             &source_pg,
             PgDumpOptions {
-                schema_only: self.schema_only,
+                schema_only: self.behavior == "schema_only",
                 no_owner: true,
                 no_acl: is_instance,
                 ..Default::default()
@@ -209,6 +241,7 @@ impl CloneJob {
         .await?;
 
         // Everything so far was decided before the locks.
+        ensure_reaches_datatable(&self.db, &self.w_id, &self.name, &self.authed).await?;
         let now = ensure_datatable_is_clonable(&self.db, &self.w_id, &self.name).await?;
         let same_database = match (&now.datatable.database, &governing.datatable.database) {
             (Some(now), Some(then)) => {
@@ -236,13 +269,16 @@ impl CloneJob {
             replay = Some((source, target, notices, catalog_roles));
         }
 
-        record_datatable_clone(&mut *tx, &self.target, &self.w_id, &self.name, &self.authed)
-            .await?;
-        let behavior = if self.schema_only {
-            "schema_only"
-        } else {
-            "schema_and_data"
-        };
+        let behavior = self.behavior;
+        record_datatable_clone(
+            &mut *tx,
+            &self.target,
+            &self.w_id,
+            &self.name,
+            &self.authed,
+            Some(behavior),
+        )
+        .await?;
         audit_log(
             &mut *tx,
             &self.authed,

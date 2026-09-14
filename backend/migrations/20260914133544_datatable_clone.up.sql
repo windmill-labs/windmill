@@ -10,6 +10,9 @@ CREATE TABLE datatable_clone (
     source_workspace_id VARCHAR(50) NOT NULL,
     source_datatable VARCHAR(255) NOT NULL,
     created_by VARCHAR(255) NOT NULL,
+    -- `schema_only` or `schema_and_data`. NULL for a database created empty, to be filled by a
+    -- separate import.
+    fork_behavior VARCHAR(20),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- The fork that took it. NULL while nothing has.
     claimed_by_workspace_id VARCHAR(50)

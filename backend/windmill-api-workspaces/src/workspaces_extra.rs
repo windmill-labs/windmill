@@ -1010,17 +1010,19 @@ pub(crate) async fn delete_workspace(
     // fails mid-way must never leave a live workspace with its fork data destroyed and no
     // registry row to retry from. Read-only: nothing is dropped here.
     // Read before the delete: another workspace's data table entry can point at one of this
-    // workspace's, and deleting the workspace it names leaves that pointer resolving to nothing.
-    // Nothing sweeps them — turning them back into copies would hand each fork the database
-    // outright — so the deleter is told which data tables they just stranded.
-    let stranded_pointers = sqlx::query!(
-        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "datatable!"
+    // workspace's, or be a clone taking its roles from one, and deleting the workspace it names
+    // leaves it resolving to nothing. Nothing sweeps them — turning them back into copies would
+    // hand each fork the database outright — so the deleter is told which data tables they just
+    // stranded.
+    let stranded_pointers = sqlx::query_as::<_, (String, String)>(
+        r#"SELECT ws.workspace_id, dt.key
            FROM workspace_settings ws
            CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
            WHERE dt.value->'reference'->>'workspace_id' = $1
+              OR dt.value->'governed_by'->>'workspace_id' = $1
            ORDER BY ws.workspace_id, dt.key"#,
-        &w_id,
     )
+    .bind(&w_id)
     .fetch_all(&db)
     .await
     .unwrap_or_default();
@@ -1348,7 +1350,7 @@ pub(crate) async fn delete_workspace(
     } else {
         let stranded = stranded_pointers
             .iter()
-            .map(|r| format!("{}/{}", r.workspace_id, r.datatable))
+            .map(|(workspace_id, datatable)| format!("{workspace_id}/{datatable}"))
             .collect::<Vec<_>>()
             .join(", ");
         Ok(format!(

@@ -1521,10 +1521,18 @@ pub async fn resolve_governing_datatable(
                     // A pointer outlives the workspace it names: deleting one only nulls the fork
                     // lineage, it does not sweep the entries that pointed at it. Say which one is
                     // gone rather than reporting a data table this workspace never had.
-                    Error::NotFound(format!(
-                        "Data table '{name}' of workspace '{workspace_id}' governs this one and no \
-                         longer exists. A superadmin can point this data table somewhere else."
-                    ))
+                    if clone.is_some() {
+                        Error::NotFound(format!(
+                            "Data table '{name}' of workspace '{workspace_id}', which this clone \
+                             takes its roles from, no longer exists, so nobody is let into the copy."
+                        ))
+                    } else {
+                        Error::NotFound(format!(
+                            "Data table '{name}' of workspace '{workspace_id}' governs this one and \
+                             no longer exists. A superadmin can point this data table somewhere \
+                             else."
+                        ))
+                    }
                 }
             })?;
         hops += 1;

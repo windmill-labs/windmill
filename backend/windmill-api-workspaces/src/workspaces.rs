@@ -3302,6 +3302,7 @@ async fn create_pg_database(
             &w_id,
             &name,
             &authed,
+            None,
         )
         .await?;
     }
@@ -3367,18 +3368,22 @@ pub(crate) async fn record_datatable_clone(
     w_id: &str,
     datatable: &str,
     authed: &ApiAuthed,
+    fork_behavior: Option<&str>,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO datatable_clone (dbname, source_workspace_id, source_datatable, created_by)
-         VALUES ($1, $2, $3, $4)
+        "INSERT INTO datatable_clone
+             (dbname, source_workspace_id, source_datatable, created_by, fork_behavior)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (dbname) DO UPDATE SET source_workspace_id = EXCLUDED.source_workspace_id,
              source_datatable = EXCLUDED.source_datatable, created_by = EXCLUDED.created_by,
-             created_at = now(), claimed_by_workspace_id = NULL",
+             fork_behavior = EXCLUDED.fork_behavior, created_at = now(),
+             claimed_by_workspace_id = NULL",
     )
     .bind(dbname)
     .bind(w_id)
     .bind(datatable)
     .bind(&authed.email)
+    .bind(fork_behavior)
     .execute(conn)
     .await?;
     Ok(())
@@ -7898,8 +7903,8 @@ async fn snapshot_datatable_schema(
 /// a fork admin could then edit to widen their own access to it. A pointer has nothing local to
 /// edit: the parent's entry stays the only place the decision lives.
 ///
-/// The cloned data tables are skipped: they own a fresh database of their own, and they keep the
-/// copied `permissions` as their starting point, which they then govern.
+/// The cloned data tables are skipped: they own a fresh database of their own, and
+/// `apply_forked_datatable` has already replaced their copied `permissions` with `governed_by`.
 async fn point_kept_datatables_at_parent(
     tx: &mut Transaction<'_, Postgres>,
     parent_w_id: &str,
@@ -8043,6 +8048,10 @@ async fn apply_forked_datatable(
         authed,
     )
     .await?;
+    // The fork keeps a snapshot of the source's schema, which under roles is only for those who
+    // may connect as one of them — as the copy itself was.
+    crate::datatable_permissions::ensure_reaches_datatable(db, parent_w_id, &fdt.name, authed)
+        .await?;
     // The copy holds the rows of what governs the source, so that entry keeps deciding who reaches
     // them. Settled from the source as it resolves now: the settings clone may have handed the fork
     // a pointer, or a clone of its own.
