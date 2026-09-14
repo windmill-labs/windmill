@@ -42,7 +42,7 @@ fn in_flight() -> MutexGuard<'static, HashSet<String>> {
 
 /// Records, inside the rotation's transaction, that objects under `previous_key` may
 /// still exist; the walk removes the record once it found none.
-pub async fn record_rotation(
+pub(crate) async fn record_rotation(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
     previous_key: &str,
@@ -59,7 +59,7 @@ pub async fn record_rotation(
 }
 
 /// The keys of rotations whose walk has not completed, oldest first.
-pub async fn previous_keys(db: &DB, w_id: &str) -> Result<Vec<String>> {
+async fn previous_keys(db: &DB, w_id: &str) -> Result<Vec<String>> {
     Ok(sqlx::query_scalar::<_, String>(
         "SELECT previous_key FROM ai_session_backup_rekey WHERE workspace_id = $1 \
          ORDER BY started_at",
@@ -69,9 +69,21 @@ pub async fn previous_keys(db: &DB, w_id: &str) -> Result<Vec<String>> {
     .await?)
 }
 
+/// The ciphers, with `key_suffix`, of rotations whose walk has not completed: an object may
+/// still be under one of them. Empty once nothing is pending. Derives ciphers rather than
+/// handing out the keys, and is for a route that already authorized its caller to the
+/// workspace's backups: it does no authorization of its own.
+pub async fn pending_ciphers(db: &DB, w_id: &str, key_suffix: &str) -> Result<Vec<MagicCrypt256>> {
+    Ok(previous_keys(db, w_id)
+        .await?
+        .iter()
+        .map(|key| crypt_from_key_with_suffix(key, key_suffix))
+        .collect())
+}
+
 /// The workspace's primary storage, resolved without a caller: a rotation runs the walk
 /// off its own request.
-pub async fn primary_store(db: &DB, w_id: &str) -> Result<Option<Arc<dyn ObjectStore>>> {
+pub(crate) async fn primary_store(db: &DB, w_id: &str) -> Result<Option<Arc<dyn ObjectStore>>> {
     let Some(lfs_json) = sqlx::query_scalar!(
         "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
         w_id
@@ -102,7 +114,8 @@ pub async fn primary_store(db: &DB, w_id: &str) -> Result<Option<Arc<dyn ObjectS
     Ok(Some(store))
 }
 
-/// Starts the walk for the workspace unless this process is already running one.
+/// Starts the walk for the workspace unless this process is already running one. `store`
+/// is the workspace's storage as the caller resolved it under its own authorization.
 pub fn spawn_rekey(db: DB, w_id: String, store: Arc<dyn ObjectStore>) {
     if !in_flight().insert(w_id.clone()) {
         return;

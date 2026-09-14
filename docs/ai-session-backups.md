@@ -68,7 +68,10 @@ path decrypts with the recorded keys too and every use of the backups starts the
 a server restart mid-walk leaves nothing unreadable and nothing under the old key for good. The
 walk writes each object conditionally on the version it read (`PutMode::Update`): a push or a
 delete landing in between used the current key already, and rewriting over it would bring back
-what it replaced. The filesystem store has no conditional writes and keeps that window. The
+what it replaced. The filesystem store has no conditional writes and keeps that window. A push
+that started under the key a rotation replaced may write pieces after the walk listed the
+bucket; it reads the key again once its writes are done and fails whole (503) if it moved, so
+the browser sends those pieces again under the new key rather than settle them. The
 server builds every key from ids it validated
 (`[A-Za-z0-9_-]{1,64}`) and the caller's own email; the client never names a key, and the
 workspace storage permission rules are not consulted (the same stance as volumes). Only an
@@ -120,8 +123,11 @@ Every answer names the storage it came from (`storage_id`, a hash of what locate
 endpoint, region and bucket, not the credentials, which rotate). A sync row records it, and a
 row naming another storage goes stale and its session is marked again: a workspace pointed at
 a new bucket holds nothing, and the server looks nowhere else, so the next flush carries the
-session whole. The listing a restore starts with runs the same check, so a storage switch is
-noticed at the first push after it or on the next page load, whichever comes first.
+session whole. That includes the rows a flush has just written, when a later answer of the
+same flush names another storage or the session was pushed in part on top of a row from the
+old one; a session whose own parts were answered from different storages is not settled at
+all. The listing a restore starts with runs the same check, so a storage switch is noticed at
+the first push after it or on the next page load, whichever comes first.
 
 ## Limits
 

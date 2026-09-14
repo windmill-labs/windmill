@@ -307,25 +307,25 @@ async function staleWorkspaceSync(ws: string, email: string): Promise<void> {
 	)
 }
 
-/** The server names the storage every answer comes from. A row recorded against another
- * one describes objects the server no longer looks at (a new bucket starts empty): it
- * goes stale and its session is marked again, so the next flush carries it whole. */
-async function adoptStorage(
+/** The workspace's live rows recorded against another storage than the one the server
+ * answers from: they describe objects it no longer looks at (a new bucket starts empty). */
+function foreignRows(
 	ws: string,
 	storageId: string,
-	rows: Iterable<MirrorSyncState>,
-	email: string
-): Promise<boolean> {
-	const foreign = [...rows].filter(
+	rows: Iterable<MirrorSyncState>
+): MirrorSyncState[] {
+	return [...rows].filter(
 		(row) => row.ws === ws && !row.stale && !row.removed && row.storageId !== storageId
 	)
-	if (foreign.length === 0) return false
+}
+
+/** Stale rows plan like no row at all, and the mark makes the next flush pick them up. */
+async function markStale(rows: MirrorSyncState[], email: string): Promise<void> {
 	await writeSync(
-		foreign.map((row) => ({ ...row, stale: true })),
+		rows.map((row) => ({ ...row, stale: true })),
 		email
 	)
-	for (const row of foreign) bumpDirty(row.id)
-	return true
+	for (const row of rows) bumpDirty(row.id)
 }
 
 /** Sessions this browser has backed up nothing of yet, or whose backup went stale:
@@ -441,6 +441,8 @@ async function pushWorkspace(
 			removeFrom?: string
 			carried: boolean
 			storageId?: string
+			/** The storage the last answer for this session came from. */
+			answered?: string
 		}
 	>()
 	const failed = new Set<string>()
@@ -486,6 +488,10 @@ async function pushWorkspace(
 			const a = attempted.get(entry.id)
 			if (!a) continue
 			a.parts -= 1
+			// Parts answered from different storages sit in different buckets: nothing to
+			// settle, the session goes again whole.
+			if (a.answered !== undefined && a.answered !== res.storage_id) failed.add(entry.id)
+			a.answered = res.storage_id
 			a.storageId = res.storage_id
 			if (errors.has(entry.id)) failed.add(entry.id)
 		}
@@ -725,20 +731,37 @@ async function flush(): Promise<void> {
 			})
 			// A session with deletes carried over stays one bump short of retired, so the
 			// next flush sends the rest.
-			await writeSync(
-				recorded.map((s) => ({
-					...s.next,
-					flushedV: s.carried ? s.v - 1 : s.v,
-					storageId: s.storageId
-				})),
-				email
-			)
-			// After the rows above: a session recorded against the old storage that this flush
-			// pushed only in part is stale too, since the new storage holds just that part.
+			const written = recorded.map((s) => ({
+				...s.next,
+				flushedV: s.carried ? s.v - 1 : s.v,
+				storageId: s.storageId
+			}))
+			await writeSync(written, email)
+			// The server names the storage every answer comes from. Rows naming another one
+			// go stale, the ones written just now included: a session answered from a
+			// storage the later answers left behind, or pushed in part on top of a row from
+			// another one, has its backup split across buckets the server no longer looks at
+			// as a whole.
 			if (out.storageId !== undefined) {
+				const storageId = out.storageId
 				const removed = new Set(out.removedDone.map((r) => r.id))
-				const rows = [...syncRows.values()].filter((row) => !removed.has(row.id))
-				if (await adoptStorage(ws, out.storageId, rows, email)) leftForNext = true
+				const writtenIds = new Set(written.map((row) => row.id))
+				const untouched = [...syncRows.values()].filter(
+					(row) => !removed.has(row.id) && !writtenIds.has(row.id)
+				)
+				const foreign = [
+					...foreignRows(ws, storageId, untouched),
+					...written.filter((row) => {
+						const prior = syncRows.get(row.id)
+						const partial =
+							prior && !prior.stale && prior.ws === ws && prior.storageId !== storageId
+						return row.storageId !== storageId || partial
+					})
+				]
+				if (foreign.length > 0) {
+					await markStale(foreign, email)
+					leftForNext = true
+				}
 			}
 			droppedDirty.push(...out.dropped.map((d) => d.id))
 			for (const r of out.removedDone) {
@@ -853,10 +876,9 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 	}
 	if (!wsState.has(ws)) wsState.set(ws, 'on')
 	const rows = await allSyncRows(email)
-	if (
-		listing.storage_id !== undefined &&
-		(await adoptStorage(ws, listing.storage_id, rows, email))
-	) {
+	const foreign = listing.storage_id === undefined ? [] : foreignRows(ws, listing.storage_id, rows)
+	if (foreign.length > 0) {
+		await markStale(foreign, email)
 		scheduleFlush()
 	}
 	const local = new Set<string>()

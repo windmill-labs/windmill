@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::sync::Arc;
 use windmill_api_auth::is_effectively_unscoped;
-use windmill_api_workspaces::ai_session_rekey::{open, previous_keys, spawn_rekey, ROOT};
+use windmill_api_workspaces::ai_session_rekey::{open, pending_ciphers, spawn_rekey, ROOT};
 use windmill_common::error::{Error, JsonResult, Result};
 use windmill_common::utils::calculate_hash;
 use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key};
@@ -72,6 +72,8 @@ pub fn workspaced_service() -> Router {
 /// The user's prefix in the workspace storage, plus what reads and writes it.
 struct Backend {
     store: Arc<dyn ObjectStore>,
+    /// The workspace key `mc` derives from, to tell a rotation that landed meanwhile.
+    key: String,
     mc: MagicCrypt256,
     /// The ciphers of rotations whose re-key walk has not finished: an object may still
     /// be under one of them.
@@ -295,17 +297,20 @@ async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backe
     let mc = crypt_from_key_with_suffix(&key, &user);
     // A rotation whose walk has not finished (or was cut short by a restart) leaves objects
     // under the keys it replaced: read those too, and see the walk through.
-    let pending = previous_keys(db, w_id).await?;
-    let previous = pending
-        .iter()
-        .map(|key| crypt_from_key_with_suffix(key, &user))
-        .collect();
-    if !pending.is_empty() {
+    let previous = pending_ciphers(db, w_id, &user).await?;
+    if !previous.is_empty() {
         spawn_rekey(db.clone(), w_id.to_string(), store.clone());
     }
     let prefix = format!("{ROOT}/{w_id}/{user}");
     let storage_id = storage_id(&resource);
-    Ok(Some(Backend { store, mc, previous, prefix, storage_id }))
+    Ok(Some(Backend {
+        store,
+        key,
+        mc,
+        previous,
+        prefix,
+        storage_id,
+    }))
 }
 
 /// Names the storage the backups are in, so a browser can tell that its sync state was
@@ -855,6 +860,16 @@ async fn push(
     }
     #[cfg(feature = "enterprise")]
     let _ = written;
+    // A rotation that committed while this push ran re-keys what its walk listed; a piece
+    // written after that listing, under the key this push started with, would stay behind
+    // unreadable. The push fails whole instead, and the browser sends it again under the
+    // new key.
+    if get_workspace_key(&w_id, &db).await? != backend.key {
+        return Err(Error::Generic(
+            http::StatusCode::SERVICE_UNAVAILABLE,
+            "the workspace key was rotated during this push; retry".to_string(),
+        ));
+    }
     Ok(Json(PushResponse {
         enabled: true,
         storage_id: Some(backend.storage_id),
