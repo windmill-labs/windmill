@@ -421,8 +421,14 @@ class Entry<V> {
 	 *  changed from its own deployed side, so they stay a draft over what this entry deployed.
 	 *  Compared exactly, as a save is: a field the draft comparison ignores (run-as) is an edit. */
 	carryEditsOf(old: Entry<V>): void {
-		if (old.origin !== 'deployed' || old.value === undefined || old.deployed === undefined) return
-		if (this.value === undefined) return
+		if (old.value === undefined || this.value === undefined) return
+		// Not loaded yet (its read waits behind the move): only an outside write can have filled it,
+		// and nothing has persisted that write but this entry.
+		if (!old.loaded) {
+			this.applyExternal(old.value)
+			return
+		}
+		if (old.origin !== 'deployed' || old.deployed === undefined) return
 		const edited = old.value as Record<string, unknown>
 		const base = old.deployed as Record<string, unknown>
 		const next = snapshot(this.value) as Record<string, unknown>
