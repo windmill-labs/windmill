@@ -138,6 +138,8 @@ function errorMessage(e: unknown): string {
  *  item's revision for another's. */
 let nextRevision = 1
 
+const superseded = { ok: false, error: 'Another save of this item replaced this one' } as const
+
 class Entry<V> {
 	key: ItemKey = $state()!
 	value: V | undefined = $state()
@@ -175,8 +177,11 @@ class Entry<V> {
 	absorbs: ((next: V, deployed: V) => boolean) | undefined
 	refs = 0
 	disposed = false
-	/** Replaced by an entry that moved onto its key: it no longer owns the row there. */
+	/** Replaced by an entry that moved onto its key: it no longer owns the row there, and a write
+	 *  reaching its turn does nothing, as its handles show the item that replaced it. */
 	retired = false
+	/** The key a save of this entry is waiting to move onto, while it waits its turn there. */
+	awaiting: ItemKey | undefined
 	handles = new Set<Handle<V>>()
 	stopWatch: (() => void) | undefined
 	/** Fields a `patch` has put on the deployed side ahead of the server; a save landing
@@ -256,6 +261,16 @@ class Entry<V> {
 		})
 		this.queue = result.catch(() => {})
 		return result
+	}
+
+	/** Let a write from another entry go next: `turn` resolves once the commands queued so far have
+	 *  run, and any queued after wait for `release`. */
+	hold(): { turn: Promise<unknown>; release: () => void } {
+		const turn = this.queue
+		let release!: () => void
+		const released = new Promise<void>((r) => (release = r))
+		this.queue = turn.then(() => released)
+		return { turn, release }
 	}
 
 	/** Count a command as started now, ahead of its turn in the queue; returns its release. */
@@ -354,27 +369,34 @@ class Entry<V> {
 				return { ok: true, path: from.path, moved: false }
 			}
 			const to = (adapter.pathOf ?? ((v: V) => (v as { path: string }).path))(sent)
-			let held: V
-			try {
-				if (!adapter.write) throw new Error('This item cannot be saved')
-				held =
-					(await adapter.write({
-						...from,
-						value: sent,
-						deployed: this.origin === 'deployed' ? snapshot(this.deployed) : undefined,
-						meta: this.meta
-					})) ?? sent
-			} catch (e) {
-				this.error = errorMessage(e)
-				return { ok: false, error: this.error }
-			}
-			this.error = undefined
-			if (held !== sent) this.adopt(sent, held)
-			this.deployed = { ...held, ...this.patched } as V
-			this.origin = 'deployed'
-			this.template = undefined
 			const moved = to !== from.path
-			if (moved) this.moveTo(to)
+			const claim = moved ? this.store.claim({ ...from, path: to }, this) : undefined
+			try {
+				await claim?.turn
+				if (this.retired) return superseded
+				let held: V
+				try {
+					if (!adapter.write) throw new Error('This item cannot be saved')
+					held =
+						(await adapter.write({
+							...from,
+							value: sent,
+							deployed: this.origin === 'deployed' ? snapshot(this.deployed) : undefined,
+							meta: this.meta
+						})) ?? sent
+				} catch (e) {
+					this.error = errorMessage(e)
+					return { ok: false, error: this.error }
+				}
+				this.error = undefined
+				if (held !== sent) this.adopt(sent, held)
+				this.deployed = { ...held, ...this.patched } as V
+				this.origin = 'deployed'
+				this.template = undefined
+				if (moved) this.moveTo(to)
+			} finally {
+				claim?.release()
+			}
 			this.reconcile()
 			await this.settleRows(moved ? [from, this.key] : [this.key])
 			return { ok: true, path: to, moved }
@@ -403,7 +425,7 @@ class Entry<V> {
 
 	discard(): Promise<DiscardOutcome> {
 		return this.run(async () => {
-			if (!this.loaded) return { removed: false }
+			if (!this.loaded || this.retired) return { removed: false }
 			if (this.origin === 'draft') {
 				const kept = snapshot(this.value)
 				const keptRow = this.row
@@ -481,6 +503,7 @@ class Entry<V> {
 			}
 		}
 		return this.run(async () => {
+			if (this.retired) return superseded
 			try {
 				await write(this.key)
 			} catch (e) {
@@ -548,6 +571,7 @@ class Entry<V> {
 			return this.load(adapter)
 		}
 		return this.run(async () => {
+			if (this.retired) return superseded
 			const desired = this.dirty ? snapshot(this.value) : null
 			await this.ports.overwrite(this.key, desired)
 			this.row = serialize(desired ?? undefined) ?? null
@@ -560,6 +584,10 @@ class Entry<V> {
 type StoreInternals = {
 	release(entry: Entry<any>): void
 	rekey(entry: Entry<any>, from: ItemKey): void
+	claim(
+		key: ItemKey,
+		claimant: Entry<any>
+	): { turn: Promise<unknown>; release: () => void } | undefined
 }
 
 export type ItemHandle<V> = {
@@ -717,7 +745,36 @@ export function createItemStore(ports: ItemRowPort) {
 			const displaced = entries.get(to)
 			if (displaced && displaced !== entry) retire(displaced, entry)
 			entries.set(to, entry)
+		},
+		/**
+		 * A save about to write the item at `key` and move onto it, while another live entry holds
+		 * that key: it goes after the commands already queued there, and holds back any queued
+		 * meanwhile, so one write to the item lands at a time and the displaced entry is idle when
+		 * retired. Not when the holder is itself waiting to move onto the claimant: each would wait
+		 * for the other.
+		 */
+		claim(key, claimant) {
+			const holder = entries.get(keyString(key))
+			if (!holder || holder === claimant || waitsFor(holder, claimant)) return undefined
+			const { turn, release } = holder.hold()
+			claimant.awaiting = key
+			return {
+				turn: turn.then(() => (claimant.awaiting = undefined)),
+				release
+			}
 		}
+	}
+
+	function waitsFor(from: Entry<any>, target: Entry<any>): boolean {
+		const seen = new Set<Entry<any>>()
+		for (let e = from; e.awaiting && !seen.has(e); ) {
+			seen.add(e)
+			const next = entries.get(keyString(e.awaiting))
+			if (!next) return false
+			if (next === target) return true
+			e = next
+		}
+		return false
 	}
 
 	/**

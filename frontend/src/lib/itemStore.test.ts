@@ -499,6 +499,46 @@ describe('item store: one entry per key', () => {
 			}
 		])
 	})
+
+	it('writes an item it moves onto after the saves queued there, and supersedes later ones', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const order: string[] = []
+		const gate = deferred()
+		const b = { ...deployedRes, path: 'u/me/b' }
+		const { handle: other } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
+			{ workspace: 'w', path: 'u/me/b' },
+			adapter({ deployed: b }, async (ctx) => {
+				await gate.promise
+				order.push(ctx.value.description)
+			})
+		)
+		const temporary = newItemPath()
+		const { handle: moving } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: temporary },
+			{ workspace: 'w', path: temporary, template: b },
+			adapter({}, async (ctx) => void order.push(ctx.value.description))
+		)
+		await settle()
+
+		other.value = { ...b, description: 'first' }
+		const first = other.save()
+		moving.value = { ...b, description: 'second' }
+		const second = moving.save()
+		await settle()
+		other.value = { ...b, description: 'queued behind the move' }
+		const third = other.save()
+		await settle()
+		expect(order).toEqual([])
+
+		gate.resolve()
+		expect(await first).toMatchObject({ ok: true })
+		expect(await second).toMatchObject({ ok: true, moved: true })
+		expect(await third).toMatchObject({ ok: false })
+		expect(order).toEqual(['first', 'second'])
+		expect(other.deployed?.description).toBe('second')
+	})
 })
 
 describe('item store: conflicts', () => {
