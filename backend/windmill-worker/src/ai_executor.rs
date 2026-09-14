@@ -2008,9 +2008,12 @@ mod tests {
             ["github"]
         );
         assert!(unmatched_enabled_tools_message(&named_server, &["u/test/gh"]).is_none());
-        assert!(narrow_roster(roster(), Some(&["github".to_string()]))
-            .iter()
-            .all(|t| !matches!(t.value, ToolValue::Mcp(_))));
+        // Alongside a name that does match, so the summary being rejected is what empties it.
+        let summary_and_tool = ["get_user".to_string(), "github".to_string()];
+        assert_eq!(
+            names(&narrow_roster(roster(), Some(&summary_and_tool))),
+            ["get_user"]
+        );
         assert!(narrow_roster(roster(), Some(&["u/test/other".to_string()])).is_empty());
     }
 
