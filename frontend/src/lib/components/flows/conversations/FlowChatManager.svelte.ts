@@ -24,7 +24,9 @@ interface StreamTurnState {
 	assistantMessageId: string
 	// Last offset the server reported; sent back on reconnect so the stream resumes
 	// after the deltas already rendered rather than replaying from the start.
+	// It indexes the stream of `streamJobId` only.
 	streamOffset: number | undefined
+	streamJobId: string | undefined
 }
 
 export class FlowChatManager {
@@ -506,7 +508,8 @@ export class FlowChatManager {
 			this.#followJob(jobId, currentConversationId, {
 				accumulatedContent: '',
 				assistantMessageId: '',
-				streamOffset: undefined
+				streamOffset: undefined,
+				streamJobId: undefined
 			})
 		} catch (error) {
 			console.error('Stream connection error:', error)
@@ -571,6 +574,21 @@ export class FlowChatManager {
 				if (type === 'update') {
 					if (data.flow_stream_job_id) {
 						this.currentJobId = data.flow_stream_job_id
+						if (data.flow_stream_job_id !== turn.streamJobId) {
+							const offsetFromOtherJob =
+								turn.streamJobId !== undefined && turn.streamOffset !== undefined
+							turn.streamJobId = data.flow_stream_job_id
+							if (offsetFromOtherJob) {
+								// The offset indexes the previous sub-job's stream (a retried last step
+								// gets a new one), so this connection skipped the new job's first chunks.
+								// Drop this delta and re-attach from the start of the new sub-job.
+								turn.streamOffset = undefined
+								eventSource.close()
+								this.currentEventSource = undefined
+								this.#followJob(jobId, currentConversationId, turn)
+								return
+							}
+						}
 					}
 					if (data.stream_offset !== undefined) {
 						turn.streamOffset = data.stream_offset
