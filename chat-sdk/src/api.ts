@@ -233,11 +233,19 @@ export async function* readServerSentEvents(
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  // A CR ending a chunk may be half of a CRLF; it waits for the next chunk.
+  let carry = ''
   try {
     while (true) {
       const { value, done } = await reader.read()
       if (done) break
-      buffer += decoder.decode(value, { stream: true }).replace(/\r\n?/g, '\n')
+      let text = carry + decoder.decode(value, { stream: true })
+      carry = ''
+      if (text.endsWith('\r')) {
+        carry = '\r'
+        text = text.slice(0, -1)
+      }
+      buffer += text.replace(/\r\n?/g, '\n')
       let end: number
       while ((end = buffer.indexOf('\n\n')) !== -1) {
         const data = eventData(buffer.slice(0, end))
@@ -245,6 +253,7 @@ export async function* readServerSentEvents(
         if (data !== undefined) yield data
       }
     }
+    if (carry) buffer += '\n'
     const data = eventData(buffer)
     if (data !== undefined) yield data
   } finally {

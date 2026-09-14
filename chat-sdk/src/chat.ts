@@ -5,8 +5,9 @@ import {
   type FlowConversationMessage
 } from './api'
 import { resolveConfig, type ResolvedConfig } from './config'
+import { followJob } from './follow'
 import { createLocalHistory, type LocalHistory } from './history'
-import { createStreamEventParser, type AgentStreamEvent } from './stream'
+import type { AgentStreamEvent } from './stream'
 import type {
   Chat,
   ChatMessage,
@@ -27,7 +28,6 @@ import {
 } from './utils'
 
 const POLL_INTERVAL_MS = 1000
-const RECONNECT_DELAY_MS = 300
 /** Messages persist from spawned tasks that can land just after the flow completes. */
 const RECONCILE_ATTEMPTS = 3
 const RECONCILE_DELAY_MS = 400
@@ -154,11 +154,12 @@ class ChatImpl implements Chat {
       // Needs `jobs:write` on a token; the stream is closed either way.
       await this.#api.cancelJob(turn.jobId).catch(() => {})
     }
-    if (this.#state.history === 'server' && this.#state.conversationId === turn.conversationId) {
-      // A cancelled flow persists its failure as the assistant's answer.
-      await sleep(RECONCILE_DELAY_MS).catch(() => {})
-      await this.#syncFromServer(turn.conversationId).catch(() => {})
-    }
+    if (this.#state.history !== 'server') return
+    // A cancelled flow persists its failure as the assistant's answer. Picked up only
+    // while the conversation is still idle: a turn started meanwhile owns the state.
+    await sleep(RECONCILE_DELAY_MS).catch(() => {})
+    if (this.#turn || this.#state.conversationId !== turn.conversationId) return
+    await this.#syncFromServer(turn.conversationId).catch(() => {})
   }
 
   newConversation = (): void => {
@@ -270,7 +271,7 @@ class ChatImpl implements Chat {
         perPage: this.#config.pageSize
       })
       if (this.#state.conversationId !== conversationId) return
-      const known = new Set(this.#state.messages.map((m) => m.id))
+      const known = new Set(this.#state.messages.map((m) => m.serverId ?? m.id))
       this.#page = page
       this.#set({
         messages: [...rows.map(fromRow).filter((m) => !known.has(m.id)), ...this.#state.messages],
@@ -287,41 +288,18 @@ class ChatImpl implements Chat {
 
   // ---- turn internals ----
 
-  /** Follows the job's updates to completion, resuming across server-side stream timeouts. */
   async #follow(turn: Turn, onStreamStart: () => void): Promise<unknown> {
-    const { signal } = turn.controller
-    const parser = createStreamEventParser()
-    let offset: number | undefined
     let started = false
-    while (true) {
-      let timedOut = false
-      for await (const event of this.#api.streamJob(turn.jobId!, { streamOffset: offset, signal })) {
-        if (event.type === 'ping') continue
-        if (event.type === 'timeout') {
-          timedOut = true
-          break
-        }
-        if (event.type === 'error') throw new Error(event.error)
-        if (event.type === 'notfound') throw new Error(`Job ${turn.jobId} not found`)
-        if (event.stream_offset !== undefined) offset = event.stream_offset
-        if (event.new_result_stream) {
-          if (!started) {
-            started = true
-            // Persisted rows for the streaming step would duplicate what is streaming.
-            onStreamStart()
-          }
-          this.#applyEvents(turn, parser.push(event.new_result_stream))
-        }
-        if (event.completed) {
-          this.#applyEvents(turn, parser.flush())
-          return event.only_result
-        }
+    for await (const event of followJob(this.#api, turn.jobId!, { signal: turn.controller.signal })) {
+      if (event.type === 'completed') return event.result
+      if (!started) {
+        started = true
+        // Persisted rows for the streaming step would duplicate what is streaming.
+        onStreamStart()
       }
-      if (signal.aborted) throw new DOMException('The operation was aborted', 'AbortError')
-      // The server closes the connection after its timeout; a dropped connection looks
-      // the same minus the event. Either way the offset lets the next one resume.
-      if (!timedOut) await sleep(RECONNECT_DELAY_MS, signal)
+      this.#applyEvents(turn, event.events)
     }
+    throw new Error('windmill-chat: the job stream ended before the flow completed')
   }
 
   #applyEvents(turn: Turn, events: AgentStreamEvent[]): void {
@@ -426,6 +404,7 @@ class ChatImpl implements Chat {
       if (!this.#turnActive(turn)) return
       if (reconciled) {
         this.#set({ status: 'idle' })
+        this.#config.onFinish?.({ conversationId: turn.conversationId, jobId: turn.jobId, messages: this.#state.messages })
         if (isNew) await this.loadConversations().catch(() => {})
         return
       }
@@ -452,6 +431,7 @@ class ChatImpl implements Chat {
     }
     this.#set({ messages: finalized(messages), status: 'idle' })
     this.#persistLocal()
+    this.#config.onFinish?.({ conversationId: turn.conversationId, jobId: turn.jobId, messages: this.#state.messages })
   }
 
   /**
@@ -459,10 +439,12 @@ class ChatImpl implements Chat {
    * are written by the worker in their own transactions, each of which can trail
    * the flow's completion, so a streamed message whose row hasn't landed stays and
    * the list is re-read a few times before the rest is kept as streamed.
-   * Returns false when server history turned out unreadable and the chat fell
-   * back to local history; the caller then finishes the turn from the flow result.
+   * Returns false when the server supplied nothing: history fell back to local, the
+   * read was refused, or it kept failing. The caller then finishes the turn from the
+   * flow result, so an answer is never lost to an unreadable history.
    */
   async #reconcileTurn(turn: Turn): Promise<boolean> {
+    let merged = false
     for (let attempt = 1; attempt <= RECONCILE_ATTEMPTS; attempt++) {
       let rows: FlowConversationMessage[]
       try {
@@ -474,11 +456,13 @@ class ChatImpl implements Chat {
       } catch (e) {
         if (isAbortError(e)) throw e
         if (this.#fallBackToLocal(e)) return false
-        if (attempt === RECONCILE_ATTEMPTS) break
+        const refused = e instanceof WindmillApiError && (e.status === 401 || e.status === 403)
+        if (refused || attempt === RECONCILE_ATTEMPTS) return merged
         await sleep(RECONCILE_DELAY_MS, turn.controller.signal)
         continue
       }
       if (!this.#turnActive(turn)) return true
+      merged ||= rows.length > 0
       this.#mergeRows(rows)
       if (!this.#state.messages.some((m) => m.pending && m.content)) break
       if (attempt < RECONCILE_ATTEMPTS) await sleep(RECONCILE_DELAY_MS, turn.controller.signal)
@@ -496,6 +480,7 @@ class ChatImpl implements Chat {
       error
     })
     this.#persistLocal()
+    this.#config.onError?.(error, { conversationId: turn.conversationId, jobId: turn.jobId })
   }
 
   /** Before the answer streams, earlier steps may already have persisted messages. */
@@ -533,7 +518,7 @@ class ChatImpl implements Chat {
       afterSeq: this.#lastSeq(),
       perPage: 100
     })
-    if (this.#state.conversationId !== conversationId) return
+    if (this.#turn || this.#state.conversationId !== conversationId) return
     this.#mergeRows(rows)
     this.#set({ messages: finalized(this.#state.messages) })
   }
@@ -541,14 +526,15 @@ class ChatImpl implements Chat {
   /**
    * Folds persisted rows into the message list. A row standing for a message the
    * client already shows (same role and text; for a tool, the same tool name, since
-   * the server words a failure differently) takes its place and keeps what only the
-   * stream knew: reasoning, call id, arguments, result. Other rows append in server
-   * order. Nothing is dropped: a streamed message outlives a row that never lands.
+   * the server words a failure differently) takes its place under the client's id
+   * and keeps what only the stream knew: reasoning, call id, arguments, result.
+   * Other rows append in server order. Nothing is dropped: a streamed message
+   * outlives a row that never lands.
    */
   #mergeRows(rows: FlowConversationMessage[]): void {
     if (rows.length === 0) return
     const messages = [...this.#state.messages]
-    const known = new Set(messages.map((m) => m.id))
+    const known = new Set(messages.map((m) => m.serverId ?? m.id))
     for (const row of rows.map(fromRow)) {
       if (known.has(row.id)) continue
       known.add(row.id)
@@ -562,6 +548,7 @@ class ChatImpl implements Chat {
         const m = messages[i]
         messages[i] = {
           ...row,
+          id: m.id,
           reasoning: m.reasoning ?? row.reasoning,
           tool: m.tool ? { ...m.tool, status: row.tool?.status ?? m.tool.status } : row.tool
         }
@@ -624,6 +611,7 @@ function fromRow(row: FlowConversationMessage): ChatMessage {
   const success = row.success ?? true
   return {
     id: row.id,
+    serverId: row.id,
     role: row.message_type,
     content: row.content,
     success,

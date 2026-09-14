@@ -256,10 +256,12 @@ describe('createChat with server history', () => {
 
     const state = chat.getState()
     expect(state.history).toBe('server')
-    expect(state.messages.map((m) => [m.id, m.role, m.content, m.pending])).toEqual([
+    expect(state.messages.map((m) => [m.serverId, m.role, m.content, m.pending])).toEqual([
       ['row-11', 'user', 'hi', false],
       ['row-12', 'assistant', 'Hello', false]
     ])
+    // Ids stay the client's, so list keys never remount; the server id rides alongside.
+    expect(state.messages.map((m) => m.id.startsWith('pending-'))).toEqual([true, true])
     expect(state.messages[1]).toMatchObject({ reasoning: 'hmm', stepName: 'AI Agent', jobId: 'agent-job', seq: 12 })
     expect(state.conversations.map((c) => c.id)).toEqual([chatId])
 
@@ -303,7 +305,7 @@ describe('createChat with server history', () => {
     const chat = createChat(options({}, fetch))
     await chat.sendMessage('hi')
     expect(messageFetches).toBe(2)
-    expect(chat.getState().messages.map((m) => [m.id, m.role, m.content, m.pending])).toEqual([
+    expect(chat.getState().messages.map((m) => [m.serverId, m.role, m.content, m.pending])).toEqual([
       ['row-21', 'user', 'hi', false],
       ['row-22', 'tool', 'Used lookup tool', false],
       ['row-23', 'assistant', 'Final answer', false]
@@ -353,6 +355,71 @@ describe('createChat with server history', () => {
     await chat.loadConversations()
     await chat.loadConversations({ page: 2 })
     expect(chat.getState().conversations.map((c) => c.id)).toEqual(['c1', 'c2'])
+  })
+
+  test('a turn started right after stop() is not touched by the stop sync', async () => {
+    let jobs = 0
+    const { fetch } = fetchMock(
+      (c) => (c.method === 'POST' && c.url.pathname.includes('/jobs/run/f/') ? text(`job-${++jobs}`) : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/getupdate_sse/job-1')
+          ? sse([{ type: 'update', new_result_stream: ndjson({ type: 'token_delta', content: 'slow...' }), stream_offset: 1 }])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/getupdate_sse/job-2')
+          ? sse([
+              {
+                type: 'update',
+                new_result_stream: ndjson(
+                  { type: 'tool_call', call_id: 'c2', function_name: 'lookup' },
+                  { type: 'tool_result', call_id: 'c2', function_name: 'lookup', result: '1', success: true },
+                  { type: 'token_delta', content: 'second' }
+                ),
+                stream_offset: 3,
+                completed: true,
+                only_result: { output: 'second', messages: [] }
+              }
+            ])
+          : undefined,
+      (c) => (c.url.pathname.includes('/queue/cancel/') ? text('ok') : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json([messageRow(31, 'user', 'first'), messageRow(32, 'user', 'second question'), messageRow(33, 'tool', 'Used lookup tool'), messageRow(34, 'assistant', 'second')])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    const first = chat.sendMessage('first')
+    // The stream of job-1 never completes: the connection just ends, so the turn keeps waiting.
+    await new Promise((r) => setTimeout(r, 50))
+    const stopped = chat.stop()
+    await first
+    const second = chat.sendMessage('second question')
+    await stopped
+    await second
+    const roles = chat.getState().messages.map((m) => `${m.role}${m.pending ? '*' : ''}`)
+    expect(roles).toEqual(['user', 'assistant', 'user', 'tool', 'assistant'])
+    expect(chat.getState().messages.filter((m) => m.role === 'tool')).toHaveLength(1)
+  })
+
+  test('answers from the flow result when server history keeps failing', async () => {
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'From a script' } }])
+          : undefined,
+      (c) => (c.url.pathname.includes('/flow_conversations/') ? text('down', 503) : undefined)
+    )
+    const chat = createChat(options({ history: 'server' }, fetch))
+    await chat.sendMessage('hi')
+    const state = chat.getState()
+    expect(state.history).toBe('server')
+    expect(state.status).toBe('idle')
+    expect(state.messages.map((m) => [m.role, m.content])).toEqual([
+      ['user', 'hi'],
+      ['assistant', 'From a script']
+    ])
   })
 
   test('falls back to local history when the credential cannot read conversations', async () => {

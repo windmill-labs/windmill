@@ -4,10 +4,40 @@ export function randomId(): string {
   // `randomUUID` needs a secure context; a plain http dev origin has `getRandomValues` only.
   const bytes = new Uint8Array(16)
   c.getRandomValues(bytes)
-  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  return formatUuid(bytes, 4)
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export function isUuid(value: string): boolean {
+  return UUID_RE.test(value)
+}
+
+/**
+ * The Windmill conversation id for an arbitrary chat id. A UUID is used as is;
+ * anything else (an AI SDK chat id, for instance) maps to the same UUID every time,
+ * so a page can reopen its conversation without storing a second id.
+ */
+export async function conversationIdFor(chatId: string): Promise<string> {
+  if (isUuid(chatId)) return chatId.toLowerCase()
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`windmill-chat:${chatId}`))
+  return formatUuid(new Uint8Array(digest).slice(0, 16), 5)
+}
+
+function formatUuid(bytes: Uint8Array, version: 4 | 5): string {
+  bytes[6] = (bytes[6] & 0x0f) | (version << 4)
   bytes[8] = (bytes[8] & 0x3f) | 0x80
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+export function parseJsonOr(text: string | undefined): unknown {
+  if (text === undefined) return undefined
+  try {
+    return JSON.parse(text)
+  } catch {
+    return text
+  }
 }
 
 export function now(): string {

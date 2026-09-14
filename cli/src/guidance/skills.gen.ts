@@ -5907,6 +5907,19 @@ An app can be demoed by recording a session: every interaction becomes a step ca
 
 Apply it to customer data, internal notes and anything else a viewer of the demo should not see. It costs nothing when the app is never recorded.
 
+### Chat UIs over a flow in chat mode
+
+A flow deployed with chat mode on is a chat backend (streaming answer, tool calls, memory, conversation history). Do not drive it through a runnable: add \`windmill-chat\` to \`package.json\` and use it directly, it detects the app's Windmill and credential.
+
+\`\`\`tsx
+import { useWindmillChat } from 'windmill-chat/react'
+
+const chat = useWindmillChat({ flowPath: 'f/support/assistant' })
+// chat.messages ({ role, content, pending, success, tool? }), chat.status, chat.sendMessage(text), chat.stop()
+\`\`\`
+
+\`windmill-chat/ai-sdk\` gives a \`ChatTransport\` for the Vercel AI SDK's \`useChat\`, \`windmill-chat/assistant-ui\` a runtime for assistant-ui. The flow must be deployed, not a draft. A sandboxed app needs \`jobs:run\` in its frontend SDK scopes, plus \`flow_conversations:write\` for the conversation sidebar; without them the chat keeps history in the browser.
+
 ## Backend runnables
 
 Each runnable has a unique key (used to call it from the frontend) and one of four types:
@@ -6035,6 +6048,7 @@ def main(user_id: str):
 6. **Mark sensitive UI with \`data-wm-no-record\`** — it is what keeps that data out of a recorded demo; passwords are handled for you.
 7. **Reach for \`backendAsync\` + \`waitJob\`** for long work — never a hand-written job-polling runnable.
 8. **Deploy what a path runnable points at** — a path runnable aimed at a draft fails at runtime; tell the user what needs deploying.
+9. **Use \`windmill-chat\` for a chat over a chat-mode flow** — never a runnable that runs the flow and polls its stream.
 `,
   "triggers": `---
 name: triggers

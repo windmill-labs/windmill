@@ -8,7 +8,14 @@ answer as it streams, keeps the conversation history, and hands you state to ren
 npm install windmill-chat
 ```
 
-No runtime dependencies. `react` is an optional peer dependency for `windmill-chat/react`.
+No runtime dependencies. Optional peers: `react` for `windmill-chat/react`, `ai` for
+`windmill-chat/ai-sdk`, `@assistant-ui/react` for `windmill-chat/assistant-ui`.
+
+| You build the UI with | Import | You get |
+|---|---|---|
+| Vercel AI SDK `useChat`, AI Elements | `windmill-chat/ai-sdk` | a `ChatTransport`: `useChat({ transport })`, nothing else changes |
+| assistant-ui | `windmill-chat/assistant-ui` | a runtime for `AssistantRuntimeProvider`, threads included |
+| Your own components | `windmill-chat/react` or `windmill-chat` | a hook / a store with messages, status and actions |
 
 ## The flow
 
@@ -19,6 +26,56 @@ so an AI agent step remembers earlier turns. The answer is:
 - what the last step streams, when it is an AI agent step;
 - otherwise the flow's result: its `windmill_chat_answer` field when it has one, a
   string as is, anything else as JSON.
+
+## Vercel AI SDK (`useChat`, AI Elements)
+
+```tsx
+import { useChat } from '@ai-sdk/react'
+import { createWindmillChatTransport } from 'windmill-chat/ai-sdk'
+
+const transport = createWindmillChatTransport({
+  baseUrl: 'https://app.windmill.dev',
+  workspace: 'acme',
+  flowPath: 'f/support/assistant',
+  token: () => fetch('/api/windmill-token').then((r) => r.text())
+})
+
+export function Support() {
+  const { messages, status, sendMessage, stop } = useChat({ id: conversationId, transport })
+  // render `messages[i].parts`: text, reasoning and dynamic-tool parts, as with any AI SDK backend
+}
+```
+
+The chat `id` is the conversation: reuse it to continue one, and pass a UUID when you
+also read server history, so it matches what `flow_conversations` stores (any other id
+maps to a fixed UUID). `sendMessage(msg, { body })` sends extra flow inputs. Tool calls
+arrive as `dynamic-tool` parts (`input-available → output-available | output-error`),
+which AI Elements' `<Tool>` renders as is. A failed flow surfaces as `error`.
+
+The transport also carries the history helpers: `transport.loadMessages(id)` returns
+`UIMessage`s for `useChat({ messages })` or `setMessages`, `transport.listConversations()`
+and `transport.deleteConversation(id)`. Attachments are not supported: `sendMessage` with
+`files` is refused with an explanatory error.
+
+## assistant-ui
+
+```tsx
+import { AssistantRuntimeProvider } from '@assistant-ui/react'
+import { useWindmillRuntime } from 'windmill-chat/assistant-ui'
+
+export function Support() {
+  const runtime = useWindmillRuntime({ baseUrl, workspace, flowPath, token })
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <Thread /> {/* your assistant-ui components, thread list included */}
+    </AssistantRuntimeProvider>
+  )
+}
+```
+
+Conversations are threads: `ThreadListPrimitive` switches, creates and deletes them.
+Tool calls render through your `tools` components (`MessagePrimitive.Parts`), reasoning
+through `Reasoning`. It takes the same options as `useWindmillChat` below.
 
 ## React
 
@@ -50,7 +107,11 @@ export function Support() {
       >
         <input value={draft} onChange={(e) => setDraft(e.target.value)} />
         <button disabled={chat.status !== 'idle' && chat.status !== 'error'}>Send</button>
-        {chat.status === 'streaming' && <button onClick={chat.stop}>Stop</button>}
+        {chat.status === 'streaming' && (
+          <button type="button" onClick={chat.stop}>
+            Stop
+          </button>
+        )}
       </form>
     </div>
   )
@@ -115,6 +176,7 @@ await chat.sendMessage('Hello')
 | `inputs` | Extra flow inputs sent with every message. `sendMessage(text, { inputs })` adds per-message ones. |
 | `fetch`, `storage` | Replacements for the globals, for tests and unusual runtimes. |
 | `pageSize` | Messages and conversations per page of server history. Default 50. |
+| `onFinish`, `onError` | Called when a turn has its answer, or could not run at all. |
 
 ## State
 
@@ -141,6 +203,7 @@ interface ChatMessage {
   createdAt: string
   jobId?: string
   stepName?: string
+  serverId?: string // the persisted row; `id` itself never changes, so list keys are stable
 }
 ```
 
@@ -195,6 +258,18 @@ exposed this way should treat `user_message` and the other inputs as untrusted.
 ## Lower level
 
 `WindmillChatApi` wraps the endpoints (`runFlow`, `streamJob`, `listConversations`,
-`listMessages`, `deleteConversation`, `cancelJob`), `parseStreamEvents` and
-`createStreamEventParser` decode the AI agent stream, and `extractChatAnswer` turns a
-flow result into the text a chat shows. They are exported for custom state management.
+`listMessages`, `deleteConversation`, `cancelJob`), `followJob` follows a run to
+completion across the server's stream timeouts, `parseStreamEvents` decodes the AI
+agent stream, `extractChatAnswer` turns a flow result into the text a chat shows, and
+`conversationIdFor` maps any chat id to its conversation UUID. They are exported for
+custom integrations.
+
+## For AI coding agents
+
+When asked to add a chat over a Windmill flow: the flow must be deployed with chat mode
+on. Pick the entry point from the table at the top (`useChat` → `windmill-chat/ai-sdk`,
+assistant-ui → `windmill-chat/assistant-ui`, otherwise `windmill-chat/react`). Inside a
+Windmill raw app pass only `flowPath`. Elsewhere pass `baseUrl`, `workspace` and a
+`token`; for a public page use a token scoped to `jobs:run:flows:<flowPath>` and leave
+`history` at its default. Render `role`, `content`, `pending`, `success` and
+`tool.status`; never build the SSE handling yourself.

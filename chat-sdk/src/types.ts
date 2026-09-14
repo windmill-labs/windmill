@@ -41,6 +41,8 @@ export interface ChatMessage {
   stepName?: string
   /** True while the message is optimistic or still streaming. */
   pending: boolean
+  /** Id of the persisted row once the server has it; `id` itself never changes, so list keys stay stable. */
+  serverId?: string
   /** The server's cursor for a persisted message; unset for one created on the client. */
   seq?: number
 }
@@ -92,6 +94,10 @@ export interface ChatOptions {
   storage?: StorageLike
   /** Messages fetched per page of server history. */
   pageSize?: number
+  /** Called once a turn has its answer (a failed flow included: its error is the answer). */
+  onFinish?: (turn: { conversationId: string; jobId?: string; messages: ChatMessage[] }) => void
+  /** Called when a turn could not run or be followed; `state.error` holds the same error. */
+  onError?: (error: Error, turn: { conversationId: string; jobId?: string }) => void
 }
 
 export interface Chat {

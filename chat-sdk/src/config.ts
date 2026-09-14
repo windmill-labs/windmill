@@ -12,6 +12,8 @@ export interface ResolvedConfig {
   fetch: FetchLike | undefined
   storage: StorageLike | undefined
   pageSize: number
+  onFinish: ChatOptions['onFinish']
+  onError: ChatOptions['onError']
 }
 
 export interface RawAppContext {
@@ -57,7 +59,9 @@ export function resolveConfig(options: ChatOptions): ResolvedConfig {
       'windmill-chat: pass baseUrl and workspace. They are only detected inside a raw app: an unsandboxed one on the Windmill origin, or a sandboxed one whose policy declares frontend SDK scopes.'
     )
   }
-  const token = options.token ?? detected?.token
+  // The raw app's token belongs to its own Windmill; it never travels to another origin.
+  const token =
+    options.token ?? (options.baseUrl === undefined || options.baseUrl === detected?.baseUrl ? detected?.token : undefined)
   return {
     flowPath: options.flowPath,
     baseUrl,
@@ -68,6 +72,8 @@ export function resolveConfig(options: ChatOptions): ResolvedConfig {
     inputs: options.inputs ?? {},
     fetch: options.fetch,
     storage: options.storage,
-    pageSize: options.pageSize ?? 50
+    pageSize: options.pageSize ?? 50,
+    onFinish: options.onFinish,
+    onError: options.onError
   }
 }

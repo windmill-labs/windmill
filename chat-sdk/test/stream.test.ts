@@ -44,4 +44,18 @@ describe('readServerSentEvents', () => {
     for await (const data of readServerSentEvents(body)) frames.push(data)
     expect(frames).toEqual(['{"a":1}', '{"b":2}', 'first\nsecond', '{"c":3}'])
   })
+
+  test('keeps a CRLF split across chunks from ending the event', async () => {
+    const chunks = ['data: first\r', '\ndata: second\r\n\r\ndata: last\r']
+    const encoder = new TextEncoder()
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const c of chunks) controller.enqueue(encoder.encode(c))
+        controller.close()
+      }
+    })
+    const frames: string[] = []
+    for await (const data of readServerSentEvents(body)) frames.push(data)
+    expect(frames).toEqual(['first\nsecond', 'last'])
+  })
 })

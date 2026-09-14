@@ -26,6 +26,14 @@ describe('resolveConfig', () => {
     expect(config).toMatchObject({ baseUrl: 'http://wm.test', workspace: 'ws', token: 'sdk-token', history: 'server' })
   })
 
+  test('keeps the raw app token off another instance', () => {
+    g.process = {
+      env: { WM_RAW_APP: 'true', WM_TOKEN: 'sdk-token', BASE_URL: 'http://wm.test', WM_WORKSPACE: 'ws' }
+    }
+    expect(resolveConfig({ flowPath: 'f/a/b', baseUrl: 'http://other.test', workspace: 'ws' }).token).toBeUndefined()
+    expect(resolveConfig({ flowPath: 'f/a/b', baseUrl: 'http://wm.test' }).token).toBe('sdk-token')
+  })
+
   test('reads the unsandboxed raw app context and uses the page origin', () => {
     g.ctx = { ctx: { username: 'admin' }, workspace: 'ws' }
     g.location = { origin: 'http://wm.test' }

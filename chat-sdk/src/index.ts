@@ -11,7 +11,8 @@ export {
   type CompletedJobResult
 } from './api'
 export { parseStreamEvents, createStreamEventParser, type AgentStreamEvent } from './stream'
-export { extractChatAnswer } from './utils'
+export { followJob, type FollowEvent } from './follow'
+export { extractChatAnswer, conversationIdFor } from './utils'
 export type {
   Chat,
   ChatMessage,
