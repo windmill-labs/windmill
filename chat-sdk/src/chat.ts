@@ -439,12 +439,12 @@ class ChatImpl implements Chat {
    * are written by the worker in their own transactions, each of which can trail
    * the flow's completion, so a streamed message whose row hasn't landed stays and
    * the list is re-read a few times before the rest is kept as streamed.
-   * Returns false when the server supplied nothing: history fell back to local, the
-   * read was refused, or it kept failing. The caller then finishes the turn from the
-   * flow result, so an answer is never lost to an unreadable history.
+   * Returns false when no answer row came back: history fell back to local, the read
+   * was refused or kept failing, or only the user row had landed. The caller then
+   * finishes the turn from the flow result, so an answer is never lost to history.
    */
   async #reconcileTurn(turn: Turn): Promise<boolean> {
-    let merged = false
+    let answered = false
     for (let attempt = 1; attempt <= RECONCILE_ATTEMPTS; attempt++) {
       let rows: FlowConversationMessage[]
       try {
@@ -457,18 +457,18 @@ class ChatImpl implements Chat {
         if (isAbortError(e)) throw e
         if (this.#fallBackToLocal(e)) return false
         const refused = e instanceof WindmillApiError && (e.status === 401 || e.status === 403)
-        if (refused || attempt === RECONCILE_ATTEMPTS) return merged
+        if (refused || attempt === RECONCILE_ATTEMPTS) return answered
         await sleep(RECONCILE_DELAY_MS, turn.controller.signal)
         continue
       }
       if (!this.#turnActive(turn)) return true
-      merged ||= rows.length > 0
+      answered ||= rows.some((r) => r.message_type !== 'user')
       this.#mergeRows(rows)
-      if (!this.#state.messages.some((m) => m.pending && m.content)) break
+      if (answered && !this.#state.messages.some((m) => m.pending && m.content)) break
       if (attempt < RECONCILE_ATTEMPTS) await sleep(RECONCILE_DELAY_MS, turn.controller.signal)
     }
     if (this.#turnActive(turn)) this.#set({ messages: finalized(this.#state.messages) })
-    return true
+    return answered
   }
 
   #failTurn(turn: Turn, e: unknown): void {

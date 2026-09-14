@@ -402,6 +402,26 @@ describe('createChat with server history', () => {
     expect(chat.getState().messages.filter((m) => m.role === 'tool')).toHaveLength(1)
   })
 
+  test('answers from the flow result when only the user row has been persisted', async () => {
+    let reads = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'From a script' } }])
+          : undefined,
+      (c) => (c.url.pathname.endsWith('/messages') ? (reads++, json([messageRow(41, 'user', 'hi')])) : undefined),
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('hi')
+    expect(reads).toBeGreaterThan(1)
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.serverId])).toEqual([
+      ['user', 'hi', 'row-41'],
+      ['assistant', 'From a script', undefined]
+    ])
+  })
+
   test('answers from the flow result when server history keeps failing', async () => {
     const { fetch } = fetchMock(
       run,

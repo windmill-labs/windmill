@@ -51,6 +51,8 @@ also read server history, so it matches what `flow_conversations` stores (any ot
 maps to a fixed UUID). `sendMessage(msg, { body })` sends extra flow inputs. Tool calls
 arrive as `dynamic-tool` parts (`input-available → output-available | output-error`),
 which AI Elements' `<Tool>` renders as is. A failed flow surfaces as `error`.
+`regenerate()` runs the flow again with the same message: a new turn on the server,
+not a replacement of the previous answer.
 
 The transport also carries the history helpers: `transport.loadMessages(id)` returns
 `UIMessage`s for `useChat({ messages })` or `setMessages`, `transport.listConversations()`

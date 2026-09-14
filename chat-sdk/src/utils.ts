@@ -16,12 +16,31 @@ export function isUuid(value: string): boolean {
 /**
  * The Windmill conversation id for an arbitrary chat id. A UUID is used as is;
  * anything else (an AI SDK chat id, for instance) maps to the same UUID every time,
- * so a page can reopen its conversation without storing a second id.
+ * so a page can reopen its conversation without storing a second id. Hashed in plain
+ * JS: `crypto.subtle` only exists in secure contexts, and the mapping must not depend
+ * on the origin's scheme.
  */
-export async function conversationIdFor(chatId: string): Promise<string> {
+export function conversationIdFor(chatId: string): string {
   if (isUuid(chatId)) return chatId.toLowerCase()
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`windmill-chat:${chatId}`))
-  return formatUuid(new Uint8Array(digest).slice(0, 16), 5)
+  const bytes = new TextEncoder().encode(`windmill-chat:${chatId}`)
+  const out = new Uint8Array(16)
+  for (const [i, seed] of [0xcbf29ce484222325n, 0x84222325cbf29ce4n].entries()) {
+    let h = fnv1a64(bytes, seed)
+    for (let b = 7; b >= 0; b--) {
+      out[i * 8 + b] = Number(h & 0xffn)
+      h >>= 8n
+    }
+  }
+  return formatUuid(out, 5)
+}
+
+function fnv1a64(bytes: Uint8Array, seed: bigint): bigint {
+  let h = seed
+  for (const byte of bytes) {
+    h ^= BigInt(byte)
+    h = (h * 0x100000001b3n) & 0xffffffffffffffffn
+  }
+  return h
 }
 
 function formatUuid(bytes: Uint8Array, version: 4 | 5): string {

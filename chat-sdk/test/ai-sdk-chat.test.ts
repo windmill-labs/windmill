@@ -52,7 +52,7 @@ describe('AI SDK Chat over the Windmill transport', () => {
     expect(parts[2]).toMatchObject({ type: 'text', text: 'The answer is 42', state: 'done' })
     // Both turns of the chat ran in the same Windmill conversation.
     const memoryIds = calls.filter((c) => c.method === 'POST').map((c) => c.url.searchParams.get('memory_id'))
-    expect(memoryIds[0]).toBe(await transport.conversationId('e2e-chat'))
+    expect(memoryIds[0]).toBe(transport.conversationId('e2e-chat'))
 
     await chat.sendMessage({ text: 'and now fail' })
     expect(chat.status).toBe('error')

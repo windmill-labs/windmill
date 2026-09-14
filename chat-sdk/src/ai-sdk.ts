@@ -23,7 +23,7 @@ export interface WindmillChatTransportOptions extends WindmillChatApiOptions {
 export interface WindmillChatTransport<UI_MESSAGE extends UIMessage = UIMessage>
   extends ChatTransport<UI_MESSAGE> {
   /** The Windmill conversation id behind an AI SDK chat id (a UUID chat id is used as is). */
-  conversationId(chatId: string): Promise<string>
+  conversationId(chatId: string): string
   /** Server history of a chat as `UIMessage`s, oldest first, for `useChat({ messages })`. Needs `flow_conversations:read`. */
   loadMessages(chatId: string, options?: { page?: number; perPage?: number }): Promise<UI_MESSAGE[]>
   /** The user's conversations for this flow, most recent first. */
@@ -66,7 +66,7 @@ export function createWindmillChatTransport<UI_MESSAGE extends UIMessage = UIMes
         .filter((p): p is Extract<UIMessagePart<never, never>, { type: 'text' }> => p.type === 'text')
         .map((p) => p.text)
         .join('\n')
-      const memoryId = await conversationIdFor(chatId)
+      const memoryId = conversationIdFor(chatId)
       const jobId = await api.runFlow(
         options.flowPath,
         { ...options.inputs, ...(body as Record<string, unknown> | undefined), user_message: text },
@@ -85,7 +85,7 @@ export function createWindmillChatTransport<UI_MESSAGE extends UIMessage = UIMes
 
     async loadMessages(chatId, pagination) {
       // A chat that hasn't sent anything yet has no conversation on the server.
-      const rows = await api.listMessages(await conversationIdFor(chatId), pagination).catch((e) => {
+      const rows = await api.listMessages(conversationIdFor(chatId), pagination).catch((e) => {
         if (e instanceof WindmillApiError && e.status === 404) return []
         throw e
       })
@@ -117,7 +117,7 @@ export function createWindmillChatTransport<UI_MESSAGE extends UIMessage = UIMes
     },
 
     async deleteConversation(chatId) {
-      await api.deleteConversation(await conversationIdFor(chatId))
+      await api.deleteConversation(conversationIdFor(chatId))
       jobs.delete(chatId)
     }
   }

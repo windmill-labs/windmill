@@ -71,9 +71,11 @@ describe('createWindmillChatTransport', () => {
 
     const runCall = calls.find((c) => c.method === 'POST')!
     expect(runCall.body).toEqual({ tone: 'kind', locale: 'fr', user_message: 'what is it?' })
-    expect(runCall.url.searchParams.get('memory_id')).toBe(await transport.conversationId('chat-abc'))
-    expect(await transport.conversationId('chat-abc')).toMatch(/^[0-9a-f-]{36}$/)
-    expect(await transport.conversationId('4D6E5C8C-2C3B-4E1A-9F31-0B2E6F1C9D10')).toBe(
+    expect(runCall.url.searchParams.get('memory_id')).toBe(transport.conversationId('chat-abc'))
+    expect(transport.conversationId('chat-abc')).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    expect(transport.conversationId('chat-abc')).toBe(transport.conversationId('chat-abc'))
+    expect(transport.conversationId('chat-abd')).not.toBe(transport.conversationId('chat-abc'))
+    expect(transport.conversationId('4D6E5C8C-2C3B-4E1A-9F31-0B2E6F1C9D10')).toBe(
       '4d6e5c8c-2c3b-4e1a-9f31-0b2e6f1c9d10'
     )
 
