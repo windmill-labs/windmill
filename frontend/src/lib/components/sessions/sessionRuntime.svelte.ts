@@ -676,11 +676,10 @@ function createRuntime(session: Session): SessionRuntime {
 					}
 					// Clone before layering the AI draft on top, else we'd mutate
 					// `saved.val` in place and lose the pristine diff baseline.
+					const savedDraft = saved.val?.draft as NewScript | undefined
 					const baseline: NewScript = saved.val
 						? (structuredClone(
-								$state.snapshot(
-									(saved.val.draft as NewScript | undefined) ?? (saved.val as NewScript)
-								)
+								$state.snapshot(savedDraft ?? (saved.val as NewScript))
 							) as NewScript)
 						: {
 								// Seed from the draft's own path (a rename lives in `draft_path`,
@@ -698,6 +697,8 @@ function createRuntime(session: Session): SessionRuntime {
 								schema: emptySchema(),
 								language: (aiDraft.language ?? 'bun') as any
 							}
+					// Only a fresh checkout forks from the head; see the branch below.
+					if (!savedDraft && saved.val?.hash) baseline.parent_hash = saved.val.hash
 					baseline.content = aiDraft.content
 					if (aiDraft.language) baseline.language = aiDraft.language
 					if (aiDraft.summary !== undefined) baseline.summary = aiDraft.summary

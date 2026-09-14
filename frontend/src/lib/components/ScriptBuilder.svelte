@@ -577,9 +577,15 @@
 		// But if we specify parent_hash that is already used, than we get error
 		// In order to fix it we make sure that client's understanding of parent_hash
 		// is aligns with understanding of backend.
-		if (actual_parent_hash == undefined || script.parent_hash == actual_parent_hash) {
+		//
+		// A draft with no base (one predating `draft.base`) is compared on the head this
+		// editor loaded, as the flow and raw-app guards are: comparing `undefined` would
+		// open the confirmation on every deploy, telling the user a version landed while
+		// they were editing when none had.
+		const baseHash = script.parent_hash ?? deployedScriptHash
+		if (actual_parent_hash == undefined || baseHash == actual_parent_hash) {
 			// Handle directly
-			await editScript(stay, script.parent_hash!, deployMsg)
+			await editScript(stay, (script.parent_hash ?? actual_parent_hash)!, deployMsg)
 		} else {
 			// Fetch entire script, since we need it to show Diff
 			await syncWithDeployed()

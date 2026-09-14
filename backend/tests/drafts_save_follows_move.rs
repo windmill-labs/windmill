@@ -300,5 +300,6 @@ async fn test_an_owner_move_extends_an_item_move(db: Pool<Postgres>) -> anyhow::
         "u/test-user/follow_c",
         "a save at the first path stopped at the path the owner's move left"
     );
+    assert_eq!(own_draft_paths(port).await?, vec!["u/test-user/follow_c"]);
     Ok(())
 }
