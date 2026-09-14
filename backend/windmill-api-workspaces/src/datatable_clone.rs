@@ -195,27 +195,34 @@ impl CloneJob {
         .await?;
 
         if self.replace {
-            // The record goes first: a fork request claiming the copy meanwhile either took it
-            // already, and nothing is deleted, or finds no copy to take.
-            let released = sqlx::query_scalar::<_, String>(
-                "DELETE FROM datatable_clone
+            // The record stays locked while the copy is dropped: a fork request claiming it waits,
+            // then finds nothing to take, and a drop that fails leaves the record describing the
+            // database that is still there.
+            let mut tx = self.db.begin().await?;
+            let unclaimed = sqlx::query_scalar::<_, String>(
+                "SELECT dbname FROM datatable_clone
                  WHERE dbname = $1 AND source_workspace_id = $2 AND source_datatable = $3
                    AND created_by = $4 AND claimed_by_workspace_id IS NULL
-                 RETURNING dbname",
+                 FOR UPDATE",
             )
             .bind(&self.target)
             .bind(&self.w_id)
             .bind(&self.name)
             .bind(&self.authed.email)
-            .fetch_optional(&self.db)
+            .fetch_optional(&mut *tx)
             .await?;
-            if released.is_some() {
+            if unclaimed.is_some() {
                 if is_instance {
                     windmill_common::drop_custom_instance_database(&self.db, &self.target).await?;
                 } else {
                     drop_database_on_server(&self.db, &source_pg, &self.target).await?;
                 }
+                sqlx::query("DELETE FROM datatable_clone WHERE dbname = $1")
+                    .bind(&self.target)
+                    .execute(&mut *tx)
+                    .await?;
             }
+            tx.commit().await?;
         }
 
         if is_instance {

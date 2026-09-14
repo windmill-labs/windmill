@@ -7918,7 +7918,8 @@ async fn snapshot_datatable_schema(
 /// edit: the parent's entry stays the only place the decision lives.
 ///
 /// The cloned data tables are skipped: they own a fresh database of their own, and
-/// `apply_forked_datatable` has already replaced their copied `permissions` with `governed_by`.
+/// `apply_forked_datatable` has already dropped their copied `permissions` — for a clone of a data
+/// table under roles, in favor of `governed_by`.
 async fn point_kept_datatables_at_parent(
     tx: &mut Transaction<'_, Postgres>,
     parent_w_id: &str,

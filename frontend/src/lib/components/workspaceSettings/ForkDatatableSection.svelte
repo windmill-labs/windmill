@@ -104,7 +104,12 @@
 					done.behavior === job.behavior
 			)
 		completedJobs = completedJobs.filter((done) =>
-			queue.some((job) => alreadyCloned(job) && job.name === done.name)
+			queue.some(
+				(job) =>
+					job.name === done.name &&
+					job._newDbName === done._newDbName &&
+					job.behavior === done.behavior
+			)
 		)
 		cloneQueue = queue.filter((job) => !alreadyCloned(job))
 		if (cloneQueue.length === 0) {
