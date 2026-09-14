@@ -27,6 +27,10 @@ pub struct BuildRequestArgs<'a> {
     /// the prefix (the step), never from the request. `None` retries a key the
     /// endpoint rejected.
     pub prompt_cache_key: Option<&'a str>,
+    /// Ask for a summary of the model's reasoning where the provider streams one.
+    /// `false` once the provider refused summaries to these credentials, or when the
+    /// stream is not persisted.
+    pub reasoning_summary: bool,
 }
 
 /// Response from AI provider
