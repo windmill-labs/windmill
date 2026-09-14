@@ -1,3 +1,5 @@
+import { SvelteMap } from 'svelte/reactivity'
+
 /**
  * Resource types are named by abbreviation — `gdrive`, `gcal`, `s3` — so a product's real
  * name ("Google Drive", "Amazon S3") only ever appears in its description. Matching on the
@@ -179,7 +181,42 @@ const RESOURCE_TYPE_WORDS: Record<string, string> = {
 	woocommerce: 'WooCommerce'
 }
 
-/** Types whose label is not their name with the parts re-cased. */
+/**
+ * Names the hub curates, for the resource types and integrations no rule names (`gsheets` ->
+ * Google Sheets). The hub leaves the rest unnamed on purpose, so the word table above keeps
+ * deciding those. Reactive because they fill in after first render: a label already on screen
+ * updates when they land.
+ */
+const hubResourceTypeNames = new SvelteMap<string, string>()
+const hubIntegrationNames = new SvelteMap<string, string>()
+
+type HubNamed = { name: string; display_name?: string | null }
+
+/**
+ * Takes a complete hub listing, so an entry without a name drops any name kept for it. A hub
+ * predating display names sends none at all, and switching to one must revert to the inferred
+ * labels rather than keep the previous hub's.
+ */
+function recordHubNames(names: SvelteMap<string, string>, entries: HubNamed[]): void {
+	for (const entry of entries) {
+		const label = entry.display_name?.trim()
+		if (label) names.set(entry.name, label)
+		else names.delete(entry.name)
+	}
+}
+
+export function setHubResourceTypeDisplayNames(types: HubNamed[]): void {
+	recordHubNames(hubResourceTypeNames, types)
+}
+
+export function setHubIntegrationDisplayNames(integrations: HubNamed[]): void {
+	recordHubNames(hubIntegrationNames, integrations)
+}
+
+/**
+ * What the hub names these types, and the integrations that share their slugs, for an instance
+ * that cannot ask it: one with the hub switched off, or a hub predating display names.
+ */
 const RESOURCE_TYPE_NAMES: Record<string, string> = {
 	adobe_acrobat_sign: 'Adobe Acrobat Sign',
 	bamboo_hr: 'BambooHR',
@@ -206,16 +243,44 @@ export function isCustomResourceTypeName(name: string): boolean {
 
 /**
  * Display name for a resource type: `adobe_acrobat_sign` -> `Adobe Acrobat Sign`, `mysql` ->
- * `MySQL`, `c_acme_api` -> `Acme API`. Inferred from the name, since nothing in the type
- * carries a product name — the two tables above only cover what the inference gets wrong.
+ * `MySQL`, `c_acme_api` -> `Acme API`. A name the hub curates wins; everything else is
+ * inferred from the type name, the tables above covering what the inference gets wrong.
  */
 export function resourceTypeDisplayName(name: string): string {
-	const exact = RESOURCE_TYPE_NAMES[name]
+	const exact = hubResourceTypeNames.get(name) ?? wholeName(name)
 	if (exact) return exact
-	const stripped = isCustomResourceTypeName(name) ? name.slice(CUSTOM_TYPE_PREFIX.length) : name
-	return stripped
-		.split('_')
-		.map((word) => RESOURCE_TYPE_WORDS[word] ?? word.charAt(0).toUpperCase() + word.slice(1))
+	return titleize(isCustomResourceTypeName(name) ? name.slice(CUSTOM_TYPE_PREFIX.length) : name)
+}
+
+/**
+ * Display name for a hub integration slug, as the hub pickers label their filters:
+ * `activecampaign` -> `ActiveCampaign` from a hub that names it, `Activecampaign` from one
+ * that does not.
+ */
+export function integrationDisplayName(app: string): string {
+	return hubIntegrationNames.get(app) ?? wholeName(app) ?? titleize(app)
+}
+
+// `Object.hasOwn` throughout: a name like `constructor` would otherwise resolve up the
+// prototype chain of these object literals and render as a native function.
+function wholeName(name: string): string | undefined {
+	return Object.hasOwn(RESOURCE_TYPE_NAMES, name) ? RESOURCE_TYPE_NAMES[name] : undefined
+}
+
+/**
+ * Lowercases each word before the lookup and splits on `-` too: a private hub can predate the
+ * slug rule, and still serve `aws-ses` or `RSS`.
+ */
+function titleize(name: string): string {
+	return name
+		.split(/[_-]/)
+		.filter(Boolean)
+		.map((word) => {
+			const lower = word.toLowerCase()
+			return Object.hasOwn(RESOURCE_TYPE_WORDS, lower)
+				? RESOURCE_TYPE_WORDS[lower]
+				: word.charAt(0).toUpperCase() + word.slice(1)
+		})
 		.join(' ')
 }
 

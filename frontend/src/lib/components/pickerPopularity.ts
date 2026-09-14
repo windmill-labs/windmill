@@ -2,7 +2,7 @@ import { get } from 'svelte/store'
 import { ResourceService } from '$lib/gen'
 import { disableHubStore } from '$lib/stores'
 import { createCache } from '$lib/utils'
-import { isCustomResourceTypeName } from './resourceTypeDisplay'
+import { isCustomResourceTypeName, setHubResourceTypeDisplayNames } from './resourceTypeDisplay'
 
 /**
  * How often something has been picked or used, keyed by integration or resource type name.
@@ -17,12 +17,14 @@ export type PopularityCounts = Record<string, number>
  */
 const CACHE_MS = 60_000
 
-type HubResourceTypeInfo = { name: string; app: string; picks: number }
+type HubResourceTypeInfo = { name: string; app: string; picks: number; display_name?: string }
 
 const hubInfoCached = createCache(
 	async ({ workspace }: { workspace: string }): Promise<HubResourceTypeInfo[]> => {
 		try {
-			return await ResourceService.listHubResourceTypeInfo({ workspace })
+			const info = await ResourceService.listHubResourceTypeInfo({ workspace })
+			setHubResourceTypeDisplayNames(info)
+			return info
 		} catch {
 			return []
 		}
@@ -51,6 +53,15 @@ export async function hubResourceTypePicks(workspace: string): Promise<Popularit
 	if (get(disableHubStore)) return {}
 	const info = await hubInfoCached({ workspace })
 	return Object.fromEntries(info.map((rt) => [rt.name, rt.picks]))
+}
+
+/**
+ * Fill `resourceTypeDisplayName` with the hub's curated names, for a surface that shows type
+ * labels without ordering by picks. The pickers get them from the read they already make.
+ */
+export async function loadHubResourceTypeDisplayNames(workspace: string): Promise<void> {
+	if (get(disableHubStore)) return
+	await hubInfoCached({ workspace })
 }
 
 /**

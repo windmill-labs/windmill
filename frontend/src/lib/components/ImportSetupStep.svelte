@@ -20,6 +20,7 @@
 	import { OauthService } from '$lib/gen'
 	import { registryCcCapableFor } from '$lib/components/oauthRegistry'
 	import { resourceTypeDisplayName } from '$lib/components/resourceTypeDisplay'
+	import { loadHubResourceTypeDisplayNames } from '$lib/components/pickerPopularity'
 	import { applyOneMigration } from '$lib/components/workspaceSettings/projectInstall'
 	import { probeMigrationsApplied } from '$lib/importWizard/probe'
 	import {
@@ -197,6 +198,12 @@
 	 * first half and Connect disappears on the eight such providers, where it would work.
 	 */
 	const canConnectType = (rt: string) => instanceConnects.has(rt) || registryCcCapableFor(rt)
+
+	// Row labels read the hub's curated resource type names, which arrive after first render.
+	$effect(() => {
+		loadHubResourceTypeDisplayNames(workspace)
+	})
+
 	let appConnect: AppConnectDrawer | undefined = $state(undefined)
 
 	const customInstanceDbs = resource([() => workspace], SettingService.listCustomInstanceDbs)

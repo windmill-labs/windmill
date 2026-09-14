@@ -8706,6 +8706,9 @@ paths:
                       type: string
                     picks:
                       type: integer
+                    display_name:
+                      description: the label the hub curates for the resource type, absent where it names none
+                      type: string
                   required:
                     - name
                     - app
@@ -8985,6 +8988,10 @@ paths:
                     picks:
                       description: how often the integration has been picked, absent on a hub that does not count picks
                       type: integer
+                    display_name:
+                      description: the label the hub curates for the integration, null or absent where it names none
+                      type: string
+                      nullable: true
                   required:
                     - name
 

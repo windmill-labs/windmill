@@ -4,6 +4,7 @@
 	import { capitalize } from '$lib/utils'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
+	import { setHubIntegrationDisplayNames } from '$lib/components/resourceTypeDisplay'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Loader2 } from 'lucide-svelte'
@@ -67,6 +68,7 @@
 				IntegrationService.listHubIntegrations({ kind: filterKind }),
 				$workspaceStore ? localCountsByIntegration($workspaceStore) : {}
 			])
+			setHubIntegrationDisplayNames(integrations)
 			const hubPicks = Object.fromEntries(integrations.map((x) => [x.name, x.picks ?? 0]))
 			popularity = byPopularity(hubPicks, local)
 			allApps = integrations.map((x) => x.name).sort(popularity)

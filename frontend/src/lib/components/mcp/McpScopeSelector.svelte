@@ -5,6 +5,10 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
+	import {
+		integrationDisplayName,
+		setHubIntegrationDisplayNames
+	} from '$lib/components/resourceTypeDisplay'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { FlowService, FolderService, IntegrationService, ScriptService } from '$lib/gen'
 	import { mcpEndpointTools } from '$lib/mcpEndpointTools'
@@ -268,11 +272,9 @@
 		if (allApps.length > 0) return
 		try {
 			loadingApps = true
-			allApps = (
-				await IntegrationService.listHubIntegrations({
-					kind: 'script'
-				})
-			).map((x) => x.name)
+			const integrations = await IntegrationService.listHubIntegrations({ kind: 'script' })
+			setHubIntegrationDisplayNames(integrations)
+			allApps = integrations.map((x) => x.name)
 		} catch (err) {
 			console.error('Hub is not available')
 			allApps = []
@@ -602,7 +604,9 @@
 			<div>Error fetching apps</div>
 		{:else}
 			<MultiSelect
-				items={safeSelectItems(allApps)}
+				items={safeSelectItems(
+					allApps.map((app) => ({ value: app, label: integrationDisplayName(app) }))
+				)}
 				placeholder="Select apps"
 				bind:value={newMcpApps}
 			/>

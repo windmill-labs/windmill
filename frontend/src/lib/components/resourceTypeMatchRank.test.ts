@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
 	addResourceTitle,
+	integrationDisplayName,
 	resourceTypeDisplayName,
+	setHubIntegrationDisplayNames,
+	setHubResourceTypeDisplayNames,
 	sortResourceTypesByMatch
 } from './resourceTypeDisplay'
 
@@ -64,6 +67,30 @@ describe('resourceTypeDisplayName', () => {
 
 	it('capitalizes anything the tables do not cover', () => {
 		expect(resourceTypeDisplayName('stripe')).toBe('Stripe')
+	})
+
+	it("prefers the hub's curated name, and infers one where the hub names none", () => {
+		setHubResourceTypeDisplayNames([
+			{ name: 'snowflake_oauth', display_name: 'Snowflake (OAuth)' },
+			{ name: 'smtp', display_name: null }
+		])
+		expect(resourceTypeDisplayName('snowflake_oauth')).toBe('Snowflake (OAuth)')
+		expect(resourceTypeDisplayName('smtp')).toBe('SMTP')
+	})
+})
+
+describe('integrationDisplayName', () => {
+	it('reverts to the inferred name once a hub stops sending one', () => {
+		setHubIntegrationDisplayNames([{ name: 'activecampaign', display_name: 'ActiveCampaign' }])
+		expect(integrationDisplayName('activecampaign')).toBe('ActiveCampaign')
+		// A private hub predating display names omits the field altogether.
+		setHubIntegrationDisplayNames([{ name: 'activecampaign' }])
+		expect(integrationDisplayName('activecampaign')).toBe('Activecampaign')
+	})
+
+	it('cases slugs from a hub predating the slug rule', () => {
+		expect(integrationDisplayName('aws-lambda')).toBe('AWS Lambda')
+		expect(integrationDisplayName('RSS')).toBe('RSS')
 	})
 })
 

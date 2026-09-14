@@ -2672,6 +2672,10 @@ struct HubResourceTypeEntry {
     /// fail the whole parse and take pick reporting — which needs just the id — with it.
     #[serde(default)]
     app: Option<String>,
+    /// Raw: `None` where nobody named the type. The frontend derives those labels with its own
+    /// word casing, which a titleised guess from the hub would override.
+    #[serde(default)]
+    display_name: Option<String>,
 }
 
 #[derive(Clone)]
@@ -2682,6 +2686,7 @@ struct HubResourceType {
     /// hub knows that. Without it a workspace holding a `discord_webhook` resource looks
     /// like one that has never touched Discord.
     app: String,
+    display_name: Option<String>,
 }
 
 /// Reads the index cache, choosing the TTL by what is stored: a failure expires far sooner
@@ -2722,9 +2727,9 @@ async fn hub_resource_types(
         if !response.status().is_success() {
             return None;
         }
-        // Only the id and the app are kept. That listing carries every type's schema —
-        // around a megabyte — and neither reporting a pick nor grouping types by
-        // integration needs it.
+        // Only the id, the app and the display name are kept. That listing carries every
+        // type's schema — around a megabyte — and neither reporting a pick, grouping types by
+        // integration nor labelling them needs it.
         Some(
             response
                 .json::<Vec<HubResourceTypeEntry>>()
@@ -2733,7 +2738,11 @@ async fn hub_resource_types(
                 .into_iter()
                 .map(|rt| {
                     let app = rt.app.unwrap_or_else(|| rt.name.clone());
-                    (rt.name, HubResourceType { id: rt.id, app })
+                    let display_name = rt
+                        .display_name
+                        .map(|n| n.trim().to_string())
+                        .filter(|n| !n.is_empty());
+                    (rt.name, HubResourceType { id: rt.id, app, display_name })
                 })
                 .collect::<HashMap<String, HubResourceType>>(),
         )
@@ -2813,7 +2822,7 @@ mod hub_picks_tests {
         let index = || {
             Some(HashMap::from([(
                 "slack".to_string(),
-                HubResourceType { id: 1, app: "slack".to_string() },
+                HubResourceType { id: 1, app: "slack".to_string(), display_name: None },
             )]))
         };
 
@@ -2860,10 +2869,13 @@ struct HubResourceTypeInfo {
     /// integration rather than per type.
     app: String,
     picks: i64,
+    /// The label the hub curates for the type, absent where it names none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display_name: Option<String>,
 }
 
-/// What the hub knows about its resource types: which integration each belongs to, and how
-/// often each has been picked.
+/// What the hub knows about its resource types: which integration each belongs to, what it
+/// names each, and how often each has been picked.
 ///
 /// Empty rather than an error when the hub answers neither read, so the pickers treat an
 /// older or private hub as "no hub signal" and fall back to what the workspace itself uses.
@@ -2917,6 +2929,7 @@ async fn list_hub_resource_type_info(
             picks: picks_by_name.remove(&name).unwrap_or(0),
             name,
             app: rt.app,
+            display_name: rt.display_name,
         })
         .collect();
     // What the index did not account for is a type the picks read knows and the listing does
@@ -2925,7 +2938,12 @@ async fn list_hub_resource_type_info(
     info.extend(
         picks_by_name
             .into_iter()
-            .map(|(name, picks)| HubResourceTypeInfo { app: name.clone(), name, picks }),
+            .map(|(name, picks)| HubResourceTypeInfo {
+                app: name.clone(),
+                name,
+                picks,
+                display_name: None,
+            }),
     );
 
     Ok(Json(info))

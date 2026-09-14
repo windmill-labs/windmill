@@ -1,7 +1,10 @@
 <script module lang="ts">
 	let listHubIntegrationsCached = createCache(
 		({ kind }: { kind: HubScriptKind & string; refreshCount?: number }) =>
-			IntegrationService.listHubIntegrations({ kind }),
+			IntegrationService.listHubIntegrations({ kind }).then((integrations) => {
+				setHubIntegrationDisplayNames(integrations)
+				return integrations
+			}),
 		{ initial: { kind: 'script', refreshCount: 0 }, invalidateMs: 1000 * 60 }
 	)
 
@@ -40,6 +43,7 @@
 	import { Skeleton } from '$lib/components/common'
 	import { classNames, createCache } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
+	import { setHubIntegrationDisplayNames } from '$lib/components/resourceTypeDisplay'
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Circle, ExternalLink } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
