@@ -343,7 +343,9 @@
 		if (account) {
 			OauthService.disconnectAccount({ workspace: $workspaceStore!, id: account })
 		}
-		await ResourceService.deleteResource({ workspace: $workspaceStore!, path })
+		// The response names the linked variables that went with it, which nothing else on the
+		// page would show.
+		sendUserToast(await ResourceService.deleteResource({ workspace: $workspaceStore!, path }))
 		reload()
 	}
 
@@ -762,8 +764,8 @@
 		>
 		{#if deleteIsLinked}
 			<Alert type="warning" title="Linked variable">
-				This resource is linked with a variable of the same path. The linked variable will also be
-				deleted.
+				This resource is linked with a variable of the same path. That variable is deleted with it,
+				unless another resource still references it.
 			</Alert>
 		{/if}
 		<Alert type="info" title="Bypass confirmation">
