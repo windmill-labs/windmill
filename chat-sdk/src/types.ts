@@ -113,6 +113,6 @@ export interface Chat {
   loadConversations(options?: { page?: number; perPage?: number }): Promise<Conversation[]>
   deleteConversation(conversationId: string): Promise<void>
   loadOlderMessages(): Promise<void>
-  /** Stops background work (stream, polling). The chat stays usable. */
+  /** Stops background work (stream, polling) and writes local history out. The chat stays usable. */
   destroy(): void
 }

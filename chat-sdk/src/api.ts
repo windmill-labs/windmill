@@ -63,7 +63,16 @@ export interface CompletedJobResult {
 
 /** The part of a flow job's status that names the jobs its steps ran as. */
 export interface FlowJobStatus {
-  flow_status?: { modules?: { job?: string | null; flow_jobs?: string[] | null }[] | null } | null
+  flow_status?: {
+    modules?: FlowStepStatus[] | null
+    failure_module?: FlowStepStatus | null
+    preprocessor_module?: FlowStepStatus | null
+  } | null
+}
+
+export interface FlowStepStatus {
+  job?: string | null
+  flow_jobs?: string[] | null
 }
 
 /** Thin client over the Windmill endpoints a chat-mode flow uses. */

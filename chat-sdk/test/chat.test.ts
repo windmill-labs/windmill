@@ -511,6 +511,76 @@ describe('createChat with server history', () => {
     ])
   })
 
+  test('a failure handler answer is attributed to the turn', async () => {
+    let reads = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { error: { name: 'ExecutionErr', message: 'boom' } } }])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-1')
+          ? json({ flow_status: { modules: [{ job: 'step-1' }], failure_module: { job: 'handler-1' } } })
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? (reads++, json([messageRow(81, 'user', 'hi'), messageRow(82, 'assistant', 'Sorry: boom', { job_id: 'handler-1', success: false })]))
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('hi')
+    expect(reads).toBe(1)
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.success, m.serverId])).toEqual([
+      ['user', 'hi', true, 'row-81'],
+      ['assistant', 'Sorry: boom', false, 'row-82']
+    ])
+  })
+
+  test('deleting the current local conversation mid-turn leaves nothing behind', async () => {
+    const storage = memoryStorage()
+    const { fetch } = fetchMock(run, (c) =>
+      c.url.pathname === streamPath
+        ? sse([{ type: 'update', new_result_stream: ndjson({ type: 'token_delta', content: 'partial' }), stream_offset: 1 }])
+        : undefined
+    )
+    const chat = createChat(options({ token: 'tok', storage }, fetch))
+    const turn = chat.sendMessage('hello')
+    await new Promise((r) => setTimeout(r, 300))
+    const id = chat.getState().conversationId!
+    await chat.deleteConversation(id)
+    await turn
+    await new Promise((r) => setTimeout(r, 400))
+    expect(chat.getState().conversations).toEqual([])
+    await chat.selectConversation(id)
+    expect(chat.getState().messages).toEqual([])
+    expect([...storage.data.values()].join('')).not.toContain('hello')
+  })
+
+  test('destroying the chat during a local turn keeps what it showed', async () => {
+    const storage = memoryStorage()
+    const { fetch } = fetchMock(run, (c) =>
+      c.url.pathname === streamPath
+        ? sse([{ type: 'update', new_result_stream: ndjson({ type: 'token_delta', content: 'partial' }), stream_offset: 1 }])
+        : undefined
+    )
+    const chat = createChat(options({ token: 'tok', storage }, fetch))
+    const turn = chat.sendMessage('hello')
+    await new Promise((r) => setTimeout(r, 50))
+    const id = chat.getState().conversationId!
+    chat.destroy()
+    await turn
+    const again = createChat(options({ token: 'tok', storage }, fetch))
+    await again.loadConversations()
+    expect(again.getState().conversations.map((c) => c.id)).toEqual([id])
+    await again.selectConversation(id)
+    expect(again.getState().messages.map((m) => [m.role, m.content, m.pending])).toEqual([
+      ['user', 'hello', false],
+      ['assistant', 'partial', false]
+    ])
+  })
+
   test('switching conversations keeps what a local turn showed so far', async () => {
     const storage = memoryStorage()
     const { fetch } = fetchMock(run, (c) =>

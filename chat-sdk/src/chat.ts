@@ -28,6 +28,8 @@ import {
 } from './utils'
 
 const POLL_INTERVAL_MS = 1000
+/** Local history mirrors the state; a stream of deltas is coalesced into one write. */
+const PERSIST_DEBOUNCE_MS = 250
 /** Messages persist from spawned tasks that can land just after the flow completes. */
 const RECONCILE_ATTEMPTS = 3
 const RECONCILE_DELAY_MS = 400
@@ -57,6 +59,7 @@ class ChatImpl implements Chat {
   #state: ChatState
   #turn: Turn | undefined
   #page = 1
+  #persistTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(options: ChatOptions) {
     this.#config = resolveConfig(options)
@@ -253,13 +256,19 @@ class ChatImpl implements Chat {
   }
 
   deleteConversation = async (conversationId: string): Promise<void> => {
+    if (this.#state.conversationId === conversationId) {
+      // Nothing of the current turn may be written back under the deleted id.
+      this.#detachTurn()
+      clearTimeout(this.#persistTimer)
+      this.#persistTimer = undefined
+      this.newConversation()
+    }
     if (this.#state.history === 'server') {
       await this.#api.deleteConversation(conversationId)
     } else if (this.#state.history === 'local') {
       this.#local.deleteConversation(conversationId)
     }
     this.#set({ conversations: this.#state.conversations.filter((c) => c.id !== conversationId) })
-    if (this.#state.conversationId === conversationId) this.newConversation()
   }
 
   loadOlderMessages = async (): Promise<void> => {
@@ -292,7 +301,7 @@ class ChatImpl implements Chat {
   }
 
   destroy = (): void => {
-    this.#detachTurn()
+    this.#leaveConversation()
   }
 
   // ---- turn internals ----
@@ -497,14 +506,19 @@ class ChatImpl implements Chat {
     return messages.some((m, i) => i > from && m.role === 'assistant' && m.seq !== undefined && ownJob(m))
   }
 
-  /** The flow job plus its step jobs, read once the flow completed. Unknown when the read fails. */
+  /**
+   * The flow job plus every step job it ran, the failure and preprocessor steps
+   * included (a failure handler's answer is persisted under its own job). Unknown
+   * when the read fails.
+   */
   async #turnJobIds(turn: Turn): Promise<Set<string> | undefined> {
     try {
       const job = await this.#api.getFlowJob(turn.jobId!, turn.controller.signal)
       const ids = new Set([turn.jobId!])
-      for (const m of job.flow_status?.modules ?? []) {
-        if (m.job) ids.add(m.job)
-        for (const j of m.flow_jobs ?? []) ids.add(j)
+      const status = job.flow_status
+      for (const m of [...(status?.modules ?? []), status?.failure_module, status?.preprocessor_module]) {
+        if (m?.job) ids.add(m.job)
+        for (const j of m?.flow_jobs ?? []) ids.add(j)
       }
       return ids
     } catch (e) {
@@ -610,6 +624,8 @@ class ChatImpl implements Chat {
   }
 
   #persistLocal(): void {
+    clearTimeout(this.#persistTimer)
+    this.#persistTimer = undefined
     const id = this.#state.conversationId
     if (this.#state.history !== 'local' || !id) return
     this.#local.saveMessages(id, this.#state.messages)
@@ -640,21 +656,25 @@ class ChatImpl implements Chat {
   }
 
   /**
-   * Leaves the current conversation for another one. A turn still in flight is
-   * detached, and what it showed so far is kept: local history is only written
-   * when a turn settles, so it has to be written here or the message is lost.
+   * Leaves the current conversation (for another one, or because the page goes
+   * away). A turn still in flight is detached and what it showed so far is kept,
+   * written out now rather than on the debounce that may never fire.
    */
   #leaveConversation(): void {
     if (this.#turn) {
       this.#detachTurn()
       this.#set({ messages: finalized(this.#state.messages) })
-      this.#persistLocal()
     }
+    if (this.#persistTimer) this.#persistLocal()
   }
 
   #set(patch: Partial<ChatState>): void {
     this.#state = { ...this.#state, ...patch }
     for (const listener of this.#listeners) listener(this.#state)
+    if (this.#state.history === 'local' && this.#state.conversationId) {
+      clearTimeout(this.#persistTimer)
+      this.#persistTimer = setTimeout(() => this.#persistLocal(), PERSIST_DEBOUNCE_MS)
+    }
   }
 }
 
