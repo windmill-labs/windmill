@@ -64,6 +64,12 @@ workspace storage permission rules are not consulted (the same stance as volumes
 unscoped user token may reach the routes: a job token can carry an `on_behalf_of` identity and
 every scoped token (guest, embed, app policy, MCP) was minted for something narrower.
 
+The backup is keyed by the email like the browser's own stores are (`userScopedDb` scopes
+IndexedDB by it): a user whose email changes starts from an empty history on both sides, and
+the objects under the old hash stay in the bucket unread. Carrying them over would need a
+server-side re-key (decrypt with the old suffix, encrypt with the new, move every object) in the
+email-change flow, which this design leaves out.
+
 `push` carries `owner`, the email the browser prepared the batch for, and the server refuses a
 mismatch with 409: an in-place account switch must not file one user's sessions under another's
 prefix. The client captures its user at flush start and checks every store handle's name
@@ -107,7 +113,9 @@ past the cap after it was backed up has its copy deleted, so a restore never pre
 transcript as the current one. A 413 fails only the sessions of that request. A
 request the server refuses (any other 4xx but 404/403/409) stops the backup for the page but keeps
 the marks and the sync state, so the next load tries again; a session the server reports it could
-not store stays marked and is retried with backoff. A workspace that answers `enabled: false`
+not store stays marked and is retried with backoff. A move files the old workspace's removal
+mark before recording the new copy's row, so a mark that could not be written leaves the move
+to be planned again. A workspace that answers `enabled: false`
 marks its sync rows stale (the next push after storage returns carries every session whole,
 since a new storage may be a new bucket) and leaves its dirty marks where they are (a move into
 it must still remember the old copy); it keeps the removal marks of sessions that had been backed
@@ -116,8 +124,9 @@ removals of sessions never backed up from this browser, so a storage-less instan
 collect one mark per deleted session forever. Pull bodies are
 capped at 64 KB. Pull answers up to 20 ids within a 32 MB
 budget: a session's size is known from the listings before anything of it is read, one that
-would not fit is deferred (unless it is the first of the answer), and images beyond the budget
-are left out (they hydrate to placeholders). A
+would not fit is deferred unless it is the first of the answer, in which case its chats and
+artifacts are read in listing order only while they fit, and images beyond the budget are left
+out (they hydrate to placeholders). Nothing is read past the budget, whatever a session holds. A
 restore takes the newest 50 sessions per workspace: every visible session gets a runtime, and
 each runtime's history load reads the whole chat store. On CE the push checks the storage quota
 and bumps usage by bytes written (an over-count on overwrites; the periodic recount settles it).

@@ -348,6 +348,9 @@ describe('sessionMirror restore', () => {
 		pullMock.mockResolvedValue({ enabled: true, sessions: [backup], deferred: [] })
 		usersWorkspaceStore.set({ email: EMAIL, workspaces: [] } as never)
 
+		// A removal pending for another workspace (the session moved here from it) does
+		// not stand in the way of restoring this workspace's copy.
+		localStorage.setItem(`${PENDING_PREFIX}r::s9::elsewhere`, '1')
 		chatImport.unavailable = true
 		restoreSessionBackups('ws')
 		await __settleForTesting()
@@ -367,7 +370,9 @@ describe('sessionMirror restore', () => {
 		expect(restored.lastSeenCount).toBe(1)
 		expect((await readStoredChat('c9', EMAIL))?.displayMessages).toHaveLength(1)
 
-		// Restored state is what the backup holds: nothing to push.
+		// Restored state is what the backup holds: nothing to push (the other workspace's
+		// removal is its own request, not part of this check).
+		localStorage.removeItem(`${PENDING_PREFIX}r::s9::elsewhere`)
 		await __flushForTesting()
 		expect(pushMock).not.toHaveBeenCalled()
 	})

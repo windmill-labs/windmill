@@ -170,14 +170,18 @@ function dropDirty(sessionId: string): void {
 	if (base) removeKey(dirtyKey(base, sessionId))
 }
 
-function addRemoved(sessionId: string, ws: string | undefined, dropDirty: boolean): void {
+/** False when the mark could not be written (storage full): the caller must not act as if
+ * the removal were scheduled. */
+function addRemoved(sessionId: string, ws: string | undefined, dropDirty: boolean): boolean {
 	const base = pendingBase()
-	if (!base) return
+	if (!base) return false
 	try {
 		if (dropDirty) localStorage.removeItem(dirtyKey(base, sessionId))
 		localStorage.setItem(removedKey(base, sessionId, ws), '1')
+		return true
 	} catch (e) {
 		console.error('Could not persist session backup mark', e)
+		return false
 	}
 }
 
@@ -658,20 +662,21 @@ async function flush(): Promise<void> {
 			if (out.status === 'refused') wsState.set(ws, 'refused')
 			if (out.status === 'transient' || out.anyFailed || out.unavailable) backOff()
 			else settledAny = true
+			// The new workspace holds a moved session now, so the old copy can go: its removal
+			// mark is written before the row that forgets where the old copy was, and a
+			// session whose mark could not be written keeps its old row, so the next flush
+			// plans the move again rather than orphan the copy.
+			const recorded = out.settled.filter((s) => {
+				if (s.removeFrom && !addRemoved(s.id, s.removeFrom, false)) return false
+				if (s.removeFrom || s.carried) movedAny = true
+				return true
+			})
 			// A session with deletes carried over stays one bump short of retired, so the
 			// next flush sends the rest.
 			await writeSync(
-				out.settled.map((s) => ({ ...s.next, flushedV: s.carried ? s.v - 1 : s.v })),
+				recorded.map((s) => ({ ...s.next, flushedV: s.carried ? s.v - 1 : s.v })),
 				email
 			)
-			// The new workspace holds the moved session now; the old copy can go.
-			for (const s of out.settled) {
-				if (s.removeFrom) {
-					addRemoved(s.id, s.removeFrom, false)
-					movedAny = true
-				}
-				if (s.carried) movedAny = true
-			}
 			droppedDirty.push(...out.dropped.map((d) => d.id))
 			for (const r of out.removedDone) {
 				// The row describes this workspace's copy only; a session that moved on keeps
@@ -784,7 +789,9 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 	const local = new Set<string>()
 	for (const s of (await readStoredSessions(email)) ?? []) local.add(s.id)
 	for (const s of sessionState.sessions) local.add(s.id)
-	for (const r of readPending().removed) local.add(r.id)
+	// A removal names the workspace it is for: a session that moved here from another one
+	// still has that one's removal pending, and is ours to restore.
+	for (const r of readPending().removed) if (r.ws === ws) local.add(r.id)
 	const candidates = listing.sessions
 		.filter((s) => !local.has(s.id) && !isSessionTombstoned(s.id))
 		.slice(0, RESTORE_MAX)

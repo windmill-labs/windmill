@@ -388,21 +388,35 @@ async fn pull_session(
             .unwrap_or_default()
             .trim_start_matches('/');
         if rel == "artifacts.json" {
-            artifacts_key = Some(key);
+            artifacts_key = Some((key, bytes));
             core += bytes;
         } else if let Some(cid) = rel
             .strip_prefix("chats/")
             .and_then(|f| f.strip_suffix(".json"))
         {
-            chat_keys.push((cid.to_string(), key));
+            chat_keys.push((cid.to_string(), key, bytes));
             core += bytes;
         }
     }
     if !first && core > budget {
         return Ok(PullStep::Deferred);
     }
+    // Sizes come from the listings, so nothing is read past the budget even for the first
+    // session of the answer: one that outgrew it (chats accumulate over pushes) comes back
+    // with the chats that fit, in listing order, rather than being read whole.
     let mut size = head.len();
-    let chats: Vec<PulledChat> = futures::stream::iter(chat_keys)
+    let mut fetch = vec![];
+    for (cid, key, bytes) in chat_keys {
+        if size + bytes > budget {
+            tracing::warn!(
+                "AI session backup {sid} chat {cid} is beyond the pull budget; left out"
+            );
+            continue;
+        }
+        size += bytes;
+        fetch.push((cid, key));
+    }
+    let chats: Vec<PulledChat> = futures::stream::iter(fetch)
         .map(|(cid, key)| async move {
             let record = backend.get(&key).await?;
             Ok::<_, Error>(record.map(|r| (cid, r)))
@@ -412,20 +426,17 @@ async fn pull_session(
         .await?
         .into_iter()
         .flatten()
-        .map(|(cid, record)| {
-            size += record.len();
-            Ok(PulledChat { id: cid, record: raw("chat", record)? })
-        })
+        .map(|(cid, record)| Ok(PulledChat { id: cid, record: raw("chat", record)? }))
         .collect::<Result<_>>()?;
     let artifacts = match artifacts_key {
-        Some(key) => match backend.get(&key).await? {
-            Some(text) => {
-                size += text.len();
-                Some(raw("artifacts", text)?)
+        Some((key, bytes)) if size + bytes <= budget => {
+            size += bytes;
+            match backend.get(&key).await? {
+                Some(text) => Some(raw("artifacts", text)?),
+                None => None,
             }
-            None => None,
-        },
-        None => None,
+        }
+        _ => None,
     };
     let images_prefix = backend.images_prefix(sid);
     let mut image_keys: Vec<(String, String, ObjectPath)> = vec![];
