@@ -66,6 +66,23 @@ test("a rewritten shared lockfile is committed with the deployed item", async ()
   await rm(work, { recursive: true, force: true });
 });
 
+test("a swept shared lockfile is committed as a deletion", async () => {
+  const { bare, work } = await seededClone({
+    "wmill-lock.yaml": "locks: {}\n",
+    "f/dd/a.script.yaml": "lock: '!inline f/dd/a.script.lock'\n",
+    "f/dd/a.script.lock": "requests==2.31.0\n",
+    "locks/requirements.in.lock": "requests==2.31.0\n",
+  });
+  // The pull removed the last shared lockfile, and `locks/` with it.
+  await rm(join(work, "locks"), { recursive: true, force: true });
+
+  expect(deployPushIn(work, "f/dd/a").pushed).toBe(true);
+  expect(git(bare, "ls-tree", "--name-only", "main", "locks/")).toBe("");
+
+  await rm(bare, { recursive: true, force: true });
+  await rm(work, { recursive: true, force: true });
+});
+
 test("a repository without shared lockfiles is left alone", async () => {
   const { bare, work } = await seededClone({
     "wmill-lock.yaml": "locks: {}\n",
