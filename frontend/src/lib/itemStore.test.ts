@@ -500,6 +500,36 @@ describe('item store: one entry per key', () => {
 		])
 	})
 
+	it('keeps what was typed in an editor a move replaces, as a draft over what it wrote', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const gate = deferred()
+		const b = { ...deployedRes, path: 'u/me/b' }
+		const { handle: open } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
+			{ workspace: 'w', path: 'u/me/b' },
+			adapter({ deployed: b })
+		)
+		const temporary = newItemPath()
+		const { handle: moving } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: temporary },
+			{ workspace: 'w', path: temporary, template: b },
+			adapter({}, () => gate.promise)
+		)
+		await settle()
+		moving.value = { ...b, args: { a: 2 } }
+		const moved = moving.save()
+		await settle()
+		open.value = { ...b, description: 'typed while it moved' }
+
+		gate.resolve()
+		expect(await moved).toMatchObject({ ok: true, moved: true })
+		const kept = { ...b, args: { a: 2 }, description: 'typed while it moved' }
+		expect(open.deployed).toEqual({ ...b, args: { a: 2 } })
+		expect(open.value).toEqual(kept)
+		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: kept })
+	})
+
 	it('writes an item it moves onto after the saves queued there, and supersedes later ones', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
@@ -617,7 +647,9 @@ describe('item store: one entry per key', () => {
 		expect(await secondMove).toMatchObject({ ok: true, moved: true })
 		expect(await later).toMatchObject({ ok: false })
 		expect(order).toEqual(['first', 'second'])
-		expect(first.value?.description).toBe('second')
+		expect(first.deployed?.description).toBe('second')
+		// Not written, but not lost either: a draft over what the later move wrote.
+		expect(first.value?.description).toBe('saved again through the first')
 	})
 })
 

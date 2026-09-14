@@ -417,6 +417,24 @@ class Entry<V> {
 		return result
 	}
 
+	/** Take over the edits of a deployed entry this one replaced at its key: each field its value
+	 *  changed from its own deployed side, so they stay a draft over what this entry deployed. */
+	carryEditsOf(old: Entry<V>): void {
+		if (old.origin !== 'deployed' || !old.dirty || this.value === undefined) return
+		const edited = old.value as Record<string, unknown>
+		const base = old.deployed as Record<string, unknown>
+		const next = snapshot(this.value) as Record<string, unknown>
+		let changed = false
+		for (const k of new Set([...Object.keys(edited), ...Object.keys(base)])) {
+			if (deepEqual(edited[k], base[k])) continue
+			next[k] = snapshot(edited[k])
+			changed = true
+		}
+		if (!changed) return
+		this.pristine = false
+		this.replaceValue(next as V)
+	}
+
 	/** Give the value each field the server set otherwise than `sent` asked, unless the user has
 	 *  changed that field since: left as sent, it would read as a draft of a change nobody made. */
 	private adopt(sent: V, held: V): void {
@@ -811,10 +829,11 @@ export function createItemStore(ports: ItemRowPort) {
 
 	/**
 	 * An entry moved onto a key another live entry holds. One key has one row writer, so the
-	 * old one stops writing and every handle on it moves to the entry that now is the item —
-	 * the same outcome as when nobody had it open: what was there is superseded by the write.
+	 * old one stops writing and every handle on it moves to the entry that now is the item. Its
+	 * deployed side is superseded by the write; the edits on screen over it are not.
 	 */
 	function retire(old: Entry<any>, into: Entry<any>): void {
+		into.carryEditsOf(old)
 		old.retired = true
 		old.stopWatch?.()
 		for (const handle of old.handles) {
@@ -996,6 +1015,8 @@ export function useItems<V>(
 ): (ItemHandle<V> | undefined)[] {
 	const handles = $state<(ItemHandle<V> | undefined)[]>([])
 	const held = new Map<string, ItemAcquisition<V>>()
+	const sessionOf = new Map<ItemAcquisition<V>, string>()
+	const idOf = (key: ItemKey, session: unknown) => `${keyString(key)}#${String(session ?? '')}`
 
 	function reconcile() {
 		const specs = getSpecs()
@@ -1006,14 +1027,26 @@ export function useItems<V>(
 				continue
 			}
 			const key: ItemKey = { workspace: spec.workspace, kind, path: spec.path }
-			wanted.push({ id: `${keyString(key)}#${String(spec.session ?? '')}`, key, spec })
+			wanted.push({ id: idOf(key, spec.session), key, spec })
 		}
 		const ids = new Set(wanted.map((w) => w.id))
+		// A spec that caught up with where a save moved its item keeps that item, rather than
+		// releasing it and reading it afresh over edits whose row may not have landed yet.
+		for (const { id } of wanted) {
+			if (!id || held.has(id)) continue
+			for (const [heldId, acq] of held) {
+				if (ids.has(heldId) || idOf(acq.handle.key, sessionOf.get(acq)) !== id) continue
+				held.delete(heldId)
+				held.set(id, acq)
+				break
+			}
+		}
 		// Release first, so an item reopened under a new session is read afresh when idle.
 		for (const [id, acq] of [...held]) {
 			if (!ids.has(id)) {
 				acq.release()
 				held.delete(id)
+				sessionOf.delete(acq)
 			}
 		}
 		const next = wanted.map(({ id, key, spec }) => {
@@ -1022,6 +1055,7 @@ export function useItems<V>(
 			if (!acq) {
 				acq = itemStore.acquire(key, spec, adapter)
 				held.set(id, acq)
+				sessionOf.set(acq, String(spec.session ?? ''))
 			}
 			return acq.handle
 		})
@@ -1038,6 +1072,7 @@ export function useItems<V>(
 	onDestroy(() => {
 		for (const acq of held.values()) acq.release()
 		held.clear()
+		sessionOf.clear()
 	})
 	return handles
 }
