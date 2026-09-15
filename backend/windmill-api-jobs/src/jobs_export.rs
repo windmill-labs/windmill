@@ -711,6 +711,16 @@ pub async fn delete_jobs(
     conversation_ids.sort_unstable();
     conversation_ids.dedup();
     if !conversation_ids.is_empty() {
+        // Same serialisation as retention: without it, this purge and a concurrent one each
+        // delete one of a conversation's last messages, neither sees the other's uncommitted
+        // delete, and the conversation and its memory are left with nothing to collect them.
+        sqlx::query_scalar!(
+            "SELECT id FROM flow_conversation WHERE id = ANY($1) AND workspace_id = $2 FOR UPDATE",
+            &conversation_ids,
+            &w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
         sqlx::query!(
             "DELETE FROM ai_agent_memory a
                USING flow_conversation c

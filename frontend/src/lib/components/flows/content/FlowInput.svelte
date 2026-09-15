@@ -814,7 +814,7 @@
 						<FlowChat
 							onRunFlow={runFlowWithMessage}
 							conversationKind="test"
-							path={$pathStore}
+							path={$initialPathStore || $pathStore}
 							useStreaming={shouldUseStreaming}
 							inputSchema={flowStore.val.schema}
 							flowModules={flowStore.val.value?.modules}
