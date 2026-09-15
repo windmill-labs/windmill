@@ -95,6 +95,8 @@ export type ItemRowPort = {
 	rowMark(key: ItemKey): number
 	/** A row waiting for another attempt, if any: `undefined` when none, `null` for a delete. */
 	pending(key: ItemKey): unknown | undefined
+	/** Whether a row is waiting with no baseline behind it, so sending it would be unconditional. */
+	unbased(key: ItemKey): boolean
 	seedSync(key: ItemKey, draftSavedAt: string | undefined, since: number): void
 	conflicted(key: ItemKey): boolean
 	failure(key: ItemKey): string | undefined
@@ -407,7 +409,10 @@ class Entry<V> {
 				if (!adapter.load) throw new Error('This item cannot be loaded')
 				// A row queued by whoever held this key before is debounced: send it, or this read
 				// answers with the deployed value and the draft reappears under a clean editor.
-				await this.ports.flush(key)
+				// Not one written when no row existed, though — it carries no baseline, so it
+				// would go out unconditional and take over a row created since. The read below
+				// gives it one, and `pending` keeps showing it meanwhile.
+				if (!this.ports.unbased(key)) await this.ports.flush(key)
 				// Taken here, not when the command was asked for: rows this read's own flush sent
 				// are in the response it is about to get. Only one handed over from now on, while
 				// the read is out, leaves that response behind.
@@ -1271,6 +1276,9 @@ const syncerRows: ItemRowPort = {
 	},
 	pending(key) {
 		return UserDraftDbSyncer.pendingValue(keyQuery(key))
+	},
+	unbased(key) {
+		return UserDraftDbSyncer.hasUnbasedPending(keyQuery(key))
 	},
 	seedSync(key, draftSavedAt, since) {
 		UserDraftDbSyncer.recordRemoteSync(keyQuery(key), draftSavedAt, since)

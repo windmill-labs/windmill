@@ -543,6 +543,16 @@ export const UserDraftDbSyncer = {
 		return parked ? parked.value : undefined
 	},
 
+	/**
+	 * Whether a payload is parked for `query` with no `last_sync` behind it — it was written when
+	 * no row existed, so sending it now would be unconditional and would take over a row created
+	 * since. A reader must get a baseline before letting one of these go out.
+	 */
+	hasUnbasedPending(query: UserDraftLastSyncQuery): boolean {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		return pendingSaveOpts.has(key) && !lastSyncMap.has(key)
+	},
+
 	/** Rows handed over for `query` so far, for a reader to hand back to `recordRemoteSync`. */
 	sendsSoFar(query: UserDraftLastSyncQuery): number {
 		return sends.get(draftKey(query.workspace, query.itemKind, query.path)) ?? 0

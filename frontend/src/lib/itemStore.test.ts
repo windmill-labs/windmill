@@ -37,6 +37,8 @@ function fakeRows() {
 	const dropped: string[] = []
 	/** Every `last_sync` baseline the syncer accepted, in order. */
 	const seeds: { path: string; at: string | undefined }[] = []
+	/** Paths the syncer holds a `last_sync` for. Without one a send is unconditional. */
+	const baselines = new Set<string>()
 	/** Rows handed over per path, by any writer — the store's reconcile or the chat's own save. */
 	const sends = new Map<string, number>()
 	const handed = (path: string) => sends.set(path, (sends.get(path) ?? 0) + 1)
@@ -89,10 +91,13 @@ function fakeRows() {
 		},
 		rowMark: (key) => sends.get(key.path) ?? 0,
 		pending: (key) => (parked.has(key.path) ? parked.get(key.path) : undefined),
+		unbased: (key) => parked.has(key.path) && !baselines.has(key.path),
 		seedSync: (key, at, since) => {
 			// The syncer refuses a baseline from a read a row handed over since has passed.
 			if (since !== (sends.get(key.path) ?? 0)) return
 			seeds.push({ path: key.path, at })
+			if (at !== undefined) baselines.add(key.path)
+			else baselines.delete(key.path)
 			// Back in sync with the server, as `recordRemoteSync` does. The baseline is fresh, so
 			// a payload the server was refusing would be accepted from here on.
 			conflicts.delete(key.path)
@@ -1742,6 +1747,42 @@ describe('item store: conflicts', () => {
 		expect(open.status).toBe('conflicted')
 		expect(open.value?.description).toBe('mine')
 		expect(open.deployed).toEqual({ ...b, args: { a: 2 } })
+	})
+
+	it('does not replay a first failed autosave over a draft created since', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		// No draft exists, so nothing gives this key a baseline.
+		const a = adapter(async () => ({
+			deployed: deployedRes,
+			draft: rows.sent.get('u/me/r') as Res | undefined
+		}))
+		const first = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+		rows.failing.add('u/me/r')
+		first.handle.value = { ...deployedRes, description: 'tab A, never sent' }
+		await rows.port.flush(key)
+		first.release()
+
+		// Another tab creates the draft while tab A is away.
+		const theirs = { ...deployedRes, description: 'tab B' }
+		rows.sent.set('u/me/r', theirs)
+		rows.handExternally('u/me/r')
+		// Tab A's network recovers before it reopens.
+		rows.failing.delete('u/me/r')
+
+		const second = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+
+		// The parked payload has no `last_sync`, so replaying it before the read would go out
+		// unconditional and take their draft with it — and the read after would see only the
+		// overwrite, never a conflict.
+		expect(rows.sent.get('u/me/r')).toEqual(theirs)
+		// Tab A's edit is not lost either: it is what the reopened editor shows, and the read has
+		// given the key a baseline, so when that payload does go out it is checked against theirs.
+		expect(second.handle.value?.description).toBe('tab A, never sent')
+		expect(rows.seeds.at(-1)?.path).toBe('u/me/r')
 	})
 
 	it('keeps an edit the server never received when the item is reopened', async () => {
