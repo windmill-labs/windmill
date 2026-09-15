@@ -496,20 +496,23 @@ class ChatImpl implements Chat {
   }
 
   /**
-   * The latest row one of the turn's jobs persisted after the turn's user message
-   * is an assistant message. An agent writes each round's text before that round's
-   * tool rows, and a tool row when the tool finishes, so an earlier round's text is
-   * followed by a tool row and only the answer closes the turn. The content is not
-   * compared with the flow result: an image answer, a structured one and a forwarded
-   * agent result are all persisted in a shape the result does not reproduce. Rows
-   * from an earlier turn whose job outlived `stop()` (a token without `jobs:write`
-   * cannot cancel it) can land after this turn's user row and do not count.
+   * The latest row the turn persisted after its user message is an assistant
+   * message. An agent issues each round's text row before that round's tool rows,
+   * and a tool row when the tool finishes, so an earlier round's text is followed
+   * by a tool row and only the answer closes the turn (the inserts are spawned, so
+   * a badly delayed one can invert that order at the cost of the reconcile
+   * retries). The content is not compared with the flow result: an image answer, a
+   * structured one and a forwarded agent result are all persisted in a shape the
+   * result does not reproduce. Rows carrying a job id belong to the turn when the
+   * job is one of the turn's, which leaves out an earlier turn whose job outlived
+   * `stop()` (a token without `jobs:write` cannot cancel it); a tool row without one
+   * (an MCP call runs inside the agent step) belongs to whatever turn is under way.
    */
   #answered(turn: Turn): boolean {
     const messages = this.#state.messages
     const from = messages.findIndex((m) => m.id === turn.userMessageId)
     const ownJob = (m: ChatMessage) =>
-      turn.jobIds === undefined || (m.jobId !== undefined && turn.jobIds.has(m.jobId))
+      turn.jobIds === undefined || (m.jobId === undefined ? m.role === 'tool' : turn.jobIds.has(m.jobId))
     let latest: ChatMessage | undefined
     for (let i = from + 1; i < messages.length; i++) {
       const m = messages[i]

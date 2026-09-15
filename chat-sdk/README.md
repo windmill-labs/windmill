@@ -123,8 +123,9 @@ export function Support() {
 The hook returns the [state](#state) plus the chat's methods. It recreates the chat
 (fresh state, old one destroyed) when `flowPath`, `baseUrl`, `workspace`, `history`,
 `storageKey` or the credential change: a different token string, or a switch between
-no token, a string and a function. A token function is called through a ref, so
-passing a new closure on every render is fine and never resets the chat; when users
+no token, a string and a function; and when a `run` callback appears or goes away.
+A token function is called through a ref, so passing a new closure on every render
+is fine and never resets the chat, and so are `run` and the callbacks; when users
 sign in and out behind a token function, change `storageKey` (their id) so local
 history and state start over with them.
 

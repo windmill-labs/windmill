@@ -558,6 +558,31 @@ describe('createChat with server history', () => {
     ])
   })
 
+  test('a tool row without a job (an MCP call) still separates a round from the answer', async () => {
+    let reads = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { output: 'Final answer', messages: [] } }])
+          : undefined,
+      (c) => (c.url.pathname.endsWith('/jobs_u/get/job-1') ? json({ flow_status: { modules: [{ job: 'step-1', agent_actions: [{ type: 'mcp_tool_call' }, { type: 'message' }] }] } }) : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json(
+              ++reads === 1
+                ? [messageRow(81, 'user', 'hi'), messageRow(82, 'assistant', 'Let me check', { job_id: 'step-1' }), messageRow(83, 'tool', 'Used search tool', { job_id: null })]
+                : [messageRow(84, 'assistant', 'Final answer', { job_id: 'step-1' })]
+            )
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('hi')
+    expect(reads).toBe(2)
+    expect(chat.getState().messages.map((m) => m.content)).toEqual(['hi', 'Let me check', 'Used search tool', 'Final answer'])
+  })
+
   test('the stream asks for a server poll interval only when one is set', async () => {
     const answer: Route = (c) =>
       c.url.pathname === streamPath ? sse([{ type: 'update', completed: true, only_result: 'ok' }]) : undefined
