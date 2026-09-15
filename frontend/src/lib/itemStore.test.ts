@@ -68,6 +68,12 @@ function fakeRows() {
 			if (!going) return
 			// Replaying a parked payload is another POST, so another hand-over.
 			if (!fromQueue) handed(key.path)
+			// A POST that never reaches the server keeps its payload for the next attempt.
+			if (failing.has(key.path)) {
+				failures.set(key.path, 'unreachable')
+				parked.set(key.path, going.value)
+				return
+			}
 			if (conflictOnFlush.has(key.path)) {
 				conflicts.add(key.path)
 				parked.set(key.path, going.value)
@@ -1205,6 +1211,37 @@ describe('item store: conflicts', () => {
 		expect(open.status).toBe('conflicted')
 		expect(open.value?.description).toBe('mine')
 		expect(open.deployed).toEqual({ ...b, args: { a: 2 } })
+	})
+
+	it('keeps an edit the server never received when the item is reopened', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const a = adapter(async () => ({
+			deployed: deployedRes,
+			draft: rows.sent.get('u/me/r') as Res | undefined
+		}))
+		const first = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+		// The autosave cannot reach the server at all: the row is parked for a later attempt.
+		rows.failing.add('u/me/r')
+		first.handle.value = { ...deployedRes, description: 'never reached the server' }
+		await rows.port.flush(key)
+		expect(rows.sent.has('u/me/r')).toBe(false)
+		first.release()
+
+		// Reopening reads afresh, and its GET works even though the draft POST does not.
+		const second = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+
+		// The parked payload is the only record of that edit. Dropping it loses it for good.
+		expect(rows.dropped).not.toContain('u/me/r')
+		rows.failing.delete('u/me/r')
+		await rows.port.flush(key)
+		expect(rows.sent.get('u/me/r')).toEqual({
+			...deployedRes,
+			description: 'never reached the server'
+		})
 	})
 
 	it('opens a conflicted item afresh, past the payload the server refused', async () => {

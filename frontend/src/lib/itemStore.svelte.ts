@@ -286,10 +286,11 @@ class Entry<V> {
 	 *  has already sent, which the server refuses from then on. */
 	private adoptRow(key: ItemKey, draft: unknown, draftSavedAt: string | undefined, asOf: number) {
 		if (this.ports.rowMark(key) !== asOf) return
-		// Nothing was handed over while the read was out, so anything still parked predates it:
-		// a payload the server refused, which the baseline taken below would make acceptable.
-		// The reconcile that follows the read re-queues whatever the value actually needs.
-		this.ports.dropPending(key)
+		// A payload the server *refused* predates this read and the baseline taken below would
+		// make it acceptable, so it goes; the reconcile after the read re-queues whatever the
+		// value needs. One merely unsent — a network failure the syncer parks to retry — is the
+		// only record of an edit that never reached anyone, so it stays.
+		if (this.ports.conflicted(key)) this.ports.dropPending(key)
 		this.row = serialize(draft) ?? null
 		this.ports.seedSync(key, draftSavedAt, asOf)
 	}
