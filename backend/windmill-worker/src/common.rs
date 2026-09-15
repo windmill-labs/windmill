@@ -1575,16 +1575,16 @@ pub async fn cached_result_path(
         }
     }
     // A workflow-as-code task child carries its parent's arguments, which say
-    // nothing about the task's own inputs; its result is keyed on the step it
-    // runs (a task's name and position, which is what tells two tasks of one
-    // name apart) and the arguments that task was called with.
-    let (step, args) = match wac_task_identity(db, job).await? {
-        Some((step, args)) => (Some(step), Some(Json(args))),
+    // nothing about the task's own inputs; its result is keyed on the task it
+    // runs (the SDK's fingerprint of its code, or its step key from an older
+    // SDK) and the arguments that task was called with.
+    let (task, args) = match wac_task_identity(db, job).await? {
+        Some((task, args)) => (Some(task), Some(Json(args))),
         None => (None, job.args.clone()),
     };
-    if let Some(step) = step {
-        hasher.update(b"wac_step:");
-        hasher.update(step.as_bytes());
+    if let Some(task) = task {
+        hasher.update(b"wac_task:");
+        hasher.update(task.as_bytes());
     }
     hash_args(
         db,
@@ -1599,8 +1599,9 @@ pub async fn cached_result_path(
     Ok(format!("g/results/{:064x}", hasher.finalize()))
 }
 
-/// The step key and call arguments a workflow-as-code parent seeded in this
-/// child's checkpoint at push time; `None` for any job that is not such a child.
+/// The task fingerprint (or, from an SDK that sends none, the step key) and call
+/// arguments a workflow-as-code parent seeded in this child's checkpoint at push
+/// time; `None` for any job that is not such a child.
 async fn wac_task_identity(
     db: &DB,
     job: &MiniPulledJob,
@@ -1610,7 +1611,8 @@ async fn wac_task_identity(
     }
     let identity: Option<(Option<String>, Option<Json<HashMap<String, Box<RawValue>>>>)> =
         sqlx::query_as(
-            "SELECT workflow_as_code_status->'_checkpoint'->>'_executing_key', \
+            "SELECT COALESCE(workflow_as_code_status->'_checkpoint'->>'_executing_fn', \
+                             workflow_as_code_status->'_checkpoint'->>'_executing_key'), \
                     workflow_as_code_status->'_checkpoint'->'_executing_args' \
              FROM v2_job_status WHERE id = $1",
         )
@@ -1618,7 +1620,7 @@ async fn wac_task_identity(
         .fetch_optional(db)
         .await?;
     Ok(match identity {
-        Some((Some(step), Some(Json(args)))) => Some((step, args)),
+        Some((Some(task), Some(Json(args)))) => Some((task, args)),
         _ => None,
     })
 }

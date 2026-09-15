@@ -40,9 +40,13 @@ pub struct WacCheckpoint {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub _executing_key: Option<String>,
-    /// With `_executing_key`: the arguments the task was called with. A cached
-    /// result is keyed on both; the key alone is a name and a position, which two
-    /// tasks can share, and the arguments alone say nothing about which task ran.
+    /// With `_executing_key`: the SDK's fingerprint of the task's code and the
+    /// arguments the task was called with, what its cached result is keyed on.
+    /// The step key stands in for the fingerprint when the SDK sent none; it is
+    /// a name and a position, which two tasks can share.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub _executing_fn: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub _executing_args: Option<serde_json::Map<String, Value>>,
