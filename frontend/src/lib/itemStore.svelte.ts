@@ -183,6 +183,10 @@ class Entry<V> {
 	meta: unknown = $state.raw()
 	loaded = $state(false)
 	removed = $state(false)
+	/** A write landed on this item elsewhere and the re-read meant to pick it up failed, so
+	 *  `deployed` is known to be behind the server. Saving or discarding against it would put
+	 *  that back over the write, so neither is offered until a reload clears this. */
+	stale = $state(false)
 	pristine = $state(false)
 	/** Bumped whenever the value is replaced from outside the form — load, discard, an
 	 *  external write — which is what a form not bound to the value re-reads it on. */
@@ -410,6 +414,7 @@ class Entry<V> {
 				standOff || this.edits !== at.edits || this.externals !== at.externals
 			this.meta = res.meta
 			this.error = undefined
+			this.stale = false
 			if (isTemporaryPath(key.path)) {
 				this.template = snapshot(res.template)
 				this.origin = 'new'
@@ -453,14 +458,10 @@ class Entry<V> {
 		return this.load(this.adapter, asOf, true)
 	}
 
-	/**
-	 * Re-read for a caller that has just written the deployed item, taking a turn in the queue
-	 * first: asked for during the first load, `reread` would find nothing loaded and return
-	 * without doing anything. The three answers are not interchangeable — `absent` means this
-	 * editor never had the item and the row is the caller's to deal with, while `failed` means it
-	 * has the item and an out-of-date baseline, so anything resetting to that baseline now would
-	 * undo what was just deployed.
-	 */
+	/** Re-read for a caller that has just written the deployed item, after whatever is queued:
+	 *  during the first load `reread` would find nothing loaded and do nothing. `absent` means
+	 *  this editor never had the item, so the row is the caller's; `failed` means it has the item
+	 *  on a stale baseline, and anything resetting to that would undo the write. */
 	async refreshed(): Promise<'done' | 'absent' | 'failed'> {
 		await this.run(async () => {})
 		if (this.retired || !this.adapter) return 'absent'
@@ -468,14 +469,10 @@ class Entry<V> {
 		return (await this.reread()).ok ? 'done' : 'failed'
 	}
 
-	/**
-	 * Discard for an outside caller, resolving to whether this editor was in a position to deal
-	 * with the row. Asked for now, not after a wait: `discard` snapshots when it is called, and
-	 * an edit made while it queued behind a save must not look like part of what it was asked to
-	 * throw away. Its queue already puts it after the first load, so what is left to report is
-	 * whether that load ever arrived — an entry with nothing loaded writes no delete, and the
-	 * caller has to issue one itself.
-	 */
+	/** Discard for an outside caller, resolving to whether this editor could deal with the row.
+	 *  Called now, not after a wait: `discard` snapshots when called, and an edit made while it
+	 *  queued behind a save must not look like part of what it was asked to throw away. Its queue
+	 *  already follows the first load, so what is left to report is whether that ever arrived. */
 	async discarded(): Promise<boolean> {
 		await this.discard()
 		return this.loaded && !this.retired
@@ -605,6 +602,8 @@ class Entry<V> {
 	discard(): Promise<DiscardOutcome> {
 		return this.run(async (at) => {
 			if (!this.loaded || this.retired) return { removed: false }
+			// Reverting to a baseline known to be behind the server would write it back.
+			if (this.stale) return { removed: false }
 			// An edit typed or an outside write landed since the discard was asked for is newer
 			// than it, and reverting that would drop it with nothing left holding it. A value a
 			// read in front of it installed is not something that moved, it is the read
@@ -908,7 +907,8 @@ class Handle<V> implements ItemHandle<V> {
 			this.entry.dirty &&
 			(this.spec.valid?.() ?? true) &&
 			(this.spec.writable?.() ?? true) &&
-			!this.entry.busy
+			!this.entry.busy &&
+			!this.entry.stale
 		)
 	}
 	save() {
@@ -1003,7 +1003,9 @@ export function createItemStore(ports: ItemRowPort) {
 			if (holder === by) return
 			// Its row is debounced, so `reread` sends what is queued before reading it back.
 			if (holder) {
-				await holder.reread()
+				// Failing here does not fail the write, which landed: it leaves whoever holds the
+				// item on a baseline older than the server, and unable to act until it reloads.
+				if (!(await holder.reread()).ok) holder.stale = true
 				return
 			}
 			ports.write(key, null)

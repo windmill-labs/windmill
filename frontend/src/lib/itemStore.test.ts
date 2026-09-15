@@ -1363,6 +1363,49 @@ describe('item store: conflicts', () => {
 		expect(item.status).not.toBe('conflicted')
 	})
 
+	it('stops an editor acting on a baseline its failed re-read left behind', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const b = { ...deployedRes, path: 'u/me/b' }
+		let deployed = b
+		let reads = 0
+		const { handle: open } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
+			{ workspace: 'w', path: 'u/me/b' },
+			adapter(async () => {
+				// The first read works; the one the panel's write triggers does not.
+				if (reads++ > 0) throw new Error('the GET failed')
+				return { deployed }
+			})
+		)
+		await settle()
+		open.value = { ...b, description: 'mine' }
+
+		const temporary = newItemPath()
+		const { handle: panel } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: temporary },
+			{ workspace: 'w', path: temporary, template: b, standsFor: 'u/me/b' },
+			adapter({}, async (ctx) => void (deployed = { ...ctx.value }))
+		)
+		await settle()
+		panel.value = { ...b, args: { a: 2 } }
+		// The write lands: the panel's success does not depend on the other editor re-reading.
+		expect(await panel.save()).toMatchObject({ ok: true, path: 'u/me/b' })
+
+		// But that editor is now a baseline behind, so saving or discarding would put the old
+		// config back over the write. Neither is offered until it reloads.
+		expect(open.canSave).toBe(false)
+		expect(await open.discard()).toEqual({ removed: false })
+		expect(open.value?.description).toBe('mine')
+
+		// A reload gets it the baseline it missed, and it can act again.
+		reads = 0
+		expect(await open.reload()).toEqual({ ok: true })
+		expect(open.deployed).toEqual({ ...b, args: { a: 2 } })
+		open.value = { ...b, args: { a: 2 }, description: 'edited after reloading' }
+		expect(open.canSave).toBe(true)
+	})
+
 	it('leaves a conflicted editor alone when someone else writes its item', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
