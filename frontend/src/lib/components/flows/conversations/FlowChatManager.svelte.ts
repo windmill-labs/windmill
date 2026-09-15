@@ -73,10 +73,8 @@ type TurnStatus = {
 const FOLLOW_RETRIES = 4
 const FOLLOW_RETRY_DELAY_MS = 500
 
-/** How a turn whose stream is gone waits on its job instead: how often to ask whether the
- * run is over, and how many consecutive unanswered asks mean it cannot be reached. */
+/** How often a turn with no stream asks its job whether the run is over. */
 const SETTLE_POLL_MS = 2000
-const SETTLE_FAILURES = 5
 
 /**
  * The agent events the worker streams, in the shape the transcript applies. The SDK names
@@ -804,6 +802,7 @@ export class FlowChatManager {
 				this.#rowsById[conversationIdToUse] = response
 				this.#pagedTo[conversationIdToUse] = 1
 				this.isLoadingMessages = false
+				void this.#resumeRunningTurn(conversationIdToUse)
 				await new Promise((resolve) => setTimeout(resolve, 100))
 				this.scrollToBottom()
 			} else {
@@ -1141,15 +1140,7 @@ export class FlowChatManager {
 		const controller = new AbortController()
 		runtime.follow = controller
 
-		const api = new WindmillChatApi({
-			baseUrl: `${window.location.origin}${base}`,
-			workspace: this.#workspace()!,
-			// A licensed enterprise server paces the stream at this; every other build ignores
-			// the parameter and logs a warning per poll, so it is left off and the server's own
-			// pacing stands. A licence is the one signal the browser has, and the chat SDK
-			// gates on the same thing.
-			pollDelayMs: get(enterpriseLicense) ? 50 : undefined
-		})
+		const api = this.#chatApi()
 
 		// Kept across attempts so a reconnect resumes after what is already on screen. A
 		// retried agent step gets its own stream, which `followJob` detects and restarts from
@@ -1240,17 +1231,89 @@ export class FlowChatManager {
 	}
 
 	/**
-	 * Wait out a turn whose stream could not be recovered, on the job itself.
+	 * Pick a conversation's turn back up if its run is still going.
 	 *
-	 * The chat stays busy for as long as the run does, so the next turn cannot write the
-	 * same agent memory. It always ends, though, rather than locking the conversation for
-	 * the session: a run that stops answering is cancelled, which is what makes freeing the
-	 * chat safe. Only a run known to be over settles the turn — settling releases the queue,
-	 * and a queued message must not go out beside a run that may still be writing.
+	 * Nothing in the browser survives a reload, so a chat opened while its flow is running
+	 * would otherwise read as idle: the composer would take a message and the two turns
+	 * would write one agent memory. The row the server wrote when the turn started carries
+	 * its flow job, which is the only thing that knows whether it is over.
 	 *
-	 * Deliberately not `waitJob`, which leaves its promise unsettled when the job stops
-	 * answering (it cancels and returns without resolving), and a caller awaiting that would
-	 * be the lock this exists to avoid.
+	 * The chat is held from the moment the question is asked, not from the answer: a send
+	 * accepted during that round trip is the very thing this exists to prevent.
+	 *
+	 * Only page one is loaded, so a turn with more rows than a page — a tool-heavy agent —
+	 * has no user row here to name its job, and is not picked up. Finding it needs the
+	 * server to answer which turn is running rather than this inferring it from a page.
+	 */
+	async #resumeRunningTurn(conversationId: string) {
+		if (this.isConversationBusy(conversationId)) return
+		if (!this.#workspace()) return
+		// The newest turn is the only one that can still be running; the rows arrive oldest
+		// first, and a user row is named with its flow job by the run that created it.
+		const rows = this.#rowsOf(conversationId)
+		const startedAt = rows.findLastIndex((row) => row.message_type === 'user' && row.job_id)
+		const jobId = startedAt >= 0 ? rows[startedAt].job_id : undefined
+		if (!jobId) return
+
+		const status = this.#liveStatus(conversationId)
+		const runtime = this.#liveRuntime(conversationId)
+		const api = this.#chatApi()
+		// Taken before the question so a chat torn down while it is in flight can still stop
+		// what the answer would start.
+		runtime.follow?.abort()
+		const controller = new AbortController()
+		runtime.follow = controller
+		status.isDispatchingTurn = true
+		try {
+			const { completed } = await api.getCompletedResult(jobId, controller.signal)
+			if (completed) return
+		} catch (error) {
+			// Whether it is still running is unknown, and claiming a turn that has finished
+			// would leave the chat busy with nothing to end it.
+			console.error('Could not tell whether a conversation had a run in flight:', error)
+			return
+		} finally {
+			status.isDispatchingTurn = false
+		}
+		if (controller.signal.aborted) return
+
+		status.isLoading = true
+		status.isWaitingForResponse = true
+		status.jobId = jobId
+		// Rows written while this turn ran are replayed by the stream it is about to
+		// re-attach to — an agent persists one per round — and the transcript has no way to
+		// tell a replayed round from a second one. The final poll brings them back.
+		if (this.#useStreaming) this.#rowsById[conversationId] = rows.slice(0, startedAt + 1)
+		this.startPolling(conversationId)
+		if (this.#useStreaming) {
+			void this.#followJob(conversationId, jobId)
+		} else {
+			void this.#settleFromJob(conversationId, jobId, api, controller.signal)
+		}
+	}
+
+	#chatApi(): WindmillChatApi {
+		return new WindmillChatApi({
+			baseUrl: `${window.location.origin}${base}`,
+			workspace: this.#workspace()!,
+			// A licensed enterprise server paces the stream at this; every other build ignores
+			// the parameter and logs a warning per poll, so it is left off and the server's own
+			// pacing stands. A licence is the one signal the browser has, and the chat SDK
+			// gates on the same thing.
+			pollDelayMs: get(enterpriseLicense) ? 50 : undefined
+		})
+	}
+
+	/**
+	 * Wait out a turn with no stream to follow, on the job itself.
+	 *
+	 * The run holds the conversation's agent memory, so only the run may say the turn is
+	 * over: a chat freed on a guess lets the next turn write the same memory. An API that
+	 * cannot be reached has said nothing, so this keeps asking rather than deciding — and
+	 * the reader is not trapped, since Stop is on screen throughout and cancels the run.
+	 *
+	 * Deliberately not `waitJob`, which stops answering without settling: on its fifth
+	 * failed request it cancels and returns, leaving its promise pending forever.
 	 */
 	async #settleFromJob(
 		conversationId: string,
@@ -1258,42 +1321,21 @@ export class FlowChatManager {
 		api: WindmillChatApi,
 		signal: AbortSignal
 	) {
-		let failures = 0
-		let over = false
 		while (!signal.aborted) {
 			try {
 				const { completed } = await api.getCompletedResult(jobId, signal)
-				failures = 0
-				if (completed) {
-					over = true
-					break
-				}
+				if (completed) break
 			} catch (error) {
 				if (signal.aborted) return
-				failures++
-				if (failures >= SETTLE_FAILURES) {
-					console.error('Gave up reading the flow job while settling a turn:', error)
-					break
-				}
+				console.error('Could not read the flow job while settling a turn:', error)
 			}
 			await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS))
 		}
 		if (signal.aborted) return
-		// Unreachable is not the same as finished, and the run holds the conversation's agent
-		// memory. Stopping it is what makes the chat safe to use again; if even that cannot be
-		// delivered, the turn ends unsettled so its queue waits for the reader instead.
-		if (!over) {
-			try {
-				await api.cancelJob(jobId)
-				over = true
-			} catch (error) {
-				console.error('Could not cancel the flow job after losing its stream:', error)
-			}
-		}
 		try {
 			await this.pollConversationMessages(conversationId, { removeTempMessages: true })
 		} catch {}
-		this.endTurn(conversationId, over ? { settled: true } : undefined)
+		this.endTurn(conversationId, { settled: true })
 	}
 
 	/** Answers whether a job was actually started. */

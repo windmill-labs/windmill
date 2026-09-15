@@ -24,7 +24,7 @@ const { streamCalls, streamScript, jobCompleted } = vi.hoisted(() => ({
 	streamScript: [] as (unknown[] | 'throw')[],
 	/** What the job says when a turn that lost its stream asks whether the run is over:
 	 * `true`/`false`, or 'throw' for an API that cannot be reached. */
-	jobCompleted: { value: true as boolean | 'throw', cancelled: false, cancellable: true }
+	jobCompleted: { value: true as boolean | 'throw', gate: undefined as Promise<void> | undefined }
 }))
 
 // Only the transport is faked. `followJob` — which owns the re-attach, the offset and the
@@ -39,12 +39,9 @@ vi.mock('windmill-chat', async (importOriginal) => {
 			for (const update of next ?? []) yield update
 		}
 		async getCompletedResult() {
+			if (jobCompleted.gate) await jobCompleted.gate
 			if (jobCompleted.value === 'throw') throw new Error('job status unavailable')
 			return { completed: jobCompleted.value, success: true, result: {} }
-		}
-		async cancelJob() {
-			if (!jobCompleted.cancellable) throw new Error('cancel unavailable')
-			jobCompleted.cancelled = true
 		}
 	}
 	return { ...actual, WindmillChatApi: FakeApi }
@@ -173,8 +170,7 @@ describe('an SSE timeout re-attaches instead of re-running', () => {
 		streamCalls.length = 0
 		streamScript.length = 0
 		jobCompleted.value = true
-		jobCompleted.cancelled = false
-		jobCompleted.cancellable = true
+		jobCompleted.gate = undefined
 		vi.mocked(FlowConversationsService.listConversationMessages).mockResolvedValue([] as any)
 		// `test-setup.ts` makes `window` be `globalThis`, which has no `location` — and the
 		// api client resolves its URLs against an absolute origin.
@@ -243,29 +239,12 @@ describe('an SSE timeout re-attaches instead of re-running', () => {
 	})
 
 	/**
-	 * A stream that never comes back must not free the composer: the flow may still be
-	 * running, and the next turn would write the same agent memory. It must not lock the
-	 * chat for the session either — the turn is settled from the job instead.
+	 * An API that cannot be reached has said nothing about whether the run stopped, and the
+	 * run holds the conversation's agent memory. The turn stays busy rather than guessing —
+	 * Stop is the reader's way out — and settles itself once the run can be read again.
 	 */
-	it('settles a turn from its job once the stream is unrecoverable', async () => {
-		const { manager } = turnWith(['throw', 'throw', 'throw', 'throw', 'throw'])
-
-		manager.inputMessage = 'ask something'
-		await manager.sendMessage(undefined, undefined, 'a')
-
-		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(false), {
-			timeout: 20000
-		})
-	}, 30000)
-
-	/**
-	 * An API that cannot be reached says nothing about whether the run stopped, and the run
-	 * holds the conversation's agent memory. Cancelling it is what makes the chat safe to
-	 * use again; a turn that cannot even do that must not release its queue.
-	 */
-	it('cancels an unreachable run, and holds the queue when it cannot', async () => {
+	it('stays busy while the run cannot be read, and settles once it can', async () => {
 		jobCompleted.value = 'throw'
-		jobCompleted.cancellable = false
 		const settled: string[] = []
 		const { manager } = turnWith(['throw', 'throw', 'throw', 'throw', 'throw'])
 		manager.onTurnSettled = (id) => settled.push(id)
@@ -273,13 +252,17 @@ describe('an SSE timeout re-attaches instead of re-running', () => {
 		manager.inputMessage = 'ask something'
 		await manager.sendMessage(undefined, undefined, 'a')
 
-		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(false), {
-			timeout: 30000
+		await vi.waitFor(() => expect(streamCalls.length).toBeGreaterThanOrEqual(5), {
+			timeout: 20000
 		})
-		// Ended, but not settled: nothing confirmed the run was over, so a queued message
-		// waits for the reader rather than going out beside it.
+		expect(manager.isConversationBusy('a')).toBe(true)
 		expect(settled).toEqual([])
-	}, 40000)
+
+		jobCompleted.value = true
+
+		await vi.waitFor(() => expect(settled).toEqual(['a']), { timeout: 20000 })
+		expect(manager.isConversationBusy('a')).toBe(false)
+	}, 60000)
 
 	/**
 	 * A chunk is not guaranteed to end on a line boundary. Split mid-JSON, the two halves
@@ -359,5 +342,85 @@ describe('a sent message names the run it started', () => {
 		await manager.selectConversation('background-chat')
 		const userRow = manager.messages.find((m) => m.message_type === 'user')
 		expect(userRow?.job_id).toBe('job-8')
+	})
+})
+
+/**
+ * Nothing in the browser survives a reload. A chat whose flow is still running would read
+ * as idle, and the composer would take a message that writes the same agent memory as the
+ * turn already in flight.
+ */
+describe('a conversation opened while its run is still going', () => {
+	let live: ReturnType<typeof managerWithRows> | undefined
+
+	beforeEach(() => {
+		streamCalls.length = 0
+		streamScript.length = 0
+		jobCompleted.value = false
+		jobCompleted.gate = undefined
+		;(globalThis as any).location = { origin: 'http://localhost' }
+	})
+
+	afterEach(() => {
+		live?.cleanup()
+		live = undefined
+		delete (globalThis as any).location
+	})
+
+	/** Two turns: an older one that finished, and the newest, whose job is the one asked about. */
+	function opened(jobId: string) {
+		const row = (id: string, seq: number, type: string, job?: string) => ({
+			id,
+			conversation_id: 'a',
+			message_type: type,
+			content: id,
+			created_at: new Date().toISOString(),
+			created_seq: seq,
+			job_id: job
+		})
+		vi.mocked(FlowConversationsService.listConversationMessages).mockResolvedValue([
+			row('older-question', 0, 'user', 'job-finished-earlier'),
+			row('older-answer', 1, 'assistant', 'job-finished-earlier-agent'),
+			row('newest-question', 2, 'user', jobId)
+		] as any)
+		const manager = (live = managerWithRows())
+		;(manager as any).initialize(vi.fn(), 'u/admin/flow', true)
+		manager.operatingWorkspace = () => 'ws'
+		return manager
+	}
+
+	it('picks the turn back up from the newest turn, not an older one', async () => {
+		const manager = opened('job-live')
+
+		await manager.selectConversation('a')
+
+		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(true))
+		await vi.waitFor(() => expect(streamCalls.some((call) => call.jobId === 'job-live')).toBe(true))
+	})
+
+	// The gap this closes: until the job answers, whether the chat is free is unknown, and a
+	// message accepted meanwhile starts a second run against the same agent memory.
+	it('holds the chat while it is asking whether a run is live', async () => {
+		let release = () => {}
+		jobCompleted.gate = new Promise<void>((resolve) => (release = resolve))
+		jobCompleted.value = true
+		const manager = opened('job-maybe')
+
+		await manager.selectConversation('a')
+
+		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(true))
+		release()
+		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(false))
+	})
+
+	it('leaves a conversation whose run is over alone', async () => {
+		jobCompleted.value = true
+		const manager = opened('job-done')
+
+		await manager.selectConversation('a')
+		await new Promise((resolve) => setTimeout(resolve, 300))
+
+		expect(manager.isConversationBusy('a')).toBe(false)
+		expect(streamCalls).toEqual([])
 	})
 })
