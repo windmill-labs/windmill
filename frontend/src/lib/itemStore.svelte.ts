@@ -249,6 +249,9 @@ class Entry<V> {
 	 *  each, and each row a caller says it wrote for one of them. A row left over after that is a
 	 *  row nobody here has the value of. */
 	private values = 0
+	/** Whether the last value handed in made this entry write a row of its own. Loading, it
+	 *  cannot: the caller's own row is then the only one, and is already counted. */
+	private seedWroteRow = false
 	private queue: Promise<unknown> = Promise.resolve()
 	private ports: ItemRowPort
 	private store: StoreInternals
@@ -528,18 +531,21 @@ class Entry<V> {
 	 *  rather than leaving the row to this entry: the two are one value, and counting the second
 	 *  row as unaccounted would read as someone else having written it. */
 	noteRow(): void {
-		this.values++
+		if (this.seedWroteRow) this.values++
 	}
 
 	applyExternal(value: V): number {
 		this.externals++
 		this.values++
+		this.seedWroteRow = false
 		if (this.loaded && serialize(value) === serialize(this.value)) return this.revision
 		this.edits++
 		this.pristine = false
 		this.removed = false
 		this.replaceValue(value)
+		const rowsBefore = this.ports.rowMark(this.key)
 		this.reconcile()
+		this.seedWroteRow = this.ports.rowMark(this.key) !== rowsBefore
 		return this.revision
 	}
 

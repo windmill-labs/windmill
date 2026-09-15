@@ -906,6 +906,33 @@ describe('item store: origins', () => {
 		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: typed })
 	})
 
+	it('is not fooled by the chat crediting a row a loading item never wrote', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const { handle: item } = store.acquire(
+			key,
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(() => read.promise)
+		)
+		await settle()
+
+		// The chat seeds and persists while the first GET is out. Loading, this entry writes no
+		// row of its own, so the chat's save is the only row that value produced.
+		item.applyExternal({ ...deployedRes, description: 'from the chat' })
+		store.bridge.noteRow('w', 'resource', 'u/me/r')
+		rows.handExternally('u/me/r')
+		// The legacy agent editor then writes the same resource: a row nobody here has.
+		rows.handExternally('u/me/r')
+		read.resolve({ deployed: deployedRes })
+		await settle()
+
+		// Two rows, one of them unaccounted for. Crediting the chat twice would hide it and let
+		// this editor post over the agent editor's newer draft.
+		expect(item.canSave).toBe(false)
+	})
+
 	it('stays blocked when an unseen row follows the edit it kept', async () => {
 		const rows = fakeRows()
 		const read = deferred<ItemLoad<Res>>()
