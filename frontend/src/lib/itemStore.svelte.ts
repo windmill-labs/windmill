@@ -157,10 +157,9 @@ const outOfDate = {
 } as const
 
 /** What a command did not do, so it can tell what moved under it. `edits`: what the user can see
- *  change, which a discard measures against, so an outside write of the value already shown does
- *  not cancel one. `externals`: every outside write, that one included — it still made the value
- *  a row, which a read in flight has not got and must not answer over. `values`: both of those,
- *  counted once each, to weigh against the rows that appeared alongside them. */
+ *  change, which a discard measures against — an outside write of the value already shown does
+ *  not cancel one. `externals`: every outside write, that one included, since it made the value a
+ *  row a read in flight has not got. `values`: rows accounted for by a value held here. */
 type AsOf = { edits: number; externals: number; values: number }
 
 class Entry<V> {
@@ -247,7 +246,8 @@ class Entry<V> {
 	 *  value on the server as a row, which a read already in flight knows nothing about. */
 	private externals = 0
 	/** Counts every value this entry took from outside a command — typed or written in — once
-	 *  each. A row that appeared without one of these is a row nobody here has the value of. */
+	 *  each, and each row a caller says it wrote for one of them. A row left over after that is a
+	 *  row nobody here has the value of. */
 	private values = 0
 	private queue: Promise<unknown> = Promise.resolve()
 	private ports: ItemRowPort
@@ -524,6 +524,13 @@ class Entry<V> {
 	}
 
 	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
+	/** A caller that handed a value in through `applyExternal` and then wrote its own row for it,
+	 *  rather than leaving the row to this entry: the two are one value, and counting the second
+	 *  row as unaccounted would read as someone else having written it. */
+	noteRow(): void {
+		this.values++
+	}
+
 	applyExternal(value: V): number {
 		this.externals++
 		this.values++
@@ -1194,6 +1201,9 @@ export function createItemStore(ports: ItemRowPort) {
 			path: string
 		): Promise<'done' | 'absent' | 'failed'> | undefined {
 			return find(workspace, kind, path)?.refreshed()
+		},
+		noteRow(workspace: string, kind: UserDraftItemKind, path: string): void {
+			find(workspace, kind, path)?.noteRow()
 		},
 		itemDeleted(workspace: string, kind: UserDraftItemKind, path: string): Promise<void> {
 			return find(workspace, kind, path)?.itemDeleted() ?? Promise.resolve()

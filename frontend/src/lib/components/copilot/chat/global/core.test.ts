@@ -2325,6 +2325,7 @@ describe('global AI tools', () => {
 			seed: () => false,
 			read: () => undefined,
 			refresh: () => undefined,
+			noteRow: () => {},
 			itemDeleted: () => Promise.resolve(),
 			// Claims the key and removes nothing, so anything still gone was deleted by the chat.
 			discard: () => {
@@ -2342,6 +2343,7 @@ describe('global AI tools', () => {
 				seed: () => false,
 				read: () => undefined,
 				refresh: () => undefined,
+				noteRow: () => {},
 				itemDeleted: () => Promise.resolve(),
 				discard: () => undefined,
 				list: () => []
@@ -2363,6 +2365,7 @@ describe('global AI tools', () => {
 				calls.push('refresh')
 				return Promise.resolve('done' as const)
 			},
+			noteRow: () => {},
 			itemDeleted: () => {
 				calls.push('itemDeleted')
 				return Promise.resolve()
@@ -2386,6 +2389,7 @@ describe('global AI tools', () => {
 				seed: () => false,
 				read: () => undefined,
 				refresh: () => undefined,
+				noteRow: () => {},
 				itemDeleted: () => Promise.resolve(),
 				discard: () => undefined,
 				list: () => []
@@ -2403,6 +2407,7 @@ describe('global AI tools', () => {
 			read: () => undefined,
 			// Registered, but never had the item: it has not dealt with the row.
 			refresh: () => Promise.resolve('absent' as const),
+			noteRow: () => {},
 			itemDeleted: () => Promise.resolve(),
 			discard: () => Promise.resolve('absent' as const),
 			list: () => []
@@ -2418,6 +2423,7 @@ describe('global AI tools', () => {
 				seed: () => false,
 				read: () => undefined,
 				refresh: () => undefined,
+				noteRow: () => {},
 				itemDeleted: () => Promise.resolve(),
 				discard: () => undefined,
 				list: () => []
@@ -2435,6 +2441,7 @@ describe('global AI tools', () => {
 			seed: () => false,
 			read: () => undefined,
 			refresh: () => Promise.resolve('done' as const),
+			noteRow: () => {},
 			itemDeleted: () => {
 				calls.push('itemDeleted')
 				return Promise.resolve()
@@ -2454,6 +2461,7 @@ describe('global AI tools', () => {
 				seed: () => false,
 				read: () => undefined,
 				refresh: () => undefined,
+				noteRow: () => {},
 				itemDeleted: () => Promise.resolve(),
 				discard: () => undefined,
 				list: () => []
@@ -2471,6 +2479,7 @@ describe('global AI tools', () => {
 			seed: () => false,
 			read: () => undefined,
 			refresh: () => Promise.resolve('failed' as const),
+			noteRow: () => {},
 			itemDeleted: () => Promise.resolve(),
 			discard: () => Promise.resolve('failed' as const),
 			list: () => []
@@ -2483,6 +2492,7 @@ describe('global AI tools', () => {
 				seed: () => false,
 				read: () => undefined,
 				refresh: () => undefined,
+				noteRow: () => {},
 				itemDeleted: () => Promise.resolve(),
 				discard: () => undefined,
 				list: () => []
@@ -2516,6 +2526,7 @@ describe('global AI tools', () => {
 				seed: () => false,
 				read: () => undefined,
 				refresh: () => undefined,
+				noteRow: () => {},
 				itemDeleted: () => Promise.resolve(),
 				discard: () => undefined,
 				list: () => []

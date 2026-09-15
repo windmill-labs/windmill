@@ -149,6 +149,8 @@ export type LiveItemBridge = {
 		itemKind: UserDraftItemKind,
 		path: string
 	): Promise<'done' | 'absent' | 'failed'> | undefined
+	/** A row the caller wrote itself for a value it just handed in through `seed`. */
+	noteRow(workspace: string, itemKind: UserDraftItemKind, path: string): void
 	/** The deployed item was deleted: the live item reports itself gone. */
 	itemDeleted(workspace: string, itemKind: UserDraftItemKind, path: string): Promise<void>
 	/** Discard the live item's draft. `undefined` when no live item holds the key and `absent`
@@ -172,6 +174,16 @@ export function refreshLiveItem(
 	path: string
 ): Promise<'done' | 'absent' | 'failed'> | undefined {
 	return liveItems?.refresh(workspace, itemKind, path)
+}
+
+/** Tell a live item that a row just written for it was written by whoever handed it that same
+ *  value through `seed`, not by some other editor whose value it does not have. */
+export function noteLiveItemRow(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): void {
+	liveItems?.noteRow(workspace, itemKind, path)
 }
 
 /** Tell a live item that the deployed item under it has been deleted, so it stops showing a

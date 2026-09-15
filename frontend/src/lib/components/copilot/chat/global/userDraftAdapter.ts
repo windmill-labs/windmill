@@ -4,6 +4,7 @@ import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import {
 	markLiveItemDeleted,
+	noteLiveItemRow,
 	refreshLiveItem,
 	UserDraft,
 	type UserDraftEntry,
@@ -428,6 +429,9 @@ export async function persistGlobalDraft(
 	if (!itemKind) throw new Error(`Unsupported draft type "${type}".`)
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
 	UserDraft.seed(itemKind, storagePath, value, { workspace })
+	// An open editor took that value and may have written its own row for it; this save is a
+	// second row for the same value, so say so rather than leave it looking like someone else's.
+	noteLiveItemRow(workspace, itemKind, storagePath)
 	await UserDraftDbSyncer.save({
 		workspace,
 		itemKind,

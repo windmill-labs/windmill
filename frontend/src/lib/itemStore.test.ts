@@ -873,6 +873,39 @@ describe('item store: origins', () => {
 		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: typed })
 	})
 
+	it('still autosaves after the chat changed a loaded item during a reload', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		let reads = 0
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const { handle: item } = store.acquire(
+			key,
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(() => (reads++ === 0 ? Promise.resolve({ deployed: deployedRes }) : read.promise))
+		)
+		await settle()
+
+		const reloading = item.reload()
+		await settle()
+		// `persistGlobalDraft` on a loaded item: the value goes in through the bridge, whose
+		// reconcile writes a row, and then it writes its own row for that same value.
+		const fromChat = { ...deployedRes, description: 'from the chat' }
+		item.applyExternal(fromChat)
+		store.bridge.noteRow('w', 'resource', 'u/me/r')
+		rows.handExternally('u/me/r')
+		read.resolve({ deployed: deployedRes })
+		await reloading
+
+		// Two rows, but both carry the value that is right here, so nothing is unaccounted for
+		// and the editor has to stay able to persist what is typed next.
+		expect(item.value).toEqual(fromChat)
+		expect(item.canSave).toBe(true)
+		const typed = { ...deployedRes, description: 'typed after the chat wrote' }
+		item.value = typed
+		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: typed })
+	})
+
 	it('stays blocked when an unseen row follows the edit it kept', async () => {
 		const rows = fakeRows()
 		const read = deferred<ItemLoad<Res>>()
