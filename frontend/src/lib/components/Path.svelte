@@ -658,7 +658,9 @@
 				{@render renameMayBreakWarning()}
 			{/if}
 		{:catch}
-			{#if displayPathChangedWarning}
+			<!-- A resource's references beyond linked agents are never looked up, so a failed lookup
+			     still leaves it with the generic warning. -->
+			{#if displayPathChangedWarning && kind == 'resource'}
 				{@render renameMayBreakWarning()}
 			{/if}
 		{/await}
