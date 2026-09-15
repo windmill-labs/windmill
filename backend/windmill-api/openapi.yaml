@@ -13562,9 +13562,9 @@ paths:
         "200":
           description: app updated
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/AppDeployed"
 
   /w/{workspace}/apps/create_raw_source:
     post:
@@ -13704,9 +13704,9 @@ paths:
         "200":
           description: app updated
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/AppDeployed"
 
   /w/{workspace}/apps/update_raw/{path}:
     post:
@@ -13760,9 +13760,9 @@ paths:
         "200":
           description: app updated
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/AppDeployed"
 
   /w/{workspace}/apps/custom_path_exists/{custom_path}:
     get:
@@ -34256,6 +34256,20 @@ components:
         - extra_perms
         - raw_app
 
+
+    AppDeployed:
+      type: object
+      description: "What a deploy of an existing app answers with. `version` is the one this call wrote, which is what an editor pins as the fork base of the draft it starts next: reading the head back afterwards cannot tell it from a deploy that landed beside it. A metadata-only update writes none and reports the head it kept."
+      properties:
+        path:
+          type: string
+          description: Where the app now lives, which differs from the request path on a rename.
+        version:
+          type: integer
+          format: int64
+      required:
+        - path
+        - version
 
     AppHistory:
       type: object

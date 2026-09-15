@@ -70,7 +70,6 @@
 	// `runtime.syncPreviewWithDeployed`, which discards the fork draft + reloads
 	// the preview to the deployed version.
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
-	import { versionThisDeployWrote } from '../apps/editor/appDeploy.svelte'
 	import { stripRawAppDiffNoise } from './utils'
 	import type { RawAppData } from './dataTableRefUtils'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
@@ -519,15 +518,7 @@
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
-		// Read the head this deploy is about to append to, so the entry it writes can be
-		// told from one landing beside it (see versionThisDeployWrote).
-		const anchor = (
-			await AppService.getAppLatestVersion({
-				workspace: opWorkspace!,
-				path: appPath!
-			}).catch(() => undefined)
-		)?.version
-		await AppService.updateAppRaw({
+		const deployed = await AppService.updateAppRaw({
 			workspace: opWorkspace!,
 			path: appPath!,
 			formData: {
@@ -561,16 +552,10 @@
 			workspace: opWorkspace!,
 			path: npath
 		})
-		// `claimed` is the version this deploy can prove it wrote and becomes the next
-		// draft's base; the head is what is deployed now. The route owns this `version`
-		// prop and re-pushes `parentVersion ?? head` as soon as `onDeploy` returns.
-		const claimed = versionThisDeployWrote(appHistory, $userStore?.username, anchor)
+		// The deploy's own answer is the next draft's base; `version` is what is deployed
+		// now, and the two differ when another deploy landed beside this one. The route
+		// owns this prop and re-pushes `parentVersion ?? head` as soon as `onDeploy` returns.
 		version = appHistory[0]?.version
-		// With no claim the head may be another deploy's, so it is not a base this editor
-		// may compare against: `compareVersions` confirms instead until a later deploy
-		// claims one or the editor is reset. A failed anchor read is indistinguishable
-		// from that here, and confirming is the side that cannot lose someone's work.
-		baseUnknown = claimed === undefined
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
@@ -587,7 +572,7 @@
 		}
 		onDeploy?.({
 			path: npath,
-			version: claimed,
+			version: deployed.version,
 			head: version,
 			headBy: appHistory[0]?.created_by,
 			headAt: appHistory[0]?.created_at
@@ -616,20 +601,10 @@
 	}
 
 	let onLatest = $state(true)
-	/** The last deploy from here could not name the version it wrote: either one landed
-	 *  beside it or the anchor read failed. Either way this editor has no base to compare,
-	 *  so the guard confirms. Set by `updateApp`. */
-	let baseUnknown = $state(false)
 	/** The last comparison could not read the head, so the confirmation it raises is
 	 *  caution and not an observed deploy. Cleared by the next reading comparison. */
 	let headUnknown = $state(false)
 	async function compareVersions() {
-		if (baseUnknown) {
-			// Nothing to compare against, so confirm rather than let the next deploy
-			// assume it is current and overwrite a version nobody here has seen.
-			onLatest = false
-			return
-		}
 		if (version === undefined) {
 			return
 		}
@@ -740,7 +715,7 @@
 	bind:open
 	{diffDrawer}
 	claimOpening={() => (lastOpening = diffDrawer?.beginOpening())}
-	baseUnknown={baseUnknown || headUnknown}
+	{headUnknown}
 	bind:deployedValue
 	currentValue={currentDiffValue}
 />
@@ -925,13 +900,7 @@
 				itemKind="raw_app"
 				path={indicatorPath}
 				draftOnly={newApp}
-				onResetToDeployed={onResetToDeployed &&
-					(async () => {
-						// Back on the deployed version, so whatever the last deploy could not claim
-						// no longer describes this editor.
-						baseUnknown = false
-						await onResetToDeployed()
-					})}
+				{onResetToDeployed}
 				{loadedFromDraft}
 				{othersDraftsCount}
 				{onOpenOthersDrafts}

@@ -63,7 +63,7 @@
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
 	import type { DiffDrawerI } from '$lib/components/diff_drawer'
 	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
-	import { computeSecretUrl, versionThisDeployWrote } from './appDeploy.svelte'
+	import { computeSecretUrl } from './appDeploy.svelte'
 	import { updatePolicy } from './appPolicy'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
@@ -367,15 +367,7 @@
 
 	async function updateApp(npath: string) {
 		policy = await updatePolicy($app, policy)
-		// Read the head this deploy is about to append to, so the entry it writes can be
-		// told from one landing beside it (see versionThisDeployWrote).
-		const anchor = (
-			await AppService.getAppLatestVersion({
-				workspace: $workspaceStore!,
-				path: $appPath
-			}).catch(() => undefined)
-		)?.version
-		await AppService.updateApp({
+		const deployed = await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $appPath!,
 			requestBody: {
@@ -405,24 +397,18 @@
 			workspace: $workspaceStore!,
 			path: npath
 		})
-		// `version` is what is deployed now, which is the deploy guard's fallback head and
-		// must stay set; `claimed` is the version this deploy can prove it wrote.
-		const claimed = versionThisDeployWrote(appHistory, $userStore?.username, anchor)
+		// `version` is what is deployed now, which is the deploy guard's fallback head; the
+		// deploy's own answer is the base, and the two differ when another landed beside it.
 		version = appHistory[0]?.version
-		// With no claim the head may be another deploy's, so it is not a base this editor
-		// may compare against: `compareVersions` confirms instead until a later deploy
-		// claims one or the editor is reset. A failed anchor read is indistinguishable
-		// from that here, and confirming is the side that cannot lose someone's work.
-		baseUnknown = claimed === undefined
 		// Re-pin the fork base to the version just written: the editor stays open, so a
 		// follow-up deploy (or a new edit) would otherwise compare against the now-
 		// superseded base and falsely warn. parent_version is in
 		// DRAFT_COMPARE_IGNORED_FIELDS, so this write can't spawn a spurious draft.
-		if ($app) $app.parent_version = claimed
+		if ($app) $app.parent_version = deployed.version
 		// The route owns the pair the out-of-date prompt reads, and this editor stays open
 		// across the deploy, so hand both over rather than leaving it on the old ones.
 		onDeploy?.({
-			version: claimed,
+			version: deployed.version,
 			head: version,
 			headBy: appHistory[0]?.created_by,
 			headAt: appHistory[0]?.created_at
@@ -470,20 +456,10 @@
 	}
 
 	let onLatest = $state(true)
-	/** The last deploy from here could not name the version it wrote: either one landed
-	 *  beside it or the anchor read failed. Either way this editor has no base to compare,
-	 *  so the guard confirms. Set by `updateApp`. */
-	let baseUnknown = $state(false)
 	/** The last comparison could not read the head, so the confirmation it raises is
 	 *  caution and not an observed deploy. Cleared by the next reading comparison. */
 	let headUnknown = $state(false)
 	async function compareVersions() {
-		if (baseUnknown) {
-			// Nothing to compare against, so confirm rather than let the next deploy
-			// assume it is current and overwrite a version nobody here has seen.
-			onLatest = false
-			return
-		}
 		// Compare the draft's pinned fork base (`$app.parent_version`) against the
 		// current head when editing a draft, else the load-time head. Catches both a
 		// concurrent deploy (head moved since open) AND a stale draft reopened after a
@@ -790,7 +766,7 @@
 	bind:open
 	{diffDrawer}
 	claimOpening={() => (lastOpening = diffDrawer?.beginOpening())}
-	baseUnknown={baseUnknown || headUnknown}
+	{headUnknown}
 	bind:deployedValue
 	currentValue={{
 		summary: $summary,
@@ -1062,13 +1038,7 @@
 					itemKind="app"
 					path={userDraftPath}
 					draftOnly={newApp}
-					onResetToDeployed={onResetToDeployed &&
-						(async () => {
-							// Back on the deployed version, so whatever the last deploy could not claim
-							// no longer describes this editor.
-							baseUnknown = false
-							await onResetToDeployed()
-						})}
+					{onResetToDeployed}
 					{loadedFromDraft}
 					{othersDraftsCount}
 					{onOpenOthersDrafts}

@@ -573,6 +573,17 @@ pub struct CreateApp {
     pub skip_draft_deletion: Option<bool>,
 }
 
+/// What a deploy of an existing app answers with. `version` is the one this call wrote,
+/// which is what an editor pins as the fork base of the draft it starts next: reading the
+/// head back afterwards cannot tell it from a deploy that landed beside it. A
+/// metadata-only update writes none and reports the head it kept.
+#[derive(Serialize)]
+pub struct AppDeployed {
+    /// Where the app now lives, which differs from the request path on a rename.
+    pub path: String,
+    pub version: i64,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct EditApp {
     pub path: Option<String>,
@@ -2958,7 +2969,7 @@ async fn update_app(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
-) -> Result<String> {
+) -> JsonResult<AppDeployed> {
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot update apps for security reasons".to_string(),
@@ -2997,7 +3008,7 @@ async fn update_app(
         },
     );
 
-    Ok(format!("app {} updated (npath: {:?})", opath, npath))
+    Ok(Json(AppDeployed { path: npath, version: v_id }))
 }
 
 /// Deploy a raw app from its sources, compiling them on a worker. `update_raw`
@@ -3011,7 +3022,7 @@ async fn update_app_raw_source(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
-) -> Result<String> {
+) -> JsonResult<AppDeployed> {
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot update apps for security reasons".to_string(),
@@ -3109,7 +3120,7 @@ async fn update_app_raw_source(
         },
     );
 
-    Ok(format!("app {} updated (npath: {:?})", opath, npath))
+    Ok(Json(AppDeployed { path: npath, version: v_id }))
 }
 
 /// Whether the caller may create an app at `path` — asked of the database rather
@@ -3335,7 +3346,7 @@ async fn update_app_raw<'a>(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
     multipart: Multipart,
-) -> Result<String> {
+) -> JsonResult<AppDeployed> {
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot update apps for security reasons".to_string(),
@@ -3383,7 +3394,7 @@ async fn update_app_raw<'a>(
         },
     );
 
-    Ok(format!("app {} updated (npath: {:?})", opath, npath))
+    Ok(Json(AppDeployed { path: npath, version: v_id }))
 }
 // async fn create_app_internal<'a>(
 //     authed: ApiAuthed,
