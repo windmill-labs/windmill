@@ -194,12 +194,13 @@ describe('sessionMirror flush', () => {
 		expect(body.removed).toBeUndefined()
 		const [imageEntry, entry] = body.sessions
 		expect(imageEntry.images).toEqual([{ chat_id: 'c1', id: expect.any(String), data_url: IMAGE }])
-		// A first push goes whole: the head opens it on the first part, whichever that is.
-		expect(imageEntry.whole).toBe(true)
+		// A first push goes whole, under one token on every part: the head opens it on the
+		// first part, whichever that is.
+		expect(typeof imageEntry.whole).toBe('string')
 		expect(imageEntry.partial).toBe(true)
 		expect(imageEntry.head).toEqual({ id: 's1', createdAt: 1, workspace_id: 'ws', chatId: 'c1' })
 		expect(entry.head).toBeUndefined()
-		expect(entry.whole).toBe(true)
+		expect(entry.whole).toBe(imageEntry.whole)
 		expect(entry.chats.map((c: { id: string }) => c.id)).toEqual(['c1'])
 		// The record keeps its blob ref; bytes travel as the image object only.
 		expect(JSON.stringify(entry.chats[0].record)).not.toContain(IMAGE)
@@ -513,10 +514,10 @@ describe('sessionMirror flush', () => {
 		// the entry server-side.
 		const [first, last] = pushMock.mock.calls.map((c) => c[0].requestBody.sessions[0])
 		expect(first.partial).toBe(true)
-		expect(first.whole).toBe(true)
+		expect(typeof first.whole).toBe('string')
 		expect(first.head).toBeDefined()
 		expect(last.partial).toBeUndefined()
-		expect(last.whole).toBe(true)
+		expect(last.whole).toBe(first.whole)
 		expect(last.head).toBeUndefined()
 		expect(await pendingDirty()).toEqual(['sp'])
 		expect(await __syncRowsForTesting(EMAIL)).toEqual([])
@@ -651,7 +652,7 @@ describe('sessionMirror flush', () => {
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(3)
 		const whole = pushMock.mock.calls[2][0].requestBody.sessions[0]
-		expect(whole.whole).toBe(true)
+		expect(typeof whole.whole).toBe('string')
 		expect(whole.head).toBeDefined()
 		expect(whole.chats.map((c: { id: string }) => c.id).sort()).toEqual(['c1', 'c2'])
 		expect(await pendingDirty()).toEqual([])
@@ -838,6 +839,31 @@ describe('sessionMirror restore', () => {
 		expect(pullMock.mock.calls[1][0].requestBody).toEqual({ ids: ['s9'], resume: cursor })
 		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s9']))
 		expect((await readStoredChat('c9', EMAIL))?.displayMessages).toHaveLength(1)
+		expect((await readStoredChat('c9b', EMAIL))?.id).toBe('c9b')
+	})
+
+	it('starts a session over when its only page was read while the backup moved', async () => {
+		listMock.mockResolvedValue({
+			enabled: true,
+			sessions: [{ id: 's9', updated_at: '2026-09-14T00:00:00Z' }]
+		})
+		const c9b = { ...backup.chats[0], id: 'c9b', record: { ...backup.chats[0].record, id: 'c9b' } }
+		pullMock
+			.mockResolvedValueOnce({
+				enabled: true,
+				sessions: [{ ...backup, chats: [backup.chats[0]], moved: true }],
+				deferred: []
+			})
+			.mockResolvedValueOnce({
+				enabled: true,
+				sessions: [{ ...backup, chats: [backup.chats[0], c9b] }],
+				deferred: []
+			})
+		usersWorkspaceStore.set({ email: EMAIL, workspaces: [] } as never)
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		expect(pullMock).toHaveBeenCalledTimes(2)
+		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s9']))
 		expect((await readStoredChat('c9b', EMAIL))?.id).toBe('c9b')
 	})
 

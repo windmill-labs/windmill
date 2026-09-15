@@ -151,7 +151,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
             "owner": "test@windmill.dev",
             "sessions": [{
                 "id": "s1",
-                "whole": true,
+                "whole": "w",
                 "head": head,
                 "chats": [{ "id": "c1", "record": chat }, { "id": "c2", "record": { "id": "c2" } }],
                 "images": [{ "chat_id": "c1", "id": "img1", "data_url": "data:image/png;base64,AAAA" }],
@@ -184,7 +184,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s2", "whole": true, "head": { "id": "s2", "workspace_id": "test-workspace", "createdAt": 2, "chatId": "c" }, "partial": true }]
+            "sessions": [{ "id": "s2", "whole": "w", "head": { "id": "s2", "workspace_id": "test-workspace", "createdAt": 2, "chatId": "c" }, "partial": true }]
         }),
     )
     .await?;
@@ -195,7 +195,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s2", "whole": true, "chats": [{ "id": "c", "record": { "id": "c" } }] }]
+            "sessions": [{ "id": "s2", "whole": "w", "chats": [{ "id": "c", "record": { "id": "c" } }] }]
         }),
     )
     .await?;
@@ -217,7 +217,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s4", "whole": true, "head": { "id": "s4", "workspace_id": "test-workspace", "createdAt": 4, "chatId": "c1" }, "partial": true }]
+            "sessions": [{ "id": "s4", "whole": "w", "head": { "id": "s4", "workspace_id": "test-workspace", "createdAt": 4, "chatId": "c1" }, "partial": true }]
         }),
     )
     .await?;
@@ -228,7 +228,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
             "SECRET_TOKEN",
             json!({
                 "owner": "test@windmill.dev",
-                "sessions": [{ "id": "s4", "whole": true, "chats": [{ "id": cid, "record": { "id": cid, "big": big } }], "partial": cid != "c3" }]
+                "sessions": [{ "id": "s4", "whole": "w", "chats": [{ "id": cid, "record": { "id": cid, "big": big } }], "partial": cid != "c3" }]
             }),
         )
         .await?;
@@ -302,7 +302,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s5", "whole": true, "head": { "id": "s5", "workspace_id": "test-workspace", "createdAt": 5, "chatId": "c00000" }, "partial": true }]
+            "sessions": [{ "id": "s5", "whole": "w", "head": { "id": "s5", "workspace_id": "test-workspace", "createdAt": 5, "chatId": "c00000" }, "partial": true }]
         }),
     )
     .await?;
@@ -316,7 +316,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
             "SECRET_TOKEN",
             json!({
                 "owner": "test@windmill.dev",
-                "sessions": [{ "id": "s5", "whole": true, "chats": chats, "partial": start + 100 < many }]
+                "sessions": [{ "id": "s5", "whole": "w", "chats": chats, "partial": start + 100 < many }]
             }),
         )
         .await?;
@@ -372,7 +372,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     let resp = push(
         &base,
         "SECRET_TOKEN",
-        json!({ "owner": "test@windmill.dev", "sessions": [{ "id": "s3", "whole": true, "head": big_head }] }),
+        json!({ "owner": "test@windmill.dev", "sessions": [{ "id": "s3", "whole": "w", "head": big_head }] }),
     )
     .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
@@ -554,7 +554,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s1", "whole": true, "head": head, "chats": [{ "id": "c2", "record": { "id": "c2" } }] }]
+            "sessions": [{ "id": "s1", "whole": "w", "head": head, "chats": [{ "id": "c2", "record": { "id": "c2" } }] }]
         }),
     )
     .await?;
@@ -605,7 +605,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s6", "whole": true, "head": s6_head, "chats": [{ "id": "c", "record": { "id": "c" } }] }]
+            "sessions": [{ "id": "s6", "whole": "w", "head": s6_head, "chats": [{ "id": "c", "record": { "id": "c" } }] }]
         }),
     )
     .await?;
@@ -651,7 +651,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s8", "whole": true, "head": s8_head, "partial": true }]
+            "sessions": [{ "id": "s8", "whole": "w", "head": s8_head, "partial": true }]
         }),
     )
     .await?;
@@ -681,7 +681,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s8", "whole": true, "chats": [{ "id": "c1", "record": { "id": "c1" } }] }]
+            "sessions": [{ "id": "s8", "whole": "w", "chats": [{ "id": "c1", "record": { "id": "c1" } }] }]
         }),
     )
     .await?;
@@ -700,6 +700,114 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         &base,
         "SECRET_TOKEN",
         json!({ "owner": "test@windmill.dev", "removed": ["s8"] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+
+    // A whole push replaces the backup: what the storage held of the session and the new
+    // push does not carry (a chat deleted while the workspace was on another storage) goes.
+    let s9_head =
+        json!({ "id": "s9", "workspace_id": "test-workspace", "createdAt": 9, "chatId": "c1" });
+    let s9_chats = |ids: &[&str]| -> Vec<Value> {
+        ids.iter()
+            .map(|c| json!({ "id": c, "record": { "id": c } }))
+            .collect()
+    };
+    let pulled_chats = |pulled: Value| -> Vec<String> {
+        pulled["sessions"][0]["chats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s9", "whole": "t1", "head": s9_head, "chats": s9_chats(&["c1", "c2"]) }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        pulled_chats(pull(&base, "SECRET_TOKEN", &["s9"]).await?),
+        vec!["c1", "c2"]
+    );
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s9", "whole": "t2", "head": s9_head, "chats": s9_chats(&["c1"]) }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        pulled_chats(pull(&base, "SECRET_TOKEN", &["s9"]).await?),
+        vec!["c1"]
+    );
+
+    // Two devices pushing the session whole at once: the push that opened later replaced
+    // the earlier one's pieces, so the earlier one's last part is refused and lists nothing,
+    // and the session is listed with the later push's pieces alone.
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s9", "whole": "t3", "head": s9_head, "chats": s9_chats(&["c3"]), "partial": true }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s9", "whole": "t4", "head": s9_head, "chats": s9_chats(&["c4"]), "partial": true }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s9", "whole": "t3", "chats": s9_chats(&["c5"]) }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let answer: Value = resp.json().await?;
+    assert_eq!(answer["results"][0]["needs_whole"], true);
+    assert!(list(&base, "SECRET_TOKEN").await?["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|s| s["id"] != "s9"));
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s9", "whole": "t4", "chats": s9_chats(&["c6"]) }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        pulled_chats(pull(&base, "SECRET_TOKEN", &["s9"]).await?),
+        vec!["c4", "c6"]
+    );
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "removed": ["s9"] }),
     )
     .await?;
     assert_eq!(resp.status(), 200);
@@ -762,7 +870,7 @@ async fn test_backup_writes_are_refused_for_the_wrong_owner_token_or_id(
     let resp = push(
         &base,
         "SECRET_TOKEN",
-        json!({ "owner": "test@windmill.dev", "sessions": [{ "id": "s7", "whole": true, "chats": [{ "id": "c", "record": { "id": "c" } }] }] }),
+        json!({ "owner": "test@windmill.dev", "sessions": [{ "id": "s7", "whole": "w", "chats": [{ "id": "c", "record": { "id": "c" } }] }] }),
     )
     .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);

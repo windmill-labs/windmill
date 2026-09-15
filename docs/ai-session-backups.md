@@ -55,13 +55,18 @@ lists a session only once a whole push landed; the parts of a session after a fa
 not written either, on the server within one push and on the client across pushes, so the
 marker on the last part never lists a session missing a chat, and a new session whose last part
 never lands is not listed at all. A push of the session whole (no sync row, or a stale one)
-says `whole` on every part and opens with the head on the first; its last part writes the
-marker only once the head is there. An incremental part rides on a listed session, and the
-server refuses it with `needs_whole`, writing nothing, when none is listed (a removal deletes
-the marker first, and a whole push from another device lists nothing until its last part),
-rather than write a marker over a session missing what earlier parts or earlier pushes
-carried. A push and a removal of one session are serialized on the server by a Postgres
-advisory lock keyed on the session's prefix, so the two never interleave object by object.
+names itself on every part with a token the browser draws (`whole`) and opens with the head
+on the first: that part replaces the backup (the marker goes first, then everything under
+the session, then the token is written), so what an old storage still held of the session
+and the push does not carry is gone, and a later part is written only while that token is
+the one there, so two devices pushing the session whole at once cannot list a mix of their
+pieces (the push that opened later wins; the other is refused with `needs_whole` and goes
+again). An incremental part rides on a listed session, and the server refuses it with
+`needs_whole`, writing nothing, when none is listed (a removal deletes the marker first, and a
+whole push lists nothing until its last part), rather than write a marker over a session
+missing what earlier parts or earlier pushes carried. A push and a removal of one session
+are serialized on the server by a Postgres advisory lock keyed on the session's prefix, so
+the two never interleave object by object.
 
 The head signature leaves out `name` (a per-browser counter the sessions page routes by),
 the unsent-draft fields, `workspace_root_id` (recomputed on import), and the two fields reading
@@ -191,7 +196,11 @@ budget: a session's size is known from the listings before anything of it is rea
 would not fit is deferred unless it is the first of the answer, in which case it comes in
 pages: the answer carries what fits in key order (at least one object, so every page makes
 progress) and names where the next picks up (`next`, a cursor the browser sends back as
-`resume` with that session alone). The browser writes each page's pieces as it arrives, over whatever
+`resume` with that session alone). Every page carries a fingerprint of the session's listing
+(marker, keys, sizes, modification times) taken before anything of it is read, and the server
+takes it again once the page is read: a page the backup moved under (a push landing object by
+object) is read again, a few times, then answered as `moved`, and the browser starts the
+session over on that or on two pages whose fingerprints differ. The browser writes each page's pieces as it arrives, over whatever
 an earlier restore cut short had staged (the session is absent locally, so its pieces have no
 local edits to keep, and the backup may have moved on), and the record, which is what makes
 the session visible, only with the last page. A restore in progress keeps a staging row for

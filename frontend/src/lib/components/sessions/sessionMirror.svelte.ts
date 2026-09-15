@@ -24,6 +24,7 @@ import { userWorkspaces } from '$lib/stores'
 import { userScopedDb } from '$lib/userScopedDb'
 import { getCurrentUserEmail, onUserChange, scopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { randomUUID } from '$lib/utils/uuid'
 import { workspaceRootId } from './sessionScope.svelte'
 import { onMirrorSignal } from './sessionMirrorSignal'
 import {
@@ -729,15 +730,16 @@ async function pushWorkspace(
 			generation: item.sync?.generation
 		})
 		if (nothingToSend) continue
-		// A push of the session whole says so on every part and opens with its head on the
-		// first, whichever that is: the server lists the session by the last part once the
-		// head landed, and meanwhile refuses any push that rides on a listed session.
+		// A push of the session whole names itself on every part and opens with its head on
+		// the first, whichever that is: the server replaces the backup on that part, lists
+		// the session by the last, and meanwhile refuses any other push of it.
+		const whole = plan.whole ? randomUUID() : undefined
 		let opened = false
 		const open = (part: AISessionBackupPush): AISessionBackupPush => {
-			if (!plan.whole) return part
+			if (!whole) return part
 			const first = !opened
 			opened = true
-			return first ? { ...part, head: plan.entry?.head, whole: true } : { ...part, whole: true }
+			return first ? { ...part, head: plan.entry?.head, whole } : { ...part, whole }
 		}
 		let images: AISessionBackupImage[] = []
 		let imagesBytes = 0
@@ -1184,11 +1186,14 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 			// over any more.
 			if ((await readStoredSessions(email))?.some((s) => s.id === b.id)) continue
 			// The backup moved between two pages (a chat sorting before the cursor would be
-			// missed): the pages so far do not belong together, the session starts over.
-			if (earlier?.listing !== undefined && b.listing !== earlier.listing) {
+			// missed) or under this one (the page may mix two versions): the pages so far do
+			// not belong together, the session starts over.
+			if (b.moved || (earlier?.listing !== undefined && b.listing !== earlier.listing)) {
 				const n = (restarts.get(b.id) ?? 0) + 1
 				restarts.set(b.id, n)
-				earlierStaging.set(b.id, union(earlierStaging.get(b.id) ?? noPieces(), earlier.pieces))
+				if (earlier) {
+					earlierStaging.set(b.id, union(earlierStaging.get(b.id) ?? noPieces(), earlier.pieces))
+				}
 				if (n < MAX_RESTARTS) ids.unshift(b.id)
 				else console.warn(`Session backup ${b.id} kept changing while restoring; left for later`)
 				continue

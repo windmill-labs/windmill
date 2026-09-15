@@ -112,6 +112,12 @@ impl Backend {
         ObjectPath::from(format!("{}/index/{sid}", self.prefix))
     }
 
+    /// The token of the whole push in progress, under the session so a removal or the next
+    /// whole push clears it with the rest.
+    fn push_key(&self, sid: &str) -> ObjectPath {
+        ObjectPath::from(format!("{}/sessions/{sid}/push", self.prefix))
+    }
+
     fn session_prefix(&self, sid: &str) -> ObjectPath {
         ObjectPath::from(format!("{}/sessions/{sid}/", self.prefix))
     }
@@ -261,28 +267,42 @@ impl Backend {
         Ok(())
     }
 
-    /// A fingerprint of everything listed under the session's two prefixes (key, size,
-    /// modification time), combined as the listing streams and in no particular order, so a
-    /// session of any size costs bounded memory. Pages of one pull carry it, and the browser
-    /// starts the session over when it moved between two of them.
-    async fn listing_fingerprint(&self, sid: &str) -> Result<String> {
+    /// A fingerprint of the session's marker and of everything listed under its two
+    /// prefixes (key, size, modification time), combined as the listing streams and in no
+    /// particular order, so a session of any size costs bounded memory. `None` for a session
+    /// the storage does not list. Taken before and after a page is read, so a page a push
+    /// changed under is read again; pages of one pull carry it, and the browser starts the
+    /// session over when it moved between two of them.
+    async fn listing_fingerprint(&self, sid: &str) -> Result<Option<String>> {
         use std::hash::{DefaultHasher, Hash, Hasher};
-        let mut acc: u64 = 0;
+        fn fold<S: Hash>(acc: u64, location: &str, size: S, modified: i64) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            (location, size, modified).hash(&mut hasher);
+            acc.wrapping_add(hasher.finish())
+        }
+        let mut acc = match self.store.head(&self.index_key(sid)).await {
+            Ok(meta) => fold(
+                0,
+                meta.location.as_ref(),
+                meta.size,
+                meta.last_modified.timestamp_millis(),
+            ),
+            Err(ObjectStoreError::NotFound { .. }) => return Ok(None),
+            Err(e) => return Err(object_store_error_to_error(e)),
+        };
         for prefix in [self.session_prefix(sid), self.images_prefix(sid)] {
             let mut stream = self.store.list(Some(&prefix));
             while let Some(meta) = stream.next().await {
                 let meta = meta.map_err(object_store_error_to_error)?;
-                let mut hasher = DefaultHasher::new();
-                (
+                acc = fold(
+                    acc,
                     meta.location.as_ref(),
                     meta.size,
                     meta.last_modified.timestamp_millis(),
-                )
-                    .hash(&mut hasher);
-                acc = acc.wrapping_add(hasher.finish());
+                );
             }
         }
-        Ok(format!("{acc:016x}"))
+        Ok(Some(format!("{acc:016x}")))
     }
 
     async fn exists(&self, key: &ObjectPath) -> Result<bool> {
@@ -526,7 +546,15 @@ struct PulledSession {
     /// A fingerprint of the session's listing (every key, size and modification time), so
     /// the browser tells that the backup changed between the pages it assembled.
     listing: String,
+    /// The backup kept changing while this page was read (a push landing object by object),
+    /// so the page may mix two versions: the browser starts the session over.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    moved: bool,
 }
+
+/// How many times a page whose listing moved while it was read is read again before it is
+/// handed over as `moved`.
+const PULL_REREADS: usize = 3;
 
 #[derive(Serialize)]
 struct PullResponse {
@@ -563,10 +591,39 @@ async fn pull_session(
     first: bool,
     resume: Option<&PullCursor>,
 ) -> Result<PullStep> {
+    // A page read while a push lands object by object may mix two versions of the session:
+    // the listing is taken again once the page is read, and a page it moved under is read
+    // again, a few times, then handed over as such for the browser to start over.
+    for reread in 0..PULL_REREADS {
+        let step = pull_page(backend, sid, budget, first, resume).await?;
+        let PullStep::Fetched(mut page, size) = step else {
+            return Ok(step);
+        };
+        if backend.listing_fingerprint(sid).await?.as_deref() == Some(page.listing.as_str()) {
+            return Ok(PullStep::Fetched(page, size));
+        }
+        if reread + 1 == PULL_REREADS {
+            page.moved = true;
+            return Ok(PullStep::Fetched(page, size));
+        }
+    }
+    unreachable!("a page is answered on the last reread")
+}
+
+async fn pull_page(
+    backend: &Backend,
+    sid: &str,
+    budget: usize,
+    first: bool,
+    resume: Option<&PullCursor>,
+) -> Result<PullStep> {
     // Taken before anything of the page is listed or read: an object landing after it is
     // in the next page's fingerprint, whereas one landing after the reads but before a
-    // fingerprint taken then would have certified a page without it.
-    let listing = backend.listing_fingerprint(sid).await?;
+    // fingerprint taken then would have certified a page without it. A session the storage
+    // does not list (removed, or a whole push in progress) is absent.
+    let Some(listing) = backend.listing_fingerprint(sid).await? else {
+        return Ok(PullStep::Absent);
+    };
     let Read::Text(head) = backend
         .get(&backend.head_key(sid), MAX_HEAD_BYTES + CIPHER_PADDING)
         .await?
@@ -718,6 +775,7 @@ async fn pull_session(
             artifacts,
             next,
             listing,
+            moved: false,
         },
         size,
     ))
@@ -808,11 +866,13 @@ struct PushedSession {
     /// listed on this one.
     #[serde(default)]
     partial: bool,
-    /// A part of a push of the session whole: the head is on the first of them, and every
-    /// piece the browser has is on one of them. Any other part rides on a session the
-    /// storage lists, and is refused with `needs_whole` when it lists none.
+    /// A part of a push of the session whole, named by a token the browser draws for that
+    /// push: the head is on the first of them, which replaces whatever the storage holds of
+    /// the session, and every piece the browser has is on one of them. A part of another
+    /// whole push than the one in progress is refused with `needs_whole`, and so is a part
+    /// without a token (an incremental one) when the storage lists no such session.
     #[serde(default)]
-    whole: bool,
+    whole: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -832,9 +892,9 @@ struct PushResult {
     id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
-    /// The session must be pushed whole again: an incremental part found no listed session
-    /// to ride on (another device removed the backup, or is still pushing it whole) and
-    /// wrote nothing, or the last part of a whole push found no head and wrote no marker.
+    /// Nothing was written; the session must be pushed whole again: an incremental part
+    /// found no listed session to ride on (another device removed the backup, or is still
+    /// pushing it whole), or a part of a whole push found another one in progress.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     needs_whole: bool,
 }
@@ -879,6 +939,9 @@ fn validate_push(req: &PushRequest) -> Result<()> {
     }
     for s in &req.sessions {
         require_valid_id("session", &s.id)?;
+        if let Some(token) = &s.whole {
+            require_valid_id("push", token)?;
+        }
         if let Some(head) = &s.head {
             require_json_object("head", head, MAX_HEAD_BYTES)?;
         }
@@ -917,17 +980,42 @@ fn push_payload_bytes(req: &PushRequest) -> usize {
         .sum()
 }
 
-/// Runs under the session's lock (see `lock_session`). An incremental part assumes the rest
-/// of the session is in the storage, which a removal since would have taken, or another
-/// device's whole push may still be bringing: it is refused unless the session is listed,
-/// before anything of it lands, or the marker it may write would list a session missing
-/// pieces the browser never re-sent. Deletes run last, and the marker only by the last part
-/// once the head is there, so a push cut short never leaves a listed session pointing at
-/// chats that are not there, nor one without a head.
+/// Runs under the session's lock (see `lock_session`). The first part of a whole push (the
+/// one with the head) replaces the backup: the marker goes first, so nothing lists the
+/// session until the last part, then everything else, then the token naming the push. A
+/// later part of a whole push is written only while that token is the one there, so two
+/// devices pushing the session whole at once cannot list a mix of their pieces: the push
+/// that opened later wins, the other is refused and goes again. An incremental part assumes
+/// the rest of the session is in the storage, which a removal since would have taken, or a
+/// whole push may still be bringing: it is refused unless the session is listed. Every
+/// refusal comes before anything of the part lands. Deletes run last, and the marker only
+/// by the last part, so a push cut short never leaves a listed session pointing at chats
+/// that are not there.
 /// Bytes written, and whether the part was refused for the session to go whole.
 async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bool)> {
-    if !s.whole && !backend.exists(&backend.index_key(&s.id)).await? {
-        return Ok((0, true));
+    match &s.whole {
+        Some(token) if s.head.is_some() => {
+            backend.delete(&backend.index_key(&s.id)).await?;
+            backend
+                .delete_prefix(&backend.session_prefix(&s.id))
+                .await?;
+            backend.delete_prefix(&backend.images_prefix(&s.id)).await?;
+            backend
+                .put(&backend.push_key(&s.id), token.as_bytes())
+                .await?;
+        }
+        Some(token) => match backend
+            .get(&backend.push_key(&s.id), token.len() + CIPHER_PADDING)
+            .await?
+        {
+            Read::Text(current) if current == *token => {}
+            _ => return Ok((0, true)),
+        },
+        None => {
+            if !backend.exists(&backend.index_key(&s.id)).await? {
+                return Ok((0, true));
+            }
+        }
     }
     let mut written = 0;
     written += backend
@@ -983,15 +1071,15 @@ async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bo
     if s.partial {
         return Ok((written, false));
     }
-    if s.whole && !backend.exists(&backend.head_key(&s.id)).await? {
-        return Ok((written, true));
-    }
     // Last, and by the last part only, so a session is listed once its whole entry landed.
     backend
         .store
         .put(&backend.index_key(&s.id), PutPayload::new())
         .await
         .map_err(object_store_error_to_error)?;
+    if s.whole.is_some() {
+        backend.delete(&backend.push_key(&s.id)).await?;
+    }
     Ok((written, false))
 }
 
