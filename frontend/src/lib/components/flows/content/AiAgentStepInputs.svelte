@@ -302,8 +302,13 @@
 		})
 	})
 
+	// A history input's row follows its key rather than `visible`, so the run form is told about one
+	// only while the step holds the key: an inherited memory id has nothing a test run could inherit.
 	$effect(() => {
-		const keys = [...visible]
+		const keys = [
+			...[...visible].filter((key) => !isHistoryKey(key)),
+			...AGENT_HISTORY_KEYS.filter((key) => args?.[key] != undefined)
+		]
 		untrack(() => rememberOpenFields(visibilityKey, keys))
 	})
 
@@ -558,8 +563,8 @@
 											)}
 											{#if args?.memory_id == undefined}
 												<p class="mt-1 text-xs text-secondary">
-													Uses the chat conversation id or the <code>memory_id</code> passed to the
-													run.
+													Uses the <code>memory_id</code> the run was started with: the conversation
+													id in chat mode, or the <code>memory_id</code> query parameter otherwise.
 													<a
 														href={AGENT_MEMORY_DOCS_URL}
 														target="_blank"
