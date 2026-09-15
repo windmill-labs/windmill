@@ -658,11 +658,11 @@
 				onDeploy={({ version, head }) => {
 					// The version this deploy wrote is the base the next autosave carries; the
 					// head is what is deployed now. They differ when another deploy landed
-					// beside this one, and the next draft is then behind from the start.
-					if (version != null) {
-						parentVersion = version
-						draftBaseVersion = String(version)
-					}
+					// beside this one, and the next draft is then behind from the start. A
+					// deploy that could not claim a version leaves the base unknown rather
+					// than keeping the one it just superseded.
+					parentVersion = version
+					draftBaseVersion = version != null ? String(version) : undefined
 					if (head != null) {
 						deployedHeadVersion = String(head)
 					}

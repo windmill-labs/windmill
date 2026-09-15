@@ -552,9 +552,11 @@
 			workspace: opWorkspace!,
 			path: npath
 		})
-		// The version this deploy wrote, not the head: they differ when someone else's
-		// deploy landed in between, and this becomes the next draft's base below.
-		version = versionThisDeployWrote(appHistory, $userStore?.username, headBefore?.version)
+		// Two different things: `version` is what is deployed now, which is what the deploy
+		// guard compares against and must stay set, and `claimed` is the version this deploy
+		// can prove it wrote, which is the next draft's base.
+		const claimed = versionThisDeployWrote(appHistory, $userStore?.username, headBefore?.version)
+		version = appHistory[0]?.version
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
@@ -569,7 +571,7 @@
 		if (appPath !== npath) {
 			onSavedNewAppPath?.(npath)
 		}
-		onDeploy?.({ path: npath, version, head: appHistory[0]?.version })
+		onDeploy?.({ path: npath, version: claimed, head: version })
 	}
 
 	async function setPublishState(message?: string) {

@@ -398,12 +398,19 @@
 			workspace: $workspaceStore!,
 			path: npath
 		})
-		version = versionThisDeployWrote(appHistory, $userStore?.username, headBefore?.version)
+		// `version` is what is deployed now, which is the deploy guard's fallback head and
+		// must stay set; the pin below is the version this deploy can prove it wrote.
+		version = appHistory[0]?.version
 		// Re-pin the fork base to the version just written: the editor stays open, so a
 		// follow-up deploy (or a new edit) would otherwise compare against the now-
 		// superseded base and falsely warn. parent_version is in
 		// DRAFT_COMPARE_IGNORED_FIELDS, so this write can't spawn a spurious draft.
-		if ($app) $app.parent_version = version
+		if ($app)
+			$app.parent_version = versionThisDeployWrote(
+				appHistory,
+				$userStore?.username,
+				headBefore?.version
+			)
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')

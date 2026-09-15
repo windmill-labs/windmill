@@ -20,8 +20,8 @@ describe('versionThisDeployWrote', () => {
 	})
 
 	it('claims nothing it cannot tell apart from another deploy', () => {
-		// The same account deploying from elsewhere is indistinguishable by author, so
-		// the entry has to sit on the head this deploy read, and this one does not.
+		// Two entries of the caller's sit above the head it read, so neither can be shown
+		// to be this deploy's: taking either would pin a version it may not have written.
 		expect(versionThisDeployWrote([alice(9), alice(7), bob(6)], 'alice', 6)).toBe(undefined)
 		expect(versionThisDeployWrote([bob(8), bob(6)], 'alice', 6)).toBe(undefined)
 		expect(versionThisDeployWrote([], 'alice', 6)).toBe(undefined)
