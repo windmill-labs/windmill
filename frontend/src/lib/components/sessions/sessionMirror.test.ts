@@ -98,6 +98,7 @@ import {
 	__flushForTesting,
 	__resetMirrorForTesting,
 	__settleForTesting,
+	__setOffRetryForTesting,
 	__syncRowsForTesting,
 	__writeSyncForTesting,
 	backupSettingsChanged,
@@ -325,6 +326,7 @@ describe('sessionMirror flush', () => {
 		// there, so its mark goes rather than piling up on a storage-less instance.
 		await putSession({ ...s, summary: 'changed' })
 		await putSession(never)
+		__setOffRetryForTesting(50)
 		pushMock.mockResolvedValueOnce({ enabled: false, results: [] })
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(3)
@@ -339,17 +341,49 @@ describe('sessionMirror flush', () => {
 		expect(pendingKeys()).toEqual(['r::s2::ws'])
 
 		// Backups an admin turns on again elsewhere are noticed once the page's memory of
-		// them being off expires: the removal goes then.
-		const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 11 * 60_000)
-		try {
-			pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 's2' }] })
-			await __flushForTesting()
-		} finally {
-			now.mockRestore()
-		}
-		expect(pushMock).toHaveBeenCalledTimes(4)
+		// them being off expires, with nothing else prompting it: the removal goes then.
+		listMock.mockResolvedValue({ enabled: true, sessions: [] })
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 's2' }] })
+		await vi.waitFor(() => expect(pushMock).toHaveBeenCalledTimes(4), { timeout: 3000 })
 		expect(pushMock.mock.calls[3][0].requestBody.removed).toEqual(['s2'])
+		await vi.waitFor(() => expect(listMock).toHaveBeenCalledTimes(1))
+		await __settleForTesting()
 		expect(pendingKeys()).toEqual([])
+	})
+
+	it('backs up after a reload an edit whose bump only the sync row carries', async () => {
+		// Storage full from the session's first mark on: the first push carries the mark this
+		// page kept, and the edit landing while it is in flight goes onto the row it writes.
+		const s: Session = { id: 'sx', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
+		const setItem = localStorage.setItem.bind(localStorage)
+		localStorage.setItem = (key: string, value: string) => {
+			if (key.includes('::d::')) throw new Error('QuotaExceededError')
+			setItem(key, value)
+		}
+		try {
+			sessionState.sessions = [s]
+			await putSession(s)
+			let release!: (value: unknown) => void
+			pushMock.mockImplementationOnce(() => new Promise((r) => (release = r)))
+			const inFlight = __flushForTesting()
+			await vi.waitFor(() => expect(pushMock).toHaveBeenCalledTimes(1))
+			await putSession({ ...s, summary: 'second' })
+			release({ enabled: true, results: [{ id: 'sx' }] })
+			await inFlight
+		} finally {
+			localStorage.setItem = setItem
+		}
+		expect(pendingKeys()).toEqual([])
+		const row = (await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'sx')
+		expect((row?.extraV ?? 0) > (row?.flushedV ?? -1)).toBe(true)
+
+		// A reload: nothing in localStorage or memory names the session, the row does.
+		__resetMirrorForTesting()
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sx' }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(pushMock.mock.calls[1][0].requestBody.sessions[0].head.summary).toBe('second')
+		expect(await pendingDirty()).toEqual([])
 	})
 
 	it('backs up and restores again at once when the backups are turned on from this page', async () => {

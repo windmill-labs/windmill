@@ -184,13 +184,11 @@ function bumpDirty(sessionId: string, email?: string): boolean {
 }
 
 /** The durable fallback for a dirty mark that could not be written: the bump goes on the
- * sync row, where a flush in flight cannot lose it (`writeSync` keeps it). A session
- * without a row is live without any mark, and marked again by every load's backfill. */
-/** A bump localStorage refused goes on the sync row. A session with no row yet (its first
- * push in flight, say) keeps it in this page until a row is written, which takes it over
- * (see `writeSync`): the row the push writes would otherwise retire the mark with the bump
- * unseen. Another user's session with no row is left to that user's next load, which marks
- * every session without a row. */
+ * sync row, where a flush in flight cannot lose it (`writeSync` keeps it). A session with
+ * no row yet (its first push in flight, say) keeps it in this page until a row is written,
+ * which takes it over (see `writeSync`): the row the push writes would otherwise retire the
+ * mark with the bump unseen. Another user's session with no row is left to that user's next
+ * load, whose backfill marks every session without a row. */
 async function bumpViaSyncRow(id: string, email = getCurrentUserEmail()): Promise<void> {
 	if (!email) return
 	let carried = false
@@ -291,23 +289,42 @@ let retryMs = RETRY_MIN_MS
  * but the marks and the sync state stay, so the next load tries again.
  */
 const wsState = new Map<string, 'on' | 'off' | 'refused'>()
-/** When each workspace was last found off: backups an admin turns on again are noticed
- * at the next flush or restore after `OFF_RETRY_MS`, or at once in the admin's own page
- * (see `backupSettingsChanged`). */
-const offSince = new Map<string, number>()
+/** Backups an admin turns on again elsewhere are noticed `OFF_RETRY_MS` after the workspace
+ * was found off: a timer per off workspace forgets the state then and asks again, so a
+ * pending mark left for the workspace does not wait for something else to flush. The
+ * admin's own page hears of the switch at once (see `backupSettingsChanged`). */
+const offTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const OFF_RETRY_MS = 10 * 60_000
+let offRetryMs = OFF_RETRY_MS
 
 function markOff(ws: string): void {
 	wsState.set(ws, 'off')
-	offSince.set(ws, Date.now())
+	clearTimeout(offTimers.get(ws))
+	offTimers.set(
+		ws,
+		setTimeout(() => {
+			offTimers.delete(ws)
+			if (wsState.get(ws) === 'off') wsState.delete(ws)
+			restoredWorkspaces.delete(ws)
+			void enqueue(flush)
+			restoreSessionBackups(ws)
+		}, offRetryMs)
+	)
+}
+
+function forgetOff(ws: string): void {
+	clearTimeout(offTimers.get(ws))
+	offTimers.delete(ws)
+	if (wsState.get(ws) === 'off') wsState.delete(ws)
+}
+
+function clearOffTimers(): void {
+	for (const timer of offTimers.values()) clearTimeout(timer)
+	offTimers.clear()
 }
 
 function isOff(ws: string): boolean {
-	if (wsState.get(ws) !== 'off') return false
-	if (Date.now() - (offSince.get(ws) ?? 0) < OFF_RETRY_MS) return true
-	wsState.delete(ws)
-	offSince.delete(ws)
-	return false
+	return wsState.get(ws) === 'off'
 }
 let backfilled = false
 /** Sessions of the current user whose dirty mark could not be written this page. */
@@ -491,8 +508,9 @@ async function markStale(rows: MirrorSyncState[], email: string): Promise<void> 
 	for (const row of rows) bumpDirty(row.id)
 }
 
-/** Sessions this browser has backed up nothing of yet, or whose backup went stale:
- * everything committed to a workspace gets a mark, once per page load. */
+/** Sessions this browser has backed up nothing of yet, whose backup went stale, or whose
+ * row carries bumps (localStorage refused their marks) no push has covered: everything
+ * committed to a workspace gets a mark, once per page load. */
 async function backfillMarks(marks: PendingMarks, email: string): Promise<boolean> {
 	if (backfilled) return true
 	const sessions = await readStoredSessions(email)
@@ -503,8 +521,9 @@ async function backfillMarks(marks: PendingMarks, email: string): Promise<boolea
 	const marked = new Set(marks.dirty.map((d) => d.id))
 	for (const s of sessions) {
 		const row = rows.get(s.id)
-		if (s.workspace_id && (!row || row.stale) && !marked.has(s.id)) {
-			bumpDirty(s.id)
+		const owed = !row || row.stale || (row.flushedV ?? -1) < (row.extraV ?? 0)
+		if (s.workspace_id && owed && !marked.has(s.id)) {
+			if (!bumpDirty(s.id) && !unwritableMarks.has(s.id)) unwritableMarks.set(s.id, 0)
 			marks.dirty.push({ id: s.id, v: 1 })
 		}
 	}
@@ -1520,8 +1539,8 @@ export function restoreSessionBackups(currentWorkspace: string): void {
 /** The workspace's backups were just turned on or off from this page: what was learnt of
  * them is forgotten, and the next flush and a restore find out afresh. */
 export function backupSettingsChanged(ws: string): void {
+	forgetOff(ws)
 	wsState.delete(ws)
-	offSince.delete(ws)
 	restoredWorkspaces.delete(ws)
 	// The rows went stale when the backups went off: the sessions are marked again.
 	backfilled = false
@@ -1559,6 +1578,7 @@ if (BROWSER) {
 		retryAt = 0
 		retryMs = RETRY_MIN_MS
 		wsState.clear()
+		clearOffTimers()
 		restoredWorkspaces.clear()
 		backfilled = false
 		unwritableMarks.clear()
@@ -1582,6 +1602,11 @@ export async function __syncRowsForTesting(email: string): Promise<MirrorSyncSta
 	return allSyncRows(email)
 }
 
+/** Test-only: how long a workspace found off is left alone before the page asks again. */
+export function __setOffRetryForTesting(ms: number): void {
+	offRetryMs = ms
+}
+
 /** Test-only: plant sync rows, as an earlier page load would have left them. */
 export function __writeSyncForTesting(rows: MirrorSyncState[], email: string): Promise<void> {
 	return writeSync(rows, email)
@@ -1601,6 +1626,8 @@ export function __resetMirrorForTesting(): void {
 	retryAt = 0
 	retryMs = RETRY_MIN_MS
 	wsState.clear()
+	clearOffTimers()
+	offRetryMs = OFF_RETRY_MS
 	restoredWorkspaces.clear()
 	backfilled = false
 	unwritableMarks.clear()
