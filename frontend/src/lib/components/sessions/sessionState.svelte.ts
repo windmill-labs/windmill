@@ -27,7 +27,13 @@ import { userScopedDb } from '$lib/userScopedDb'
 import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
-import { markSessionDirty, markSessionRemoved } from './sessionMirrorSignal'
+import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
+import {
+	markSessionDirty,
+	markSessionRemoved,
+	sessionSwept,
+	sessionsLockName
+} from './sessionMirrorSignal'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -124,6 +130,11 @@ export type Session = {
 	// Absent on records last written before the field existed; readers fall back
 	// to createdAt via sessionLastActivityAt.
 	lastActivityAt?: number
+	// When this browser restored the session from its backup, by this browser's clock.
+	// The restore sets `lastActivityAt` to the backup's time, the storage's clock; the
+	// retention counts from whichever is later, so a browser clock ahead of the storage's
+	// never deletes a session it just brought back. Not backed up.
+	restoredAt?: number
 	// Per-session unread watermark: the displayMessages count the last time
 	// the user was on this session's page. Compared against the runtime's
 	// current message count to derive the unread badge (see sessionUnread).
@@ -438,8 +449,15 @@ export function __resetDeletedSessionIdsForTesting(): void {
 // The one way to remove a session's record. Tombstones BEFORE awaiting the delete so a
 // putSession racing this transaction cannot commit its write behind it — a direct
 // db.delete elsewhere would silently reopen that window.
-async function deleteSessionRow(db: IDBPDatabase<SessionSchema>, id: string): Promise<void> {
-	deletedSessionIds.add(id)
+async function deleteSessionRow(
+	db: IDBPDatabase<SessionSchema>,
+	id: string,
+	// The retention sweep passes false. It holds the in-use lock exclusively, so no write can
+	// race its delete, and the backup may still hold the session: a tombstone would refuse the
+	// restore that is meant to bring it back.
+	tombstone = true
+): Promise<void> {
+	if (tombstone) deletedSessionIds.add(id)
 	await db.delete('sessions', id)
 }
 
@@ -576,6 +594,7 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	lastReconcileAt = Date.now()
 	const db = await sessionsDb.whenReady()
 	if (!db) return
+	const email = emailOfScopedKey(SESSIONS_DB, db.name)
 	const wsIds = new Set<string>()
 	const sessions = await db.getAll('sessions')
 	// Committed sessions reconcile on workspace_id; persisted pending drafts on
@@ -587,7 +606,7 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	}
 	if (wsIds.size === 0) return
 
-	let status: Record<string, 'active' | 'archived' | 'deleted'>
+	let status: Awaited<ReturnType<typeof WorkspaceService.getSessionWorkspaceStatus>>
 	try {
 		status = await WorkspaceService.getSessionWorkspaceStatus({
 			requestBody: { workspace_ids: [...wsIds] }
@@ -596,13 +615,14 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 		console.error('Failed to reconcile session lifecycle', e)
 		return
 	}
+	if (email) rememberRetention(email, status)
 
 	const deletedIds = new Set<string>()
 	try {
 		for (const s of sessions) {
 			const ws = s.workspace_id ?? s.pending_workspace_id
 			if (!ws) continue
-			const { action, patch } = decideSessionLifecycle(s, status[ws])
+			const { action, patch } = decideSessionLifecycle(s, status[ws]?.status)
 			if (action === 'delete') {
 				await deleteSessionRow(db, s.id)
 				// GC linked files too, matching deleteSession — a record-only delete
@@ -631,6 +651,253 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	// selected" instead of a ghost.
 	if (sessionState.currentSessionId && deletedIds.has(sessionState.currentSessionId)) {
 		sessionState.currentSessionId = undefined
+	}
+}
+
+// --- Retention ---
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// Past the workspace's AI session retention by this browser's clock, counted from the
+// session's last activity or from when it was restored here (`restoredAt`), whichever is
+// later. What another device did with the session is not consulted: the backup is swept by
+// the server on the storage's clock, and a session swept here that the storage still lists
+// comes back on the next restore. Archived sessions count like any other.
+function isSessionExpired(
+	session: Session,
+	retentionDays: number | undefined,
+	now: number
+): boolean {
+	if (retentionDays === undefined || !(retentionDays >= 1)) return false
+	const since = Math.max(sessionLastActivityAt(session), session.restoredAt ?? 0)
+	return since < now - retentionDays * DAY_MS
+}
+
+// What the last reconcile was told, per workspace, in days. It decides whether the sweep has
+// anything to ask the server about, and nothing else: it can be days old, and a retention
+// raised or cleared meanwhile must not delete a session — a persisted unsent draft has no
+// backup to come back from. Stale the other way it only delays a sweep to the next load.
+const RETENTION_DAYS = 'windmill_sessions_retention_days'
+
+function retentionDaysOf(
+	status: Awaited<ReturnType<typeof WorkspaceService.getSessionWorkspaceStatus>>
+): Record<string, number> {
+	const days: Record<string, number> = {}
+	for (const [ws, answer] of Object.entries(status)) {
+		if (answer.sessions_retention_days) days[ws] = answer.sessions_retention_days
+	}
+	return days
+}
+
+function rememberRetention(
+	email: string,
+	status: Awaited<ReturnType<typeof WorkspaceService.getSessionWorkspaceStatus>>
+): void {
+	try {
+		localStorage.setItem(
+			scopedKeyFor(RETENTION_DAYS, email),
+			JSON.stringify(retentionDaysOf(status))
+		)
+	} catch {}
+}
+
+function rememberedRetention(email: string): Record<string, number> {
+	try {
+		const stored = localStorage.getItem(scopedKeyFor(RETENTION_DAYS, email))
+		const days = stored ? JSON.parse(stored) : undefined
+		if (days && typeof days === 'object') return days as Record<string, number>
+	} catch {}
+	return {}
+}
+
+// How long the sweep waits for the retention of the workspaces it is about to sweep in. The
+// tab reads its sessions after the sweep, so a request nothing answers costs the list this
+// much and no more, and only in a tab that had something to delete.
+const RETENTION_ASK_MS = 5000
+
+// The retention the server gives now, or undefined when this browser could not be told: a
+// session is deleted only on an answer of the moment.
+async function askRetention(workspaceIds: string[]): Promise<Record<string, number> | undefined> {
+	try {
+		const status = await Promise.race([
+			WorkspaceService.getSessionWorkspaceStatus({ requestBody: { workspace_ids: workspaceIds } }),
+			new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), RETENTION_ASK_MS))
+		])
+		return status && retentionDaysOf(status)
+	} catch (e) {
+		console.error('Failed to read the AI session retention of the workspaces', e)
+		return undefined
+	}
+}
+
+// One key per session this browser swept whose pieces are not all deleted yet.
+const RETENTION_PENDING = 'windmill_sessions_retention_pending'
+
+function retentionPendingPrefix(email: string): string {
+	return `${scopedKeyFor(RETENTION_PENDING, email)}::`
+}
+
+function forgetRetentionPending(email: string, id: string): void {
+	try {
+		localStorage.removeItem(retentionPendingPrefix(email) + id)
+	} catch {}
+}
+
+function retentionPending(email: string): string[] {
+	const prefix = retentionPendingPrefix(email)
+	const ids: string[] = []
+	try {
+		for (let i = 0; i < localStorage.length; i++) {
+			const key = localStorage.key(i)
+			if (key?.startsWith(prefix)) ids.push(key.slice(prefix.length))
+		}
+	} catch {}
+	return ids
+}
+
+function webLocks(): LockManager | undefined {
+	return typeof navigator === 'undefined' ? undefined : (navigator as { locks?: LockManager }).locks
+}
+
+// Held, shared, by every tab from before it reads the user's sessions until it stops using
+// them: the stores are shared, and each tab keeps copies of the sessions in memory, so the
+// sweep deletes only while holding this exclusively.
+function sessionsInUseLockName(email: string): string {
+	return `${sessionsLockName(email)}::in-use`
+}
+
+interface InUseHold {
+	email: string
+	released: boolean
+	release?: () => void
+	done?: Promise<unknown>
+}
+
+let inUse: InUseHold | undefined
+
+// Resolves once the hold is granted, which waits for the sweep another tab is running. A
+// request the browser refuses (a document that is not fully active) resolves it too, without
+// a hold: the tab reads its sessions unguarded, as it does where Web Locks do not exist, and
+// never sits waiting for a grant that is not coming.
+async function holdSessionsInUse(email: string): Promise<void> {
+	const locks = webLocks()
+	if (!locks || inUse?.email === email) return
+	await releaseSessionsInUse()
+	const hold: InUseHold = { email, released: false }
+	inUse = hold
+	await new Promise<void>((granted) => {
+		hold.done = locks
+			.request(sessionsInUseLockName(email), { mode: 'shared' }, () => {
+				granted()
+				return hold.released ? undefined : new Promise<void>((resolve) => (hold.release = resolve))
+			})
+			.catch((e) => {
+				console.error('Could not hold the AI sessions this tab is reading', e)
+				if (inUse === hold) inUse = undefined
+				granted()
+			})
+	})
+}
+
+// Resolves once the hold is let go of, so an exclusive request made next can be granted.
+async function releaseSessionsInUse(): Promise<void> {
+	const hold = inUse
+	if (!hold) return
+	inUse = undefined
+	hold.released = true
+	hold.release?.()
+	await hold.done?.catch(() => {})
+}
+
+// Deletes one expired session: its record first, so nothing plans a push for it afterwards,
+// then its pieces. The pending key, written before the record and removed once every piece
+// is gone, is what a later sweep finishes a failed deletion from.
+async function sweepSession(
+	db: IDBPDatabase<SessionSchema>,
+	id: string,
+	email: string
+): Promise<void> {
+	try {
+		localStorage.setItem(retentionPendingPrefix(email) + id, '1')
+	} catch {
+		return
+	}
+	await deleteSessionRow(db, id, false)
+	await sessionSwept(id, email)
+	if (await deleteSessionPieces(id, email)) forgetRetentionPending(email, id)
+}
+
+// Chats with their images, artifacts and attached files. False when any of them could not
+// be deleted.
+async function deleteSessionPieces(id: string, email: string): Promise<boolean> {
+	const chats = await deleteSessionChats(id, email)
+	const artifacts = await deleteArtifactsForSession(id, email)
+	const files = await deleteItemsForSession(id)
+	return chats && artifacts && files
+}
+
+// The workspace a session's retention comes from: persisted unsent drafts count by the one
+// they are waiting on.
+function retentionWorkspaceOf(session: Session): string | undefined {
+	return session.workspace_id ?? session.pending_workspace_id
+}
+
+// Deletes this browser's copies of the sessions past their workspace's retention, and the
+// pieces of the ones an earlier sweep could not finish. Called from the one moment a tab has
+// none of the user's sessions loaded, just before it takes its hold and reads them, and it
+// runs only while no other tab has them loaded either — the in-use lock, taken exclusively
+// and only if available, is granted exactly then. So nothing holds a copy of what it deletes
+// and nothing writes the store meanwhile, which also makes the deletions safe to do one
+// record at a time. It takes the tab lock the backup's flush and restore take too, again only
+// if available: a flush planning a session half deleted would push the deletions to the
+// backup, and a restore could stage pieces the sweep then deletes. Where Web Locks do not
+// exist (a plain http origin) it does not run, as the restore does not. What the remembered
+// retention says is only ever a reason to ask the server, asked under both locks so that a tab
+// which is not going to sweep never pays for the request; the answer is what deletes. Nothing
+// is sent to the backup: what this browser last did with a session says nothing about what
+// another device did, and the server applies the retention to the backup on its own. What the
+// backup keeps of the session in this browser goes (`sessionSwept`).
+async function sweepExpiredSessions(email: string): Promise<void> {
+	const locks = webLocks()
+	if (!locks || inUse) return
+	try {
+		await locks.request(sessionsInUseLockName(email), { ifAvailable: true }, async (idle) => {
+			if (!idle) return
+			await locks.request(sessionsLockName(email), { ifAvailable: true }, async (mirror) => {
+				if (!mirror) return
+				const db = await sessionsDb.whenReady()
+				if (!db || db.name !== scopedKeyFor(SESSIONS_DB, email)) return
+				for (const id of retentionPending(email)) {
+					// A restore brought the session back: its pieces are that copy's now.
+					const back = (await db.getKey('sessions', id)) !== undefined
+					if (back || (await deleteSessionPieces(id, email))) forgetRetentionPending(email, id)
+				}
+				const stored = await db.getAll('sessions')
+				const remembered = rememberedRetention(email)
+				const now = Date.now()
+				const workspaces = new Set<string>()
+				let expired = false
+				for (const s of stored) {
+					const ws = retentionWorkspaceOf(s)
+					if (ws === undefined) continue
+					workspaces.add(ws)
+					expired ||= isSessionExpired(s, remembered[ws], now)
+				}
+				// Nothing the last reconcile heard of is old enough to be worth a request.
+				if (!expired) return
+				const retention = await askRetention([...workspaces])
+				// Asked and not told: the sessions wait for the next load rather than go on an
+				// answer this browser does not have.
+				if (!retention) return
+				for (const s of stored) {
+					const ws = retentionWorkspaceOf(s)
+					if (ws === undefined || !isSessionExpired(s, retention[ws], Date.now())) continue
+					await sweepSession(db, s.id, email)
+				}
+			})
+		})
+	} catch (e) {
+		console.error('Failed to sweep the sessions past their retention', e)
 	}
 }
 
@@ -715,6 +982,15 @@ export async function deleteSessionsForWorkspace(workspaceId: string): Promise<v
 // user's sessions never bleed into another.
 onUserChange(async (email, prevEmail) => {
 	if (!BROWSER) return
+	// The retention sweep runs here and nowhere else: this tab holds none of the new user's
+	// sessions yet, and letting go of the hold it had leaves it holding none of anyone's. The
+	// new hold is taken before the sessions are read, so another tab's sweep never deletes
+	// what this tab is about to load, and one already running is waited for.
+	await releaseSessionsInUse()
+	if (email) {
+		await sweepExpiredSessions(email)
+		await holdSessionsInUse(email)
+	}
 	await hydrateSessions({ dropTransients: prevEmail !== email })
 	// onUserChange also fires at registration time, before the email resolves —
 	// that hydration is an empty no-op and must not clear the loading state.
@@ -1197,9 +1473,10 @@ export async function importSessions(records: Session[], email: string): Promise
 		const tx = db.transaction('sessions', 'readwrite')
 		const existing = new Set((await tx.store.getAllKeys()).map(String))
 		let next = nextSessionNumber([...(await tx.store.getAll()), ...sessionState.sessions])
+		const restoredAt = Date.now()
 		for (const r of records) {
 			if (existing.has(r.id) || deletedSessionIds.has(r.id)) continue
-			const record: Session = { ...r, name: `session-${next++}` }
+			const record: Session = { ...r, name: `session-${next++}`, restoredAt }
 			delete record.transient
 			delete record.workspace_root_id
 			ensureSessionRootId(record)
