@@ -3237,7 +3237,6 @@ pub async fn handle_wac_v2_output(
                         let child_checkpoint_json = serde_json::json!({
                             "completed_steps": &checkpoint.completed_steps,
                             "_executing_key": &step.key,
-                            "_executing_task": &step.name,
                             "_executing_args": &step.args,
                         });
                         sqlx::query(

@@ -66,7 +66,7 @@ const double = task(async (n: number) => {
 }, { cache_ttl: 60 });
 
 export const main = workflow(async (n: number) => {
-  const r = await step("pick", async () => Math.random());
+  const r = await step("pick", async () => Math.floor(Math.random() * 1e9));
   const d = await double(r);
   return { fresh: d === r * 2 };
 });'

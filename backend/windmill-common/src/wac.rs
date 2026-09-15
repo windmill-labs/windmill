@@ -40,11 +40,9 @@ pub struct WacCheckpoint {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub _executing_key: Option<String>,
-    /// With `_executing_key`: the task the child runs and the arguments it was
-    /// called with, the identity its cached result is keyed on.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub _executing_task: Option<String>,
+    /// With `_executing_key`: the arguments the task was called with. A cached
+    /// result is keyed on both; the key alone is a name and a position, which two
+    /// tasks can share, and the arguments alone say nothing about which task ran.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub _executing_args: Option<serde_json::Map<String, Value>>,
