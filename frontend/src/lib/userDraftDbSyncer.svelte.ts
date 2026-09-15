@@ -229,6 +229,17 @@ const failures = new SvelteMap<string, string>()
 const flushes = new SvelteMap<string, number>()
 
 /**
+ * Whether the last save that LANDED for a key deleted the draft or wrote one.
+ * Written only by the response handler, which is what distinguishes it from the
+ * display-level draft hint: that one is also published optimistically and by the
+ * editors themselves, so it cannot say whether a POST succeeded. A caller acting
+ * on a delete (leaving an editor whose item it removed) needs the difference.
+ * Dropped when the server stops being ours to describe — a conflict, or a resync
+ * from a load — and otherwise kept, since the key's own next landing replaces it.
+ */
+const lastLanded = new Map<string, 'delete' | 'upsert'>()
+
+/**
  * Per-key listeners fired when a save for that key LANDS on the server
  * (`status === 'saved'` with a non-null value — the draft now exists
  * server-side). Distinct from `save()` resolving, which only means the work
@@ -303,6 +314,7 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 				serverTimestamp: resp.current_timestamp,
 				localLastSync: lastSync ?? null
 			})
+			lastLanded.delete(key)
 			return
 		}
 		// resp.status === 'saved' — advance lastSync (or drop on delete).
@@ -316,6 +328,7 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		// (value !== null → exists). Every delete path clears the hint for
 		// free instead of maintaining a separate source of truth.
 		setLocalDraftHint(opts.workspace, opts.itemKind, opts.path, opts.value !== null)
+		lastLanded.set(key, opts.value === null ? 'delete' : 'upsert')
 		conflicts.delete(key)
 		failures.delete(key)
 		// Clear pending only if it's still the opts we just saved — a
@@ -535,9 +548,11 @@ export const UserDraftDbSyncer = {
 		} else {
 			clearLastSync(query.workspace, query.itemKind, query.path)
 		}
-		// Back in sync with the server: clear any conflict / failure.
+		// Back in sync with the server: clear any conflict / failure. `lastLanded`
+		// goes with them — whatever we last wrote no longer describes what is there.
 		conflicts.delete(key)
 		failures.delete(key)
+		lastLanded.delete(key)
 	},
 
 	/**
@@ -591,6 +606,16 @@ export const UserDraftDbSyncer = {
 		return () => {
 			anySavedListeners.delete(listener)
 		}
+	},
+
+	/**
+	 * Whether the last save that landed for this key was the draft's deletion.
+	 * False while none has landed: a delete that failed or conflicted never
+	 * reaches the response handler, and a conflict drops what an earlier one
+	 * recorded rather than letting it answer for this attempt.
+	 */
+	lastLandedWasDelete(query: UserDraftLastSyncQuery): boolean {
+		return lastLanded.get(draftKey(query.workspace, query.itemKind, query.path)) === 'delete'
 	},
 
 	/** Reactive conflict snapshot (if any) for a draft. */

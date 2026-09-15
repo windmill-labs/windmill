@@ -2158,6 +2158,107 @@ describe('global AI tools', () => {
 		).toBeUndefined()
 	})
 
+	// The removal marker tells a session's hosted editor that its item is gone, and
+	// it is read by the tool-completion listener — which a throw never reaches. Left
+	// behind by a failed discard it would be consumed by some later action on the
+	// same item and send that editor away while the item is still there.
+	it('records the draft-only removal marker only once the discard has landed', async () => {
+		const path = 'f/resources/discard-marker'
+		await callGlobalTool('write_resource', {
+			path,
+			resource_type: 'postgresql',
+			value: { host: 'localhost' }
+		})
+
+		// The delete is a `value: null` draft write, so failing that write fails it.
+		failingWrites.add(`resource:${path}`)
+		await expect(
+			callGlobalTool('discard_local_draft', { type: 'resource', path })
+		).rejects.toThrow()
+		expect(UserDraft.takeDraftOnlyDiscard('resource', path, { workspace: WORKSPACE })).toBe(false)
+
+		// The same discard, allowed through, does publish it (so the check above is
+		// about the failure, not about the marker never being written at all).
+		failingWrites.delete(`resource:${path}`)
+		await callGlobalTool('discard_local_draft', { type: 'resource', path })
+		expect(UserDraft.takeDraftOnlyDiscard('resource', path, { workspace: WORKSPACE })).toBe(true)
+	})
+
+	// The listener that refreshes hosted editors runs only for a tool that returned,
+	// so a throw after the entity is gone leaves a tab open on an item that no longer
+	// exists — and the cleanup cannot un-delete it either way.
+	it('reports a delete whose draft cleanup failed instead of throwing', async () => {
+		const path = 'f/resources/deleted-with-stuck-draft'
+		await callGlobalTool('write_resource', {
+			path,
+			resource_type: 'postgresql',
+			value: { host: 'localhost' }
+		})
+		// The cleanup is a `value: null` draft write, so failing that write fails it.
+		failingWrites.add(`resource:${path}`)
+
+		const result = await callGlobalTool('delete_workspace_item', { type: 'resource', path })
+
+		expect(ResourceService.deleteResource).toHaveBeenCalled()
+		expect(JSON.parse(result).message).toMatch(/draft could NOT be cleared/)
+	})
+
+	// Nothing consumes a marker outside a session, so one can outlive the item it
+	// was about. Recreating the item must void it, or the next action on the
+	// recreated item reads it and sends a perfectly valid editor back to its list.
+	it('voids a draft-only removal marker when the item is written again', async () => {
+		const path = 'f/resources/discard-then-recreate'
+		await callGlobalTool('write_resource', {
+			path,
+			resource_type: 'postgresql',
+			value: { host: 'localhost' }
+		})
+		await callGlobalTool('discard_local_draft', { type: 'resource', path })
+
+		// The marker is standing (no listener consumed it), and now the item is back.
+		await callGlobalTool('write_resource', {
+			path,
+			resource_type: 'postgresql',
+			value: { host: 'elsewhere' }
+		})
+		expect(UserDraft.takeDraftOnlyDiscard('resource', path, { workspace: WORKSPACE })).toBe(false)
+	})
+
+	// A marker nothing read outlives the item it was about: the path can be deployed
+	// again from another tab or client, and the next discard there — a revert, not a
+	// removal — would otherwise spend it and send that item's editor away.
+	describe('a removal marker the deployed item outlived', () => {
+		// The suite's beforeEach clears calls but not implementations, so the
+		// `existsResource` override below goes back to its factory default here rather
+		// than inline, where a failing assertion would leak it into every later test.
+		afterEach(() => {
+			vi.mocked(ResourceService.existsResource).mockResolvedValue(false)
+		})
+
+		it('is voided when the path is deployed again', async () => {
+			const path = 'f/resources/discard-then-deployed'
+			await callGlobalTool('write_resource', {
+				path,
+				resource_type: 'postgresql',
+				value: { host: 'localhost' }
+			})
+			await callGlobalTool('discard_local_draft', { type: 'resource', path })
+
+			// Deployed since from another client, with a draft of its own — neither reaches
+			// this tab's cell, so nothing has cleared the marker. Discarding that draft
+			// reverts the item rather than removing it.
+			vi.mocked(ResourceService.existsResource).mockResolvedValue(true)
+			seedBackendDraft('resource', path, {
+				path,
+				value: { host: 'elsewhere' },
+				resource_type: 'postgresql'
+			})
+			await callGlobalTool('discard_local_draft', { type: 'resource', path })
+
+			expect(UserDraft.takeDraftOnlyDiscard('resource', path, { workspace: WORKSPACE })).toBe(false)
+		})
+	})
+
 	// "Create a resource, then never mind": delete_workspace_item must reject a path
 	// that was never deployed, before the confirmation card — otherwise the user
 	// confirms a workspace mutation that 404s past the draft cleanup, leaving the
