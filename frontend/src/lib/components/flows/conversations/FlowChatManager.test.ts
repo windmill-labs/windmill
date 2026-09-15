@@ -20,7 +20,8 @@ vi.mock('$lib/stores', () => ({
 /** Each `streamJob` the turn opens, and the updates the next one answers with. */
 const { streamCalls, streamScript } = vi.hoisted(() => ({
 	streamCalls: [] as { jobId: string; streamOffset: number | undefined }[],
-	streamScript: [] as unknown[][]
+	/** Per opened stream: the updates it answers with, or 'throw' to fail the request. */
+	streamScript: [] as (unknown[] | 'throw')[]
 }))
 
 // Only the transport is faked. `followJob` — which owns the re-attach, the offset and the
@@ -30,7 +31,9 @@ vi.mock('windmill-chat', async (importOriginal) => {
 	class FakeApi {
 		async *streamJob(jobId: string, options: { streamOffset?: number } = {}) {
 			streamCalls.push({ jobId, streamOffset: options.streamOffset })
-			for (const update of streamScript.shift() ?? []) yield update
+			const next = streamScript.shift()
+			if (next === 'throw') throw new Error('stream request failed')
+			for (const update of next ?? []) yield update
 		}
 	}
 	return { ...actual, WindmillChatApi: FakeApi }
@@ -173,7 +176,7 @@ describe('an SSE timeout re-attaches instead of re-running', () => {
 		delete (globalThis as any).location
 	})
 
-	function turnWith(script: unknown[][]) {
+	function turnWith(script: (unknown[] | 'throw')[]) {
 		streamScript.push(...script)
 		const manager = (live = managerWithRows())
 		const onRunFlow = vi.fn(async () => 'job-1')
@@ -212,6 +215,28 @@ describe('an SSE timeout re-attaches instead of re-running', () => {
 		// streaming sub-job here instead would cancel that step and leave the steps after
 		// the agent running.
 		expect(manager.currentJobId).toBe('job-1')
+	})
+
+	/**
+	 * `followJob` absorbs the server ending a stream, but not the request to open one
+	 * failing — a restarting server, a 502. Ending the turn there would free the composer
+	 * while the flow runs on, and the next turn would write the same agent memory.
+	 */
+	it('re-opens a failed stream from its offset rather than ending the turn', async () => {
+		const { manager } = turnWith([
+			[{ type: 'update', stream_offset: 7 }],
+			'throw',
+			// Reachable again, with nothing more to say yet.
+			[]
+		])
+
+		manager.inputMessage = 'ask something'
+		await manager.sendMessage(undefined, undefined, 'a')
+
+		await vi.waitFor(() => expect(streamCalls.length).toBeGreaterThanOrEqual(3), { timeout: 5000 })
+
+		expect(streamCalls[2]).toEqual({ jobId: 'job-1', streamOffset: 7 })
+		expect(manager.isConversationBusy('a')).toBe(true)
 	})
 
 	/**

@@ -66,6 +66,14 @@ type TurnStatus = {
 }
 
 /**
+ * How many times a turn re-opens its stream after the request itself failed, and the first
+ * delay between attempts — doubled each time. Enough to outlast a server restart; bounded so
+ * a genuinely gone endpoint reports itself rather than retrying under a chat that looks live.
+ */
+const FOLLOW_RETRIES = 4
+const FOLLOW_RETRY_DELAY_MS = 500
+
+/**
  * The agent events the worker streams, in the shape the transcript applies. The SDK names
  * the same six events after the wire protocol; this is the rest of the app's vocabulary.
  */
@@ -1116,6 +1124,10 @@ export class FlowChatManager {
 	 * rather than starting a second run — which is what this used to do, leaving two runs
 	 * writing one conversation. It reconnects on an unclean close too, and buffers a chunk
 	 * that ends mid-line until the rest arrives.
+	 *
+	 * What it does not absorb is the stream request itself failing — a restarting server, a
+	 * 502. Giving up there would free the composer while the flow runs on, and the next turn
+	 * would write the same agent memory, so those are retried from the offset already read.
 	 */
 	async #followJob(currentConversationId: string, jobId: string) {
 		const runtime = this.#liveRuntime(currentConversationId)
@@ -1132,57 +1144,75 @@ export class FlowChatManager {
 			pollDelayMs: get(enterpriseLicense) ? 50 : undefined
 		})
 
-		try {
-			for await (const update of followJob(api, jobId, { signal: controller.signal })) {
-				if (update.type === 'stream') {
-					// Stop polling since we are receiving last step streaming
-					this.stopPolling(currentConversationId)
-					// One chunk can carry several events, so each is applied in turn: a
-					// chunk holding a call and its result must produce both.
-					for (const streamed of update.events) {
-						const event = toStreamEvent(streamed)
-						if (event.kind === 'reasoning') {
-							status.isReasoningActive = true
-							runtime.reasoningReveal.push(event.content)
-						} else if (event.kind === 'token') {
-							runtime.replyReveal.push(event.content)
-						} else {
-							// Whatever the pacing still holds belongs to the row before the tool —
-							// thinking that led straight to the call included — so it is revealed
-							// before the event that closes that row.
-							if (event.kind === 'tool_call' || event.kind === 'tool_execution') {
-								this.#flushReveals(currentConversationId)
-								status.currentReasoning = ''
-								status.isReasoningActive = false
+		// Kept across attempts so a reconnect resumes after what is already on screen.
+		let streamOffset: number | undefined
+		for (let attempt = 0; ; attempt++) {
+			try {
+				for await (const update of followJob(api, jobId, {
+					signal: controller.signal,
+					streamOffset,
+					onOffset: (offset) => (streamOffset = offset)
+				})) {
+					if (update.type === 'stream') {
+						// Stop polling since we are receiving last step streaming
+						this.stopPolling(currentConversationId)
+						// One chunk can carry several events, so each is applied in turn: a
+						// chunk holding a call and its result must produce both.
+						for (const streamed of update.events) {
+							const event = toStreamEvent(streamed)
+							if (event.kind === 'reasoning') {
+								status.isReasoningActive = true
+								runtime.reasoningReveal.push(event.content)
+							} else if (event.kind === 'token') {
+								runtime.replyReveal.push(event.content)
+							} else {
+								// Whatever the pacing still holds belongs to the row before the tool —
+								// thinking that led straight to the call included — so it is revealed
+								// before the event that closes that row.
+								if (event.kind === 'tool_call' || event.kind === 'tool_execution') {
+									this.#flushReveals(currentConversationId)
+									status.currentReasoning = ''
+									status.isReasoningActive = false
+								}
+								const step = applyStreamEvent(
+									{ rows: this.#rowsOf(currentConversationId), state: runtime.turn },
+									event,
+									this.#newRowId
+								)
+								this.#rowsById[currentConversationId] = step.rows
+								runtime.turn = step.state
 							}
-							const step = applyStreamEvent(
-								{ rows: this.#rowsOf(currentConversationId), state: runtime.turn },
-								event,
-								this.#newRowId
-							)
-							this.#rowsById[currentConversationId] = step.rows
-							runtime.turn = step.state
 						}
+						continue
 					}
+					// Anything still buffered would be dropped by the temp-row sweep below.
+					this.#flushReveals(currentConversationId)
+					// Do a final poll to get all messages from database
+					await this.pollConversationMessages(currentConversationId, {
+						removeTempMessages: true
+					})
+					this.endTurn(currentConversationId, { settled: true })
+				}
+				return
+			} catch (error) {
+				// A Stop, a conversation's turn ending, or the chat going away — the turn was
+				// already settled by whoever aborted it.
+				if (controller.signal.aborted) return
+				console.error('Error following the flow job:', error)
+				if (attempt < FOLLOW_RETRIES) {
+					await new Promise((resolve) => setTimeout(resolve, FOLLOW_RETRY_DELAY_MS * 2 ** attempt))
+					if (controller.signal.aborted) return
 					continue
 				}
-				// Anything still buffered would be dropped by the temp-row sweep below.
-				this.#flushReveals(currentConversationId)
-				// Do a final poll to get all messages from database
-				await this.pollConversationMessages(currentConversationId, {
-					removeTempMessages: true
-				})
-				this.endTurn(currentConversationId, { settled: true })
+				// What the server said, not a constant: a turn dying on an expired session or a
+				// job the server cannot find is only actionable if the reader is told which.
+				sendUserToast(
+					`Stream error: ${error instanceof Error ? error.message : String(error)}`,
+					true
+				)
+				this.endTurn(currentConversationId)
+				return
 			}
-		} catch (error) {
-			// A Stop, a conversation's turn ending, or the chat going away — the turn was
-			// already settled by whoever aborted it.
-			if (controller.signal.aborted) return
-			console.error('Error following the flow job:', error)
-			// What the server said, not a constant: a turn dying on an expired session or a
-			// job the server cannot find is only actionable if the reader is told which.
-			sendUserToast(`Stream error: ${error instanceof Error ? error.message : String(error)}`, true)
-			this.endTurn(currentConversationId)
 		}
 	}
 
