@@ -14,9 +14,10 @@ export type FlowBuilderProps = {
 	 *  draft's `draft_path` so the topbar shows the pending name, so it can't be used
 	 *  to resolve what is actually deployed. */
 	userDraftPath?: string
-	/** Moves the draft's base to the deployed head and keeps its content; offered
-	 *  in the diff drawer while the draft is behind. */
-	onTakeLatest?: () => void | Promise<void>
+	/** Moves the draft's base to the head and keeps its content; offered in the diff
+	 *  drawer while the draft is behind, and called with the version the drawer shows
+	 *  as head. */
+	onTakeLatest?: (head?: string) => void | Promise<void>
 	pathStoreInit?: string | undefined
 	newFlow: boolean
 	selectedId: string | undefined

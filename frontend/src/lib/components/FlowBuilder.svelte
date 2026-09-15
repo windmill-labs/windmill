@@ -1176,7 +1176,7 @@
 			versions: await deployedVersionOptions(),
 			onTakeLatest,
 			draftBase: draftBaseVersion,
-			deployedHead: version != null ? String(version) : undefined,
+			deployedHead: deployedVersionShown != null ? String(deployedVersionShown) : undefined,
 			loadVersion: async (id) => {
 				const v = await FlowService.getFlowVersion({
 					workspace: opWorkspace!,
