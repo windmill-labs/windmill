@@ -189,11 +189,19 @@
 							(v) => (datatableBehaviors[dt.name] = v)
 						}
 						items={[
-							{ value: 'keep_original', label: 'Keep original' },
-							{ value: 'schema_only', label: 'Clone schema only' },
-							...(!isCloudHosted() && $userStore?.is_admin
-								? [{ value: 'schema_and_data', label: 'Clone schema and data' }]
-								: [])
+							{
+								value: 'keep_original',
+								label: dt.permissioned ? 'Keep original (under roles)' : 'Keep original'
+							},
+							// A copy of a data table under roles is refused by the server, so it is not offered.
+							...(dt.permissioned
+								? []
+								: [
+										{ value: 'schema_only', label: 'Clone schema only' },
+										...(!isCloudHosted() && $userStore?.is_admin
+											? [{ value: 'schema_and_data', label: 'Clone schema and data' }]
+											: [])
+									])
 						]}
 					/>
 				</div>
