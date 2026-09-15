@@ -139,8 +139,9 @@ whole; the workspace-lifecycle
 removals (`reconcileSessionsLifecycle`, `deleteSessionsForWorkspace`) leave it, so a session
 dropped by a wrong reconcile comes back on the next restore. Objects of deleted workspaces stay
 in the bucket. A session moved to another workspace is pushed whole into the new one, and once
-that push has landed the copy in the old one gets a removal mark of its own, retried
-independently until it lands, even when the old workspace's backups are off at the time (they
+that push has landed the copy in the old one gets a removal mark of its own, naming the storages holding
+that copy (the row that knew is the new workspace's by then), retried independently until
+each of them has answered, even when the old workspace's backups are off at the time (they
 may hold the copy still). Filing the removal only after the new copy is acknowledged keeps the
 session backed up somewhere at every point.
 

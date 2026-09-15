@@ -4,9 +4,10 @@
 //! The backups are ciphertext under the workspace key and live under a prefix named by a
 //! generation the rotation bumps (`workspace_settings.ai_sessions_backup_generation`) in the
 //! transaction that commits the new key. A rotation does not re-key them: once committed,
-//! the routes read and write under the new generation's prefix, the storage identity they
-//! answer with changes with it, so every browser marks its sync state stale and pushes its
-//! sessions whole again there, and every older generation, which nothing writes to any
+//! the routes read and write under the new generation's prefix and answer with its number
+//! (`backup_generation`; the storage identity, `storage_id`, names the storage and does not
+//! change), so every browser marks its sync state stale and pushes its sessions whole again
+//! there, and every older generation, which nothing writes to any
 //! more, is deleted off the request at leisure. Sessions no browser holds any more are lost,
 //! which a rotation (a rare operation) accepts in exchange for having no key but the current
 //! one to read with and nothing to rewrite in place. A generation is never reused, so no

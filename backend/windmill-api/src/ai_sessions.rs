@@ -558,8 +558,9 @@ struct PulledSession {
     /// The session did not fit this answer whole: the rest follows a pull with this cursor.
     #[serde(skip_serializing_if = "Option::is_none")]
     next: Option<PullCursor>,
-    /// A fingerprint of the session's listing (every key, size and modification time), so
-    /// the browser tells that the backup changed between the pages it assembled.
+    /// A fingerprint of the session's listing (marker, and every key, size, modification
+    /// time, entity tag and version), so the browser tells that the backup changed between
+    /// the pages it assembled.
     listing: String,
     /// The backup kept changing while this page was read (a push landing object by object),
     /// so the page may mix two versions: the browser starts the session over.

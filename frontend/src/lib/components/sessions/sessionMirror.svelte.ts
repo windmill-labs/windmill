@@ -108,13 +108,15 @@ async function syncDb(email: string) {
 // --- Pending marks ---
 //
 // One localStorage key per mark, shared by every tab of the user: a dirty mark holds a
-// counter bumped on every write, a removal mark the workspace to remove from. Keying each
-// mark on its own is what lets two tabs mark different sessions at the same time without
-// one rewriting the other's mark away, as a single JSON blob would.
+// counter bumped on every write, a removal mark the workspace to remove from and, for a
+// session that moved to another workspace, the storages holding the old copy (the row that
+// knew is the new workspace's by then). Keying each mark on its own is what lets two tabs
+// mark different sessions at the same time without one rewriting the other's mark away, as
+// a single JSON blob would.
 
 interface PendingMarks {
 	dirty: { id: string; v: number }[]
-	removed: { id: string; ws?: string; key: string }[]
+	removed: { id: string; ws?: string; key: string; storages?: string[] }[]
 }
 
 function pendingBase(): string | undefined {
@@ -149,7 +151,7 @@ function readPending(): PendingMarks {
 				marks.dirty.push({ id: rest.slice(3), v: Number.isFinite(v) ? v : 0 })
 			} else if (rest.startsWith('r::')) {
 				const [id, ws] = rest.slice(3).split('::')
-				marks.removed.push({ id, ws: ws || undefined, key })
+				marks.removed.push({ id, ws: ws || undefined, key, storages: storagesOf(key) })
 			}
 		}
 	} catch (e) {
@@ -224,19 +226,32 @@ function dropDirty(sessionId: string): void {
 	if (base) removeKey(dirtyKey(base, sessionId))
 }
 
+/** The storages a removal mark names, when it does. */
+function storagesOf(key: string): string[] | undefined {
+	try {
+		const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? '')
+		if (Array.isArray(parsed) && parsed.every((s) => typeof s === 'string')) return parsed
+	} catch {}
+	return undefined
+}
+
 /** False when the mark could not be written (storage full): the caller must not act as if
  * the removal were scheduled. */
 function addRemoved(
 	sessionId: string,
 	ws: string | undefined,
 	dropDirty: boolean,
-	email?: string
+	email?: string,
+	storages?: string[]
 ): boolean {
 	const base = pendingBaseFor(email)
 	if (!base) return false
 	try {
 		if (dropDirty) localStorage.removeItem(dirtyKey(base, sessionId))
-		localStorage.setItem(removedKey(base, sessionId, ws), '1')
+		localStorage.setItem(
+			removedKey(base, sessionId, ws),
+			storages && storages.length > 0 ? JSON.stringify(storages) : '1'
+		)
 		return true
 	} catch (e) {
 		console.error('Could not persist session backup mark', e)
@@ -521,7 +536,7 @@ interface WorkspaceOutcome {
 	removedDone: { id: string; key?: string }[]
 	/** Removals one storage carried out while others still hold a copy: the row narrows to
 	 * those, and the mark waits for them to answer. */
-	removedFrom: { id: string; remaining: string[] }[]
+	removedFrom: { id: string; key?: string; remaining: string[] }[]
 	/** Some session the server could not store. */
 	anyFailed: boolean
 	/** Some store could not be read; its marks stay for a later flush. */
@@ -640,7 +655,7 @@ async function pushWorkspace(
 				else if (holding.has(res.storage_id)) {
 					holding.delete(res.storage_id)
 					if (holding.size === 0) out.removedDone.push(mark)
-					else out.removedFrom.push({ id, remaining: [...holding] })
+					else out.removedFrom.push({ id, key: mark.key, remaining: [...holding] })
 				}
 			}
 		}
@@ -817,7 +832,9 @@ async function flush(): Promise<void> {
 				return !(sync && !sync.stale && (sync.flushedV ?? -1) >= d.v)
 			})
 		// A removal whose mark could not be written rides on the sync row instead.
-		const removals: { id: string; ws?: string; key?: string }[] = [...marks.removed]
+		const removals: { id: string; ws?: string; key?: string; storages?: string[] }[] = [
+			...marks.removed
+		]
 		for (const row of syncRows.values()) {
 			if (row.removed && !removals.some((r) => r.id === row.id)) {
 				removals.push({ id: row.id, ws: row.ws })
@@ -851,13 +868,16 @@ async function flush(): Promise<void> {
 				if (r.key) consumedRemoved.push(r.key)
 			} else if (!wsState.has(ws) || wsState.get(ws) === 'on') {
 				// The row says where the copy is only for its own workspace: a session that
-				// moved on has the row its new workspace wrote.
+				// moved on has the row its new workspace wrote, and its mark says instead.
 				const own = sync?.ws === ws ? sync : undefined
+				const holding = (own ? [own.storageId, ...(own.alsoIn ?? [])] : (r.storages ?? [])).filter(
+					(x): x is string => x !== undefined
+				)
 				workFor(ws).removed.push({
 					id: r.id,
 					key: r.key,
-					storageId: own?.storageId,
-					alsoIn: own?.alsoIn
+					storageId: holding[0],
+					alsoIn: holding.slice(1)
 				})
 			} else if (wsState.get(ws) === 'off' && !sync && r.key) consumedRemoved.push(r.key)
 		}
@@ -909,7 +929,14 @@ async function flush(): Promise<void> {
 			// session whose mark could not be written keeps its old row, so the next flush
 			// plans the move again rather than orphan the copy.
 			const recorded = out.settled.filter((s) => {
-				if (s.removeFrom && !addRemoved(s.id, s.removeFrom, false)) return false
+				if (s.removeFrom) {
+					const old = syncRows.get(s.id)
+					const storages =
+						old?.ws === s.removeFrom
+							? [old.storageId, ...(old.alsoIn ?? [])].filter((x): x is string => x !== undefined)
+							: undefined
+					if (!addRemoved(s.id, s.removeFrom, false, undefined, storages)) return false
+				}
 				if (s.removeFrom || s.carried) leftForNext = true
 				return true
 			})
@@ -968,9 +995,13 @@ async function flush(): Promise<void> {
 			}
 			for (const r of out.removedFrom) {
 				const row = await readSync(r.id, email)
-				if (row?.ws !== ws) continue
 				const [storageId, ...alsoIn] = r.remaining
-				await writeSync([{ ...row, storageId, alsoIn }], email)
+				if (row?.ws === ws) await writeSync([{ ...row, storageId, alsoIn }], email)
+				else if (r.key) {
+					try {
+						localStorage.setItem(r.key, JSON.stringify(r.remaining))
+					} catch {}
+				}
 			}
 		}
 		if (settledAny && Date.now() >= retryAt) retryMs = RETRY_MIN_MS

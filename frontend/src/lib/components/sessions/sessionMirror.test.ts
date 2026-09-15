@@ -583,6 +583,36 @@ describe('sessionMirror flush', () => {
 		expect((await __syncRowsForTesting(EMAIL)).some((r) => r.id === 'sr3')).toBe(false)
 	})
 
+	it("removes a moved session's old copy from the storage that held it, whatever its old workspace is on now", async () => {
+		const s: Session = { id: 'mv2', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
+		sessionState.sessions = [s]
+		await putSession(s)
+		pushMock.mockResolvedValueOnce({ enabled: true, storage_id: 'A', results: [{ id: 'mv2' }] })
+		await __flushForTesting()
+		// The old workspace's backups go off, then the session moves: the new workspace's
+		// row replaces the old one, so the mark carries where the old copy is.
+		await putSession({ ...s, summary: 'changed' })
+		pushMock.mockResolvedValueOnce({ enabled: false, results: [] })
+		await __flushForTesting()
+		await putSession({ ...s, summary: 'changed', workspace_id: 'ws2' })
+		pushMock.mockResolvedValueOnce({ enabled: true, storage_id: 'B', results: [{ id: 'mv2' }] })
+		await __flushForTesting()
+		expect(removalKeys()).toEqual(['r::mv2::ws'])
+
+		// On the next page load the old workspace is on again, but on another storage: the
+		// removal there deletes nothing, and the mark waits for the storage holding the copy.
+		__resetMirrorForTesting()
+		pushMock.mockResolvedValueOnce({ enabled: true, storage_id: 'C', results: [{ id: 'mv2' }] })
+		await __flushForTesting()
+		expect(pushMock.mock.lastCall?.[0].requestBody.removed).toEqual(['mv2'])
+		expect(removalKeys()).toEqual(['r::mv2::ws'])
+		pushMock.mockResolvedValueOnce({ enabled: true, storage_id: 'A', results: [{ id: 'mv2' }] })
+		await __flushForTesting()
+		expect(pushMock.mock.lastCall?.[0].requestBody.removed).toEqual(['mv2'])
+		expect(removalKeys()).toEqual([])
+		expect((await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'mv2')?.ws).toBe('ws2')
+	})
+
 	it('takes a bumped backup generation as a new storage for the rows, not for a removal', async () => {
 		const a: Session = { id: 'ga', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
 		const b: Session = { id: 'gb', name: 'session-2', createdAt: 2, workspace_id: 'ws' }
