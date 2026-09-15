@@ -30,7 +30,7 @@
 		type AIAgentConfig
 	} from '../agentResourceUtils'
 	import { agentArgsToTransforms } from '../linkedAgentDrafts'
-	import { AGENT_TOOLS_ROW } from '../agentFormFields'
+	import { AGENT_EDITOR_RUN_INPUTS, AGENT_TOOLS_ROW } from '../agentFormFields'
 	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
 	import { useAgentDraft } from '../agentDraft.svelte'
 
@@ -392,6 +392,7 @@
 								mod={agentModule as FlowModule}
 								schema={flowLocalAgentSchema(schema)}
 								pickableProperties={stepPropPicker?.pickableProperties}
+								runInputKeys={AGENT_EDITOR_RUN_INPUTS}
 								bind:testJob
 								bind:testIsLoading
 								bind:scriptProgress

@@ -264,7 +264,9 @@
 	let handledHash = ''
 	$effect(() => {
 		const hash = $page.url.hash
-		if (hash.length <= 1) {
+		// Only item paths are drawer targets: the same hash also carries global
+		// drawers like #superadmin-settings, which must not be looked up as a variable.
+		if (!/^#[ufg]\//.test(hash)) {
 			// Navigating away from a drawer target must clear the tracker, or
 			// re-targeting the same item later would be skipped as already handled.
 			handledHash = ''

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT username, email FROM usr WHERE workspace_id = $1 AND is_admin = true AND operator = false AND disabled = false ORDER BY username LIMIT 1",
+  "query": "SELECT u.username, u.email FROM usr u WHERE u.workspace_id = $1 AND u.is_admin AND NOT u.operator AND NOT u.disabled AND NOT EXISTS (SELECT 1 FROM password p WHERE p.email = u.email AND p.disabled) ORDER BY u.username LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -24,5 +24,5 @@
       false
     ]
   },
-  "hash": "3202bed875693ae923f496272cd8ad89b2f17a9d3ef4659c2d2284415177b32c"
+  "hash": "0c4dc0e9dc159fac7e41492c78a4e4e0b12b105d4475d7eba2d3a9573b93e388"
 }
