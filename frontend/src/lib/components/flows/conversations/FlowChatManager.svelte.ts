@@ -8,9 +8,11 @@ import { sendUserToast } from '$lib/toast'
 import { waitJob } from '$lib/components/waitJob'
 import { tick } from 'svelte'
 import InfiniteList from '$lib/components/InfiniteList.svelte'
-import { workspaceStore, userStore } from '$lib/stores'
+import { workspaceStore, userStore, enterpriseLicense } from '$lib/stores'
 import { get } from 'svelte/store'
-import { parseStreamEvents } from '$lib/components/chat/utils'
+import { base } from '$lib/base'
+import { followJob, WindmillChatApi, type AgentStreamEvent } from 'windmill-chat'
+import type { StreamEvent } from '$lib/components/chat/utils'
 import { randomUUID } from '$lib/utils/uuid'
 import {
 	prefersInstantReveal,
@@ -64,11 +66,44 @@ type TurnStatus = {
 }
 
 /**
+ * The agent events the worker streams, in the shape the transcript applies. The SDK names
+ * the same six events after the wire protocol; this is the rest of the app's vocabulary.
+ */
+function toStreamEvent(event: AgentStreamEvent): StreamEvent {
+	switch (event.type) {
+		case 'token_delta':
+			return { kind: 'token', content: event.content }
+		case 'reasoning_token_delta':
+			return { kind: 'reasoning', content: event.content }
+		case 'tool_call':
+			return { kind: 'tool_call', callId: event.call_id, name: event.function_name }
+		case 'tool_call_arguments':
+			return {
+				kind: 'tool_arguments',
+				callId: event.call_id,
+				name: event.function_name,
+				arguments: event.arguments
+			}
+		case 'tool_execution':
+			return { kind: 'tool_execution', callId: event.call_id, name: event.function_name }
+		case 'tool_result':
+			return {
+				kind: 'tool_result',
+				callId: event.call_id,
+				name: event.function_name,
+				result: event.result,
+				success: event.success
+			}
+	}
+}
+
+/**
  * The machinery one conversation's live turn runs on. Deliberately not `$state`: nothing
- * renders from it, and an EventSource or a TypewriterReveal has no business behind a proxy.
+ * renders from it, and an abort handle or a TypewriterReveal has no business behind a proxy.
  */
 type TurnRuntime = {
-	eventSource?: EventSource
+	/** Stops this turn's `followJob`. */
+	follow?: AbortController
 	pollingInterval?: ReturnType<typeof setInterval>
 	// What the turn has written so far — which row is open, and the text in it. Held here
 	// rather than in the stream handler's locals: the typewriter reveals on animation
@@ -79,11 +114,6 @@ type TurnRuntime = {
 	// exactly as the session chat does it. Answer and thinking pace independently.
 	replyReveal: TypewriterReveal
 	reasoningReveal: TypewriterReveal
-	// How far into the stream this turn has read. Sent back on reconnect so a resumed
-	// stream continues after the deltas already rendered rather than replaying them. The
-	// offset indexes `streamJobId`'s stream alone.
-	streamOffset?: number
-	streamJobId?: string
 }
 
 function emptyStatus(): TurnStatus {
@@ -419,8 +449,8 @@ export class FlowChatManager {
 			runtime.replyReveal.reset()
 			runtime.reasoningReveal.reset()
 			runtime.turn = emptyTurnState(conversationId)
-			runtime.eventSource?.close()
-			runtime.eventSource = undefined
+			runtime.follow?.abort()
+			runtime.follow = undefined
 			if (runtime.pollingInterval) {
 				clearInterval(runtime.pollingInterval)
 				runtime.pollingInterval = undefined
@@ -1043,15 +1073,12 @@ export class FlowChatManager {
 		additionalInputs?: Record<string, any>
 	): Promise<boolean> {
 		const runtime = this.#liveRuntime(currentConversationId)
-		// Close any existing EventSource
-		runtime.eventSource?.close()
+		runtime.follow?.abort()
 
 		// Track stream state for this message
 		runtime.turn = emptyTurnState(currentConversationId)
 		runtime.replyReveal.reset()
 		runtime.reasoningReveal.reset()
-		runtime.streamOffset = undefined
-		runtime.streamJobId = undefined
 
 		try {
 			const jobId = await this.#onRunFlow?.(messageContent, currentConversationId, additionalInputs)
@@ -1060,20 +1087,18 @@ export class FlowChatManager {
 				this.#turnFailedToStart(currentConversationId)
 				return false
 			}
-			// What Stop cancels. Set from the flow job now rather than waiting for
-			// `flow_stream_job_id`, which stays null until a step starts streaming — Stop
-			// pressed before the first token would otherwise end the turn on screen and leave
-			// the flow running.
+			// What Stop cancels: the flow job, never the streaming step's own sub-job — which
+			// would leave the steps after the agent running.
 			this.#nameTurnJob(currentConversationId, userRowId, jobId)
 
 			// start polling
 			this.startPolling(currentConversationId, isNewConversation)
 
-			this.#followJob(currentConversationId, jobId)
+			// Runs for the length of the turn, and reports its own failures.
+			void this.#followJob(currentConversationId, jobId)
 		} catch (error) {
-			// Everything that can throw here happens before the stream is live — the run
-			// request itself (which the deployed page's launcher throws from), or building
-			// the EventSource. Either way no turn ran.
+			// The run request itself, which the deployed page's launcher throws from. The
+			// stream is not live yet, so no turn ran.
 			console.error('Stream connection error:', error)
 			sendUserToast('Failed to connect to stream', true)
 			this.endTurn(currentConversationId)
@@ -1084,142 +1109,79 @@ export class FlowChatManager {
 	}
 
 	/**
-	 * Follow a job that is already running. The server ends every stream after
-	 * `TIMEOUT_SSE_STREAM`, so a timeout re-enters here on the same job rather than starting
-	 * a second run — which is what it used to do, leaving two runs writing one conversation.
+	 * Follow a job that is already running, to completion.
+	 *
+	 * `followJob` owns the transport: the server ends every stream after
+	 * `TIMEOUT_SSE_STREAM` and it re-attaches to the same job from the last `stream_offset`
+	 * rather than starting a second run — which is what this used to do, leaving two runs
+	 * writing one conversation. It reconnects on an unclean close too, and buffers a chunk
+	 * that ends mid-line until the rest arrives.
 	 */
-	#followJob(currentConversationId: string, jobId: string) {
+	async #followJob(currentConversationId: string, jobId: string) {
 		const runtime = this.#liveRuntime(currentConversationId)
 		const status = this.#liveStatus(currentConversationId)
-		runtime.eventSource?.close()
+		runtime.follow?.abort()
+		const controller = new AbortController()
+		runtime.follow = controller
 
-		const streamUrl = `/api/w/${this.#workspace()}/jobs_u/getupdate_sse/${jobId}`
-		const url = new URL(streamUrl, window.location.origin)
-		url.searchParams.set('poll_delay_ms', '50')
-		url.searchParams.set('fast', 'true')
-		url.searchParams.set('only_result', 'true')
-		// Resume after what is already on screen; without it the stream replays from the
-		// start and the answer gains a second copy of everything rendered so far.
-		if (runtime.streamOffset !== undefined) {
-			url.searchParams.set('stream_offset', runtime.streamOffset.toString())
-		}
-		const eventSource = new EventSource(url.toString())
-		runtime.eventSource = eventSource
-		let isCompleted = false
+		const api = new WindmillChatApi({
+			baseUrl: `${window.location.origin}${base}`,
+			workspace: this.#workspace()!,
+			// Only an enterprise server honours a custom interval; elsewhere it would log a
+			// warning on every poll, so the server's own pacing stands instead.
+			pollDelayMs: get(enterpriseLicense) ? 50 : undefined
+		})
 
-		eventSource.onmessage = async (event) => {
-			try {
-				const data = JSON.parse(event.data)
-				const type = data.type
-
-				// The server ends the stream on its own clock; re-attach to the same job.
-				if (type === 'timeout') {
-					eventSource.close()
-					runtime.eventSource = undefined
-					this.#followJob(currentConversationId, jobId)
-					return
-				}
-
-				// Handle ping - just ignore
-				if (type === 'ping') {
-					return
-				}
-
-				// Handle error
-				if (type === 'error') {
-					eventSource.close()
-					runtime.eventSource = undefined
-					console.error('SSE error:', data)
-					sendUserToast('Stream error: ' + (data.error || 'Unknown error'), true)
-					this.endTurn(currentConversationId)
-					return
-				}
-
-				// Handle not found
-				if (type === 'not_found') {
-					eventSource.close()
-					runtime.eventSource = undefined
-					console.error('Job not found')
-					sendUserToast('Job not found', true)
-					this.endTurn(currentConversationId)
-					return
-				}
-
-				if (type === 'update') {
-					if (data.flow_stream_job_id) {
-						status.jobId = data.flow_stream_job_id
-						if (data.flow_stream_job_id !== runtime.streamJobId) {
-							const offsetFromOtherJob =
-								runtime.streamJobId !== undefined && runtime.streamOffset !== undefined
-							runtime.streamJobId = data.flow_stream_job_id
-							if (offsetFromOtherJob) {
-								// The offset indexes the previous sub-job's stream — a retried last step
-								// gets a new one — so this connection skipped the new job's first
-								// chunks. Drop this delta and re-attach from the start of that stream.
-								runtime.streamOffset = undefined
-								eventSource.close()
-								runtime.eventSource = undefined
-								this.#followJob(currentConversationId, jobId)
-								return
+		try {
+			for await (const update of followJob(api, jobId, { signal: controller.signal })) {
+				if (update.type === 'stream') {
+					// Stop polling since we are receiving last step streaming
+					this.stopPolling(currentConversationId)
+					// One chunk can carry several events, so each is applied in turn: a
+					// chunk holding a call and its result must produce both.
+					for (const streamed of update.events) {
+						const event = toStreamEvent(streamed)
+						if (event.kind === 'reasoning') {
+							status.isReasoningActive = true
+							runtime.reasoningReveal.push(event.content)
+						} else if (event.kind === 'token') {
+							runtime.replyReveal.push(event.content)
+						} else {
+							// Whatever the pacing still holds belongs to the row before the tool —
+							// thinking that led straight to the call included — so it is revealed
+							// before the event that closes that row.
+							if (event.kind === 'tool_call' || event.kind === 'tool_execution') {
+								this.#flushReveals(currentConversationId)
+								status.currentReasoning = ''
+								status.isReasoningActive = false
 							}
+							const step = applyStreamEvent(
+								{ rows: this.#rowsOf(currentConversationId), state: runtime.turn },
+								event,
+								this.#newRowId
+							)
+							this.#rowsById[currentConversationId] = step.rows
+							runtime.turn = step.state
 						}
 					}
-					if (data.stream_offset !== undefined) {
-						runtime.streamOffset = data.stream_offset
-					}
-					// Process new stream content
-					if (data.new_result_stream) {
-						// Stop polling since we are receiving last step streaming
-						this.stopPolling(currentConversationId)
-						// One chunk can carry several events, so each is applied in turn: a
-						// chunk holding a call and its result must produce both.
-						for (const event of parseStreamEvents(data.new_result_stream)) {
-							if (event.kind === 'reasoning') {
-								status.isReasoningActive = true
-								runtime.reasoningReveal.push(event.content)
-							} else if (event.kind === 'token') {
-								runtime.replyReveal.push(event.content)
-							} else {
-								// Whatever the pacing still holds belongs to the row before the tool —
-								// thinking that led straight to the call included — so it is revealed
-								// before the event that closes that row.
-								if (event.kind === 'tool_call' || event.kind === 'tool_execution') {
-									this.#flushReveals(currentConversationId)
-									status.currentReasoning = ''
-									status.isReasoningActive = false
-								}
-								const step = applyStreamEvent(
-									{ rows: this.#rowsOf(currentConversationId), state: runtime.turn },
-									event,
-									this.#newRowId
-								)
-								this.#rowsById[currentConversationId] = step.rows
-								runtime.turn = step.state
-							}
-						}
-					}
-
-					// Handle completion
-					if (data.completed) {
-						isCompleted = true
-						// Anything still buffered would be dropped by the temp-row sweep below.
-						this.#flushReveals(currentConversationId)
-						// Do a final poll to get all messages from database
-						await this.pollConversationMessages(currentConversationId, {
-							removeTempMessages: true
-						})
-						this.endTurn(currentConversationId, { settled: true })
-					}
+					continue
 				}
-			} catch (error) {
-				console.error('Error processing stream event:', error)
+				// Anything still buffered would be dropped by the temp-row sweep below.
+				this.#flushReveals(currentConversationId)
+				// Do a final poll to get all messages from database
+				await this.pollConversationMessages(currentConversationId, {
+					removeTempMessages: true
+				})
+				this.endTurn(currentConversationId, { settled: true })
 			}
-		}
-
-		eventSource.onerror = (error) => {
-			if (isCompleted) return
-			console.error('EventSource error:', error)
-			sendUserToast('Stream error occurred', true)
+		} catch (error) {
+			// A Stop, a conversation's turn ending, or the chat going away — the turn was
+			// already settled by whoever aborted it.
+			if (controller.signal.aborted) return
+			console.error('Error following the flow job:', error)
+			// What the server said, not a constant: a turn dying on an expired session or a
+			// job the server cannot find is only actionable if the reader is told which.
+			sendUserToast(`Stream error: ${error instanceof Error ? error.message : String(error)}`, true)
 			this.endTurn(currentConversationId)
 		}
 	}

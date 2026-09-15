@@ -13,8 +13,28 @@ vi.mock('$lib/gen', () => ({
 vi.mock('$lib/toast', () => ({ sendUserToast: vi.fn() }))
 vi.mock('$lib/stores', () => ({
 	userStore: { subscribe: (run: (v: unknown) => void) => (run({ username: 'admin' }), () => {}) },
-	workspaceStore: { subscribe: (run: (v: unknown) => void) => (run('ws'), () => {}) }
+	workspaceStore: { subscribe: (run: (v: unknown) => void) => (run('ws'), () => {}) },
+	enterpriseLicense: { subscribe: (run: (v: unknown) => void) => (run(undefined), () => {}) }
 }))
+
+/** Each `streamJob` the turn opens, and the updates the next one answers with. */
+const { streamCalls, streamScript } = vi.hoisted(() => ({
+	streamCalls: [] as { jobId: string; streamOffset: number | undefined }[],
+	streamScript: [] as unknown[][]
+}))
+
+// Only the transport is faked. `followJob` — which owns the re-attach, the offset and the
+// line buffering these tests are about — is the real one.
+vi.mock('windmill-chat', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('windmill-chat')>()
+	class FakeApi {
+		async *streamJob(jobId: string, options: { streamOffset?: number } = {}) {
+			streamCalls.push({ jobId, streamOffset: options.streamOffset })
+			for (const update of streamScript.shift() ?? []) yield update
+		}
+	}
+	return { ...actual, WindmillChatApi: FakeApi }
+})
 
 const rows = (conversationId: string, count: number) =>
 	Array.from({ length: count }, (_, i) => ({
@@ -133,71 +153,87 @@ describe('queued turns wait for a settled run', () => {
  * timeout follows the job it already has, and resumes where the last one stopped.
  */
 describe('an SSE timeout re-attaches instead of re-running', () => {
-	class FakeEventSource {
-		static opened: string[] = []
-		static live: FakeEventSource[] = []
-		onmessage: ((e: { data: string }) => void) | null = null
-		onerror: ((e: unknown) => void) | null = null
-		closed = false
-		constructor(url: string) {
-			FakeEventSource.opened.push(url)
-			FakeEventSource.live.push(this)
-		}
-		close() {
-			this.closed = true
-		}
-		emit(payload: unknown) {
-			this.onmessage?.({ data: JSON.stringify(payload) })
-		}
-	}
-
-	let realEventSource: unknown
 	let live: ReturnType<typeof managerWithRows> | undefined
 
 	beforeEach(() => {
-		FakeEventSource.opened = []
-		FakeEventSource.live = []
-		realEventSource = (globalThis as any).EventSource
-		;(globalThis as any).EventSource = FakeEventSource
-		// `test-setup.ts` makes `window` be `globalThis`, which has no `location` — so the
-		// stream URL's base is what is missing, not the window itself.
+		streamCalls.length = 0
+		streamScript.length = 0
+		vi.mocked(FlowConversationsService.listConversationMessages).mockResolvedValue([] as any)
+		// `test-setup.ts` makes `window` be `globalThis`, which has no `location` — and the
+		// api client resolves its URLs against an absolute origin.
 		;(globalThis as any).location = { origin: 'http://localhost' }
 	})
 
 	afterEach(() => {
-		// The turn is still running: its 500ms poll interval would otherwise keep calling
-		// into the manager after the test. Here rather than in the body, which a failing
-		// assertion would skip.
+		// The turn may still be running: its 500ms poll interval and the reconnect loop would
+		// otherwise keep calling into the manager after the test. Here rather than in the
+		// body, which a failing assertion would skip.
 		live?.cleanup()
 		live = undefined
-		;(globalThis as any).EventSource = realEventSource
 		delete (globalThis as any).location
 	})
 
-	it('follows the same job and carries the offset forward', async () => {
+	function turnWith(script: unknown[][]) {
+		streamScript.push(...script)
 		const manager = (live = managerWithRows())
 		const onRunFlow = vi.fn(async () => 'job-1')
 		;(manager as any).initialize(onRunFlow, 'u/admin/flow', true)
 		manager.operatingWorkspace = () => 'ws'
-
 		manager.selectedConversationId = 'a'
-		manager.inputMessage = 'hello'
+		return { manager, onRunFlow }
+	}
+
+	it('follows the same job and carries the offset forward', async () => {
+		const { manager, onRunFlow } = turnWith([
+			[
+				{ type: 'update', stream_offset: 42, flow_stream_job_id: 'agent-step-1' },
+				{ type: 'timeout' }
+			],
+			// The turn is deliberately left running: what it is named while a step streams is
+			// the point, and completing would clear it.
+			[]
+		])
+
+		manager.inputMessage = 'ask something'
 		await manager.sendMessage(undefined, undefined, 'a')
 
-		expect(onRunFlow).toHaveBeenCalledTimes(1)
 		// Stop has something to cancel before any token arrives: the flow job is named as
 		// soon as it is enqueued, not when the streaming step starts.
 		expect(manager.currentJobId).toBe('job-1')
 
-		FakeEventSource.live[0].emit({ type: 'update', stream_offset: 42 })
-		FakeEventSource.live[0].emit({ type: 'timeout' })
+		await vi.waitFor(() => expect(streamCalls).toHaveLength(2))
 
 		// No second run, and the reconnect resumes rather than replaying the answer.
 		expect(onRunFlow).toHaveBeenCalledTimes(1)
-		expect(FakeEventSource.opened).toHaveLength(2)
-		expect(FakeEventSource.opened[0]).toContain('/job-1')
-		expect(FakeEventSource.opened[1]).toContain('/job-1')
-		expect(FakeEventSource.opened[1]).toContain('stream_offset=42')
+		expect(streamCalls[0]).toEqual({ jobId: 'job-1', streamOffset: undefined })
+		expect(streamCalls[1]).toEqual({ jobId: 'job-1', streamOffset: 42 })
+
+		// And it is still the flow that Stop cancels once a step is streaming. Naming the
+		// streaming sub-job here instead would cancel that step and leave the steps after
+		// the agent running.
+		expect(manager.currentJobId).toBe('job-1')
+	})
+
+	/**
+	 * A chunk is not guaranteed to end on a line boundary. Split mid-JSON, the two halves
+	 * were parsed separately and both discarded, losing that token from the answer.
+	 */
+	it('keeps a token whose chunk ended mid-line', async () => {
+		const line = `${JSON.stringify({ type: 'token_delta', content: 'from-the-stream' })}\n`
+		const cut = line.indexOf('from-the') + 3
+		const { manager } = turnWith([
+			[
+				{ type: 'update', new_result_stream: line.slice(0, cut) },
+				{ type: 'update', new_result_stream: line.slice(cut) }
+			]
+		])
+
+		manager.inputMessage = 'ask something'
+		await manager.sendMessage(undefined, undefined, 'a')
+
+		await vi.waitFor(() =>
+			expect(manager.messages.some((m) => m.content.includes('from-the-stream'))).toBe(true)
+		)
 	})
 })
 
@@ -227,7 +263,11 @@ describe('a sent message names the run it started', () => {
 
 	it('stamps the row the turn began with, so the transcript can replay it', async () => {
 		const manager = (live = managerWithRows())
-		;(manager as any).initialize(vi.fn(async () => 'job-7'), 'u/admin/flow', true)
+		;(manager as any).initialize(
+			vi.fn(async () => 'job-7'),
+			'u/admin/flow',
+			true
+		)
 		manager.operatingWorkspace = () => 'ws'
 		manager.selectedConversationId = 'a'
 		manager.inputMessage = 'hello'
@@ -242,7 +282,11 @@ describe('a sent message names the run it started', () => {
 	// one on screen — the row and its job must both land there, not in the open chat.
 	it('stamps the row in the conversation the turn was sent to, not the open one', async () => {
 		const manager = (live = managerWithRows())
-		;(manager as any).initialize(vi.fn(async () => 'job-8'), 'u/admin/flow', true)
+		;(manager as any).initialize(
+			vi.fn(async () => 'job-8'),
+			'u/admin/flow',
+			true
+		)
 		manager.operatingWorkspace = () => 'ws'
 		manager.selectedConversationId = 'open-chat'
 		manager.inputMessage = 'sent to the background chat'
