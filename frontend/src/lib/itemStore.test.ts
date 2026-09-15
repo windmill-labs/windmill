@@ -752,6 +752,39 @@ describe('item store: origins', () => {
 		expect(item.value).toEqual(typed)
 	})
 
+	it('keeps an edit typed after the chat asked for a discard, while a save held it up', async () => {
+		const rows = fakeRows()
+		const gate = deferred()
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const { handle: item } = store.acquire(
+			key,
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter({ deployed: deployedRes }, () => gate.promise)
+		)
+		await settle()
+		item.value = { ...deployedRes, description: 'edited' }
+		const saving = item.save()
+		await settle()
+
+		// The chat asks for the discard while the save is still out, then the user types.
+		const discarding = store.bridge.discard('w', 'resource', 'u/me/r')
+		await settle()
+		item.value = { ...deployedRes, description: 'typed after the chat asked' }
+		gate.resolve()
+		await saving
+
+		// The discard was about the value the chat saw, not this one. It reports the row dealt
+		// with either way, so the chat does not delete what it is now holding.
+		expect(await discarding).toBe(true)
+		expect(item.value?.description).toBe('typed after the chat asked')
+		expect(item.dirty).toBe(true)
+		expect(rows.writes.at(-1)).toEqual({
+			path: 'u/me/r',
+			value: { ...deployedRes, description: 'typed after the chat asked' }
+		})
+	})
+
 	it('says it did not deal with the row when its own first read never arrived', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)

@@ -85,7 +85,9 @@ export type DiscardOutcome = { removed: boolean }
 /** The draft-row side: the existing debounced syncer, and the list pages' `*` hint. */
 export type ItemRowPort = {
 	write(key: ItemKey, value: unknown | null): void
-	/** Send what `write` queued for `key` now; resolves once it landed. */
+	/** Send what `write` queued for `key` now. Resolves once the attempt has settled, which is
+	 *  not the same as the row being there: a conflict or a network failure resolves too, and
+	 *  shows up in `conflicted` / `failure` for the caller to read. */
 	flush(key: ItemKey): Promise<void>
 	overwrite(key: ItemKey, value: unknown | null): Promise<void>
 	/** Rows handed to the syncer for `key` so far, by any writer, counted before the debounce
@@ -459,15 +461,16 @@ class Entry<V> {
 	}
 
 	/**
-	 * Discard for an outside caller, resolving to whether this editor dealt with the row. Like
-	 * `refreshed`, it waits for the load in front of it; false when that never arrived, because
-	 * an entry with nothing loaded writes no delete and the caller has to issue one itself.
+	 * Discard for an outside caller, resolving to whether this editor was in a position to deal
+	 * with the row. Asked for now, not after a wait: `discard` snapshots when it is called, and
+	 * an edit made while it queued behind a save must not look like part of what it was asked to
+	 * throw away. Its queue already puts it after the first load, so what is left to report is
+	 * whether that load ever arrived — an entry with nothing loaded writes no delete, and the
+	 * caller has to issue one itself.
 	 */
 	async discarded(): Promise<boolean> {
-		await this.run(async () => {})
-		if (!this.loaded || this.retired) return false
 		await this.discard()
-		return true
+		return this.loaded && !this.retired
 	}
 
 	/**
