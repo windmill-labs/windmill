@@ -214,7 +214,7 @@ export async function pushWorkspaceSettings(
   }
 
   // Exclude fields that are never applied here: slack_team_id/slack_name are OAuth-only,
-  // and name/color are not applied on pull (see below), so a diff in them alone is a no-op.
+  // and name/color are never applied here (see below), so a diff in them alone is a no-op.
   const { slack_team_id: _lst, slack_name: _lsn, name: _ln, color: _lc, ...comparableLocal } =
     localSettings;
   const { slack_team_id: _rst, slack_name: _rsn, name: _rn, color: _rc, ...comparableRemote } =
@@ -353,10 +353,10 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  // Workspace display name and color are intentionally not applied on pull: settings.yaml is
-  // shared across a repo's branches, so applying them would let one workspace's identity
-  // overwrite another's when both sync the same repo (an absent `color` key even clears it).
-  // They stay in the file (written on push), but only the workspace's own admins change them.
+  // Workspace display name and color are intentionally never applied by `sync push`:
+  // settings.yaml is shared across a repo's branches, so applying them would let one
+  // workspace's identity overwrite another's when both sync the same repo (an absent `color`
+  // key even clears it). `sync pull` still records them; only the workspace's admins change them.
 
   if (localSettings.mute_critical_alerts != settings.mute_critical_alerts) {
     log.debug(`Updating mute critical alerts...`);

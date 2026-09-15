@@ -1,7 +1,7 @@
 /**
- * Regression guard: a pull (pushWorkspaceSettings) must not apply the workspace
- * display name or color from settings.yaml. Rationale lives at the apply site in
- * settings.ts.
+ * Regression guard: `sync push` (pushWorkspaceSettings) must not apply the
+ * workspace display name or color from settings.yaml. Rationale lives at the
+ * apply site in settings.ts.
  */
 
 import { expect, test, describe, beforeEach, mock } from "bun:test";
