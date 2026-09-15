@@ -50,7 +50,8 @@ primary storage (the generation is what a key rotation moves, see below).
 The listing reads only `index/`: one object per session whatever the session holds, so a
 session with many chats cannot crowd newer ones out of a bounded scan, and its
 `last_modified` is the session's `updated_at`. Written last, and only by an entry no unsent
-part follows (a session split over several entries says `partial` on all but the last), it
+part follows (a session split over several entries says `partial` on all but the last, and
+names the push on each, or the part is refused), it
 lists a session only once a whole push landed; the parts of a session after a failed one are
 not written either, on the server within one push and on the client across pushes, so the
 marker on the last part never lists a session missing a chat, and a new session whose last part

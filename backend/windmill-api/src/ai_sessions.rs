@@ -987,9 +987,11 @@ fn validate_push(req: &PushRequest) -> Result<()> {
         require_valid_id("session", &s.id)?;
         if let Some(token) = &s.push {
             require_valid_id("push", token)?;
-        } else if s.opens {
+        } else if s.opens || s.partial {
+            // A part more parts follow belongs to a push split over parts, which names
+            // itself: without the token the session would stay listed between the parts.
             return Err(Error::BadRequest(format!(
-                "session {} opens a push with no token",
+                "session {} is pushed in parts with no push token",
                 s.id
             )));
         }

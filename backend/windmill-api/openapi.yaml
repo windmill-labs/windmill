@@ -28572,7 +28572,7 @@ components:
                 type: string
         partial:
           type: boolean
-          description: more parts of this session follow, in this push or a later one; the session is not listed on this one
+          description: more parts of this session follow, in this push or a later one; the session is not listed on this one. Such a part names its push (`push`), or it is refused
         whole:
           type: boolean
           description: a part of a push of the session whole; the head is on the part that opens it, which replaces whatever the storage holds of the session, and every piece the browser has is on one of them. An incremental part instead rides on a session the storage lists and is refused with needs_whole when it lists none

@@ -169,6 +169,30 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     assert_eq!(listing["enabled"], true);
     assert_eq!(listing["sessions"][0]["id"], "s1");
 
+    // A part more parts follow names its push, or the session would stay listed between
+    // the parts: one that does not is refused before anything of it lands.
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s1", "partial": true, "delete_chats": ["c1"] }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+    assert_eq!(
+        list(&base, "SECRET_TOKEN").await?["sessions"][0]["id"],
+        "s1"
+    );
+    assert_eq!(
+        pull(&base, "SECRET_TOKEN", &["s1"]).await?["sessions"][0]["chats"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
     // A part with more of the session to follow lists nothing; the part that completes
     // the push does, newest first.
     let ids = |listing: &Value| -> Vec<String> {
