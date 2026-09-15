@@ -638,7 +638,9 @@
 			onLatest = appVersion?.version === undefined || version === appVersion?.version
 		} catch (e) {
 			console.error('Error comparing versions', e)
-			onLatest = true
+			// The head is what this compares against, so an unanswered read is not
+			// evidence of being current: confirm, as an unclaimable deploy does.
+			onLatest = false
 		}
 	}
 
