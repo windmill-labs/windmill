@@ -646,9 +646,11 @@ function createRuntime(session: Session): SessionRuntime {
 				await initFlow(flow, store, stateStore, workspace)
 				// A draft keeps the base it forked from, unknown included (it then falls
 				// back to the timestamps); only a fresh checkout takes the head, which is
-				// also what keeps it from always diffing. See loadScript.
-				if (deployedVersionId != null && store.val && !serverDraft)
-					store.val.version_id = deployedVersionId
+				// also what keeps it from always diffing. See loadScript. The head comes
+				// from the response that supplied the payload, so a deploy landing between
+				// the two requests cannot label this checkout as forked from the older one.
+				const head = (result as SavedFlow).version_id ?? deployedVersionId
+				if (head != null && store.val && !serverDraft) store.val.version_id = head
 				slot.loadedPath = path
 				slot.loadedWorkspace = workspace
 			} catch (err) {

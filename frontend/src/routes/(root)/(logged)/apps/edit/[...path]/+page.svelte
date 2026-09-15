@@ -500,7 +500,11 @@
 					// itself; the prompt's own pair is what the loader knows, and this deploy
 					// consumed the draft it described, so the route holds no base until it loads
 					// again (the deploy guard covers that window).
-					draftBaseVersion = undefined
+					// Keep the base the editor just pinned when this deploy is the head: the
+					// prompt has no draft to describe either way, and the drawer needs it to
+					// keep offering Take latest. A raced deploy leaves it unknown, since the
+					// pair would then differ and open the prompt on a draft that is gone.
+					draftBaseVersion = version != null && version === head ? String(version) : undefined
 					draftSavedAt = undefined
 					if (head != null) {
 						// Named by whoever deployed the head, not by the page load's author.
