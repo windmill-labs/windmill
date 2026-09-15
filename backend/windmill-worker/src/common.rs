@@ -1577,45 +1577,47 @@ pub async fn cached_result_path(
     // A workflow-as-code task child carries its parent's arguments, which say
     // nothing about the task's own inputs; its result is keyed on the task it
     // runs and the arguments that task was called with.
-    if let Some((task, args_hash)) = wac_task_identity(db, job).await? {
+    let (task, args) = match wac_task_identity(db, job).await? {
+        Some((task, args)) => (Some(task), Some(Json(args))),
+        None => (None, job.args.clone()),
+    };
+    if let Some(task) = task {
         hasher.update(b"wac_task:");
         hasher.update(task.as_bytes());
-        hasher.update(b":");
-        hasher.update(args_hash.as_bytes());
-    } else {
-        hash_args(
-            db,
-            client,
-            &job.workspace_id,
-            &job.args,
-            &mut hasher,
-            &job.id,
-            job.cache_ignore_s3_path.unwrap_or(false),
-        )
-        .await;
     }
+    hash_args(
+        db,
+        client,
+        &job.workspace_id,
+        &args,
+        &mut hasher,
+        &job.id,
+        job.cache_ignore_s3_path.unwrap_or(false),
+    )
+    .await;
     Ok(format!("g/results/{:064x}", hasher.finalize()))
 }
 
-/// The task name and arguments hash a workflow-as-code parent seeded in this
+/// The task name and call arguments a workflow-as-code parent seeded in this
 /// child's checkpoint at push time; `None` for any job that is not such a child.
 async fn wac_task_identity(
     db: &DB,
     job: &MiniPulledJob,
-) -> windmill_common::error::Result<Option<(String, String)>> {
+) -> windmill_common::error::Result<Option<(String, HashMap<String, Box<RawValue>>)>> {
     if job.parent_job.is_none() || job.flow_step_id.is_some() {
         return Ok(None);
     }
-    let identity: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT workflow_as_code_status->'_checkpoint'->>'_executing_task', \
-                workflow_as_code_status->'_checkpoint'->>'_executing_args_hash' \
-         FROM v2_job_status WHERE id = $1",
-    )
-    .bind(job.id)
-    .fetch_optional(db)
-    .await?;
+    let identity: Option<(Option<String>, Option<Json<HashMap<String, Box<RawValue>>>>)> =
+        sqlx::query_as(
+            "SELECT workflow_as_code_status->'_checkpoint'->>'_executing_task', \
+                    workflow_as_code_status->'_checkpoint'->'_executing_args' \
+             FROM v2_job_status WHERE id = $1",
+        )
+        .bind(job.id)
+        .fetch_optional(db)
+        .await?;
     Ok(match identity {
-        Some((Some(task), Some(args_hash))) => Some((task, args_hash)),
+        Some((Some(task), Some(Json(args)))) => Some((task, args)),
         _ => None,
     })
 }

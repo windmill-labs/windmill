@@ -40,14 +40,14 @@ pub struct WacCheckpoint {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub _executing_key: Option<String>,
-    /// With `_executing_key`: the task the child runs and `task_args_hash` of the
-    /// arguments it was called with, the identity its cached result is keyed on.
+    /// With `_executing_key`: the task the child runs and the arguments it was
+    /// called with, the identity its cached result is keyed on.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub _executing_task: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    pub _executing_args_hash: Option<String>,
+    pub _executing_args: Option<serde_json::Map<String, Value>>,
     /// `resume_job.id` values already consumed by earlier approval steps (the
     /// row primary key, not the distinct integer `resume_id` column). Rows are
     /// never deleted, so a workflow with several sequential wait_for_approval()
@@ -80,34 +80,9 @@ pub fn approval_resume_id(step_key: &str) -> u32 {
     u32::from_be_bytes([digest[0], digest[1], digest[2], digest[3]])
 }
 
-/// Hash of a task call's arguments, with the keys in a fixed order so the order a
-/// caller passes them in cannot split its cached results.
-pub fn task_args_hash(args: &serde_json::Map<String, Value>) -> String {
-    use sha2::{Digest, Sha256};
-    let ordered: std::collections::BTreeMap<&String, &Value> = args.iter().collect();
-    let json = serde_json::to_string(&ordered).unwrap_or_default();
-    format!("{:x}", Sha256::digest(json.as_bytes()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::approval_resume_id;
-    use super::task_args_hash;
-
-    #[test]
-    fn task_args_hash_ignores_key_order_and_sees_values() {
-        let parse = |s: &str| {
-            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(s).unwrap()
-        };
-        assert_eq!(
-            task_args_hash(&parse(r#"{"a":1,"b":2}"#)),
-            task_args_hash(&parse(r#"{"b":2,"a":1}"#))
-        );
-        assert_ne!(
-            task_args_hash(&parse(r#"{"a":1,"b":2}"#)),
-            task_args_hash(&parse(r#"{"a":1,"b":3}"#))
-        );
-    }
 
     /// Golden values: worker and API must agree on this mapping, and they can run
     /// different builds during a rolling deploy. Changing it strands every resume

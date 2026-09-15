@@ -3327,6 +3327,11 @@ def task(
     it grows with both the width of the fan-out and ``attempts``. Retries with
     no ``delay`` all go out in a single round.
 
+    ``cache_ttl`` serves a previous result of the task for that many seconds
+    instead of running it again. The result is keyed on the task and the
+    arguments it is called with, so anything a cached task reads from its
+    closure must be passed in as an argument.
+
     Usage::
 
         @task
