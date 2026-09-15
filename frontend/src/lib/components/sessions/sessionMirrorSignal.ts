@@ -43,7 +43,24 @@ export function onMirrorSignal(fn: (signal: MirrorSignal) => void): void {
 	for (const signal of replay) fn(signal)
 }
 
+let sweptHandler: ((sessionId: string, email: string) => Promise<void>) | undefined
+
+/** The retention sweep deleted this session's local copy in the store of `email`: what the
+ * backup keeps of it in this browser goes too. Awaited under the sweep's tab lock. */
+export async function sessionSwept(sessionId: string, email: string): Promise<void> {
+	try {
+		await sweptHandler?.(sessionId, email)
+	} catch (e) {
+		console.error('Could not forget the backup state of a swept session', e)
+	}
+}
+
+export function onSessionSwept(fn: (sessionId: string, email: string) => Promise<void>): void {
+	sweptHandler = fn
+}
+
 export function __resetMirrorSignalForTesting(): void {
 	handler = undefined
+	sweptHandler = undefined
 	buffered = []
 }

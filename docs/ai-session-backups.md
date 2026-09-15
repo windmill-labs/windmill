@@ -194,7 +194,10 @@ the first push after it or on the next page load, whichever comes first.
 the `sessions_storage_disabled` pattern: no migration, carried by settings export and the
 CLI; 1 to 3650) puts an age on sessions, counted from their last activity. Each side applies
 it with its own clock against its own timestamps, so no clock is compared with another
-machine's:
+machine's, and the two do not time the same event: the server counts the last push that
+completed, a browser its last local activity, which includes reading new messages and is not
+pushed. A backup swept while a browser still reads its copy comes back once that browser
+writes to the session again (its incremental push is refused and goes whole):
 
 - The server sweeps the object store (`sweep_expired_ai_session_backups`, from the monitor
   about every 40 minutes on each server, one pass at a time under a session-level advisory
@@ -203,8 +206,11 @@ machine's:
   per session, nothing of what the sessions hold. A session whose marker is older than the
   retention is removed under its lock (`lock_session`), once its markers, listed again
   there, are still all older: a push that renewed the session between the walk and the lock
-  keeps it, and one split over parts either holds the lock or has the session unlisted,
-  which the sweep leaves alone. Before deleting anything the sweep writes a record next to
+  keeps it, and one split over parts either holds the lock or has the session unlisted with
+  its token next to the markers (`index/{sid}/push`), which the sweep leaves alone while the
+  token is younger than the retention: an older one is a push a browser abandoned, whose
+  landed parts nothing lists, and it goes the same way. Before deleting anything the sweep
+  writes a record next to
   the markers (`index/{sid}/sweep`, not an epoch, so neither `list` nor `pull` counts it),
   and `remove_session` deletes it last: a removal cut short, its markers already gone, is
   found by the next pass and finished, unless a push listed the session again first. At
@@ -222,11 +228,16 @@ machine's:
   the storage's never deletes a session it just brought back. Archived sessions count like
   any other, and persisted unsent drafts by their pending workspace. The sweep runs under the
   tab lock the flush and the restore take, so neither plans or stages a session half deleted,
-  and so only where Web Locks exist, as the restore. Each record is deleted in the
-  transaction that reads it still expired, so activity since the reconcile read keeps the
-  session. The record goes before its pieces, and a localStorage key written before it and
-  removed once every piece is gone makes the next sweep finish a deletion that failed,
-  unless a restore brought the session back since. Nothing is sent to the storage: the
+  and so only where Web Locks exist, as the restore. `currentSessionId` is per tab while the
+  stores are shared, so every tab holds a shared Web Lock named after the session it has
+  selected, and the sweep leaves one another tab holds (`locks.query()` before each
+  deletion). Each record is deleted in the transaction that reads it still expired, so
+  activity since the reconcile read keeps the session. The record goes before its pieces,
+  and a localStorage key written before it and removed once every piece is gone makes a later
+  reconcile finish a deletion that failed, whether a retention is still set or not, unless a
+  restore brought the session back since. The session's dirty mark and sync row go with it
+  (`sessionSwept`), unless the row still carries a removal or a restore's staging. Nothing is
+  sent to the storage: the
   local copy's age says nothing about another device's, which may have pushed the session
   since, and the server applies the rule to the backup on its own. A session swept here that
   the storage still lists comes back on the next restore.

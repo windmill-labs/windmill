@@ -73,29 +73,38 @@ const SWEEP_MAX_PER_WORKSPACE: usize = 1000;
 const SWEEP_LOCK_ID: i64 = 0x5745_4550_4149;
 /// The name of the sweep's record next to a session's markers (see `Backend::sweep_key`).
 const SWEEP_RECORD: &str = "sweep";
+/// The name of a split push's token next to a session's markers (see `Backend::push_key`).
+const PUSH_TOKEN: &str = "push";
 
 /// A marker modified before this is past a retention of `days`.
 fn retention_cutoff(days: u32) -> chrono::DateTime<chrono::Utc> {
     chrono::Utc::now() - chrono::Duration::days(i64::from(days))
 }
 
-/// The session id and epoch a marker key under the `index/` prefix names.
-fn marker_of<'a>(index: &ObjectPath, key: &'a ObjectPath) -> Option<(&'a str, u32)> {
-    // `Path` drops the trailing delimiter, so the remainder starts with one.
-    let rel = key.as_ref().strip_prefix(index.as_ref())?;
-    let (sid, epoch) = rel.trim_start_matches('/').split_once('/')?;
-    let epoch = epoch.parse::<u32>().ok()?;
-    (!sid.is_empty() && !sid.contains('/')).then_some((sid, epoch))
+/// What a key under the `index/` prefix is.
+enum IndexEntry {
+    /// The marker that lists the session, named by its epoch.
+    Marker(u32),
+    /// The retention sweep's record (see `Backend::sweep_key`).
+    Sweep,
+    /// The token of a push split over parts (see `Backend::push_key`).
+    Push,
 }
 
-/// The session a retention sweep's record under the `index/` prefix names.
-fn sweep_record_of<'a>(index: &ObjectPath, key: &'a ObjectPath) -> Option<&'a str> {
+/// The session a key under the `index/` prefix belongs to, and what the key is.
+fn index_entry<'a>(index: &ObjectPath, key: &'a ObjectPath) -> Option<(&'a str, IndexEntry)> {
+    // `Path` drops the trailing delimiter, so the remainder starts with one.
     let rel = key.as_ref().strip_prefix(index.as_ref())?;
-    let sid = rel
-        .trim_start_matches('/')
-        .strip_suffix(SWEEP_RECORD)?
-        .strip_suffix('/')?;
-    (!sid.is_empty() && !sid.contains('/')).then_some(sid)
+    let (sid, name) = rel.trim_start_matches('/').split_once('/')?;
+    if sid.is_empty() {
+        return None;
+    }
+    let entry = match name {
+        SWEEP_RECORD => IndexEntry::Sweep,
+        PUSH_TOKEN => IndexEntry::Push,
+        epoch => IndexEntry::Marker(epoch.parse().ok()?),
+    };
+    Some((sid, entry))
 }
 
 pub fn workspaced_service() -> Router {
@@ -166,10 +175,11 @@ impl Backend {
         ObjectPath::from(format!("{}/index/{sid}/{SWEEP_RECORD}", self.prefix))
     }
 
-    /// The token of the push split over parts in progress, under the session so a removal
-    /// or the next whole push clears it with the rest.
+    /// The token of the push split over parts in progress, next to the markers so a removal
+    /// or the next whole push clears it with them, and the retention sweep, which walks the
+    /// markers, finds one a browser abandoned.
     fn push_key(&self, sid: &str) -> ObjectPath {
-        ObjectPath::from(format!("{}/sessions/{sid}/push", self.prefix))
+        ObjectPath::from(format!("{}/index/{sid}/{PUSH_TOKEN}", self.prefix))
     }
 
     fn session_prefix(&self, sid: &str) -> ObjectPath {
@@ -563,7 +573,7 @@ async fn list(
         if cutoff.is_some_and(|cutoff| meta.last_modified < cutoff) {
             continue;
         }
-        let Some((sid, epoch)) = marker_of(&prefix, &meta.location) else {
+        let Some((sid, IndexEntry::Marker(epoch))) = index_entry(&prefix, &meta.location) else {
             continue;
         };
         newest.push(std::cmp::Reverse((
@@ -1395,13 +1405,14 @@ async fn sweep_workspace(db: &DB, w_id: &str, days: u32, generation: i64) -> Res
         let mut expired = std::collections::BTreeSet::new();
         while let Some(meta) = markers.next().await {
             let meta = meta.map_err(object_store_error_to_error)?;
-            let sid = match marker_of(&index, &meta.location) {
-                Some((sid, _)) if meta.last_modified < cutoff => sid,
-                Some(_) => continue,
-                None => match sweep_record_of(&index, &meta.location) {
-                    Some(sid) => sid,
-                    None => continue,
-                },
+            let sid = match index_entry(&index, &meta.location) {
+                Some((sid, IndexEntry::Sweep)) => sid,
+                Some((sid, IndexEntry::Marker(_) | IndexEntry::Push))
+                    if meta.last_modified < cutoff =>
+                {
+                    sid
+                }
+                _ => continue,
             };
             expired.insert(sid.to_string());
             if deleted + expired.len() >= SWEEP_MAX_PER_WORKSPACE {
@@ -1425,10 +1436,12 @@ async fn sweep_workspace(db: &DB, w_id: &str, days: u32, generation: i64) -> Res
 }
 
 /// True when the session was deleted. Under the session's lock its markers are listed again:
-/// one a push renewed since the walk keeps the session, and a session with none (a push split
-/// over parts is between two of them, or it is gone) is left alone unless the sweep's record
-/// says a removal was started. The record is written before anything is deleted and removed
-/// last, so a removal cut short is found again by the next pass.
+/// one a push renewed since the walk keeps the session. A session with none is left alone
+/// while a push split over parts is between two of them (its token younger than the
+/// retention) or it is gone, unless the sweep's record says a removal was started; an older
+/// token is a split push a browser abandoned, whose landed parts nothing lists. The record is
+/// written before anything is deleted and removed last, so a removal cut short is found again
+/// by the next pass.
 async fn sweep_session(
     db: &DB,
     backend: &Backend,
@@ -1437,13 +1450,15 @@ async fn sweep_session(
 ) -> Result<bool> {
     let tx = lock_session(db, backend, sid).await?;
     let result = async {
-        let sweep = backend.sweep_key(sid);
+        let (sweep, push) = (backend.sweep_key(sid), backend.push_key(sid));
         let mut entries = backend.store.list(Some(&backend.index_session_prefix(sid)));
-        let (mut listed, mut renewed, mut started) = (false, false, false);
+        let (mut listed, mut renewed, mut started, mut abandoned) = (false, false, false, false);
         while let Some(meta) = entries.next().await {
             let meta = meta.map_err(object_store_error_to_error)?;
             if meta.location == sweep {
                 started = true;
+            } else if meta.location == push {
+                abandoned = meta.last_modified < cutoff;
             } else {
                 listed = true;
                 renewed |= meta.last_modified >= cutoff;
@@ -1457,7 +1472,7 @@ async fn sweep_session(
             }
             return Ok(false);
         }
-        if !listed && !started {
+        if !listed && !started && !abandoned {
             return Ok(false);
         }
         if !started {

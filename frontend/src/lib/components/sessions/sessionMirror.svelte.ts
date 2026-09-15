@@ -27,7 +27,7 @@ import { getCurrentUserEmail, onUserChange, scopedKey, scopedKeyFor } from '$lib
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { randomUUID } from '$lib/utils/uuid'
 import { workspaceRootId } from './sessionScope.svelte'
-import { onMirrorSignal, sessionsLockName } from './sessionMirrorSignal'
+import { onMirrorSignal, onSessionSwept, sessionsLockName } from './sessionMirrorSignal'
 import {
 	importSessions,
 	isSessionTombstoned,
@@ -1561,6 +1561,14 @@ export function backupSettingsChanged(ws: string): void {
 // --- Wiring ---
 
 if (BROWSER) {
+	// Nothing pushes a swept session again, so its mark and sync row are dead weight; a row
+	// still carrying a removal or a restore's staging is left to those.
+	onSessionSwept(async (id, email) => {
+		if (email !== getCurrentUserEmail()) return
+		dropDirty(id)
+		const row = await readSync(id, email)
+		if (row && !row.removed && !row.staging) await deleteSync([id], email)
+	})
 	onMirrorSignal((signal) => {
 		// A mark for another user waits for that user's next load.
 		const mine = !signal.email || signal.email === getCurrentUserEmail()

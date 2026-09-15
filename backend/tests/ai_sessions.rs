@@ -1120,15 +1120,27 @@ async fn test_expired_backups_are_swept_by_age_and_left_out_of_the_listing(
             "artifacts": { "items": [], "versions": [] }
         })
     };
+    // Two pushes split over parts of which only the first part landed: one a browser
+    // abandoned long ago (its token aged past the retention), one still in flight.
+    let opening = |sid: &str| {
+        json!({
+            "id": sid, "whole": true, "epoch": 0, "push": format!("t-{sid}"), "opens": true,
+            "partial": true, "chats": [chat(sid, "c1")],
+            "head": { "id": sid, "workspace_id": "test-workspace", "createdAt": 1, "chatId": "c1" }
+        })
+    };
     let resp = push(
         &base,
         "SECRET_TOKEN",
-        json!({ "owner": "test@windmill.dev", "sessions": [whole("old"), whole("live")] }),
+        json!({ "owner": "test@windmill.dev", "sessions": [
+            whole("old"), whole("live"), opening("abandoned"), opening("inflight")
+        ] }),
     )
     .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     let root = user_root(storage_dir.path(), "test@windmill.dev");
     age_object(&root.join("index/old/0"), 40)?;
+    age_object(&root.join("index/abandoned/push"), 40)?;
 
     let listed = |listing: Value| -> Vec<String> {
         let mut ids: Vec<String> = listing["sessions"]
@@ -1184,7 +1196,9 @@ async fn test_expired_backups_are_swept_by_age_and_left_out_of_the_listing(
     windmill_api::sweep_expired_ai_session_backups(&db).await;
     let remaining = objects(&root);
     assert!(
-        remaining.iter().all(|p| !p.contains("/old/")),
+        remaining
+            .iter()
+            .all(|p| !p.contains("/old/") && !p.contains("/abandoned/")),
         "{remaining:?}"
     );
     for kept in [
@@ -1192,6 +1206,8 @@ async fn test_expired_backups_are_swept_by_age_and_left_out_of_the_listing(
         "sessions/live/head.json",
         "sessions/live/chats/c1.json",
         "images/live/c1/img1",
+        "index/inflight/push",
+        "sessions/inflight/head.json",
     ] {
         assert!(
             remaining.iter().any(|p| p == kept),

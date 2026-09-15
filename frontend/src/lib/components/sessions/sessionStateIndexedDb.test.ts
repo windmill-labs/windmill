@@ -699,12 +699,26 @@ describe('sessionState IndexedDB persistence', () => {
 			] as never
 		})
 		await login(user)
-		// The sweep runs under the backup's tab lock, so only where Web Locks exist.
+		// The sweep runs under the backup's tab lock, so only where Web Locks exist; `held` is
+		// what `query` reports every tab holding.
+		const held = new Set<string>()
 		if (typeof navigator === 'undefined') {
 			Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true })
 		}
 		Object.defineProperty(navigator, 'locks', {
-			value: { request: (_name: string, run: (lock: unknown) => Promise<void>) => run({}) },
+			value: {
+				request: async (name: string, ...rest: unknown[]) => {
+					const run = rest[rest.length - 1] as (lock: unknown) => Promise<unknown>
+					const shared = rest.length > 1 && (rest[0] as LockOptions).mode === 'shared'
+					if (shared) held.add(name)
+					try {
+						return await run({})
+					} finally {
+						if (shared) held.delete(name)
+					}
+				},
+				query: async () => ({ held: [...held].map((name) => ({ name, mode: 'shared' })) })
+			},
 			configurable: true
 		})
 		const day = 24 * 60 * 60 * 1000
@@ -713,15 +727,17 @@ describe('sessionState IndexedDB persistence', () => {
 			session({ id, createdAt: old, lastActivityAt: old, workspace_id: 'kept-ws', ...over })
 		// Archived or not, a session is judged by its own last activity; one read a day ago
 		// stays, as do one restored here a day ago whatever the backup's time, one in a
-		// workspace without retention, and the one on screen.
+		// workspace without retention, the one on screen, and one another tab has selected.
 		await putSession(stale('stale'))
 		await putSession(stale('stale-archived', { archived: true }))
 		await putSession(stale('read-lately', { lastActivityAt: Date.now() - day }))
 		await putSession(stale('restored-lately', { restoredAt: Date.now() - day }))
 		await putSession(stale('open'))
+		await putSession(stale('open-elsewhere'))
 		await putSession(stale('used-meanwhile'))
 		await putSession(stale('elsewhere', { workspace_id: 'other-ws' }))
 		sessionState.currentSessionId = 'open'
+		held.add(`wm-ai-sessions-mirror::${user.email}::open::open-elsewhere`)
 
 		const statusMock = vi.mocked(WorkspaceService.getSessionWorkspaceStatus)
 		const statusCalls = statusMock.mock.calls.length
@@ -750,6 +766,7 @@ describe('sessionState IndexedDB persistence', () => {
 			expect(await stored()).toEqual([
 				'elsewhere',
 				'open',
+				'open-elsewhere',
 				'read-lately',
 				'restored-lately',
 				'used-meanwhile'
@@ -764,11 +781,16 @@ describe('sessionState IndexedDB persistence', () => {
 		expect(pending('stale-archived')).toBeNull()
 		expect(chatDeletions('open')).toHaveLength(0)
 
-		// The next sweep deletes what the failed deletion left.
-		statusMock.mockResolvedValueOnce(retention as never)
+		// The next reconcile finishes what the failed deletion left, though the retention was
+		// cleared since.
+		statusMock.mockResolvedValueOnce({
+			'kept-ws': { status: 'active' },
+			'other-ws': { status: 'active' }
+		} as never)
 		await reconcileSessionsLifecycle()
 		await vi.waitFor(() => expect(pending('stale')).toBeNull())
 		expect(chatDeletions('stale')).toHaveLength(2)
+		held.clear()
 	})
 
 	it('clears the in-memory list on logout', async () => {

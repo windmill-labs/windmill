@@ -24,11 +24,16 @@ import { workspaceRootId } from './sessionScope.svelte'
 import { clearSessionRecovered } from './sessionRecoveryNotice.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
-import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
+import { emailOfScopedKey, getCurrentUserEmail, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
 import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
-import { markSessionDirty, markSessionRemoved, sessionsLockName } from './sessionMirrorSignal'
+import {
+	markSessionDirty,
+	markSessionRemoved,
+	sessionSwept,
+	sessionsLockName
+} from './sessionMirrorSignal'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -618,6 +623,10 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	lastReconcileAt = Date.now()
 	const db = await sessionsDb.whenReady()
 	if (!db) return
+	const email = emailOfScopedKey(SESSIONS_DB, db.name)
+	// A deletion a sweep could not finish is finished whatever the workspaces answer now: the
+	// retention may have been cleared since, or no session be left to reconcile.
+	if (email && retentionPending(email).length > 0) void sweepExpiredSessions(new Map(), email)
 	const wsIds = new Set<string>()
 	const sessions = await db.getAll('sessions')
 	// Committed sessions reconcile on workspace_id; persisted pending drafts on
@@ -678,7 +687,6 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	for (const [ws, answer] of Object.entries(status)) {
 		if (answer.sessions_retention_days) retention.set(ws, answer.sessions_retention_days)
 	}
-	const email = emailOfScopedKey(SESSIONS_DB, db.name)
 	// Not awaited: it waits for the backup's tab lock, which a restore can hold for a while.
 	if (email && retention.size > 0) void sweepExpiredSessions(retention, email)
 }
@@ -698,6 +706,54 @@ function forgetRetentionPending(email: string, id: string): void {
 	} catch {}
 }
 
+function retentionPending(email: string): string[] {
+	const prefix = retentionPendingPrefix(email)
+	const ids: string[] = []
+	try {
+		for (let i = 0; i < localStorage.length; i++) {
+			const key = localStorage.key(i)
+			if (key?.startsWith(prefix)) ids.push(key.slice(prefix.length))
+		}
+	} catch {}
+	return ids
+}
+
+function webLocks(): LockManager | undefined {
+	return typeof navigator === 'undefined' ? undefined : (navigator as { locks?: LockManager }).locks
+}
+
+// Held, shared, by every tab for the session it has selected: `currentSessionId` is per tab
+// while the stores are shared, so this is how a sweep in another tab knows to leave it.
+function openSessionLockName(email: string, id: string): string {
+	return `${sessionsLockName(email)}::open::${id}`
+}
+
+let openHold: { released: boolean; release?: () => void } | undefined
+
+function holdOpenSession(email: string | undefined, id: string | undefined): void {
+	if (openHold) {
+		openHold.released = true
+		openHold.release?.()
+		openHold = undefined
+	}
+	const locks = webLocks()
+	if (!locks || !email || !id) return
+	const hold: { released: boolean; release?: () => void } = { released: false }
+	openHold = hold
+	void locks.request(openSessionLockName(email, id), { mode: 'shared' }, () =>
+		hold.released ? undefined : new Promise<void>((resolve) => (hold.release = resolve))
+	)
+}
+
+if (BROWSER) {
+	$effect.root(() => {
+		$effect(() => {
+			const id = sessionState.currentSessionId
+			holdOpenSession(getCurrentUserEmail(), id)
+		})
+	})
+}
+
 // Chats with their images, artifacts and attached files. False when any of them could not
 // be deleted.
 async function deleteSessionPieces(id: string, email: string): Promise<boolean> {
@@ -707,7 +763,8 @@ async function deleteSessionPieces(id: string, email: string): Promise<boolean> 
 	return chats && artifacts && files
 }
 
-// Past its workspace's retention and not the session on screen, which is never swept.
+// Past its workspace's retention and not the session on screen in this tab, which is never
+// swept (another tab's is told by its open-session lock).
 function isSweepable(s: Session, retention: Map<string, number>, now: number): boolean {
 	const ws = s.workspace_id ?? s.pending_workspace_id
 	return (
@@ -721,34 +778,30 @@ function isSweepable(s: Session, retention: Map<string, number>, now: number): b
 // tab lock the backup's flush and restore take: a flush planning a session half deleted would
 // push the deletions to the backup, and a restore could stage pieces the sweep then deletes.
 // Where Web Locks do not exist (a plain http origin) it does not run, as the restore does
-// not. Each record is deleted in the transaction that reads it still past the retention, so
-// activity since the reconcile read keeps the session. The record goes before its pieces, so
-// no flush plans the session once the lock is released; a pending key written before it and
-// removed once every piece is gone makes the next sweep finish a deletion that failed, unless
-// a restore brought the session back since. Nothing is sent to the backup.
+// not. A session another tab has selected is left. Each record is deleted in the transaction
+// that reads it still past the retention, so activity since the reconcile read keeps the
+// session. The record goes before its pieces, so no flush plans the session once the lock is
+// released; a pending key written before it and removed once every piece is gone makes a
+// later sweep finish a deletion that failed, unless a restore brought the session back since.
+// Nothing is sent to the backup; its state in this browser goes (`sessionSwept`).
 async function sweepExpiredSessions(retention: Map<string, number>, email: string): Promise<void> {
-	const locks =
-		typeof navigator === 'undefined' ? undefined : (navigator as { locks?: LockManager }).locks
+	const locks = webLocks()
 	if (!locks) return
 	try {
 		await locks.request(sessionsLockName(email), async () => {
 			const db = await sessionsDb.whenReady()
 			if (!db || db.name !== scopedKeyFor(SESSIONS_DB, email)) return
-			const prefix = retentionPendingPrefix(email)
-			const pending: string[] = []
-			for (let i = 0; i < localStorage.length; i++) {
-				const key = localStorage.key(i)
-				if (key?.startsWith(prefix)) pending.push(key.slice(prefix.length))
-			}
-			for (const id of pending) {
+			for (const id of retentionPending(email)) {
 				const restored = (await db.getKey('sessions', id)) !== undefined
 				if (restored || (await deleteSessionPieces(id, email))) forgetRetentionPending(email, id)
 			}
 			let swept = false
 			for (const s of await db.getAll('sessions')) {
 				if (!isSweepable(s, retention, Date.now())) continue
+				const held = (await locks.query()).held ?? []
+				if (held.some((lock) => lock.name === openSessionLockName(email, s.id))) continue
 				try {
-					localStorage.setItem(prefix + s.id, '1')
+					localStorage.setItem(retentionPendingPrefix(email) + s.id, '1')
 				} catch {
 					continue
 				}
@@ -758,6 +811,7 @@ async function sweepExpiredSessions(retention: Map<string, number>, email: strin
 					continue
 				}
 				swept = true
+				await sessionSwept(s.id, email)
 				if (await deleteSessionPieces(s.id, email)) forgetRetentionPending(email, s.id)
 			}
 			if (swept) await hydrateSessions()
@@ -855,6 +909,7 @@ onUserChange(async (email, prevEmail) => {
 	if (prevEmail !== undefined && prevEmail !== email) {
 		sessionState.currentSessionId = undefined
 	}
+	holdOpenSession(email, sessionState.currentSessionId)
 	// Load-time reconcile: catch workspaces archived/deleted while away.
 	void reconcileSessionsLifecycle()
 })
