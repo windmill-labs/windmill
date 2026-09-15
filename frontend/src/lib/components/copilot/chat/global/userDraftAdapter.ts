@@ -595,7 +595,20 @@ export async function deleteGlobalDraft(
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
-	if (options.deployed) await refreshLiveItem(workspace, itemKind, storagePath)
+	if (options.deployed) {
+		const refreshing = refreshLiveItem(workspace, itemKind, storagePath)
+		if (refreshing) {
+			// Re-reading the open editor is the whole cleanup, and discarding on top of it is
+			// wrong: the deploy carried the draft as it stood when it started, so anything typed
+			// since is a divergence from what was deployed and belongs in the row. The editor's
+			// own rule already drops the row when the two match and keeps it when they do not.
+			await refreshing
+			// Its reconcile only queued that; send it, so a caller awaiting this sees the server
+			// settled — with no draft, or with the newer edit.
+			await UserDraftDbSyncer.flush({ workspace, itemKind, path: storagePath })
+			return
+		}
+	}
 	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
 	const live =
 		options.preserveLiveDraft && liveDraft?.storagePath === storagePath

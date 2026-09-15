@@ -2347,9 +2347,10 @@ describe('global AI tools', () => {
 		}
 	})
 
-	// Deploying a draft writes the item, so an editor open on it is a baseline behind. Its row is
-	// discarded straight after, which resets it to that baseline — so it has to re-read first.
-	it('refreshes a live editor before a deploy discards its draft', async () => {
+	// Deploying a draft writes the item, so an editor open on it is a baseline behind. Re-reading
+	// is the whole cleanup: discarding on top would throw away anything typed during the deploy,
+	// which was never part of it.
+	it('re-reads a live editor after a deploy and leaves the cleanup to it', async () => {
 		const path = 'u/admin/deployed_res'
 		seedBackendDraft('resource', path, { path, value: { a: 2 } })
 		const calls: string[] = []
@@ -2371,7 +2372,9 @@ describe('global AI tools', () => {
 				preserveLiveDraft: true,
 				deployed: true
 			})
-			expect(calls).toEqual(['refresh', 'discard'])
+			expect(calls).toEqual(['refresh'])
+			// The chat sends no delete of its own either: the row is the editor's to settle.
+			expect(getBackendDraft('resource', path)).toBeDefined()
 		} finally {
 			registerLiveItemBridge({
 				seed: () => false,

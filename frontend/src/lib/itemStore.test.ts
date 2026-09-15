@@ -721,6 +721,37 @@ describe('item store: origins', () => {
 		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: fromChat })
 	})
 
+	it('settles its own row when its draft is deployed, keeping anything typed during it', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const drafted = { ...deployedRes, description: 'the draft being deployed' }
+		let deployed = deployedRes
+		const { handle: item } = store.acquire(
+			key,
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(async () => ({ deployed, draft: (rows.sent.get('u/me/r') as Res) ?? drafted }))
+		)
+		await settle()
+		expect(item.value).toEqual(drafted)
+
+		// The deploy writes the draft to the item, then asks the editor to re-read.
+		deployed = drafted
+		expect(await item.reload()).toEqual({ ok: true })
+		// Nothing was typed during it, so the row it was holding is now redundant and goes on its
+		// own. This is the cleanup, and is why the deploy must not discard on top of it.
+		expect(item.dirty).toBe(false)
+		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: null })
+
+		// Now the same again with an edit made while the deploy was in flight.
+		const typed = { ...deployedRes, description: 'typed while deploying' }
+		item.value = typed
+		await rows.port.flush(key)
+		deployed = typed
+		expect(await item.reload()).toEqual({ ok: true })
+		expect(item.value).toEqual(typed)
+	})
+
 	it('keeps a draft-only item an outside write put back while its delete was going', async () => {
 		const rows = fakeRows()
 		const draft = { ...deployedRes, description: 'only a draft' }
