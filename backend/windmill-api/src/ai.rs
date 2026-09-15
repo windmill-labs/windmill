@@ -455,10 +455,10 @@ pub struct AIConfig {
     /// (`ai_sessions.rs`). Read from the workspace's own row like `copilot_disabled`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub sessions_storage_disabled: bool,
-    /// Sessions whose last activity is older than this many days are deleted: their backups
-    /// by the server's sweep (`ai_sessions.rs`), their local copies by each browser. Unset
-    /// keeps them until the user deletes them. Read from the workspace's own row like
-    /// `copilot_disabled`.
+    /// The server's sweep (`ai_sessions.rs`) deletes the backup of a session no push has
+    /// reached for this many days. The copies in members' browsers are untouched. Unset
+    /// keeps backups until the user deletes the session. Read from the workspace's own row
+    /// like `copilot_disabled`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sessions_retention_days: Option<u32>,
 }
