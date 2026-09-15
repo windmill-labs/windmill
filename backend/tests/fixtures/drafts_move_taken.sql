@@ -16,6 +16,13 @@ VALUES ('test-workspace', 'u/test-user/mvtaken_b', 'script',
         '{"path": "u/test-user/mvtaken_b", "summary": "B", "content": ""}',
         'test@windmill.dev');
 
+-- An ownerless (pre per-user drafts) row at a third path: a deploy there deletes it
+-- together with the caller's, so it occupies the path just as an own draft does.
+INSERT INTO draft (workspace_id, path, typ, value, email)
+VALUES ('test-workspace', 'u/test-user/mvtaken_legacy', 'script',
+        '{"path": "u/test-user/mvtaken_legacy", "summary": "legacy", "content": ""}',
+        NULL);
+
 -- A draft-only classic app and a draft-only raw app of the same owner. They share
 -- the `app` table, so one occupies the other's path.
 INSERT INTO draft (workspace_id, path, typ, value, email) VALUES

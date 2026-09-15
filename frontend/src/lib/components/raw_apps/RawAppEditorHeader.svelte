@@ -28,7 +28,7 @@
 		Undo,
 		WandSparkles
 	} from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 
@@ -406,7 +406,7 @@
 
 		// A superseded opening must not write these: the current one would then render
 		// and offer Take latest against the older head.
-		if (opening != null && opening !== diffOpening) return
+		if (opening != null && !diffDrawer?.ownsOpening(opening)) return
 		deployedBy = deployedApp.created_by
 		const shownVersions = (deployedApp as { versions?: number[] }).versions
 		deployedVersionShown = Array.isArray(shownVersions)
@@ -453,25 +453,29 @@
 		}
 	}
 
-	/** Bumped per drawer opening: the fetches below are awaited, so a reopen (or a
-	 *  path change) while they run must not have the older one land last. */
-	let diffOpening = 0
+	// An opening outlives this editor when a path change remounts it mid-fetch; without
+	// this it would still open the drawer on the item the user left.
+	onDestroy(() => diffDrawer?.abandonOpening())
 
 	export async function openDiffDrawer() {
-		const opening = ++diffOpening
 		if (!savedApp) {
 			return
 		}
+		// The fetches below are awaited, so a reopen (or a path change, which remounts
+		// this editor but not the drawer) while they run must not have the older one
+		// land last. The drawer counts the openings for that reason.
+		const opening = diffDrawer?.beginOpening()
+		if (opening == null) return
 
 		// deployedValue should be syncronized when we open Diff
 		await syncWithDeployed(opening)
 
 		// Blanking the drawer belongs to the opening that will fill it.
-		if (opening !== diffOpening) return
-		diffDrawer?.openDrawer()
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.openDrawer()
 		const versions = await deployedVersionOptions()
-		if (opening !== diffOpening) return
-		diffDrawer?.setDiff({
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.setDiff({
 			mode: 'normal',
 			deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
 			versions,
@@ -692,12 +696,16 @@
 						if (!savedApp || newApp) {
 							return
 						}
+						// The other entry point into the same drawer, so it takes an opening too.
+						const opening = diffDrawer?.beginOpening()
+						if (opening == null) return
 						// deployedValue should be syncronized when we open Diff
-						await syncWithDeployed()
+						await syncWithDeployed(opening)
 
+						if (!diffDrawer?.ownsOpening(opening)) return
 						saveDrawerOpen = false
-						diffDrawer?.openDrawer()
-						diffDrawer?.setDiff({
+						diffDrawer.openDrawer()
+						diffDrawer.setDiff({
 							mode: 'normal',
 							deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
 							current: currentDiffValue,

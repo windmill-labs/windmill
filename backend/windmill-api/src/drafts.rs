@@ -773,9 +773,14 @@ async fn move_draft(
     if moved.is_none() {
         let row = sqlx::query!(
             r#"SELECT
+                 -- Own row first: with both an own and a legacy row at the destination,
+                 -- a bare LIMIT 1 would name an arbitrary one and the two need different
+                 -- remedies (discard your own vs. ask an admin).
                  (SELECT typ::text FROM draft WHERE workspace_id = $1 AND path = $3
                   AND typ::text = ANY($6::text[]) AND (email = $4 OR email IS NULL)
-                  LIMIT 1) as "at_target",
+                  ORDER BY email NULLS LAST LIMIT 1) as "at_target",
+                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $3
+                        AND typ::text = ANY($6::text[]) AND email = $4) as "at_target_own!",
                  EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5
                         AND typ = $2 AND email = $4
                         AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0
@@ -811,7 +816,17 @@ async fn move_draft(
             // Naming the kind matters for the app pair: a classic-app draft refusing a
             // raw-app move is invisible in the raw-app list the caller is looking at.
             let occupant = occupant.replace('_', " ");
-            format!("You already have a draft at '{new_path}' ({occupant})")
+            if row.at_target_own {
+                format!("You already have a draft at '{new_path}' ({occupant})")
+            } else {
+                // An ownerless row the caller cannot clear themselves, so send them to
+                // the one place it can be resolved rather than to "discard your draft".
+                format!(
+                    "A legacy workspace draft with no owner is already at '{new_path}' \
+                     ({occupant}). A workspace admin can claim or discard it on the Review & \
+                     deploy drafts page."
+                )
+            }
         } else {
             format!("You have no draft at '{path}'")
         }));

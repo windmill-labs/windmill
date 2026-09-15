@@ -41,7 +41,7 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { getContext, setContext, untrack } from 'svelte'
+	import { getContext, onDestroy, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -484,7 +484,7 @@
 		})
 		// A superseded opening must not write these: the current one would then render
 		// and offer Take latest against the older head.
-		if (opening != null && opening !== diffOpening) return
+		if (opening != null && !diffDrawer?.ownsOpening(opening)) return
 		deployedValue = replaceFalseWithUndefined({
 			...flow,
 			edited_at: undefined,
@@ -1166,22 +1166,26 @@
 		}
 	}
 
-	/** Bumped per drawer opening: the fetches below are awaited, so a reopen (or a
-	 *  path change) while they run must not have the older one land last. */
-	let diffOpening = 0
+	// An opening outlives this editor when a path change remounts it mid-fetch; without
+	// this it would still open the drawer on the item the user left.
+	onDestroy(() => diffDrawer?.abandonOpening())
 
 	export async function openDiffDrawer() {
-		const opening = ++diffOpening
 		if (!savedFlow) return
+		// The fetches below are awaited, so a reopen (or a path change, which remounts
+		// this editor but not the drawer) while they run must not have the older one
+		// land last. The drawer counts the openings for that reason.
+		const opening = diffDrawer?.beginOpening()
+		if (opening == null) return
 		await syncWithDeployed(opening)
 		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
 		// Blanking the drawer belongs to the opening that will fill it.
-		if (opening !== diffOpening) return
-		diffDrawer?.openDrawer()
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.openDrawer()
 		const currentFlow = flowStore.val
 		const versions = await deployedVersionOptions()
-		if (opening !== diffOpening) return
-		diffDrawer?.setDiff({
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.setDiff({
 			mode: 'normal',
 			deployed: deployedValue ?? savedFlow,
 			deployedLabel,

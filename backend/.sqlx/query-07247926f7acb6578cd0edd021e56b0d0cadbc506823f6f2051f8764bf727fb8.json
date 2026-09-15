@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                 (SELECT typ::text FROM draft WHERE workspace_id = $1 AND path = $3\n                  AND typ::text = ANY($6::text[]) AND (email = $4 OR email IS NULL)\n                  LIMIT 1) as \"at_target\",\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5\n                        AND typ = $2 AND email = $4\n                        AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0\n                       ) as \"poisoned!\",\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5\n                        AND typ = $2 AND email IS NULL) as \"legacy!\" ",
+  "query": "SELECT\n                 -- Own row first: with both an own and a legacy row at the destination,\n                 -- a bare LIMIT 1 would name an arbitrary one and the two need different\n                 -- remedies (discard your own vs. ask an admin).\n                 (SELECT typ::text FROM draft WHERE workspace_id = $1 AND path = $3\n                  AND typ::text = ANY($6::text[]) AND (email = $4 OR email IS NULL)\n                  ORDER BY email NULLS LAST LIMIT 1) as \"at_target\",\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $3\n                        AND typ::text = ANY($6::text[]) AND email = $4) as \"at_target_own!\",\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5\n                        AND typ = $2 AND email = $4\n                        AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0\n                       ) as \"poisoned!\",\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5\n                        AND typ = $2 AND email IS NULL) as \"legacy!\" ",
   "describe": {
     "columns": [
       {
@@ -10,11 +10,16 @@
       },
       {
         "ordinal": 1,
-        "name": "poisoned!",
+        "name": "at_target_own!",
         "type_info": "Bool"
       },
       {
         "ordinal": 2,
+        "name": "poisoned!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
         "name": "legacy!",
         "type_info": "Bool"
       }
@@ -66,8 +71,9 @@
     "nullable": [
       null,
       null,
+      null,
       null
     ]
   },
-  "hash": "3e3651d23d759a4cb3480afb5d12a05791832d91ca27ab2be3370ad19e46fc1a"
+  "hash": "07247926f7acb6578cd0edd021e56b0d0cadbc506823f6f2051f8764bf727fb8"
 }

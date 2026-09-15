@@ -78,6 +78,26 @@
 		diffViewer?.closeDrawer()
 	}
 
+	/** Counted per opening, and counted here rather than in the editor that opens one: a
+	 *  path change remounts the editor while this drawer stays mounted, so a counter local
+	 *  to the editor is one an outlived request still matches — it would open and fill the
+	 *  drawer with the item the user just left. Every write an opening makes (the blanking
+	 *  `openDrawer` included) checks `ownsOpening` first. */
+	let openingToken = 0
+
+	export function beginOpening(): number {
+		return ++openingToken
+	}
+
+	export function ownsOpening(token: number): boolean {
+		return token === openingToken
+	}
+
+	/** Drop the opening in flight: the editor that started it is going away. */
+	export function abandonOpening() {
+		openingToken++
+	}
+
 	function prepareDiff(data: Value) {
 		const metadata = structuredClone(cleanValueProperties(replaceFalseWithUndefined(data)))
 		const content = metadata['content']

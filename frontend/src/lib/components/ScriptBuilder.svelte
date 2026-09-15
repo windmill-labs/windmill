@@ -87,7 +87,7 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
+	import { getContext, onDestroy, onMount, setContext, tick, untrack } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
 	import ScriptSettingsBadges from './ScriptSettingsBadges.svelte'
 	import Badge from './common/badge/Badge.svelte'
@@ -629,7 +629,7 @@
 
 		// A superseded opening must not write these: the current one would then render
 		// and offer Take latest against the older head.
-		if (opening != null && opening !== diffOpening) return
+		if (opening != null && !diffDrawer?.ownsOpening(opening)) return
 		deployedValue = replaceFalseWithUndefined({
 			...latestScript,
 			workspace_id: undefined,
@@ -873,15 +873,19 @@
 		}
 	}
 
-	/** Bumped per drawer opening: the fetches below are awaited, so a reopen (or a
-	 *  path change) while they run must not have the older one land last. */
-	let diffOpening = 0
+	// An opening outlives this editor when a path change remounts it mid-fetch; without
+	// this it would still open the drawer on the item the user left.
+	onDestroy(() => diffDrawer?.abandonOpening())
 
 	export async function openDiffDrawer() {
-		const opening = ++diffOpening
 		if (!savedScript) {
 			return
 		}
+		// The fetches below are awaited, so a reopen (or a path change, which remounts
+		// this editor but not the drawer) while they run must not have the older one
+		// land last. The drawer counts the openings for that reason.
+		const opening = diffDrawer?.beginOpening()
+		if (opening == null) return
 		await syncWithDeployed(opening)
 
 		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
@@ -900,12 +904,12 @@
 		if (current.assets && !current.assets.length) delete current.assets
 
 		// Blanking the drawer belongs to the opening that will fill it.
-		if (opening !== diffOpening) return
-		diffDrawer?.openDrawer()
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.openDrawer()
 		const headHash = (deployed as { hash?: string } | undefined)?.hash
 		const versions = await deployedVersionOptions(headHash)
-		if (opening !== diffOpening) return
-		diffDrawer?.setDiff({
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.setDiff({
 			mode: 'normal',
 			deployed,
 			deployedLabel: deployedVersionLabel(deployed),

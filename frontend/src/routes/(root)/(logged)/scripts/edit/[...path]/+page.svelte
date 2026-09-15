@@ -384,15 +384,19 @@
 				OtherUserDraftLoad.clear($workspaceStore!, 'script', draftPath)
 			}
 			if (pendingLoad) {
+				const theirs = (pendingLoad.value as { parent_hash?: string })?.parent_hash
 				const loadedValue = {
 					...deployedScript,
 					...(pendingLoad.value as object),
-					parent_hash: (pendingLoad.value as { parent_hash?: string })?.parent_hash ?? parentHash
+					parent_hash: theirs
 				} as EditableScript
 				// Their draft's base, not ours: the prompt and the deploy guard read these,
 				// and deploying their content on our base would claim a version it never
-				// forked from.
-				draftBaseHash = loadedValue.parent_hash
+				// forked from. A draft that has none keeps none — seeding `parentHash`
+				// (the head, when we have no draft here) would mark their older content as
+				// forked from the current deploy and silence the stale prompt.
+				if (theirs == null) delete (loadedValue as { parent_hash?: string }).parent_hash
+				draftBaseHash = theirs
 				if (hasOwnDraft) {
 					OtherUserDraftLoad.beginOverlay({
 						workspace: $workspaceStore!,
