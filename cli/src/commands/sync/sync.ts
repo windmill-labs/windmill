@@ -2542,6 +2542,17 @@ export function preservePendingScriptLocks(
   }
 }
 
+// `sync pull` writes the workspace's display name and color into settings.yaml
+// and `sync push` never applies them (see pushWorkspaceSettings), so on a push
+// a settings file that differs only in them must compare equal, or the row is
+// listed on every run.
+const isWorkspaceSettingsFile = (p: string) =>
+  /^settings(\.[^./\\]+)?\.(yaml|json)$/.test(p);
+function stripUnappliedSettingsFields(parsed: any) {
+  delete parsed?.name;
+  delete parsed?.color;
+}
+
 export async function compareDynFSElement(
   els1: DynFSElement,
   els2: DynFSElement | undefined,
@@ -2757,6 +2768,10 @@ export async function compareDynFSElement(
           delete parsedV?.enabled;
           delete parsedM2?.enabled;
         }
+        if (isEls1Remote === false && isWorkspaceSettingsFile(k)) {
+          stripUnappliedSettingsFields(parsedV);
+          stripUnappliedSettingsFields(parsedM2);
+        }
         if (deepEqual(parsedV, parsedM2)) {
           continue;
         }
@@ -2770,6 +2785,10 @@ export async function compareDynFSElement(
         ) {
           delete before?.enabled;
           delete after?.enabled;
+        }
+        if (isEls1Remote === false && isWorkspaceSettingsFile(k)) {
+          stripUnappliedSettingsFields(before);
+          stripUnappliedSettingsFields(after);
         }
         if (deepEqual(before, after)) {
           continue;

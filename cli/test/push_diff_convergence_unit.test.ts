@@ -64,6 +64,7 @@ async function diff(
   remoteEl: Mock,
   skips: Record<string, unknown>,
   parentOwnsScheduleEnabled?: (scheduleFilePath: string) => boolean,
+  isEls1Remote = false,
 ) {
   const { changes } = await compareDynFSElement(
     localEl as any,
@@ -76,7 +77,7 @@ async function diff(
     false,
     undefined,
     undefined,
-    false,
+    isEls1Remote,
     false,
     parentOwnsScheduleEnabled,
   );
@@ -295,4 +296,27 @@ test("push: checkout inline names stay inside the flow folder", async () => {
   expect(
     await checkoutInlineNames(join(process.cwd(), "missing.yaml")),
   ).toEqual({});
+});
+
+// The workspace's display name and color are recorded in settings.yaml but
+// never applied by a push (see pushWorkspaceSettings), so a file that differs
+// only in them is not a push change; a pull still rewrites the file.
+test("push: settings.yaml that differs only by name or color is not a change", async () => {
+  const remote = local({
+    "settings.yaml": "name: prod\ncolor: '#ff0000'\nerror_handler: null\n",
+  });
+  const identityOnly = local({
+    "settings.yaml": "name: staging\nerror_handler: null\n",
+  });
+  const skips = { includeSettings: true };
+  expect(await diff(identityOnly, remote, skips)).toEqual([]);
+  expect(await diff(remote, identityOnly, skips, undefined, true)).toEqual([
+    "edited settings.yaml",
+  ]);
+
+  const handlerToo = local({
+    "settings.yaml":
+      "name: staging\ncolor: '#00ff00'\nerror_handler:\n  path: f/ops/handler\n",
+  });
+  expect(await diff(handlerToo, remote, skips)).toEqual(["edited settings.yaml"]);
 });

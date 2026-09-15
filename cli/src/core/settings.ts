@@ -214,9 +214,11 @@ export async function pushWorkspaceSettings(
   }
 
   // Exclude fields that are never applied here: slack_team_id/slack_name are OAuth-only,
-  // and name is not applied on pull (see below), so a name-only diff stays a no-op.
-  const { slack_team_id: _lst, slack_name: _lsn, name: _ln, ...comparableLocal } = localSettings;
-  const { slack_team_id: _rst, slack_name: _rsn, name: _rn, ...comparableRemote } = settings;
+  // and name/color are not applied on pull (see below), so a diff in them alone is a no-op.
+  const { slack_team_id: _lst, slack_name: _lsn, name: _ln, color: _lc, ...comparableLocal } =
+    localSettings;
+  const { slack_team_id: _rst, slack_name: _rsn, name: _rn, color: _rc, ...comparableRemote } =
+    settings;
   if (isSuperset(comparableLocal, comparableRemote)) {
     log.debug(`Workspace settings are up to date`);
     return;
@@ -351,10 +353,10 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  // Workspace display name is intentionally not applied on pull: settings.yaml is shared
-  // across a repo's branches, so applying it would let one workspace's name overwrite
-  // another's when both sync the same repo. It stays in the file (written on push), but a
-  // live workspace is only renamed by its owner.
+  // Workspace display name and color are intentionally not applied on pull: settings.yaml is
+  // shared across a repo's branches, so applying them would let one workspace's identity
+  // overwrite another's when both sync the same repo (an absent `color` key even clears it).
+  // They stay in the file (written on push), but only the workspace's own admins change them.
 
   if (localSettings.mute_critical_alerts != settings.mute_critical_alerts) {
     log.debug(`Updating mute critical alerts...`);
@@ -362,16 +364,6 @@ export async function pushWorkspaceSettings(
       workspace,
       requestBody: {
         mute_critical_alerts: localSettings.mute_critical_alerts,
-      },
-    });
-  }
-
-  if (localSettings.color != settings.color) {
-    log.debug(`Updating workspace color...`);
-    await wmill.changeWorkspaceColor({
-      workspace,
-      requestBody: {
-        color: localSettings.color,
       },
     });
   }
