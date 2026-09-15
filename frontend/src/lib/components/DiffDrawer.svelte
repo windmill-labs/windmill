@@ -53,6 +53,7 @@
 				versions?: DiffVersionOption[]
 				onTakeLatest?: (head?: string) => void | Promise<void>
 				draftBase?: string
+				deployedHead?: string
 				draft: DiffData | undefined
 				current: DiffData
 				path?: string
@@ -140,16 +141,22 @@
 		}
 	}
 
-	/** The version this drawer presents as the deployed head, when it has a list to say
-	 *  so. Both the action's gate and the base it adopts hang off it, so "take latest"
-	 *  means the version the reader is looking at. */
+	/** The version this drawer presents as the deployed head: the one its list marks, else
+	 *  the head the editor knows. Both the action's gate and the base it adopts hang off
+	 *  it, so "take latest" means the version the reader is looking at. */
 	const headShown = $derived.by(() =>
-		data?.mode === 'normal' ? data.versions?.find((v) => v.isHead)?.id : undefined
+		data?.mode === 'normal'
+			? (data.versions?.find((v) => v.isHead)?.id ?? data.deployedHead)
+			: undefined
 	)
-	/** Behind as the drawer can see it: a base that is not the head on display. With no
-	 *  version list there is nothing to compare, so the editor's own gate stands. */
+	/** Behind as the drawer can see it. Unknown counts as not behind: offering to adopt a
+	 *  head nobody could name would move the base to a version never shown. */
 	const behindShown = $derived.by(
-		() => data?.mode === 'normal' && (headShown == null || data.draftBase !== headShown)
+		() =>
+			data?.mode === 'normal' &&
+			data.draftBase != null &&
+			headShown != null &&
+			data.draftBase !== headShown
 	)
 
 	let takingLatest = $state(false)
@@ -174,6 +181,7 @@
 					loadVersion?: (id: string) => Promise<Value | undefined>
 					onTakeLatest?: (head?: string) => void | Promise<void>
 					draftBase?: string
+					deployedHead?: string
 					draft?: Value | undefined
 					current: Value
 					defaultDiffType?: 'deployed' | 'draft'
@@ -195,6 +203,7 @@
 				loadVersion,
 				onTakeLatest,
 				draftBase,
+				deployedHead,
 				draft,
 				current,
 				button
@@ -213,6 +222,7 @@
 				versions,
 				onTakeLatest,
 				draftBase,
+				deployedHead,
 				draft: draft ? prepareDiff(draft) : undefined,
 				current: prepareDiff(current),
 				path: draft?.path || deployed?.path,

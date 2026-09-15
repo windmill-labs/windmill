@@ -33,8 +33,12 @@ export type DiffDrawerDiff =
 			 *  the base adopted is the one the reader just looked at. */
 			onTakeLatest?: (head?: string) => void | Promise<void>
 			/** The version the draft forked from. The drawer offers `onTakeLatest` only
-			 *  while it differs from the head on display. */
+			 *  while it differs from the head, and passes that head to it. */
 			draftBase?: string
+			/** The deployed head as the editor knows it, used when no `versions` list
+			 *  loaded. Without either, the drawer cannot tell whether the draft is behind
+			 *  and offers nothing. */
+			deployedHead?: string
 			draft?: Value | undefined
 			current: Value
 			defaultDiffType?: 'deployed' | 'draft'

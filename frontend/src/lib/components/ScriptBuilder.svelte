@@ -900,6 +900,7 @@
 			versions: await deployedVersionOptions(headHash),
 			onTakeLatest,
 			draftBase: draftBaseHash,
+			deployedHead: headHash,
 			loadVersion: async (hash) => {
 				const v = await ScriptService.getScriptByHash({ workspace: opWorkspace!, hash })
 				return replaceFalseWithUndefined({

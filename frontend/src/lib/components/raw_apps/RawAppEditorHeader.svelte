@@ -465,6 +465,7 @@
 			versions: await deployedVersionOptions(),
 			onTakeLatest,
 			draftBase: draftBaseVersion,
+			deployedHead: deployedVersionShown != null ? String(deployedVersionShown) : undefined,
 			loadVersion: async (id) => {
 				const v = await AppService.getAppByVersion({ workspace: opWorkspace!, id: Number(id) })
 				// Same normalization as `syncWithDeployed`, so switching versions doesn't
