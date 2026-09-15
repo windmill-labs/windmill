@@ -298,25 +298,25 @@ test("push: checkout inline names stay inside the flow folder", async () => {
   ).toEqual({});
 });
 
-// The workspace's display name and color are recorded in settings.yaml but
-// never applied by a push (see pushWorkspaceSettings), so a file that differs
-// only in them is not a push change; a pull still rewrites the file.
-test("push: settings.yaml that differs only by name or color is not a change", async () => {
+// A push never applies the workspace's display name and applies its color only
+// when the local file carries one (see pushWorkspaceSettings), so a file that
+// differs only in what would not be applied is not a push change; a pull still
+// rewrites the file.
+test("push: settings.yaml differing only by name or an unset color is not a change", async () => {
   const remote = local({
     "settings.yaml": "name: prod\ncolor: '#ff0000'\nerror_handler: null\n",
   });
-  const identityOnly = local({
+  const unsetColor = local({
     "settings.yaml": "name: staging\nerror_handler: null\n",
   });
   const skips = { includeSettings: true };
-  expect(await diff(identityOnly, remote, skips)).toEqual([]);
-  expect(await diff(remote, identityOnly, skips, undefined, true)).toEqual([
+  expect(await diff(unsetColor, remote, skips)).toEqual([]);
+  expect(await diff(remote, unsetColor, skips, undefined, true)).toEqual([
     "edited settings.yaml",
   ]);
 
-  const handlerToo = local({
-    "settings.yaml":
-      "name: staging\ncolor: '#00ff00'\nerror_handler:\n  path: f/ops/handler\n",
+  const otherColor = local({
+    "settings.yaml": "name: staging\ncolor: '#00ff00'\nerror_handler: null\n",
   });
-  expect(await diff(handlerToo, remote, skips)).toEqual(["edited settings.yaml"]);
+  expect(await diff(otherColor, remote, skips)).toEqual(["edited settings.yaml"]);
 });

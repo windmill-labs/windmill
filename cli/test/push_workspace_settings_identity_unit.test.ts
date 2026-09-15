@@ -1,7 +1,7 @@
 /**
- * Regression guard: `sync push` (pushWorkspaceSettings) must not apply the
- * workspace display name or color from settings.yaml. Rationale lives at the
- * apply site in settings.ts.
+ * Regression guard: `sync push` (pushWorkspaceSettings) must never apply the
+ * workspace display name from settings.yaml, and must apply the color only when
+ * the file carries one. Rationale lives at the apply sites in settings.ts.
  */
 
 import { expect, test, describe, beforeEach, mock } from "bun:test";
@@ -91,11 +91,23 @@ describe("pushWorkspaceSettings workspace identity", () => {
     expect(changeWorkspaceColorCalls.length).toBe(0);
   });
 
-  test("a color-only difference is a complete no-op", async () => {
+  test("a color in settings.yaml is applied when it differs from the workspace", async () => {
     remoteColor = "#ff0000";
     await pushWorkspaceSettings(ws, "settings", undefined, {
       name: "phoenix",
       color: "#00ff00",
+    });
+    expect(editWebhookCalls.length).toBe(0);
+    expect(changeWorkspaceColorCalls).toEqual([
+      { workspace: ws, requestBody: { color: "#00ff00" } },
+    ]);
+  });
+
+  test("a color matching the workspace is a complete no-op", async () => {
+    remoteColor = "#ff0000";
+    await pushWorkspaceSettings(ws, "settings", undefined, {
+      name: "phoenix",
+      color: "#ff0000",
     });
     expect(editWebhookCalls.length).toBe(0);
     expect(changeWorkspaceColorCalls.length).toBe(0);
