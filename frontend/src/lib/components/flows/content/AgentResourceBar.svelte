@@ -107,9 +107,12 @@
 		fromDraft: boolean
 		providerPath?: string
 		providerOk: boolean
-		/** Nothing this user can read sits at the link: the agent was renamed or deleted, or is in a
-		 *  folder they cannot see. Returned rather than thrown so it is guarded like any result. */
-		unavailable?: boolean
+		/** The link cannot be read. `missing`: nothing this user can read sits at the path, because the
+		 *  agent was renamed or deleted or is in a folder they cannot see (the API answers all three
+		 *  with the same 404). `forbidden`: it exists and this user is refused it, which says nothing
+		 *  about whether a run of the flow can read it. Returned rather than thrown so it is guarded
+		 *  like any result. */
+		unavailable?: 'missing' | 'forbidden'
 	}
 
 	async function fetchLinkedAgent(
@@ -157,7 +160,8 @@
 				;({ response, draft } = await fetchLinkedAgent(path, ws))
 			} catch (err) {
 				if (!isExpectedLinkFailure(err)) throw err
-				return { ...empty, unavailable: true }
+				const status = (err as { status?: number }).status
+				return { ...empty, unavailable: status === 404 ? 'missing' : 'forbidden' }
 			}
 			const cfg = (draft?.args ?? response.value ?? {}) as AIAgentConfig & {
 				provider?: { resource?: string }
@@ -616,12 +620,19 @@
 				</dl>
 			{/if}
 		</div>
-		{#if unavailable}
+		{#if unavailable === 'forbidden'}
+			<div class="mt-1">
+				<Alert type="warning" size="xs" title="Agent not accessible">
+					You don't have access to <span class="font-medium">{agent}</span>, so its configuration
+					can't be shown or edited here.
+				</Alert>
+			</div>
+		{:else if unavailable === 'missing'}
 			<div class="mt-1">
 				<Alert type="error" size="xs" title="Agent not found">
-					No saved agent you can read exists at <span class="font-medium">{agent}</span>, so this
-					step fails when it runs. It may have been renamed or deleted. Remove the link to configure
-					the step here, or add the agent again from Saved agents.
+					No saved agent you can read exists at <span class="font-medium">{agent}</span>. It may
+					have been renamed or deleted. Remove the link to configure the step here, or add the agent
+					again from Saved agents.
 					<div class="flex pt-2">
 						<Button
 							unifiedSize="sm"
