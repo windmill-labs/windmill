@@ -72,6 +72,23 @@ describe('useWindmillChat', () => {
     unmount()
   })
 
+  test('the latest render’s run callback starts the next turn', async () => {
+    const { render, unmount } = mountHook()
+    const started: string[] = []
+    const runner = (name: string) => async () => {
+      started.push(name)
+      throw new Error('stop here')
+    }
+    const first = render({ ...base, token: 'tok', run: runner('first') })
+    const second = render({ ...base, token: 'tok', run: runner('second') })
+    expect(second.chat).toBe(first.chat)
+    await act(() => second.sendMessage('hi').catch(() => {}))
+    expect(started).toEqual(['second'])
+    // Dropping the runner means the deployed flow again: a different chat.
+    expect(render({ ...base, token: 'tok' }).chat).not.toBe(first.chat)
+    unmount()
+  })
+
   test('a token function is read through a ref, so the latest closure serves the next request', async () => {
     const { fetch, calls } = fetchMock((c) => (c.url.pathname.includes('/flow_conversations/list') ? new Response('[]') : undefined))
     const { render, unmount } = mountHook()

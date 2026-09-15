@@ -67,7 +67,8 @@ class ChatImpl implements Chat {
       baseUrl: this.#config.baseUrl,
       workspace: this.#config.workspace,
       token: this.#config.token,
-      fetch: this.#config.fetch
+      fetch: this.#config.fetch,
+      pollDelayMs: this.#config.pollDelayMs
     })
     this.#local = createLocalHistory(
       this.#config.storage,
@@ -421,7 +422,7 @@ class ChatImpl implements Chat {
     if (this.#state.history === 'server') {
       turn.jobIds = await this.#turnJobIds(turn)
       if (!this.#turnActive(turn)) return
-      const reconciled = await this.#reconcileTurn(turn, result)
+      const reconciled = await this.#reconcileTurn(turn)
       if (!this.#turnActive(turn)) return
       if (reconciled) {
         this.#set({ status: 'idle' })
@@ -466,11 +467,8 @@ class ChatImpl implements Chat {
    * to history. Whether a row counts is read from the message list, not from what
    * this read returned: the turn's polling may have merged the answer already.
    */
-  async #reconcileTurn(turn: Turn, result: unknown): Promise<boolean> {
-    // An agent writes a row per round, so an earlier row of the turn is not its
-    // answer: when the result says what the answer is, that row has to have landed.
-    const expected = isErrorResult(result) ? undefined : extractChatAnswer(result)?.trim()
-    const answered = () => this.#answered(turn, expected)
+  async #reconcileTurn(turn: Turn): Promise<boolean> {
+    const answered = () => this.#answered(turn)
     for (let attempt = 1; attempt <= RECONCILE_ATTEMPTS; attempt++) {
       let rows: FlowConversationMessage[]
       try {
@@ -498,31 +496,34 @@ class ChatImpl implements Chat {
   }
 
   /**
-   * A persisted assistant message written by one of the turn's jobs follows the
-   * turn's user message, carrying the expected answer when one is known. Tool rows
-   * alone are not an answer, and neither is a row from an earlier turn whose job
-   * outlived `stop()` (a token without `jobs:write` cannot cancel it), which can
-   * land after this turn's user row.
+   * The latest row one of the turn's jobs persisted after the turn's user message
+   * is an assistant message. An agent writes each round's text before that round's
+   * tool rows, and a tool row when the tool finishes, so an earlier round's text is
+   * followed by a tool row and only the answer closes the turn. The content is not
+   * compared with the flow result: an image answer, a structured one and a forwarded
+   * agent result are all persisted in a shape the result does not reproduce. Rows
+   * from an earlier turn whose job outlived `stop()` (a token without `jobs:write`
+   * cannot cancel it) can land after this turn's user row and do not count.
    */
-  #answered(turn: Turn, expected: string | undefined): boolean {
+  #answered(turn: Turn): boolean {
     const messages = this.#state.messages
     const from = messages.findIndex((m) => m.id === turn.userMessageId)
     const ownJob = (m: ChatMessage) =>
       turn.jobIds === undefined || (m.jobId !== undefined && turn.jobIds.has(m.jobId))
-    return messages.some(
-      (m, i) =>
-        i > from &&
-        m.role === 'assistant' &&
-        m.seq !== undefined &&
-        ownJob(m) &&
-        (expected === undefined || m.content.trim() === expected)
-    )
+    let latest: ChatMessage | undefined
+    for (let i = from + 1; i < messages.length; i++) {
+      const m = messages[i]
+      if (m.seq === undefined || m.role === 'user' || !ownJob(m)) continue
+      if (latest === undefined || m.seq > latest.seq!) latest = m
+    }
+    return latest?.role === 'assistant'
   }
 
   /**
    * The flow job plus every step job it ran, the failure and preprocessor steps
-   * included (a failure handler's answer is persisted under its own job). Unknown
-   * when the read fails.
+   * included (a failure handler's answer is persisted under its own job), and the
+   * jobs an agent step's tool calls ran as (a tool row is persisted under its own
+   * job too). Unknown when the read fails.
    */
   async #turnJobIds(turn: Turn): Promise<Set<string> | undefined> {
     try {
@@ -532,6 +533,7 @@ class ChatImpl implements Chat {
       for (const m of [...(status?.modules ?? []), status?.failure_module, status?.preprocessor_module]) {
         if (m?.job) ids.add(m.job)
         for (const j of m?.flow_jobs ?? []) ids.add(j)
+        for (const a of m?.agent_actions ?? []) if (a.job_id) ids.add(a.job_id)
       }
       return ids
     } catch (e) {

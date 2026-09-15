@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { createChat, type Chat, type ChatState } from 'windmill-chat'
 	import FlowConversationsSidebar from './FlowConversationsSidebar.svelte'
 	import FlowChatInterface from './FlowChatInterface.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 
 	interface Props {
@@ -49,6 +49,8 @@
 			workspace: ws,
 			baseUrl: window.location.origin,
 			history: 'server',
+			// Only an enterprise server honours it; elsewhere it would just log a warning per poll.
+			pollDelayMs: untrack(() => $enterpriseLicense) ? 50 : undefined,
 			run: async ({ user_message, ...inputs }, { conversationId }) => {
 				const jobId = await onRunFlow(String(user_message), conversationId, inputs)
 				if (!jobId) throw new Error('the flow did not start')

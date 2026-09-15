@@ -100,6 +100,12 @@ export interface ChatOptions {
   /** Messages fetched per page of server history. */
   pageSize?: number
   /**
+   * How often, in milliseconds, the server polls a running turn for the stream
+   * (Enterprise; 50 at the fastest, other servers ignore it). Unset, the server
+   * relaxes from 100 ms to 3 s over a long turn.
+   */
+  pollDelayMs?: number
+  /**
    * Runs the flow for a turn and returns the job id, instead of the deployed flow at
    * `flowPath`. `args` carries `user_message` and the extra inputs; the run must set
    * `memory_id` to the conversation id for the conversation and its memory to line up.

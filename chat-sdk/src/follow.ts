@@ -12,8 +12,8 @@ export type FollowEvent =
 /**
  * Follows a job to completion across the server's stream timeouts: every
  * connection resumes from the last `stream_offset`, so no delta is repeated and
- * the flow is never re-run. `onOffset` reports each offset so a caller can
- * resume later from another connection (see the AI SDK transport).
+ * the flow is never re-run. `onOffset` reports each offset, and its loss, so a
+ * caller can resume later from another connection (see the AI SDK transport).
  *
  * The offset indexes the stream of one sub-job (`flow_stream_job_id`, the flow's
  * streaming step). A retried step gets a new one, so when the id changes the
@@ -22,7 +22,7 @@ export type FollowEvent =
 export async function* followJob(
   api: WindmillChatApi,
   jobId: string,
-  options: { signal?: AbortSignal; streamOffset?: number; onOffset?: (offset: number) => void } = {}
+  options: { signal?: AbortSignal; streamOffset?: number; onOffset?: (offset: number | undefined) => void } = {}
 ): AsyncGenerator<FollowEvent> {
   let parser = createStreamEventParser()
   let offset = options.streamOffset
@@ -43,6 +43,7 @@ export async function* followJob(
         if (switched) {
           // This connection skipped the new sub-job's first chunks: start it over.
           offset = undefined
+          options.onOffset?.(undefined)
           parser = createStreamEventParser()
           reopen = true
           break

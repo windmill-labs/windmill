@@ -184,6 +184,7 @@ await chat.sendMessage('Hello')
 | `storageKey` | Namespace for `local` history, e.g. the signed-in user's id. Local history is per browser and per flow; without it, users sharing a browser share it. |
 | `fetch`, `storage` | Replacements for the globals, for tests and unusual runtimes. |
 | `pageSize` | Messages and conversations per page of server history. Default 50. |
+| `pollDelayMs` | How often, in ms, the server polls a running turn for the stream (Enterprise; 50 at the fastest, other servers ignore it). Unset, the server relaxes from 100 ms to 3 s over a long turn; set it when tokens must keep flowing at that pace. |
 | `onFinish`, `onError` | Called when a turn has its answer, or could not run at all. |
 | `run` | Runs the flow for a turn yourself and returns the job id, instead of the deployed flow at `flowPath` (Windmill's editor chats with an undeployed flow through a preview run this way). Pass `memory_id` = the conversation id. |
 

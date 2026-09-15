@@ -508,7 +508,10 @@ describe('createChat with server history', () => {
         c.url.pathname === streamPath
           ? sse([{ type: 'update', completed: true, only_result: { output: 'Final answer', messages: [] } }])
           : undefined,
-      (c) => (c.url.pathname.endsWith('/jobs_u/get/job-1') ? json({ flow_status: { modules: [{ job: 'step-1' }] } }) : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-1')
+          ? json({ flow_status: { modules: [{ job: 'step-1', agent_actions: [{ type: 'tool_call', job_id: 'tool-1' }, { type: 'message' }] }] } })
+          : undefined,
       (c) =>
         c.url.pathname.endsWith('/messages')
           ? json(
@@ -528,6 +531,42 @@ describe('createChat with server history', () => {
       ['tool', 'Used lookup tool', 'row-93'],
       ['assistant', 'Final answer', 'row-94']
     ])
+  })
+
+  test('an answer persisted in another shape than the flow result is still the answer', async () => {
+    // An image agent returns the S3 object and persists it with a type marker.
+    let reads = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { s3: 'agent/img.png' } }])
+          : undefined,
+      (c) => (c.url.pathname.endsWith('/jobs_u/get/job-1') ? json({ flow_status: { modules: [{ job: 'step-1' }] } }) : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json(++reads === 1 ? [messageRow(71, 'user', 'draw'), messageRow(72, 'assistant', '{"s3":"agent/img.png","type":"windmill_s3_object"}', { job_id: 'step-1' })] : [])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('draw')
+    expect(reads).toBe(1)
+    expect(chat.getState().messages.map((m) => [m.role, m.content])).toEqual([
+      ['user', 'draw'],
+      ['assistant', '{"s3":"agent/img.png","type":"windmill_s3_object"}']
+    ])
+  })
+
+  test('the stream asks for a server poll interval only when one is set', async () => {
+    const answer: Route = (c) =>
+      c.url.pathname === streamPath ? sse([{ type: 'update', completed: true, only_result: 'ok' }]) : undefined
+    const plain = fetchMock(run, answer)
+    await createChat(options({ token: 'tok' }, plain.fetch)).sendMessage('hi')
+    expect(plain.calls.find((c) => c.url.pathname === streamPath)!.url.searchParams.has('poll_delay_ms')).toBe(false)
+    const fast = fetchMock(run, answer)
+    await createChat(options({ token: 'tok', pollDelayMs: 50 }, fast.fetch)).sendMessage('hi')
+    expect(fast.calls.find((c) => c.url.pathname === streamPath)!.url.searchParams.get('poll_delay_ms')).toBe('50')
   })
 
   test('a tool row alone is not the answer of a turn that streamed no text', async () => {
