@@ -393,7 +393,7 @@
 			path: npath
 		})
 		version = versionThisDeployWrote(appHistory, $userStore?.username)
-		// Re-pin the fork base to the just-deployed head: the editor stays open, so a
+		// Re-pin the fork base to the version just written: the editor stays open, so a
 		// follow-up deploy (or a new edit) would otherwise compare against the now-
 		// superseded base and falsely warn. parent_version is in
 		// DRAFT_COMPARE_IGNORED_FIELDS, so this write can't spawn a spurious draft.

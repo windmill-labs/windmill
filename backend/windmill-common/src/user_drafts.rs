@@ -529,7 +529,6 @@ pub async fn delete_drafts_of_email(conn: &mut sqlx::PgConnection, email: &str) 
     Ok(())
 }
 
-
 /// Move the drafts an address owns onto its new address, for the same reason
 /// [`delete_drafts_of_email`] exists: no foreign key follows the rename, so drafts left behind are
 /// stranded on an address that no longer authenticates. Same authorization contract, for a rename.
@@ -651,26 +650,19 @@ pub async fn delete_own_draft_for_path(
 /// string, so without this a move detaches every draft on the item. No owner
 /// filter: teammates' rows and the legacy NULL-email row follow too.
 ///
-/// **The caller must have authorized the underlying item move first.** This
-/// rewrites every owner's row at `old_path`, deliberately including rows the
-/// caller has no permission on, and enforces nothing itself — it takes the paths
-/// on trust. It is safe only because it runs inside a deploy that has already
-/// cleared both paths for the caller; reached any other way it is a cross-user
-/// write with no gate.
+/// **The caller must have authorized the underlying item move first.** This rewrites
+/// rows the caller has no permission on and enforces nothing itself, taking both paths
+/// on trust: it is safe only inside a deploy that has already cleared them, and is a
+/// cross-user write with no gate anywhere else.
 ///
-/// The value keeps its base version: a move is a deploy like any other, so every
-/// draft on the item is now behind the head, which the editor reports through
-/// the ordinary stale-draft prompt. Of its two path keys (`path`, `draft_path`),
-/// one still naming `old_path` is not a rename the user staged — the editors write
-/// the item's own path there on every save — so it follows the row, or deploying
-/// the draft would send the item back where it came from. Any other value is a
-/// staged rename, and is kept.
+/// The value keeps its base version, so every carried draft reads as behind the head the
+/// move minted. Of its two path keys, one still naming `old_path` follows the row (the
+/// editors write the item's own path there on every save, so it is the item's path and
+/// not a staged rename); any other value is a rename the user staged, and is kept.
 ///
-/// A draft already at `new_path` (a never-deployed item, or one left on an
-/// archived script there) occupies that path the way a deployed item does, and
-/// the move is refused with `BadRequest` — inside the deploy's transaction, so
-/// the rename itself is what gets refused. Moving onto it would either merge two
-/// items or strand the row that lost the collision.
+/// A draft already at `new_path` occupies it the way a deployed item does, so the move is
+/// refused with `BadRequest` inside the deploy's transaction, refusing the rename itself:
+/// moving onto it would merge two items or strand the row that lost.
 pub async fn move_drafts_for_path(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
@@ -760,11 +752,10 @@ pub async fn move_drafts_for_path(
 /// draft write at `old_path` (any owner's, for an item move), and enforces nothing
 /// itself.
 ///
-/// A record outlives the editors that need it: it ends when a later move touches
-/// either path or an item is deployed at `old_path`, so a save that means to start
-/// a NEW draft at a vacated path would be routed instead. Nothing does that today —
-/// every surface parks a new item at a minted `u/<user>/draft_<uuid>` key
-/// (`mintDraftPath.ts`) and carries the user-typed name inside the value.
+/// A record outlives the editors that need it: it ends when a later move touches either
+/// path or an item is deployed at `old_path`, so a save meaning to start a NEW draft at a
+/// vacated path would be routed instead. Nothing does that today: every surface parks a
+/// new item at a minted `u/<user>/draft_<uuid>` key (`mintDraftPath.ts`).
 pub async fn record_draft_move(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,

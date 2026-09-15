@@ -7316,20 +7316,15 @@ async fn clone_drafts(
     // clone's own principal at deploy time, which is the more accurate answer of the two.
     sqlx::query!(
         // A script hash is content-addressed and copied as-is, so a script draft's base
-        // still names a version the clone has. `clone_flows` / `clone_apps` mint new
-        // `flow_version` / `app_version` ids, so those drafts arrive with no base (their
-        // staleness falls back to the timestamps) rather than one naming a version of the
-        // source workspace, and the lineage field goes with it so the next autosave cannot
-        // re-derive the source id.
+        // still names a version the clone has. `clone_flows` / `clone_apps` mint new ids,
+        // so those drafts arrive with no base (staleness falls back to the timestamps),
+        // lineage field included, or the next autosave would re-derive the source id.
         //
-        // `clean` is `strip_json_nul`'s parity rule in SQL: a draft written before that
-        // sanitizer can carry a U+0000 escape, which `to_jsonb` rejects. Sanitizing on the
-        // way in keeps such a row from either aborting the clone or arriving with its
-        // principal unstripped. Escaped backslashes are parked on chr(1) first, so only an
-        // odd-parity backslash-u0000 (a real NUL) is removed; chr(1) is lossless as a
-        // placeholder because a `json` value's text cannot hold a raw control byte (JSON
-        // escapes them), so nothing in the payload can collide with it. chr(92) spells the
-        // backslash so no escape sequence reaches this source file.
+        // `clean` is `strip_json_nul`'s parity rule in SQL, so a pre-sanitizer U+0000
+        // escape cannot abort the clone on `to_jsonb` or arrive with its principal
+        // unstripped: escaped backslashes park on chr(1) (lossless, a `json` value's text
+        // cannot hold a raw control byte) so only a real NUL is removed, and chr(92)
+        // spells the backslash so no escape sequence reaches this source file.
         r#"INSERT INTO draft (workspace_id, path, typ, value, created_at, email, base)
          SELECT $2, path, typ,
                 to_json(

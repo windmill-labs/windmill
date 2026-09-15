@@ -85,10 +85,9 @@
 	}
 
 	/** Counted per opening, and counted here rather than in the editor that opens one: a
-	 *  path change remounts the editor while this drawer stays mounted, so a counter local
-	 *  to the editor is one an outlived request still matches, and it would open and fill
-	 *  the drawer with the item the user just left. Every write an opening makes (the
-	 *  blanking `openDrawer` included) checks `ownsOpening` first. */
+	 *  path change remounts the editor while this drawer stays, so a counter local to it is
+	 *  one an outlived request still matches, and that request would fill the drawer with
+	 *  the item the user just left. Every write an opening makes checks this first. */
 	let openingToken = 0
 
 	export function beginOpening(): number {
@@ -99,11 +98,10 @@
 		return token === openingToken
 	}
 
-	/** Drop an opening and everything it put on screen: the editor that started it is going
-	 *  away (a path change remounts it), so a diff it already filled describes an item this
-	 *  drawer can no longer act on — Take latest would move the base of whatever loaded in
-	 *  its place — and one still in flight would leave the spinner behind. A no-op once
-	 *  another opening owns the drawer: what it shows is then someone else's. */
+	/** Drop an opening and everything it put on screen: its editor is going away, so a diff
+	 *  it filled acts on an item that is gone (Take latest would move the base of whatever
+	 *  loaded in its place) and one still in flight would leave the spinner behind. A no-op
+	 *  once another opening owns the drawer: what it shows is then someone else's. */
 	export function abandonOpening(token: number) {
 		if (token !== openingToken) return
 		openingToken++

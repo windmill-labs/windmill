@@ -545,7 +545,8 @@
 			workspace: opWorkspace!,
 			path: npath
 		})
-		// Only a version this deploy can claim becomes the draft's base below.
+		// The version this deploy wrote, not the head: they differ when someone else's
+		// deploy landed in between, and this becomes the next draft's base below.
 		version = versionThisDeployWrote(appHistory, $userStore?.username)
 
 		closeSaveDrawer()
