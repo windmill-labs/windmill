@@ -63,7 +63,7 @@
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
 	import type { DiffDrawerI } from '$lib/components/diff_drawer'
 	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
-	import { computeSecretUrl } from './appDeploy.svelte'
+	import { computeSecretUrl, versionThisDeployWrote } from './appDeploy.svelte'
 	import { updatePolicy } from './appPolicy'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
@@ -392,7 +392,7 @@
 			workspace: $workspaceStore!,
 			path: npath
 		})
-		version = appHistory[0]?.version
+		version = versionThisDeployWrote(appHistory, $userStore?.username)
 		// Re-pin the fork base to the just-deployed head: the editor stays open, so a
 		// follow-up deploy (or a new edit) would otherwise compare against the now-
 		// superseded base and falsely warn. parent_version is in

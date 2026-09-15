@@ -70,6 +70,7 @@
 	// `runtime.syncPreviewWithDeployed`, which discards the fork draft + reloads
 	// the preview to the deployed version.
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
+	import { versionThisDeployWrote } from '../apps/editor/appDeploy.svelte'
 	import { stripRawAppDiffNoise } from './utils'
 	import type { RawAppData } from './dataTableRefUtils'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
@@ -544,7 +545,8 @@
 			workspace: opWorkspace!,
 			path: npath
 		})
-		version = appHistory[0]?.version
+		// Only a version this deploy can claim becomes the draft's base below.
+		version = versionThisDeployWrote(appHistory, $userStore?.username)
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
