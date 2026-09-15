@@ -935,7 +935,9 @@ export class FlowChatManager {
 			const response: ChatMessage[] = []
 			let afterSeq = this.getLastPersistedMessageSeq(conversationId)
 			let readWhole = false
-			for (let page = 0; page < POLL_MAX_PAGES; page++) {
+			let stalled = false
+			let pages = 0
+			for (; pages < POLL_MAX_PAGES; pages++) {
 				const batch = await FlowConversationsService.listConversationMessages({
 					workspace: this.#workspace()!,
 					conversationId: conversationId,
@@ -954,7 +956,10 @@ export class FlowChatManager {
 				const furthest = Math.max(...batch.map((m) => m.created_seq))
 				// A page that moved nothing would ask for the same rows forever, and is no more a
 				// finished read than the cap above.
-				if (afterSeq !== undefined && furthest <= afterSeq) break
+				if (afterSeq !== undefined && furthest <= afterSeq) {
+					stalled = true
+					break
+				}
 				afterSeq = furthest
 			}
 
@@ -962,11 +967,17 @@ export class FlowChatManager {
 				// Reading stopped before the conversation did, so none of this is a picture of
 				// it. Appending would stand these rows beside the temp ones already showing the
 				// same answer, and sweeping would drop the only thing showing what was never
-				// read. The transcript keeps what it has: the next turn's poll resumes from it,
-				// and a reload refetches.
+				// read, so the transcript keeps what it has.
+				//
+				// Nothing recovers it in this session: the cursor is taken from the last
+				// persisted row, and applying none of them is what leaves it where it was, so
+				// the next poll reads the same window against a conversation that has only
+				// grown. A reload refetches. That is the price of not showing a transcript
+				// that is part duplicate and part missing.
 				console.warn(
-					`Stopped reading conversation ${conversationId} after ${POLL_MAX_PAGES} pages ` +
-						`(${response.length} rows, up to seq ${afterSeq}); leaving the transcript as it is`
+					`Stopped reading conversation ${conversationId} after ${pages + 1} page(s) ` +
+						`(${stalled ? 'the cursor stopped advancing' : `cap of ${POLL_MAX_PAGES}`}, ` +
+						`${response.length} rows, up to seq ${afterSeq}); leaving the transcript as it is`
 				)
 				return
 			}
