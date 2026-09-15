@@ -16,6 +16,7 @@ import {
 	AiService,
 	ApiError,
 	type AISessionBackup,
+	type AISessionBackupCursor,
 	type AISessionBackupImage,
 	type AISessionBackupPush
 } from '$lib/gen'
@@ -884,6 +885,19 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 		: undefined
 }
 
+/** The pages of one session as one backup: every page carries the head, the pieces are
+ * spread over them in listing order. */
+function mergePages(pages: AISessionBackup[]): AISessionBackup {
+	const last = pages[pages.length - 1]
+	return {
+		...last,
+		chats: pages.flatMap((p) => p.chats),
+		images: pages.flatMap((p) => p.images),
+		artifacts: pages.find((p) => p.artifacts !== undefined)?.artifacts,
+		next: undefined
+	}
+}
+
 /** Turn one pulled backup into store rows, dropping anything that does not name this
  * session: the bucket is written by the server from validated ids, but a record is
  * still data from outside this browser. */
@@ -986,13 +1000,21 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 	const updatedAt = new Map<string, number>(candidates.map((s) => [s.id, Date.parse(s.updated_at)]))
 	let ids = candidates.map((s) => s.id)
 	let restored = 0
-	while (ids.length > 0) {
+	// A session that did not fit one answer whole comes in pages, kept here until the last
+	// one: importing a page alone would leave a session the next restore takes for whole.
+	const pages = new Map<string, AISessionBackup[]>()
+	const resumes: AISessionBackupCursor[] = []
+	while (ids.length > 0 || resumes.length > 0) {
 		if (getCurrentUserEmail() !== email) return
-		const batch = ids.slice(0, PULL_BATCH)
-		ids = ids.slice(PULL_BATCH)
+		const resume = resumes.shift()
+		const batch = resume ? [resume.id] : ids.slice(0, PULL_BATCH)
+		if (!resume) ids = ids.slice(PULL_BATCH)
 		let pulled
 		try {
-			pulled = await AiService.pullAiSessionBackups({ workspace: ws, requestBody: { ids: batch } })
+			pulled = await AiService.pullAiSessionBackups({
+				workspace: ws,
+				requestBody: { ids: batch, resume }
+			})
 		} catch (e) {
 			console.warn('Could not pull session backups', e)
 			return
@@ -1003,7 +1025,18 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 		}
 		// Ask again for what did not fit, one at a time so each answer is as small as can be.
 		for (const id of pulled.deferred) if (!ids.includes(id)) ids.unshift(id)
-		const unpacked = pulled.sessions
+		const whole: AISessionBackup[] = []
+		for (const b of pulled.sessions) {
+			const earlier = pages.get(b.id) ?? []
+			if (b.next) {
+				pages.set(b.id, [...earlier, b])
+				resumes.push(b.next)
+				continue
+			}
+			pages.delete(b.id)
+			whole.push(earlier.length === 0 ? b : mergePages([...earlier, b]))
+		}
+		const unpacked = whole
 			.map((b) => unpackBackup(ws, b, updatedAt.get(b.id) ?? Date.now(), pulled.storage_id))
 			.filter((u) => u !== undefined)
 		// A session's pieces land before its record, and a session whose pieces could not be

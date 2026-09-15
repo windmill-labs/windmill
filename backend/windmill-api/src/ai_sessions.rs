@@ -59,7 +59,7 @@ const MAX_CHATS_PER_ENTRY: usize = 100;
 const MAX_IMAGES_PER_ENTRY: usize = 500;
 const MAX_DELETES_PER_ENTRY: usize = 1000;
 const MAX_OPERATIONS_PER_PUSH: usize = 4000;
-/// Objects a pull lists under one session's prefix before giving up on the rest.
+/// Entries of listing metadata a pull holds per page of a session.
 const MAX_LISTED_OBJECTS: usize = 5000;
 /// Session markers a listing scans, and the newest sessions it answers with.
 const MAX_LIST_SCAN: usize = 50_000;
@@ -184,30 +184,47 @@ impl Backend {
         }
     }
 
-    /// The entries under `prefix` in listing order, as many as fit `budget` bytes and
-    /// MAX_LISTED_OBJECTS; `true` when the listing was cut there. The listing is what
-    /// bounds a pull's memory: a session grows by valid pushes without limit.
+    /// The entries under `prefix` past `after` in key order, as many as fit `budget` bytes;
+    /// `true` when more follow. The listing is read as at most MAX_LISTED_OBJECTS entries of
+    /// metadata and sorted, since a page is defined by key order and the filesystem store
+    /// lists in none; that cap is what bounds a pull's memory, a session growing by valid
+    /// pushes without limit. With `at_least_one`, the first entry is taken whatever its
+    /// size, so an answer owed the session makes progress on it (no object exceeds the push
+    /// body cap).
     async fn list_within(
         &self,
         prefix: &ObjectPath,
+        after: Option<&ObjectPath>,
         budget: usize,
+        at_least_one: bool,
     ) -> Result<(Vec<(ObjectPath, usize)>, bool)> {
-        let mut entries = vec![];
-        let mut total = 0;
-        let mut stream = self.store.list(Some(prefix));
+        let mut listed = vec![];
+        let mut more = false;
+        let mut stream = match after {
+            Some(after) => self.store.list_with_offset(Some(prefix), after),
+            None => self.store.list(Some(prefix)),
+        };
         while let Some(meta) = stream.next().await {
             let meta = meta.map_err(object_store_error_to_error)?;
-            let size = meta.size as usize;
-            if total + size > budget || entries.len() >= MAX_LISTED_OBJECTS {
+            if listed.len() >= MAX_LISTED_OBJECTS {
+                more = true;
+                break;
+            }
+            listed.push((meta.location, meta.size as usize));
+        }
+        listed.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut entries = vec![];
+        let mut total = 0;
+        for (key, size) in listed {
+            if total + size > budget && !(at_least_one && entries.is_empty()) {
                 return Ok((entries, true));
             }
             total += size;
-            entries.push((meta.location, size));
+            entries.push((key, size));
         }
-        Ok((entries, false))
+        Ok((entries, more))
     }
 
-    /// Keys under the prefix with their stored size.
     /// Bytes written. Sealed up front so every stream item is owned: an item borrowing
     /// from the request makes the future higher-ranked over that lifetime, which the
     /// handler's `Send` bound cannot prove.
@@ -432,6 +449,19 @@ async fn list(
 #[derive(Deserialize)]
 struct PullRequest {
     ids: Vec<String>,
+    /// Picks the session an earlier answer cut up from where it stopped; `ids` then names
+    /// that session alone.
+    #[serde(default)]
+    resume: Option<PullCursor>,
+}
+
+/// Where a pull of a session that outgrew one answer picks up: the last key the earlier
+/// answer carried, in the session's prefix or, once that one is done, in its images prefix.
+#[derive(Serialize, Deserialize, Clone)]
+struct PullCursor {
+    id: String,
+    images: bool,
+    after: String,
 }
 
 #[derive(Serialize)]
@@ -455,6 +485,9 @@ struct PulledSession {
     images: Vec<ImageObject>,
     #[serde(skip_serializing_if = "Option::is_none")]
     artifacts: Option<Box<RawValue>>,
+    /// The session did not fit this answer whole: the rest follows a pull with this cursor.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next: Option<PullCursor>,
 }
 
 #[derive(Serialize)]
@@ -488,6 +521,7 @@ async fn pull_session(
     sid: &str,
     budget: usize,
     first: bool,
+    resume: Option<&PullCursor>,
 ) -> Result<PullStep> {
     let Some(head) = backend
         .get(&backend.head_key(sid), MAX_HEAD_BYTES + CIPHER_PADDING)
@@ -496,37 +530,52 @@ async fn pull_session(
         return Ok(PullStep::Absent);
     };
     let session_prefix = backend.session_prefix(sid);
-    // Sizes come from the listings, and the listings stop at the budget, so nothing is read
-    // past it even for the first session of the answer: one that outgrew it (chats
-    // accumulate over pushes) comes back with the objects that fit, in listing order,
-    // rather than being read whole.
-    let (entries, cut) = backend
-        .list_within(&session_prefix, budget.saturating_sub(head.len()))
-        .await?;
-    if cut && !first {
-        return Ok(PullStep::Deferred);
-    }
-    if cut {
-        tracing::warn!("AI session backup {sid} is beyond the pull budget; the rest left out");
-    }
+    let images_prefix = backend.images_prefix(sid);
     let mut size = head.len();
     let mut fetch = vec![];
     let mut artifacts_key = None;
-    for (key, bytes) in entries {
-        let rel = key
-            .as_ref()
-            .strip_prefix(session_prefix.as_ref())
-            .unwrap_or_default()
-            .trim_start_matches('/');
-        if rel == "artifacts.json" {
-            artifacts_key = Some((key, bytes));
-            size += bytes;
-        } else if let Some(cid) = rel
-            .strip_prefix("chats/")
-            .and_then(|f| f.strip_suffix(".json"))
-        {
-            fetch.push((cid.to_string(), key, bytes));
-            size += bytes;
+    let mut next = None;
+    // Sizes come from the listings, and the listings stop at the budget, so nothing is read
+    // past it even for the first session of the answer. One that outgrew it (chats
+    // accumulate over pushes) comes back in pages, in listing order, each answer naming
+    // where the next picks up; the browser imports nothing before the last page.
+    let in_images = resume.is_some_and(|c| c.images);
+    if !in_images {
+        let after = resume.map(|c| ObjectPath::from(c.after.as_str()));
+        let (entries, cut) = backend
+            .list_within(
+                &session_prefix,
+                after.as_ref(),
+                budget.saturating_sub(size),
+                first,
+            )
+            .await?;
+        if cut && !first {
+            return Ok(PullStep::Deferred);
+        }
+        if cut {
+            next = entries.last().map(|(key, _)| PullCursor {
+                id: sid.to_string(),
+                images: false,
+                after: key.to_string(),
+            });
+        }
+        for (key, bytes) in entries {
+            let rel = key
+                .as_ref()
+                .strip_prefix(session_prefix.as_ref())
+                .unwrap_or_default()
+                .trim_start_matches('/');
+            if rel == "artifacts.json" {
+                artifacts_key = Some((key, bytes));
+                size += bytes;
+            } else if let Some(cid) = rel
+                .strip_prefix("chats/")
+                .and_then(|f| f.strip_suffix(".json"))
+            {
+                fetch.push((cid.to_string(), key, bytes));
+                size += bytes;
+            }
         }
     }
     let chats: Vec<PulledChat> = futures::stream::iter(fetch)
@@ -548,20 +597,42 @@ async fn pull_session(
         },
         None => None,
     };
-    let images_prefix = backend.images_prefix(sid);
-    let (entries, _) = backend
-        .list_within(&images_prefix, budget.saturating_sub(size))
-        .await?;
     let mut image_keys: Vec<(String, String, ObjectPath, usize)> = vec![];
-    for (key, bytes) in entries {
-        let Some(rel) = key.as_ref().strip_prefix(images_prefix.as_ref()) else {
-            continue;
-        };
-        let Some((cid, iid)) = rel.trim_start_matches('/').split_once('/') else {
-            continue;
-        };
-        size += bytes;
-        image_keys.push((cid.to_string(), iid.to_string(), key, bytes));
+    if next.is_none() {
+        let after = resume
+            .filter(|c| c.images)
+            .map(|c| ObjectPath::from(c.after.as_str()));
+        let (entries, cut) = backend
+            .list_within(
+                &images_prefix,
+                after.as_ref(),
+                budget.saturating_sub(size),
+                first,
+            )
+            .await?;
+        if cut {
+            // An answer with no room for a single image names where it stood, so the pull
+            // owed the session alone picks it up there.
+            next = Some(PullCursor {
+                id: sid.to_string(),
+                images: true,
+                after: entries
+                    .last()
+                    .map(|(key, _)| key.to_string())
+                    .or_else(|| after.map(|a| a.to_string()))
+                    .unwrap_or_default(),
+            });
+        }
+        for (key, bytes) in entries {
+            let Some(rel) = key.as_ref().strip_prefix(images_prefix.as_ref()) else {
+                continue;
+            };
+            let Some((cid, iid)) = rel.trim_start_matches('/').split_once('/') else {
+                continue;
+            };
+            size += bytes;
+            image_keys.push((cid.to_string(), iid.to_string(), key, bytes));
+        }
     }
     let images: Vec<ImageObject> = futures::stream::iter(image_keys)
         .map(|(chat_id, id, key, bytes)| async move {
@@ -575,7 +646,14 @@ async fn pull_session(
         .flatten()
         .collect();
     Ok(PullStep::Fetched(
-        PulledSession { id: sid.to_string(), head: raw("head", head)?, chats, images, artifacts },
+        PulledSession {
+            id: sid.to_string(),
+            head: raw("head", head)?,
+            chats,
+            images,
+            artifacts,
+            next,
+        },
         size,
     ))
 }
@@ -595,6 +673,13 @@ async fn pull(
     for id in &req.ids {
         require_valid_id("session", id)?;
     }
+    if let Some(cursor) = &req.resume {
+        if req.ids.len() != 1 || req.ids[0] != cursor.id || cursor.after.len() > 1024 {
+            return Err(Error::BadRequest(
+                "a resumed pull names the resumed session alone".to_string(),
+            ));
+        }
+    }
     let Some(backend) = backend(&authed, &db, &w_id).await? else {
         return Ok(Json(PullResponse {
             enabled: false,
@@ -607,7 +692,8 @@ async fn pull(
     let mut deferred = vec![];
     let mut budget = PULL_RESPONSE_BUDGET;
     for sid in req.ids {
-        match pull_session(&backend, &sid, budget, sessions.is_empty()).await? {
+        let resume = req.resume.as_ref().filter(|c| c.id == sid);
+        match pull_session(&backend, &sid, budget, sessions.is_empty(), resume).await? {
             PullStep::Absent => {}
             PullStep::Deferred => deferred.push(sid),
             PullStep::Fetched(session, size) => {

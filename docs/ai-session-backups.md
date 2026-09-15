@@ -172,12 +172,14 @@ flight) gets a row saying only that, and every row write keeps a removal filed m
 the push's own row cannot erase it. Pull bodies are
 capped at 64 KB. Pull answers up to 20 ids within a 32 MB
 budget: a session's size is known from the listings before anything of it is read, one that
-would not fit is deferred unless it is the first of the answer, in which case its chats and
-artifacts are read in listing order only while they fit, and images beyond the budget are left
-out (they hydrate to placeholders). The listings themselves stop at the budget and at 5000
-objects per session, so a session grown without bound by valid pushes cannot grow the answer's
-memory through its metadata either; removing a prefix and the re-key walk stream their
-listings too. `list` scans at most 50 000 index markers, keeps the newest 500 as it goes and answers with
+would not fit is deferred unless it is the first of the answer, in which case it comes in
+pages: the answer carries what fits in listing order (at least one object, so every page
+makes progress) and names where the next picks up (`next`, a cursor the browser sends back
+as `resume` with that session alone). The browser keeps the pages and imports the session
+only once the last one arrived; a page that fails leaves the session for the next restore. A pull reads a session's listing as at most 5000 entries of
+metadata per page, sorted (a page is defined by key order, and the filesystem store lists in
+none), so a session grown without bound by valid pushes cannot grow the answer's memory
+through its metadata either; removing a prefix and the re-key walk stream their listings. `list` scans at most 50 000 index markers, keeps the newest 500 as it goes and answers with
 them (`truncated` says when there were more); the restore takes 50 of them. Every read checks the object's size before buffering it, against what the listing said
 (or the head cap for the head, read without one) in `pull` and against the push body cap
 (32 MB, more than any push writes) in the re-key walk: whoever holds the bucket's

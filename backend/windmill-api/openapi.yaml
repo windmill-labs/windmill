@@ -13246,6 +13246,8 @@ paths:
                   maxItems: 20
                   items:
                     type: string
+                resume:
+                  $ref: "#/components/schemas/AISessionBackupCursor"
       responses:
         "200":
           description: the backups found; `deferred` lists ids that did not fit the response budget
@@ -28488,6 +28490,23 @@ components:
         artifacts:
           type: object
           additionalProperties: true
+        next:
+          $ref: "#/components/schemas/AISessionBackupCursor"
+
+    AISessionBackupCursor:
+      type: object
+      description: where a pull of a session that did not fit one answer whole picks up; the rest of the session follows a pull naming that session alone with this as `resume`
+      required:
+        - id
+        - images
+        - after
+      properties:
+        id:
+          type: string
+        images:
+          type: boolean
+        after:
+          type: string
 
     AISessionBackupPush:
       type: object

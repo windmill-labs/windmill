@@ -617,4 +617,32 @@ describe('sessionMirror restore', () => {
 		await __flushForTesting()
 		expect(pushMock).not.toHaveBeenCalled()
 	})
+
+	it('imports a session that came in pages only once the last page arrived', async () => {
+		listMock.mockResolvedValue({
+			enabled: true,
+			sessions: [{ id: 's9', updated_at: '2026-09-14T00:00:00Z' }]
+		})
+		const cursor = { id: 's9', images: false, after: 'sessions/s9/chats/c9.json' }
+		const c9b = { ...backup.chats[0], id: 'c9b', record: { ...backup.chats[0].record, id: 'c9b' } }
+		pullMock
+			.mockResolvedValueOnce({
+				enabled: true,
+				sessions: [{ ...backup, next: cursor }],
+				deferred: []
+			})
+			.mockResolvedValueOnce({
+				enabled: true,
+				sessions: [{ ...backup, chats: [c9b] }],
+				deferred: []
+			})
+		usersWorkspaceStore.set({ email: EMAIL, workspaces: [] } as never)
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		expect(pullMock).toHaveBeenCalledTimes(2)
+		expect(pullMock.mock.calls[1][0].requestBody).toEqual({ ids: ['s9'], resume: cursor })
+		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s9']))
+		expect((await readStoredChat('c9', EMAIL))?.displayMessages).toHaveLength(1)
+		expect((await readStoredChat('c9b', EMAIL))?.id).toBe('c9b')
+	})
 })

@@ -211,6 +211,73 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     .await?;
     assert_eq!(resp.status(), 200);
 
+    // A session that outgrew one answer (three chats of 12 MB against the 32 MB budget)
+    // comes in pages, each naming where the next picks up, and nothing is left out.
+    let big = "y".repeat(12 * 1024 * 1024);
+    for cid in ["c1", "c2", "c3"] {
+        let resp = push(
+            &base,
+            "SECRET_TOKEN",
+            json!({
+                "owner": "test@windmill.dev",
+                "sessions": [{ "id": "s4", "chats": [{ "id": cid, "record": { "id": cid, "big": big } }], "partial": true }]
+            }),
+        )
+        .await?;
+        assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    }
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s4", "head": { "id": "s4", "workspace_id": "test-workspace", "createdAt": 4, "chatId": "c1" } }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let mut pages = vec![];
+    let mut resume = json!(null);
+    loop {
+        let body = if resume.is_null() {
+            json!({ "ids": ["s4"] })
+        } else {
+            json!({ "ids": ["s4"], "resume": resume })
+        };
+        let resp = authed(
+            client().post(format!("{base}/ai/sessions/pull")),
+            "SECRET_TOKEN",
+        )
+        .json(&body)
+        .send()
+        .await?;
+        assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+        let pulled: Value = resp.json().await?;
+        let page = pulled["sessions"][0].clone();
+        assert_eq!(page["id"], "s4");
+        resume = page["next"].clone();
+        pages.push(page);
+        if resume.is_null() {
+            break;
+        }
+        assert!(pages.len() < 5, "a paged pull must end");
+    }
+    assert!(pages.len() >= 2, "36 MB must not fit one answer");
+    let mut chat_ids: Vec<String> = pages
+        .iter()
+        .flat_map(|p| p["chats"].as_array().unwrap().iter())
+        .map(|c| c["id"].as_str().unwrap().to_string())
+        .collect();
+    chat_ids.sort();
+    assert_eq!(chat_ids, vec!["c1", "c2", "c3"]);
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "removed": ["s4"] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+
     // A head at exactly its cap round-trips: the ciphertext read back is a block larger.
     let mut big_head = json!({ "id": "s3", "workspace_id": "test-workspace", "createdAt": 3, "chatId": "c", "pad": "" });
     let pad = 1024 * 1024 - serde_json::to_string(&big_head)?.len();
