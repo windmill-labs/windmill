@@ -131,17 +131,20 @@ fn keep_authored_history_args(
         Some(InputTransform::Static { .. }) if args.memory_id.as_deref() != Some("") => {}
         _ => args.memory_id = None,
     }
-    match step_input_transforms.get("messages") {
+    match step_input_transforms.get("previous_messages") {
         Some(InputTransform::Javascript { .. }) => {}
         Some(InputTransform::Static { .. })
-            if args.messages.as_ref().is_some_and(|m| !m.is_empty()) => {}
-        _ => args.messages = None,
+            if args
+                .previous_messages
+                .as_ref()
+                .is_some_and(|m| !m.is_empty()) => {}
+        _ => args.previous_messages = None,
     }
 }
 
 /// Reconciles the step's history inputs, the agent's memory policy and the run's memory id, for
 /// every shape a flow or agent resource may still carry. Managed memory reads only a memory id, and
-/// memory that is off reads only messages. Also returns lines for the job log: a step input that
+/// memory that is off reads only previous messages. Also returns lines for the job log: a step input that
 /// went unused, or a policy that remembers ending up stateless.
 fn resolve_history_source<'a>(
     args: &'a AIAgentArgs,
@@ -158,9 +161,10 @@ fn resolve_history_source<'a>(
             if args.memory_id.as_deref().is_some_and(|id| !id.is_empty()) {
                 notes.push("Managed memory is off, so this step's memory id is ignored.");
             }
-            let history = match (&args.messages, &args.memory) {
+            let history = match (&args.previous_messages, &args.memory) {
                 (Some(messages), _) => HistorySource::Messages(messages),
-                // The fixed list an older editor stored in `memory`, which the step's messages replace.
+                // The fixed list an older editor stored in `memory`, which the step's previous messages
+                // replace.
                 (None, Some(Memory::Manual { messages })) => HistorySource::Messages(messages),
                 _ => HistorySource::Stateless,
             };
@@ -168,11 +172,11 @@ fn resolve_history_source<'a>(
         }
     };
     if args
-        .messages
+        .previous_messages
         .as_ref()
         .is_some_and(|messages| !messages.is_empty())
     {
-        notes.push("Managed memory is on, so this step's messages are ignored.");
+        notes.push("Managed memory is on, so this step's previous messages are ignored.");
     }
     let memory_id = match args.memory_id.as_deref() {
         Some("") => {
@@ -192,6 +196,14 @@ fn resolve_history_source<'a>(
         },
     };
     (HistorySource::Window { memory_id, context_length }, notes)
+}
+
+/// Whether a request has something to ask the model. Only text output sends previous messages, so an
+/// image prompt comes from the user message alone. An empty list, as an expression evaluating to
+/// null gives, is no conversation.
+fn has_prompt(history: &HistorySource, has_user_message: bool, is_text_output: bool) -> bool {
+    has_user_message
+        || (is_text_output && matches!(history, HistorySource::Messages(m) if !m.is_empty()))
 }
 
 fn find_module_by_id(
@@ -555,8 +567,9 @@ pub async fn handle_ai_agent_job(
 
     // A linked step takes its brain and tools from the resource and keeps only its own flow-local
     // inputs. The brain and the roster stay rigid; what the step binds to this flow is the message
-    // it asks, which of those tools this use may call, the conversation it is part of (its memory id
-    // and messages), and the tools' own inputs — the last overlaid from `tool_inputs` below.
+    // it asks, which of those tools this use may call, the conversation it is part of (its memory
+    // id and previous messages), and the tools' own inputs — the last overlaid from `tool_inputs`
+    // below.
     let (mut args, tools): (AIAgentArgs, Vec<AgentTool>) = if let Some(agent_ref) = agent.as_deref()
     {
         let agent_path = agent_ref
@@ -616,7 +629,7 @@ pub async fn handle_ai_agent_job(
             "user_attachments",
             "enabled_tools",
             "memory_id",
-            "messages",
+            "previous_messages",
         ] {
             if let Some(v) = local_args.get(key) {
                 brain.insert(
@@ -1128,19 +1141,29 @@ pub async fn run_agent(
         .map(|m| !m.is_empty())
         .unwrap_or(false);
 
-    // An empty list, as a messages expression evaluating to null gives, is no conversation to send.
-    if !matches!(&history, HistorySource::Messages(m) if !m.is_empty()) && !has_user_message {
-        return Err(Error::internal_err(
-            "Either 'messages' or 'user_message' must be provided".to_string(),
-        ));
-    }
-
     let is_text_output = output_type == &OutputType::Text;
 
-    if matches!(output_type, OutputType::Text) {
-        for note in history_notes {
+    if is_text_output {
+        for note in &history_notes {
             append_logs(&job.id, &job.workspace_id, format!("{note}\n"), conn).await;
         }
+    }
+
+    if !has_prompt(&history, has_user_message, is_text_output) {
+        let missing = if !is_text_output {
+            "'user_message' must be provided for image output"
+        } else if matches!(
+            args.memory,
+            Some(Memory::Window { .. } | Memory::Auto { .. })
+        ) {
+            "'user_message' must be provided while managed memory is on"
+        } else {
+            "Either 'previous_messages' or 'user_message' must be provided"
+        };
+        return Err(Error::internal_err(missing.to_string()));
+    }
+
+    if matches!(output_type, OutputType::Text) {
         match &history {
             HistorySource::Messages(provided) => messages.extend(provided.iter().cloned()),
             HistorySource::Window { memory_id, context_length } => {
@@ -2039,20 +2062,20 @@ mod tests {
                 Resolved::Stateless { noted: true },
             ),
             (
-                "managed memory ignores the step's messages",
-                json!({ "memory": window, "memory_id": "cust_1", "messages": message }),
+                "managed memory ignores the step's previous messages",
+                json!({ "memory": window, "memory_id": "cust_1", "previous_messages": message }),
                 Some(run),
                 Resolved::Window(cust_1, 10),
             ),
             (
-                "memory that is off sends the step's messages",
-                json!({ "messages": message }),
+                "memory that is off sends the step's previous messages",
+                json!({ "previous_messages": message }),
                 Some(run),
                 Resolved::Messages(1),
             ),
             (
-                "the step's messages replace a legacy manual list",
-                json!({ "memory": { "kind": "manual", "messages": message }, "messages": two_messages }),
+                "the step's previous messages replace a legacy manual list",
+                json!({ "memory": { "kind": "manual", "messages": message }, "previous_messages": two_messages }),
                 Some(run),
                 Resolved::Messages(2),
             ),
@@ -2090,7 +2113,7 @@ mod tests {
             serde_json::from_value(serde_json::json!({
                 "provider": { "kind": "openai", "resource": {}, "model": "m" },
                 "memory_id": null,
-                "messages": [],
+                "previous_messages": [],
             }))
             .unwrap()
         };
@@ -2106,11 +2129,11 @@ mod tests {
             let mut args = args();
             keep_authored_history_args(&mut args, &transforms(transform));
             assert_eq!(args.memory_id.as_deref(), expected, "{transform}");
-            assert!(args.messages.is_none(), "{transform}");
+            assert!(args.previous_messages.is_none(), "{transform}");
         }
     }
 
-    /// Empty messages a form leaves on a step never replace a legacy list; an expression does, even
+    /// Empty previous messages a form leaves on a step never replace a legacy list; an expression does, even
     /// when it evaluates to null.
     #[test]
     fn only_an_expression_can_empty_a_legacy_message_list() {
@@ -2132,11 +2155,11 @@ mod tests {
             let mut args: AIAgentArgs = serde_json::from_value(serde_json::json!({
                 "provider": { "kind": "openai", "resource": {}, "model": "m" },
                 "memory": { "kind": "manual", "messages": [{ "role": "user", "content": "earlier" }] },
-                "messages": if transform.contains("[]") { serde_json::json!([]) } else { serde_json::Value::Null },
+                "previous_messages": if transform.contains("[]") { serde_json::json!([]) } else { serde_json::Value::Null },
             }))
             .unwrap();
             let transforms = HashMap::from([(
-                "messages".to_string(),
+                "previous_messages".to_string(),
                 serde_json::from_str(transform).unwrap(),
             )]);
             keep_authored_history_args(&mut args, &transforms);
@@ -2151,6 +2174,21 @@ mod tests {
             };
             assert_eq!(resolved, expected, "{transform}");
         }
+    }
+
+    /// Only text output sends previous messages, so they never stand in for an image prompt.
+    #[test]
+    fn previous_messages_never_stand_in_for_an_image_prompt() {
+        let args: AIAgentArgs = serde_json::from_value(serde_json::json!({
+            "provider": { "kind": "openai", "resource": {}, "model": "m" },
+            "previous_messages": [{ "role": "user", "content": "earlier" }],
+        }))
+        .unwrap();
+        let (history, _) = resolve_history_source(&args, None, "ws", "f/flow");
+        assert!(has_prompt(&history, false, true));
+        assert!(!has_prompt(&history, false, false));
+        assert!(has_prompt(&history, true, false));
+        assert!(!has_prompt(&HistorySource::Messages(&[]), false, true));
     }
 
     #[test]

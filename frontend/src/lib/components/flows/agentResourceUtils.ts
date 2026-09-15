@@ -28,7 +28,7 @@ export const AGENT_FLOW_LOCAL_KEYS = [
 	'user_attachments',
 	'enabled_tools',
 	'memory_id',
-	'messages'
+	'previous_messages'
 ] as const
 
 export type AgentTool = Record<string, any>

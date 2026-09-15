@@ -552,7 +552,7 @@
 											<AgentMemoryNotes
 												bind:args
 												{chatInputEnabled}
-												historyOnStep={scopedFields.some((f) => f.key === 'messages')}
+												historyOnStep={scopedFields.some((f) => f.key === 'previous_messages')}
 												s3StorageConfigured={s3Storage.current}
 											/>
 										{:else if spec.key === 'memory_id' && memoryIdOffered}

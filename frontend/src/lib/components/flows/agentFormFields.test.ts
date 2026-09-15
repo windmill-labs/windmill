@@ -88,16 +88,16 @@ describe('initialVisibleAgentFields', () => {
 
 describe('historyInputApplies', () => {
 	// Mirrors the worker: offering a step input a run would ignore misleads the author.
-	it('offers a memory id only with managed memory, and messages only without', () => {
+	it('offers a memory id only with managed memory, and previous messages only without', () => {
 		expect(keepsManagedMemory(undefined)).toBe(false)
 		expect(keepsManagedMemory({ kind: 'window', context_length: 0 })).toBe(false)
 		expect(keepsManagedMemory({ kind: 'manual', messages: [] })).toBe(false)
 		expect(keepsManagedMemory({ kind: 'auto', context_length: 4, memory_id: 'x' })).toBe(true)
 		expect(historyInputApplies('memory_id', true)).toBe(true)
-		expect(historyInputApplies('messages', true)).toBe(false)
+		expect(historyInputApplies('previous_messages', true)).toBe(false)
 		expect(historyInputApplies('memory_id', false)).toBe(false)
-		expect(historyInputApplies('messages', false)).toBe(true)
-		expect(historyInputApplies('messages', undefined)).toBe(true)
+		expect(historyInputApplies('previous_messages', false)).toBe(true)
+		expect(historyInputApplies('previous_messages', undefined)).toBe(true)
 	})
 })
 

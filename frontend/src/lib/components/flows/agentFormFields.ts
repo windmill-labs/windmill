@@ -27,7 +27,7 @@ export const AGENT_TOOLS_ROW = 'tools'
 
 /** A step's own history inputs. Never seeded with a placeholder: a run reads a present key as the
  *  step's choice, so only the author adds them. */
-export const AGENT_HISTORY_KEYS = ['memory_id', 'messages'] as const
+export const AGENT_HISTORY_KEYS = ['memory_id', 'previous_messages'] as const
 export type AgentHistoryKey = (typeof AGENT_HISTORY_KEYS)[number]
 
 /** What turning managed memory on writes. */
@@ -44,7 +44,7 @@ export function keepsManagedMemory(memory: any): boolean {
 }
 
 /** Whether a run reads this step input, mirroring the worker: managed memory reads only a memory id,
- *  memory that is off only messages. A setting the form cannot read yet leaves both open. */
+ *  memory that is off only previous messages. A setting the form cannot read yet leaves both open. */
 export function historyInputApplies(
 	key: AgentHistoryKey,
 	managedMemory: boolean | undefined
@@ -145,7 +145,7 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		textOnly: true
 	},
 	{
-		key: 'messages',
+		key: 'previous_messages',
 		group: 'messages',
 		label: 'Previous messages',
 		tooltip: 'History the flow supplies, sent between the system message and the user message.',

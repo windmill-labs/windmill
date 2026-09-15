@@ -175,9 +175,9 @@ export function normalizeAgentHistory(
 	if (memoryId?.type === 'static' && !String(memoryId.value ?? '').trim()) {
 		delete inputTransforms.memory_id
 	}
-	const messages = inputTransforms.messages
-	if (messages?.type === 'static' && !messages.value?.length) {
-		delete inputTransforms.messages
+	const previousMessages = inputTransforms.previous_messages
+	if (previousMessages?.type === 'static' && !previousMessages.value?.length) {
+		delete inputTransforms.previous_messages
 	}
 }
 

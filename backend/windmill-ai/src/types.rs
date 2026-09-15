@@ -88,7 +88,7 @@ pub enum Memory {
         #[serde(default, deserialize_with = "deserialize_blank_as_none")]
         memory_id: Option<Uuid>,
     },
-    /// Written before the step's `messages` input, which it is equivalent to.
+    /// Written before the step's `previous_messages` input, which it is equivalent to.
     Manual {
         messages: Vec<OpenAIMessage>,
     },
@@ -137,10 +137,10 @@ struct AIAgentArgsRaw {
     // nothing runs stateless instead of falling back to the run's memory id.
     #[serde(default, deserialize_with = "deserialize_present")]
     memory_id: Option<serde_json::Value>,
-    // Same distinction for an authored messages expression: null replaces a legacy manual list with
+    // Same distinction for an authored previous messages expression: null replaces a legacy manual list with
     // no history, where an absent key keeps that list.
     #[serde(default, deserialize_with = "deserialize_present_messages")]
-    messages: Option<Option<Vec<OpenAIMessage>>>,
+    previous_messages: Option<Option<Vec<OpenAIMessage>>>,
     enabled_tools: Option<Vec<String>>,
     // Legacy field for backward compatibility
     messages_context_length: Option<usize>,
@@ -165,7 +165,7 @@ pub struct AIAgentArgs {
     /// Memory id set on the step, overriding the run's. Empty when its expression produced none.
     pub memory_id: Option<String>,
     /// History supplied by the flow, replayed without reading or writing memory.
-    pub messages: Option<Vec<OpenAIMessage>>,
+    pub previous_messages: Option<Vec<OpenAIMessage>>,
     /// Which of the agent's tools this run may call; `narrow_roster` holds what the names are and
     /// what `None` means.
     pub enabled_tools: Option<Vec<String>>,
@@ -207,7 +207,7 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
             max_iterations: raw.max_iterations,
             memory,
             memory_id,
-            messages: raw.messages.map(Option::unwrap_or_default),
+            previous_messages: raw.previous_messages.map(Option::unwrap_or_default),
             enabled_tools: raw.enabled_tools,
             credentials_check: raw.credentials_check.unwrap_or(false),
         }

@@ -589,7 +589,7 @@ components:
     MemoryManual:
       type: object
       deprecated: true
-      description: Deprecated, still read. Use the step's `messages` input instead.
+      description: Deprecated, still read. Use the step's `previous_messages` input instead.
       properties:
         kind:
           type: string
@@ -604,7 +604,7 @@ components:
         - messages
 
     MemoryConfig:
-      description: Managed memory, stored by Windmill and replayed with each request. The memory is named by a memory id, see `memory_id`. While it is off, a step can supply its history in `messages`.
+      description: Managed memory, stored by Windmill and replayed with each request. The memory is named by a memory id, see `memory_id`. While it is off, a step can supply its history in `previous_messages`.
       oneOf:
         - $ref: '#/components/schemas/MemoryOff'
         - $ref: '#/components/schemas/MemoryWindow'
@@ -1087,7 +1087,7 @@ components:
                 across every run; an expression such as `flow_input.customer_id` keeps one memory per
                 key. When it evaluates to an empty value the agent runs without memory. Read only
                 while `memory` keeps messages; ignored when it is off.
-            messages:
+            previous_messages:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
               description: |
@@ -1167,7 +1167,7 @@ components:
             Path of a reusable `ai_agent` resource (hybrid linking). When set, the agent brain
             config (provider/model/system prompt/etc.) and tool set are resolved at runtime from
             that resource; the module's input_transforms then only carry the flow-local inputs
-            (user_message, user_attachments, enabled_tools and the history inputs memory_id and messages).
+            (user_message, user_attachments, enabled_tools and the history inputs memory_id and previous_messages).
         tool_inputs:
           type: object
           description: |

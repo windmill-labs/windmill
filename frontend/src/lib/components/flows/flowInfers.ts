@@ -79,7 +79,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 				'Names the memory this step reads and writes, overriding the memory id the run was started with. Read only while managed memory is on.',
 			showExpr: "fields.output_type !== 'image'"
 		},
-		messages: {
+		previous_messages: {
 			type: 'array',
 			description:
 				'History the flow supplies, sent before the user message. Read only while managed memory is off.',
@@ -175,7 +175,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 		'streaming',
 		'memory',
 		'memory_id',
-		'messages',
+		'previous_messages',
 		'output_schema',
 		'user_attachments',
 		'enabled_tools',
@@ -203,7 +203,7 @@ export const LEGACY_MEMORY_VARIANTS: Record<string, any> = {
 		title: 'manual',
 		properties: {
 			kind: { type: 'string', enum: ['manual'] },
-			messages: { type: 'array', items: AI_AGENT_SCHEMA.properties?.messages?.items }
+			messages: { type: 'array', items: AI_AGENT_SCHEMA.properties?.previous_messages?.items }
 		},
 		required: ['kind', 'messages']
 	}

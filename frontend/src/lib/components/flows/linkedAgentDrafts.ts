@@ -178,7 +178,7 @@ type AiAgentValue = Extract<FlowModule['value'], { type: 'aiagent' }>
  *
  * The overlay order is the worker's (`ai_executor.rs`): its linked branch interpolates the whole
  * resource brain and only then writes the flow-local inputs (`user_message`, `user_attachments`,
- * `memory_id`, `messages`) back from the step's own args. `tool_inputs` stays untouched — the worker overlays it onto the tools in both branches, so
+ * `enabled_tools`, `memory_id`, `previous_messages`) back from the step's own args. `tool_inputs` stays untouched — the worker overlays it onto the tools in both branches, so
  * an inlined step keeps the host flow's tool bindings.
  */
 export function inlineAgentDraft(value: AiAgentValue, args: AIAgentConfig): AiAgentValue {

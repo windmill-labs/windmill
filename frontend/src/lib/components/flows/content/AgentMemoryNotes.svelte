@@ -7,7 +7,7 @@
 		 *  it moves into. */
 		args: Record<string, any>
 		chatInputEnabled?: boolean
-		/** Whether the step's own memory id and messages are on this form. A saved agent has neither:
+		/** Whether the step's own memory id and previous messages are on this form. A saved agent has neither:
 		 *  they belong to each step linking it. */
 		historyOnStep?: boolean
 		s3StorageConfigured?: boolean
@@ -31,9 +31,14 @@
 	let legacyMessages = $derived(
 		memory?.kind === 'manual' ? ((memory.messages ?? []) as unknown[]) : undefined
 	)
-	// A chat run always carries the conversation's memory id, so there a baked id was never read.
+	// A chat run always carries the conversation's memory id, and a step's own memory id replaces the
+	// baked one, so in either case the baked id is never read. A blank static id reads as unset.
+	let stepMemoryId = $derived(
+		args?.memory_id?.type === 'javascript' ||
+			(args?.memory_id?.type === 'static' && String(args.memory_id.value ?? '').trim() !== '')
+	)
 	let legacyMemoryId = $derived(
-		on && memory?.kind === 'auto' && memory.memory_id && !chatInputEnabled
+		on && memory?.kind === 'auto' && memory.memory_id && !chatInputEnabled && !stepMemoryId
 			? String(memory.memory_id)
 			: undefined
 	)
@@ -60,7 +65,7 @@
 	}
 
 	function moveMessagesToStep() {
-		args.messages = { type: 'static', value: $state.snapshot(legacyMessages) ?? [] }
+		args.previous_messages = { type: 'static', value: $state.snapshot(legacyMessages) ?? [] }
 		args.memory = { type: 'static', value: { kind: 'off' } }
 	}
 </script>

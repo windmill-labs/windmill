@@ -619,10 +619,12 @@
 			}
 
 			// A linked step's memory belongs to the agent it links, and a step supplying its own
-			// messages reads them only while memory is off.
+			// previous messages reads them only while memory is off. An empty static list supplies none.
+			const messages = value.input_transforms['previous_messages']
 			if (
 				!value.agent &&
-				value.input_transforms['messages'] == undefined &&
+				(isUnconfigured(messages) ||
+					(messages?.type === 'static' && !(messages.value as unknown[] | undefined)?.length)) &&
 				isUnconfigured(value.input_transforms['memory'])
 			) {
 				value.input_transforms['memory'] = {

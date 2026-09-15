@@ -17,7 +17,7 @@ every workspace via the standard cached-resource-type sync, like other built-in 
   (`windmill-worker/src/ai_executor.rs`): the brain is interpolated, so a nested provider `$res:`
   credential resolves automatically.
 - The step keeps only the flow-local inputs (`user_message`, `user_attachments`, `enabled_tools`,
-  and the history inputs `memory_id` and `messages`) in its own `input_transforms`; the brain and
+  and the history inputs `memory_id` and `previous_messages`) in its own `input_transforms`; the brain and
   tools stay in the resource (read-only in the step). `enabled_tools` says which of the roster this
   step may call, narrowing one use of a shared agent without touching the agent: an absent field
   carries every tool, a list carries the ones it names, and an empty list carries none.
@@ -56,16 +56,16 @@ which memory it is:
   writes the key only once it is on. With managed memory on, `memory_id` overrides
   the run's id, hashed the same way: a fixed value is one memory shared by every run, an expression
   such as `flow_input.customer_id` one memory per key, and an expression that evaluates to nothing
-  runs stateless rather than falling back to the run's id. With memory off, `messages` supplies the
+  runs stateless rather than falling back to the run's id. With memory off, `previous_messages` supplies the
   history itself. The editor never seeds a placeholder for either, because a present key is the
   step's choice, and a static empty value reads as unset.
 
 The worker reconciles them once per agent invocation, nested agent tools included, in
 `resolve_history_source` (`windmill-worker/src/ai_executor.rs`):
 
-1. Memory off, or a legacy `manual` memory: the history is `messages`, else the `manual` list,
+1. Memory off, or a legacy `manual` memory: the history is `previous_messages`, else the `manual` list,
    else nothing. Memory is neither read nor written, and a step `memory_id` is ignored.
-2. Managed memory: a step `messages` is ignored. The memory id is the step's, else the run's, else
+2. Managed memory: a step `previous_messages` is ignored. The memory id is the step's, else the run's, else
    a legacy id baked into the `auto` object. With no memory id the agent runs stateless.
 
 Each ignored input and each stateless fallback is written to the job log.

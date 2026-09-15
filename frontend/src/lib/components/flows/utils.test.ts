@@ -81,7 +81,7 @@ describe('normalizeAgentHistory', () => {
 	it('does not persist an empty static memory id or message list', () => {
 		const transforms: Record<string, any> = {
 			memory_id: { type: 'static', value: ' ' },
-			messages: { type: 'static', value: [] }
+			previous_messages: { type: 'static', value: [] }
 		}
 		normalizeAgentHistory(transforms, false)
 		expect(transforms).toEqual({})
