@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
 	import { Settings } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Select from '$lib/components/select/Select.svelte'
@@ -64,42 +63,6 @@
 			onChange?.(datatable, undefined)
 		}
 		previousDatatable = datatable
-	})
-
-	// The app's role on the data table can change without the data table changing (tables added
-	// under another role): a default schema that role no longer reaches is where the AI could not
-	// create tables, so it is unset once the answer for this role is in. Only after a role change:
-	// opening an app must not modify it, but every later change is checked, back to the first
-	// role included.
-	// svelte-ignore state_referenced_locally
-	let lastRole = role
-	/** The role whose answer the schema still has to be checked against, or `null` for none. */
-	let pendingCheck = $state<string | undefined | null>(null)
-	$effect(() => {
-		const current = role
-		untrack(() => {
-			if (current !== lastRole) {
-				lastRole = current
-				pendingCheck = current
-			}
-		})
-	})
-	$effect(() => {
-		const answer = access.current
-		if (
-			pendingCheck === null ||
-			role !== pendingCheck ||
-			answer.datatable !== datatable ||
-			answer.role !== pendingCheck
-		) {
-			return
-		}
-		untrack(() => {
-			pendingCheck = null
-			if (!answer.failed && schema !== undefined && !answer.schemas.includes(schema)) {
-				onChange?.(datatable, undefined)
-			}
-		})
 	})
 </script>
 
