@@ -3274,9 +3274,25 @@ describe('global AI tools', () => {
 			{ path: 'f/apps/legacy', summary: 'legacy app' }
 		] as any)
 
+		// A draft row replaces the deployed one, so it has to carry the flag too —
+		// otherwise the chat's own apps are the ones that read as low-code.
+		seedBackendDraft(
+			'raw_app',
+			'f/apps/code',
+			{ summary: 'code app', files: { '/App.tsx': 'x' }, runnables: {} },
+			{ workspace: WORKSPACE }
+		)
+		seedBackendDraft(
+			'raw_app',
+			'f/apps/newborn',
+			{ summary: 'never deployed', files: { '/App.tsx': 'x' }, runnables: {} },
+			{ workspace: WORKSPACE }
+		)
+
 		const rows = JSON.parse(await callGlobalTool('list_workspace_items', { types: ['app'] }))
 		const byPath = Object.fromEntries(rows.map((r: any) => [r.path, r]))
-		expect(byPath['f/apps/code'].raw_app).toBe(true)
+		expect(byPath['f/apps/code']).toMatchObject({ raw_app: true, isDraft: true })
+		expect(byPath['f/apps/newborn']).toMatchObject({ raw_app: true, isDraft: true })
 		expect(byPath['f/apps/legacy']).not.toHaveProperty('raw_app')
 	})
 

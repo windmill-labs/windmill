@@ -175,6 +175,9 @@ function appDraftToWorkspaceItem(path: string, draft: AppDraftValue): WorkspaceI
 		draftPath: value.draft_path,
 		summary: value.summary,
 		parentVersionId: value.parent_version,
+		// Only the `raw_app` kind reaches here, so an app draft is always code-based.
+		// Without this the row overwrites a deployed row that carried the flag.
+		raw_app: true,
 		value,
 		isDraft: true
 	}
@@ -538,6 +541,8 @@ function backendDraftRowToWorkspaceItem(
 		// must not hide the staged rename.
 		draftPath: row.draft_path === displayPath ? undefined : row.draft_path,
 		summary: row.summary,
+		// `raw_app` is the only app kind listed here, so an app row is always code-based.
+		...(type === 'app' ? { raw_app: true } : {}),
 		value: undefined,
 		isDraft: true,
 		triggerKind,
