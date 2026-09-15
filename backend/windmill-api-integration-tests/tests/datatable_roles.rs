@@ -90,6 +90,7 @@ async fn freeing_a_principal_takes_its_datatable_tenant(db: Pool<Postgres>) -> a
     Ok(())
 }
 
+#[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
 async fn a_fork_uses_the_data_table_it_points_at_but_never_administers_it(
     db: Pool<Postgres>,
@@ -168,6 +169,7 @@ async fn a_fork_uses_the_data_table_it_points_at_but_never_administers_it(
     Ok(())
 }
 
+#[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
 async fn a_second_entry_on_the_same_database_is_reported_rather_than_governed(
     db: Pool<Postgres>,
@@ -202,6 +204,7 @@ async fn a_second_entry_on_the_same_database_is_reported_rather_than_governed(
     Ok(())
 }
 
+#[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
 async fn a_resource_backed_data_table_cannot_be_put_under_roles(
     db: Pool<Postgres>,
@@ -282,6 +285,7 @@ async fn a_fork_renaming_its_own_entry_leaves_the_governing_bookkeeping_alone(
     Ok(())
 }
 
+#[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
 async fn a_caller_who_is_not_a_member_of_the_governing_workspace_reaches_nothing(
     db: Pool<Postgres>,
@@ -312,6 +316,7 @@ async fn a_caller_who_is_not_a_member_of_the_governing_workspace_reaches_nothing
     Ok(())
 }
 
+#[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
 async fn a_caller_with_no_identity_reaches_a_permissioned_data_table_not_at_all(
     db: Pool<Postgres>,
@@ -351,6 +356,7 @@ async fn a_caller_with_no_identity_reaches_a_permissioned_data_table_not_at_all(
     Ok(())
 }
 
+#[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
 async fn concurrent_role_creations_both_survive(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -407,6 +413,7 @@ async fn concurrent_role_creations_both_survive(db: Pool<Postgres>) -> anyhow::R
     outcome
 }
 
+#[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
 async fn a_role_delete_that_fails_part_way_leaves_the_role_disabled(
     db: Pool<Postgres>,
@@ -477,6 +484,7 @@ async fn a_role_delete_that_fails_part_way_leaves_the_role_disabled(
     outcome
 }
 
+#[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
 async fn renaming_a_governing_data_table_carries_its_forks(
     db: Pool<Postgres>,
@@ -742,6 +750,7 @@ async fn a_clone_stamp_is_carried_but_its_schema_baseline_advances(
     Ok(())
 }
 
+#[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
 async fn roles_cannot_be_turned_on_while_a_trigger_streams_the_data_table(
     db: Pool<Postgres>,
@@ -818,6 +827,7 @@ async fn roles_cannot_be_turned_on_while_a_trigger_streams_the_data_table(
     Ok(())
 }
 
+#[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
 async fn roles_going_on_wait_for_a_trigger_being_enabled(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -996,5 +1006,123 @@ async fn an_entry_without_roles_cannot_newly_reach_a_database_under_roles(
     .fetch_one(&db)
     .await?;
     assert!(still_governed, "the refused save still took effect");
+    Ok(())
+}
+
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
+const ENTERPRISE_REFUSAL: &str = "Data table roles are a Windmill Enterprise Edition feature";
+
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn every_roles_route_is_an_enterprise_feature(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let api = format!("http://localhost:{}/api", server.addr.port());
+    let dt = format!("{api}/w/test-workspace/workspaces");
+
+    for (method, url, body) in [
+        (
+            reqwest::Method::GET,
+            format!("{api}/settings/datatable_roles"),
+            None,
+        ),
+        (
+            reqwest::Method::POST,
+            format!("{api}/settings/datatable_roles"),
+            Some(json!({ "name": "wmtest_ce" })),
+        ),
+        (
+            reqwest::Method::POST,
+            format!("{api}/settings/datatable_roles/role1"),
+            Some(json!({ "enabled": false })),
+        ),
+        (
+            reqwest::Method::DELETE,
+            format!("{api}/settings/datatable_roles/role1"),
+            None,
+        ),
+        (
+            reqwest::Method::GET,
+            format!("{dt}/datatable_permissions/main"),
+            None,
+        ),
+        (
+            reqwest::Method::POST,
+            format!("{dt}/datatable_permissions/main"),
+            Some(json!({ "permissioned": false })),
+        ),
+        (
+            reqwest::Method::GET,
+            format!("{dt}/datatable_usable_roles/main"),
+            None,
+        ),
+    ] {
+        let mut request = authed(client().request(method.clone(), &url), "SECRET_TOKEN");
+        if let Some(body) = body {
+            request = request.json(&body);
+        }
+        let resp = request.send().await?;
+        let status = resp.status();
+        let text = resp.text().await?;
+        assert!(
+            status == 400 && text.contains(ENTERPRISE_REFUSAL),
+            "{method} {url} answered {status}: {text}"
+        );
+    }
+
+    // Refused, not acted on: the catalog row and the data table's roles are where they were.
+    let untouched: (i64, bool) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM datatable_role),
+                (datatable->'datatables'->'main') ? 'permissions'
+         FROM workspace_settings WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(untouched, (1, true));
+    Ok(())
+}
+
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn without_the_enterprise_edition_a_data_table_under_roles_is_refused_a_connection(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_common::workspaces::{get_datatable_resource_from_db, DatatableAccess};
+    initialize_tracing().await;
+
+    // Saved under roles, as an enterprise build left it: refused whoever asks, never `admin`.
+    for access in [DatatableAccess::Unchecked, DatatableAccess::NoIdentity] {
+        let err = get_datatable_resource_from_db(&db, "test-workspace", "main", None, access)
+            .await
+            .expect_err("a data table under roles resolved");
+        assert!(err.to_string().contains(ENTERPRISE_REFUSAL), "{err}");
+    }
+
+    // Not under roles, it resolves as it always has; naming a role on it is refused.
+    sqlx::query(
+        "UPDATE workspace_settings SET datatable = datatable #- '{datatables,main,permissions}'
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .execute(&db)
+    .await?;
+    let resolved = get_datatable_resource_from_db(
+        &db,
+        "test-workspace",
+        "main",
+        None,
+        DatatableAccess::NoIdentity,
+    )
+    .await?;
+    assert_eq!(resolved["dbname"], "dt_main", "{resolved}");
+    let err = get_datatable_resource_from_db(
+        &db,
+        "test-workspace",
+        "main",
+        Some("analytics"),
+        DatatableAccess::Unchecked,
+    )
+    .await
+    .expect_err("a named role resolved");
+    assert!(err.to_string().contains(ENTERPRISE_REFUSAL), "{err}");
     Ok(())
 }
