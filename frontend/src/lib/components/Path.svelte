@@ -451,14 +451,18 @@
 			initialPath !== path
 	)
 	let pathUsageInFlowsPromise = $derived(
-		(kind == 'script' || kind == 'flow') &&
-			ws &&
-			initialPath &&
-			FlowService.listFlowPathsFromWorkspaceRunnable({
-				workspace: ws,
-				path: initialPath,
-				runnableKind: kind
-			})
+		ws && initialPath
+			? kind == 'script' || kind == 'flow'
+				? FlowService.listFlowPathsFromWorkspaceRunnable({
+						workspace: ws,
+						path: initialPath,
+						runnableKind: kind
+					})
+				: kind == 'resource'
+					? // Only steps linked to a saved agent are tracked; other `$res:` references are not.
+						FlowService.listFlowPathsLinkingAgent({ workspace: ws, path: initialPath })
+					: undefined
+			: undefined
 	)
 	let pathUsageInAppsPromise = $derived(
 		(kind == 'script' || kind == 'flow') &&
@@ -645,26 +649,47 @@
 								</li>
 							{/each}
 						</ul>
+						{#if kind == 'resource'}
+							<p class="pt-2">
+								Other references to this resource by path, such as in scripts, are not listed. Find
+								them with the content search.
+							</p>
+							{@render contentSearchButton()}
+						{/if}
 					</Alert>
 				{/if}
+			{:else if displayPathChangedWarning && kind == 'resource'}
+				{@render renameMayBreakWarning()}
+			{/if}
+		{:catch}
+			{#if displayPathChangedWarning}
+				{@render renameMayBreakWarning()}
 			{/if}
 		{/await}
 	{:else if displayPathChangedWarning}
-		<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
-			You are renaming an item that may be depended upon by other items. This may break apps, flows
-			or resources. Find if it used elsewhere using the content search. Note that linked variables
-			and resources (having the same path) are automatically moved together.
-			<div class="flex pt-2">
-				<Button
-					variant="default"
-					on:click={() => {
-						openSearchWithPrefilledText('#')
-					}}
-					startIcon={{ icon: SearchCode }}
-				>
-					Search
-				</Button>
-			</div>
-		</Alert>
+		{@render renameMayBreakWarning()}
 	{/if}
 </div>
+
+{#snippet contentSearchButton()}
+	<div class="flex pt-2">
+		<Button
+			variant="default"
+			on:click={() => {
+				openSearchWithPrefilledText('#')
+			}}
+			startIcon={{ icon: SearchCode }}
+		>
+			Search
+		</Button>
+	</div>
+{/snippet}
+
+{#snippet renameMayBreakWarning()}
+	<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
+		You are renaming an item that may be depended upon by other items. This may break apps, flows or
+		resources. Find if it used elsewhere using the content search. Note that linked variables and
+		resources (having the same path) are automatically moved together.
+		{@render contentSearchButton()}
+	</Alert>
+{/snippet}

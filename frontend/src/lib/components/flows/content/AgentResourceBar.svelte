@@ -33,7 +33,11 @@
 	} from '../linkedAgentToolsStore.svelte'
 	import { logReusableAgentUsage } from '../agentTelemetry'
 	import { claimLinkedToolsFetch } from '../flowState'
-	import { AgentDraftUnavailable, fetchAgentWithDraft } from '../linkedAgentDrafts'
+	import {
+		AgentDraftUnavailable,
+		fetchAgentWithDraft,
+		isExpectedLinkFailure
+	} from '../linkedAgentDrafts'
 	import type { AgentResourceState } from '../agentDraft.svelte'
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -103,6 +107,28 @@
 		fromDraft: boolean
 		providerPath?: string
 		providerOk: boolean
+		/** Nothing this user can read sits at the link: the agent was renamed or deleted, or is in a
+		 *  folder they cannot see. Returned rather than thrown so it is guarded like any result. */
+		unavailable?: boolean
+	}
+
+	async function fetchLinkedAgent(
+		path: string,
+		ws: string
+	): Promise<{ response: Resource; draft: AgentResourceState | undefined }> {
+		try {
+			return await fetchAgentWithDraft(path, ws)
+		} catch (err) {
+			// Only the DRAFT was unreadable. This card is a display, so fall back to the deployed
+			// agent rather than rendering one with no brain and no tools, which reads as "the agent
+			// is empty" while the Draft badge still says it has unsaved changes. Same fallback the
+			// graph's tool nodes take; the paths that run or deploy the draft still refuse.
+			if (!(err instanceof AgentDraftUnavailable)) throw err
+			return {
+				response: await ResourceService.getResource({ workspace: ws, path }),
+				draft: undefined
+			}
+		}
 	}
 
 	// A linked agent is rigid and read-only: its brain and tools come from the resource. We
@@ -112,29 +138,26 @@
 	let linkedResource = resource(
 		() => ({ ws, path: agent, writes, draftSaves }),
 		async ({ ws, path, writes, draftSaves }): Promise<LinkedInfo> => {
+			const empty = {
+				ws,
+				path,
+				writes,
+				draftSaves,
+				config: {},
+				tools: [],
+				fromDraft: false,
+				providerOk: true
+			}
 			if (!ws || !path) {
-				return {
-					ws,
-					path,
-					writes,
-					draftSaves,
-					config: {},
-					tools: [],
-					fromDraft: false,
-					providerOk: true
-				}
+				return empty
 			}
 			let response: Resource
 			let draft: AgentResourceState | undefined
 			try {
-				;({ response, draft } = await fetchAgentWithDraft(path, ws))
+				;({ response, draft } = await fetchLinkedAgent(path, ws))
 			} catch (err) {
-				// Only the DRAFT was unreadable. This card is a display, so fall back to the deployed
-				// agent rather than rendering one with no brain and no tools, which reads as "the agent
-				// is empty" while the Draft badge still says it has unsaved changes. Same fallback the
-				// graph's tool nodes take; the paths that run or deploy the draft still refuse.
-				if (!(err instanceof AgentDraftUnavailable)) throw err
-				response = await ResourceService.getResource({ workspace: ws, path })
+				if (!isExpectedLinkFailure(err)) throw err
+				return { ...empty, unavailable: true }
 			}
 			const cfg = (draft?.args ?? response.value ?? {}) as AIAgentConfig & {
 				provider?: { resource?: string }
@@ -189,6 +212,7 @@
 	let brainParams = $derived(summarizeAgentBrain(linkedInfo?.config))
 	let providerPath = $derived(linkedInfo?.providerPath)
 	let providerOk = $derived(linkedInfo?.providerOk ?? true)
+	let unavailable = $derived(linkedInfo?.unavailable ?? false)
 	// The hint flips on the first keystroke in the agent editor, so the badge does not wait for the
 	// debounced autosave and the refetch behind it; the fetched answer covers a draft written
 	// elsewhere, which no editor here has published an opinion about.
@@ -468,6 +492,15 @@
 		}
 	}
 
+	// A link naming nothing readable has nothing to fork. Dropping it leaves a standalone step with its
+	// flow-local inputs, to configure here or replace with a saved agent; the tool overrides were
+	// keyed by the missing agent's tools, so they go with it.
+	function removeLink() {
+		toolInputs = {}
+		agent = undefined
+		sendUserToast('Removed the link to the missing agent')
+	}
+
 	// Edit the saved agent itself. The step stays linked throughout: the edits live in the agent's
 	// own resource draft, not in this step, so they survive leaving the flow and are the same edits
 	// whichever flow — or the resources page — opened them.
@@ -534,7 +567,7 @@
 							{/if}
 						</span>
 					{/if}
-					{#if !fromAgentEditor}
+					{#if !fromAgentEditor && !unavailable}
 						<Button
 							unifiedSize="sm"
 							variant="default"
@@ -547,17 +580,19 @@
 							}}
 						/>
 					{/if}
-					<Button
-						unifiedSize="sm"
-						variant="default"
-						startIcon={{ icon: Unlink }}
-						iconOnly
-						title="Unlink (fork an editable copy into just this step)"
-						onclick={(e) => {
-							e.stopPropagation()
-							unlink()
-						}}
-					/>
+					{#if !unavailable}
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							startIcon={{ icon: Unlink }}
+							iconOnly
+							title="Unlink (fork an editable copy into just this step)"
+							onclick={(e) => {
+								e.stopPropagation()
+								unlink()
+							}}
+						/>
+					{/if}
 				</div>
 			</div>
 			{#if showDetail && (brainParams.length > 0 || inheritedTools.length > 0)}
@@ -581,7 +616,25 @@
 				</dl>
 			{/if}
 		</div>
-		{#if !providerOk}
+		{#if unavailable}
+			<div class="mt-1">
+				<Alert type="error" size="xs" title="Agent not found">
+					No saved agent you can read exists at <span class="font-medium">{agent}</span>, so this
+					step fails when it runs. It may have been renamed or deleted. Remove the link to configure
+					the step here, or add the agent again from Saved agents.
+					<div class="flex pt-2">
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							startIcon={{ icon: Unlink }}
+							onclick={removeLink}
+						>
+							Remove link
+						</Button>
+					</div>
+				</Alert>
+			</div>
+		{:else if !providerOk}
 			<div class="mt-1">
 				<Alert type="error" size="xs" title="Model provider not accessible">
 					This agent's model provider{#if providerPath}

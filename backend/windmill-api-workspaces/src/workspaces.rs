@@ -7365,8 +7365,8 @@ async fn clone_workspace_runnable_dependencies(
 ) -> Result<()> {
     // Clone workspace_runnable_dependencies
     sqlx::query!(
-        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id, app_path)
-         SELECT flow_path, runnable_path, script_hash, runnable_is_flow, $1, app_path
+        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, script_hash, runnable_is_flow, runnable_is_agent, workspace_id, app_path)
+         SELECT flow_path, runnable_path, script_hash, runnable_is_flow, runnable_is_agent, $1, app_path
          FROM workspace_runnable_dependencies
          WHERE workspace_id = $2",
         target_workspace_id,
