@@ -85,6 +85,32 @@ function freshUser() {
 	return asUser(`u${n++}@x.com`)
 }
 
+// The Web Locks API, which the node test environment lacks: `holders` counts the shared holds
+// on each name across tabs, against which an exclusive request made if available is not granted.
+function installLocks(holders: Map<string, number>): void {
+	if (typeof navigator === 'undefined') {
+		Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true })
+	}
+	Object.defineProperty(navigator, 'locks', {
+		value: {
+			request: async (name: string, ...rest: unknown[]) => {
+				const run = rest[rest.length - 1] as (lock: unknown) => Promise<unknown>
+				const options = (rest.length > 1 ? rest[0] : {}) as LockOptions
+				if (options.mode === 'shared') {
+					holders.set(name, (holders.get(name) ?? 0) + 1)
+					try {
+						return await run({})
+					} finally {
+						holders.set(name, (holders.get(name) ?? 1) - 1)
+					}
+				}
+				return run(options.ifAvailable && (holders.get(name) ?? 0) > 0 ? null : {})
+			}
+		},
+		configurable: true
+	})
+}
+
 // Hydration is fire-and-forget off the user store, so it can land after the test body
 // has populated sessionState.sessions and overwrite it with what the DB held at read
 // time; `hydrated` flips once the read has been applied. The logout is load-bearing:
@@ -699,30 +725,9 @@ describe('sessionState IndexedDB persistence', () => {
 			] as never
 		})
 		await login(user)
-		// The sweep runs only where Web Locks exist; `holders` counts the shared holds on each
-		// name across tabs, against which an exclusive request made if available is not granted.
+		// The sweep runs only where Web Locks exist.
 		const holders = new Map<string, number>()
-		if (typeof navigator === 'undefined') {
-			Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true })
-		}
-		Object.defineProperty(navigator, 'locks', {
-			value: {
-				request: async (name: string, ...rest: unknown[]) => {
-					const run = rest[rest.length - 1] as (lock: unknown) => Promise<unknown>
-					const options = (rest.length > 1 ? rest[0] : {}) as LockOptions
-					if (options.mode === 'shared') {
-						holders.set(name, (holders.get(name) ?? 0) + 1)
-						try {
-							return await run({})
-						} finally {
-							holders.set(name, (holders.get(name) ?? 1) - 1)
-						}
-					}
-					return run(options.ifAvailable && (holders.get(name) ?? 0) > 0 ? null : {})
-				}
-			},
-			configurable: true
-		})
+		installLocks(holders)
 		const inUse = `wm-ai-sessions-mirror::${user.email}::in-use`
 		const day = 24 * 60 * 60 * 1000
 		const old = Date.now() - 31 * day
@@ -801,6 +806,47 @@ describe('sessionState IndexedDB persistence', () => {
 		await vi.waitFor(() => expect(pending('stale')).toBeNull())
 		expect(chatDeletions('stale')).toHaveLength(2)
 		holders.clear()
+	})
+
+	it('keeps the new user hold when a sweep of the previous user ends after a switch', async () => {
+		const holders = new Map<string, number>()
+		installLocks(holders)
+		const [userA, userB] = [freshUser(), freshUser()]
+		const inUse = (u: UserExt) => `wm-ai-sessions-mirror::${u.email}::in-use`
+		usersWorkspaceStore.set({
+			email: userA.email,
+			workspaces: [{ id: 'kept-ws', name: 'kept', disabled: false }] as never
+		})
+		await login(userA)
+		expect(holders.get(inUse(userA))).toBe(1)
+		const old = Date.now() - 31 * 24 * 60 * 60 * 1000
+		await putSession(
+			session({ id: 'switch-stale', createdAt: old, lastActivityAt: old, workspace_id: 'kept-ws' })
+		)
+
+		// The sweep of user A pauses while deleting the chats, having let go of A's hold.
+		let resume: (() => void) | undefined
+		deleteSessionChatsMock.mockImplementationOnce(
+			() => new Promise<boolean>((resolve) => (resume = () => resolve(true)))
+		)
+		vi.mocked(WorkspaceService.getSessionWorkspaceStatus).mockResolvedValueOnce({
+			'kept-ws': { status: 'active', sessions_retention_days: 30 }
+		} as never)
+		await reconcileSessionsLifecycle()
+		await vi.waitFor(() => expect(resume).toBeDefined())
+
+		userStore.set(userB)
+		await vi.waitFor(() => expect(holders.get(inUse(userB))).toBe(1))
+		resume!()
+		await vi.waitFor(() =>
+			expect(
+				localStorage.getItem(`windmill_sessions_retention_pending::${userA.email}::switch-stale`)
+			).toBeNull()
+		)
+		await new Promise((r) => setTimeout(r, 200))
+		expect(holders.get(inUse(userA)) ?? 0).toBe(0)
+		expect(holders.get(inUse(userB))).toBe(1)
+		Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true })
 	})
 
 	it('clears the in-memory list on logout', async () => {

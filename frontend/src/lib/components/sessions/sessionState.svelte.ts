@@ -24,7 +24,7 @@ import { workspaceRootId } from './sessionScope.svelte'
 import { clearSessionRecovered } from './sessionRecoveryNotice.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
-import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
+import { emailOfScopedKey, getCurrentUserEmail, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
 import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
@@ -806,48 +806,57 @@ function isSweepable(s: Session, retention: Map<string, number>, now: number): b
 	)
 }
 
-// Deletes this browser's copies of the sessions past their workspace's retention, only while
-// no other tab of the user has the sessions loaded: having let go of this tab's own hold, it
-// takes the in-use lock exclusively if available, so no other tab keeps in memory what it
-// deletes, and a tab loading meanwhile reads the stores once it is done. Within, it holds the
-// tab lock the backup's flush and restore take: a flush planning a session half deleted would
-// push the deletions to the backup, and a restore could stage pieces the sweep then deletes.
-// Where Web Locks do not exist (a plain http origin) it does not run, as the restore does
-// not. Each record is deleted in the transaction that reads it still past the retention, so
-// activity in this tab since the reconcile read keeps the session. The record goes before its
-// pieces, so no flush plans the session once the lock is released; a pending key written
-// before it and removed once every piece is gone makes a later sweep finish a deletion that
-// failed, unless a restore brought the session back since. Nothing is sent to the backup; its
-// state in this browser goes (`sessionSwept`).
+// Deletes this browser's copies of the sessions past their workspace's retention. It first
+// takes the tab lock the backup's flush and restore take, which one tab holds at a time: a
+// flush planning a session half deleted would push the deletions to the backup, a restore
+// could stage pieces the sweep then deletes, and only the tab holding it ever lets go of its
+// in-use hold. Holding it, the sweep finishes the deletions a failed one left, whose records
+// are gone already, then lets go of this tab's hold and takes the in-use lock exclusively if
+// available: granted only while no other tab has the sessions loaded, and held only for the
+// deletions, so a tab loading meanwhile waits for those alone. Where Web Locks do not exist
+// (a plain http origin) it does not run, as the restore does not. Each record is deleted in
+// the transaction that reads it still past the retention, so activity in this tab since the
+// reconcile read keeps the session. The record goes before its pieces, so no flush plans the
+// session once the lock is released; a pending key written before it and removed once every
+// piece is gone makes a later sweep finish a deletion that failed, unless a restore brought
+// the session back since. Nothing is sent to the backup; its state in this browser goes
+// (`sessionSwept`).
 async function sweepExpiredSessions(retention: Map<string, number>, email: string): Promise<void> {
 	const locks = webLocks()
 	if (!locks) return
-	const holding = inUse?.email === email
 	try {
-		if (holding) await releaseSessionsInUse()
-		await locks.request(sessionsInUseLockName(email), { ifAvailable: true }, async (lock) => {
-			if (!lock) return
-			await locks.request(sessionsLockName(email), async () => {
-				const db = await sessionsDb.whenReady()
-				if (!db || db.name !== scopedKeyFor(SESSIONS_DB, email)) return
-				for (const id of retentionPending(email)) {
-					const restored = (await db.getKey('sessions', id)) !== undefined
-					if (restored || (await deleteSessionPieces(id, email))) {
-						forgetRetentionPending(email, id)
+		await locks.request(sessionsLockName(email), async () => {
+			const db = await sessionsDb.whenReady()
+			if (!db || db.name !== scopedKeyFor(SESSIONS_DB, email)) return
+			for (const id of retentionPending(email)) {
+				const restored = (await db.getKey('sessions', id)) !== undefined
+				if (restored || (await deleteSessionPieces(id, email))) {
+					forgetRetentionPending(email, id)
+				}
+			}
+			if (retention.size === 0) return
+			const holding = inUse?.email === email
+			if (holding) await releaseSessionsInUse()
+			try {
+				await locks.request(sessionsInUseLockName(email), { ifAvailable: true }, async (lock) => {
+					if (!lock) return
+					let swept = false
+					for (const s of await db.getAll('sessions')) {
+						if (!isSweepable(s, retention, Date.now())) continue
+						swept = (await sweepSession(db, s.id, retention, email)) || swept
 					}
+					if (swept) await hydrateSessions()
+				})
+			} finally {
+				// Taken back only for the user it was let go of for: after an account switch the
+				// new user's hold, taken meanwhile, is the one this tab needs.
+				if (holding && inUse === undefined && getCurrentUserEmail() === email) {
+					await holdSessionsInUse(email)
 				}
-				let swept = false
-				for (const s of await db.getAll('sessions')) {
-					if (!isSweepable(s, retention, Date.now())) continue
-					swept = (await sweepSession(db, s.id, retention, email)) || swept
-				}
-				if (swept) await hydrateSessions()
-			})
+			}
 		})
 	} catch (e) {
 		console.error('Failed to sweep the sessions past their retention', e)
-	} finally {
-		if (holding) await holdSessionsInUse(email)
 	}
 }
 

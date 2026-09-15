@@ -1488,6 +1488,20 @@ async fn test_backups_fall_back_to_the_instance_storage(db: Pool<Postgres>) -> a
         .unwrap_or_else(|| panic!("no fallback usage in {usage}"));
     assert!(fallback_usage["bytes"].as_i64().unwrap() > 0);
 
+    // The retention sweep reaches what the instance store keeps for the workspace, choosing
+    // that store from the row it reads the generation from.
+    let instance_user = user_root(instance_dir.path(), "test@windmill.dev");
+    age_object(&instance_user.join("index/s1/0"), 40)?;
+    sqlx::query(
+        "UPDATE workspace_settings SET ai_config = '{\"sessions_retention_days\": 30}' \
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .execute(&db)
+    .await?;
+    windmill_api::sweep_expired_ai_session_backups(&db).await;
+    assert!(!instance_user.join("index/s1/0").exists());
+    assert!(!instance_user.join("sessions/s1/head.json").exists());
+
     // A key rotation sweeps the older generation out of the instance store too.
     rotate(&base, &"c".repeat(64)).await?;
     wait_until_empty(&in_instance, "a rotation on the instance store").await;

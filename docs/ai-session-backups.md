@@ -267,7 +267,9 @@ writes to the session again (its incremental push is refused and goes whole):
   most 1000 sessions per workspace and pass; the rest wait for the next. `list` leaves an
   expired marker out of its answer meanwhile, so a browser never restores a session the
   sweep has not reached. The marker's modification time is the storage's clock and the
-  cutoff the server's.
+  cutoff the server's. The sweep reaches only the backups the routes would: a deleted
+  workspace's stay in its storage, and so do those a workspace keeps in the instance store
+  once `ai_sessions_instance_storage_fallback` is set to false.
 - The browser sweeps its own stores after every reconcile (`reconcileSessionsLifecycle`: at
   load, after a workspace change, and when the setting is saved from this page), which
   learns every referenced workspace's retention from the status answer. A session whose last
@@ -278,13 +280,16 @@ writes to the session again (its incremental push is refused and goes whole):
   the storage's never deletes a session it just brought back. Archived sessions count like
   any other, and persisted unsent drafts by their pending workspace. The sweep runs under the
   tab lock the flush and the restore take, so neither plans or stages a session half deleted,
-  and so only where Web Locks exist, as the restore. The stores are shared by the user's tabs
-  while each keeps copies of the sessions in memory, so every tab holds a shared Web Lock while
-  it has the sessions loaded, taken before it reads them, and the sweep runs only while holding
-  that lock exclusively, requested if available once its own tab let go of its hold: never
-  while another tab of the user is open, and a tab loading meanwhile reads the stores only once
-  it is done. With several tabs open, sessions are swept once one of them is the only tab left
-  and reconciles. Each record is deleted in the transaction that reads it still expired, so
+  and so only where Web Locks exist, as the restore. One tab holds that lock at a time, so
+  only one tab sweeps. The stores are shared by the user's tabs while each keeps copies of the
+  sessions in memory, so every tab holds a shared Web Lock while it has the sessions loaded,
+  taken before it reads them. Holding the tab lock, the sweep lets go of its own tab's hold
+  and deletes only while holding that lock exclusively, requested if available: never while
+  another tab of the user is open, and a tab loading meanwhile waits for the deletions alone,
+  never for a restore. Deletions a failed sweep left are finished under the tab lock without
+  letting go of the hold, their records being gone. With several tabs open, sessions are
+  swept once one of them is the only tab left and reconciles. Each record is deleted in the
+  transaction that reads it still expired, so
   activity since the reconcile read keeps the session. The record goes before its pieces,
   and a localStorage key written before it and removed once every piece is gone makes a later
   reconcile finish a deletion that failed, whether a retention is still set or not, unless a
