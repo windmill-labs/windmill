@@ -102,14 +102,11 @@ pub fn validate_role_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// SAFETY: every caller must have run [`validate_role_name`] first — the charset it enforces is
-/// what makes this quoting sufficient.
-fn quote_ident(name: &str) -> String {
+/// A double-quoted Postgres identifier. Doubling `"` is Postgres's own escaping inside one, so this
+/// quotes any name — schema, table or role. Role names are validated as well
+/// ([`validate_role_name`]) because they also travel unquoted, in `-- role <name>` and `?role=`.
+pub fn quote_ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
-}
-
-fn quote_literal(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
 }
 
 /// Serialize the mutations that are not already serialized by the row itself.
@@ -149,18 +146,7 @@ pub async fn lock_datatable_streams(conn: &mut sqlx::PgConnection, exclusive: bo
 /// or an export. Nothing about who may call it: the credential is the whole risk, and `Debug` is
 /// hand-written to redact it for the same reason.
 pub async fn read_role_catalog(db: &DB) -> Result<DatatableRoleCatalog> {
-    let rows = sqlx::query!("SELECT id, name, enabled, pwd FROM datatable_role")
-        .fetch_all(db)
-        .await?;
-    Ok(rows
-        .into_iter()
-        .map(|r| {
-            (
-                r.id,
-                InstanceDatatableRole { name: r.name, enabled: r.enabled, pwd: r.pwd },
-            )
-        })
-        .collect())
+    crate::datatable_roles_oss::read_role_catalog(db).await
 }
 
 /// As [`read_role_catalog`], reading inside the caller's transaction so the value is the one
@@ -168,18 +154,7 @@ pub async fn read_role_catalog(db: &DB) -> Result<DatatableRoleCatalog> {
 pub async fn read_role_catalog_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<DatatableRoleCatalog> {
-    let rows = sqlx::query!("SELECT id, name, enabled, pwd FROM datatable_role")
-        .fetch_all(&mut **tx)
-        .await?;
-    Ok(rows
-        .into_iter()
-        .map(|r| {
-            (
-                r.id,
-                InstanceDatatableRole { name: r.name, enabled: r.enabled, pwd: r.pwd },
-            )
-        })
-        .collect())
+    crate::datatable_roles_oss::read_role_catalog_tx(tx).await
 }
 
 /// Record a role, in the caller's transaction so it commits with the `CREATE ROLE` it describes.
@@ -191,16 +166,7 @@ pub async fn insert_role_catalog_entry(
     id: &str,
     role: &InstanceDatatableRole,
 ) -> Result<()> {
-    sqlx::query!(
-        "INSERT INTO datatable_role (id, name, enabled, pwd) VALUES ($1, $2, $3, $4)",
-        id,
-        role.name,
-        role.enabled,
-        role.pwd,
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
+    crate::datatable_roles_oss::insert_role_catalog_entry(tx, id, role).await
 }
 
 /// Update a role's recorded name, login flag and password. Same contract as
@@ -210,16 +176,7 @@ pub async fn update_role_catalog_entry(
     id: &str,
     role: &InstanceDatatableRole,
 ) -> Result<()> {
-    sqlx::query!(
-        "UPDATE datatable_role SET name = $2, enabled = $3, pwd = $4 WHERE id = $1",
-        id,
-        role.name,
-        role.enabled,
-        role.pwd,
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
+    crate::datatable_roles_oss::update_role_catalog_entry(tx, id, role).await
 }
 
 /// Forget a role. Same contract as [`insert_role_catalog_entry`]; run it in the transaction that
@@ -228,10 +185,7 @@ pub async fn delete_role_catalog_entry(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     id: &str,
 ) -> Result<()> {
-    sqlx::query!("DELETE FROM datatable_role WHERE id = $1", id)
-        .execute(&mut **tx)
-        .await?;
-    Ok(())
+    crate::datatable_roles_oss::delete_role_catalog_entry(tx, id).await
 }
 
 /// Resolve the role a caller named to its catalog id. A disabled role is an error rather than a
@@ -261,13 +215,7 @@ pub fn role_id_by_name<'a>(catalog: &'a DatatableRoleCatalog, name: &str) -> Res
 /// Every instance database the registry knows about. Role provisioning has to reach all of them:
 /// a role that cannot `CONNECT` to a database is refused by Postgres before any grant matters.
 pub async fn registered_instance_databases(db: &DB) -> Result<Vec<String>> {
-    let names = sqlx::query_scalar!(
-        "SELECT jsonb_object_keys(value->'databases') FROM global_settings
-         WHERE name = 'custom_instance_pg_databases'"
-    )
-    .fetch_all(db)
-    .await?;
-    Ok(names.into_iter().flatten().collect())
+    crate::datatable_roles_oss::registered_instance_databases(db).await
 }
 
 /// `CONNECT` on `dbname` for every enabled role, and none for `PUBLIC`. Run at role creation, at
@@ -278,8 +226,7 @@ pub async fn registered_instance_databases(db: &DB) -> Result<Vec<String>> {
 /// Callers MUST have authorized administration of `dbname` — superadmin, or an admin of the
 /// workspace governing a data table on it.
 pub async fn converge_connect_grants(db: &DB, dbname: &str) -> Result<()> {
-    let catalog = read_role_catalog(db).await?;
-    converge_connect_grants_with(db, dbname, &catalog).await
+    crate::datatable_roles_oss::converge_connect_grants(db, dbname).await
 }
 
 /// As [`converge_connect_grants`], with a catalog the caller already read. Same contract.
@@ -288,18 +235,7 @@ pub async fn converge_connect_grants_with(
     dbname: &str,
     catalog: &DatatableRoleCatalog,
 ) -> Result<()> {
-    crate::validate_dbname(dbname)?;
-    let quoted_db = quote_ident(dbname);
-    let mut sql = format!("REVOKE CONNECT ON DATABASE {quoted_db} FROM PUBLIC;\n");
-    for role in catalog.values().filter(|r| r.enabled) {
-        validate_role_name(&role.name)?;
-        sql.push_str(&format!(
-            "GRANT CONNECT ON DATABASE {quoted_db} TO {};\n",
-            quote_ident(&role.name)
-        ));
-    }
-    sqlx::raw_sql(&sql).execute(db).await?;
-    Ok(())
+    crate::datatable_roles_oss::converge_connect_grants_with(db, dbname, catalog).await
 }
 
 /// `CREATE ROLE <name> LOGIN PASSWORD ...; GRANT <name> TO custom_instance_user`, and `CONNECT` on
@@ -313,36 +249,7 @@ pub async fn create_instance_role(
     name: &str,
     password: &str,
 ) -> Result<()> {
-    validate_role_name(name)?;
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)",
-        name
-    )
-    .fetch_one(&mut **tx)
-    .await?
-    .unwrap_or(false);
-    if exists {
-        return Err(Error::BadRequest(format!(
-            "A Postgres role named '{name}' already exists on this cluster"
-        )));
-    }
-    let quoted = quote_ident(name);
-    // One statement per call rather than a batch: `raw_sql` takes the simple protocol, which is
-    // only needed for genuinely multi-statement SQL, and its future is not `Send` — which an axum
-    // handler holding this transaction requires.
-    sqlx::query(&format!(
-        "CREATE ROLE {quoted} LOGIN PASSWORD {}",
-        quote_literal(password)
-    ))
-    .execute(&mut **tx)
-    .await?;
-    sqlx::query(&format!(
-        "GRANT {quoted} TO {}",
-        quote_ident(CUSTOM_INSTANCE_USER)
-    ))
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
+    crate::datatable_roles_oss::create_instance_role(tx, name, password).await
 }
 
 /// Authorization: alters a cluster-wide Postgres login. Callers MUST restrict this to superadmin
@@ -352,15 +259,7 @@ pub async fn set_instance_role_login(
     name: &str,
     enabled: bool,
 ) -> Result<()> {
-    validate_role_name(name)?;
-    sqlx::query(&format!(
-        "ALTER ROLE {} {}",
-        quote_ident(name),
-        if enabled { "LOGIN" } else { "NOLOGIN" }
-    ))
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
+    crate::datatable_roles_oss::set_instance_role_login(tx, name, enabled).await
 }
 
 /// A rename discards an md5-hashed password, so the caller has to hand over a fresh one.
@@ -373,35 +272,7 @@ pub async fn rename_instance_role(
     to: &str,
     password: &str,
 ) -> Result<()> {
-    validate_role_name(from)?;
-    validate_role_name(to)?;
-    let taken = sqlx::query_scalar!(
-        "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)",
-        to
-    )
-    .fetch_one(&mut **tx)
-    .await?
-    .unwrap_or(false);
-    if taken {
-        return Err(Error::BadRequest(format!(
-            "A Postgres role named '{to}' already exists on this cluster"
-        )));
-    }
-    sqlx::query(&format!(
-        "ALTER ROLE {} RENAME TO {}",
-        quote_ident(from),
-        quote_ident(to)
-    ))
-    .execute(&mut **tx)
-    .await?;
-    sqlx::query(&format!(
-        "ALTER ROLE {} PASSWORD {}",
-        quote_ident(to),
-        quote_literal(password)
-    ))
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
+    crate::datatable_roles_oss::rename_instance_role(tx, from, to, password).await
 }
 
 /// A role owning anything in any database blocks its own `DROP ROLE`, and both its objects and the
@@ -427,47 +298,7 @@ pub async fn drop_instance_role(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     name: &str,
 ) -> Result<()> {
-    validate_role_name(name)?;
-    let quoted = quote_ident(name);
-    let reassign = format!(
-        "REASSIGN OWNED BY {quoted} TO {};\nDROP OWNED BY {quoted};",
-        quote_ident(CUSTOM_INSTANCE_USER)
-    );
-
-    let base = crate::PgDatabase::parse_uri(&crate::get_database_url().await?.as_str().await)?;
-    for dbname in registered_instance_databases(db).await? {
-        let creds = crate::PgDatabase { dbname: dbname.clone(), ..base.clone() };
-        let (client, connection) = creds.connect(Some(db)).await.map_err(|e| {
-            Error::BadRequest(format!(
-                "Cannot delete role '{name}': instance database '{dbname}' is unreachable ({e}). \
-                 Objects it owns there would be orphaned."
-            ))
-        })?;
-        let join_handle = tokio::spawn(async move { connection.await });
-        let result = client.batch_execute(&reassign).await;
-        drop(client);
-        crate::shutdown_pg_connection(join_handle).await?;
-        result.map_err(|e| {
-            Error::internal_err(format!(
-                "Reassigning what role '{name}' owns in '{dbname}': {}",
-                crate::error::pg_error_message(&e)
-            ))
-        })?;
-    }
-
-    sqlx::query(&format!(
-        "REASSIGN OWNED BY {quoted} TO {}",
-        quote_ident(CUSTOM_INSTANCE_USER)
-    ))
-    .execute(&mut **tx)
-    .await?;
-    sqlx::query(&format!("DROP OWNED BY {quoted}"))
-        .execute(&mut **tx)
-        .await?;
-    sqlx::query(&format!("DROP ROLE {quoted}"))
-        .execute(&mut **tx)
-        .await?;
-    Ok(())
+    crate::datatable_roles_oss::drop_instance_role(db, tx, name).await
 }
 
 #[cfg(test)]

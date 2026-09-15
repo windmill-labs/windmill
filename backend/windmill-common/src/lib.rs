@@ -38,6 +38,9 @@ pub mod cache;
 pub mod client;
 pub mod data_metrics;
 pub mod datatable_roles;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+mod datatable_roles_ee;
+pub mod datatable_roles_oss;
 pub mod db;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_entra_ee;
@@ -1504,7 +1507,7 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
 /// and it is the one that hands privileges to data table roles. Postgres refuses to let a role pass
 /// on a privilege it does not itself hold with grant option, so without these an admin could own
 /// the database and still be unable to grant `SELECT` on it to `analytics`.
-fn instance_db_grants(dbname: &str) -> String {
+pub(crate) fn instance_db_grants(dbname: &str) -> String {
     format!(
         "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user WITH GRANT OPTION;
          GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user WITH GRANT OPTION;
@@ -1526,23 +1529,11 @@ fn instance_db_grants(dbname: &str) -> String {
 /// Authorization: reaches an instance database with the server's own credentials and checks
 /// nothing. Callers MUST have authorized administration of `dbname` — superadmin, or an admin of
 /// the workspace governing a data table on it.
-pub async fn ensure_instance_db_grant_options_unchecked(db: &DB, dbname: &str) -> error::Result<()> {
-    let dbname = dbname.trim();
-    validate_dbname(dbname)?;
-    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
-    let creds = PgDatabase { dbname: dbname.to_string(), ..wmill_pg_creds };
-    let (client, connection) = creds.connect(Some(db)).await?;
-    let join_handle = tokio::spawn(async move { connection.await });
-    let result = client.batch_execute(&instance_db_grants(dbname)).await;
-    drop(client);
-    shutdown_pg_connection(join_handle).await?;
-    result.map_err(|e| {
-        error::Error::internal_err(format!(
-            "Failed to grant permissions on '{}': {}",
-            dbname,
-            crate::error::pg_error_message(&e)
-        ))
-    })
+pub async fn ensure_instance_db_grant_options_unchecked(
+    db: &DB,
+    dbname: &str,
+) -> error::Result<()> {
+    crate::datatable_roles_oss::ensure_instance_db_grant_options_unchecked(db, dbname).await
 }
 
 /// Create a custom instance database: CREATE DATABASE, grant permissions, register in global_settings.
