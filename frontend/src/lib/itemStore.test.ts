@@ -90,8 +90,16 @@ function fakeRows() {
 			handed(key.path)
 		},
 		rowMark: (key) => sends.get(key.path) ?? 0,
-		pending: (key) => (parked.has(key.path) ? parked.get(key.path) : undefined),
-		unbased: (key) => parked.has(key.path) && !baselines.has(key.path),
+		// `pendingSaveOpts` holds the latest payload from the moment it is handed over, so a row
+		// still in the debouncer counts as waiting just as much as one the server refused.
+		pending: (key) =>
+			queued.has(key.path)
+				? queued.get(key.path)
+				: parked.has(key.path)
+					? parked.get(key.path)
+					: undefined,
+		unbased: (key) =>
+			(queued.has(key.path) || parked.has(key.path)) && !baselines.has(key.path),
 		markConflict: (key) => void conflicts.add(key.path),
 		seedSync: (key, at, since) => {
 			// The syncer refuses a baseline from a read a row handed over since has passed.
@@ -109,7 +117,10 @@ function fakeRows() {
 		failure: (key) => failures.get(key.path),
 		dropPending: (key) => {
 			dropped.push(key.path)
+			// Cancels the debounce as well as forgetting the refused payload: both live in
+			// `pendingSaveOpts`, and leaving the queued one would resurrect what was dropped.
 			parked.delete(key.path)
+			queued.delete(key.path)
 		},
 		hint: (key, on) => void hints.set(key.path, on)
 	}
@@ -1827,6 +1838,58 @@ describe('item store: conflicts', () => {
 		expect(open.status).toBe('conflicted')
 		expect(open.value?.description).toBe('mine')
 		expect(open.deployed).toEqual({ ...b, args: { a: 2 } })
+	})
+
+	it('does not fold a secret it fetched over a value written since', async () => {
+		type Var = { path: string; value: string; is_secret: boolean }
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const decrypting = deferred<(side: Var) => void>()
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'variable', path: 'u/me/v' },
+			{ workspace: 'w', path: 'u/me/v' },
+			{
+				load: async () => ({
+					deployed: { path: 'u/me/v', value: '$encrypted:xx', is_secret: true }
+				})
+			} as ItemAdapter<Var>
+		)
+		await settle()
+
+		const learning = item.learn(() => decrypting.promise)
+		await settle()
+		// The chat writes a newer secret while the decryption request is out.
+		item.applyExternal({ path: 'u/me/v', value: 'the new secret', is_secret: true })
+		decrypting.resolve((side) => void (side.value = 'the old secret'))
+
+		expect(await learning).toEqual({ ok: true })
+		// What it decrypted is the deployed secret from before that write. Folding it into the
+		// value would put the old one back on screen and autosave it over the new one.
+		expect(item.value?.value).toBe('the new secret')
+		expect(item.deployed?.value).toBe('the old secret')
+	})
+
+	it('keeps a row that landed while its reopening read was in flight', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const mine = { ...deployedRes, description: 'queued, not yet sent' }
+		const a = adapter(() => read.promise)
+		// A first autosave is queued and unsent, so the key has no baseline yet.
+		rows.port.write(key, mine)
+		const acq = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+		// Its debounce fires and lands while the reopening GET is still out.
+		await rows.port.flush(key)
+		// The GET predates that, so it reports no draft at all.
+		read.resolve({ deployed: deployedRes })
+		await settle()
+
+		// Answering with the deployed value would hide the draft that just landed and reseed the
+		// baseline its own save had set. What was waiting when the read went out is what stands.
+		expect(acq.handle.value).toEqual(mine)
+		expect(rows.seeds).toEqual([])
 	})
 
 	it('does not replay a first failed autosave over a draft created since', async () => {

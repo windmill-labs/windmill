@@ -6608,8 +6608,10 @@ async function discardLocalDraft(
 	const discarded = await deleteGlobalDraft(workspace, type, path, triggerKind)
 
 	// The chat's touch on the item is undone — drop it from the mask so a
-	// pre-existing deployed item doesn't keep reading as this chat's edit.
-	const discardedKind = itemKindFor(type, triggerKind)
+	// pre-existing deployed item doesn't keep reading as this chat's edit. Only when the draft
+	// actually went: one an editor kept is still this chat's edit, and dropping it would leave it
+	// out of Compare & Deploy.
+	const discardedKind = discarded.removed ? itemKindFor(type, triggerKind) : undefined
 	if (discardedKind) {
 		toolCallbacks.onItemDiscarded?.(
 			discardedKind,

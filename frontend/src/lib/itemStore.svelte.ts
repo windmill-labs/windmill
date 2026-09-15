@@ -412,6 +412,7 @@ class Entry<V> {
 			let rowsAtRead = 0
 			let valuesAtRead = 0
 			let unbasedPending = false
+			let waitingBefore: unknown | undefined
 			let res: ItemLoad<V>
 			try {
 				if (this.retired) return superseded
@@ -431,6 +432,11 @@ class Entry<V> {
 				// above already has its row on this side of the count, and crediting it again
 				// would pay for a row that arrives later and belongs to nobody here.
 				valuesAtRead = this.values
+				// Taken before the read, not after: a row waiting here may land while the read is
+				// out, and then the response predates it while `pending` has gone quiet. Read
+				// afterwards, this entry would answer with the older value and reseed over the
+				// baseline that row's own save had just set.
+				waitingBefore = this.ports.pending(key)
 				res = await adapter.load(key)
 			} catch (e) {
 				this.error = errorMessage(e)
@@ -466,7 +472,7 @@ class Entry<V> {
 			// A row the syncer took but could not send is newer than this response and is the only
 			// copy of that edit, so the item opens on it. One the server *refused* is the other
 			// way round — the response is what won — and `adoptRow` drops it below.
-			const unsent = this.ports.conflicted(key) ? undefined : this.ports.pending(key)
+			const unsent = this.ports.conflicted(key) ? undefined : waitingBefore
 			// A parked delete is what this tab wants gone, not what is there: the row is still the
 			// server's, so the reconcile at the end re-issues the delete instead of believing it
 			// landed and leaving the draft behind with nothing to remove it.
@@ -837,7 +843,7 @@ class Entry<V> {
 	/** Fetch something about the deployed item the load did not carry (a secret's plaintext),
 	 *  and write it into both sides. */
 	learn(fetch: (key: ItemKey) => Promise<(side: V) => void>): Promise<CommandOutcome> {
-		return this.run(async () => {
+		return this.run(async (at) => {
 			let apply: (side: V) => void
 			try {
 				apply = await fetch(this.key)
@@ -849,7 +855,12 @@ class Entry<V> {
 				apply(d)
 				this.serverDeployed = d
 			}
-			if (this.value !== undefined) {
+			// What it learned is about the deployed item, so that side takes it either way. The
+			// value is the user's, and anything written there while the fetch was out is newer
+			// than this: folding a decrypted secret from before into it would put the old one
+			// back and autosave it.
+			const moved = this.edits !== at.edits || this.externals !== at.externals
+			if (this.value !== undefined && !moved) {
 				const v = snapshot(this.value)
 				apply(v)
 				this.replaceValue(v)
