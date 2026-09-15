@@ -2284,6 +2284,18 @@ export async function step<T>(
   return jsonRoundTrip(await fn());
 }
 
+// A stable identity for a task's code, what its cached result is keyed on: a
+// name is shared by any two tasks called the same, and a step key by any two
+// tasks called at the same position, so neither can tell them apart.
+function fnFingerprint(fn: Function): string {
+  const src = fn.toString();
+  let h = 0xcbf29ce484222325n;
+  for (let i = 0; i < src.length; i++) {
+    h = ((h ^ BigInt(src.charCodeAt(i))) * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  return h.toString(16);
+}
+
 /**
  * Wrap an async function as a workflow task.
  *
@@ -2300,18 +2312,6 @@ export async function step<T>(
  * decoded back before the caller sees it: a `Date` comes back as a string, a
  * `Map` as `{}`. {@link JsonifiedFn} is that shape.
  */
-/** A stable identity for a task's code, what its cached result is keyed on: a
- *  name is shared by any two tasks called the same, and a step key by any two
- *  tasks called at the same position, so neither can tell them apart. */
-function fnFingerprint(fn: Function): string {
-  const src = fn.toString();
-  let h = 0xcbf29ce484222325n;
-  for (let i = 0; i < src.length; i++) {
-    h = ((h ^ BigInt(src.charCodeAt(i))) * 0x100000001b3n) & 0xffffffffffffffffn;
-  }
-  return h.toString(16);
-}
-
 export function task<T extends (...args: any[]) => Promise<any>>(
   fnOrPath: T | string,
   maybeFnOrOptions?: T | TaskOptions,
