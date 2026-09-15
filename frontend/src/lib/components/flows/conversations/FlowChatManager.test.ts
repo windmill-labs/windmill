@@ -18,10 +18,12 @@ vi.mock('$lib/stores', () => ({
 }))
 
 /** Each `streamJob` the turn opens, and the updates the next one answers with. */
-const { streamCalls, streamScript } = vi.hoisted(() => ({
+const { streamCalls, streamScript, jobCompleted } = vi.hoisted(() => ({
 	streamCalls: [] as { jobId: string; streamOffset: number | undefined }[],
 	/** Per opened stream: the updates it answers with, or 'throw' to fail the request. */
-	streamScript: [] as (unknown[] | 'throw')[]
+	streamScript: [] as (unknown[] | 'throw')[],
+	/** What the job says when a turn that lost its stream asks whether the run is over. */
+	jobCompleted: { value: true }
 }))
 
 // Only the transport is faked. `followJob` — which owns the re-attach, the offset and the
@@ -34,6 +36,9 @@ vi.mock('windmill-chat', async (importOriginal) => {
 			const next = streamScript.shift()
 			if (next === 'throw') throw new Error('stream request failed')
 			for (const update of next ?? []) yield update
+		}
+		async getCompletedResult() {
+			return { completed: jobCompleted.value, success: true, result: {} }
 		}
 	}
 	return { ...actual, WindmillChatApi: FakeApi }
@@ -161,6 +166,7 @@ describe('an SSE timeout re-attaches instead of re-running', () => {
 	beforeEach(() => {
 		streamCalls.length = 0
 		streamScript.length = 0
+		jobCompleted.value = true
 		vi.mocked(FlowConversationsService.listConversationMessages).mockResolvedValue([] as any)
 		// `test-setup.ts` makes `window` be `globalThis`, which has no `location` — and the
 		// api client resolves its URLs against an absolute origin.
@@ -227,6 +233,22 @@ describe('an SSE timeout re-attaches instead of re-running', () => {
 		expect(streamCalls[2]).toEqual({ jobId: 'job-1', streamOffset: 7 })
 		expect(manager.isConversationBusy('a')).toBe(true)
 	})
+
+	/**
+	 * A stream that never comes back must not free the composer: the flow may still be
+	 * running, and the next turn would write the same agent memory. It must not lock the
+	 * chat for the session either — the turn is settled from the job instead.
+	 */
+	it('settles a turn from its job once the stream is unrecoverable', async () => {
+		const { manager } = turnWith(['throw', 'throw', 'throw', 'throw', 'throw'])
+
+		manager.inputMessage = 'ask something'
+		await manager.sendMessage(undefined, undefined, 'a')
+
+		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(false), {
+			timeout: 20000
+		})
+	}, 30000)
 
 	/**
 	 * A chunk is not guaranteed to end on a line boundary. Split mid-JSON, the two halves

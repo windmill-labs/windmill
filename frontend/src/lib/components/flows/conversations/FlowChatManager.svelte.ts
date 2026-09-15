@@ -73,6 +73,11 @@ type TurnStatus = {
 const FOLLOW_RETRIES = 4
 const FOLLOW_RETRY_DELAY_MS = 500
 
+/** How a turn whose stream is gone waits on its job instead: how often to ask whether the
+ * run is over, and how many consecutive unanswered asks mean it cannot be reached. */
+const SETTLE_POLL_MS = 2000
+const SETTLE_FAILURES = 5
+
 /**
  * The agent events the worker streams, in the shape the transcript applies. The SDK names
  * the same six events after the wire protocol; this is the rest of the app's vocabulary.
@@ -1223,18 +1228,55 @@ export class FlowChatManager {
 					continue
 				}
 				// Out of attempts, and the run is the only thing that knows whether it is over.
-				// Waiting on the job keeps the chat busy until it is, and settles the turn on
-				// its rows; `waitJob` cancels the run rather than waiting forever if the API
-				// stays unreachable.
 				const reason = (error instanceof Error ? error.message : String(error)).slice(0, 200)
 				sendUserToast(
 					`Lost the live answer for this turn; it will land when the run finishes. ${reason}`,
 					true
 				)
-				void this.pollJobResult(currentConversationId, jobId)
+				void this.#settleFromJob(currentConversationId, jobId, api, controller.signal)
 				return
 			}
 		}
+	}
+
+	/**
+	 * Wait out a turn whose stream could not be recovered, on the job itself.
+	 *
+	 * The chat stays busy for as long as the run does, so the next turn cannot write the
+	 * same agent memory. It always settles, though: a run that stops answering is given up
+	 * on rather than locking the conversation and its queue for the rest of the session.
+	 *
+	 * Deliberately not `waitJob`, which leaves its promise unsettled when the job stops
+	 * answering (it cancels and returns without resolving), and a caller awaiting that would
+	 * be the lock this exists to avoid.
+	 */
+	async #settleFromJob(
+		conversationId: string,
+		jobId: string,
+		api: WindmillChatApi,
+		signal: AbortSignal
+	) {
+		let failures = 0
+		while (!signal.aborted) {
+			try {
+				const { completed } = await api.getCompletedResult(jobId, signal)
+				failures = 0
+				if (completed) break
+			} catch (error) {
+				if (signal.aborted) return
+				failures++
+				if (failures >= SETTLE_FAILURES) {
+					console.error('Gave up reading the flow job while settling a turn:', error)
+					break
+				}
+			}
+			await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS))
+		}
+		if (signal.aborted) return
+		try {
+			await this.pollConversationMessages(conversationId, { removeTempMessages: true })
+		} catch {}
+		this.endTurn(conversationId, { settled: true })
 	}
 
 	/** Answers whether a job was actually started. */
