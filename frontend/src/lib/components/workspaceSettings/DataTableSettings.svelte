@@ -92,7 +92,7 @@
 		type GetSettingsResponse,
 		type TestDataTableConnectionResponse
 	} from '$lib/gen'
-	import { superadmin, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { resource } from 'runed'
@@ -101,7 +101,7 @@
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import DataTableMigrationsButton from './DataTableMigrationsButton.svelte'
 	import DataTablePermissionsButton from './DataTablePermissionsButton.svelte'
-	import DataTableRolesSection from './DataTableRolesSection.svelte'
+	import InstanceRolesButton from './InstanceRolesButton.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { clone } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
@@ -315,7 +315,13 @@
 	title="Data tables"
 	description="Relational storage the whole workspace shares under one name. Scripts, flows and apps address it as <span class='font-mono'>datatable://main</span> instead of picking a PostgreSQL resource, so nobody needs access to the credentials to query it, and you can point that name at another database without touching a line of code. Browse and edit tables, and version schema changes as migrations, from here."
 	link="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables"
-/>
+>
+	{#snippet actions()}
+		{#if $superadmin && $enterpriseLicense && !isCloudHosted()}
+			<InstanceRolesButton />
+		{/if}
+	{/snippet}
+</SettingsPageHeader>
 
 {#if isCloudHosted()}
 	<Alert type="info" title="Instance database not available on cloud" class="mb-4" size="xs">
@@ -469,11 +475,13 @@
 							datatable={dataTable.name}
 							disabled={!!dirtyMap[dataTable.name]}
 						/>
-						<DataTablePermissionsButton
-							workspace={$workspaceStore ?? ''}
-							datatable={dataTable.name}
-							disabled={!!dirtyMap[dataTable.name]}
-						/>
+						{#if $enterpriseLicense}
+							<DataTablePermissionsButton
+								workspace={$workspaceStore ?? ''}
+								datatable={dataTable.name}
+								disabled={!!dirtyMap[dataTable.name]}
+							/>
+						{/if}
 						<Button
 							size="xs"
 							color="light"
@@ -598,12 +606,6 @@
 			</div>
 		</Alert>
 	{/if}
-{/if}
-
-{#if $superadmin && !isCloudHosted()}
-	<div class="mt-8">
-		<DataTableRolesSection />
-	</div>
 {/if}
 
 <SettingsFooter

@@ -1669,18 +1669,7 @@ pub fn can_use_datatable_role(
     tenants: &DataTableRoleTenants,
     authed: &crate::db::AuthedRef<'_>,
 ) -> bool {
-    *authed.is_admin
-        || tenants.tenants.iter().any(|tenant| {
-            if tenant == DATATABLE_TENANT_WILDCARD {
-                return true;
-            }
-            match tenant.split_once('/') {
-                Some(("u", user)) => authed.username == user,
-                Some(("g", group)) => authed.groups.iter().any(|g| g == group),
-                Some(("f", folder)) => authed.folders.iter().any(|(f, _, _)| f == folder),
-                _ => false,
-            }
-        })
+    crate::datatable_roles_oss::can_use_datatable_role(tenants, authed)
 }
 
 /// Evaluate a tenant list **as a member of the governing workspace**, whoever is calling.
@@ -1697,101 +1686,14 @@ pub async fn can_use_datatable_role_in_governing_workspace(
     tenants: &DataTableRoleTenants,
     access: &DatatableAccess<'_>,
 ) -> Result<bool> {
-    let (permissioned_as, email): (String, String) = match access {
-        DatatableAccess::Unchecked => return Ok(true),
-        DatatableAccess::NoIdentity => return Ok(false),
-        DatatableAccess::Authed(authed) => {
-            if w_id == governing_w_id {
-                return Ok(can_use_datatable_role(tenants, authed));
-            }
-            (format!("u/{}", authed.username), authed.email.to_string())
-        }
-        DatatableAccess::PermissionedAs { permissioned_as, email } => {
-            (permissioned_as.to_string(), email.to_string())
-        }
-        DatatableAccess::Job(job_id) => {
-            let job = sqlx::query!(
-                "SELECT permissioned_as, permissioned_as_email FROM v2_job
-                 WHERE id = $1 AND workspace_id = $2",
-                job_id,
-                w_id,
-            )
-            .fetch_optional(db)
-            .await?
-            .ok_or_else(|| Error::NotFound(format!("job {job_id} not found in {w_id}")))?;
-            (job.permissioned_as, job.permissioned_as_email)
-        }
-    };
-
-    if w_id == governing_w_id {
-        let authed =
-            crate::auth::fetch_authed_from_permissioned_as(&permissioned_as, &email, w_id, db)
-                .await?;
-        return Ok(can_use_datatable_role(tenants, &authed.to_authed_ref()));
-    }
-    if crate::auth::is_super_admin_email(db, &email).await? {
-        return Ok(true);
-    }
-    if !permissioned_as.starts_with("u/") {
-        return Ok(false);
-    }
-    let Some(username) = sqlx::query_scalar!(
-        "SELECT username FROM usr WHERE workspace_id = $1 AND email = $2 AND disabled = false",
-        governing_w_id,
-        &email
-    )
-    .fetch_optional(db)
-    .await?
-    else {
-        return Ok(false);
-    };
-    let authed = crate::auth::fetch_authed_from_permissioned_as(
-        &format!("u/{username}"),
-        &email,
-        governing_w_id,
+    crate::datatable_roles_oss::can_use_datatable_role_in_governing_workspace(
         db,
+        governing_w_id,
+        w_id,
+        tenants,
+        access,
     )
-    .await?;
-    Ok(can_use_datatable_role(tenants, &authed.to_authed_ref()))
-}
-
-/// Which tenant list a caller's role selection lands on. `Ok(None)` means the data table is
-/// unpermissioned and resolves through its own `admin` connection, as it did before roles existed.
-///
-/// `role` is the **name** a caller wrote (`-- role analytics`); it is mapped to the catalog id the
-/// tenant lists are keyed by here, so a rename moves nothing.
-fn datatable_role_entry<'a>(
-    permissions: Option<&'a DataTablePermissions>,
-    catalog: &crate::datatable_roles::DatatableRoleCatalog,
-    name: &str,
-    role: Option<&str>,
-) -> Result<Option<(String, &'a DataTableRoleTenants)>> {
-    let Some(permissions) = permissions else {
-        return match role {
-            Some(role) if role != ADMIN_DATATABLE_ROLE => Err(Error::BadRequest(format!(
-                "Cannot use role '{role}': data table '{name}' is not under roles. \
-                 Put it under roles in its permissions drawer first."
-            ))),
-            _ => Ok(None),
-        };
-    };
-    let role_id = match role {
-        None => permissions.default_role().to_string(),
-        Some(ADMIN_DATATABLE_ROLE) => ADMIN_DATATABLE_ROLE.to_string(),
-        Some(role) => crate::datatable_roles::role_id_by_name(catalog, role)?.to_string(),
-    };
-    let tenants = permissions.roles.get(&role_id).ok_or_else(|| {
-        let display = role.map(str::to_string).unwrap_or_else(|| {
-            catalog
-                .get(&role_id)
-                .map(|r| r.name.clone())
-                .unwrap_or_else(|| role_id.clone())
-        });
-        Error::NotFound(format!(
-            "Role '{display}' is not among the roles of data table '{name}'"
-        ))
-    })?;
-    Ok(Some((role_id, tenants)))
+    .await
 }
 
 /// Resolve a data table to connection credentials for one identity.
@@ -1810,83 +1712,22 @@ pub async fn get_datatable_resource_from_db(
     access: DatatableAccess<'_>,
 ) -> Result<serde_json::Value> {
     let governing = resolve_governing_datatable(db, w_id, name).await?;
-    let mut db_resource = resolve_datatable_connection_unchecked(db, &governing, false).await?;
-
-    // A data table role is a login on Windmill's own cluster, so it is only meaningful against an
-    // instance database. Substituting its password into a resource-backed connection would hand a
-    // real cluster credential to whatever host that resource names — which a workspace admin
-    // chooses. Refused rather than ignored: an entry that reached this state was never a shape the
-    // permissions endpoint accepts, so silently resolving it as admin would hide a broken record.
-    if !governing.is_instance() {
-        return match (governing.datatable.permissions.as_ref(), role) {
-            (None, None | Some(ADMIN_DATATABLE_ROLE)) => Ok(db_resource),
-            _ => Err(Error::BadRequest(format!(
-                "Data table '{name}' is backed by a Postgres resource, which cannot be put under \
-                 data table roles"
-            ))),
-        };
-    }
-
-    let catalog = crate::datatable_roles::read_role_catalog(db).await?;
-    let Some((role_id, tenants)) = datatable_role_entry(
-        governing.datatable.permissions.as_ref(),
-        &catalog,
-        name,
-        role,
-    )?
-    else {
+    let db_resource = resolve_datatable_connection_unchecked(db, &governing, false).await?;
+    // Not under roles and asked for none: the `admin` connection, as before roles existed, in
+    // every edition. Anything else is a role decision.
+    if governing.datatable.permissions.is_none() && role.is_none() {
         return Ok(db_resource);
-    };
-
-    // Only for a data table actually under roles: whether people name a role or ride the default
-    // is what says if the `-- role` annotation is carrying its weight.
-    crate::feature_usage::log_feature_usage(
-        "datatable",
-        "role_connection",
-        if role.is_some() { "named" } else { "default" },
-    );
-
-    if !can_use_datatable_role_in_governing_workspace(
+    }
+    crate::datatable_roles_oss::resolve_datatable_role_connection(
         db,
-        governing.governing_workspace_id(),
         w_id,
-        tenants,
-        &access,
+        name,
+        &governing,
+        db_resource,
+        role,
+        access,
     )
-    .await?
-    {
-        let display = catalog
-            .get(&role_id)
-            .map(|r| r.name.as_str())
-            .unwrap_or(role_id.as_str());
-        return Err(Error::NotAuthorized(format!(
-            "Not allowed to use role '{display}' of data table '{name}'"
-        )));
-    }
-
-    if role_id == ADMIN_DATATABLE_ROLE {
-        return Ok(db_resource);
-    }
-    let entry = catalog.get(&role_id).ok_or_else(|| {
-        Error::NotFound(format!(
-            "Data table '{name}' names a role that no longer exists on this instance"
-        ))
-    })?;
-    if !entry.enabled {
-        return Err(Error::BadRequest(format!(
-            "Data table role '{}' is disabled on this instance",
-            entry.name
-        )));
-    }
-    let pwd = entry.pwd.as_ref().ok_or_else(|| {
-        Error::internal_err(format!(
-            "Data table role '{}' has no stored credential; recreate it in instance settings",
-            entry.name
-        ))
-    })?;
-    db_resource["user"] = serde_json::Value::String(entry.name.clone());
-    db_resource["password"] = serde_json::Value::String(pwd.clone());
-    Ok(db_resource)
+    .await
 }
 
 /// Would the chokepoint accept this identity connecting as this role? Answers without resolving
@@ -1903,38 +1744,8 @@ pub async fn ensure_can_use_datatable_role(
     access: &DatatableAccess<'_>,
     context: &str,
 ) -> Result<()> {
-    let governing = resolve_governing_datatable(db, w_id, name).await?;
-    if !governing.is_instance() {
-        return Ok(());
-    }
-    let catalog = crate::datatable_roles::read_role_catalog(db).await?;
-    let Some((role_id, tenants)) = datatable_role_entry(
-        governing.datatable.permissions.as_ref(),
-        &catalog,
-        name,
-        role,
-    )?
-    else {
-        return Ok(());
-    };
-    if can_use_datatable_role_in_governing_workspace(
-        db,
-        governing.governing_workspace_id(),
-        w_id,
-        tenants,
-        access,
-    )
-    .await?
-    {
-        return Ok(());
-    }
-    let display = catalog
-        .get(&role_id)
-        .map(|r| r.name.as_str())
-        .unwrap_or(role_id.as_str());
-    Err(Error::NotAuthorized(format!(
-        "{context} runs as role '{display}' of data table '{name}', which you are not allowed to use"
-    )))
+    crate::datatable_roles_oss::ensure_can_use_datatable_role(db, w_id, name, role, access, context)
+        .await
 }
 
 /// Gate the operations that see the whole database whatever the roles grant: a migration that
@@ -1947,35 +1758,7 @@ pub async fn ensure_datatable_admin_access(
     name: &str,
     access: &DatatableAccess<'_>,
 ) -> Result<()> {
-    let governing = resolve_governing_datatable(db, w_id, name).await?;
-    if !governing.is_instance() {
-        return Ok(());
-    }
-    let Some(permissions) = governing.datatable.permissions.as_ref() else {
-        return Ok(());
-    };
-    let admin = permissions
-        .roles
-        .get(ADMIN_DATATABLE_ROLE)
-        .cloned()
-        .unwrap_or_default();
-    if can_use_datatable_role_in_governing_workspace(
-        db,
-        governing.governing_workspace_id(),
-        w_id,
-        &admin,
-        access,
-    )
-    .await?
-    {
-        Ok(())
-    } else {
-        Err(Error::NotAuthorized(format!(
-            "Data table '{name}' is under roles; this reaches the whole database, so it is for \
-             the admins of workspace '{}', which governs it.",
-            governing.governing_workspace_id()
-        )))
-    }
+    crate::datatable_roles_oss::ensure_datatable_admin_access(db, w_id, name, access).await
 }
 
 /// Rewrite the `permissions` of every data table entry of one workspace, in the caller's
@@ -2111,25 +1894,7 @@ pub async fn forget_datatable_role_everywhere(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     role_id: &str,
 ) -> Result<()> {
-    let workspaces = sqlx::query_scalar!(
-        "SELECT workspace_id FROM workspace_settings WHERE datatable::text LIKE $1",
-        format!("%{}%", role_id)
-    )
-    .fetch_all(&mut **tx)
-    .await?;
-
-    for w_id in workspaces {
-        update_datatable_permissions_in_workspace(tx, &w_id, |permissions| {
-            let mut touched = permissions.roles.remove(role_id).is_some();
-            if permissions.default_role.as_deref() == Some(role_id) {
-                permissions.default_role = Some(ADMIN_DATATABLE_ROLE.to_string());
-                touched = true;
-            }
-            touched
-        })
-        .await?;
-    }
-    Ok(())
+    crate::datatable_roles_oss::forget_datatable_role_everywhere(tx, role_id).await
 }
 
 /// Drop the `permissions` block from a `workspace_settings.datatable` value before it leaves the
@@ -3394,6 +3159,7 @@ mod tests {
         DataTableRoleTenants { tenants: list.iter().map(|t| t.to_string()).collect() }
     }
 
+    #[cfg(all(feature = "private", feature = "enterprise"))]
     #[test]
     fn a_tenant_list_covers_users_groups_folders_and_the_wildcard() {
         let groups = vec!["analysts".to_string()];
@@ -3429,6 +3195,29 @@ mod tests {
         let is_admin = true;
         let admin = crate::db::AuthedRef { is_admin: &is_admin, ..authed };
         assert!(can_use_datatable_role(&tenants(&[]), &admin));
+    }
+
+    #[cfg(not(all(feature = "private", feature = "enterprise")))]
+    #[test]
+    fn without_the_enterprise_edition_no_tenant_list_covers_anyone() {
+        let groups = vec![];
+        let folders = vec![];
+        let scopes = None;
+        let token_prefix = None;
+        let is_admin = true;
+        let is_operator = false;
+        let admin = crate::db::AuthedRef {
+            email: "alice@windmill.dev",
+            username: "alice",
+            is_admin: &is_admin,
+            is_operator: &is_operator,
+            groups: &groups,
+            folders: &folders,
+            scopes: &scopes,
+            token_prefix: &token_prefix,
+        };
+        assert!(!can_use_datatable_role(&tenants(&["*"]), &admin));
+        assert!(!can_use_datatable_role(&tenants(&["u/alice"]), &admin));
     }
 
     #[test]
