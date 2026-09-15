@@ -32,6 +32,8 @@ function fakeRows() {
 	const hints = new Map<string, boolean>()
 	/** Paths whose parked payload was dropped. */
 	const dropped: string[] = []
+	/** Every `last_sync` baseline the syncer was given, in order. */
+	const seeds: { path: string; at: string | undefined }[] = []
 	/** What a write leaves queued, and what a flush sends: the syncer debounces. */
 	const queued = new Map<string, unknown>()
 	const sent = new Map<string, unknown>()
@@ -55,7 +57,7 @@ function fakeRows() {
 			conflicts.delete(key.path)
 			writes.push({ path: key.path, value })
 		},
-		seedSync: () => {},
+		seedSync: (key, at) => void seeds.push({ path: key.path, at }),
 		conflicted: (key) => conflicts.has(key.path),
 		failure: (key) => failures.get(key.path),
 		dropPending: (key) => void dropped.push(key.path),
@@ -68,6 +70,7 @@ function fakeRows() {
 		failing,
 		hints,
 		dropped,
+		seeds,
 		sent,
 		hold: (until: Promise<void>) => void (holdFlush = until)
 	}
@@ -456,6 +459,39 @@ describe('item store: outside writes', () => {
 		expect(rows.writes).toEqual([
 			{ path: 'u/me/r', value: { ...deployedRes, description: 'from the chat' } }
 		])
+	})
+
+	it('does not rewind the row baseline to what a read that started earlier saw', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		let reads = 0
+		const { item } = await open(
+			rows,
+			adapter(() => {
+				reads++
+				return reads > 1
+					? read.promise
+					: Promise.resolve({ deployed: deployedRes, draftSavedAt: 'T1' })
+			})
+		)
+		expect(rows.seeds).toEqual([{ path: 'u/me/r', at: 'T1' }])
+
+		const reloading = item.reload()
+		await settle()
+		// The chat writes while the read is out; its row goes, and the syncer moves past T1.
+		item.applyExternal({ ...deployedRes, description: 'from the chat' })
+		read.resolve({ deployed: deployedRes, draft: deployedRes, draftSavedAt: 'T1' })
+		await reloading
+
+		expect(item.value?.description).toBe('from the chat')
+		// Reseeding T1 here would put the syncer behind the row it has already sent, and the
+		// server refuses everything after that as a conflict.
+		expect(rows.seeds).toEqual([{ path: 'u/me/r', at: 'T1' }])
+		expect(item.status).not.toBe('conflicted')
+		expect(rows.writes.at(-1)).toEqual({
+			path: 'u/me/r',
+			value: { ...deployedRes, description: 'from the chat' }
+		})
 	})
 
 	it('applies outside writes in order, each one a new revision and never settling', async () => {

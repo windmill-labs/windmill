@@ -319,6 +319,9 @@ class Entry<V> {
 		const editsAtStart = editedBefore ?? this.edits
 		return this.run(async () => {
 			const key = this.key
+			// Whether anything could have written the row while this read was in flight: only an
+			// item already on screen has a row this entry is keeping.
+			const held = this.loaded
 			let res: ItemLoad<V>
 			try {
 				if (this.retired) return superseded
@@ -344,8 +347,13 @@ class Entry<V> {
 			}
 			this.deployed = this.withPatched(snapshot(res.deployed))
 			this.origin = res.deployed !== undefined ? 'deployed' : 'draft'
-			this.row = serialize(res.draft) ?? null
-			this.ports.seedSync(key, res.draftSavedAt)
+			// A row written while this read was in flight is newer than the one it read, and the
+			// syncer has already sent it: reseeding from this response would rewind `last_sync`
+			// past that, and every write after it is refused as a conflict.
+			if (!(held && keepValue)) {
+				this.row = serialize(res.draft) ?? null
+				this.ports.seedSync(key, res.draftSavedAt)
+			}
 			this.loaded = true
 			if (!keepValue) {
 				this.pristine = this.settles && this.origin === 'deployed' && res.draft === undefined
