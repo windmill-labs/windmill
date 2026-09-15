@@ -6,11 +6,11 @@
 //! workspace key so bucket credentials do not read transcripts:
 //!
 //! ```text
-//! windmill_ai_sessions/{w_id}/{sha256(email)}/sessions/{sid}/head.json
-//! windmill_ai_sessions/{w_id}/{sha256(email)}/sessions/{sid}/chats/{cid}.json
-//! windmill_ai_sessions/{w_id}/{sha256(email)}/sessions/{sid}/artifacts.json
-//! windmill_ai_sessions/{w_id}/{sha256(email)}/images/{sid}/{cid}/{iid}
-//! windmill_ai_sessions/{w_id}/{sha256(email)}/index/{sid}
+//! windmill_ai_sessions/{w_id}/{key fingerprint}/{sha256(email)}/sessions/{sid}/head.json
+//! windmill_ai_sessions/{w_id}/{key fingerprint}/{sha256(email)}/sessions/{sid}/chats/{cid}.json
+//! windmill_ai_sessions/{w_id}/{key fingerprint}/{sha256(email)}/sessions/{sid}/artifacts.json
+//! windmill_ai_sessions/{w_id}/{key fingerprint}/{sha256(email)}/images/{sid}/{cid}/{iid}
+//! windmill_ai_sessions/{w_id}/{key fingerprint}/{sha256(email)}/index/{sid}
 //! ```
 //!
 //! The index marker is empty, written last by every push of the session, and is what a
@@ -29,7 +29,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::sync::Arc;
 use windmill_api_auth::is_effectively_unscoped;
-use windmill_api_workspaces::ai_session_backups::{storage_id, MAX_OBJECT_BYTES, ROOT};
+use windmill_api_workspaces::ai_session_backups::{
+    key_fingerprint, storage_id, MAX_OBJECT_BYTES, ROOT,
+};
 use windmill_common::error::{Error, JsonResult, Result};
 use windmill_common::utils::calculate_hash;
 use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key};
@@ -358,7 +360,7 @@ async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backe
     let key = get_workspace_key(w_id, db).await?;
     let mc = crypt_from_key_with_suffix(&key, &user);
     let storage_id = storage_id(&resource, &key);
-    let prefix = format!("{ROOT}/{w_id}/{user}");
+    let prefix = format!("{ROOT}/{w_id}/{}/{user}", key_fingerprint(&key));
     Ok(Some(Backend { store, mc, prefix, storage_id }))
 }
 

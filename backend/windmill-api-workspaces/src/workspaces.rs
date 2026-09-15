@@ -5337,20 +5337,18 @@ async fn set_encryption_key(
     // Build the previous cipher before the transaction (reads from cache/pool)
     let previous_encryption_key = build_crypt(&db, w_id.as_str()).await?;
 
-    // The AI session backups in the workspace storage are ciphertext under the key being
-    // replaced and are not re-keyed: they go, before the new key lands so no push under it
-    // can be caught, and the browsers push their sessions again under the new key, told
-    // by the storage identity the key is part of (see `ai_session_backups`). Setting the
-    // key that is already there changes nothing the browsers would notice, so it keeps them.
-    #[cfg(feature = "parquet")]
-    if windmill_common::variables::get_workspace_key(&w_id, &db).await? != request.new_key {
-        if let Err(e) = crate::ai_session_backups::delete_all(&db, &w_id).await {
-            tracing::warn!("deleting the AI session backups of {w_id} on rotation: {e:#}");
-        }
-    }
-
     let mut tx = db.begin().await?;
 
+    // Under the row's lock, so two rotations racing serialize and each sees the key the
+    // other committed: the AI session backups live under a prefix named by the key, and the
+    // previous key's prefix is deleted once this one has committed (see
+    // `ai_session_backups`).
+    let previous_key: String = sqlx::query_scalar(
+        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud' FOR UPDATE",
+    )
+    .bind(&w_id)
+    .fetch_one(&mut *tx)
+    .await?;
     sqlx::query!(
         "UPDATE workspace_key SET key = $1 WHERE workspace_id = $2",
         request.new_key.clone(),
@@ -5413,6 +5411,15 @@ async fn set_encryption_key(
 
     // Invalidate the cache only after the transaction has committed
     WORKSPACE_CRYPT_CACHE.remove(w_id.as_str());
+
+    // Nothing writes under the previous key's prefix any more; the browsers push their
+    // sessions again under the new one. The same key set again replaces no prefix.
+    #[cfg(feature = "parquet")]
+    if previous_key != request.new_key {
+        crate::ai_session_backups::spawn_delete_previous(db.clone(), w_id.clone(), previous_key);
+    }
+    #[cfg(not(feature = "parquet"))]
+    let _ = previous_key;
 
     // Build the batch: one event for the encryption key itself plus one per
     // re-encrypted secret variable. The batch entrypoint dispatches a single

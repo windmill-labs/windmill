@@ -47,7 +47,13 @@ import HistoryManager, {
 	__resetLegacyChatClaimForTesting,
 	readStoredChat
 } from '../copilot/chat/HistoryManager.svelte'
-import { deleteSession, putSession, sessionState, type Session } from './sessionState.svelte'
+import {
+	deleteSession,
+	importSessions,
+	putSession,
+	sessionState,
+	type Session
+} from './sessionState.svelte'
 import { markSessionDirty } from './sessionMirrorSignal'
 import {
 	__flushForTesting,
@@ -644,6 +650,30 @@ describe('sessionMirror restore', () => {
 		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s9']))
 		expect((await readStoredChat('c9', EMAIL))?.displayMessages).toHaveLength(1)
 		expect((await readStoredChat('c9b', EMAIL))?.id).toBe('c9b')
+	})
+
+	it('leaves a session another tab imported meanwhile alone, without Web Locks', async () => {
+		listMock.mockResolvedValue({
+			enabled: true,
+			sessions: [{ id: 's9', updated_at: '2026-09-14T00:00:00Z' }]
+		})
+		let release!: (value: unknown) => void
+		pullMock.mockImplementationOnce(() => new Promise((r) => (release = r)))
+		usersWorkspaceStore.set({ email: EMAIL, workspaces: [] } as never)
+		restoreSessionBackups('ws')
+		await vi.waitFor(() => expect(pullMock).toHaveBeenCalledTimes(1))
+		// The other tab's restore lands first, with a newer transcript.
+		const { importStoredChats } = await import('../copilot/chat/HistoryManager.svelte')
+		await importStoredChats(
+			[{ ...backup.chats[0].record, title: 'newer' } as never],
+			[],
+			EMAIL,
+			true
+		)
+		await importSessions([{ ...backup.head, name: '' } as never], EMAIL)
+		release({ enabled: true, sessions: [backup], deferred: [] })
+		await __settleForTesting()
+		expect((await readStoredChat('c9', EMAIL))?.title).toBe('newer')
 	})
 
 	it('keeps an image whose chat came on an earlier page, and restages after a page failed', async () => {

@@ -1,12 +1,16 @@
 //! What the workspace key rotation and the AI session backup routes
 //! (`windmill-api/src/ai_sessions.rs`) share about the backups in the workspace storage.
 //!
-//! The backups are ciphertext under the workspace key. A rotation does not re-key them: it
-//! deletes them before committing the new key, and the storage identity the routes answer
-//! with changes with the key, so every browser marks its sync state stale and pushes its
-//! sessions whole again under the new key. Sessions no browser holds any more are lost,
-//! which a rotation (a rare operation) accepts in exchange for having no key but the
-//! current one to read with and nothing to rewrite in place.
+//! The backups are ciphertext under the workspace key and live under a prefix named by a
+//! fingerprint of that key. A rotation does not re-key them: once the new key is committed,
+//! the routes read and write under the new key's prefix, the storage identity they answer
+//! with changes with it, so every browser marks its sync state stale and pushes its sessions
+//! whole again there, and the old key's prefix, which nothing writes to any more, is deleted
+//! off the request at leisure. Sessions no browser holds any more are lost, which a rotation
+//! (a rare operation) accepts in exchange for having no key but the current one to read with
+//! and nothing to rewrite in place. A rotation that fails before its commit changes no prefix
+//! and deletes nothing; two rotations racing serialize on the key row, and each deletes only
+//! the prefix of the key it replaced.
 
 use std::sync::Arc;
 
@@ -27,6 +31,12 @@ pub const ROOT: &str = "windmill_ai_sessions";
 pub const MAX_OBJECT_BYTES: usize = 32 * 1024 * 1024;
 
 const IO_CONCURRENCY: usize = 8;
+
+/// The segment of the object keys that names the workspace key they are under: a truncated
+/// hash of the key (64 random characters), which reveals nothing of it.
+pub fn key_fingerprint(key: &str) -> String {
+    calculate_hash(&format!("{ROOT}:{key}"))[..16].to_string()
+}
 
 /// Names the storage the backups are in, by what locates its objects (endpoint, region,
 /// bucket; never the credentials, which rotate) and by the workspace key, so a browser
@@ -49,11 +59,11 @@ pub fn storage_id(resource: &ObjectStoreResource, key: &str) -> String {
         ObjectStoreResource::Gcs(g) => format!("gcs:{}", g.bucket),
         ObjectStoreResource::Filesystem(f) => format!("fs:{}", f.root_path),
     };
-    calculate_hash(&format!("{location}:{}", calculate_hash(key)))[..16].to_string()
+    calculate_hash(&format!("{location}:{}", key_fingerprint(key)))[..16].to_string()
 }
 
 /// The workspace's primary storage, resolved without a caller: a rotation runs the
-/// deletion in its own request.
+/// deletion off its own request.
 async fn primary_store(db: &DB, w_id: &str) -> Result<Option<Arc<dyn ObjectStore>>> {
     let Some(lfs_json) = sqlx::query_scalar!(
         "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
@@ -84,26 +94,44 @@ async fn primary_store(db: &DB, w_id: &str) -> Result<Option<Arc<dyn ObjectStore
     ))
 }
 
-/// Deletes the workspace's backups as the listing streams. Run before the new key is
-/// committed, so nothing written under it can be caught by the deletion: a push racing
-/// it writes under the old key, junk the browser's next push of that session overwrites,
-/// as is any object a deletion cut short left behind.
-pub async fn delete_all(db: &DB, w_id: &str) -> Result<()> {
-    let Some(store) = primary_store(db, w_id).await? else {
-        return Ok(());
-    };
-    let prefix = ObjectPath::from(format!("{ROOT}/{w_id}"));
-    store
-        .list(Some(&prefix))
-        .map_err(object_store_error_to_error)
-        .try_for_each_concurrent(IO_CONCURRENCY, |meta| {
-            let store = &store;
-            async move {
-                match store.delete(&meta.location).await {
-                    Ok(()) | Err(ObjectStoreError::NotFound { .. }) => Ok(()),
-                    Err(e) => Err(object_store_error_to_error(e)),
-                }
+/// Deletes, off the request and as the listing streams, the backups under the prefix of
+/// `previous_key`, once the rotation that replaced it has committed: nothing writes there
+/// any more but a push that resolved its prefix before the commit, junk the browser's next
+/// push of that session rewrites under the new prefix, as is anything a deletion cut short
+/// left behind. For the rotation route, which authorized its caller as a superadmin.
+pub(crate) fn spawn_delete_previous(db: DB, w_id: String, previous_key: String) {
+    tokio::spawn(async move {
+        let store = match primary_store(&db, &w_id).await {
+            Ok(Some(store)) => store,
+            Ok(None) => return,
+            Err(e) => {
+                tracing::warn!(
+                    "AI session backups of {w_id} under the previous key left in place: {e:#}"
+                );
+                return;
             }
-        })
-        .await
+        };
+        let prefix = ObjectPath::from(format!("{ROOT}/{w_id}/{}", key_fingerprint(&previous_key)));
+        let deleted = store
+            .list(Some(&prefix))
+            .map_err(object_store_error_to_error)
+            .try_for_each_concurrent(IO_CONCURRENCY, |meta| {
+                let store = &store;
+                async move {
+                    match store.delete(&meta.location).await {
+                        Ok(()) | Err(ObjectStoreError::NotFound { .. }) => Ok(()),
+                        Err(e) => Err(object_store_error_to_error(e)),
+                    }
+                }
+            })
+            .await;
+        match deleted {
+            Ok(()) => {
+                tracing::info!("deleted the AI session backups of {w_id} under the previous key")
+            }
+            Err(e) => tracing::warn!(
+                "deleting the AI session backups of {w_id} under the previous key: {e:#}"
+            ),
+        }
+    });
 }

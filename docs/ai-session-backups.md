@@ -45,7 +45,8 @@ last pushed, kept per session in the `windmill-sessions-mirror` store:
 | image | `images/{sid}/{cid}/{iid}` | never pushed before (write-once) |
 | index marker | `index/{sid}` | last, by the part that completes a push of the session (empty) |
 
-All under `windmill_ai_sessions/{w_id}/{sha256(email)}/` in the workspace's primary storage.
+All under `windmill_ai_sessions/{w_id}/{key fingerprint}/{sha256(email)}/` in the workspace's
+primary storage (the key fingerprint is what a rotation moves, see below).
 The listing reads only `index/`: one object per session whatever the session holds, so a
 session with many chats cannot crowd newer ones out of a bounded scan, and its
 `last_modified` is the session's `updated_at`. Written last, and only by an entry no unsent
@@ -71,17 +72,19 @@ READ/WRITE hand any member the bucket. The key is per user rather than per works
 member who copies another user's ciphertext under their own prefix gets nothing from `pull`; an
 object that does not decrypt for its reader is treated as absent. Rotating the workspace key
 (`set_encryption_key`) does not re-key the backups the way it re-encrypts the workspace's
-secrets: it deletes them, before the new key is committed and best effort
-(`windmill-api-workspaces/src/ai_session_backups.rs`), and the storage identity the answers
-carry (`storage_id`, below) is derived from the key as well as the storage, so every browser
-marks its sync rows stale and pushes its sessions whole again under the new key. Sessions no
-browser holds any more are lost. Deleting before the commit means no push under the new key
-can be caught by the deletion: a push racing it writes under the old key, junk the browser's
-next push of that session overwrites, as is anything a deletion cut short left behind.
-Setting the key already in place deletes nothing, since the browsers would not notice. A
-rotation is rare, and the alternative, rewriting every object in place while pushes,
-restarts, storage switches and further rotations race the rewrite, is where the complexity
-would be; with this, nothing but the current key ever reads an object. The
+secrets. The objects live under a prefix named by a fingerprint of the key (a truncated hash
+of 64 random characters, which reveals nothing of it); once the new key is committed the
+routes read and write under the new key's prefix, the storage identity the answers carry
+(`storage_id`, below) changes with it, so every browser marks its sync rows stale and pushes
+its sessions whole again there, and the previous key's prefix, which nothing writes to any
+more, is deleted off the request at leisure
+(`windmill-api-workspaces/src/ai_session_backups.rs`). Sessions no browser holds any more are
+lost. A rotation that fails before its commit changes no prefix and deletes nothing; two
+rotations racing serialize on the key row and each deletes only the prefix of the key it
+replaced; the same key set again replaces none. A rotation is rare, and the alternative,
+rewriting every object in place while pushes, restarts, storage switches and further
+rotations race the rewrite, is where the complexity would be; with this, nothing but the
+current key ever reads an object. The
 server builds every key from ids it validated
 (`[A-Za-z0-9_-]{1,64}`) and the caller's own email; the client never names a key, and the
 workspace storage permission rules are not consulted (the same stance as volumes). Only an
@@ -175,7 +178,8 @@ local edits to keep, and the backup may have moved on), and the record, which is
 the session visible, only with the last page, after deleting the session's local pieces the
 backup no longer has (staged before it moved on: chats, images, artifacts and their
 versions); a restore holds the user's tab lock while it runs, so two tabs cannot each write
-the same absent session's pieces over the other's; between pages it holds nothing but the sync
+the same absent session's pieces over the other's, and where Web Locks do not exist a page
+whose session another tab imported meanwhile is dropped; between pages it holds nothing but the sync
 row being assembled, whose chats also admit the images of a later page. An object that grew
 since the listing (a push replaced it) ends its page just before it and the answer names that
 spot, so the next page sizes it anew rather than the session being imported without it. A pull sees every key of a session's listing but keeps the 5000 smallest

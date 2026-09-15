@@ -86,6 +86,21 @@ async fn rotate(base: &str, key: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The user's prefix on disk, `windmill_ai_sessions/{w_id}/{key fingerprint}/{email hash}`,
+/// under whichever fingerprint the current key gives it.
+fn user_root(storage_dir: &std::path::Path, email: &str) -> std::path::PathBuf {
+    let workspace = storage_dir.join("windmill_ai_sessions/test-workspace");
+    let hash = calculate_hash(email);
+    std::fs::read_dir(&workspace)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path().join(&hash))
+        .find(|path| path.exists())
+        .expect("the user has backups under the current key")
+}
+
 /// Every file under the storage root, as bytes.
 fn files_under(root: &std::path::Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
     let mut out = vec![];
@@ -354,11 +369,8 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
 
     // An object larger than any push writes, planted with the bucket's credentials at a
     // predictable key, is not read.
-    let planted = storage_dir
-        .path()
-        .join("windmill_ai_sessions/test-workspace")
-        .join(calculate_hash("test@windmill.dev"))
-        .join("sessions/planted/head.json");
+    let planted =
+        user_root(storage_dir.path(), "test@windmill.dev").join("sessions/planted/head.json");
     std::fs::create_dir_all(planted.parent().unwrap())?;
     std::fs::File::create(&planted)?.set_len(32 * 1024 * 1024 + 1)?;
     let pulled = pull(&base, "SECRET_TOKEN", &["planted"]).await?;
@@ -366,11 +378,8 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     std::fs::remove_dir_all(planted.parent().unwrap())?;
     // Under a session that exists, a planted chat is skipped without buffering and without
     // the page ending before it, so the pull neither balloons nor loops.
-    let planted_chat = storage_dir
-        .path()
-        .join("windmill_ai_sessions/test-workspace")
-        .join(calculate_hash("test@windmill.dev"))
-        .join("sessions/s1/chats/planted.json");
+    let planted_chat =
+        user_root(storage_dir.path(), "test@windmill.dev").join("sessions/s1/chats/planted.json");
     std::fs::File::create(&planted_chat)?.set_len(32 * 1024 * 1024 + 1)?;
     let mut resume = json!(null);
     let mut pages = 0;
@@ -461,11 +470,11 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
 
     // Nor after copying the first user's ciphertext under their own prefix, which anyone
     // holding the bucket credentials can do: the key is bound to the user, not the workspace.
-    let users_root = storage_dir
-        .path()
-        .join("windmill_ai_sessions/test-workspace");
-    let first = users_root.join(calculate_hash("test@windmill.dev"));
-    let second = users_root.join(calculate_hash("test2@windmill.dev"));
+    let first = user_root(storage_dir.path(), "test@windmill.dev");
+    let second = first
+        .parent()
+        .unwrap()
+        .join(calculate_hash("test2@windmill.dev"));
     copy_dir(&first, &second)?;
     let other = pull(&base, "SECRET_TOKEN_2", &["s1"]).await?;
     assert_eq!(
@@ -493,9 +502,10 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     assert_eq!(s1["chats"][0]["id"], "c2");
     assert_eq!(s1["images"], json!([]));
 
-    // Rotating the workspace key deletes the backups (off the request) rather than re-key
-    // them, and the storage identity the answers carry changes with the key, which is what
-    // makes every browser push its sessions whole again.
+    // Rotating the workspace key moves the routes to the new key's prefix and deletes the
+    // previous one off the request rather than re-key anything; the storage identity the
+    // answers carry changes with the key, which is what makes every browser push its
+    // sessions whole again.
     let before = list(&base, "SECRET_TOKEN").await?["storage_id"].clone();
     rotate(&base, &"b".repeat(64)).await?;
     for _ in 0..100 {

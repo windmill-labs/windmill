@@ -255,8 +255,7 @@ pub async fn build_crypt_with_key_suffix(
     Ok(crypt_from_key_with_suffix(&key, key_suffix))
 }
 
-/// The cipher `build_crypt_with_key_suffix` builds, from a key string in hand: what a key
-/// rotation needs to read what the previous key wrote.
+/// The cipher `build_crypt_with_key_suffix` builds, from a key string in hand.
 pub fn crypt_from_key_with_suffix(key: &str, key_suffix: &str) -> MagicCrypt256 {
     let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
         format!("{}{}{}", key, salt, key_suffix)

@@ -1035,6 +1035,9 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 		for (const b of pulled.sessions) {
 			const earlier = staged.get(b.id)
 			staged.delete(b.id)
+			// Imported by another tab meanwhile (the lock keeps that from happening where Web
+			// Locks exist): its pieces are not ours to write over any more.
+			if ((await readStoredSessions(email))?.some((s) => s.id === b.id)) continue
 			const u = unpackBackup(
 				ws,
 				b,
