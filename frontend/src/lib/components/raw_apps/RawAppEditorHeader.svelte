@@ -620,6 +620,9 @@
 	 *  beside it or the anchor read failed. Either way this editor has no base to compare,
 	 *  so the guard confirms. Set by `updateApp`. */
 	let baseUnknown = $state(false)
+	/** The last comparison could not read the head, so the confirmation it raises is
+	 *  caution and not an observed deploy. Cleared by the next reading comparison. */
+	let headUnknown = $state(false)
 	async function compareVersions() {
 		if (baseUnknown) {
 			// Nothing to compare against, so confirm rather than let the next deploy
@@ -636,11 +639,14 @@
 				path: appPath
 			})
 			onLatest = appVersion?.version === undefined || version === appVersion?.version
+			headUnknown = false
 		} catch (e) {
 			console.error('Error comparing versions', e)
 			// The head is what this compares against, so an unanswered read is not
-			// evidence of being current: confirm, as an unclaimable deploy does.
+			// evidence of being current: confirm, as an unclaimable deploy does, and say
+			// that is why rather than claiming a version that was never seen.
 			onLatest = false
+			headUnknown = true
 		}
 	}
 
@@ -734,7 +740,7 @@
 	bind:open
 	{diffDrawer}
 	claimOpening={() => (lastOpening = diffDrawer?.beginOpening())}
-	{baseUnknown}
+	baseUnknown={baseUnknown || headUnknown}
 	bind:deployedValue
 	currentValue={currentDiffValue}
 />
