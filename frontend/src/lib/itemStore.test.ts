@@ -57,7 +57,12 @@ function fakeRows() {
 			conflicts.delete(key.path)
 			writes.push({ path: key.path, value })
 		},
-		seedSync: (key, at) => void seeds.push({ path: key.path, at }),
+		seedSync: (key, at) => {
+			seeds.push({ path: key.path, at })
+			// Back in sync with the server, as `recordRemoteSync` does.
+			conflicts.delete(key.path)
+			failures.delete(key.path)
+		},
 		conflicted: (key) => conflicts.has(key.path),
 		failure: (key) => failures.get(key.path),
 		dropPending: (key) => void dropped.push(key.path),
@@ -369,6 +374,32 @@ describe('item store: commands', () => {
 		expect(await toggling).toEqual({ ok: false, error: 'refused' })
 		expect(item.value).toEqual({ path: 's', enabled: true })
 		expect(item.deployed).toEqual({ path: 's', enabled: true })
+		expect(rows.writes).toEqual([])
+	})
+
+	it('gives the server value back when two overlapping toggles are both refused', async () => {
+		type Sched = { path: string; enabled: boolean }
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'trigger_schedule', path: 's' },
+			{ workspace: 'w', path: 's' },
+			{ load: async () => ({ deployed: { path: 's', enabled: false } }) } as ItemAdapter<Sched>
+		)
+		await settle()
+		const first = deferred()
+		const second = deferred()
+		const enabling = item.patch({ enabled: true }, () => first.promise)
+		const disabling = item.patch({ enabled: false }, () => second.promise)
+		first.reject(new Error('refused'))
+		second.reject(new Error('refused'))
+
+		expect(await enabling).toMatchObject({ ok: false })
+		expect(await disabling).toMatchObject({ ok: false })
+		// The second's rollback target is what the server holds, not what the first optimistically
+		// put there and never got accepted.
+		expect(item.deployed).toEqual({ path: 's', enabled: false })
+		expect(item.value).toEqual({ path: 's', enabled: false })
 		expect(rows.writes).toEqual([])
 	})
 
@@ -777,6 +808,29 @@ describe('item store: one entry per key', () => {
 		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: null })
 	})
 
+	it('shows the draft of an editor that closed before its row was sent', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const a = adapter(async () => ({
+			deployed: deployedRes,
+			draft: rows.sent.get('u/me/r') as Res | undefined
+		}))
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const first = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+		first.handle.value = { ...deployedRes, description: 'typed then closed' }
+		// The row is queued, not sent: the syncer debounces it.
+		expect(rows.sent.has('u/me/r')).toBe(false)
+		first.release()
+
+		const second = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+
+		// Reopening must not read past the row the closing editor left queued.
+		expect(second.handle.value?.description).toBe('typed then closed')
+		expect(second.handle.dirty).toBe(true)
+	})
+
 	it('keeps an edit typed while the row it re-reads behind is still going', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
@@ -954,6 +1008,39 @@ describe('item store: conflicts', () => {
 		expect(rows.writes.at(-1)).toEqual({
 			path: 'u/me/r',
 			value: { ...deployedRes, description: 'mine' }
+		})
+	})
+
+	it('clears the conflict on a reload the user typed during', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		let reads = 0
+		const { item } = await open(
+			rows,
+			adapter(() => {
+				reads++
+				return reads > 1
+					? read.promise
+					: Promise.resolve({ deployed: deployedRes, draftSavedAt: 'T1' })
+			})
+		)
+		item.value = { ...deployedRes, description: 'mine' }
+		rows.conflicts.add('u/me/r')
+		expect(item.status).toBe('conflicted')
+
+		const resolving = item.resolveConflict('reload')
+		await settle()
+		// A conflicted key writes no row, so nothing typed here gets ahead of the read.
+		item.value = { ...deployedRes, description: 'typed during the reload' }
+		read.resolve({ deployed: deployedRes, draftSavedAt: 'T2' })
+		await resolving
+
+		expect(item.status).not.toBe('conflicted')
+		expect(rows.seeds.at(-1)).toEqual({ path: 'u/me/r', at: 'T2' })
+		expect(item.value?.description).toBe('typed during the reload')
+		expect(rows.writes.at(-1)).toEqual({
+			path: 'u/me/r',
+			value: { ...deployedRes, description: 'typed during the reload' }
 		})
 	})
 

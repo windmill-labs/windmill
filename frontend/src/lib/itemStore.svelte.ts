@@ -195,6 +195,12 @@ class Entry<V> {
 	stopWatch: (() => void) | undefined
 	/** Fields a `patch` has put on the deployed side ahead of the server. */
 	private patched: Record<string, unknown> = {}
+	/** For each of those fields, what the server last held, so a refused patch gives back that
+	 *  and not another patch's unaccepted value. */
+	private patchedBase: Record<string, unknown> = {}
+	/** Counts rows actually handed to the syncer, so a read can tell whether one went out while
+	 *  it was in flight. */
+	private rowWrites = 0
 	/** The value as last observed, serialized: `touch` acts only on a real change. */
 	private seen: string | undefined
 	/** The row last handed to the syncer (`null`: none, `undefined`: not known — the next
@@ -252,6 +258,7 @@ class Entry<V> {
 			return
 		}
 		this.row = desired
+		this.rowWrites++
 		this.ports.write(key, desired === null ? null : snapshot(this.value))
 	}
 
@@ -319,13 +326,14 @@ class Entry<V> {
 		const editsAtStart = editedBefore ?? this.edits
 		return this.run(async () => {
 			const key = this.key
-			// Whether anything could have written the row while this read was in flight: only an
-			// item already on screen has a row this entry is keeping.
-			const held = this.loaded
+			const rowsAtStart = this.rowWrites
 			let res: ItemLoad<V>
 			try {
 				if (this.retired) return superseded
 				if (!adapter.load) throw new Error('This item cannot be loaded')
+				// A row queued by whoever held this key before is debounced: send it, or this read
+				// answers with the deployed value and the draft reappears under a clean editor.
+				await this.ports.flush(key)
 				res = await adapter.load(key)
 			} catch (e) {
 				this.error = errorMessage(e)
@@ -347,10 +355,10 @@ class Entry<V> {
 			}
 			this.deployed = this.withPatched(snapshot(res.deployed))
 			this.origin = res.deployed !== undefined ? 'deployed' : 'draft'
-			// A row written while this read was in flight is newer than the one it read, and the
-			// syncer has already sent it: reseeding from this response would rewind `last_sync`
-			// past that, and every write after it is refused as a conflict.
-			if (!(held && keepValue)) {
+			// A row that went out while this read was in flight is newer than the one it read:
+			// reseeding from this response would rewind `last_sync` past what the syncer has
+			// already sent, and everything after that is refused as a conflict.
+			if (this.rowWrites === rowsAtStart) {
 				this.row = serialize(res.draft) ?? null
 				this.ports.seedSync(key, res.draftSavedAt)
 			}
@@ -560,12 +568,26 @@ class Entry<V> {
 		const before = snapshot(this[baseKey]) as Record<string, unknown> | undefined
 		const sent = snapshot(fields) as Record<string, unknown>
 		if (before !== undefined) this[baseKey] = { ...before, ...sent } as V
-		if (baseKey === 'deployed') Object.assign(this.patched, sent)
+		if (baseKey === 'deployed') {
+			// The field's server value is what it held before the first patch took it, not what
+			// the patch this one overtakes put there and may yet have refused.
+			for (const k of Object.keys(sent)) {
+				if (!(k in this.patched)) this.patchedBase[k] = before?.[k]
+			}
+			Object.assign(this.patched, sent)
+		}
 		if (this.value !== undefined) Object.assign(this.value as object, fields)
 		this.touch()
-		const settled = () => {
+		/** Hand each field this patch still owns back to whoever is next: nobody if it landed as
+		 *  sent, the server's value if it was refused, a later patch otherwise. */
+		const settled = (ok: boolean) => {
 			for (const [k, v] of Object.entries(sent)) {
-				if (deepEqual(this.patched[k], v)) delete this.patched[k]
+				if (deepEqual(this.patched[k], v)) {
+					delete this.patched[k]
+					delete this.patchedBase[k]
+				} else if (ok) {
+					this.patchedBase[k] = v
+				}
 			}
 		}
 		return this.run(async () => {
@@ -573,28 +595,29 @@ class Entry<V> {
 			try {
 				await write(this.key)
 			} catch (e) {
-				settled()
+				const base = { ...this.patchedBase }
+				settled(false)
 				const giveBack = (side: V | undefined): V | undefined => {
 					if (side === undefined || before === undefined) return undefined
 					const out = snapshot(side) as Record<string, unknown>
 					let changed = false
 					for (const [k, v] of Object.entries(sent)) {
 						if (deepEqual(out[k], v)) {
-							out[k] = before[k]
+							out[k] = baseKey === 'deployed' && k in base ? base[k] : before[k]
 							changed = true
 						}
 					}
 					return changed ? (out as V) : undefined
 				}
-				const base = giveBack(this[baseKey])
-				if (base !== undefined) this[baseKey] = base
+				const rolled = giveBack(this[baseKey])
+				if (rolled !== undefined) this[baseKey] = rolled
 				const value = giveBack(this.value)
 				if (value !== undefined) this.replaceValue(value)
 				this.error = errorMessage(e)
 				this.reconcile()
 				return { ok: false, error: this.error }
 			}
-			settled()
+			settled(true)
 			this.error = undefined
 			// `settled` has dropped from `patched` whatever this patch owned, so what is left is a
 			// newer patch of the same field, whose value stands over this one's.
