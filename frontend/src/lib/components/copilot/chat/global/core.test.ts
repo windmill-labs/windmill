@@ -2329,7 +2329,7 @@ describe('global AI tools', () => {
 			// Claims the key and removes nothing, so anything still gone was deleted by the chat.
 			discard: () => {
 				discards++
-				return Promise.resolve({ removed: true })
+				return Promise.resolve('done' as const)
 			},
 			list: () => []
 		})
@@ -2404,7 +2404,7 @@ describe('global AI tools', () => {
 			// Registered, but never had the item: it has not dealt with the row.
 			refresh: () => Promise.resolve('absent' as const),
 			itemDeleted: () => Promise.resolve(),
-			discard: () => Promise.resolve(false),
+			discard: () => Promise.resolve('absent' as const),
 			list: () => []
 		})
 		try {
@@ -2441,7 +2441,7 @@ describe('global AI tools', () => {
 			},
 			discard: () => {
 				calls.push('discard')
-				return Promise.resolve(true)
+				return Promise.resolve('done' as const)
 			},
 			list: () => []
 		})
@@ -2449,6 +2449,35 @@ describe('global AI tools', () => {
 			await deleteGlobalDraft(WORKSPACE, 'resource', path, undefined, { itemDeleted: true })
 			expect(calls).toEqual(['itemDeleted'])
 			expect(getBackendDraft('resource', path)).toBeUndefined()
+		} finally {
+			registerLiveItemBridge({
+				seed: () => false,
+				read: () => undefined,
+				refresh: () => undefined,
+				itemDeleted: () => Promise.resolve(),
+				discard: () => undefined,
+				list: () => []
+			})
+		}
+	})
+
+	// An editor that still has the item and still shows the draft has not discarded anything.
+	// Deleting the row here would take away the only copy the server holds while leaving that
+	// editor free to write it back, so the chat has to say the discard did not happen.
+	it('does not report a discard done when the live editor could not do it', async () => {
+		const path = 'u/admin/stale_res'
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		registerLiveItemBridge({
+			seed: () => false,
+			read: () => undefined,
+			refresh: () => Promise.resolve('failed' as const),
+			itemDeleted: () => Promise.resolve(),
+			discard: () => Promise.resolve('failed' as const),
+			list: () => []
+		})
+		try {
+			await expect(deleteGlobalDraft(WORKSPACE, 'resource', path)).rejects.toThrow()
+			expect(getBackendDraft('resource', path)).toBeDefined()
 		} finally {
 			registerLiveItemBridge({
 				seed: () => false,

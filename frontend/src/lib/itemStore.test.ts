@@ -776,7 +776,7 @@ describe('item store: origins', () => {
 
 		// The discard was about the value the chat saw, not this one. It reports the row dealt
 		// with either way, so the chat does not delete what it is now holding.
-		expect(await discarding).toBe(true)
+		expect(await discarding).toBe('done')
 		expect(item.value?.description).toBe('typed after the chat asked')
 		expect(item.dirty).toBe(true)
 		expect(rows.writes.at(-1)).toEqual({
@@ -936,7 +936,7 @@ describe('item store: origins', () => {
 
 		// It is registered, so the chat would otherwise take its answer as the cleanup being done
 		// — while an entry with nothing loaded writes no delete at all and the row survives.
-		expect(await store.bridge.discard('w', 'resource', 'u/me/r')).toBe(false)
+		expect(await store.bridge.discard('w', 'resource', 'u/me/r')).toBe('absent')
 		expect(await store.bridge.refresh('w', 'resource', 'u/me/r')).toBe('absent')
 		expect(rows.writes).toEqual([])
 	})
@@ -1424,8 +1424,10 @@ describe('item store: conflicts', () => {
 		// The gate is in `save` itself, not only in `canSave`: not every editor consults that.
 		expect(await open.save()).toMatchObject({ ok: false })
 		expect(deployed).toEqual({ ...b, args: { a: 2 } })
-		// And an outside discard is told the row was not dealt with, so the caller removes it.
-		expect(await store.bridge.discard('w', 'resource', 'u/me/b')).toBe(false)
+		// An outside discard reloads to clear the staleness; that GET fails too, so it reports
+		// the draft still there rather than letting the caller delete the only copy of it.
+		expect(await store.bridge.discard('w', 'resource', 'u/me/b')).toBe('failed')
+		expect(open.value?.description).toBe('mine')
 
 		// A reload gets it the baseline it missed, and it can act again.
 		reads = 0

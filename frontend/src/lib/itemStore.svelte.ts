@@ -476,14 +476,19 @@ class Entry<V> {
 		return 'failed'
 	}
 
-	/** Discard for an outside caller, resolving to whether this editor could deal with the row.
-	 *  Called now, not after a wait: `discard` snapshots when called, and an edit made while it
-	 *  queued behind a save must not look like part of what it was asked to throw away. Its queue
-	 *  already follows the first load, so what is left to report is whether that ever arrived. */
-	async discarded(): Promise<boolean> {
+	/** Discard for an outside caller. Called now, not after a wait: `discard` snapshots when
+	 *  called, and an edit made while it queued behind a save must not look like part of what it
+	 *  was asked to throw away. `absent`: never had the item, so the row is the caller's.
+	 *  `failed`: it has the item, on a baseline it cannot refresh, and still shows the draft. */
+	async discarded(): Promise<'done' | 'absent' | 'failed'> {
 		await this.discard()
-		// Stale refuses the discard, so the row is untouched and still the caller's to remove.
-		return this.loaded && !this.retired && !this.stale
+		if (this.retired || !this.loaded) return 'absent'
+		if (!this.stale) return 'done'
+		// Stale refused it. A reload is what clears that, and with a baseline it can trust the
+		// discard means something again — so the one thing worth trying before giving up.
+		if (!this.adapter || !(await this.load(this.adapter)).ok) return 'failed'
+		await this.discard()
+		return this.stale ? 'failed' : 'done'
 	}
 
 	/**
@@ -1176,7 +1181,7 @@ export function createItemStore(ports: ItemRowPort) {
 			workspace: string,
 			kind: UserDraftItemKind,
 			path: string
-		): Promise<boolean> | undefined {
+		): Promise<'done' | 'absent' | 'failed'> | undefined {
 			const entry = find(workspace, kind, path)
 			if (!entry) return undefined
 			// Returned rather than left running: the caller would otherwise send its own delete

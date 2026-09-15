@@ -643,9 +643,16 @@ export async function deleteGlobalDraft(
 			? UserDraft.remove(itemKind, storagePath, { workspace })
 			: UserDraft.clear(itemKind, storagePath, { workspace })
 	// An open editor owns this row and deletes it itself; a delete of ours alongside would be a
-	// second request with no baseline to check, free to remove a draft saved in between. False
-	// when that editor did not deal with the row after all, and then it is nobody's but ours.
-	if (!(live && (await live))) {
+	// second request with no baseline to check, free to remove a draft saved in between.
+	const handled = live ? await live : 'absent'
+	if (handled === 'failed') {
+		// It still has the item and still shows the draft. Deleting the row here would take away
+		// the only copy the server has while leaving the editor free to write it back.
+		throw new Error(
+			`Draft "${path}" is open in an editor that could not be refreshed, so it was not removed. Reload the editor and retry.`
+		)
+	}
+	if (handled !== 'done') {
 		// `remove`/`clear` only debounce the delete; persist it now so a deploy/discard
 		// that the caller awaits has actually cleared the server draft on return.
 		await UserDraftDbSyncer.save({
