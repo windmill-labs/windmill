@@ -662,13 +662,16 @@ pub async fn delete_own_draft_for_path(
 ///
 /// A draft already at `new_path` occupies it the way a deployed item does, so the move is
 /// refused with `BadRequest` inside the deploy's transaction, refusing the rename itself:
-/// moving onto it would merge two items or strand the row that lost.
+/// moving onto it would merge two items or strand the row that lost. `consumed_by` names
+/// the owner whose row there this deploy consumes, which is the draft being deployed after
+/// an earlier move carried it, and so cannot be in its own way.
 pub async fn move_drafts_for_path(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
     kinds: &[UserDraftItemKind],
     old_path: &str,
     new_path: &str,
+    consumed_by: Option<&str>,
 ) -> Result<()> {
     let typs = kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
     // Named by workspace username, as the editors name other users' drafts: the
@@ -679,10 +682,21 @@ pub async fn move_drafts_for_path(
            LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email
            LEFT JOIN password p ON p.email = d.email AND p.super_admin = true
            WHERE d.workspace_id = $1 AND d.path = $2 AND d.typ::text = ANY($3::text[])
+             -- A row of the consuming owner's that a move brought here from the very path
+             -- being renamed is the draft this deploy carries, not an item in its way. Any
+             -- other row of theirs is a second item and still collides.
+             AND ($4::text IS NULL OR d.email IS DISTINCT FROM $4 OR NOT EXISTS (
+                 SELECT 1 FROM draft_move m
+                 WHERE m.workspace_id = $1 AND m.typ::text = ANY($3::text[])
+                   AND m.old_path = $5 AND m.new_path = $2
+                   AND (m.email IS NULL OR m.email = $4)
+             ))
            ORDER BY 2"#,
         w_id,
         new_path,
         &typs as &[&str],
+        consumed_by,
+        old_path,
     )
     .fetch_all(&mut **tx)
     .await?;

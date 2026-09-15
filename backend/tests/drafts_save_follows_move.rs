@@ -480,3 +480,53 @@ async fn test_a_legacy_discard_follows_a_rename(db: Pool<Postgres>) -> anyhow::R
     );
     Ok(())
 }
+
+/// Deploying a draft that a move carried off an archived script: its parent is still the
+/// version at the old path, so the deploy renames from there and carries what is left over
+/// — onto the very draft being deployed. That row is this deploy's own, not an item in its
+/// way, or the deploy is refused and every retry refuses again.
+#[sqlx::test(fixtures("base", "drafts_save_follows_move"))]
+async fn test_a_moved_draft_deploys_at_its_new_path(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query("UPDATE script SET archived = true WHERE path = 'u/test-user/follow_a'")
+        .execute(&db)
+        .await?;
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/drafts/move/script/u/test-user/follow_a"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({ "new_path": "u/test-user/follow_b" }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "move failed: {}",
+        resp.text().await?
+    );
+
+    // Deploy it where it now lives, still parented on the archived version it forked from.
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/scripts/create"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({
+            "path": "u/test-user/follow_b",
+            "parent_hash": HEAD_HASH,
+            "summary": "A",
+            "description": "",
+            "content": "export function main() { return 2 }",
+            "language": "deno",
+            "schema": {}
+        }))
+        .send()
+        .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(status, 201, "the moved draft could not be deployed: {body}");
+    Ok(())
+}

@@ -3770,6 +3770,7 @@ async fn update_app_internal<'a>(
             &[UserDraftItemKind::App, UserDraftItemKind::RawApp],
             path,
             &npath,
+            (!ns.skip_draft_deletion.unwrap_or(false)).then_some(authed.email.as_str()),
         )
         .await?;
     }

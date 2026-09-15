@@ -1426,6 +1426,7 @@ async fn update_flow(
             &[UserDraftItemKind::Flow],
             flow_path,
             &nf.path,
+            (!nf.skip_draft_deletion.unwrap_or(false)).then_some(authed.email.as_str()),
         )
         .await?;
     }
