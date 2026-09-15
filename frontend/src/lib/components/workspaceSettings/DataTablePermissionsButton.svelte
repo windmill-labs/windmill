@@ -14,15 +14,18 @@
 	import {
 		FolderService,
 		GroupService,
+		SettingService,
 		UserService,
 		WorkspaceService,
 		type DatatablePermissions,
 		type InstanceDatatableRole
 	} from '$lib/gen'
+	import { superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
-	import { ADMIN_DATATABLE_ROLE } from '../dbTypes'
+	import { ADMIN_DATATABLE_ROLE, isDatatableRoleName } from '../dbTypes'
 	import PgAclEditor from '../datatableAcl/PgAclEditor.svelte'
+	import InstanceRolesButton from './InstanceRolesButton.svelte'
 
 	let {
 		workspace,
@@ -41,8 +44,10 @@
 	} = $props()
 
 	// `id` is the instance role's catalog id (or the reserved `admin`), which is what the tenant
-	// lists are keyed by — so renaming a role instance-side moves nothing here.
-	type EditedRole = { id: string; name: string | undefined; tenants: string[] }
+	// lists are keyed by — so renaming a role instance-side moves nothing here. A row without an id
+	// names a role the instance does not define yet: it cannot be saved until a superadmin creates
+	// it, and takes the new role's id once they have.
+	type EditedRole = { id: string | undefined; name: string | undefined; tenants: string[] }
 	type Edited = { permissioned: boolean; roles: EditedRole[]; defaultRoleId: string }
 
 	let drawerOpen = $state(false)
@@ -67,8 +72,14 @@
 
 	const editable = $derived(!!info?.editable)
 	const governing = $derived(info?.governing_workspace_id)
-	const availableRoles: InstanceDatatableRole[] = $derived(info?.available_roles ?? [])
+	// The instance catalog, read again after the instance roles drawer changes it.
+	let catalog = $state<InstanceDatatableRole[] | undefined>(undefined)
+	const availableRoles: InstanceDatatableRole[] = $derived(catalog ?? info?.available_roles ?? [])
 	const unusedRoles = $derived(availableRoles.filter((r) => !roles.some((row) => row.id === r.id)))
+	const pendingRoles = $derived(roles.filter((r) => r.id === undefined))
+	let instanceRoles: InstanceRolesButton | undefined = $state(undefined)
+
+	const roleKey = (role: EditedRole) => role.id ?? `pending:${role.name}`
 
 	const hasUnsavedChanges = $derived(
 		!deepEqual($state.snapshot(saved), {
@@ -97,6 +108,7 @@
 				loaded.unshift({ id: ADMIN_DATATABLE_ROLE, name: ADMIN_DATATABLE_ROLE, tenants: [] })
 			}
 			info = res
+			catalog = undefined
 			permissioned = res.permissioned
 			roles = loaded
 			defaultRoleId = res.default_role
@@ -135,9 +147,44 @@
 		roles.push({ id: role.id, name: role.name, tenants: [] })
 	}
 
-	function removeRole(id: string) {
-		roles = roles.filter((r) => r.id !== id)
-		if (defaultRoleId === id) defaultRoleId = ADMIN_DATATABLE_ROLE
+	/** Adds a role by name: the instance's role of that name, or a pending row for one it does not
+	 * define yet. */
+	function addRoleByName(typed: string) {
+		const name = typed.trim()
+		if (!isDatatableRoleName(name) || name.toLowerCase() === ADMIN_DATATABLE_ROLE) {
+			sendUserToast(
+				`'${name}' cannot be a data table role name: use letters, digits, '_' and '-'`,
+				true
+			)
+			return
+		}
+		if (roles.some((r) => r.name === name)) return
+		const existing = availableRoles.find((r) => r.name === name)
+		roles.push({ id: existing?.id, name, tenants: [] })
+	}
+
+	function removeRole(role: EditedRole) {
+		const key = roleKey(role)
+		roles = roles.filter((r) => roleKey(r) !== key)
+		if (role.id !== undefined && defaultRoleId === role.id) defaultRoleId = ADMIN_DATATABLE_ROLE
+	}
+
+	/** Reads the instance catalog again and gives each pending row the id of the role now defined
+	 * under its name. */
+	async function refreshCatalog() {
+		let fresh: InstanceDatatableRole[]
+		try {
+			fresh = await SettingService.listInstanceDatatableRoles()
+		} catch (e) {
+			sendUserToast(e?.body ?? e?.message ?? String(e), true)
+			return
+		}
+		catalog = fresh
+		for (const row of roles) {
+			if (row.id !== undefined) continue
+			const created = fresh.find((r) => r.name === row.name)
+			if (created) row.id = created.id
+		}
 	}
 
 	async function save() {
@@ -149,7 +196,7 @@
 				requestBody: {
 					permissioned,
 					default_role: defaultRoleId,
-					roles: roles.map((r) => ({ id: r.id, tenants: $state.snapshot(r.tenants) }))
+					roles: roles.map((r) => ({ id: r.id!, tenants: $state.snapshot(r.tenants) }))
 				}
 			})
 			sendUserToast(msg)
@@ -237,8 +284,8 @@
 				{#if permissioned}
 					{#if editable && availableRoles.length === 0}
 						<Alert type="warning" title="No role defined on this instance" size="xs">
-							Only <span class="font-mono">admin</span> can be used until a superadmin adds a data table
-							role, from Instance roles at the top of the data tables settings page.
+							Only <span class="font-mono">admin</span> can be used until a superadmin creates a data
+							table role. Type a name below to add one.
 						</Alert>
 					{/if}
 
@@ -271,7 +318,7 @@
 							</tr>
 						</Head>
 						<tbody class="divide-y bg-surface-tertiary">
-							{#each roles as role (role.id)}
+							{#each roles as role (roleKey(role))}
 								{@const isAdmin = role.id === ADMIN_DATATABLE_ROLE}
 								<Row>
 									<Cell first class="w-56 align-top">
@@ -281,6 +328,23 @@
 												<span class="text-2xs text-secondary italic">
 													no longer defined on this instance
 												</span>
+											{:else if role.id === undefined}
+												<Alert type="warning" title="This role does not exist yet" size="xs">
+													{#if $superadmin}
+														<div class="flex flex-col items-start gap-1">
+															<span>Create it on the instance to use it here.</span>
+															<Button
+																unifiedSize="xs"
+																variant="default"
+																on:click={() => instanceRoles?.open(role.name)}
+															>
+																Create it
+															</Button>
+														</div>
+													{:else}
+														Only a superadmin can create it on the instance.
+													{/if}
+												</Alert>
 											{/if}
 										</div>
 									</Cell>
@@ -296,21 +360,23 @@
 									<Cell class="w-20 align-top">
 										<div class="flex justify-center pt-2">
 											<Checkbox
-												checked={defaultRoleId === role.id}
-												disabled={!editable}
+												checked={role.id !== undefined && defaultRoleId === role.id}
+												disabled={!editable || role.id === undefined}
 												title="Use this role when a job names none"
-												onChange={() => (defaultRoleId = role.id)}
+												onChange={() => {
+													if (role.id !== undefined) defaultRoleId = role.id
+												}}
 											/>
 										</div>
 									</Cell>
 									<Cell last class="w-10 align-top">
 										{#if editable && !isAdmin}
-											<CloseButton small on:close={() => removeRole(role.id)} />
+											<CloseButton small on:close={() => removeRole(role)} />
 										{/if}
 									</Cell>
 								</Row>
 							{/each}
-							{#if editable && unusedRoles.length > 0}
+							{#if editable}
 								<Row class="!border-0">
 									<Cell colspan={4} class="pt-2 pb-2">
 										<div class="flex justify-center">
@@ -326,6 +392,7 @@
 														if (id) addRole(id)
 													}
 												}
+												onCreateItem={addRoleByName}
 												class="w-64"
 											/>
 										</div>
@@ -349,7 +416,10 @@
 				<Button
 					variant="accent"
 					unifiedSize="md"
-					disabled={!hasUnsavedChanges || loading || !!loadError}
+					disabled={!hasUnsavedChanges || loading || !!loadError || pendingRoles.length > 0}
+					title={pendingRoles.length > 0
+						? 'Create the roles that do not exist yet, or remove them'
+						: undefined}
 					loading={saving}
 					on:click={save}
 				>
@@ -359,3 +429,7 @@
 		{/snippet}
 	</DrawerContent>
 </Drawer>
+
+{#if $superadmin}
+	<InstanceRolesButton bind:this={instanceRoles} hideTrigger onChanged={refreshCatalog} />
+{/if}
