@@ -100,6 +100,7 @@ import {
 	__settleForTesting,
 	__syncRowsForTesting,
 	__writeSyncForTesting,
+	backupSettingsChanged,
 	restoreSessionBackups
 } from './sessionMirror.svelte'
 
@@ -336,6 +337,47 @@ describe('sessionMirror flush', () => {
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(3)
 		expect(pendingKeys()).toEqual(['r::s2::ws'])
+
+		// Backups an admin turns on again elsewhere are noticed once the page's memory of
+		// them being off expires: the removal goes then.
+		const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 11 * 60_000)
+		try {
+			pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 's2' }] })
+			await __flushForTesting()
+		} finally {
+			now.mockRestore()
+		}
+		expect(pushMock).toHaveBeenCalledTimes(4)
+		expect(pushMock.mock.calls[3][0].requestBody.removed).toEqual(['s2'])
+		expect(pendingKeys()).toEqual([])
+	})
+
+	it('backs up and restores again at once when the backups are turned on from this page', async () => {
+		const s: Session = { id: 'so', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
+		sessionState.sessions = [s]
+		await putSession(s)
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'so' }] })
+		await __flushForTesting()
+		await putSession({ ...s, summary: 'changed' })
+		pushMock.mockResolvedValueOnce({ enabled: false, results: [] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(2)
+		await putSession({ ...s, summary: 'changed again' })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(2)
+
+		listMock.mockResolvedValue({ enabled: true, sessions: [] })
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'so' }] })
+		usersWorkspaceStore.set({ email: EMAIL, workspaces: [] } as never)
+		backupSettingsChanged('ws')
+		await __settleForTesting()
+		await __flushForTesting()
+		expect(listMock).toHaveBeenCalledTimes(1)
+		expect(pushMock).toHaveBeenCalledTimes(3)
+		// The rows went stale while the backups were off: the session goes whole.
+		expect(pushMock.mock.calls[2][0].requestBody.sessions[0].whole).toBe(true)
+		expect(pushMock.mock.calls[2][0].requestBody.sessions[0].head.summary).toBe('changed again')
+		expect(await pendingDirty()).toEqual([])
 	})
 
 	it('settles nothing of a request that failed, even a session whose parts were still to come', async () => {
@@ -737,6 +779,37 @@ describe('sessionMirror flush', () => {
 		expect(pushMock).toHaveBeenCalledTimes(1)
 		expect(await pendingDirty()).toEqual(['sf'])
 		expect(await __syncRowsForTesting(EMAIL)).toEqual([])
+	})
+
+	it('keeps an edit whose dirty mark cannot be written while the session has no row yet', async () => {
+		const s: Session = { id: 'sn', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
+		sessionState.sessions = [s]
+		await putSession(s)
+		// The first push is held open; storage is full for the edit that lands meanwhile.
+		let release!: (value: unknown) => void
+		pushMock.mockImplementationOnce(() => new Promise((r) => (release = r)))
+		const inFlight = __flushForTesting()
+		await vi.waitFor(() => expect(pushMock).toHaveBeenCalledTimes(1))
+		const setItem = localStorage.setItem.bind(localStorage)
+		localStorage.setItem = (key: string, value: string) => {
+			if (key.includes('::d::')) throw new Error('QuotaExceededError')
+			setItem(key, value)
+		}
+		try {
+			await putSession({ ...s, summary: 'second' })
+		} finally {
+			localStorage.setItem = setItem
+		}
+		release({ enabled: true, results: [{ id: 'sn' }] })
+		await inFlight
+		// The row the push wrote took the bump over, so the edit is still pending.
+		expect((await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'sn')?.extraV).toBe(1)
+		expect(await pendingDirty()).toEqual(['sn'])
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sn' }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(pushMock.mock.calls[1][0].requestBody.sessions[0].head.summary).toBe('second')
+		expect(await pendingDirty()).toEqual([])
 	})
 
 	it('carries an edit on the sync row when its dirty mark cannot be written, even during a push', async () => {

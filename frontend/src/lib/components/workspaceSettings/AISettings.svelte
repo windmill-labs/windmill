@@ -28,6 +28,7 @@
 	import ModelPricing from './ModelPricing.svelte'
 	import AiUsagePanel from './AiUsagePanel.svelte'
 	import { setCopilotInfo } from '$lib/aiStore'
+	import { backupSettingsChanged } from '$lib/components/sessions/sessionMirror.svelte'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
 	import { Settings } from 'lucide-svelte'
 	import { untrack } from 'svelte'
@@ -340,6 +341,7 @@
 
 	async function editCopilotConfig(): Promise<void> {
 		const config = buildConfig()
+		const backupsToggled = sessionsStorageDisabled !== initialSessionsStorageDisabled
 		let settingsState: GetCopilotSettingsStateResponse | undefined
 
 		if (customSave) {
@@ -356,6 +358,9 @@
 				instance_ai_summary: response.instance_ai_summary
 			}
 			sendUserToast('AI settings updated')
+			// This page's session backups follow the switch at once, rather than at the
+			// next page load.
+			if (backupsToggled) backupSettingsChanged(effectiveWorkspace)
 		}
 		storeInitialState()
 		// Hand the parent what was persisted: it owns `initialConfig`, and this component is

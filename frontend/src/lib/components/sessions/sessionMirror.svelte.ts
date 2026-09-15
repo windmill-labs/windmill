@@ -157,10 +157,12 @@ function readPending(): PendingMarks {
 	} catch (e) {
 		console.error('Could not read session backup marks', e)
 	}
-	// Marks this page could not write: their rows carry the bumps (or are absent), which is
-	// what makes them live; the counter only says so.
-	for (const id of unwritableMarks) {
-		if (!marks.dirty.some((d) => d.id === id)) marks.dirty.push({ id, v: 0 })
+	// Marks this page could not write: their rows carry the bumps, or this page does until
+	// a row exists (see `bumpViaSyncRow`); the counter counts with those.
+	for (const [id, bumps] of unwritableMarks) {
+		const mark = marks.dirty.find((d) => d.id === id)
+		if (mark) mark.v += bumps
+		else marks.dirty.push({ id, v: bumps })
 	}
 	return marks
 }
@@ -184,11 +186,22 @@ function bumpDirty(sessionId: string, email?: string): boolean {
 /** The durable fallback for a dirty mark that could not be written: the bump goes on the
  * sync row, where a flush in flight cannot lose it (`writeSync` keeps it). A session
  * without a row is live without any mark, and marked again by every load's backfill. */
+/** A bump localStorage refused goes on the sync row. A session with no row yet (its first
+ * push in flight, say) keeps it in this page until a row is written, which takes it over
+ * (see `writeSync`): the row the push writes would otherwise retire the mark with the bump
+ * unseen. Another user's session with no row is left to that user's next load, which marks
+ * every session without a row. */
 async function bumpViaSyncRow(id: string, email = getCurrentUserEmail()): Promise<void> {
 	if (!email) return
-	await updateSyncRow(id, email, (row) =>
-		row ? { ...row, extraV: (row.extraV ?? 0) + 1 } : undefined
-	)
+	let carried = false
+	await updateSyncRow(id, email, (row) => {
+		if (!row) return undefined
+		carried = true
+		return { ...row, extraV: (row.extraV ?? 0) + 1 }
+	})
+	if (!carried && email === getCurrentUserEmail()) {
+		unwritableMarks.set(id, (unwritableMarks.get(id) ?? 0) + 1)
+	}
 }
 
 /** Reads a row and writes what `update` makes of it, in the store of `email`: through the
@@ -278,9 +291,29 @@ let retryMs = RETRY_MIN_MS
  * but the marks and the sync state stay, so the next load tries again.
  */
 const wsState = new Map<string, 'on' | 'off' | 'refused'>()
+/** When each workspace was last found off: backups an admin turns on again are noticed
+ * at the next flush or restore after `OFF_RETRY_MS`, or at once in the admin's own page
+ * (see `backupSettingsChanged`). */
+const offSince = new Map<string, number>()
+const OFF_RETRY_MS = 10 * 60_000
+
+function markOff(ws: string): void {
+	wsState.set(ws, 'off')
+	offSince.set(ws, Date.now())
+}
+
+function isOff(ws: string): boolean {
+	if (wsState.get(ws) !== 'off') return false
+	if (Date.now() - (offSince.get(ws) ?? 0) < OFF_RETRY_MS) return true
+	wsState.delete(ws)
+	offSince.delete(ws)
+	return false
+}
 let backfilled = false
 /** Sessions of the current user whose dirty mark could not be written this page. */
-let unwritableMarks = new Set<string>()
+/** Sessions whose dirty mark localStorage refused this page, with the bumps of theirs no
+ * sync row could take yet. */
+let unwritableMarks = new Map<string, number>()
 const restoredWorkspaces = new Set<string>()
 
 // One flush or restore at a time in this tab; each reads the marks fresh.
@@ -382,11 +415,16 @@ async function removeViaSyncRow(
 async function writeSync(states: MirrorSyncState[], email: string): Promise<void> {
 	const db = await syncDb(email)
 	if (!db || states.length === 0) return
+	// Bumps this page kept for want of a row (see `bumpViaSyncRow`) move onto the row now;
+	// what arrives while the write is in flight stays counted here.
+	const taken = new Map<string, number>()
 	const tx = db.transaction('sync', 'readwrite')
 	for (const s of states) {
 		const cur = await tx.store.get(s.id)
 		const removed = s.removed || cur?.removed
-		const extraV = Math.max(s.extraV ?? 0, cur?.extraV ?? 0)
+		const kept = email === getCurrentUserEmail() ? (unwritableMarks.get(s.id) ?? 0) : 0
+		if (kept > 0) taken.set(s.id, kept)
+		const extraV = Math.max(s.extraV ?? 0, cur?.extraV ?? 0) + kept
 		const alsoIn = new Set(s.alsoIn ?? [])
 		if (s.alsoIn === undefined && cur?.ws === s.ws) {
 			for (const id of cur.alsoIn ?? []) alsoIn.add(id)
@@ -402,6 +440,7 @@ async function writeSync(states: MirrorSyncState[], email: string): Promise<void
 		})
 	}
 	await tx.done
+	for (const [id, n] of taken) unwritableMarks.set(id, (unwritableMarks.get(id) ?? 0) - n)
 }
 
 async function deleteSync(ids: string[], email: string): Promise<void> {
@@ -877,7 +916,7 @@ async function flush(): Promise<void> {
 			// per deleted session forever.
 			if (!ws) {
 				if (r.key) consumedRemoved.push(r.key)
-			} else if (!wsState.has(ws) || wsState.get(ws) === 'on') {
+			} else if (!isOff(ws) && wsState.get(ws) !== 'refused') {
 				// The row says where the copy is only for its own workspace: a session that
 				// moved on has the row its new workspace wrote, and its mark says instead.
 				const own = sync?.ws === ws ? sync : undefined
@@ -890,7 +929,7 @@ async function flush(): Promise<void> {
 					storageId: holding[0],
 					alsoIn: holding.slice(1)
 				})
-			} else if (wsState.get(ws) === 'off' && !sync && r.key) consumedRemoved.push(r.key)
+			} else if (isOff(ws) && !sync && r.key) consumedRemoved.push(r.key)
 		}
 		for (const d of live) {
 			const session = byId.get(d.id)
@@ -901,10 +940,11 @@ async function flush(): Promise<void> {
 				continue
 			}
 			if (session.transient || !session.workspace_id) continue
-			const state = wsState.get(session.workspace_id)
 			// Left in place for a workspace that is off or refused: a move into it must still
 			// remember the old copy, and a mark costs one lookup per flush.
-			if (state === 'off' || state === 'refused') continue
+			if (isOff(session.workspace_id) || wsState.get(session.workspace_id) === 'refused') {
+				continue
+			}
 			const sync = syncRows.get(d.id)
 			// A stale row plans like no row at all: the whole session goes again. One naming
 			// another workspace still says where the old copy is, stale or not.
@@ -921,7 +961,7 @@ async function flush(): Promise<void> {
 			const out = await pushWorkspace(ws, w, email)
 			if (out.status === 'abort') return
 			if (out.status === 'off') {
-				wsState.set(ws, 'off')
+				markOff(ws)
 				await staleWorkspaceSync(ws, email)
 				// Same rule as the loop above: a removal is worth keeping only for a session
 				// that was backed up from here.
@@ -1119,14 +1159,14 @@ async function listWorkspace(ws: string, email: string): Promise<BackupListing |
 	} catch (e) {
 		const status = statusOf(e)
 		if (status === 404 || status === 403) {
-			wsState.set(ws, 'off')
+			markOff(ws)
 			return 'off'
 		}
 		console.warn('Could not list session backups', e)
 		return 'failed'
 	}
 	if (!listing.enabled) {
-		wsState.set(ws, 'off')
+		markOff(ws)
 		return 'off'
 	}
 	if (wsState.get(ws) !== 'refused') wsState.set(ws, 'on')
@@ -1164,6 +1204,8 @@ async function restoreFamily(family: string[], todo: string[], email: string): P
 			return
 		}
 		if (listing !== 'off') listings.set(ws, listing)
+		// Probed again once its backups may be on again (see `isOff`).
+		else restoredWorkspaces.delete(ws)
 	}
 	const newest = new Map<string, { ws: string; epoch: number; at: number }>()
 	for (const [ws, listing] of listings) {
@@ -1292,7 +1334,7 @@ async function restoreWorkspace(
 			return
 		}
 		if (!pulled.enabled) {
-			wsState.set(ws, 'off')
+			markOff(ws)
 			return
 		}
 		// Ask again for what did not fit, one at a time so each answer is as small as can be.
@@ -1468,11 +1510,23 @@ export function restoreSessionBackups(currentWorkspace: string): void {
 	const root = workspaceRootId(currentWorkspace, all) ?? currentWorkspace
 	const family = new Set<string>([currentWorkspace])
 	for (const w of all) if ((workspaceRootId(w.id, all) ?? w.id) === root) family.add(w.id)
-	const todo = [...family].filter((ws) => !restoredWorkspaces.has(ws))
+	const todo = [...family].filter((ws) => !restoredWorkspaces.has(ws) && !isOff(ws))
 	for (const ws of todo) restoredWorkspaces.add(ws)
 	if (todo.length > 0) {
 		void enqueue(() => withUserLock(email, () => restoreFamily([...family], todo, email), true))
 	}
+}
+
+/** The workspace's backups were just turned on or off from this page: what was learnt of
+ * them is forgotten, and the next flush and a restore find out afresh. */
+export function backupSettingsChanged(ws: string): void {
+	wsState.delete(ws)
+	offSince.delete(ws)
+	restoredWorkspaces.delete(ws)
+	// The rows went stale when the backups went off: the sessions are marked again.
+	backfilled = false
+	scheduleFlush()
+	restoreSessionBackups(ws)
 }
 
 // --- Wiring ---
@@ -1485,7 +1539,9 @@ if (BROWSER) {
 			if (bumpDirty(signal.sessionId, signal.email)) {
 				if (mine) scheduleFlush()
 			} else {
-				if (mine) unwritableMarks.add(signal.sessionId)
+				if (mine && !unwritableMarks.has(signal.sessionId)) {
+					unwritableMarks.set(signal.sessionId, 0)
+				}
 				void bumpViaSyncRow(signal.sessionId, signal.email).finally(() => {
 					if (mine) scheduleFlush()
 				})

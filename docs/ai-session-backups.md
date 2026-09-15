@@ -126,7 +126,10 @@ against it for the same reason.
 The feature is on wherever the workspace has primary storage, and off with
 `ai_config.sessions_storage_disabled` (the `copilot_disabled` pattern: no migration, carried by
 settings export and the CLI). A build without `parquet` has no routes (404), a workspace without
-storage answers `enabled: false`; either turns the backup off for the page.
+storage answers `enabled: false`; either turns the backup off for ten minutes, after which the
+next flush or restore asks again, and the AI settings page tells the mirror at once when the
+switch is saved there (the off state is forgotten, the rows that went stale are marked again,
+a restore runs).
 
 ## Conflicts and deletion
 
@@ -249,7 +252,10 @@ credentials can put anything at a predictable key; one larger than its listing s
 since (a push replaced it) and ends its page, for the next pull to size anew. A dirty mark that cannot be written
 (localStorage full) records its bump on the session's sync row instead (`extraV`, counted
 with the mark's counter and kept by every row write, so a push in flight cannot retire it);
-a session without a row is live without a mark, and marked again by every load's backfill.
+a session without a row yet (its first push in flight) keeps the bump in the page, and the
+next row write takes it onto the row in the same transaction, so the row the push writes
+cannot retire the mark with the bump unseen; a session without a row is live without a mark,
+and marked again by every load's backfill.
 A mark or removal for another user (a write that landed after a switch) reaches that user's
 rows through a connection of its own, since the shared handle follows the current user. Nothing is read past the budget, whatever a session holds. A
 restore takes the newest 50 sessions per workspace: every visible session gets a runtime, and
