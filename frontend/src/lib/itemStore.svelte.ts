@@ -353,7 +353,7 @@ class Entry<V> {
 
 	/** `editedBefore`: the edit count as of when this read was decided on, for a caller that did
 	 *  something async first. */
-	load(adapter: ItemAdapter<V>, asOf?: AsOf): Promise<CommandOutcome> {
+	load(adapter: ItemAdapter<V>, asOf?: AsOf, unasked = false): Promise<CommandOutcome> {
 		this.loads++
 		return this.run(async (at) => {
 			const key = this.key
@@ -371,9 +371,14 @@ class Entry<V> {
 			} finally {
 				this.loads--
 			}
+			// A conflicted key holds a value that is on screen only: the server refused it and
+			// nothing can send it, so a read nobody asked for must not put the server's value in
+			// its place, nor answer the conflict on the user's behalf. Checked here rather than
+			// before the read, because the flush that precedes one is itself a way to find out.
+			const standOff = unasked && this.ports.conflicted(key)
 			// Whatever landed since the read was asked for — an external write, an edit — is
 			// newer than what it read, so the read only moves the deployed side under it.
-			const keepValue = this.edits !== at.edits
+			const keepValue = standOff || this.edits !== at.edits
 			this.meta = res.meta
 			this.error = undefined
 			if (isTemporaryPath(key.path)) {
@@ -385,7 +390,9 @@ class Entry<V> {
 			}
 			this.serverDeployed = snapshot(res.deployed)
 			this.origin = res.deployed !== undefined ? 'deployed' : 'draft'
-			this.adoptRow(key, res.draft, res.draftSavedAt, at.rows)
+			// The deployed side above always advances: the item did change, and a discard after
+			// the user keeps theirs has to land on what the server holds now.
+			if (!standOff) this.adoptRow(key, res.draft, res.draftSavedAt, at.rows)
 			this.loaded = true
 			if (!keepValue) {
 				this.pristine = this.settles && this.origin === 'deployed' && res.draft === undefined
@@ -401,15 +408,11 @@ class Entry<V> {
 	 *  so they come back over what was written; one typed since the read was asked for stays. */
 	async reread(): Promise<CommandOutcome> {
 		if (!this.loaded || this.retired || !this.adapter) return { ok: true }
-		// This re-read only holds because what is on screen comes back from its own row. A
-		// conflicted key has no row of ours on the server and no way to put one there, so reading
-		// would replace the value with the other writer's and call the conflict resolved.
-		if (this.ports.conflicted(this.key)) return { ok: true }
 		// Taken before the row goes, not after it lands: an edit typed while that write is in
 		// flight is in neither it nor the read that follows, and is newer than both.
 		const asOf = this.asOf()
 		await this.ports.flush(this.key)
-		return this.load(this.adapter, asOf)
+		return this.load(this.adapter, asOf, true)
 	}
 
 	/** An outside write (the AI chat, another editor): a real divergence, never settling. */

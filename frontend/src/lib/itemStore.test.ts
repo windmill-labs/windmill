@@ -28,6 +28,8 @@ function fakeRows() {
 	const conflicts = new Set<string>()
 	/** Paths whose next write the server fails. */
 	const failing = new Set<string>()
+	/** Paths the server rejects when their queued row is actually sent. */
+	const conflictOnFlush = new Set<string>()
 	const failures = new Map<string, string>()
 	const hints = new Map<string, boolean>()
 	/** Paths whose parked payload was dropped. */
@@ -55,6 +57,11 @@ function fakeRows() {
 			const going = queued.has(key.path) ? { value: queued.get(key.path) } : undefined
 			queued.delete(key.path)
 			if (holdFlush) await holdFlush
+			if (going && conflictOnFlush.has(key.path)) {
+				conflictOnFlush.delete(key.path)
+				conflicts.add(key.path)
+				return
+			}
 			if (going) sent.set(key.path, going.value)
 		},
 		overwrite: async (key, value) => {
@@ -80,6 +87,7 @@ function fakeRows() {
 		port,
 		writes,
 		conflicts,
+		conflictOnFlush,
 		failing,
 		hints,
 		dropped,
@@ -1143,6 +1151,43 @@ describe('item store: conflicts', () => {
 		// conflict resolved. It is the user's to resolve, so it stays.
 		expect(open.value?.description).toBe('mine')
 		expect(open.status).toBe('conflicted')
+		// The deployed side still learns the write: keeping mine and then discarding has to land
+		// on what the server holds now, not on the config it held before the panel wrote.
+		expect(open.deployed).toEqual({ ...b, args: { a: 2 } })
+		expect(await open.discard()).toEqual({ removed: false })
+		expect(open.value).toEqual({ ...b, args: { a: 2 } })
+	})
+
+	it('keeps a local edit the flush before a re-read found a conflict for', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const b = { ...deployedRes, path: 'u/me/b' }
+		let deployed = b
+		const theirs = { ...b, description: 'the other tab' }
+		const { handle: open } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
+			{ workspace: 'w', path: 'u/me/b' },
+			adapter(async () => ({ deployed, draft: theirs }))
+		)
+		await settle()
+		open.value = { ...b, description: 'mine' }
+		// The row is queued, not yet refused: the conflict only surfaces when the flush sends it,
+		// which is the flush the re-read does before reading.
+		rows.conflictOnFlush.add('u/me/b')
+
+		const temporary = newItemPath()
+		const { handle: panel } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: temporary },
+			{ workspace: 'w', path: temporary, template: b, standsFor: 'u/me/b' },
+			adapter({}, async (ctx) => void (deployed = { ...ctx.value }))
+		)
+		await settle()
+		panel.value = { ...b, args: { a: 2 } }
+		expect(await panel.save()).toMatchObject({ ok: true, path: 'u/me/b' })
+
+		expect(open.status).toBe('conflicted')
+		expect(open.value?.description).toBe('mine')
+		expect(open.deployed).toEqual({ ...b, args: { a: 2 } })
 	})
 
 	it('clears the conflict on a reload the user typed during', async () => {

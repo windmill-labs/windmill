@@ -532,17 +532,19 @@ export const UserDraftDbSyncer = {
 		}
 	},
 
-	/**
-	 * Seed the per-tab `last_sync` after an editor reads a draft from the
-	 * server. Pass the response's `draft_saved_at` so the next save sends a
-	 * matching `last_sync`; pass `undefined` when no draft existed (next
-	 * save omits `last_sync`, the backend's first-push branch).
-	 */
 	/** Rows handed over for `query` so far, for a reader to hand back to `recordRemoteSync`. */
 	sendsSoFar(query: UserDraftLastSyncQuery): number {
 		return sends.get(draftKey(query.workspace, query.itemKind, query.path)) ?? 0
 	},
 
+	/**
+	 * Seed the per-tab `last_sync` after an editor reads a draft from the
+	 * server. Pass the response's `draft_saved_at` so the next save sends a
+	 * matching `last_sync`; pass `undefined` when no draft existed (next
+	 * save omits `last_sync`, the backend's first-push branch). Pass the
+	 * `sendsSoFar` taken before the read as `since`: a row handed over after
+	 * that puts the syncer ahead of this response, which is then ignored.
+	 */
 	recordRemoteSync(
 		query: UserDraftLastSyncQuery,
 		draftSavedAt: string | undefined,
