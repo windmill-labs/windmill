@@ -84,7 +84,6 @@
 		onEditInForkClick
 	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
-	import { agentStreamingEnabled } from '$lib/components/flows/agentFormFields'
 
 	let flow: Flow | undefined = $state()
 	let can_write = $state(false)
@@ -523,12 +522,6 @@
 	let showEditButtons = $state(false)
 	let mainButtons = $derived(getMainButtons(flow, args))
 	let chatInputEnabled = $derived(flow?.value?.chat_input_enabled ?? false)
-	let shouldUseStreaming = $derived.by(() => {
-		const modules = flow?.value?.modules
-		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		if (lastModule?.value?.type !== 'aiagent') return false
-		return agentStreamingEnabled(lastModule.value)
-	})
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -701,7 +694,6 @@
 								onRunFlow={runFlowForChat}
 								{deploymentInProgress}
 								path={flow?.path ?? ''}
-								useStreaming={shouldUseStreaming}
 								inputSchema={flow?.schema}
 							/>
 						{:else}
