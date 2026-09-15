@@ -831,6 +831,8 @@ pub enum OpenAIResponsesSSEEvent {
 /// OpenAI Responses API SSE Parser for streaming responses
 pub struct OpenAIResponsesSSEParser {
     pub accumulated_content: String,
+    /// The reasoning summary streamed before the answer, kept so it can be stored with it.
+    pub accumulated_reasoning: String,
     pub accumulated_tool_calls: HashMap<String, OpenAIToolCall>,
     /// Maps item_id -> (name, call_id) for function calls
     tool_call_metadata: HashMap<String, (String, String)>,
@@ -852,6 +854,7 @@ impl OpenAIResponsesSSEParser {
     pub fn new(stream_event_processor: Box<dyn StreamEventSink>) -> Self {
         Self {
             accumulated_content: String::new(),
+            accumulated_reasoning: String::new(),
             accumulated_tool_calls: HashMap::new(),
             tool_call_metadata: HashMap::new(),
             tool_call_arguments: HashMap::new(),
@@ -973,6 +976,7 @@ impl SSEParser for OpenAIResponsesSSEParser {
                 OpenAIResponsesSSEEvent::ReasoningSummaryPartAdded {} => {
                     self.reasoning_summary_parts += 1;
                     if self.reasoning_summary_parts > 1 {
+                        self.accumulated_reasoning.push_str("\n\n");
                         let event =
                             StreamingEvent::ReasoningTokenDelta { content: "\n\n".to_string() };
                         self.stream_event_processor
@@ -983,6 +987,7 @@ impl SSEParser for OpenAIResponsesSSEParser {
 
                 OpenAIResponsesSSEEvent::ReasoningSummaryTextDelta { delta } => {
                     if !delta.is_empty() {
+                        self.accumulated_reasoning.push_str(&delta);
                         let event = StreamingEvent::ReasoningTokenDelta { content: delta };
                         self.stream_event_processor
                             .send(event, &mut self.events_str)
@@ -1070,6 +1075,7 @@ mod tests {
             parser.parse_event_data(data).await.unwrap();
         }
         assert_eq!(parser.events_str, "**Planning**\n\nThen answer");
+        assert_eq!(parser.accumulated_reasoning, "**Planning**\n\nThen answer");
     }
 
     #[test]
