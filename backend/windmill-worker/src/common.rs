@@ -1574,18 +1574,28 @@ pub async fn cached_result_path(
             _ => {}
         }
     }
-    // A workflow-as-code task child runs its parent's code with the parent's
-    // arguments; the step it executes is what tells its result from the parent's
-    // and from its siblings'.
-    if let Some(step_key) = wac_executing_key(db, job).await? {
-        hasher.update(b"wac_step:");
-        hasher.update(step_key.as_bytes());
-    }
+    // A task child runs its parent's code with its parent's arguments. With the SDK's
+    // fingerprint it is keyed on that and its own call arguments. Without one it is keyed
+    // on its step key and the parent's arguments: a step key names a position, not a
+    // task, and only the parent's arguments tell apart tasks a branch puts at one.
+    let args = match wac_task_identity(db, job).await? {
+        Some(WacTaskIdentity::Fingerprint { fn_id, args }) => {
+            hasher.update(b"wac_fn:");
+            hasher.update(fn_id.as_bytes());
+            Some(Json(args))
+        }
+        Some(WacTaskIdentity::StepKey(key)) => {
+            hasher.update(b"wac_step:");
+            hasher.update(key.as_bytes());
+            job.args.clone()
+        }
+        None => job.args.clone(),
+    };
     hash_args(
         db,
         client,
         &job.workspace_id,
-        &job.args,
+        &args,
         &mut hasher,
         &job.id,
         job.cache_ignore_s3_path.unwrap_or(false),
@@ -1594,23 +1604,41 @@ pub async fn cached_result_path(
     Ok(format!("g/results/{:064x}", hasher.finalize()))
 }
 
-/// The checkpoint step key a workflow-as-code parent seeded for this child at push
-/// time; `None` for any job that is not such a child.
-async fn wac_executing_key(
+/// What a workflow-as-code parent seeded in a task child's checkpoint at push time
+/// to key the child's cached result on.
+enum WacTaskIdentity {
+    Fingerprint { fn_id: String, args: HashMap<String, Box<RawValue>> },
+    StepKey(String),
+}
+
+/// `None` for any job that is not a workflow-as-code task child.
+async fn wac_task_identity(
     db: &DB,
     job: &MiniPulledJob,
-) -> windmill_common::error::Result<Option<String>> {
+) -> windmill_common::error::Result<Option<WacTaskIdentity>> {
     if job.parent_job.is_none() || job.flow_step_id.is_some() {
         return Ok(None);
     }
-    let key: Option<Option<String>> = sqlx::query_scalar(
-        "SELECT workflow_as_code_status->'_checkpoint'->>'_executing_key' \
+    let identity: Option<(
+        Option<String>,
+        Option<String>,
+        Option<Json<HashMap<String, Box<RawValue>>>>,
+    )> = sqlx::query_as(
+        "SELECT workflow_as_code_status->'_checkpoint'->>'_executing_fn', \
+                workflow_as_code_status->'_checkpoint'->>'_executing_key', \
+                workflow_as_code_status->'_checkpoint'->'_executing_args' \
          FROM v2_job_status WHERE id = $1",
     )
     .bind(job.id)
     .fetch_optional(db)
     .await?;
-    Ok(key.flatten())
+    Ok(match identity {
+        Some((Some(fn_id), _, Some(Json(args)))) => {
+            Some(WacTaskIdentity::Fingerprint { fn_id, args })
+        }
+        Some((_, Some(key), _)) => Some(WacTaskIdentity::StepKey(key)),
+        _ => None,
+    })
 }
 
 #[cfg(feature = "parquet")]

@@ -1847,3 +1847,19 @@ class TestApprovalKeys:
             await wait_for_approval()
 
         assert _run_workflow(wf, {"completed_steps": {"approval": {}}}, {})["key"] == "approval_2"
+
+
+class TestTaskFingerprint:
+    """The worker keys a task child's cached result on the ``fn_id`` its dispatch
+    carries, so it has to follow the task, not the position it is called at."""
+
+    def test_one_task_keeps_its_fingerprint_and_another_gets_its_own(self):
+        first = _run_workflow(double_parallel_wf, {}, {})
+        assert [s["key"] for s in first["steps"]] == ["double", "double_2"]
+        assert first["steps"][0]["fn_id"] == first["steps"][1]["fn_id"]
+
+        second = _run_workflow(
+            double_parallel_wf, {"completed_steps": {"double": 2, "double_2": 4}}, {}
+        )
+        assert [s["key"] for s in second["steps"]] == ["add_one", "add_one_2"]
+        assert second["steps"][0]["fn_id"] != first["steps"][0]["fn_id"]
