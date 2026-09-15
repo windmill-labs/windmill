@@ -53,8 +53,8 @@ use windmill_common::per_minute_counter::PerMinuteCounter;
 use windmill_common::users::truncate_token;
 use windmill_common::users::COOKIE_NAME;
 use windmill_common::users::{
-    username_to_permissioned_as, PERMISSIONED_AS_MAX_LEN, SUPERADMIN_NOTIFICATION_EMAIL,
-    SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL, VALID_EMAIL,
+    username_to_permissioned_as, EMAIL_COLUMN_MAX_LEN, PERMISSIONED_AS_MAX_LEN,
+    SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL, VALID_EMAIL,
 };
 use windmill_common::utils::paginate;
 use windmill_common::worker::CLOUD_HOSTED;
@@ -1758,7 +1758,6 @@ struct ChangeUserEmail {
 /// `varchar(50)`, and `v2_job.permissioned_as` in a `varchar(55)`; every other email column is
 /// `varchar(255)`. The strictest of the two bounds is used for all of them.
 const SHORT_EMAIL_COLUMN_MAX_LEN: usize = 50;
-const EMAIL_COLUMN_MAX_LEN: usize = 255;
 
 /// Move an account to a new email address, in place: the `password` row (and with it the
 /// instance-wide username, the role and the login type) is kept and every email-keyed row is
@@ -3253,7 +3252,10 @@ mod same_origin_rd_tests {
 
 /// Both provisioning writes reference `password(email)`; a typo'd address from the
 /// provisioning script should read as "no such account", not as a foreign-key error.
-async fn require_account(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, email: &str) -> Result<()> {
+async fn require_account(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    email: &str,
+) -> Result<()> {
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1)",
         email

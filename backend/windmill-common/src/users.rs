@@ -13,6 +13,35 @@ lazy_static::lazy_static! {
     pub static ref VALID_EMAIL: regex::Regex = regex::Regex::new(
         r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$"
     ).unwrap();
+
+}
+
+/// Width of the `email` columns of `usr`, `workspace_invite` and `email_to_igroup`.
+pub const EMAIL_COLUMN_MAX_LEN: usize = 255;
+
+/// The regex of the `proper_email` CHECK constraint on `usr` and `workspace_invite`
+/// (`20220620210708_regex_fix`), verbatim, for [`usr_accepts_email`]. Evaluated by the
+/// database and never by a Rust engine: `~*` folds case under the database collation, so a
+/// fixed mirror accepts addresses the constraint rejects, or rejects ones it holds, on some
+/// locale. `windmill-common/tests/usr_accepts_email.rs` pins the text to the constraint.
+pub const PROPER_EMAIL_PATTERN: &str = r#"^(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9]))\.){3}(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9])|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])$"#;
+
+/// Whether `usr` (and `workspace_invite`) will store `email`: the `proper_email` regex as the
+/// database evaluates it, plus the column width. Unlike [`VALID_EMAIL`] this admits every
+/// address those tables already hold, which matters wherever an existing member is judged.
+pub async fn usr_accepts_email<'c, E>(db: E, email: &str) -> crate::error::Result<bool>
+where
+    E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
+    if email.contains('\0') || email.chars().count() > EMAIL_COLUMN_MAX_LEN {
+        return Ok(false);
+    }
+    let accepted: bool = sqlx::query_scalar("SELECT $1::text ~* $2::text")
+        .bind(email)
+        .bind(PROPER_EMAIL_PATTERN)
+        .fetch_one(db)
+        .await?;
+    Ok(accepted)
 }
 
 pub const SUPERADMIN_SECRET_EMAIL: &str = "superadmin_secret@windmill.dev";
