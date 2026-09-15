@@ -97,6 +97,8 @@ export type ItemRowPort = {
 	pending(key: ItemKey): unknown | undefined
 	/** Whether a row is waiting with no baseline behind it, so sending it would be unconditional. */
 	unbased(key: ItemKey): boolean
+	/** Raise a conflict the server has not reported, for the user to resolve. */
+	markConflict(key: ItemKey, serverTimestamp: string): void
 	seedSync(key: ItemKey, draftSavedAt: string | undefined, since: number): void
 	conflicted(key: ItemKey): boolean
 	failure(key: ItemKey): string | undefined
@@ -298,13 +300,15 @@ class Entry<V> {
 		if (this.stale) return
 		const desired = this.dirty ? (serialize(this.value) ?? null) : null
 		this.ports.hint(key, desired !== null)
-		if (desired === this.row) return
-		// A rejected write is not retried: the row stays as the server has it until the
-		// conflict is resolved, by a reload or an overwrite.
+		// A rejected write is not retried: the row stays as the server has it until the conflict
+		// is resolved, by a reload or an overwrite. Checked before the row is compared, because a
+		// payload parked for retry has to go whether or not it matches what this thinks is there
+		// — a later flush would send it otherwise, deciding the conflict on the user's behalf.
 		if (this.ports.conflicted(key)) {
 			this.ports.dropPending(key)
 			return
 		}
+		if (desired === this.row) return
 		this.row = desired
 		this.ports.write(key, desired === null ? null : snapshot(this.value))
 	}
@@ -403,6 +407,7 @@ class Entry<V> {
 			const key = this.key
 			let rowsAtRead = 0
 			let valuesAtRead = 0
+			let unbasedPending = false
 			let res: ItemLoad<V>
 			try {
 				if (this.retired) return superseded
@@ -412,7 +417,8 @@ class Entry<V> {
 				// Not one written when no row existed, though — it carries no baseline, so it
 				// would go out unconditional and take over a row created since. The read below
 				// gives it one, and `pending` keeps showing it meanwhile.
-				if (!this.ports.unbased(key)) await this.ports.flush(key)
+				unbasedPending = this.ports.unbased(key)
+				if (!unbasedPending) await this.ports.flush(key)
 				// Taken here, not when the command was asked for: rows this read's own flush sent
 				// are in the response it is about to get. Only one handed over from now on, while
 				// the read is out, leaves that response behind.
@@ -471,6 +477,14 @@ class Entry<V> {
 				this.replaceValue(draft ?? res.deployed)
 			}
 			this.removed = this.value === undefined
+			// Raised after the value above has been taken, so what is on screen is still the
+			// user's own unsent edit and "keep mine" means theirs: a payload written when this
+			// key had no row, meeting a row that exists now. Sending it would overwrite that
+			// unconditionally, and basing it on this read would claim it was built on a draft it
+			// never saw — so neither happens until the user says which wins.
+			if (unbasedPending && res.draft !== undefined && res.draftSavedAt !== undefined) {
+				this.ports.markConflict(key, res.draftSavedAt)
+			}
 			this.reconcile()
 			return { ok: true }
 		}, asOf)
@@ -1279,6 +1293,9 @@ const syncerRows: ItemRowPort = {
 	},
 	unbased(key) {
 		return UserDraftDbSyncer.hasUnbasedPending(keyQuery(key))
+	},
+	markConflict(key, serverTimestamp) {
+		UserDraftDbSyncer.markConflict(keyQuery(key), serverTimestamp)
 	},
 	seedSync(key, draftSavedAt, since) {
 		UserDraftDbSyncer.recordRemoteSync(keyQuery(key), draftSavedAt, since)

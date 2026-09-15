@@ -92,6 +92,7 @@ function fakeRows() {
 		rowMark: (key) => sends.get(key.path) ?? 0,
 		pending: (key) => (parked.has(key.path) ? parked.get(key.path) : undefined),
 		unbased: (key) => parked.has(key.path) && !baselines.has(key.path),
+		markConflict: (key) => void conflicts.add(key.path),
 		seedSync: (key, at, since) => {
 			// The syncer refuses a baseline from a read a row handed over since has passed.
 			if (since !== (sends.get(key.path) ?? 0)) return
@@ -1753,11 +1754,12 @@ describe('item store: conflicts', () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
 		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
-		// No draft exists, so nothing gives this key a baseline.
-		const a = adapter(async () => ({
-			deployed: deployedRes,
-			draft: rows.sent.get('u/me/r') as Res | undefined
-		}))
+		// No draft exists, so nothing gives this key a baseline. Once one does, the read carries
+		// its timestamp the way the endpoint does.
+		const a = adapter(async () => {
+			const draft = rows.sent.get('u/me/r') as Res | undefined
+			return { deployed: deployedRes, draft, draftSavedAt: draft ? 'T-theirs' : undefined }
+		})
 		const first = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
 		await settle()
 		rows.failing.add('u/me/r')
@@ -1779,10 +1781,13 @@ describe('item store: conflicts', () => {
 		// unconditional and take their draft with it — and the read after would see only the
 		// overwrite, never a conflict.
 		expect(rows.sent.get('u/me/r')).toEqual(theirs)
-		// Tab A's edit is not lost either: it is what the reopened editor shows, and the read has
-		// given the key a baseline, so when that payload does go out it is checked against theirs.
+		// Tab A's edit is not lost either: it is what the reopened editor shows.
 		expect(second.handle.value?.description).toBe('tab A, never sent')
-		expect(rows.seeds.at(-1)?.path).toBe('u/me/r')
+		// Two divergent drafts and no baseline to order them by, so it is the user's to settle —
+		// and until they do, nothing goes out. A page close must not decide it for them.
+		expect(second.handle.status).toBe('conflicted')
+		await rows.port.flush(key)
+		expect(rows.sent.get('u/me/r')).toEqual(theirs)
 	})
 
 	it('keeps an edit the server never received when the item is reopened', async () => {

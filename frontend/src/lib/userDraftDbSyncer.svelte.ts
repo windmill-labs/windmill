@@ -544,6 +544,18 @@ export const UserDraftDbSyncer = {
 	},
 
 	/**
+	 * Record a conflict nobody's POST reported: a payload is parked that was written when no row
+	 * existed, and a row exists now. Sending it would be unconditional and would take that row;
+	 * giving it the row's timestamp would claim it was based on something it never saw. Neither
+	 * is ours to choose, so it goes to the same resolution the server's own rejections use.
+	 */
+	markConflict(query: UserDraftLastSyncQuery, serverTimestamp: string): void {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		if (conflicts.has(key)) return
+		conflicts.set(key, { serverTimestamp, localLastSync: null })
+	},
+
+	/**
 	 * Whether a payload is parked for `query` with no `last_sync` behind it — it was written when
 	 * no row existed, so sending it now would be unconditional and would take over a row created
 	 * since. A reader must get a baseline before letting one of these go out.
