@@ -61,7 +61,10 @@ marker goes first, then everything under the session), so what an old storage st
 the session and the push does not carry is gone. An incremental part rides on a listed
 session, and the server refuses it with `needs_whole`, writing nothing, when none is listed
 (a removal deletes the marker first), rather than write a marker over a session missing what
-earlier parts or earlier pushes carried. A push split over several parts, whole or
+earlier parts or earlier pushes carried; one that changes more than one object unlists the
+session before its writes and lists it again after them, so a pull between two of the writes,
+or after one failed, finds it absent rather than a mix of old and new pieces (one object
+changing is one write, and stays listed). A push split over several parts, whole or
 incremental, names itself on each with a token the browser draws (`push`, `opens` on the
 first): the opening part unlists the session, so a pull between two parts finds it absent
 rather than a mix of old and new pieces, the last part lists it again, and a later part is

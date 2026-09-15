@@ -1043,10 +1043,11 @@ fn push_payload_bytes(req: &PushRequest) -> usize {
 /// (the one with the head) replaces the backup: the marker goes first, so nothing lists the
 /// session until the last part, then everything else. An incremental part assumes the rest
 /// of the session is in the storage, which a removal since would have taken, or a push
-/// split over parts may still be bringing: it is refused unless the session is listed. A
-/// push split over parts names itself with a token: the part that opens it unlists the
-/// session (a pull between two parts would otherwise take a mix of old and new pieces for
-/// the backup) and writes the token, and a later part is written only while that token is
+/// split over parts may still be bringing: it is refused unless the session is listed, and
+/// unlists the session itself while it changes more than one object (a pull between two
+/// writes would otherwise take a mix of old and new pieces for the backup). A push split
+/// over parts names itself with a token: the part that opens it unlists the session and
+/// writes the token, and a later part is written only while that token is
 /// the one there, so two devices pushing the session at once cannot list a mix of their
 /// pieces: the push that opened later wins, the other is refused and goes again. Every
 /// refusal comes before anything of the part lands. Deletes run last, and the marker only
@@ -1077,7 +1078,17 @@ async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bo
                 if !backend.exists(&backend.index_key(&s.id, s.epoch)).await? {
                     return Ok((0, true));
                 }
-                if s.push.is_some() {
+                // Unlisted while more than one object changes (a push split over parts, or
+                // one part touching several pieces): a pull between two of the writes, or
+                // after one of them failed, would otherwise take a mix of old and new
+                // pieces for the backup. One object changing is one write.
+                let pieces = s.chats.len()
+                    + s.images.len()
+                    + usize::from(s.artifacts.is_some())
+                    + usize::from(s.head.is_some())
+                    + s.delete_chats.len()
+                    + s.delete_images.len();
+                if s.push.is_some() || pieces > 1 {
                     backend
                         .delete_prefix(&backend.index_session_prefix(&s.id))
                         .await?;
