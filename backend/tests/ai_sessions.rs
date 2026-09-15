@@ -74,9 +74,13 @@ fn copy_dir(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()>
     Ok(())
 }
 
-/// No file under `dir` still holds the bytes its copy under `snapshot` has.
+/// No ciphertext file under `dir` still holds the bytes its copy under `snapshot` has (the
+/// session index markers are empty and not under any key).
 fn all_rewritten(dir: &std::path::Path, snapshot: &std::path::Path) -> bool {
-    let files = files_under(dir);
+    let files: Vec<_> = files_under(dir)
+        .into_iter()
+        .filter(|(_, bytes)| !bytes.is_empty())
+        .collect();
     !files.is_empty()
         && files.iter().all(|(path, bytes)| {
             let rel = path.strip_prefix(dir).expect("under dir");

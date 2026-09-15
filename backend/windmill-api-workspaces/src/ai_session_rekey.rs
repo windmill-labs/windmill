@@ -173,6 +173,10 @@ async fn rekey_object(
     previous: &[String],
     meta: ObjectMeta,
 ) -> Result<bool> {
+    // The session index markers are empty, and under no key.
+    if meta.size == 0 {
+        return Ok(false);
+    }
     let key = meta.location;
     // `windmill_ai_sessions/{w_id}/{user}/...`: the user segment is the cipher suffix.
     let Some(user) = key.parts().nth(2).map(|p| p.as_ref().to_string()) else {

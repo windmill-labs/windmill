@@ -10,10 +10,12 @@
 //! windmill_ai_sessions/{w_id}/{sha256(email)}/sessions/{sid}/chats/{cid}.json
 //! windmill_ai_sessions/{w_id}/{sha256(email)}/sessions/{sid}/artifacts.json
 //! windmill_ai_sessions/{w_id}/{sha256(email)}/images/{sid}/{cid}/{iid}
+//! windmill_ai_sessions/{w_id}/{sha256(email)}/index/{sid}
 //! ```
 //!
-//! Images sit outside the `sessions/` prefix so that one listing of it enumerates a user's
-//! sessions at a few keys per session.
+//! The index marker is empty, written last by every push of the session, and is what a
+//! listing reads: one object per session, whatever the session holds, its `last_modified`
+//! the session's `updated_at`.
 
 use crate::db::{ApiAuthed, DB};
 use axum::{
@@ -56,10 +58,8 @@ const MAX_DELETES_PER_ENTRY: usize = 1000;
 const MAX_OPERATIONS_PER_PUSH: usize = 4000;
 /// Objects a pull lists under one session's prefix before giving up on the rest.
 const MAX_LISTED_OBJECTS: usize = 5000;
-/// Objects a listing of the user's sessions scans, sessions it tracks, and sessions it
-/// answers with (the newest).
+/// Session markers a listing scans, and the newest sessions it answers with.
 const MAX_LIST_SCAN: usize = 50_000;
-const MAX_LIST_SESSIONS: usize = 10_000;
 const LIST_MAX: usize = 500;
 const IO_CONCURRENCY: usize = 8;
 
@@ -91,8 +91,12 @@ struct Backend {
 }
 
 impl Backend {
-    fn sessions_prefix(&self) -> ObjectPath {
-        ObjectPath::from(format!("{}/sessions/", self.prefix))
+    fn index_prefix(&self) -> ObjectPath {
+        ObjectPath::from(format!("{}/index/", self.prefix))
+    }
+
+    fn index_key(&self, sid: &str) -> ObjectPath {
+        ObjectPath::from(format!("{}/index/{sid}", self.prefix))
     }
 
     fn session_prefix(&self, sid: &str) -> ObjectPath {
@@ -373,8 +377,8 @@ struct ListResponse {
     truncated: bool,
 }
 
-/// A session is listed once its head landed; a push that failed between its chats and its
-/// head left objects nothing points at, and pull skips those the same way.
+/// A session is listed once a push entry of it landed whole (its marker is written last);
+/// a push that failed before that left objects the listing does not name.
 async fn list(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -389,18 +393,19 @@ async fn list(
             truncated: false,
         }));
     };
-    let prefix = backend.sessions_prefix();
-    let mut updated: std::collections::HashMap<String, (chrono::DateTime<chrono::Utc>, bool)> =
-        Default::default();
+    let prefix = backend.index_prefix();
     let mut stream = backend.store.list(Some(&prefix));
+    // One marker per session, whatever the session holds: the newest LIST_MAX are kept as
+    // the scan goes (a min-heap drops the oldest), and the scan itself is bounded.
+    let mut newest: std::collections::BinaryHeap<
+        std::cmp::Reverse<(chrono::DateTime<chrono::Utc>, String)>,
+    > = Default::default();
     let mut scanned = 0;
     let mut truncated = false;
-    // Sessions accumulate over valid pushes without limit; the scan and what it keeps
-    // are bounded, and the answer carries the newest LIST_MAX of what was scanned.
     while let Some(meta) = stream.next().await {
         let meta = meta.map_err(object_store_error_to_error)?;
         scanned += 1;
-        if scanned > MAX_LIST_SCAN || updated.len() >= MAX_LIST_SESSIONS {
+        if scanned > MAX_LIST_SCAN {
             truncated = true;
             break;
         }
@@ -408,23 +413,21 @@ async fn list(
         let Some(rel) = meta.location.as_ref().strip_prefix(prefix.as_ref()) else {
             continue;
         };
-        let Some((sid, rest)) = rel.trim_start_matches('/').split_once('/') else {
+        let sid = rel.trim_start_matches('/');
+        if sid.is_empty() || sid.contains('/') {
             continue;
-        };
-        let entry = updated
-            .entry(sid.to_string())
-            .or_insert((meta.last_modified, false));
-        entry.0 = entry.0.max(meta.last_modified);
-        entry.1 |= rest == "head.json";
+        }
+        newest.push(std::cmp::Reverse((meta.last_modified, sid.to_string())));
+        if newest.len() > LIST_MAX {
+            newest.pop();
+            truncated = true;
+        }
     }
-    let mut sessions: Vec<SessionListing> = updated
+    let mut sessions: Vec<SessionListing> = newest
         .into_iter()
-        .filter(|(_, (_, with_head))| *with_head)
-        .map(|(id, (updated_at, _))| SessionListing { id, updated_at })
+        .map(|std::cmp::Reverse((updated_at, id))| SessionListing { id, updated_at })
         .collect();
     sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-    truncated |= sessions.len() > LIST_MAX;
-    sessions.truncate(LIST_MAX);
     Ok(Json(ListResponse {
         enabled: true,
         storage_id: Some(backend.storage_id.clone()),
@@ -803,11 +806,19 @@ async fn push_session(backend: &Backend, s: &PushedSession) -> Result<usize> {
                 .collect(),
         )
         .await?;
+    // Last, so a session is listed only once the whole entry landed.
+    backend
+        .store
+        .put(&backend.index_key(&s.id), PutPayload::new())
+        .await
+        .map_err(object_store_error_to_error)?;
     Ok(written)
 }
 
-/// The head goes first so a removal cut short leaves nothing listed.
+/// The marker goes first so a removal cut short leaves nothing listed, then the head so
+/// nothing pulls either.
 async fn remove_session(backend: &Backend, sid: &str) -> Result<()> {
+    backend.delete(&backend.index_key(sid)).await?;
     backend.delete(&backend.head_key(sid)).await?;
     backend.delete_prefix(&backend.session_prefix(sid)).await?;
     backend.delete_prefix(&backend.images_prefix(sid)).await
@@ -849,15 +860,23 @@ async fn push(
 
     let mut results = Vec::with_capacity(req.sessions.len() + req.removed.len());
     let mut written: usize = 0;
+    // A session split into several entries has its head on the last: once one part failed,
+    // the later ones are not written, or the head would list a session missing a part.
+    let mut failed: std::collections::HashSet<&str> = Default::default();
     for s in &req.sessions {
-        let error = match push_session(&backend, s).await {
-            Ok(n) => {
-                written += n;
-                None
-            }
-            Err(e) => {
-                tracing::warn!("AI session backup push failed for {} in {w_id}: {e}", s.id);
-                Some(e.to_string())
+        let error = if failed.contains(s.id.as_str()) {
+            Some("an earlier part of this session in the push failed".to_string())
+        } else {
+            match push_session(&backend, s).await {
+                Ok(n) => {
+                    written += n;
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!("AI session backup push failed for {} in {w_id}: {e}", s.id);
+                    failed.insert(&s.id);
+                    Some(e.to_string())
+                }
             }
         };
         results.push(PushResult { id: s.id.clone(), error });

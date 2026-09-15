@@ -430,35 +430,42 @@ describe('sessionMirror flush', () => {
 		expect(await pendingDirty()).toEqual([])
 	})
 
-	it('settles nothing of a session whose parts were answered from different storages', async () => {
-		const s: Session = {
-			id: 'sp',
-			name: 'session-1',
-			createdAt: 1,
-			workspace_id: 'ws',
-			chatId: 'c1'
-		}
+	/** A session with three chats of 1.5 MB (record ~3 MB each): its entry splits past the
+	 * 8 MB request target, so it spans two requests. */
+	async function splitSession(id: string): Promise<void> {
+		const s: Session = { id, name: 'session-1', createdAt: 1, workspace_id: 'ws', chatId: 'c1' }
 		sessionState.sessions = [s]
 		await putSession(s)
 		const hm = new HistoryManager()
 		await hm.init()
-		hm.setSessionId('sp')
-		// Three chats of 1.5 MB (record ~3 MB each): the entry splits past the 8 MB request
-		// target, so the session spans two requests.
+		hm.setSessionId(id)
 		const big = 'x'.repeat(1.5 * 1024 * 1024)
-		for (const id of ['c1', 'c2', 'c3']) {
-			hm.setCurrentChatId(id)
+		for (const cid of ['c1', 'c2', 'c3']) {
+			hm.setCurrentChatId(cid)
 			await hm.saveChat(
 				[{ role: 'user', content: big } as never],
 				[{ role: 'user', content: big } as never]
 			)
 		}
+	}
+
+	it('settles nothing of a session whose parts were answered from different storages', async () => {
+		await splitSession('sp')
 		pushMock
 			.mockResolvedValueOnce({ enabled: true, storage_id: 'bucket-1', results: [{ id: 'sp' }] })
 			.mockResolvedValueOnce({ enabled: true, storage_id: 'bucket-2', results: [{ id: 'sp' }] })
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(2)
 		expect(await pendingDirty()).toEqual(['sp'])
+		expect(await __syncRowsForTesting(EMAIL)).toEqual([])
+	})
+
+	it('holds the rest of a session back once the server refused a part of it', async () => {
+		await splitSession('sf')
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sf', error: 'boom' }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(1)
+		expect(await pendingDirty()).toEqual(['sf'])
 		expect(await __syncRowsForTesting(EMAIL)).toEqual([])
 	})
 

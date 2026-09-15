@@ -546,6 +546,9 @@ async function pushWorkspace(
 			const status = await flushCurrent()
 			if (status !== 'ok') return status
 		}
+		// A part the server refused holds the rest of its session back: the head rides on
+		// the last part, and would list a session missing a piece.
+		if (failed.has(entry.id)) return 'ok'
 		current ??= { owner: email, sessions: [] }
 		current.sessions.push(entry)
 		size += bytes
@@ -629,6 +632,7 @@ async function pushWorkspace(
 			if (status !== 'ok') return finish(status)
 		}
 		for (const part of plan.entry ? splitEntry(plan.entry, REQUEST_TARGET_BYTES) : []) {
+			if (failed.has(item.session.id)) break
 			const status = await append(part)
 			if (status !== 'ok') return finish(status)
 		}

@@ -43,9 +43,14 @@ last pushed, kept per session in the `windmill-sessions-mirror` store:
 | chat | `sessions/{sid}/chats/{cid}.json` | its `lastModified` moved |
 | artifacts | `sessions/{sid}/artifacts.json` | their fingerprint changed |
 | image | `images/{sid}/{cid}/{iid}` | never pushed before (write-once) |
+| index marker | `index/{sid}` | last, by every push of the session (empty) |
 
 All under `windmill_ai_sessions/{w_id}/{sha256(email)}/` in the workspace's primary storage.
-Images sit outside `sessions/` so one listing of that prefix enumerates a user's sessions.
+The listing reads only `index/`: one object per session whatever the session holds, so a
+session with many chats cannot crowd newer ones out of a bounded scan, and its
+`last_modified` is the session's `updated_at`. Written last, it lists a session only once a
+whole push entry landed; within one push, the parts of a session after a failed one are not
+written, so the head on the last part never lists a session missing a chat.
 
 The head signature leaves out `name` (a per-browser counter the sessions page routes by),
 the unsent-draft fields, `workspace_root_id` (recomputed on import), and the two fields reading
@@ -164,8 +169,8 @@ artifacts are read in listing order only while they fit, and images beyond the b
 out (they hydrate to placeholders). The listings themselves stop at the budget and at 5000
 objects per session, so a session grown without bound by valid pushes cannot grow the answer's
 memory through its metadata either; removing a prefix and the re-key walk stream their
-listings too. `list` scans at most 50 000 objects and tracks 10 000 sessions, and answers
-with the newest 500 (`truncated` says when there were more); the restore takes 50 of them. Nothing is read past the budget, whatever a session holds. A
+listings too. `list` scans at most 50 000 index markers, keeps the newest 500 as it goes and answers with
+them (`truncated` says when there were more); the restore takes 50 of them. Nothing is read past the budget, whatever a session holds. A
 restore takes the newest 50 sessions per workspace: every visible session gets a runtime, and
 each runtime's history load reads the whole chat store. On CE the push checks the storage quota
 and bumps usage by bytes written (an over-count on overwrites; the periodic recount settles it).
