@@ -2322,7 +2322,6 @@ async fn create_script_internal<'c>(
                 &[UserDraftItemKind::Script],
                 p_path,
                 &ns.path,
-                (!skip_draft_deletion).then_some(authed.email.as_str()),
             )
             .await?;
         }
