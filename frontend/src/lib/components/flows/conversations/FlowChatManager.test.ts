@@ -22,8 +22,9 @@ const { streamCalls, streamScript, jobCompleted } = vi.hoisted(() => ({
 	streamCalls: [] as { jobId: string; streamOffset: number | undefined }[],
 	/** Per opened stream: the updates it answers with, or 'throw' to fail the request. */
 	streamScript: [] as (unknown[] | 'throw')[],
-	/** What the job says when a turn that lost its stream asks whether the run is over. */
-	jobCompleted: { value: true }
+	/** What the job says when a turn that lost its stream asks whether the run is over:
+	 * `true`/`false`, or 'throw' for an API that cannot be reached. */
+	jobCompleted: { value: true as boolean | 'throw', cancelled: false, cancellable: true }
 }))
 
 // Only the transport is faked. `followJob` — which owns the re-attach, the offset and the
@@ -38,7 +39,12 @@ vi.mock('windmill-chat', async (importOriginal) => {
 			for (const update of next ?? []) yield update
 		}
 		async getCompletedResult() {
+			if (jobCompleted.value === 'throw') throw new Error('job status unavailable')
 			return { completed: jobCompleted.value, success: true, result: {} }
+		}
+		async cancelJob() {
+			if (!jobCompleted.cancellable) throw new Error('cancel unavailable')
+			jobCompleted.cancelled = true
 		}
 	}
 	return { ...actual, WindmillChatApi: FakeApi }
@@ -167,6 +173,8 @@ describe('an SSE timeout re-attaches instead of re-running', () => {
 		streamCalls.length = 0
 		streamScript.length = 0
 		jobCompleted.value = true
+		jobCompleted.cancelled = false
+		jobCompleted.cancellable = true
 		vi.mocked(FlowConversationsService.listConversationMessages).mockResolvedValue([] as any)
 		// `test-setup.ts` makes `window` be `globalThis`, which has no `location` — and the
 		// api client resolves its URLs against an absolute origin.
@@ -249,6 +257,29 @@ describe('an SSE timeout re-attaches instead of re-running', () => {
 			timeout: 20000
 		})
 	}, 30000)
+
+	/**
+	 * An API that cannot be reached says nothing about whether the run stopped, and the run
+	 * holds the conversation's agent memory. Cancelling it is what makes the chat safe to
+	 * use again; a turn that cannot even do that must not release its queue.
+	 */
+	it('cancels an unreachable run, and holds the queue when it cannot', async () => {
+		jobCompleted.value = 'throw'
+		jobCompleted.cancellable = false
+		const settled: string[] = []
+		const { manager } = turnWith(['throw', 'throw', 'throw', 'throw', 'throw'])
+		manager.onTurnSettled = (id) => settled.push(id)
+
+		manager.inputMessage = 'ask something'
+		await manager.sendMessage(undefined, undefined, 'a')
+
+		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(false), {
+			timeout: 30000
+		})
+		// Ended, but not settled: nothing confirmed the run was over, so a queued message
+		// waits for the reader rather than going out beside it.
+		expect(settled).toEqual([])
+	}, 40000)
 
 	/**
 	 * A chunk is not guaranteed to end on a line boundary. Split mid-JSON, the two halves

@@ -1243,8 +1243,10 @@ export class FlowChatManager {
 	 * Wait out a turn whose stream could not be recovered, on the job itself.
 	 *
 	 * The chat stays busy for as long as the run does, so the next turn cannot write the
-	 * same agent memory. It always settles, though: a run that stops answering is given up
-	 * on rather than locking the conversation and its queue for the rest of the session.
+	 * same agent memory. It always ends, though, rather than locking the conversation for
+	 * the session: a run that stops answering is cancelled, which is what makes freeing the
+	 * chat safe. Only a run known to be over settles the turn — settling releases the queue,
+	 * and a queued message must not go out beside a run that may still be writing.
 	 *
 	 * Deliberately not `waitJob`, which leaves its promise unsettled when the job stops
 	 * answering (it cancels and returns without resolving), and a caller awaiting that would
@@ -1257,11 +1259,15 @@ export class FlowChatManager {
 		signal: AbortSignal
 	) {
 		let failures = 0
+		let over = false
 		while (!signal.aborted) {
 			try {
 				const { completed } = await api.getCompletedResult(jobId, signal)
 				failures = 0
-				if (completed) break
+				if (completed) {
+					over = true
+					break
+				}
 			} catch (error) {
 				if (signal.aborted) return
 				failures++
@@ -1273,10 +1279,21 @@ export class FlowChatManager {
 			await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS))
 		}
 		if (signal.aborted) return
+		// Unreachable is not the same as finished, and the run holds the conversation's agent
+		// memory. Stopping it is what makes the chat safe to use again; if even that cannot be
+		// delivered, the turn ends unsettled so its queue waits for the reader instead.
+		if (!over) {
+			try {
+				await api.cancelJob(jobId)
+				over = true
+			} catch (error) {
+				console.error('Could not cancel the flow job after losing its stream:', error)
+			}
+		}
 		try {
 			await this.pollConversationMessages(conversationId, { removeTempMessages: true })
 		} catch {}
-		this.endTurn(conversationId, { settled: true })
+		this.endTurn(conversationId, over ? { settled: true } : undefined)
 	}
 
 	/** Answers whether a job was actually started. */
