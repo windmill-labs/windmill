@@ -5658,7 +5658,9 @@ pub fn sessions_retention_days(value: Option<&serde_json::Value>) -> Option<u32>
 /// workspace without a `usr` row, and `admins` has no `usr` rows at all, so answering from
 /// `usr` destroys sessions that still work. It over-reports in one direction — a `usr` row
 /// with `disabled` counts here but not in the extractor — which only leaves a session
-/// lingering, so it is deliberately not treated as unreachable.
+/// lingering, so it is deliberately not treated as unreachable. The retention is held to the
+/// extractor's bar instead: a status is what to do with the caller's own sessions, a setting
+/// is the workspace's to tell.
 async fn session_workspace_status(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -5682,6 +5684,7 @@ async fn session_workspace_status(
                     WHEN workspace.deleted THEN 'archived'
                     ELSE 'active'
                 END) AS \"status!\",
+                COALESCE(usr.disabled, false) AS \"membership_disabled!\",
                 workspace_settings.ai_config->'sessions_retention_days' AS retention
          FROM unnest($1::text[]) AS req(id)
          LEFT JOIN workspace ON workspace.id = req.id
@@ -5696,12 +5699,14 @@ async fn session_workspace_status(
     let statuses = rows
         .into_iter()
         .map(|r| {
-            // A workspace this caller cannot reach tells them nothing of its settings.
-            let sessions_retention_days = if r.status == "deleted" {
-                None
-            } else {
-                sessions_retention_days(r.retention.as_ref())
-            };
+            // A setting is told only to a caller the extractor would let into the workspace,
+            // which a disabled membership is not, however its sessions are reconciled.
+            let sessions_retention_days =
+                if r.status == "deleted" || (r.membership_disabled && !is_superadmin) {
+                    None
+                } else {
+                    sessions_retention_days(r.retention.as_ref())
+                };
             (
                 r.id,
                 SessionWorkspaceStatus { status: r.status, sessions_retention_days },

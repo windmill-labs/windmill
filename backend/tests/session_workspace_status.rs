@@ -72,5 +72,16 @@ async fn test_superadmin_reaches_workspaces_without_a_usr_row(
     assert_eq!(usr["test-workspace"]["sessions_retention_days"], 7);
     assert_eq!(usr["no-such-workspace"]["status"], "deleted");
 
+    // A disabled membership still reconciles its sessions, which is why the status stays
+    // `active`, but it cannot authenticate into the workspace, so it is told no setting.
+    sqlx::query("UPDATE usr SET disabled = true WHERE workspace_id = 'test-workspace'")
+        .execute(&db)
+        .await?;
+    let off = status(port, "SECRET_TOKEN_2", &ids).await?;
+    assert_eq!(off["test-workspace"]["status"], "active");
+    assert!(off["test-workspace"]
+        .get("sessions_retention_days")
+        .is_none());
+
     Ok(())
 }

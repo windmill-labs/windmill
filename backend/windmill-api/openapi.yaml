@@ -1283,7 +1283,7 @@ paths:
                         - deleted
                     sessions_retention_days:
                       type: integer
-                      description: the workspace's `ai_config.sessions_retention_days`, when set; the browser deletes its sessions whose last activity is older
+                      description: the workspace's `ai_config.sessions_retention_days`, when set and the caller can authenticate into the workspace; the browser deletes its sessions whose last activity is older
 
   /w/{workspace}/workspaces/get_as_superadmin:
     get:
