@@ -578,6 +578,12 @@
 		onDeploy={(e) => {
 			// "Deploy & Stay here" / lib: stay on the editor (just confirm).
 			if (e.stay) {
+				// The editor is now on the version it just wrote, and so is the draft the
+				// builder re-pinned. Without this the prompt and the drawer keep comparing
+				// the pre-deploy pair, so Diff offers Take latest against a head the next
+				// draft is already on.
+				draftBaseHash = e.hash
+				deployedHeadHash = e.hash
 				sendUserToast('Deployed')
 				return
 			}

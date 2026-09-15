@@ -110,6 +110,9 @@
 		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
 		// event up through these runes-mode components silently drops it.
 		onRestore?: (restoredApp: any) => void
+		// Fired after a successful deploy, which keeps this editor open: `version` is what
+		// the deploy wrote, for the next draft's fork base, and `head` what is deployed now.
+		onDeploy?: (e: { version?: number; head?: number }) => void
 	}
 
 	let {
@@ -137,7 +140,8 @@
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
-		onRestore
+		onRestore,
+		onDeploy
 	}: Props = $props()
 
 	/** Mirror of the path the user is editing in the pen popover. Initialized
@@ -410,6 +414,9 @@
 		// superseded base and falsely warn. parent_version is in
 		// DRAFT_COMPARE_IGNORED_FIELDS, so this write can't spawn a spurious draft.
 		if ($app) $app.parent_version = claimed
+		// The route owns the pair the out-of-date prompt reads, and this editor stays open
+		// across the deploy, so hand both over rather than leaving it on the old ones.
+		onDeploy?.({ version: claimed, head: version })
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')

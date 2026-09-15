@@ -102,9 +102,10 @@
 			| undefined
 		diffDrawer?: DiffDrawer | undefined
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
-		/** Fired after a successful deploy; the session preview reloads on it and
-		 *  the route re-pins the draft's fork base to the version just written. */
-		onDeploy?: (e: { path: string; version?: number }) => void
+		/** Fired after a successful deploy; the session preview reloads on it and the route
+		 *  re-pins the draft's fork base. `version` is what this deploy wrote and `head`
+		 *  what is deployed now: the two differ when another deploy landed beside it. */
+		onDeploy?: (e: { path: string; version?: number; head?: number }) => void
 		/** Initial collapsed state for the file/runnable sidebar. The user's
 		 * toggled preference is persisted under `sidebarStorageKey`; this prop
 		 * only seeds the very first open. */
