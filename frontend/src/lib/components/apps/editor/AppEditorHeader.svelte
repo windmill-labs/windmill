@@ -399,18 +399,17 @@
 			path: npath
 		})
 		// `version` is what is deployed now, which is the deploy guard's fallback head and
-		// must stay set; the pin below is the version this deploy can prove it wrote.
+		// must stay set; `claimed` is the version this deploy can prove it wrote.
+		const claimed = versionThisDeployWrote(appHistory, $userStore?.username, headBefore?.version)
 		version = appHistory[0]?.version
+		// Without a claim the head is someone else's as far as this editor knows, so it is
+		// no longer a base it may compare against: `compareVersions` confirms instead.
+		baseUnknown = claimed === undefined
 		// Re-pin the fork base to the version just written: the editor stays open, so a
 		// follow-up deploy (or a new edit) would otherwise compare against the now-
 		// superseded base and falsely warn. parent_version is in
 		// DRAFT_COMPARE_IGNORED_FIELDS, so this write can't spawn a spurious draft.
-		if ($app)
-			$app.parent_version = versionThisDeployWrote(
-				appHistory,
-				$userStore?.username,
-				headBefore?.version
-			)
+		if ($app) $app.parent_version = claimed
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
@@ -454,7 +453,16 @@
 	}
 
 	let onLatest = $state(true)
+	/** The last deploy from here could not name the version it wrote, so this editor has no
+	 *  base: the head it holds may be another deploy's. Set by `updateApp`. */
+	let baseUnknown = $state(false)
 	async function compareVersions() {
+		if (baseUnknown) {
+			// Nothing to compare against, so confirm rather than let the next deploy
+			// assume it is current and overwrite a version nobody here has seen.
+			onLatest = false
+			return
+		}
 		// Compare the draft's pinned fork base (`$app.parent_version`) against the
 		// current head when editing a draft, else the load-time head. Catches both a
 		// concurrent deploy (head moved since open) AND a stale draft reopened after a

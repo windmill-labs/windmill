@@ -557,6 +557,9 @@
 		// can prove it wrote, which is the next draft's base.
 		const claimed = versionThisDeployWrote(appHistory, $userStore?.username, headBefore?.version)
 		version = appHistory[0]?.version
+		// Without a claim the head is someone else's as far as this editor knows, so it is
+		// no longer a base it may compare against: `compareVersions` confirms instead.
+		baseUnknown = claimed === undefined
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
@@ -596,7 +599,16 @@
 	}
 
 	let onLatest = $state(true)
+	/** The last deploy from here could not name the version it wrote, so this editor has no
+	 *  base: the head it holds may be another deploy's. Set by `updateApp`. */
+	let baseUnknown = $state(false)
 	async function compareVersions() {
+		if (baseUnknown) {
+			// Nothing to compare against, so confirm rather than let the next deploy
+			// assume it is current and overwrite a version nobody here has seen.
+			onLatest = false
+			return
+		}
 		if (version === undefined) {
 			return
 		}

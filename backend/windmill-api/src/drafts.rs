@@ -462,7 +462,10 @@ async fn update_draft(
         let serialized = strip_json_nul(&serialized);
         // `base` is derived here from the value's per-kind field rather than sent
         // by the client, so every writer (editors, chat, CLI) fills it the same way.
-        let base = draft_lineage(kind, value.0.get()).and_then(|l| l.as_text(kind));
+        // Read from the sanitized text, which is what the value column gets: a NUL in the
+        // lineage field otherwise costs the draft its base (the hash no longer parses),
+        // leaving a draft that reads as up to date whatever the head is.
+        let base = draft_lineage(kind, serialized.as_ref()).and_then(|l| l.as_text(kind));
         // Upsert. The conflict check rides on the DO UPDATE WHERE clause —
         // when the row is newer than `last_sync`, RETURNING yields nothing.
         // `created_at` defaults to `now()` but the migration overrides it ($8)
