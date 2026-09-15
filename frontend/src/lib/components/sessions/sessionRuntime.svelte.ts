@@ -128,6 +128,9 @@ export interface RawAppRuntimeValue {
 	path: string
 	custom_path?: string
 	draft_path?: string
+	/** The app_version this cell's content forked from, carried so the editor's deploy
+	 *  guard and diff drawer compare the same pair the full-page editor does. */
+	parent_version?: number
 }
 // The deployed baseline a raw-app cell diffs against (topbar Diff drawer).
 export interface RawAppSavedValue {

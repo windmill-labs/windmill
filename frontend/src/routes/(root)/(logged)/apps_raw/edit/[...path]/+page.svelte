@@ -663,9 +663,13 @@
 					// than keeping the one it just superseded.
 					parentVersion = version
 					draftBaseVersion = version != null ? String(version) : undefined
-					// The deploy consumed the draft, so the prompt has nothing to compare: without
-					// this the timestamp fallback reads a load-time draft save against a deploy
-					// that just happened and opens on a row that no longer exists.
+					// The deploy consumed the draft, so nothing here is out of date yet; the pair
+					// above describes the draft the next edit will start.
+					if (version != null && head != null && version !== head) {
+						// The prompt talks about a draft, and there is none: say what happened
+						// instead, since this deploy is already superseded.
+						sendUserToast(`Version ${head} was deployed on top of yours (${version})`)
+					}
 					draftSavedAt = undefined
 					if (head != null) {
 						deployedHeadVersion = String(head)

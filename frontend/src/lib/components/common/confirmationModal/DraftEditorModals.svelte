@@ -98,12 +98,15 @@
 	// staleness outright.
 	const useVersion = $derived(draftBaseVersion != null && deployedHeadVersion != null)
 	const isStale = $derived(
+		// Both paths need a draft to be out of date: the editors clear `draftSavedAt`
+		// when a deploy consumes theirs, and the version pair stays armed for the draft
+		// the next edit starts, which is what the prompt would otherwise offer to
+		// discard seconds after a successful deploy.
 		!!onLoadLatestDeploy &&
+			!!draftSavedAt &&
 			(useVersion
 				? draftBaseVersion !== deployedHeadVersion
-				: !!draftSavedAt &&
-					!!deployedAt &&
-					new Date(draftSavedAt).getTime() < new Date(deployedAt).getTime())
+				: !!deployedAt && new Date(draftSavedAt).getTime() < new Date(deployedAt).getTime())
 	)
 	// Key on the versions (not `draftSavedAt`) in the version path, else every
 	// autosave would mint a new key and re-pop the modal mid-edit.
