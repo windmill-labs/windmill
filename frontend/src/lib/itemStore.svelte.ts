@@ -145,7 +145,21 @@ const superseded = { ok: false, error: 'Another save of this item replaced this 
 class Entry<V> {
 	key: ItemKey = $state()!
 	value: V | undefined = $state()
-	deployed: V | undefined = $state.raw()
+	/** What the server last told us this item holds. */
+	private serverDeployed: V | undefined = $state.raw()
+	/** Fields a `patch` has put ahead of the server, until it lands or is refused. */
+	private patched: Record<string, unknown> = $state({})
+	/**
+	 * The baseline the value is measured against: what the server holds, with whatever a patch
+	 * is currently ahead of it on. Derived rather than assigned, so that no writer of the server
+	 * side can forget the overlay and roll the baseline back past an optimistic toggle — which
+	 * reads as an unsaved change to a field the user never touched.
+	 */
+	deployed: V | undefined = $derived(
+		this.serverDeployed === undefined
+			? undefined
+			: ({ ...this.serverDeployed, ...this.patched } as V)
+	)
 	template: V | undefined = $state.raw()
 	origin: ItemOrigin | undefined = $state()
 	meta: unknown = $state.raw()
@@ -193,11 +207,6 @@ class Entry<V> {
 	waitingOn: Entry<any>[] = []
 	handles = new Set<Handle<V>>()
 	stopWatch: (() => void) | undefined
-	/** Fields a `patch` has put on the deployed side ahead of the server. */
-	private patched: Record<string, unknown> = {}
-	/** For each of those fields, what the server last held, so a refused patch gives back that
-	 *  and not another patch's unaccepted value. */
-	private patchedBase: Record<string, unknown> = {}
 	/** Counts rows actually handed to the syncer, so a read can tell whether one went out while
 	 *  it was in flight. */
 	private rowWrites = 0
@@ -236,7 +245,7 @@ class Entry<V> {
 		if (this.pristine && this.origin === 'deployed' && this.value !== undefined) {
 			const value = snapshot(this.value)
 			if (!this.absorbs || this.deployed === undefined || this.absorbs(value, this.deployed)) {
-				this.deployed = value
+				this.serverDeployed = value
 			} else {
 				this.pristine = false
 			}
@@ -260,14 +269,6 @@ class Entry<V> {
 		this.row = desired
 		this.rowWrites++
 		this.ports.write(key, desired === null ? null : snapshot(this.value))
-	}
-
-	/** A deployed side the server gave, with the fields a patch is still ahead of it on. Every
-	 *  write of that side goes through here: rolling the baseline back past an optimistic toggle
-	 *  makes the value differ from it, which is a draft row of a change nobody made. */
-	private withPatched(deployed: V | undefined): V | undefined {
-		if (deployed === undefined) return undefined
-		return { ...deployed, ...this.patched } as V
 	}
 
 	private replaceValue(value: V | undefined): void {
@@ -353,7 +354,7 @@ class Entry<V> {
 				if (!keepValue) this.replaceValue(res.template)
 				return { ok: true }
 			}
-			this.deployed = this.withPatched(snapshot(res.deployed))
+			this.serverDeployed = snapshot(res.deployed)
 			this.origin = res.deployed !== undefined ? 'deployed' : 'draft'
 			// A row that went out while this read was in flight is newer than the one it read:
 			// reseeding from this response would rewind `last_sync` past what the syncer has
@@ -451,7 +452,7 @@ class Entry<V> {
 				wrote = true
 				this.error = undefined
 				if (held !== sent) this.adopt(sent, held)
-				this.deployed = this.withPatched(held)
+				this.serverDeployed = held
 				this.origin = 'deployed'
 				this.template = undefined
 				if (moved) this.moveTo(to)
@@ -564,65 +565,58 @@ class Entry<V> {
 	 */
 	patch(fields: Partial<V>, write: (key: ItemKey) => Promise<unknown>): Promise<CommandOutcome> {
 		this.pristine = false
-		const baseKey = this.origin === 'new' ? 'template' : 'deployed'
-		const before = snapshot(this[baseKey]) as Record<string, unknown> | undefined
+		const onTemplate = this.origin === 'new'
 		const sent = snapshot(fields) as Record<string, unknown>
-		if (before !== undefined) this[baseKey] = { ...before, ...sent } as V
-		if (baseKey === 'deployed') {
-			// The field's server value is what it held before the first patch took it, not what
-			// the patch this one overtakes put there and may yet have refused.
-			for (const k of Object.keys(sent)) {
-				if (!(k in this.patched)) this.patchedBase[k] = before?.[k]
-			}
+		if (onTemplate) {
+			// A template is the create's own starting point, not a server row: nothing else is
+			// racing it, so the patch lands on it directly.
+			if (this.template !== undefined) this.template = { ...this.template, ...sent } as V
+		} else {
 			Object.assign(this.patched, sent)
 		}
 		if (this.value !== undefined) Object.assign(this.value as object, fields)
 		this.touch()
-		/** Hand each field this patch still owns back to whoever is next: nobody if it landed as
-		 *  sent, the server's value if it was refused, a later patch otherwise. */
-		const settled = (ok: boolean) => {
+		/** Release each field this patch still owns; one a later patch has taken stays with it. */
+		const release = () => {
 			for (const [k, v] of Object.entries(sent)) {
-				if (deepEqual(this.patched[k], v)) {
-					delete this.patched[k]
-					delete this.patchedBase[k]
-				} else if (ok) {
-					this.patchedBase[k] = v
-				}
+				if (deepEqual(this.patched[k], v)) delete this.patched[k]
 			}
 		}
 		return this.run(async () => {
 			if (this.retired) return superseded
+			let failed: string | undefined
 			try {
 				await write(this.key)
 			} catch (e) {
-				const base = { ...this.patchedBase }
-				settled(false)
-				const giveBack = (side: V | undefined): V | undefined => {
-					if (side === undefined || before === undefined) return undefined
-					const out = snapshot(side) as Record<string, unknown>
+				failed = errorMessage(e)
+			}
+			// The server took it: it holds this now, under whatever a later patch is still ahead
+			// of it on. Refused: dropping the overlay is the whole rollback of the baseline.
+			if (!failed && this.serverDeployed !== undefined && !onTemplate) {
+				this.serverDeployed = { ...this.serverDeployed, ...sent } as V
+			}
+			release()
+			// The value is the user's copy, so it is given back by hand — to the baseline as it
+			// stands now, which is the server's value or a later patch's, never this one's.
+			if (failed) {
+				const base = (onTemplate ? this.template : this.deployed) as
+					| Record<string, unknown>
+					| undefined
+				if (base !== undefined && this.value !== undefined) {
+					const out = snapshot(this.value) as Record<string, unknown>
 					let changed = false
 					for (const [k, v] of Object.entries(sent)) {
-						if (deepEqual(out[k], v)) {
-							out[k] = baseKey === 'deployed' && k in base ? base[k] : before[k]
-							changed = true
-						}
+						if (!deepEqual(out[k], v)) continue
+						out[k] = base[k]
+						changed = true
 					}
-					return changed ? (out as V) : undefined
+					if (changed) this.replaceValue(out as V)
 				}
-				const rolled = giveBack(this[baseKey])
-				if (rolled !== undefined) this[baseKey] = rolled
-				const value = giveBack(this.value)
-				if (value !== undefined) this.replaceValue(value)
-				this.error = errorMessage(e)
+				this.error = failed
 				this.reconcile()
-				return { ok: false, error: this.error }
+				return { ok: false, error: failed }
 			}
-			settled(true)
 			this.error = undefined
-			// `settled` has dropped from `patched` whatever this patch owned, so what is left is a
-			// newer patch of the same field, whose value stands over this one's.
-			if (this[baseKey] !== undefined)
-				this[baseKey] = this.withPatched({ ...this[baseKey], ...sent } as V)
 			this.touch()
 			this.reconcile()
 			return { ok: true }
@@ -642,7 +636,7 @@ class Entry<V> {
 			if (this.deployed !== undefined) {
 				const d = snapshot(this.deployed)
 				apply(d)
-				this.deployed = d
+				this.serverDeployed = d
 			}
 			if (this.value !== undefined) {
 				const v = snapshot(this.value)
