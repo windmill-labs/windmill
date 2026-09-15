@@ -151,6 +151,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
             "owner": "test@windmill.dev",
             "sessions": [{
                 "id": "s1",
+                "whole": true,
                 "head": head,
                 "chats": [{ "id": "c1", "record": chat }, { "id": "c2", "record": { "id": "c2" } }],
                 "images": [{ "chat_id": "c1", "id": "img1", "data_url": "data:image/png;base64,AAAA" }],
@@ -183,7 +184,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s2", "chats": [{ "id": "c", "record": { "id": "c" } }], "partial": true }]
+            "sessions": [{ "id": "s2", "whole": true, "head": { "id": "s2", "workspace_id": "test-workspace", "createdAt": 2, "chatId": "c" }, "partial": true }]
         }),
     )
     .await?;
@@ -194,7 +195,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s2", "head": { "id": "s2", "workspace_id": "test-workspace", "createdAt": 2, "chatId": "c" } }]
+            "sessions": [{ "id": "s2", "chats": [{ "id": "c", "record": { "id": "c" } }] }]
         }),
     )
     .await?;
@@ -211,28 +212,28 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     // A session that outgrew one answer (three chats of 12 MB against the 32 MB budget)
     // comes in pages, each naming where the next picks up, and nothing is left out.
     let big = "y".repeat(12 * 1024 * 1024);
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s4", "whole": true, "head": { "id": "s4", "workspace_id": "test-workspace", "createdAt": 4, "chatId": "c1" }, "partial": true }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
     for cid in ["c1", "c2", "c3"] {
         let resp = push(
             &base,
             "SECRET_TOKEN",
             json!({
                 "owner": "test@windmill.dev",
-                "sessions": [{ "id": "s4", "chats": [{ "id": cid, "record": { "id": cid, "big": big } }], "partial": true }]
+                "sessions": [{ "id": "s4", "chats": [{ "id": cid, "record": { "id": cid, "big": big } }], "partial": cid != "c3" }]
             }),
         )
         .await?;
         assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     }
-    let resp = push(
-        &base,
-        "SECRET_TOKEN",
-        json!({
-            "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s4", "head": { "id": "s4", "workspace_id": "test-workspace", "createdAt": 4, "chatId": "c1" } }]
-        }),
-    )
-    .await?;
-    assert_eq!(resp.status(), 200);
     let mut pages = vec![];
     let mut resume = json!(null);
     loop {
@@ -296,6 +297,16 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     // More objects than a page keeps listing metadata for, from a store that lists in no
     // order: the pages still carry every one of them, each once.
     let many = 5001;
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s5", "whole": true, "head": { "id": "s5", "workspace_id": "test-workspace", "createdAt": 5, "chatId": "c00000" }, "partial": true }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
     for start in (0..many).step_by(100) {
         let chats: Vec<Value> = (start..(start + 100).min(many))
             .map(|i| json!({ "id": format!("c{i:05}"), "record": { "id": format!("c{i:05}") } }))
@@ -305,22 +316,12 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
             "SECRET_TOKEN",
             json!({
                 "owner": "test@windmill.dev",
-                "sessions": [{ "id": "s5", "chats": chats, "partial": true }]
+                "sessions": [{ "id": "s5", "chats": chats, "partial": start + 100 < many }]
             }),
         )
         .await?;
         assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     }
-    let resp = push(
-        &base,
-        "SECRET_TOKEN",
-        json!({
-            "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s5", "head": { "id": "s5", "workspace_id": "test-workspace", "createdAt": 5, "chatId": "c00000" } }]
-        }),
-    )
-    .await?;
-    assert_eq!(resp.status(), 200);
     let mut seen = std::collections::HashSet::new();
     let mut resume = json!(null);
     let mut pages = 0;
@@ -371,7 +372,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     let resp = push(
         &base,
         "SECRET_TOKEN",
-        json!({ "owner": "test@windmill.dev", "sessions": [{ "id": "s3", "head": big_head }] }),
+        json!({ "owner": "test@windmill.dev", "sessions": [{ "id": "s3", "whole": true, "head": big_head }] }),
     )
     .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
@@ -553,7 +554,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s1", "head": head, "chats": [{ "id": "c2", "record": { "id": "c2" } }] }]
+            "sessions": [{ "id": "s1", "whole": true, "head": head, "chats": [{ "id": "c2", "record": { "id": "c2" } }] }]
         }),
     )
     .await?;
@@ -574,9 +575,18 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         head
     );
 
-    // A push carrying no head for a session that has none in the storage (another device
-    // removed the backup) lands but lists nothing and says so, until the session is pushed
-    // whole again.
+    // A push that does not open the session whole rides on the head in the storage; with
+    // none there (another device removed the backup, or nothing was ever pushed) it is
+    // refused and lists nothing, head or no head on it, until the session goes whole.
+    let s6_head =
+        json!({ "id": "s6", "workspace_id": "test-workspace", "createdAt": 6, "chatId": "c" });
+    let not_listed = |listing: Value| {
+        listing["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|s| s["id"] != "s6")
+    };
     let resp = push(
         &base,
         "SECRET_TOKEN",
@@ -588,24 +598,20 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     .await?;
     assert_eq!(resp.status(), 200);
     let answer: Value = resp.json().await?;
-    assert_eq!(answer["results"][0]["needs_head"], true);
-    assert!(list(&base, "SECRET_TOKEN").await?["sessions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|s| s["id"] != "s6"));
+    assert_eq!(answer["results"][0]["needs_whole"], true);
+    assert!(not_listed(list(&base, "SECRET_TOKEN").await?));
     let resp = push(
         &base,
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s6", "head": { "id": "s6", "workspace_id": "test-workspace", "createdAt": 6, "chatId": "c" } }]
+            "sessions": [{ "id": "s6", "whole": true, "head": s6_head, "chats": [{ "id": "c", "record": { "id": "c" } }] }]
         }),
     )
     .await?;
     assert_eq!(resp.status(), 200);
     let answer: Value = resp.json().await?;
-    assert!(answer["results"][0]["needs_head"].is_null());
+    assert!(answer["results"][0]["needs_whole"].is_null());
     assert_eq!(
         list(&base, "SECRET_TOKEN").await?["sessions"][0]["id"],
         "s6"
@@ -617,6 +623,23 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     )
     .await?;
     assert_eq!(resp.status(), 200);
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s6", "head": s6_head, "chats": [{ "id": "c2", "record": { "id": "c2" } }] }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let answer: Value = resp.json().await?;
+    assert_eq!(answer["results"][0]["needs_whole"], true);
+    assert!(not_listed(list(&base, "SECRET_TOKEN").await?));
+    assert!(
+        files_under(&user_root(storage_dir.path(), "test@windmill.dev").join("sessions/s6"))
+            .is_empty()
+    );
 
     // Removal empties both prefixes.
     let resp = push(

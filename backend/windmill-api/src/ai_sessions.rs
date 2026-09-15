@@ -800,6 +800,11 @@ struct PushedSession {
     /// listed on this one.
     #[serde(default)]
     partial: bool,
+    /// Opens a push of the session whole: the head is on this part and every piece the
+    /// browser has follows in the parts after it. Any other part rides on the head already
+    /// in the storage, and is refused with `needs_whole` when there is none.
+    #[serde(default)]
+    whole: bool,
 }
 
 #[derive(Deserialize)]
@@ -819,10 +824,10 @@ struct PushResult {
     id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
-    /// The pieces landed, but the session has no head in the storage (another device
-    /// removed the backup): it is not listed until pushed whole, head included.
+    /// Nothing was written: the part rides on a head the storage no longer has (another
+    /// device removed the backup), so the session must be pushed whole again.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    needs_head: bool,
+    needs_whole: bool,
 }
 
 #[derive(Serialize)]
@@ -903,10 +908,21 @@ fn push_payload_bytes(req: &PushRequest) -> usize {
         .sum()
 }
 
-/// Objects land before the head that makes them visible, and deletes run last, so a push
-/// cut short never leaves a listed session pointing at chats that are not there.
-/// Bytes written, and whether the session is left without a head (see `PushResult`).
+/// Runs under the session's lock (see `lock_session`). A part that does not open a whole
+/// push assumes the rest of the session is in the storage, which a removal since would
+/// have taken: it is refused when the head is gone, before anything of it lands, or the
+/// marker it may write would list a session missing the pieces the browser never re-sent.
+/// Deletes run last, and the marker only by the last part, so a push cut short never
+/// leaves a listed session pointing at chats that are not there.
+/// Bytes written, and whether the part was refused for the session to go whole.
 async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bool)> {
+    if !s.whole {
+        match backend.store.head(&backend.head_key(&s.id)).await {
+            Ok(_) => {}
+            Err(ObjectStoreError::NotFound { .. }) => return Ok((0, true)),
+            Err(e) => return Err(object_store_error_to_error(e)),
+        }
+    }
     let mut written = 0;
     written += backend
         .put_all(
@@ -961,16 +977,6 @@ async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bo
     if s.partial {
         return Ok((written, false));
     }
-    // A push carrying no head rides on the one already there; another device may have
-    // removed the backup since, and a marker over a headless session would list one that
-    // pulls as absent.
-    if s.head.is_none() {
-        match backend.store.head(&backend.head_key(&s.id)).await {
-            Ok(_) => {}
-            Err(ObjectStoreError::NotFound { .. }) => return Ok((written, true)),
-            Err(e) => return Err(object_store_error_to_error(e)),
-        }
-    }
     // Last, and by the last part only, so a session is listed once its whole entry landed.
     backend
         .store
@@ -981,12 +987,56 @@ async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bo
 }
 
 /// The marker goes first so a removal cut short leaves nothing listed, then the head so
-/// nothing pulls either.
+/// nothing pulls either, and no push takes it for a session still there (see `push_session`).
 async fn remove_session(backend: &Backend, sid: &str) -> Result<()> {
     backend.delete(&backend.index_key(sid)).await?;
     backend.delete(&backend.head_key(sid)).await?;
     backend.delete_prefix(&backend.session_prefix(sid)).await?;
     backend.delete_prefix(&backend.images_prefix(sid)).await
+}
+
+/// One writer per session at a time, across servers: a push and a removal of the same
+/// session interleaving object by object could leave a listed session missing pieces, or a
+/// marker over nothing. The lock lives in a transaction that writes no rows; it is released
+/// when the transaction ends. A wait past the timeout fails that entry only, and the
+/// browser retries it with backoff.
+async fn lock_session(
+    db: &DB,
+    backend: &Backend,
+    sid: &str,
+) -> Result<sqlx::Transaction<'static, sqlx::Postgres>> {
+    let mut tx = db.begin().await?;
+    sqlx::query("SET LOCAL lock_timeout = '30s'")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0::int8))")
+        .bind(format!("ai_session_backup:{}/{sid}", backend.prefix))
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "another device is writing the backup of session {sid}; retried later ({e})"
+            ))
+        })?;
+    Ok(tx)
+}
+
+async fn push_session_locked(
+    db: &DB,
+    backend: &Backend,
+    s: &PushedSession,
+) -> Result<(usize, bool)> {
+    let tx = lock_session(db, backend, &s.id).await?;
+    let result = push_session(backend, s).await;
+    tx.commit().await?;
+    result
+}
+
+async fn remove_session_locked(db: &DB, backend: &Backend, sid: &str) -> Result<()> {
+    let tx = lock_session(db, backend, sid).await?;
+    let result = remove_session(backend, sid).await;
+    tx.commit().await?;
+    result
 }
 
 async fn push(
@@ -1030,16 +1080,16 @@ async fn push(
     // the later ones are not written, or the head would list a session missing a part.
     let mut failed: std::collections::HashSet<&str> = Default::default();
     for s in &req.sessions {
-        let (error, needs_head) = if failed.contains(s.id.as_str()) {
+        let (error, needs_whole) = if failed.contains(s.id.as_str()) {
             (
                 Some("an earlier part of this session in the push failed".to_string()),
                 false,
             )
         } else {
-            match push_session(&backend, s).await {
-                Ok((n, needs_head)) => {
+            match push_session_locked(&db, &backend, s).await {
+                Ok((n, needs_whole)) => {
                     written += n;
-                    (None, needs_head)
+                    (None, needs_whole)
                 }
                 Err(e) => {
                     tracing::warn!("AI session backup push failed for {} in {w_id}: {e}", s.id);
@@ -1048,14 +1098,17 @@ async fn push(
                 }
             }
         };
-        results.push(PushResult { id: s.id.clone(), error, needs_head });
+        results.push(PushResult { id: s.id.clone(), error, needs_whole });
     }
     for sid in &req.removed {
-        let error = remove_session(&backend, sid).await.err().map(|e| {
-            tracing::warn!("AI session backup removal failed for {sid} in {w_id}: {e}");
-            e.to_string()
-        });
-        results.push(PushResult { id: sid.clone(), error, needs_head: false });
+        let error = remove_session_locked(&db, &backend, sid)
+            .await
+            .err()
+            .map(|e| {
+                tracing::warn!("AI session backup removal failed for {sid} in {w_id}: {e}");
+                e.to_string()
+            });
+        results.push(PushResult { id: sid.clone(), error, needs_whole: false });
     }
     // Overwrites and deletes make this an over-count; the periodic recount the quota check
     // schedules once usage is stale settles it.

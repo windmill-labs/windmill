@@ -60,6 +60,7 @@ import {
 	__resetMirrorForTesting,
 	__settleForTesting,
 	__syncRowsForTesting,
+	__writeSyncForTesting,
 	restoreSessionBackups
 } from './sessionMirror.svelte'
 
@@ -152,7 +153,12 @@ describe('sessionMirror flush', () => {
 		expect(body.removed).toBeUndefined()
 		const [imageEntry, entry] = body.sessions
 		expect(imageEntry.images).toEqual([{ chat_id: 'c1', id: expect.any(String), data_url: IMAGE }])
-		expect(entry.head).toEqual({ id: 's1', createdAt: 1, workspace_id: 'ws', chatId: 'c1' })
+		// A first push goes whole: the head opens it on the first part, whichever that is.
+		expect(imageEntry.whole).toBe(true)
+		expect(imageEntry.partial).toBe(true)
+		expect(imageEntry.head).toEqual({ id: 's1', createdAt: 1, workspace_id: 'ws', chatId: 'c1' })
+		expect(entry.head).toBeUndefined()
+		expect(entry.whole).toBeUndefined()
 		expect(entry.chats.map((c: { id: string }) => c.id)).toEqual(['c1'])
 		// The record keeps its blob ref; bytes travel as the image object only.
 		expect(JSON.stringify(entry.chats[0].record)).not.toContain(IMAGE)
@@ -462,9 +468,15 @@ describe('sessionMirror flush', () => {
 			.mockResolvedValueOnce({ enabled: true, storage_id: 'bucket-2', results: [{ id: 'sp' }] })
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(2)
-		// Only the last part completes the entry server-side.
-		expect(pushMock.mock.calls[0][0].requestBody.sessions[0].partial).toBe(true)
-		expect(pushMock.mock.calls[1][0].requestBody.sessions[0].partial).toBeUndefined()
+		// The first part opens the session whole with its head; only the last completes
+		// the entry server-side.
+		const [first, last] = pushMock.mock.calls.map((c) => c[0].requestBody.sessions[0])
+		expect(first.partial).toBe(true)
+		expect(first.whole).toBe(true)
+		expect(first.head).toBeDefined()
+		expect(last.partial).toBeUndefined()
+		expect(last.whole).toBeUndefined()
+		expect(last.head).toBeUndefined()
 		expect(await pendingDirty()).toEqual(['sp'])
 		expect(await __syncRowsForTesting(EMAIL)).toEqual([])
 	})
@@ -555,15 +567,18 @@ describe('sessionMirror flush', () => {
 			[{ role: 'user', content: 'ab' } as never],
 			[{ role: 'user', content: 'ab' } as never]
 		)
-		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sh', needs_head: true }] })
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sh', needs_whole: true }] })
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(2)
-		expect(pushMock.mock.calls[1][0].requestBody.sessions[0].head).toBeUndefined()
+		expect(pushMock.mock.calls[1][0].requestBody.sessions[0].whole).toBeUndefined()
 		expect(await pendingDirty()).toEqual(['sh'])
 		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sh' }] })
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(3)
-		expect(pushMock.mock.calls[2][0].requestBody.sessions[0].head).toBeDefined()
+		const whole = pushMock.mock.calls[2][0].requestBody.sessions[0]
+		expect(whole.whole).toBe(true)
+		expect(whole.head).toBeDefined()
+		expect(whole.chats.map((c: { id: string }) => c.id).sort()).toEqual(['c1', 'c2'])
 		expect(await pendingDirty()).toEqual([])
 		hm.close()
 	})
@@ -797,15 +812,32 @@ describe('sessionMirror restore', () => {
 			enabled: true,
 			sessions: [{ id: 's9', updated_at: '2026-09-14T00:00:00Z' }]
 		})
+		// An earlier restore of this tab was cut short after staging a chat the backup has
+		// since dropped.
+		const { importStoredChats } = await import('../copilot/chat/HistoryManager.svelte')
+		const cx = { ...backup.chats[0].record, id: 'cx' } as never
+		await importStoredChats([cx], [], EMAIL, true)
+		await __writeSyncForTesting(
+			[
+				{
+					id: 's9',
+					ws: 'ws',
+					head: '',
+					chats: {},
+					images: {},
+					staging: { chats: ['cx'], images: [], items: [], versions: [] }
+				}
+			],
+			EMAIL
+		)
 		let release!: (value: unknown) => void
 		pullMock.mockImplementationOnce(() => new Promise((r) => (release = r)))
 		usersWorkspaceStore.set({ email: EMAIL, workspaces: [] } as never)
 		restoreSessionBackups('ws')
 		await vi.waitFor(() => expect(pullMock).toHaveBeenCalledTimes(1))
-		// The other tab's restore lands first, with a newer transcript.
-		const { importStoredChats } = await import('../copilot/chat/HistoryManager.svelte')
+		// The other tab's restore lands first, with a newer transcript that has that chat.
 		await importStoredChats(
-			[{ ...backup.chats[0].record, title: 'newer' } as never],
+			[{ ...backup.chats[0].record, title: 'newer' } as never, cx],
 			[],
 			EMAIL,
 			true
@@ -814,6 +846,8 @@ describe('sessionMirror restore', () => {
 		release({ enabled: true, sessions: [backup], deferred: [] })
 		await __settleForTesting()
 		expect((await readStoredChat('c9', EMAIL))?.title).toBe('newer')
+		// Not this tab's session to prune: the staged chat the other tab holds stays.
+		expect((await readStoredChat('cx', EMAIL))?.id).toBe('cx')
 	})
 
 	it('never writes an older record over a newer one, and prunes only what it is told', async () => {

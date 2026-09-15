@@ -584,9 +584,9 @@ async function pushWorkspace(
 			if (r.error) {
 				console.warn(`Session backup of ${r.id} failed: ${r.error}`)
 				errors.add(r.id)
-			} else if (r.needs_head) {
-				// The pieces landed but the session has no head there any more: not a
-				// failure to back off from, but nothing to settle either.
+			} else if (r.needs_whole) {
+				// The part rode on a head the storage no longer has: not a failure to back
+				// off from, but nothing to settle either.
 				headless.add(r.id)
 				out.needsWhole.push(r.id)
 			}
@@ -702,6 +702,15 @@ async function pushWorkspace(
 			generation: item.sync?.generation
 		})
 		if (nothingToSend) continue
+		// A push of the session whole opens with its head on the first part, whichever that
+		// is: every later part rides on that head, and the server refuses a part whose head
+		// is gone rather than list a session missing what an earlier part carried.
+		let opened = !plan.whole
+		const open = (part: AISessionBackupPush): AISessionBackupPush => {
+			if (opened) return part
+			opened = true
+			return { ...part, head: plan.entry?.head, whole: true }
+		}
 		let images: AISessionBackupImage[] = []
 		let imagesBytes = 0
 		for (const { chat_id, id } of plan.images) {
@@ -713,7 +722,7 @@ async function pushWorkspace(
 				(images.length >= MAX_IMAGES_PER_ENTRY ||
 					imagesBytes + data_url.length > REQUEST_TARGET_BYTES)
 			) {
-				const status = await append({ id: item.session.id, images, partial: true })
+				const status = await append(open({ id: item.session.id, images, partial: true }))
 				if (status !== 'ok') return finish(status)
 				images = []
 				imagesBytes = 0
@@ -723,18 +732,25 @@ async function pushWorkspace(
 		}
 		// Every part but the last says so: the server lists a session on the part that
 		// completes its entry, never on one an unsent part still follows.
-		const parts = plan.entry ? splitEntry(plan.entry, REQUEST_TARGET_BYTES) : []
+		const parts = plan.entry
+			? splitEntry(
+					plan.whole ? { ...plan.entry, head: undefined } : plan.entry,
+					REQUEST_TARGET_BYTES
+				)
+			: []
 		if (images.length > 0) {
-			const status = await append({
-				id: item.session.id,
-				images,
-				partial: parts.length > 0 || undefined
-			})
+			const status = await append(
+				open({
+					id: item.session.id,
+					images,
+					partial: parts.length > 0 || undefined
+				})
+			)
 			if (status !== 'ok') return finish(status)
 		}
 		for (const [i, part] of parts.entries()) {
 			if (failed.has(item.session.id)) break
-			const status = await append(i < parts.length - 1 ? { ...part, partial: true } : part)
+			const status = await append(open(i < parts.length - 1 ? { ...part, partial: true } : part))
 			if (status !== 'ok') return finish(status)
 		}
 		attempted.get(item.session.id)!.complete = true
@@ -1207,9 +1223,18 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 			ready.push(merged)
 		}
 		if (ready.length === 0) continue
+		const imported = new Set(
+			await importSessions(
+				ready.map((r) => r.session),
+				email
+			)
+		)
+		// Only for a session this restore brought back: one another tab imported meanwhile
+		// (without Web Locks) may hold pieces newer than this backup, which are not ours to
+		// prune. The record is not visible to a flush before the sync row below lands.
 		for (const r of ready) {
 			const prior = earlierStaging.get(r.session.id)
-			if (!prior) continue
+			if (!prior || !imported.has(r.session.id)) continue
 			const gone = (was: Set<string>, now: Set<string>) =>
 				new Set([...was].filter((id) => !now.has(id)))
 			await pruneSessionChats(
@@ -1226,12 +1251,6 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 			)
 			earlierStaging.delete(r.session.id)
 		}
-		const imported = new Set(
-			await importSessions(
-				ready.map((r) => r.session),
-				email
-			)
-		)
 		await writeSync(
 			ready.filter((r) => imported.has(r.session.id)).map((r) => r.sync),
 			email
@@ -1310,6 +1329,11 @@ export function __flushForTesting(): Promise<void | undefined> {
 /** Test-only: what the sync table holds for the user. */
 export async function __syncRowsForTesting(email: string): Promise<MirrorSyncState[]> {
 	return allSyncRows(email)
+}
+
+/** Test-only: plant sync rows, as an earlier page load would have left them. */
+export function __writeSyncForTesting(rows: MirrorSyncState[], email: string): Promise<void> {
+	return writeSync(rows, email)
 }
 
 /** Test-only: wait for whatever flush or restore is queued. */

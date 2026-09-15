@@ -133,6 +133,9 @@ export interface PlannedPush {
 	/** Deletes past the per-entry cap were left in `next` for the following push, so the
 	 * session must stay marked once this one lands. */
 	carried: boolean
+	/** Nothing of the session is taken to be in the storage: every piece goes, and the
+	 * first part opens the push whole (see `whole` on the entry). */
+	whole: boolean
 }
 
 /** `undefined` for a session with nowhere to go: an unsent draft has no workspace yet. */
@@ -219,7 +222,8 @@ export function planSessionPush(input: PlanInput): PlannedPush | undefined {
 		images,
 		removeFrom,
 		next,
-		carried
+		carried,
+		whole: prev === undefined
 	}
 }
 

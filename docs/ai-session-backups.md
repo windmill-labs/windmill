@@ -53,8 +53,14 @@ session with many chats cannot crowd newer ones out of a bounded scan, and its
 part follows (a session split over several entries says `partial` on all but the last), it
 lists a session only once a whole push landed; the parts of a session after a failed one are
 not written either, on the server within one push and on the client across pushes, so the
-head on the last part never lists a session missing a chat, and a new session whose last part
-never lands is not listed at all.
+marker on the last part never lists a session missing a chat, and a new session whose last part
+never lands is not listed at all. A push of the session whole (no sync row, or a stale one)
+opens with the head on its first part, marked `whole`; every other part, of that push or of
+an incremental one, rides on the head already in the storage, and the server refuses it with
+`needs_whole` when there is none (a removal deletes the head first), rather than write a
+marker over a session missing what earlier parts or earlier pushes carried. A push and a
+removal of one session are serialized on the server by a Postgres advisory lock keyed on the
+session's prefix, so the two never interleave object by object.
 
 The head signature leaves out `name` (a per-browser counter the sessions page routes by),
 the unsent-draft fields, `workspace_root_id` (recomputed on import), and the two fields reading
@@ -120,9 +126,10 @@ hide chats a newer device wrote. Two devices continuing the same chat still coll
 
 Restore brings back only sessions the browser does not have (`importSessions` is write-if-absent,
 and skips ids the user deleted in this page) and never overwrites or deletes a local one from
-remote state. Only a user-initiated `deleteSession` removes the backup; a push from another
-device that carries no head (its record did not change) then lands its pieces but is told
-`needs_head` and lists nothing, and that device's next flush sends the session whole; the workspace-lifecycle
+remote state. Only a user-initiated `deleteSession` removes the backup; the next push from
+another device that still has the session is refused with `needs_whole` (nothing of it is
+written), its row goes stale without a backoff, and that device's next flush sends the session
+whole; the workspace-lifecycle
 removals (`reconcileSessionsLifecycle`, `deleteSessionsForWorkspace`) leave it, so a session
 dropped by a wrong reconcile comes back on the next restore. Objects of deleted workspaces stay
 in the bucket. A session moved to another workspace is pushed whole into the new one, and once
@@ -184,11 +191,13 @@ an earlier restore cut short had staged (the session is absent locally, so its p
 local edits to keep, and the backup may have moved on), and the record, which is what makes
 the session visible, only with the last page. A restore in progress keeps a staging row for
 the session (the ids of every chat, image, artifact and version it wrote), which outlives it
-if it is cut short; the next restore deletes, before the record lands, the staged pieces the
-backup no longer has, by id and never by clock, or a later flush would push them back. A
-restore holds the user's tab lock while it runs, so two tabs cannot each write the same absent
-session's pieces over the other's; where Web Locks do not exist a page whose session another
-tab imported meanwhile is dropped, and a restore never writes an older record over a newer
+if it is cut short; the next restore deletes the staged pieces the backup no longer has, by id
+and never by clock, once its record has landed and only for a session it brought back itself
+(before the sync row that lets a flush see the session), or a later flush would push them
+back. A restore holds the user's tab lock while it runs, so two tabs cannot each write the same
+absent session's pieces over the other's; where Web Locks do not exist a page whose session
+another tab imported meanwhile is dropped, its pieces are left unpruned as that tab's, and a
+restore never writes an older record over a newer
 one; between pages it holds nothing but the sync
 row being assembled, whose chats also admit the images of a later page. Every page carries a
 fingerprint of the session's listing (`listing`), taken before anything of the page is

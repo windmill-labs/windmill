@@ -13338,9 +13338,9 @@ paths:
                           type: string
                         error:
                           type: string
-                        needs_head:
+                        needs_whole:
                           type: boolean
-                          description: the pieces landed but the session has no head in the storage (its backup was removed); it is not listed until pushed whole, head included
+                          description: nothing was written; the part rides on a head the storage no longer has (the backup was removed), so the session must be pushed whole again
 
   /w/{workspace}/ai/shared_artifacts/share:
     post:
@@ -28565,6 +28565,9 @@ components:
         partial:
           type: boolean
           description: more parts of this session follow, in this push or a later one; the session is not listed on this one
+        whole:
+          type: boolean
+          description: opens a push of the session whole; the head is on this part and every piece the browser has follows. Any other part rides on the head already in the storage and is refused with needs_whole when there is none
 
     FreeTierInfo:
       type: object
