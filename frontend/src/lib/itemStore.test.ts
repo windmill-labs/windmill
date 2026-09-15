@@ -58,18 +58,27 @@ function fakeRows() {
 		},
 		flush: async (key) => {
 			// A POST carries what was queued when it went out; what is typed while it is in flight
-			// queues behind it. With nothing queued, a payload parked by a failure is replayed
-			// instead — but never one the server refused: that is parked to keep it, not to retry
-			// it, and sending it is the user's to ask for.
+			// queues behind it. With nothing queued, a payload parked for another attempt goes
+			// instead.
 			const fromQueue = queued.has(key.path)
 			const going = fromQueue
 				? { value: queued.get(key.path) }
-				: parked.has(key.path) && !conflicts.has(key.path)
+				: parked.has(key.path)
 					? { value: parked.get(key.path) }
 					: undefined
 			queued.delete(key.path)
 			if (holdFlush) await holdFlush
 			if (!going) return
+			// Nothing goes out while the key is conflicted, whether it was queued before the
+			// refusal or parked by it: the payload is kept so the edit survives, and which
+			// version wins is the user's to say. `postSave` gates every send this way.
+			if (conflicts.has(key.path)) {
+				parked.set(key.path, going.value)
+				return
+			}
+			// Nothing goes out while the key is conflicted, whether it was queued before the
+			// refusal or parked by it: the payload is kept so the edit survives, and which
+			// version wins is the user's to say. `postSave` gates every send this way.
 			// Replaying a parked payload is another POST, so another hand-over.
 			if (!fromQueue) handed(key.path)
 			// A POST that never reaches the server keeps its payload for the next attempt.
@@ -1977,6 +1986,38 @@ describe('item store: conflicts', () => {
 			path: 'u/me/r',
 			value: { ...deployedRes, description: 'typed after reopening' }
 		})
+	})
+
+	it('does not let a debounce armed before a synthetic conflict send behind the user', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const a = adapter(async () => {
+			const draft = rows.sent.get('u/me/r') as Res | undefined
+			return { deployed: deployedRes, draft, draftSavedAt: draft ? 'T-theirs' : undefined }
+		})
+		const first = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+		// No draft exists, so this edit is queued with no baseline behind it. It is never
+		// attempted: the editor closes while it is still sitting in the debounce.
+		first.handle.value = { ...deployedRes, description: 'tab A, still debouncing' }
+		first.release()
+
+		// Another tab creates the draft meanwhile.
+		const theirs = { ...deployedRes, description: 'tab B' }
+		rows.sent.set('u/me/r', theirs)
+		rows.handExternally('u/me/r')
+
+		const second = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+		// Two drafts and no baseline to order them by, so the read raises the conflict itself.
+		expect(second.handle.status).toBe('conflicted')
+
+		// The debounce armed before any of that is still holding tab A's edit. Firing it would
+		// go out unconditional, take their draft with it, and answer the conflict nobody settled.
+		await rows.port.flush(key)
+		expect(rows.sent.get('u/me/r')).toEqual(theirs)
+		expect(second.handle.status).toBe('conflicted')
 	})
 
 	it('does not replay a first failed autosave over a draft created since', async () => {

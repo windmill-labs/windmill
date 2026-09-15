@@ -315,9 +315,6 @@ class Entry<V> {
 		// — a save landed, or the user put it back. Left standing, it would have the next read
 		// keep this value while advancing the baseline under it, and that gap drafted.
 		if (desired === null) this.local = false
-		// Back on the deployed value, so there is nothing of anyone's here for a read to defer to
-		// — a save landed, or the user put it back. Left standing, it would have the next read
-		// keep this value while advancing the baseline under it, and that gap drafted.
 		this.ports.hint(key, desired !== null)
 		// A rejected write is not retried: the row stays as the server has it until the conflict
 		// is resolved, by a reload or an overwrite. The refused payload stays parked, which is

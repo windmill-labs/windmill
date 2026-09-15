@@ -285,6 +285,11 @@ function formatSaveError(e: unknown): string {
 
 async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 	const key = draftKey(opts.workspace, opts.itemKind, opts.path)
+	// Refused by the server, or on this tab's behalf, and not answered yet. The payload stays
+	// parked so the edit survives, but nothing sends it until the user picks a version, `force`
+	// being that choice. Gated here because every send but the page-hide beacon comes through,
+	// a debounce armed before the conflict was raised included.
+	if (conflicts.has(key) && !opts.force) return
 	const lastSync = getLastSyncEntry(key)?.lastSync
 	try {
 		const resp = await DraftService.updateDraft({
@@ -528,9 +533,6 @@ export const UserDraftDbSyncer = {
 		} catch {}
 		if (enabled) {
 			for (const [key, opts] of pendingSaveOpts) {
-				// A refused payload is parked to keep it, not to retry it: catching up here would
-				// send it the moment its baseline is acceptable, without the user resolving.
-				if (conflicts.has(key)) continue
 				debouncer.schedule(key, () => {
 					runner.submit(key, () => postSave(opts))
 				})
@@ -713,10 +715,6 @@ export const UserDraftDbSyncer = {
 		try {
 			const parked = pendingSaveOpts.get(key)
 			if (!parked) return
-			// The server refused this payload and nothing has resolved that yet. It stays parked,
-			// as the only copy of an edit that never landed, but replaying it here would decide
-			// the conflict on the user's behalf the moment its baseline is acceptable again.
-			if (conflicts.has(key)) return
 			if (opts?.honorAutosaveToggle && !autosaveEnabledState && parked.auto && parked.canBeDisabled)
 				return
 			await this.save({ ...parked, immediate: true })
