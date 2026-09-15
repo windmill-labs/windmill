@@ -155,6 +155,7 @@ pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
 pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
 pub const DEFAULT_SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
 pub const DEFAULT_OTEL_TRACES_RETENTION_SECS: i64 = 60 * 60 * 24 * 7; // 1 week retention period for HTTP request spans
+pub const DEFAULT_AI_SHARED_ARTIFACT_RETENTION_SECS: i64 = 60 * 60 * 24 * 30;
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
 
 /// A century. Every consumer has to survive `now - retention`, and the ceilings are much lower
@@ -231,6 +232,13 @@ pub fn otel_traces_retention_secs() -> i64 {
 /// [`indexer::service_log_index_window_secs`] — the search index.
 pub fn service_log_retention_secs() -> i64 {
     SERVICE_LOG_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// How long a shared AI session artifact stays viewable, in seconds, counted from the last time
+/// its author shared it. Read by both the API, which stops serving an expired share, and the
+/// monitor, which deletes it — so both must agree, which is why they share this one reader.
+pub fn ai_shared_artifact_retention_secs() -> i64 {
+    *AI_SHARED_ARTIFACT_RETENTION_SECS
 }
 
 /// Canonical form of a base URL, used as one of the inputs to the offline-license
@@ -480,6 +488,15 @@ lazy_static::lazy_static! {
     /// [`set_otel_traces_retention_secs`] is the only writer, [`otel_traces_retention_secs`] the
     /// only reader.
     static ref OTEL_TRACES_RETENTION_SECS: AtomicI64 = AtomicI64::new(DEFAULT_OTEL_TRACES_RETENTION_SECS);
+    /// Read it with [`ai_shared_artifact_retention_secs`].
+    static ref AI_SHARED_ARTIFACT_RETENTION_SECS: i64 = clamp_retention_secs(
+        std::env::var("AI_SHARED_ARTIFACT_RETENTION_SECS")
+            .ok()
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(DEFAULT_AI_SHARED_ARTIFACT_RETENTION_SECS),
+        DEFAULT_AI_SHARED_ARTIFACT_RETENTION_SECS,
+        "AI shared artifact",
+    );
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: AtomicBool = AtomicBool::new(false);
 

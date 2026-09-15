@@ -184,7 +184,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28958/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28969/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -515,6 +515,11 @@ pub struct AutoPullSettings {
     pub last_synced_sha: std::collections::HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_pull_status: Option<AutoPullStatus>,
+    /// Email of the admin this repository's automatic pulls (its own and its forks')
+    /// apply changes as: whoever last saved the settings with auto pull on. Stamped
+    /// server-side, never taken from the client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled_by: Option<String>,
 }
 
 // Manual Debug so the HMAC `webhook_secret` (even encrypted) never lands in logs.
@@ -525,6 +530,7 @@ impl std::fmt::Debug for AutoPullSettings {
             .field("mode", &self.mode)
             .field("poll_interval_s", &self.poll_interval_s)
             .field("sync_forks", &self.sync_forks)
+            .field("enabled_by", &self.enabled_by)
             .field("webhook_id", &self.webhook_id)
             .field(
                 "webhook_secret",
@@ -3339,6 +3345,7 @@ mod tests {
             webhook_secret: None,
             webhook_url: None,
             webhook_error: None,
+            enabled_by: None,
             last_synced_sha: synced
                 .iter()
                 .map(|(r, s)| (r.to_string(), s.to_string()))

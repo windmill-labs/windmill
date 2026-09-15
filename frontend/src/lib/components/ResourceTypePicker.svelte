@@ -9,7 +9,11 @@
 	import Tooltip from './Tooltip.svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import { untrack } from 'svelte'
-	import { resourceTypeSearchText, sortResourceTypesByMatch } from './resourceTypeDisplay'
+	import {
+		resourceTypeSearchText,
+		setResourceTypeDisplayNames,
+		sortResourceTypesByMatch
+	} from './resourceTypeDisplay'
 	interface Props {
 		value: string | undefined
 		notPickable?: boolean
@@ -22,6 +26,7 @@
 
 	async function loadResources() {
 		const types = await ResourceService.listResourceType({ workspace: $workspaceStore! })
+		setResourceTypeDisplayNames(types)
 		resources = types.map((t) => ({
 			name: t.name,
 			description: t.description,
