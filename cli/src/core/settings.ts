@@ -386,10 +386,17 @@ export async function pushWorkspaceSettings(
 
   if (!deepEqual(localSettings.datatable, settings.datatable)) {
     log.debug(`Updating datatable config...`);
-    await wmill.editDataTableConfig({
+    const { stranded_references } = await wmill.editDataTableConfig({
       workspace,
       requestBody: { settings: localSettings.datatable ?? { datatables: {} } },
     });
+    if (stranded_references?.length) {
+      log.warn(
+        `Removed data tables governed data tables in other workspaces, which no longer resolve: ${stranded_references
+          .map((r) => `${r.workspace_id}/${r.datatable}`)
+          .join(", ")}. A superadmin can point them somewhere else.`,
+      );
+    }
   }
 
   if (localSettings.slack_command_script != settings.slack_command_script) {

@@ -13,8 +13,8 @@ use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
-    get_datatable_resource_from_db_unchecked, get_ducklake_from_db_unchecked,
-    strip_fork_reserved_attach_args, DucklakeCatalogResourceType,
+    get_datatable_resource_from_db, get_ducklake_from_db_unchecked,
+    strip_fork_reserved_attach_args, DatatableAccess, DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
 use windmill_object_store::S3_PROXY_LAST_ERRORS_CACHE;
@@ -1494,13 +1494,9 @@ pub async fn do_duckdb(
                 .await?
                 {
                     probe_blocks.extend(q);
-                } else if let Some(q) = transform_attach_datatable(
-                    &query_block,
-                    conn,
-                    &mut hidden_passwords,
-                    &job.workspace_id,
-                )
-                .await?
+                } else if let Some(q) =
+                    transform_attach_datatable(&query_block, conn, &mut hidden_passwords, job)
+                        .await?
                 {
                     probe_blocks.extend(q);
                 } else {
@@ -1575,13 +1571,9 @@ pub async fn do_duckdb(
                 .await?
                 {
                     v.extend(ducklake_query);
-                } else if let Some(datatable_query) = transform_attach_datatable(
-                    &query_block,
-                    conn,
-                    &mut hidden_passwords,
-                    &job.workspace_id,
-                )
-                .await?
+                } else if let Some(datatable_query) =
+                    transform_attach_datatable(&query_block, conn, &mut hidden_passwords, job)
+                        .await?
                 {
                     v.extend(datatable_query);
                 } else {
@@ -2609,33 +2601,79 @@ fn fork_defer_statements(
     Ok(stmts)
 }
 
+struct AttachedDatatable<'a> {
+    /// The data table reference, query string included; a bare `datatable` is `main`.
+    reference: String,
+    alias: &'a str,
+}
+
+/// `ATTACH 'datatable[://<name>][?role=<role>]' AS <alias>`. A bare `datatable` names the default
+/// data table, so the role query string has to be accepted with and without an explicit name. The
+/// reference is split only once the workspace can be read, because a stored name may contain `?`.
+fn parse_attach_datatable(query: &str) -> Option<AttachedDatatable<'_>> {
+    lazy_static::lazy_static! {
+        static ref RE: regex::Regex = regex::Regex::new(
+            r"(?i)ATTACH\s*'datatable(://[^':]+|\?[^':]*)?'\s*AS\s+([^ ;]+)"
+        ).unwrap();
+    }
+    let cap = RE.captures(query)?;
+    let reference = match cap.get(1).map(|m| m.as_str()) {
+        Some(named) if named.starts_with("://") => named[3..].to_string(),
+        Some(query) => format!("main{query}"),
+        None => "main".to_string(),
+    };
+    let alias = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+    Some(AttachedDatatable { reference, alias })
+}
+
 async fn transform_attach_datatable(
     query: &str,
     conn: &Connection,
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
-    w_id: &str,
+    job: &MiniPulledJob,
 ) -> Result<Option<Vec<String>>> {
-    lazy_static::lazy_static! {
-        static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'datatable(://[^':]+)?'\s*AS\s+([^ ;]+)").unwrap();
-    }
-    let Some(cap) = RE.captures(query) else {
+    let Some(attached) = parse_attach_datatable(query) else {
         return Ok(None);
     };
-    let name = cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main");
-    let alias_name = cap.get(2).map(|m| m.as_str()).unwrap_or("");
 
+    // A query string that does not parse is refused rather than dropped: attaching under the
+    // default role when the statement asked for another one is the failure this guards.
     let db_resource = match conn {
         Connection::Http(client) => {
-            get_datatable_resource_from_agent_http(client, name, w_id).await?
+            let (name, role) =
+                windmill_common::workspaces::parse_datatable_ref(&attached.reference)?;
+            get_datatable_resource_from_agent_http(client, name, &job.workspace_id, role, &job.id)
+                .await?
         }
-        Connection::Sql(db) => get_datatable_resource_from_db_unchecked(db, w_id, name).await?,
+        Connection::Sql(db) => {
+            let (name, role) = windmill_common::workspaces::parse_datatable_ref_for(
+                db,
+                &job.workspace_id,
+                &attached.reference,
+            )
+            .await?;
+            get_datatable_resource_from_db(
+                db,
+                &job.workspace_id,
+                &name,
+                role.as_deref(),
+                DatatableAccess::PermissionedAs {
+                    permissioned_as: &job.permissioned_as,
+                    email: &job.permissioned_as_email,
+                },
+            )
+            .await?
+        }
     };
 
     if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
     }
 
-    Ok(Some(pg_secret_attach_statements(db_resource, alias_name)?))
+    Ok(Some(pg_secret_attach_statements(
+        db_resource,
+        attached.alias,
+    )?))
 }
 
 // Secret names must be plain identifiers; the hash keeps two aliases distinct even
@@ -2752,6 +2790,45 @@ pub struct Arg {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attach_datatable_parses_name_and_role() {
+        let reference_of = |q: &str| parse_attach_datatable(q).unwrap().reference;
+        let named =
+            parse_attach_datatable("ATTACH 'datatable://sales?role=analytics' AS dt").unwrap();
+        assert_eq!(
+            (named.reference.as_str(), named.alias),
+            ("sales?role=analytics", "dt")
+        );
+        // A bare `datatable` is the default one, and still takes a role.
+        assert_eq!(
+            reference_of("ATTACH 'datatable?role=analytics' AS dt"),
+            "main?role=analytics"
+        );
+        assert_eq!(reference_of("ATTACH 'datatable://sales' AS dt"), "sales");
+        assert_eq!(reference_of("ATTACH 'datatable' AS dt"), "main");
+        assert!(parse_attach_datatable("SELECT 1").is_none());
+        // A stored name can contain `?`, so that is left to the workspace lookup to split.
+        assert_eq!(reference_of("ATTACH 'datatable://a?b' AS dt"), "a?b");
+
+        // The key matches case-insensitively, as the `-- role` annotation does, and a query string
+        // that does not parse is refused rather than attached under the default role.
+        let parse = |q: &str| {
+            windmill_common::workspaces::parse_datatable_ref(&reference_of(q))
+                .map(|(name, role)| (name.to_string(), role.map(str::to_string)))
+        };
+        assert_eq!(
+            parse("ATTACH 'datatable://sales?Role=analytics' AS dt").unwrap(),
+            ("sales".to_string(), Some("analytics".to_string()))
+        );
+        for malformed in [
+            "ATTACH 'datatable://sales?role=' AS dt",
+            "ATTACH 'datatable://sales?role=an;alytics' AS dt",
+            "ATTACH 'datatable://sales?x=1&role=analytics' AS dt",
+        ] {
+            assert!(parse(malformed).is_err(), "silently ignored: {malformed}");
+        }
+    }
 
     #[test]
     fn decode_ffi_error_unescapes_multiline_and_strips_quotes() {
