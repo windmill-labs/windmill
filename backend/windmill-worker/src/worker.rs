@@ -4645,7 +4645,7 @@ pub async fn handle_queued_job(
     let cached_res_path = if job.cache_ttl.is_some() {
         match conn {
             Connection::Sql(db) => {
-                Some(cached_result_path(db, &client, &job, preview_data.as_ref()).await)
+                Some(cached_result_path(db, &client, &job, preview_data.as_ref()).await?)
             }
             Connection::Http(_) => None,
         }

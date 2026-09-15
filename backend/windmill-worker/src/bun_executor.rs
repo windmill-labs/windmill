@@ -2874,9 +2874,9 @@ pub async fn handle_wac_v2_output(
                 .collect();
 
             // Resolve job_payload once (same for all children since they re-run
-            // the parent script). No result cache on a child: it runs with the
-            // parent's kind, runnable and arguments, so its cached result would be
-            // read back as the parent's on resume and as every sibling's.
+            // the parent script). The step's cache setting is for the workflow's
+            // result; a task is cached only through its own `cache_ttl` option,
+            // under a key of its own (see `cached_result_path`).
             let job_payload_template = match job.kind {
                 JobKind::Script => {
                     if let Some(hash) = job.runnable_id {
@@ -3035,6 +3035,12 @@ pub async fn handle_wac_v2_output(
             let mut pushed_ids: Vec<Uuid> = Vec::with_capacity(num_steps);
             let push_result: error::Result<()> = async {
                 for (step, (_, child_uuid)) in steps.iter().zip(job_ids.iter()) {
+                    // A task with a runnable of its own (a deployed script or flow) queues
+                    // at that runnable's priority; any other task is the parent's code and
+                    // queues at the parent's.
+                    let own_runnable = matches!(step.dispatch_type.as_str(), "script" | "flow")
+                        && !step.script.starts_with("./");
+
                     // Resolve job payload based on dispatch_type
                     let (job_payload, child_args, is_external, on_behalf_of) =
                         match step.dispatch_type.as_str() {
@@ -3048,8 +3054,8 @@ pub async fn handle_wac_v2_output(
                                     hash: None,
                                     language: module.language,
                                     lock: module.lock,
-                                    cache_ttl: job.cache_ttl,
-                                    cache_ignore_s3_path: job.cache_ignore_s3_path,
+                                    cache_ttl: None,
+                                    cache_ignore_s3_path: None,
                                     dedicated_worker: None,
                                     concurrency_settings: ConcurrencySettingsWithCustom::default(),
                                     debouncing_settings: DebouncingSettings::default(),
@@ -3129,13 +3135,12 @@ pub async fn handle_wac_v2_output(
 
                     let push_args = PushArgs { args: &child_args, extra: None };
 
-                    // Apply step-level overrides to payload (cache, concurrency). The
-                    // cache one is for an external runnable only: an inline child has no
-                    // cache key of its own (see the template above).
+                    // Apply step-level overrides to payload (cache, concurrency)
                     let mut job_payload = job_payload;
-                    if let Some(cache_ttl) = step.cache_ttl.filter(|_| is_external) {
+                    if let Some(cache_ttl) = step.cache_ttl {
                         match &mut job_payload {
-                            JobPayload::ScriptHash { cache_ttl: ref mut ct, .. } => {
+                            JobPayload::ScriptHash { cache_ttl: ref mut ct, .. }
+                            | JobPayload::FlowScript { cache_ttl: ref mut ct, .. } => {
                                 *ct = Some(cache_ttl)
                             }
                             JobPayload::Code(ref mut code) => code.cache_ttl = Some(cache_ttl),
@@ -3215,10 +3220,8 @@ pub async fn handle_wac_v2_output(
                         step.tag.clone().or_else(|| Some(job.tag.clone())),
                         step.timeout.or(job.timeout),
                         None, // flow_step_id
-                        // An inline child queues at the parent's priority unless the task
-                        // sets its own; an external runnable keeps its own.
                         step.priority
-                            .or(if is_external { None } else { job.priority }),
+                            .or(if own_runnable { None } else { job.priority }),
                         None,  // authed
                         false, // running
                         None,  // end_user_email

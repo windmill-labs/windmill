@@ -28,3 +28,26 @@ export const main = workflow(async (n: number) => {
   return { doubled: d };
 });'
 );
+
+-- The same flow's step with two tasks that cache their own result.
+INSERT INTO public.flow_node(id, workspace_id, path, hash_v2, lock, code) VALUES (
+3000000000000012,
+'test-workspace',
+'f/system/wac_flow_script',
+'0000000000000000000000000000000000000000000000000000000000000012',
+NULL,
+E'import { workflow, task } from "windmill-client";
+
+const double = task(async (n: number) => {
+  return n * 2;
+}, { cache_ttl: 60 });
+const triple = task(async (n: number) => {
+  return n * 3;
+}, { cache_ttl: 60 });
+
+export const main = workflow(async (n: number) => {
+  const d = await double(n);
+  const t = await triple(n);
+  return { doubled: d, tripled: t };
+});'
+);
