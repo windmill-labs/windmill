@@ -69,6 +69,8 @@ mod ai;
 #[cfg(feature = "private")]
 mod ai_free_tier_ee;
 mod ai_free_tier_oss;
+#[cfg(feature = "parquet")]
+mod ai_sessions;
 mod ai_shared_artifacts;
 mod apps;
 mod apps_raw_bundle;

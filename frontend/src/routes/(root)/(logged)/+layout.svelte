@@ -92,6 +92,7 @@
 	import { parsePreviewItemRoute } from '$lib/components/sessions/previewPaths'
 	import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
+	import { restoreSessionBackups } from '$lib/components/sessions/sessionMirror.svelte'
 	import { currentWorkspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 	import WorkspaceScopeHeader from '$lib/components/sidebar/WorkspaceScopeHeader.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
@@ -724,6 +725,16 @@
 	$effect(() => {
 		$workspaceStore
 		untrack(() => updateUserStore($workspaceStore))
+	})
+	// Bring back the AI sessions this browser lacks for the workspace family in view, once
+	// the local list is known (so nothing it has is fetched again) and the memberships have
+	// resolved (the family is derived from them).
+	$effect(() => {
+		const ws = $workspaceStore
+		const ready = sessionState.hydrated && $usersWorkspaceStore !== undefined
+		if (globalAiEnabled && ready && ws && !$userStore?.operator) {
+			untrack(() => restoreSessionBackups(ws))
+		}
 	})
 	// While a fork is reachable, mirror its parent linkage to localStorage so a
 	// later reload landing on a now-deleted fork can return to the parent (see

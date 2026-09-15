@@ -55,6 +55,7 @@ import {
 	__resetDeletedSessionIdsForTesting,
 	setSessionArchived,
 	setSessionPreviewSize,
+	importSessions,
 	type Session
 } from './sessionState.svelte'
 
@@ -687,5 +688,38 @@ describe('sessionState IndexedDB persistence', () => {
 
 		userStore.set(undefined)
 		await vi.waitFor(() => expect(sessionState.sessions).toEqual([]))
+	})
+
+	// A restored backup must never replace what this browser has, come back after the
+	// user deleted it here, or take a name the sessions page already routes by.
+	it('importSessions adds only unknown, undeleted records under fresh names', async () => {
+		const user = freshUser()
+		await login(user)
+		const local = session({ id: 'local', name: 'session-3', createdAt: 1, summary: 'mine' })
+		await putSession(local)
+		sessionState.sessions.push(local)
+		deleteSession('local')
+		await flush()
+		await putSession(session({ id: 'kept', name: 'session-5', createdAt: 2, summary: 'kept' }))
+
+		const imported = await importSessions(
+			[
+				session({ id: 'local', name: 'session-1', createdAt: 1, summary: 'remote copy' }),
+				session({ id: 'kept', name: 'session-1', createdAt: 2, summary: 'remote copy' }),
+				session({ id: 'new', name: 'session-1', createdAt: 3, workspace_id: 'ws' })
+			],
+			user.email
+		)
+		expect(imported).toEqual(['new'])
+		await vi.waitFor(() =>
+			expect(sessionState.sessions.map((s) => [s.id, s.name])).toEqual([
+				['new', 'session-6'],
+				['kept', 'session-5']
+			])
+		)
+		expect(sessionState.sessions.find((s) => s.id === 'kept')?.summary).toBe('kept')
+
+		// The wrong user's name gets nothing written.
+		expect(await importSessions([session({ id: 'other', createdAt: 4 })], 'nobody@x')).toEqual([])
 	})
 })
