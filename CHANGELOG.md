@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.813.0](https://github.com/windmill-labs/windmill/compare/v1.812.0...v1.813.0) (2026-09-15)
+
+
+### Features
+
+* back AI sessions up to the workspace object storage ([#11116](https://github.com/windmill-labs/windmill/issues/11116)) ([796b6e5](https://github.com/windmill-labs/windmill/commit/796b6e5297d8cceb842ec097f33ec1c3115058bd))
+* return an ai agent step's thinking in its job result ([#11140](https://github.com/windmill-labs/windmill/issues/11140)) ([c4e878e](https://github.com/windmill-labs/windmill/commit/c4e878e8313a72a16bfbe81fbb3935ee7728ec6f))
+
+
+### Bug Fixes
+
+* **apps:** run-mode inline app component uses only pinned content ([#11135](https://github.com/windmill-labs/windmill/issues/11135)) ([781b5a5](https://github.com/windmill-labs/windmill/commit/781b5a57e81eb721d97d7b87e23dd84f23895400))
+* **cli:** keep the workspace color when settings are synced from git ([#11144](https://github.com/windmill-labs/windmill/issues/11144)) ([129c045](https://github.com/windmill-labs/windmill/commit/129c04559548cd1bcf67758ec416fb2a48e7b928))
+* **worker:** bound cache transfers and import fetches in bun jobs ([#11138](https://github.com/windmill-labs/windmill/issues/11138)) ([31c4325](https://github.com/windmill-labs/windmill/commit/31c43255fdcc827c3fdf65e40238f8f3a83201cd))
+
 ## [1.812.0](https://github.com/windmill-labs/windmill/compare/v1.811.1...v1.812.0) (2026-09-15)
 
 
