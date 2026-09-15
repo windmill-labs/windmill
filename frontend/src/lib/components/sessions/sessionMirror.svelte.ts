@@ -8,7 +8,8 @@
 // (sessionMirrorPlan). Marks are persisted, so a crash leaves them for the next load.
 //
 // What a flush is for is decided per workspace: `enabled: false` (no storage, or the
-// admin switch) turns it off for the page.
+// admin switch) turns it off for ten minutes, after which the page asks again on its own,
+// and at once when the switch is saved from this page (`backupSettingsChanged`).
 import { BROWSER } from 'esm-env'
 import { get } from 'svelte/store'
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
@@ -1088,7 +1089,7 @@ async function flush(): Promise<void> {
 		for (const id of droppedDirty) dropDirty(id)
 		for (const key of consumedRemoved) removeKey(key)
 		// Whatever is still marked is either waiting on the backoff timer, on a write that
-		// scheduled its own flush, or on a workspace that is off or refused for the page;
+		// scheduled its own flush, or on a workspace that is off for a while or refused for the page;
 		// none of it wants another flush in 15 s. What this flush left for the next one
 		// does: a moved session's removal from its old workspace, carried-over deletes, or
 		// the sessions of a storage the server no longer answers from.
