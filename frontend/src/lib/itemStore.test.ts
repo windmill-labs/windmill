@@ -435,6 +435,25 @@ describe('item store: origins', () => {
 		expect(rows.writes).toEqual([{ path: 'u/me/r', value: null }])
 	})
 
+	it('keeps a draft-only item an outside write put back while its delete was going', async () => {
+		const rows = fakeRows()
+		const draft = { ...deployedRes, description: 'only a draft' }
+		const { item } = await open(rows, adapter({ draft }))
+		const gate = deferred()
+		rows.hold(gate.promise)
+		const discarded = item.discard()
+		await settle()
+		// The chat writes the same item while the delete is in flight.
+		const fromChat = { ...draft, description: 'written by the chat' }
+		item.applyExternal(fromChat)
+		gate.resolve()
+
+		expect(await discarded).toEqual({ removed: false })
+		expect(item.removed).toBe(false)
+		expect(item.value).toEqual(fromChat)
+		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: fromChat })
+	})
+
 	it('keeps a draft-only item whose delete did not land', async () => {
 		const rows = fakeRows()
 		const draft = { ...deployedRes, description: 'only a draft' }

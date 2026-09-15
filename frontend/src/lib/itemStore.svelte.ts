@@ -470,9 +470,13 @@ class Entry<V> {
 			if (this.origin === 'draft') {
 				const kept = snapshot(this.value)
 				const keptRow = this.row
+				const editsAtStart = this.edits
 				this.replaceValue(undefined)
 				this.reconcile()
 				await this.settleRows([this.key])
+				// An outside write that arrived while the delete was going is newer than this
+				// discard: it has already put the item back, and its row is the item.
+				if (this.edits !== editsAtStart) return { removed: false }
 				// The row is the item: while its delete has not landed, the item is still there.
 				if (this.rowRefused(this.key)) {
 					// The syncer keeps a failed payload for its page-close flush; that delete would
