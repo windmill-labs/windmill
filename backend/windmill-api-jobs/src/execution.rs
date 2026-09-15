@@ -38,8 +38,8 @@ use windmill_common::{
     FlowVersionInfo, DB,
 };
 use windmill_queue::{
-    cancel_job, get_result_and_success_by_id_from_flow, push, PushArgs, PushArgsOwned,
-    PushIsolationLevel,
+    cancel_job, get_result_and_success_by_id_from_flow, parse_result_object, push, PushArgs,
+    PushArgsOwned, PushIsolationLevel,
 };
 
 use crate::types::RunJobQuery;
@@ -374,9 +374,9 @@ pub async fn run_wait_result_internal(
 }
 
 pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result<Response> {
-    let composite_result = serde_json::from_str::<WindmillCompositeResult>(result.get());
+    let composite_result = parse_result_object::<WindmillCompositeResult>(result.get());
     match composite_result {
-        Ok(WindmillCompositeResult {
+        Some(WindmillCompositeResult {
             windmill_status_code,
             windmill_content_type,
             windmill_headers,
@@ -1191,5 +1191,14 @@ mod result_to_response_tests {
             );
             assert!(res.is_err(), "hop-by-hop header must be rejected: {name}");
         }
+    }
+
+    #[tokio::test]
+    async fn array_result_is_not_a_composite_response() {
+        let json = r#"[201,"text/html",null,null,"<h1>hi</h1>"]"#;
+        let resp = result_to_response(raw(json), true).expect("response");
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(body_bytes(resp).await, json.as_bytes());
     }
 }
