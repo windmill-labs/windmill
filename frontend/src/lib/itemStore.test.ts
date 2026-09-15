@@ -32,8 +32,11 @@ function fakeRows() {
 	const hints = new Map<string, boolean>()
 	/** Paths whose parked payload was dropped. */
 	const dropped: string[] = []
-	/** Every `last_sync` baseline the syncer was given, in order. */
+	/** Every `last_sync` baseline the syncer accepted, in order. */
 	const seeds: { path: string; at: string | undefined }[] = []
+	/** Rows handed over per path, by any writer — the store's reconcile or the chat's own save. */
+	const sends = new Map<string, number>()
+	const handed = (path: string) => sends.set(path, (sends.get(path) ?? 0) + 1)
 	/** What a write leaves queued, and what a flush sends: the syncer debounces. */
 	const queued = new Map<string, unknown>()
 	const sent = new Map<string, unknown>()
@@ -43,6 +46,7 @@ function fakeRows() {
 		write: (key, value) => {
 			writes.push({ path: key.path, value })
 			queued.set(key.path, value)
+			handed(key.path)
 			if (failing.has(key.path)) failures.set(key.path, 'unreachable')
 		},
 		flush: async (key) => {
@@ -56,8 +60,12 @@ function fakeRows() {
 		overwrite: async (key, value) => {
 			conflicts.delete(key.path)
 			writes.push({ path: key.path, value })
+			handed(key.path)
 		},
-		seedSync: (key, at) => {
+		rowMark: (key) => sends.get(key.path) ?? 0,
+		seedSync: (key, at, since) => {
+			// The syncer refuses a baseline from a read a row handed over since has passed.
+			if (since !== (sends.get(key.path) ?? 0)) return
 			seeds.push({ path: key.path, at })
 			// Back in sync with the server, as `recordRemoteSync` does.
 			conflicts.delete(key.path)
@@ -77,6 +85,8 @@ function fakeRows() {
 		dropped,
 		seeds,
 		sent,
+		/** A row handed over by someone other than the store, as the chat's own save does. */
+		handExternally: handed,
 		hold: (until: Promise<void>) => void (holdFlush = until)
 	}
 }
@@ -1079,6 +1089,60 @@ describe('item store: conflicts', () => {
 			path: 'u/me/r',
 			value: { ...deployedRes, description: 'mine' }
 		})
+	})
+
+	it('does not take the baseline of a first read the chat saved over', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		const store = createItemStore(rows.port)
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/r' },
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(() => read.promise)
+		)
+		await settle()
+		// The chat saves its own row for this key while the first read is still out. Nothing the
+		// entry does can count that: it writes through the syncer, not through this entry.
+		rows.handExternally('u/me/r')
+		read.resolve({ deployed: deployedRes, draft: deployedRes, draftSavedAt: 'T0' })
+		await settle()
+
+		// Taking T0 would put the syncer behind the chat's row and refuse every write after it.
+		expect(rows.seeds).toEqual([])
+		expect(item.status).not.toBe('conflicted')
+	})
+
+	it('leaves a conflicted editor alone when someone else writes its item', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const b = { ...deployedRes, path: 'u/me/b' }
+		let deployed = b
+		const theirs = { ...b, description: 'the other tab' }
+		const { handle: open } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
+			{ workspace: 'w', path: 'u/me/b' },
+			adapter(async () => ({ deployed, draft: theirs }))
+		)
+		await settle()
+		open.value = { ...b, description: 'mine' }
+		// This tab's row was rejected, so what is on screen is on screen only.
+		rows.conflicts.add('u/me/b')
+		expect(open.status).toBe('conflicted')
+
+		const temporary = newItemPath()
+		const { handle: panel } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: temporary },
+			{ workspace: 'w', path: temporary, template: b, standsFor: 'u/me/b' },
+			adapter({}, async (ctx) => void (deployed = { ...ctx.value }))
+		)
+		await settle()
+		panel.value = { ...b, args: { a: 2 } }
+		expect(await panel.save()).toMatchObject({ ok: true, path: 'u/me/b' })
+
+		// The re-read would have replaced "mine" with the row the server holds and called the
+		// conflict resolved. It is the user's to resolve, so it stays.
+		expect(open.value?.description).toBe('mine')
+		expect(open.status).toBe('conflicted')
 	})
 
 	it('clears the conflict on a reload the user typed during', async () => {

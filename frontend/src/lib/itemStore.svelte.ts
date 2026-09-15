@@ -88,7 +88,9 @@ export type ItemRowPort = {
 	/** Send what `write` queued for `key` now; resolves once it landed. */
 	flush(key: ItemKey): Promise<void>
 	overwrite(key: ItemKey, value: unknown | null): Promise<void>
-	seedSync(key: ItemKey, draftSavedAt: string | undefined): void
+	/** Rows landed for `key` so far, by any writer. Handed back to `seedSync` to order it. */
+	rowMark(key: ItemKey): number
+	seedSync(key: ItemKey, draftSavedAt: string | undefined, since: number): void
 	conflicted(key: ItemKey): boolean
 	failure(key: ItemKey): string | undefined
 	dropPending(key: ItemKey): void
@@ -217,9 +219,6 @@ class Entry<V> {
 	waitingOn: Entry<any>[] = []
 	handles = new Set<Handle<V>>()
 	stopWatch: (() => void) | undefined
-	/** Counts rows actually handed to the syncer, so a read can tell whether one went out while
-	 *  it was in flight. */
-	private rowWrites = 0
 	/** The value as last observed, serialized: `touch` acts only on a real change. */
 	private seen: string | undefined
 	/** The row last handed to the syncer (`null`: none, `undefined`: not known — the next
@@ -277,7 +276,6 @@ class Entry<V> {
 			return
 		}
 		this.row = desired
-		this.rowWrites++
 		this.ports.write(key, desired === null ? null : snapshot(this.value))
 	}
 
@@ -286,9 +284,9 @@ class Entry<V> {
 	 *  read was issued. Seeding behind a row sent since puts `last_sync` before what the syncer
 	 *  has already sent, which the server refuses from then on. */
 	private adoptRow(key: ItemKey, draft: unknown, draftSavedAt: string | undefined, asOf: number) {
-		if (this.rowWrites !== asOf) return
+		if (this.ports.rowMark(key) !== asOf) return
 		this.row = serialize(draft) ?? null
-		this.ports.seedSync(key, draftSavedAt)
+		this.ports.seedSync(key, draftSavedAt, asOf)
 	}
 
 	private replaceValue(value: V | undefined): void {
@@ -333,7 +331,7 @@ class Entry<V> {
 	/** The registers that move on their own: what the user is editing, and the rows already sent.
 	 *  A command compares against these to tell what has happened since it was asked for. */
 	private asOf(): AsOf {
-		return { edits: this.edits, rows: this.rowWrites }
+		return { edits: this.edits, rows: this.ports.rowMark(this.key) }
 	}
 
 	/** Count a command as started now, ahead of its turn in the queue; returns its release. */
@@ -403,6 +401,10 @@ class Entry<V> {
 	 *  so they come back over what was written; one typed since the read was asked for stays. */
 	async reread(): Promise<CommandOutcome> {
 		if (!this.loaded || this.retired || !this.adapter) return { ok: true }
+		// This re-read only holds because what is on screen comes back from its own row. A
+		// conflicted key has no row of ours on the server and no way to put one there, so reading
+		// would replace the value with the other writer's and call the conflict resolved.
+		if (this.ports.conflicted(this.key)) return { ok: true }
 		// Taken before the row goes, not after it lands: an edit typed while that write is in
 		// flight is in neither it nor the read that follows, and is newer than both.
 		const asOf = this.asOf()
@@ -1093,8 +1095,11 @@ const syncerRows: ItemRowPort = {
 	overwrite(key, value) {
 		return UserDraftDbSyncer.overwrite({ ...keyQuery(key), value })
 	},
-	seedSync(key, draftSavedAt) {
-		UserDraftDbSyncer.recordRemoteSync(keyQuery(key), draftSavedAt)
+	rowMark(key) {
+		return UserDraftDbSyncer.sendsSoFar(keyQuery(key))
+	},
+	seedSync(key, draftSavedAt, since) {
+		UserDraftDbSyncer.recordRemoteSync(keyQuery(key), draftSavedAt, since)
 	},
 	conflicted(key) {
 		return UserDraftDbSyncer.getConflict(keyQuery(key)).conflict !== undefined

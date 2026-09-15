@@ -19,6 +19,13 @@ import { setLocalDraftHint } from './localDraftHints.svelte'
  */
 type DraftLastSyncEntry = { lastSync: string }
 const lastSyncMap = new Map<string, DraftLastSyncEntry>()
+/**
+ * Rows handed to this syncer per key, counting every writer: the item store's reconcile, and the
+ * AI chat, which saves through here directly. A reader takes this before its GET and hands it
+ * back to `recordRemoteSync`, which then knows its response predates a row already issued.
+ * Seeding an older `lastSync` over a newer row makes the server refuse every write after it.
+ */
+const sends = new Map<string, number>()
 
 /** Must match `mapKey` in `userDraft.svelte.ts`. */
 function draftKey(workspace: string, itemKind: UserDraftItemKind, path: string): string {
@@ -461,6 +468,9 @@ export const UserDraftDbSyncer = {
 		// keepalive flush replays carry the same payload as the live POST.
 		opts = { ...opts, value: sanitizeDraftValueForSave(opts.itemKind, opts.value) }
 		const key = draftKey(opts.workspace, opts.itemKind, opts.path)
+		// Counted when the row is handed over, not when it lands: a read issued before this is
+		// already behind it, whether or not the POST has gone out yet.
+		sends.set(key, (sends.get(key) ?? 0) + 1)
 		// Hard lock (editing another user's loaded draft): block EVERY save path
 		// for this key — no parking, no POST. Notify the overlay so the first
 		// blocked attempt (the user's first edit) can prompt before overwriting.
@@ -528,8 +538,20 @@ export const UserDraftDbSyncer = {
 	 * matching `last_sync`; pass `undefined` when no draft existed (next
 	 * save omits `last_sync`, the backend's first-push branch).
 	 */
-	recordRemoteSync(query: UserDraftLastSyncQuery, draftSavedAt: string | undefined): void {
+	/** Rows handed over for `query` so far, for a reader to hand back to `recordRemoteSync`. */
+	sendsSoFar(query: UserDraftLastSyncQuery): number {
+		return sends.get(draftKey(query.workspace, query.itemKind, query.path)) ?? 0
+	},
+
+	recordRemoteSync(
+		query: UserDraftLastSyncQuery,
+		draftSavedAt: string | undefined,
+		since?: number
+	): void {
 		const key = draftKey(query.workspace, query.itemKind, query.path)
+		// A row was handed over after this read was issued, so its response is behind what the
+		// syncer holds and taking it would make every later write a conflict.
+		if (since !== undefined && (sends.get(key) ?? 0) !== since) return
 		if (draftSavedAt) {
 			setLastSync(query.workspace, query.itemKind, query.path, draftSavedAt)
 		} else {
