@@ -493,6 +493,32 @@ describe('item store: origins', () => {
 		expect(rows.writes).toEqual([{ path: 'u/me/r', value: null }])
 	})
 
+	it('keeps an edit typed after a discard was asked for, while it waited its turn', async () => {
+		const rows = fakeRows()
+		const gate = deferred()
+		const { item } = await open(
+			rows,
+			adapter({ deployed: deployedRes }, () => gate.promise)
+		)
+		item.value = { ...deployedRes, description: 'edited' }
+		const saving = item.save()
+		await settle()
+		const discarding = item.discard()
+		await settle()
+		item.value = { ...deployedRes, description: 'typed after the discard' }
+		gate.resolve()
+
+		expect(await saving).toMatchObject({ ok: true })
+		// The discard is older than what is on screen: reverting to `deployed` would drop it.
+		expect(await discarding).toEqual({ removed: false })
+		expect(item.value).toEqual({ ...deployedRes, description: 'typed after the discard' })
+		expect(item.dirty).toBe(true)
+		expect(rows.writes.at(-1)).toEqual({
+			path: 'u/me/r',
+			value: { ...deployedRes, description: 'typed after the discard' }
+		})
+	})
+
 	it('keeps a draft-only item an outside write put back while its delete was going', async () => {
 		const rows = fakeRows()
 		const draft = { ...deployedRes, description: 'only a draft' }

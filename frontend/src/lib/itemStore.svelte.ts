@@ -472,8 +472,13 @@ class Entry<V> {
 	}
 
 	discard(): Promise<DiscardOutcome> {
+		// What a discard throws away is the value as of the click, like a save sends the value as
+		// of the click: one typed while it waited its turn behind a save is newer than it, and
+		// reverting that would drop it with nothing left to recover it from.
+		const askedAt = this.edits
 		return this.run(async () => {
 			if (!this.loaded || this.retired) return { removed: false }
+			if (this.edits !== askedAt) return { removed: false }
 			if (this.origin === 'draft') {
 				const kept = snapshot(this.value)
 				const keptRow = this.row
