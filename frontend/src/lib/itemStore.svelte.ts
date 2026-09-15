@@ -271,6 +271,20 @@ class Entry<V> {
 		this.ports.write(key, desired === null ? null : snapshot(this.value))
 	}
 
+	/**
+	 * Take the row a read reported, as both the baseline `reconcile` diffs against and the
+	 * syncer's `last_sync`. The two are one fact and are taken together, against `asOf`: the
+	 * count of rows sent when the read was issued. A row sent since is newer than the one the
+	 * read saw, and seeding behind it puts `last_sync` before what the syncer has already sent,
+	 * which the server refuses from then on. Every reader of a row goes through here, so the
+	 * ordering cannot be left out.
+	 */
+	private adoptRow(key: ItemKey, draft: unknown, draftSavedAt: string | undefined, asOf: number) {
+		if (this.rowWrites !== asOf) return
+		this.row = serialize(draft) ?? null
+		this.ports.seedSync(key, draftSavedAt)
+	}
+
 	private replaceValue(value: V | undefined): void {
 		this.value = snapshot(value)
 		this.seen = serialize(this.value)
@@ -356,13 +370,7 @@ class Entry<V> {
 			}
 			this.serverDeployed = snapshot(res.deployed)
 			this.origin = res.deployed !== undefined ? 'deployed' : 'draft'
-			// A row that went out while this read was in flight is newer than the one it read:
-			// reseeding from this response would rewind `last_sync` past what the syncer has
-			// already sent, and everything after that is refused as a conflict.
-			if (this.rowWrites === rowsAtStart) {
-				this.row = serialize(res.draft) ?? null
-				this.ports.seedSync(key, res.draftSavedAt)
-			}
+			this.adoptRow(key, res.draft, res.draftSavedAt, rowsAtStart)
 			this.loaded = true
 			if (!keepValue) {
 				this.pristine = this.settles && this.origin === 'deployed' && res.draft === undefined
