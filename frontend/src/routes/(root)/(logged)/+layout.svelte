@@ -658,8 +658,11 @@
 		}
 	}
 
-	function openSearchModal(text?: string): void {
-		globalSearchModal?.openSearchWithPrefilledText(text)
+	function openSearchModal(
+		text?: string,
+		stack?: import('$lib/components/common/overlayHost.svelte').OverlayStack
+	): void {
+		globalSearchModal?.openSearchWithPrefilledText(text, stack)
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)

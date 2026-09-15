@@ -369,6 +369,7 @@
 	async function handleKeydown(event: KeyboardEvent) {
 		if ((!isMac() ? event.ctrlKey : event.metaKey) && event.key === 'k') {
 			event.preventDefault()
+			if (!open) openedOn = undefined
 			await openModal()
 		}
 		if (open) {
@@ -453,11 +454,15 @@
 	}
 
 	// On the overlay stack while open: a modal or drawer it was opened from arbitrates Escape on that
-	// stack, and would otherwise close itself on the key meant for the search above it.
-	const stack = overlayStack()
+	// stack, and would otherwise close itself on the key meant for the search above it. The opener
+	// names its stack, because a pane hosting an editor (a sessions tab) keeps its own.
+	const globalStack = overlayStack()
+	let openedOn: import('$lib/components/common/overlayHost.svelte').OverlayStack | undefined =
+		$state(undefined)
 	const STACK_ID = 'global-search'
 	$effect(() => {
 		if (!open) return
+		const stack = openedOn ?? globalStack
 		untrack(() => stack.val.push(STACK_ID))
 		return () => {
 			untrack(() => {
@@ -575,7 +580,11 @@
 		}
 	}
 
-	export async function openSearchWithPrefilledText(text?: string) {
+	export async function openSearchWithPrefilledText(
+		text?: string,
+		stack?: import('$lib/components/common/overlayHost.svelte').OverlayStack
+	) {
+		openedOn = stack
 		await openModal()
 		searchTerm = text ?? searchTerm
 		await handleSearch()

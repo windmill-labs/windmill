@@ -30,6 +30,7 @@
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { Alert, Button } from './common'
+	import { overlayStack, type OverlayStack } from './common/overlayHost.svelte'
 	import { random_adj } from './random_positive_adjetive'
 	import { ChevronDown, Copy, SearchCode } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
@@ -405,9 +406,11 @@
 		}
 	})
 
-	const openSearchWithPrefilledText: (t?: string) => void = getContext(
+	const openSearchWithPrefilledText: (t?: string, stack?: OverlayStack) => void = getContext(
 		'openSearchWithPrefilledText'
 	)
+	// Handed to the search so it stacks above the modal or drawer this field sits in.
+	const searchStack = overlayStack()
 
 	$effect.pre(() => {
 		;[meta?.name, meta?.owner, meta?.ownerKind]
@@ -676,7 +679,7 @@
 		<Button
 			variant="default"
 			on:click={() => {
-				openSearchWithPrefilledText('#')
+				openSearchWithPrefilledText('#', searchStack)
 			}}
 			startIcon={{ icon: SearchCode }}
 		>
