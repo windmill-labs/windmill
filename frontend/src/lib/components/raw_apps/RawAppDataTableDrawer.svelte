@@ -147,17 +147,48 @@
 		{ initialValue: [] }
 	)
 
-	/** Remembers the role the connected data table's selected tables were seen through. */
-	function recordBrowsedRole() {
-		const dt = selectedDatatable
-		if (!dt || !selectedRole || !rolesOfCurrent?.permissioned) return
-		if (selectedTables.some((t) => (t.datatable ?? dt) === dt)) {
-			browsedRoles = { ...browsedRoles, [dt]: selectedRole }
+	/** The role a table of `datatable` is seen through right now: the connected data table's
+	 * picked role, or the default role the tree lists any other one as. */
+	function roleSeenFor(datatable: string): string | undefined {
+		if (datatable === selectedDatatable) {
+			return rolesOfCurrent?.permissioned ? selectedRole : undefined
 		}
+		const entry = datatableTree.current.find((t) => t.datatable_name === datatable)
+		return entry?.permissioned ? entry.default_role : undefined
+	}
+
+	const tableDatatable = (t: SelectedTable) => t.datatable ?? selectedDatatable
+
+	/** Stamps each newly selected table with the role it was seen through. A data table's
+	 * selections all come from one role, since the app uses it through one: picking a table under
+	 * another role drops the ones picked under the previous, which that role may not reach. */
+	function setSelectedTables(next: SelectedTable[]) {
+		const isNew = (t: SelectedTable) =>
+			!selectedTables.some(
+				(s) =>
+					tableDatatable(s) === tableDatatable(t) && s.schema === t.schema && s.table === t.table
+			)
+		const added = next.filter(isNew)
+		const nextRoles = { ...browsedRoles }
+		let kept = next
+		for (const table of added) {
+			const dt = tableDatatable(table)
+			if (!dt) continue
+			const role = roleSeenFor(dt)
+			if (role === undefined) continue
+			if (nextRoles[dt] !== undefined && nextRoles[dt] !== role) {
+				kept = kept.filter((s) => tableDatatable(s) !== dt || added.includes(s))
+			}
+			nextRoles[dt] = role
+		}
+		const stillSelected = new Set(kept.map(tableDatatable))
+		selectedTables = kept
+		browsedRoles = Object.fromEntries(
+			Object.entries(nextRoles).filter(([dt]) => stillSelected.has(dt))
+		)
 	}
 
 	function selectDatatable(datatable: string, role?: string) {
-		recordBrowsedRole()
 		// A row clicked under another data table has just set the selection it should open on.
 		openSchemaKey = selectedSchemaKey
 		openTableKey = selectedTableKey
@@ -198,7 +229,6 @@
 			sendUserToast('Please select at least one table', true)
 			return
 		}
-		recordBrowsedRole()
 
 		const refs: DataTableRef[] = []
 		for (const table of selectedTables) {
@@ -279,7 +309,7 @@
 						bind:selectedSchemaKey
 						bind:selectedTableKey
 						multiSelectMode={true}
-						bind:selectedTables
+						bind:selectedTables={() => selectedTables, setSelectedTables}
 						{disabledTables}
 						datatableTree={datatableTree.current}
 						datatableTreeLoading={datatableTree.loading}

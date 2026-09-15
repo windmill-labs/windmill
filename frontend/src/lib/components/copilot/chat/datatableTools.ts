@@ -33,15 +33,18 @@ const memo = <T>(factory: () => T): (() => T) => {
 // ============= Pure workspace-scoped operations =============
 
 /** List the datatables configured in the workspace, with their schema/table names: all of them as
- * their default role, or only `roleFor` as `role`. */
+ * their default role, or only `datatableName`, as `role` when one is given. */
 export async function listDatatables(
 	workspace: string,
-	roleFor?: string,
+	datatableName?: string,
 	role?: string
 ): Promise<DataTableTables[]> {
-	return await WorkspaceService.listDataTableTables(
-		role === undefined ? { workspace } : { workspace, datatableName: roleFor, roleFor, role }
-	)
+	if (datatableName === undefined) return await WorkspaceService.listDataTableTables({ workspace })
+	return await WorkspaceService.listDataTableTables({
+		workspace,
+		datatableName,
+		...(role !== undefined && { roleFor: datatableName, role })
+	})
 }
 
 /** Get the columns (column_name -> compact_type) of one datatable table. */
@@ -107,7 +110,7 @@ const getListDatatablesSchema = memo(() =>
 		datatable_name: z
 			.string()
 			.optional()
-			.describe('Required with `role`: only this datatable is then listed, as that role.'),
+			.describe('List only this datatable. Required with `role`.'),
 		role: getRoleSchema()
 	})
 )

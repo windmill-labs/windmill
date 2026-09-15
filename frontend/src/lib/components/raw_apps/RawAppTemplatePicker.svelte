@@ -167,6 +167,17 @@
 			schemaMode = 'none'
 		}
 	})
+	// Likewise an existing schema the current role no longer reaches is unpicked, so the select
+	// does not keep showing it.
+	$effect(() => {
+		if (
+			accessSettled &&
+			selectedSchema !== undefined &&
+			!availableSchemas.includes(selectedSchema)
+		) {
+			selectedSchema = undefined
+		}
+	})
 
 	let hasAutoSelected = false
 	$effect(() => {
@@ -207,8 +218,16 @@
 	const datatableItems = $derived(toDatatableItems(availableDatatables))
 	const schemaItems = $derived(toSchemaItems(availableSchemas))
 
+	// An existing schema counts only while the current role reaches it: one picked under another
+	// role would save an app that creates its tables where it cannot.
 	const effectiveSchema = $derived(
-		schemaMode === 'new' ? newSchemaName : schemaMode === 'existing' ? selectedSchema : undefined
+		schemaMode === 'new'
+			? newSchemaName
+			: schemaMode === 'existing' &&
+				  selectedSchema !== undefined &&
+				  availableSchemas.includes(selectedSchema)
+				? selectedSchema
+				: undefined
 	)
 
 	// copilotInfo is a global that stays empty until some ancestor's fetch lands, so

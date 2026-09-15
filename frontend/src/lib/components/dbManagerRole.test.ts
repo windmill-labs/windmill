@@ -25,6 +25,12 @@ describe('dbm role segment', () => {
 
 	it('keeps an invalid role as written, so the connection refuses it', () => {
 		expect(parseDbm('datatable~main~role=a;b')?.role).toBe('a;b')
+		// A dot does not turn it into a schema.table selection read as the default role.
+		expect(parseDbm('datatable~main~role=bad.name')).toMatchObject({
+			role: 'bad.name',
+			schema: undefined,
+			table: undefined
+		})
 	})
 })
 

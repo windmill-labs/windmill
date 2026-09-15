@@ -2415,6 +2415,15 @@ async fn list_datatable_tables(
             "`role` needs `role_for`, the data table it is a role of".to_string(),
         ));
     }
+    if let (Some(only), Some(role_for)) =
+        (query.datatable_name.as_deref(), query.role_for.as_deref())
+    {
+        if only != role_for {
+            return Err(Error::BadRequest(format!(
+                "`role_for` names '{role_for}', which `datatable_name` leaves out of the listing"
+            )));
+        }
+    }
     let mut datatable_names = list_datatable_names(&db, &w_id).await?;
     for named in [query.role_for.as_deref(), query.datatable_name.as_deref()]
         .into_iter()

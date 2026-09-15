@@ -30,9 +30,9 @@ import { isDbType } from './dbTypes'
  *   datatable~main~role=analyst        (no schema/table selected)
  *
  * role=name (last segment, optional, data tables only): the data table role to connect as.
- * Omitted means the data table's default role. A role segment never contains a `.`, which is
- * what tells it apart from a schema.table segment. The name is kept as written, even when
- * invalid, so the connection refuses it visibly instead of falling back to the default.
+ * Omitted means the data table's default role. A trailing segment starting with `role=` is always
+ * the role, whatever follows. The name is kept as written, even when invalid (a `.` included), so
+ * the connection refuses it visibly instead of falling back to the default.
  */
 
 const dbManagerSchema = z.object({
@@ -51,7 +51,7 @@ export interface ParsedDbm {
 const ROLE_SEGMENT_PREFIX = 'role='
 
 function isRoleSegment(segment: string | undefined): segment is string {
-	return !!segment && segment.startsWith(ROLE_SEGMENT_PREFIX) && !segment.includes('.')
+	return !!segment && segment.startsWith(ROLE_SEGMENT_PREFIX)
 }
 
 export function parseDbm(raw: unknown): ParsedDbm | null {

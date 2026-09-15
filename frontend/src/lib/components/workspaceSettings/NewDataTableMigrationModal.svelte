@@ -94,6 +94,16 @@
 				? declaredDown.line
 				: undefined
 	)
+	const roleOf = (d: typeof declaredUp) => (d.kind === 'role' ? d.role : undefined)
+	// A rollback runs as the role its own SQL names: under another role than the up migration it
+	// typically cannot touch what the up created.
+	let sqlProblem = $derived(
+		malformedLine !== undefined
+			? malformedMessage(malformedLine)
+			: declaredDown !== undefined && roleOf(declaredDown) !== roleOf(declaredUp)
+				? `The down migration runs as ${roleOf(declaredDown) ?? 'admin (no role)'} but the up migration as ${roleOf(declaredUp) ?? 'admin (no role)'}: make their role annotations match, or pick the role above`
+				: undefined
+	)
 	let selectedRole = $derived(declaredUp.kind === 'role' ? declaredUp.role : NO_ROLE)
 	let permissioned = $derived(!!usableRoles.current?.permissioned)
 	// No annotation runs as admin, which the server allows exactly to those who may use `admin`.
@@ -205,8 +215,8 @@
 			sendUserToast("Invalid migration name: use only letters, digits, '_' and '-'", true)
 			return
 		}
-		if (malformedLine !== undefined) {
-			sendUserToast(malformedMessage(malformedLine), true)
+		if (sqlProblem !== undefined) {
+			sendUserToast(sqlProblem, true)
 			return
 		}
 		if (run) {
@@ -307,8 +317,8 @@
 				/>
 			{/if}
 		</div>
-		{#if malformedLine !== undefined}
-			<p class="text-xs text-red-500">{malformedMessage(malformedLine)}</p>
+		{#if sqlProblem !== undefined}
+			<p class="text-xs text-red-500">{sqlProblem}</p>
 		{:else if permissioned && usableRoles.current?.roles.length === 0}
 			<p class="text-xs text-secondary">
 				You can't use any role of this data table, so a migration you create can't be run.
@@ -358,7 +368,7 @@
 			<Button
 				variant="accent"
 				size="sm"
-				disabled={creating || malformedLine !== undefined}
+				disabled={creating || sqlProblem !== undefined}
 				on:click={() => create(true)}
 				dropdownItems={[
 					{
