@@ -150,16 +150,19 @@ impl Backend {
     /// `None` when the object does not exist, and also when it does not decrypt under this
     /// user's key: an object written under another user's or workspace's key is nobody's
     /// to read, and one such object must not take the rest of the session down with it.
-    async fn get(&self, key: &ObjectPath) -> Result<Option<String>> {
+    ///
+    /// `max` is what the listing said the object holds, or the cap of its kind for one read
+    /// without a listing: checked before buffering, since whoever holds the bucket's
+    /// credentials can put anything at a predictable key, and an object grown past it since
+    /// the listing was replaced under this read's feet and is left for the next one.
+    async fn get(&self, key: &ObjectPath, max: usize) -> Result<Option<String>> {
         let result = match self.store.get(key).await {
             Ok(result) => result,
             Err(ObjectStoreError::NotFound { .. }) => return Ok(None),
             Err(e) => return Err(object_store_error_to_error(e)),
         };
-        // Before buffering: whoever holds the bucket's credentials can put anything at a
-        // predictable key, and nothing written through the routes is this large.
-        if result.meta.size as usize > MAX_OBJECT_BYTES {
-            tracing::warn!("AI session backup object {key} is larger than any push writes");
+        if result.meta.size as usize > max {
+            tracing::warn!("AI session backup object {key} is larger than expected; left unread");
             return Ok(None);
         }
         let bytes = result.bytes().await.map_err(object_store_error_to_error)?;
@@ -504,7 +507,7 @@ async fn pull_session(
     budget: usize,
     first: bool,
 ) -> Result<PullStep> {
-    let Some(head) = backend.get(&backend.head_key(sid)).await? else {
+    let Some(head) = backend.get(&backend.head_key(sid), MAX_HEAD_BYTES).await? else {
         return Ok(PullStep::Absent);
     };
     let session_prefix = backend.session_prefix(sid);
@@ -531,19 +534,19 @@ async fn pull_session(
             .unwrap_or_default()
             .trim_start_matches('/');
         if rel == "artifacts.json" {
-            artifacts_key = Some(key);
+            artifacts_key = Some((key, bytes));
             size += bytes;
         } else if let Some(cid) = rel
             .strip_prefix("chats/")
             .and_then(|f| f.strip_suffix(".json"))
         {
-            fetch.push((cid.to_string(), key));
+            fetch.push((cid.to_string(), key, bytes));
             size += bytes;
         }
     }
     let chats: Vec<PulledChat> = futures::stream::iter(fetch)
-        .map(|(cid, key)| async move {
-            let record = backend.get(&key).await?;
+        .map(|(cid, key, bytes)| async move {
+            let record = backend.get(&key, bytes).await?;
             Ok::<_, Error>(record.map(|r| (cid, r)))
         })
         .buffer_unordered(IO_CONCURRENCY)
@@ -554,7 +557,7 @@ async fn pull_session(
         .map(|(cid, record)| Ok(PulledChat { id: cid, record: raw("chat", record)? }))
         .collect::<Result<_>>()?;
     let artifacts = match artifacts_key {
-        Some(key) => match backend.get(&key).await? {
+        Some((key, bytes)) => match backend.get(&key, bytes).await? {
             Some(text) => Some(raw("artifacts", text)?),
             None => None,
         },
@@ -564,7 +567,7 @@ async fn pull_session(
     let (entries, _) = backend
         .list_within(&images_prefix, budget.saturating_sub(size))
         .await?;
-    let mut image_keys: Vec<(String, String, ObjectPath)> = vec![];
+    let mut image_keys: Vec<(String, String, ObjectPath, usize)> = vec![];
     for (key, bytes) in entries {
         let Some(rel) = key.as_ref().strip_prefix(images_prefix.as_ref()) else {
             continue;
@@ -573,11 +576,11 @@ async fn pull_session(
             continue;
         };
         size += bytes;
-        image_keys.push((cid.to_string(), iid.to_string(), key));
+        image_keys.push((cid.to_string(), iid.to_string(), key, bytes));
     }
     let images: Vec<ImageObject> = futures::stream::iter(image_keys)
-        .map(|(chat_id, id, key)| async move {
-            let data_url = backend.get(&key).await?;
+        .map(|(chat_id, id, key, bytes)| async move {
+            let data_url = backend.get(&key, bytes).await?;
             Ok::<_, Error>(data_url.map(|data_url| ImageObject { chat_id, id, data_url }))
         })
         .buffer_unordered(IO_CONCURRENCY)

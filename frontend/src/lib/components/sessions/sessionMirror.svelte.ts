@@ -152,19 +152,37 @@ function readPending(): PendingMarks {
 	} catch (e) {
 		console.error('Could not read session backup marks', e)
 	}
+	// Marks this page could not write: their rows are stale (or absent), which is what
+	// makes them live; the counter only says so.
+	for (const id of unwritableMarks) {
+		if (!marks.dirty.some((d) => d.id === id)) marks.dirty.push({ id, v: 0 })
+	}
 	return marks
 }
 
-function bumpDirty(sessionId: string, email?: string): void {
+/** False when the mark could not be written (storage full): the caller must carry the
+ * change some other way. */
+function bumpDirty(sessionId: string, email?: string): boolean {
 	const base = pendingBaseFor(email)
-	if (!base) return
+	if (!base) return false
 	try {
 		const key = dirtyKey(base, sessionId)
 		const v = Number(localStorage.getItem(key) ?? '0')
 		localStorage.setItem(key, String((Number.isFinite(v) ? v : 0) + 1))
+		return true
 	} catch (e) {
 		console.error('Could not persist session backup mark', e)
+		return false
 	}
+}
+
+/** The durable fallback for a dirty mark that could not be written: a stale row plans the
+ * session whole on the next flush, and a session without a row is marked again by every
+ * load's backfill. */
+async function staleViaSyncRow(id: string, email = getCurrentUserEmail()): Promise<void> {
+	if (!email) return
+	const row = await readSync(id, email)
+	if (row && !row.stale) await writeSync([{ ...row, stale: true }], email)
 }
 
 /** Drop the dirty mark of a session gone from the store, the one case nothing can bump
@@ -216,6 +234,8 @@ let retryMs = RETRY_MIN_MS
  */
 const wsState = new Map<string, 'on' | 'off' | 'refused'>()
 let backfilled = false
+/** Sessions of the current user whose dirty mark could not be written this page. */
+let unwritableMarks = new Set<string>()
 const restoredWorkspaces = new Set<string>()
 
 // One flush or restore at a time in this tab; each reads the marks fresh.
@@ -770,6 +790,7 @@ async function flush(): Promise<void> {
 				storageId: s.storageId
 			}))
 			await writeSync(written, email)
+			for (const row of written) unwritableMarks.delete(row.id)
 			// The server names the storage every answer comes from. Rows naming another one
 			// go stale, the ones written just now included: a session answered from a
 			// storage the later answers left behind, or pushed in part on top of a row from
@@ -1000,12 +1021,23 @@ export function restoreSessionBackups(currentWorkspace: string): void {
 
 if (BROWSER) {
 	onMirrorSignal((signal) => {
-		if (signal.kind === 'dirty') bumpDirty(signal.sessionId, signal.email)
-		else if (!addRemoved(signal.sessionId, signal.workspaceId, true, signal.email)) {
+		// A mark for another user waits for that user's next load.
+		const mine = !signal.email || signal.email === getCurrentUserEmail()
+		if (signal.kind === 'dirty') {
+			if (bumpDirty(signal.sessionId, signal.email)) {
+				if (mine) scheduleFlush()
+			} else {
+				if (mine) unwritableMarks.add(signal.sessionId)
+				void staleViaSyncRow(signal.sessionId, signal.email).finally(() => {
+					if (mine) scheduleFlush()
+				})
+			}
+			return
+		}
+		if (!addRemoved(signal.sessionId, signal.workspaceId, true, signal.email)) {
 			void removeViaSyncRow(signal.sessionId, signal.workspaceId, signal.email)
 		}
-		// A mark for another user waits for that user's next load.
-		if (!signal.email || signal.email === getCurrentUserEmail()) scheduleFlush()
+		if (mine) scheduleFlush()
 	})
 	onUserChange((email) => {
 		clearTimers()
@@ -1015,6 +1047,7 @@ if (BROWSER) {
 		wsState.clear()
 		restoredWorkspaces.clear()
 		backfilled = false
+		unwritableMarks.clear()
 		if (email) setTimeout(runFlush, STARTUP_DELAY_MS)
 	})
 	// A tab going to the background may not come back: carry what it has now.
@@ -1051,4 +1084,5 @@ export function __resetMirrorForTesting(): void {
 	wsState.clear()
 	restoredWorkspaces.clear()
 	backfilled = false
+	unwritableMarks.clear()
 }

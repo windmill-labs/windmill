@@ -472,6 +472,34 @@ describe('sessionMirror flush', () => {
 		expect(await __syncRowsForTesting(EMAIL)).toEqual([])
 	})
 
+	it('backs a session up whole when its dirty mark cannot be written', async () => {
+		pushMock.mockResolvedValue({ enabled: true, results: [{ id: 'sm' }] })
+		const s: Session = { id: 'sm', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
+		sessionState.sessions = [s]
+		await putSession(s)
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(1)
+
+		// Storage full at the moment of the edit: the row goes stale instead.
+		const setItem = localStorage.setItem.bind(localStorage)
+		localStorage.setItem = (key: string, value: string) => {
+			if (key.includes('::d::')) throw new Error('QuotaExceededError')
+			setItem(key, value)
+		}
+		try {
+			await putSession({ ...s, summary: 'changed' })
+		} finally {
+			localStorage.setItem = setItem
+		}
+		await vi.waitFor(async () =>
+			expect((await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'sm')?.stale).toBe(true)
+		)
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(pushMock.mock.calls[1][0].requestBody.sessions[0].head.summary).toBe('changed')
+		expect((await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'sm')?.stale).toBeFalsy()
+	})
+
 	it('files a mark under the user whose store the write landed in', async () => {
 		markSessionDirty('sw', undefined, 'other@x.com')
 		expect(localStorage.getItem('windmill_sessions_mirror_pending::other@x.com::d::sw')).toBe('1')

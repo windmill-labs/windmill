@@ -183,6 +183,13 @@ async fn rekey_object(
     };
     let version =
         UpdateVersion { e_tag: result.meta.e_tag.clone(), version: result.meta.version.clone() };
+    // The listing's size again, from the read itself: the object may have been replaced.
+    if result.meta.size as usize > MAX_OBJECT_BYTES {
+        tracing::warn!(
+            "AI session backup object {key} is larger than any push writes; left unread"
+        );
+        return Ok(false);
+    }
     let bytes = result.bytes().await.map_err(object_store_error_to_error)?;
     let current = crypt_from_key_with_suffix(current, &user);
     if open(&current, &bytes).is_some() {
