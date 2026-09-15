@@ -2874,15 +2874,17 @@ pub async fn handle_wac_v2_output(
                 .collect();
 
             // Resolve job_payload once (same for all children since they re-run
-            // the parent script)
+            // the parent script). No result cache on a child: it runs with the
+            // parent's kind, runnable and arguments, so its cached result would be
+            // read back as the parent's on resume and as every sibling's.
             let job_payload_template = match job.kind {
                 JobKind::Script => {
                     if let Some(hash) = job.runnable_id {
                         Ok(JobPayload::ScriptHash {
                             hash,
                             path: job.runnable_path.clone().unwrap_or_default(),
-                            cache_ttl: job.cache_ttl,
-                            cache_ignore_s3_path: job.cache_ignore_s3_path,
+                            cache_ttl: None,
+                            cache_ignore_s3_path: None,
                             dedicated_worker: None,
                             language: job.script_lang.unwrap_or(ScriptLang::Bun),
                             priority: job.priority,
@@ -2894,6 +2896,27 @@ pub async fn handle_wac_v2_output(
                     } else {
                         Err(error::Error::internal_err(
                             "WAC v2 Script job missing runnable_id".to_string(),
+                        ))
+                    }
+                }
+                // A deployed flow runs an inline step as the `flow_node` its deploy
+                // rewrote it into; the child re-runs that node the way a `Script`
+                // child re-runs its hash, so `runnable_id` (the checkpoint's source
+                // hash) stays the same across parent and children.
+                JobKind::FlowScript => {
+                    if let Some(id) = job.runnable_id {
+                        Ok(JobPayload::FlowScript {
+                            id: windmill_common::flows::FlowNodeId(id.0),
+                            path: job.runnable_path.clone().unwrap_or_default(),
+                            language: job.script_lang.unwrap_or(ScriptLang::Bun),
+                            cache_ttl: None,
+                            cache_ignore_s3_path: None,
+                            dedicated_worker: None,
+                            concurrency_settings: ConcurrencySettings::default(),
+                        })
+                    } else {
+                        Err(error::Error::internal_err(
+                            "WAC v2 FlowScript job missing runnable_id".to_string(),
                         ))
                     }
                 }
@@ -2912,8 +2935,8 @@ pub async fn handle_wac_v2_output(
                         hash: None,
                         language: job.script_lang.unwrap_or(ScriptLang::Bun),
                         lock: lock,
-                        cache_ttl: job.cache_ttl,
-                        cache_ignore_s3_path: job.cache_ignore_s3_path,
+                        cache_ttl: None,
+                        cache_ignore_s3_path: None,
                         dedicated_worker: None,
                         concurrency_settings: ConcurrencySettingsWithCustom::default(),
                         debouncing_settings: DebouncingSettings::default(),
@@ -3106,9 +3129,11 @@ pub async fn handle_wac_v2_output(
 
                     let push_args = PushArgs { args: &child_args, extra: None };
 
-                    // Apply step-level overrides to payload (cache, concurrency)
+                    // Apply step-level overrides to payload (cache, concurrency). The
+                    // cache one is for an external runnable only: an inline child has no
+                    // cache key of its own (see the template above).
                     let mut job_payload = job_payload;
-                    if let Some(cache_ttl) = step.cache_ttl {
+                    if let Some(cache_ttl) = step.cache_ttl.filter(|_| is_external) {
                         match &mut job_payload {
                             JobPayload::ScriptHash { cache_ttl: ref mut ct, .. } => {
                                 *ct = Some(cache_ttl)
@@ -3122,7 +3147,8 @@ pub async fn handle_wac_v2_output(
                         || step.concurrency_time_window_s.is_some()
                     {
                         match &mut job_payload {
-                            JobPayload::ScriptHash { concurrency_settings: ref mut cs, .. } => {
+                            JobPayload::ScriptHash { concurrency_settings: ref mut cs, .. }
+                            | JobPayload::FlowScript { concurrency_settings: ref mut cs, .. } => {
                                 if let Some(limit) = step.concurrent_limit {
                                     cs.concurrent_limit = Some(limit);
                                 }
@@ -3188,13 +3214,16 @@ pub async fn handle_wac_v2_output(
                         job.visible_to_owner,
                         step.tag.clone().or_else(|| Some(job.tag.clone())),
                         step.timeout.or(job.timeout),
-                        None,          // flow_step_id
-                        step.priority, // priority_override
-                        None,          // authed
-                        false,         // running
-                        None,          // end_user_email
-                        None,          // trigger
-                        None,          // suspended_mode
+                        None, // flow_step_id
+                        // An inline child queues at the parent's priority unless the task
+                        // sets its own; an external runnable keeps its own.
+                        step.priority
+                            .or(if is_external { None } else { job.priority }),
+                        None,  // authed
+                        false, // running
+                        None,  // end_user_email
+                        None,  // trigger
+                        None,  // suspended_mode
                     )
                     .await?;
 

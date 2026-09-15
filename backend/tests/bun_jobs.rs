@@ -1209,6 +1209,53 @@ export function main() {
     Ok(())
 }
 
+/// A deployed flow runs an inline step as the `flow_node` its deploy rewrote it into,
+/// a `FlowScript` job rather than the preview job the editor runs. A workflow-as-code
+/// step's `task()` children must dispatch from that kind too, as re-runs of the same
+/// node, or the step passes its editor test and fails once deployed.
+///
+/// The step is cached: a child that shared the parent's result-cache key would hand
+/// its own result (`10`) back to the parent on resume, in place of the workflow's.
+#[sqlx::test(fixtures("base", "wac_flow_script"))]
+async fn test_bun_wac_task_dispatch_from_flow_script(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::flows::FlowNodeId;
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let node = FlowNodeId(3000000000000011);
+    let job = RunJob::from(JobPayload::FlowScript {
+        id: node,
+        path: "f/system/wac_flow_script/a".to_string(),
+        language: ScriptLang::Bun,
+        cache_ttl: Some(60),
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
+    })
+    .arg("n", serde_json::json!(5))
+    .run_until_complete(&db, false, port)
+    .await;
+
+    assert_eq!(
+        job.json_result().unwrap(),
+        serde_json::json!({"doubled": 10})
+    );
+
+    let children: Vec<(String, Option<i64>, Option<i32>)> = sqlx::query_as(
+        "SELECT kind::text, runnable_id, cache_ttl FROM v2_job WHERE parent_job = $1",
+    )
+    .bind(job.id)
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        children,
+        vec![("flowscript".to_string(), Some(node.0), None)],
+        "the task child re-runs the parent's flow node, outside the result cache"
+    );
+    Ok(())
+}
+
 // ============================================================================
 // Environment Variable Tests
 // ============================================================================
