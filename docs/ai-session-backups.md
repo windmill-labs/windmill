@@ -71,15 +71,17 @@ READ/WRITE hand any member the bucket. The key is per user rather than per works
 member who copies another user's ciphertext under their own prefix gets nothing from `pull`; an
 object that does not decrypt for its reader is treated as absent. Rotating the workspace key
 (`set_encryption_key`) does not re-key the backups the way it re-encrypts the workspace's
-secrets: it deletes them, off the request and best effort
+secrets: it deletes them, before the new key is committed and best effort
 (`windmill-api-workspaces/src/ai_session_backups.rs`), and the storage identity the answers
 carry (`storage_id`, below) is derived from the key as well as the storage, so every browser
 marks its sync rows stale and pushes its sessions whole again under the new key. Sessions no
-browser holds any more are lost. A rotation is rare, and the alternative, rewriting every
-object in place while pushes, restarts, storage switches and further rotations race the
-rewrite, is where the complexity would be; with this, nothing but the current key ever reads
-an object, and an object left behind by a deletion cut short is ciphertext nothing reads,
-overwritten by the browser's next push of that session. The
+browser holds any more are lost. Deleting before the commit means no push under the new key
+can be caught by the deletion: a push racing it writes under the old key, junk the browser's
+next push of that session overwrites, as is anything a deletion cut short left behind.
+Setting the key already in place deletes nothing, since the browsers would not notice. A
+rotation is rare, and the alternative, rewriting every object in place while pushes,
+restarts, storage switches and further rotations race the rewrite, is where the complexity
+would be; with this, nothing but the current key ever reads an object. The
 server builds every key from ids it validated
 (`[A-Za-z0-9_-]{1,64}`) and the caller's own email; the client never names a key, and the
 workspace storage permission rules are not consulted (the same stance as volumes). Only an
@@ -171,17 +173,19 @@ progress) and names where the next picks up (`next`, a cursor the browser sends 
 an earlier restore cut short had staged (the session is absent locally, so its pieces have no
 local edits to keep, and the backup may have moved on), and the record, which is what makes
 the session visible, only with the last page, after deleting the session's local pieces the
-backup no longer has (staged before it moved on); between pages it holds nothing but the sync
+backup no longer has (staged before it moved on: chats, images, artifacts and their
+versions); a restore holds the user's tab lock while it runs, so two tabs cannot each write
+the same absent session's pieces over the other's; between pages it holds nothing but the sync
 row being assembled, whose chats also admit the images of a later page. An object that grew
 since the listing (a push replaced it) ends its page just before it and the answer names that
 spot, so the next page sizes it anew rather than the session being imported without it. A pull sees every key of a session's listing but keeps the 5000 smallest
 past its cursor (a page is defined by key order, and the store promises none), so a session
 grown without bound by valid pushes cannot grow the answer's memory through its metadata
 either; removing a prefix and a rotation's deletion stream their listings. `list` scans at most 50 000 index markers, keeps the newest 500 as it goes and answers with
-them (`truncated` says when there were more); the restore takes 50 of them. Every read checks the object's size before buffering it, against what the listing said
-(or the head cap for the head, read without one): whoever holds the bucket's
-credentials can plant anything at a predictable key, and an object replaced between the
-listing and the read is left for the next pull. A dirty mark that cannot be written
+them (`truncated` says when there were more); the restore takes 50 of them. Every read checks the object's size before buffering it: one larger than any push writes
+(32 MB) is planted, whatever its listing said, and skipped, since whoever holds the bucket's
+credentials can put anything at a predictable key; one larger than its listing said grew
+since (a push replaced it) and ends its page, for the next pull to size anew. A dirty mark that cannot be written
 (localStorage full) records its bump on the session's sync row instead (`extraV`, counted
 with the mark's counter and kept by every row write, so a push in flight cannot retire it);
 a session without a row is live without a mark, and marked again by every load's backfill.

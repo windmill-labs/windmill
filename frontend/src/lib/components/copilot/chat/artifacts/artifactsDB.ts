@@ -414,11 +414,13 @@ export async function deleteArtifact(id: string): Promise<void> {
 	}
 }
 
-/** Deletes the session's artifacts not in `keep` (with their versions), for a restore that
- * found artifacts an earlier one had staged and the backup no longer has. */
+/** Deletes the session's artifacts not in `keepItems` (with their versions) and the
+ * versions of the others not in `keepVersions`, for a restore that found artifacts an
+ * earlier one had staged and the backup no longer has. */
 export async function pruneSessionArtifacts(
 	sessionId: string,
-	keep: Set<string>,
+	keepItems: Set<string>,
+	keepVersions: Set<string>,
 	email: string
 ): Promise<void> {
 	const db = await getDB()
@@ -429,9 +431,14 @@ export async function pruneSessionArtifacts(
 		const versions = tx.objectStore('versions')
 		const ids = await items.index('by-session').getAllKeys(sessionId)
 		for (const id of ids) {
-			if (keep.has(String(id))) continue
-			await items.delete(id)
-			await deleteVersionsIn(versions, id)
+			if (!keepItems.has(String(id))) {
+				await items.delete(id)
+				await deleteVersionsIn(versions, id)
+				continue
+			}
+			for (const key of await versions.index('by-artifact').getAllKeys(id)) {
+				if (!keepVersions.has(String(key))) await versions.delete(key)
+			}
 		}
 		await tx.done
 	} catch (err) {

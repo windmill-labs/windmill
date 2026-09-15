@@ -657,12 +657,29 @@ describe('sessionMirror restore', () => {
 			chats: [],
 			images: [{ chat_id: 'c9', id: 'i9', data_url: IMAGE }]
 		}
-		// The first restore is cut short after staging the chats.
+		// The first restore is cut short after staging the chats and an artifact with two
+		// versions.
 		const gone = { ...backup.chats[0], id: 'cx', record: { ...backup.chats[0].record, id: 'cx' } }
+		const item = { id: 'a1', sessionId: 's9', kind: 'markdown', name: 'a', content: 'x' }
+		const version = (n: number) => ({
+			key: `a1:${n}`,
+			artifactId: 'a1',
+			version: n,
+			name: 'a',
+			content: 'x',
+			savedAt: n
+		})
 		pullMock
 			.mockResolvedValueOnce({
 				enabled: true,
-				sessions: [{ ...backup, chats: [...backup.chats, gone], next: cursor }],
+				sessions: [
+					{
+						...backup,
+						chats: [...backup.chats, gone],
+						artifacts: { items: [item], versions: [version(1), version(2)] },
+						next: cursor
+					}
+				],
 				deferred: []
 			})
 			.mockRejectedValueOnce(new Error('offline'))
@@ -679,7 +696,8 @@ describe('sessionMirror restore', () => {
 		__resetMirrorForTesting()
 		const newer = {
 			...backup,
-			chats: [{ ...backup.chats[0], record: { ...backup.chats[0].record, title: 'newer' } }]
+			chats: [{ ...backup.chats[0], record: { ...backup.chats[0].record, title: 'newer' } }],
+			artifacts: { items: [item], versions: [version(1)] }
 		}
 		pullMock
 			.mockResolvedValueOnce({
@@ -695,5 +713,10 @@ describe('sessionMirror restore', () => {
 		expect(await readStoredChat('cx', EMAIL)).toBeUndefined()
 		const { readImageDataUrl } = await import('../copilot/chat/HistoryManager.svelte')
 		expect(await readImageDataUrl('i9', EMAIL)).toBe(IMAGE)
+		// The version the backup no longer has went with the chat it no longer has.
+		const { readSessionArtifacts } = await import('../copilot/chat/artifacts/artifactsDB')
+		const artifacts = await readSessionArtifacts('s9', EMAIL)
+		expect(artifacts?.items.map((i) => i.id)).toEqual(['a1'])
+		expect(artifacts?.versions.map((v) => v.key)).toEqual(['a1:1'])
 	})
 })

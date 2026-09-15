@@ -162,7 +162,14 @@ impl Backend {
             Err(ObjectStoreError::NotFound { .. }) => return Ok(Read::Gone),
             Err(e) => return Err(object_store_error_to_error(e)),
         };
-        if result.meta.size as usize > max {
+        let size = result.meta.size as usize;
+        // Larger than any push writes: planted, whatever the listing said, and skipped like
+        // an object of another key rather than retried like one that grew.
+        if size > MAX_OBJECT_BYTES {
+            tracing::warn!("AI session backup object {key} is larger than any push writes");
+            return Ok(Read::Foreign);
+        }
+        if size > max {
             return Ok(Read::Grown);
         }
         let bytes = result.bytes().await.map_err(object_store_error_to_error)?;

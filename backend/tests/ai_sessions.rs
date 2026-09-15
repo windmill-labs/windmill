@@ -364,6 +364,46 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     let pulled = pull(&base, "SECRET_TOKEN", &["planted"]).await?;
     assert_eq!(pulled["sessions"], json!([]));
     std::fs::remove_dir_all(planted.parent().unwrap())?;
+    // Under a session that exists, a planted chat is skipped without buffering and without
+    // the page ending before it, so the pull neither balloons nor loops.
+    let planted_chat = storage_dir
+        .path()
+        .join("windmill_ai_sessions/test-workspace")
+        .join(calculate_hash("test@windmill.dev"))
+        .join("sessions/s1/chats/planted.json");
+    std::fs::File::create(&planted_chat)?.set_len(32 * 1024 * 1024 + 1)?;
+    let mut resume = json!(null);
+    let mut pages = 0;
+    let mut chat_ids = vec![];
+    loop {
+        let body = if resume.is_null() {
+            json!({ "ids": ["s1"] })
+        } else {
+            json!({ "ids": ["s1"], "resume": resume })
+        };
+        let resp = authed(
+            client().post(format!("{base}/ai/sessions/pull")),
+            "SECRET_TOKEN",
+        )
+        .json(&body)
+        .send()
+        .await?;
+        assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+        let pulled: Value = resp.json().await?;
+        assert_eq!(pulled["sessions"][0]["head"], head);
+        for c in pulled["sessions"][0]["chats"].as_array().unwrap() {
+            chat_ids.push(c["id"].as_str().unwrap().to_string());
+        }
+        pages += 1;
+        resume = pulled["sessions"][0]["next"].clone();
+        if resume.is_null() {
+            break;
+        }
+        assert!(pages < 5, "a planted object must not keep the pull going");
+    }
+    chat_ids.sort();
+    assert_eq!(chat_ids, vec!["c1", "c2"]);
+    std::fs::remove_file(&planted_chat)?;
 
     let pulled = pull(&base, "SECRET_TOKEN", &["s1", "never-pushed"]).await?;
     assert_eq!(pulled["deferred"], json!([]));
@@ -492,6 +532,17 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
     assert_eq!(pulled["sessions"][0]["head"], head);
     assert_eq!(pulled["sessions"][0]["chats"][0]["id"], "c2");
+    // Setting the key already in place is not a rotation the browsers would notice, so it
+    // keeps the backups.
+    let same = list(&base, "SECRET_TOKEN").await?["storage_id"].clone();
+    rotate(&base, &"b".repeat(64)).await?;
+    let listing = list(&base, "SECRET_TOKEN").await?;
+    assert_eq!(listing["storage_id"], same);
+    assert_eq!(listing["sessions"][0]["id"], "s1");
+    assert_eq!(
+        pull(&base, "SECRET_TOKEN", &["s1"]).await?["sessions"][0]["head"],
+        head
+    );
 
     // Removal empties both prefixes.
     let resp = push(

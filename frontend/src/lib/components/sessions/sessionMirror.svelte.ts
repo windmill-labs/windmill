@@ -302,11 +302,14 @@ function backOff(): void {
 
 /** Serialize with the other tabs of the same user where the browser lets us; on plain
  * http there is no lock, and two tabs at worst upload the same bytes twice. */
-async function withUserLock(email: string, fn: () => Promise<void>): Promise<void> {
+/** One tab of the user at a time in the flush and the restore. A flush finding the lock
+ * taken reschedules itself; a restore waits its turn, since two tabs restoring the same
+ * absent session would each write its pieces over the other's. */
+async function withUserLock(email: string, fn: () => Promise<void>, wait = false): Promise<void> {
 	const locks =
 		typeof navigator === 'undefined' ? undefined : (navigator as { locks?: LockManager }).locks
 	if (!locks) return fn()
-	await locks.request(`wm-ai-sessions-mirror::${email}`, { ifAvailable: true }, async (lock) => {
+	await locks.request(`wm-ai-sessions-mirror::${email}`, { ifAvailable: !wait }, async (lock) => {
 		if (lock) await fn()
 		// The other tab's flush read the marks before this one's were written: try again
 		// once it is done, rather than wait for the next write or load.
@@ -993,7 +996,12 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 	let restored = 0
 	// A session that did not fit one answer whole comes in pages, kept here until the last
 	// one: importing a page alone would leave a session the next restore takes for whole.
-	type Staged = { session: Session; sync: MirrorSyncState; artifactIds: string[] }
+	type Staged = {
+		session: Session
+		sync: MirrorSyncState
+		artifactIds: string[]
+		versionKeys: string[]
+	}
 	const staged = new Map<string, Staged>()
 	const resumes: AISessionBackupCursor[] = []
 	while (ids.length > 0 || resumes.length > 0) {
@@ -1046,6 +1054,7 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 				continue
 			}
 			const artifactIds = u.artifacts.items.map((i) => i.id)
+			const versionKeys = u.artifacts.versions.map((v) => v.key)
 			const merged: Staged = earlier
 				? {
 						session: {
@@ -1061,9 +1070,10 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 							images: { ...earlier.sync.images, ...u.sync.images },
 							artifacts: b.artifacts !== undefined ? u.sync.artifacts : earlier.sync.artifacts
 						},
-						artifactIds: b.artifacts !== undefined ? artifactIds : earlier.artifactIds
+						artifactIds: b.artifacts !== undefined ? artifactIds : earlier.artifactIds,
+						versionKeys: b.artifacts !== undefined ? versionKeys : earlier.versionKeys
 					}
-				: { session: u.session, sync: u.sync, artifactIds }
+				: { session: u.session, sync: u.sync, artifactIds, versionKeys }
 			if (b.next) {
 				staged.set(b.id, merged)
 				resumes.push(b.next)
@@ -1082,7 +1092,12 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 				new Set(Object.keys(r.sync.images)),
 				email
 			)
-			await pruneSessionArtifacts(r.session.id, new Set(r.artifactIds), email)
+			await pruneSessionArtifacts(
+				r.session.id,
+				new Set(r.artifactIds),
+				new Set(r.versionKeys),
+				email
+			)
 		}
 		const imported = new Set(
 			await importSessions(
@@ -1115,7 +1130,7 @@ export function restoreSessionBackups(currentWorkspace: string): void {
 	for (const ws of family) {
 		if (restoredWorkspaces.has(ws) || wsState.get(ws) === 'off') continue
 		restoredWorkspaces.add(ws)
-		void enqueue(() => restoreWorkspace(ws, email))
+		void enqueue(() => withUserLock(email, () => restoreWorkspace(ws, email), true))
 	}
 }
 

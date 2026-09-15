@@ -2,11 +2,11 @@
 //! (`windmill-api/src/ai_sessions.rs`) share about the backups in the workspace storage.
 //!
 //! The backups are ciphertext under the workspace key. A rotation does not re-key them: it
-//! deletes them, off the request, and the storage identity the routes answer with changes
-//! with the key, so every browser marks its sync state stale and pushes its sessions whole
-//! again under the new key. Sessions no browser holds any more are lost, which a rotation
-//! (a rare operation) accepts in exchange for having no key but the current one to read
-//! with and nothing to rewrite in place.
+//! deletes them before committing the new key, and the storage identity the routes answer
+//! with changes with the key, so every browser marks its sync state stale and pushes its
+//! sessions whole again under the new key. Sessions no browser holds any more are lost,
+//! which a rotation (a rare operation) accepts in exchange for having no key but the
+//! current one to read with and nothing to rewrite in place.
 
 use std::sync::Arc;
 
@@ -53,7 +53,7 @@ pub fn storage_id(resource: &ObjectStoreResource, key: &str) -> String {
 }
 
 /// The workspace's primary storage, resolved without a caller: a rotation runs the
-/// deletion off its own request.
+/// deletion in its own request.
 async fn primary_store(db: &DB, w_id: &str) -> Result<Option<Arc<dyn ObjectStore>>> {
     let Some(lfs_json) = sqlx::query_scalar!(
         "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
@@ -84,36 +84,26 @@ async fn primary_store(db: &DB, w_id: &str) -> Result<Option<Arc<dyn ObjectStore
     ))
 }
 
-/// Deletes the workspace's backups off the request, as the listing streams. Best effort:
-/// an object left behind is ciphertext under a key nothing reads with any more, and the
-/// browsers rewrite their sessions over it.
-pub fn spawn_delete(db: DB, w_id: String) {
-    tokio::spawn(async move {
-        let store = match primary_store(&db, &w_id).await {
-            Ok(Some(store)) => store,
-            Ok(None) => return,
-            Err(e) => {
-                tracing::warn!("AI session backups of {w_id} left in place: {e:#}");
-                return;
-            }
-        };
-        let prefix = ObjectPath::from(format!("{ROOT}/{w_id}"));
-        let deleted = store
-            .list(Some(&prefix))
-            .map_err(object_store_error_to_error)
-            .try_for_each_concurrent(IO_CONCURRENCY, |meta| {
-                let store = &store;
-                async move {
-                    match store.delete(&meta.location).await {
-                        Ok(()) | Err(ObjectStoreError::NotFound { .. }) => Ok(()),
-                        Err(e) => Err(object_store_error_to_error(e)),
-                    }
+/// Deletes the workspace's backups as the listing streams. Run before the new key is
+/// committed, so nothing written under it can be caught by the deletion: a push racing
+/// it writes under the old key, junk the browser's next push of that session overwrites,
+/// as is any object a deletion cut short left behind.
+pub async fn delete_all(db: &DB, w_id: &str) -> Result<()> {
+    let Some(store) = primary_store(db, w_id).await? else {
+        return Ok(());
+    };
+    let prefix = ObjectPath::from(format!("{ROOT}/{w_id}"));
+    store
+        .list(Some(&prefix))
+        .map_err(object_store_error_to_error)
+        .try_for_each_concurrent(IO_CONCURRENCY, |meta| {
+            let store = &store;
+            async move {
+                match store.delete(&meta.location).await {
+                    Ok(()) | Err(ObjectStoreError::NotFound { .. }) => Ok(()),
+                    Err(e) => Err(object_store_error_to_error(e)),
                 }
-            })
-            .await;
-        match deleted {
-            Ok(()) => tracing::info!("deleted the AI session backups of {w_id} (key rotated)"),
-            Err(e) => tracing::warn!("deleting the AI session backups of {w_id}: {e:#}"),
-        }
-    });
+            }
+        })
+        .await
 }
