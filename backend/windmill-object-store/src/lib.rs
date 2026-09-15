@@ -2671,6 +2671,36 @@ mod tests {
         reload_cache_object_store_override(&db, None).await;
     }
 
+    /// A store built from settings is located by where its objects are, not by how the
+    /// client describes itself: an S3 client prints only its bucket, so the same bucket name
+    /// on another endpoint would otherwise pass for the same store.
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_settings_store_location_tells_endpoints_apart() {
+        let s3 = |endpoint: &str| {
+            ObjectSettings::S3(S3Settings {
+                bucket: Some("windmill".to_string()),
+                region: Some("us-east-1".to_string()),
+                access_key: Some("key".to_string()),
+                secret_key: Some("secret".to_string()),
+                endpoint: Some(endpoint.to_string()),
+                allow_http: Some(true),
+                path_style: Some(true),
+                store_logs: None,
+                port: None,
+            })
+        };
+        let a = build_object_store_from_settings(s3("minio.internal:9000"), None)
+            .await
+            .unwrap();
+        let b = build_object_store_from_settings(s3("s3.us-east-1.amazonaws.com"), None)
+            .await
+            .unwrap();
+        assert_eq!(a.store.to_string(), b.store.to_string());
+        assert!(a.location.is_some());
+        assert_ne!(a.location, b.location);
+    }
+
     // --- get_logs_from_store test ---
 
     #[cfg(feature = "parquet")]
