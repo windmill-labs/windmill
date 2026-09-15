@@ -179,6 +179,30 @@ async function open(
 const settle = () => new Promise((r) => setTimeout(r, 0))
 
 describe('item store: the draft row follows value ≠ deployed', () => {
+	it('takes a new deployed value after an edit was put back, without drafting the old one', async () => {
+		const rows = fakeRows()
+		let deployed = deployedRes
+		const { item } = await open(
+			rows,
+			adapter(async () => ({ deployed }))
+		)
+		// Edited and then put back by hand. Nothing here is the user's any more, so this editor
+		// speaks for the item no differently than one just opened.
+		item.value = { ...deployedRes, description: 'edited' }
+		item.value = structuredClone(deployedRes)
+		expect(item.dirty).toBe(false)
+
+		deployed = { ...deployedRes, description: 'deployed elsewhere' }
+		const writesBefore = rows.writes.length
+		await item.reload()
+
+		// Holding the old value against the new baseline would read as an unsaved change nobody
+		// made, and post it as a draft over whatever is there.
+		expect(item.value).toEqual(deployed)
+		expect(item.dirty).toBe(false)
+		expect(rows.writes.length).toBe(writesBefore)
+	})
+
 	it('writes a row when the value diverges and deletes it when it comes back', async () => {
 		const rows = fakeRows()
 		const { item } = await open(rows, adapter({ deployed: deployedRes }))

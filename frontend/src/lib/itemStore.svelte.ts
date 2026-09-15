@@ -160,12 +160,10 @@ const outOfDate = {
 	error: 'This item changed elsewhere and could not be re-read. Reload it before saving.'
 } as const
 
-/** Where a command asked to undo or fold into something found it, so it can tell that what is
- *  here now is no longer that. Only commands that act on the value they were asked about need it:
- *  a read does not, since it answers against whoever owns the value now rather than against when
- *  it was issued. `edits`: what the user can see change, which a discard measures against, so an
- *  outside write of the value already shown does not cancel one. `externals`: every outside
- *  write, that one included, which is what a patch and a fold must not write over. */
+/** Where a command that undoes or folds into a value found it, so it can tell what is here now
+ *  is no longer that. A read needs none: it asks who owns the value instead. `edits`: what the
+ *  user can see change, so an outside write of the value already shown does not cancel a
+ *  discard. `externals`: every outside write, which a patch and a fold must not write over. */
 type AsOf = { edits: number; externals: number }
 
 class Entry<V> {
@@ -313,6 +311,13 @@ class Entry<V> {
 		// actually there. A reload is what clears it.
 		if (this.stale) return
 		const desired = this.dirty ? (serialize(this.value) ?? null) : null
+		// Back on the deployed value, so there is nothing of anyone's here for a read to defer to
+		// — a save landed, or the user put it back. Left standing, it would have the next read
+		// keep this value while advancing the baseline under it, and that gap drafted.
+		if (desired === null) this.local = false
+		// Back on the deployed value, so there is nothing of anyone's here for a read to defer to
+		// — a save landed, or the user put it back. Left standing, it would have the next read
+		// keep this value while advancing the baseline under it, and that gap drafted.
 		this.ports.hint(key, desired !== null)
 		// A rejected write is not retried: the row stays as the server has it until the conflict
 		// is resolved, by a reload or an overwrite. The refused payload stays parked, which is
@@ -337,11 +342,10 @@ class Entry<V> {
 		waiting: boolean
 	) {
 		if (this.ports.rowMark(key) !== asOf) return
-		// A payload the server refused *before* this read predates it, and the baseline taken
-		// below would make it acceptable, so it goes; the reconcile after the read re-queues
-		// whatever the value needs. One this read is holding on screen is the other way round:
-		// no baseline is taken over it, and it is the only record of an edit that never reached
-		// anyone, so it stays parked for the user to resolve however long that takes.
+		// Refused before this read, and the baseline taken below would make it acceptable, so it
+		// goes; the reconcile after re-queues whatever the value needs. One this read holds on
+		// screen is the other way round: no baseline is taken over it, and it is the only record
+		// of that edit, so it stays parked until the user resolves it.
 		if (!waiting && this.ports.conflicted(key)) this.ports.dropPending(key)
 		this.row = row === null || row === undefined ? null : (serialize(row) ?? null)
 		// A payload still waiting to be sent was written against the baseline it had then. Taking
@@ -429,11 +433,10 @@ class Entry<V> {
 			try {
 				if (this.retired) return superseded
 				if (!adapter.load) throw new Error('This item cannot be loaded')
-				// A row queued by whoever held this key before is debounced: send it, or this read
-				// answers with the deployed value and the draft reappears under a clean editor.
-				// Not one written when no row existed, though — it carries no baseline, so it
-				// would go out unconditional and take over a row created since. The read below
-				// gives it one, and `pending` keeps showing it meanwhile.
+				// A row queued by whoever held this key is debounced: send it, or this read answers
+				// with the deployed value and the draft reappears under a clean editor. Not one written
+				// when no row existed — it has no baseline, so it would go out unconditional over a row
+				// created since; the read below gives it one, and `pending` shows it meanwhile.
 				unbasedPending = this.ports.unbased(key)
 				if (!unbasedPending) await this.ports.flush(key)
 				// Taken here, not when the command was asked for: rows this read's own flush sent
@@ -482,11 +485,10 @@ class Entry<V> {
 			}
 			this.serverDeployed = snapshot(res.deployed)
 			this.origin = res.deployed !== undefined ? 'deployed' : 'draft'
-			// A row the syncer took but never landed is the only copy of that edit, whether it
-			// failed to send or the server refused it, and whether that happened during this read
-			// or before an earlier editor was closed. A refusal nobody has answered yet does not
-			// go stale by being left alone, so the item opens on it and stays conflicted until
-			// the user settles it. Resolving is what ends that, not reopening.
+			// A row the syncer took but never landed is the only copy of that edit, however it failed
+			// and whenever. A refusal nobody has answered does not go stale by being left alone, so
+			// the item opens on it and stays conflicted until the user settles it: resolving is what
+			// ends that, not reopening.
 			const unsent = waitingBefore
 			// A parked delete is what this tab wants gone, not what is there: the row is still the
 			// server's, so the reconcile at the end re-issues the delete instead of believing it
@@ -502,13 +504,10 @@ class Entry<V> {
 				this.replaceValue(draft ?? res.deployed)
 			}
 			this.removed = this.value === undefined
-			// Raised after the value above has been taken, so what is on screen is still the
-			// user's own unsent edit and "keep mine" means theirs: a payload written when this
-			// key had no row, meeting a row that exists now. Sending it would overwrite that
-			// unconditionally, and basing it on this read would claim it was built on a draft it
-			// never saw — so neither happens until the user says which wins. Asked again here
-			// rather than taken from before the read: that payload may have landed while the read
-			// was out, and then it has a baseline of its own and the row is its own.
+			// A payload written when this key had no row, meeting a row that exists now: sending it
+			// would overwrite that unconditionally, and basing it on this read would claim it was
+			// built on a draft it never saw, so neither happens until the user says which wins.
+			// Asked after the read, not before: it may have landed meanwhile and have a baseline.
 			if (this.ports.unbased(key) && res.draft !== undefined && res.draftSavedAt !== undefined) {
 				this.ports.markConflict(key, res.draftSavedAt)
 			}
