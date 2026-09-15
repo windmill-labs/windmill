@@ -815,6 +815,14 @@ pub enum OpenAIResponsesSSEEvent {
     #[serde(rename = "response.output_text.annotation.added")]
     AnnotationAdded { annotation: OpenAIUrlCitationEvent },
 
+    /// A new reasoning summary part starts (only sent when `reasoning.summary` was requested)
+    #[serde(rename = "response.reasoning_summary_part.added")]
+    ReasoningSummaryPartAdded {},
+
+    /// Reasoning summary text delta
+    #[serde(rename = "response.reasoning_summary_text.delta")]
+    ReasoningSummaryTextDelta { delta: String },
+
     /// Catch-all for unknown event types
     #[serde(other)]
     Other,
@@ -823,6 +831,8 @@ pub enum OpenAIResponsesSSEEvent {
 /// OpenAI Responses API SSE Parser for streaming responses
 pub struct OpenAIResponsesSSEParser {
     pub accumulated_content: String,
+    /// The reasoning summary streamed before the answer, kept so it can be stored with it.
+    pub accumulated_reasoning: String,
     pub accumulated_tool_calls: HashMap<String, OpenAIToolCall>,
     /// Maps item_id -> (name, call_id) for function calls
     tool_call_metadata: HashMap<String, (String, String)>,
@@ -836,12 +846,15 @@ pub struct OpenAIResponsesSSEParser {
     pub used_websearch: bool,
     /// Token usage from response.completed event
     pub usage: Option<OpenAIResponsesUsage>,
+    /// Reasoning summary parts seen so far, to separate them as paragraphs
+    reasoning_summary_parts: usize,
 }
 
 impl OpenAIResponsesSSEParser {
     pub fn new(stream_event_processor: Box<dyn StreamEventSink>) -> Self {
         Self {
             accumulated_content: String::new(),
+            accumulated_reasoning: String::new(),
             accumulated_tool_calls: HashMap::new(),
             tool_call_metadata: HashMap::new(),
             tool_call_arguments: HashMap::new(),
@@ -850,6 +863,7 @@ impl OpenAIResponsesSSEParser {
             annotations: Vec::new(),
             used_websearch: false,
             usage: None,
+            reasoning_summary_parts: 0,
         }
     }
 }
@@ -959,6 +973,28 @@ impl SSEParser for OpenAIResponsesSSEParser {
                     }
                 }
 
+                OpenAIResponsesSSEEvent::ReasoningSummaryPartAdded {} => {
+                    self.reasoning_summary_parts += 1;
+                    if self.reasoning_summary_parts > 1 {
+                        self.accumulated_reasoning.push_str("\n\n");
+                        let event =
+                            StreamingEvent::ReasoningTokenDelta { content: "\n\n".to_string() };
+                        self.stream_event_processor
+                            .send(event, &mut self.events_str)
+                            .await?;
+                    }
+                }
+
+                OpenAIResponsesSSEEvent::ReasoningSummaryTextDelta { delta } => {
+                    if !delta.is_empty() {
+                        self.accumulated_reasoning.push_str(&delta);
+                        let event = StreamingEvent::ReasoningTokenDelta { content: delta };
+                        self.stream_event_processor
+                            .send(event, &mut self.events_str)
+                            .await?;
+                    }
+                }
+
                 // Ignore other event types
                 OpenAIResponsesSSEEvent::Done {}
                 | OpenAIResponsesSSEEvent::Created {}
@@ -1013,6 +1049,33 @@ mod tests {
         assert_eq!(token_usage.cache_read_input_tokens, Some(4736));
         assert_eq!(token_usage.input_tokens, Some(4819));
         assert_eq!(token_usage.total_tokens, Some(4821));
+    }
+
+    struct ReasoningSink;
+
+    #[async_trait::async_trait]
+    impl StreamEventSink for ReasoningSink {
+        async fn send(&self, event: StreamingEvent, events_str: &mut String) -> Result<(), Error> {
+            if let StreamingEvent::ReasoningTokenDelta { content } = event {
+                events_str.push_str(&content);
+            }
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn streams_openai_responses_reasoning_summary_parts_as_paragraphs() {
+        let mut parser = OpenAIResponsesSSEParser::new(Box::new(ReasoningSink));
+        for data in [
+            r#"{"type":"response.reasoning_summary_part.added","item_id":"rs_1","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":""}}"#,
+            r#"{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"**Planning**"}"#,
+            r#"{"type":"response.reasoning_summary_part.added","item_id":"rs_1","output_index":0,"summary_index":1,"part":{"type":"summary_text","text":""}}"#,
+            r#"{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":1,"delta":"Then answer"}"#,
+        ] {
+            parser.parse_event_data(data).await.unwrap();
+        }
+        assert_eq!(parser.events_str, "**Planning**\n\nThen answer");
+        assert_eq!(parser.accumulated_reasoning, "**Planning**\n\nThen answer");
     }
 
     #[test]

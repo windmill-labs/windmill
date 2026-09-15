@@ -1,6 +1,7 @@
 use crate::{
     ai_providers::AIProvider,
     ai_types::OpenAIToolCall,
+    credentials::ProviderCredentials,
     image_handler::{prepare_messages_for_api, s3_object_to_content_part},
     proxy::{build_openai_compatible_proxy_request, ProxyBuildArgs, ProxyRequest},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
@@ -11,7 +12,14 @@ use crate::{
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use windmill_common::{client::AuthedClient, error::Error};
+use std::{
+    collections::{BTreeMap, HashMap},
+    hash::{DefaultHasher, Hash, Hasher},
+    time::{Duration, Instant},
+};
+use windmill_common::{cache::Cache, client::AuthedClient, error::Error};
+
+use super::REASONING_OFF_SENTINEL;
 
 // Responses API structures
 #[derive(Deserialize)]
@@ -192,13 +200,79 @@ pub struct ResponsesApiTextFormat {
     pub format: ResponsesApiTextFormatConfig,
 }
 
-/// Reasoning config for the Responses API (`reasoning: { effort }`).
-/// The summary is intentionally not requested, mirroring the copilot chat: OpenAI
-/// gates reasoning summaries behind organization verification, so asking for one
-/// would fail the request for unverified orgs.
+/// Reasoning config for the Responses API (`reasoning: { effort, summary }`).
 #[derive(Serialize)]
 pub struct ResponsesApiReasoning {
     pub effort: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
+lazy_static::lazy_static! {
+    /// Refused reasoning summaries, so later requests skip asking instead of paying a
+    /// rejected call each. A refusal belongs to the organization the request bills or to the
+    /// model, so the key holds the model and everything that authenticates (the API key and
+    /// the resource headers, which can carry it instead). Entries expire as an org gets verified.
+    static ref REASONING_SUMMARY_UNAVAILABLE: Cache<(String, u64), Instant> = Cache::new(500);
+}
+
+const REASONING_SUMMARY_UNAVAILABLE_TTL: Duration = Duration::from_secs(3600);
+
+fn reasoning_summary_cache_key(
+    base_url: &str,
+    model: &str,
+    api_key: Option<&str>,
+    custom_headers: &HashMap<String, String>,
+) -> (String, u64) {
+    let mut hasher = DefaultHasher::new();
+    model.hash(&mut hasher);
+    api_key.hash(&mut hasher);
+    // Sorted: two maps with the same entries can iterate them in different orders.
+    custom_headers
+        .iter()
+        .collect::<BTreeMap<_, _>>()
+        .hash(&mut hasher);
+    (base_url.to_string(), hasher.finish())
+}
+
+fn credentials_cache_key(credentials: &ProviderCredentials, model: &str) -> (String, u64) {
+    reasoning_summary_cache_key(
+        &credentials.base_url,
+        model,
+        credentials.api_key.as_deref(),
+        &credentials.custom_headers,
+    )
+}
+
+/// Whether this model is known to be refused reasoning summaries with these credentials.
+pub fn is_reasoning_summary_unavailable(credentials: &ProviderCredentials, model: &str) -> bool {
+    REASONING_SUMMARY_UNAVAILABLE
+        .get(&credentials_cache_key(credentials, model))
+        .is_some_and(|learned_at| learned_at.elapsed() < REASONING_SUMMARY_UNAVAILABLE_TTL)
+}
+
+/// Record that this model was refused a reasoning summary with these credentials.
+pub fn remember_reasoning_summary_unavailable(credentials: &ProviderCredentials, model: &str) {
+    REASONING_SUMMARY_UNAVAILABLE.insert(credentials_cache_key(credentials, model), Instant::now());
+}
+
+/// Whether a rejected request was refused over its reasoning summary, e.g. `Your
+/// organization must be verified to generate reasoning summaries` (param
+/// `reasoning.summary`). An OpenAI-kind resource can also point at a gateway that validates
+/// the body strictly and names only the unknown `summary` property.
+pub fn rejects_reasoning_summary(status: u16, body: &str) -> bool {
+    // 422 is how FastAPI-based gateways reject a body that fails validation.
+    if !matches!(status, 400 | 403 | 422) {
+        return false;
+    }
+    let body = body.to_lowercase();
+    let unknown_field = body.contains("additional properties are not allowed")
+        || body.contains("unrecognized request argument")
+        || body.contains("extra inputs are not permitted");
+    body.contains("reasoning.summary")
+        || body.contains("verified to generate reasoning summar")
+        || body.contains("verified to stream reasoning summar")
+        || (unknown_field && body.contains("summary"))
 }
 
 #[derive(Serialize)]
@@ -435,9 +509,13 @@ impl OpenAIQueryBuilder {
             tools,
             stream: Some(true),
             temperature: args.temperature,
-            reasoning: args
-                .reasoning_effort
-                .map(|effort| ResponsesApiReasoning { effort: effort.to_string() }),
+            reasoning: args.reasoning_effort.map(|effort| ResponsesApiReasoning {
+                effort: effort.to_string(),
+                // A request that does not reason has nothing to summarize, yet asking still
+                // gets an unverified organization's request rejected.
+                summary: (args.reasoning_summary && effort != REASONING_OFF_SENTINEL)
+                    .then(|| "auto".to_string()),
+            }),
             max_output_tokens: args.max_tokens,
             text,
             prompt_cache_key: args.prompt_cache_key,
@@ -538,9 +616,8 @@ impl QueryBuilder for OpenAIQueryBuilder {
             } else {
                 Some(parser.accumulated_content)
             },
-            // The Responses stream has no reasoning-summary event in
-            // `OpenAIResponsesSSEEvent`, so nothing thinks out loud on this path yet.
-            reasoning: None,
+            reasoning: (!parser.accumulated_reasoning.is_empty())
+                .then_some(parser.accumulated_reasoning),
             tool_calls: parser.accumulated_tool_calls.into_values().collect(),
             events_str: Some(parser.events_str),
             annotations: parser.annotations,
@@ -640,8 +717,11 @@ mod tests {
         }
     }
 
-    async fn build_text_body(messages: &[OpenAIMessage], system_prompt: Option<&str>) -> String {
-        let args = BuildRequestArgs {
+    fn text_args<'a>(
+        messages: &'a [OpenAIMessage],
+        system_prompt: Option<&'a str>,
+    ) -> BuildRequestArgs<'a> {
+        BuildRequestArgs {
             messages,
             tools: None,
             model: "gpt-5",
@@ -655,12 +735,96 @@ mod tests {
             attachments: None,
             has_websearch: false,
             prompt_cache_key: Some(PROMPT_CACHE_KEY),
-        };
+            reasoning_summary: true,
+        }
+    }
 
+    async fn build_body(args: &BuildRequestArgs<'_>) -> String {
         OpenAIQueryBuilder::new(AIProvider::OpenAI)
-            .build_request(&args, &client(), "test-workspace")
+            .build_request(args, &client(), "test-workspace")
             .await
             .unwrap()
+    }
+
+    async fn build_text_body(messages: &[OpenAIMessage], system_prompt: Option<&str>) -> String {
+        build_body(&text_args(messages, system_prompt)).await
+    }
+
+    async fn reasoning_of(effort: Option<&str>, reasoning_summary: bool) -> serde_json::Value {
+        let messages = vec![message("user", "hi")];
+        let args = BuildRequestArgs {
+            reasoning_effort: effort,
+            reasoning_summary,
+            ..text_args(&messages, None)
+        };
+        let request: serde_json::Value = serde_json::from_str(&build_body(&args).await).unwrap();
+        request["reasoning"].clone()
+    }
+
+    #[tokio::test]
+    async fn requests_a_reasoning_summary_only_when_the_model_reasons() {
+        assert_eq!(
+            reasoning_of(Some("high"), true).await,
+            serde_json::json!({ "effort": "high", "summary": "auto" })
+        );
+        assert_eq!(
+            reasoning_of(Some("none"), true).await,
+            serde_json::json!({ "effort": "none" })
+        );
+        assert_eq!(
+            reasoning_of(Some("high"), false).await,
+            serde_json::json!({ "effort": "high" })
+        );
+        assert!(reasoning_of(None, true).await.is_null());
+    }
+
+    #[test]
+    fn recognizes_a_refused_reasoning_summary() {
+        let unverified = r#"{"error":{"message":"Your organization must be verified to generate reasoning summaries. Please go to: https://platform.openai.com/settings/organization/general and click on Verify Organization.","type":"invalid_request_error","param":"reasoning.summary","code":"unsupported_value"}}"#;
+        assert!(rejects_reasoning_summary(400, unverified));
+        assert!(!rejects_reasoning_summary(500, unverified));
+        assert!(rejects_reasoning_summary(
+            400,
+            r#"{"detail":"Additional properties are not allowed ('summary' was unexpected)"}"#
+        ));
+        assert!(rejects_reasoning_summary(
+            422,
+            r#"{"detail":[{"type":"extra_forbidden","loc":["body","reasoning","summary"],"msg":"Extra inputs are not permitted","input":"auto"}]}"#
+        ));
+        assert!(!rejects_reasoning_summary(
+            400,
+            r#"{"error":{"message":"Invalid 'prompt_cache_key': string too long","param":"prompt_cache_key"}}"#
+        ));
+    }
+
+    /// A resource can authenticate through `headers` with no API key: one organization's
+    /// refusal must not withhold summaries from another's.
+    #[test]
+    fn keys_a_refused_summary_by_the_header_credential() {
+        let headers = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(name, value)| (name.to_string(), value.to_string()))
+                .collect::<HashMap<_, _>>()
+        };
+        let url = "https://api.openai.com/v1";
+        let org_a = headers(&[("Authorization", "Bearer org-a"), ("X-Trace", "1")]);
+        let org_a_reordered = headers(&[("X-Trace", "1"), ("Authorization", "Bearer org-a")]);
+        let org_b = headers(&[("Authorization", "Bearer org-b"), ("X-Trace", "1")]);
+
+        assert_ne!(
+            reasoning_summary_cache_key(url, "gpt-5", None, &org_a),
+            reasoning_summary_cache_key(url, "gpt-5", None, &org_b)
+        );
+        assert_eq!(
+            reasoning_summary_cache_key(url, "gpt-5", None, &org_a),
+            reasoning_summary_cache_key(url, "gpt-5", None, &org_a_reordered)
+        );
+        // A model can refuse summaries that another model on the same credentials streams.
+        assert_ne!(
+            reasoning_summary_cache_key(url, "gpt-5", None, &org_a),
+            reasoning_summary_cache_key(url, "gpt-5-mini", None, &org_a)
+        );
     }
 
     /// The worker prepends the system prompt as a system message *and* passes it as
