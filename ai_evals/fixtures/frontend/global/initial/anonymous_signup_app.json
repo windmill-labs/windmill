@@ -12,10 +12,7 @@
         "schemas": {
           "public": {
             "signups": {
-              "columns": [
-                { "name": "email", "type": "text" },
-                { "name": "created_at", "type": "timestamp" }
-              ],
+              "columns": { "email": "text", "created_at": "timestamptz" },
               "rows": [{ "email": "ada@example.com", "created_at": "2026-01-02T10:00:00Z" }]
             }
           }

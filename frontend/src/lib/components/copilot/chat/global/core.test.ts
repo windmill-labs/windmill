@@ -3266,6 +3266,20 @@ describe('global AI tools', () => {
 		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
+	// The refusal below is the only other way to learn an app is low-code, so the
+	// listing has to carry the flag or every low-code app costs a wasted read.
+	it('marks code-based apps in the listing so low-code ones are visible up front', async () => {
+		vi.mocked(AppService.listApps).mockResolvedValueOnce([
+			{ path: 'f/apps/code', summary: 'code app', raw_app: true },
+			{ path: 'f/apps/legacy', summary: 'legacy app' }
+		] as any)
+
+		const rows = JSON.parse(await callGlobalTool('list_workspace_items', { types: ['app'] }))
+		const byPath = Object.fromEntries(rows.map((r: any) => [r.path, r]))
+		expect(byPath['f/apps/code'].raw_app).toBe(true)
+		expect(byPath['f/apps/legacy']).not.toHaveProperty('raw_app')
+	})
+
 	// A low-code app has a grid, not files and runnables, so every app tool here would
 	// otherwise report it as empty rather than say it is the wrong kind of app.
 	it('refuses a low-code app instead of summarizing it as empty', async () => {

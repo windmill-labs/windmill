@@ -139,6 +139,9 @@ export type WorkspaceItem = {
 	 * without it a reader cannot tell a secret from a plain variable, since the
 	 * value is always redacted. */
 	isSecret?: boolean
+	/** Apps only, and only when true: this is a code-based app the chat can read and
+	 * edit. Absent means low-code, which the app tools refuse. */
+	raw_app?: boolean
 	isDraft: boolean
 	isLiveDraft?: boolean
 }

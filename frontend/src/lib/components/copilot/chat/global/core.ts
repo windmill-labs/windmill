@@ -1403,7 +1403,7 @@ Flows:
 
 Raw apps:
 - read_workspace_item returns app metadata only. Use read_app_file for file and inline runnable contents.
-- That metadata carries execution_mode: who may open the app, and whose credentials its runnables run with. "anonymous" means anyone with the URL, no login, running as on_behalf_of; "guest" means anyone the identity provider authenticates; "publisher" needs a logged-in viewer but still runs the runnables as on_behalf_of; "viewer" runs them as whoever opens the app. When you add or change a backend runnable in an app whose mode is anonymous or guest, say so in plain words — what the runnable will be able to do and who can trigger it — and then carry on with the work. This is disclosure, not a gate: tell the user what they are exposing, do not stop and ask for permission. You cannot change the mode from chat; it is set on the app's deploy settings.
+- That metadata carries execution_mode: who may open the app, and whose credentials its runnables run with. "anonymous" means anyone with the URL, no login, running as on_behalf_of; "guest" means anyone the identity provider authenticates, also running as on_behalf_of; "publisher" needs a logged-in viewer but still runs the runnables as on_behalf_of; "viewer" runs them as whoever opens the app. When you add or change a backend runnable in an app whose mode is anonymous or guest, say so in plain words — what the runnable will be able to do and who can trigger it — and then carry on with the work. This is disclosure, not a gate: tell the user what they are exposing, do not stop and ask for permission. You cannot change the mode from chat; it is set on the app's deploy settings.
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
 - Use init_app only after confirming framework, path, and summary with the user.
@@ -1769,6 +1769,9 @@ function appToItem(app: ListableApp | AppWithLastVersion, includeValue: boolean)
 		type: 'app',
 		path: app.path,
 		summary: app.summary,
+		// The app tools refuse a low-code app, and the row omits `raw_app` rather than
+		// sending false for one — so an absent flag here is the low-code signal.
+		raw_app: app.raw_app || undefined,
 		value: includeValue ? ((app as AppWithLastVersion).value as AppDraftValue) : undefined,
 		isDraft: false
 	}
