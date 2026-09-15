@@ -74,8 +74,9 @@ object that does not decrypt for its reader is treated as absent. Rotating the w
 workspace's secrets, unless `skip_reencrypt` was asked for; the user segment of an object's key
 is the cipher suffix, so the walk needs no email (`windmill-api-workspaces/src/ai_session_rekey.rs`).
 The rotation records the key it replaced (`ai_session_backup_rekey`) in its own transaction,
-on every build (the walk needs `parquet`, the record does not, so a rotation on a build
-without the feature loses nothing);
+read under the key row's lock so two rotations racing record each other's key, on every
+build (the walk needs `parquet`, the record does not, so a rotation on a build without the
+feature loses nothing);
 the read path decrypts with the recorded keys too, for good: a workspace may point at several
 storages over time, and objects in one that is not primary at the moment are never rewritten.
 The walk notes each storage it has rewritten every object of (`walked_storages`), and every use
@@ -182,10 +183,11 @@ them (`truncated` says when there were more); the restore takes 50 of them. Ever
 (32 MB, more than any push writes) in the re-key walk: whoever holds the bucket's
 credentials can plant anything at a predictable key, and an object replaced between the
 listing and the read is left for the next pull. A dirty mark that cannot be written
-(localStorage full) marks the session's sync row stale instead, so the next flush carries
-the session whole; a session without a row is marked again by every load's backfill. A mark
-or removal for another user (a write that landed after a switch) reaches that user's rows
-through a connection of its own, since the shared handle follows the current user. Nothing is read past the budget, whatever a session holds. A
+(localStorage full) records its bump on the session's sync row instead (`extraV`, counted
+with the mark's counter and kept by every row write, so a push in flight cannot retire it);
+a session without a row is live without a mark, and marked again by every load's backfill.
+A mark or removal for another user (a write that landed after a switch) reaches that user's
+rows through a connection of its own, since the shared handle follows the current user. Nothing is read past the budget, whatever a session holds. A
 restore takes the newest 50 sessions per workspace: every visible session gets a runtime, and
 each runtime's history load reads the whole chat store. On CE the push checks the storage quota
 and bumps usage by bytes written (an over-count on overwrites; the periodic recount settles it).

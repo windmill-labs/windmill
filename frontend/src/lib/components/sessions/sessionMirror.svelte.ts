@@ -151,8 +151,8 @@ function readPending(): PendingMarks {
 	} catch (e) {
 		console.error('Could not read session backup marks', e)
 	}
-	// Marks this page could not write: their rows are stale (or absent), which is what
-	// makes them live; the counter only says so.
+	// Marks this page could not write: their rows carry the bumps (or are absent), which is
+	// what makes them live; the counter only says so.
 	for (const id of unwritableMarks) {
 		if (!marks.dirty.some((d) => d.id === id)) marks.dirty.push({ id, v: 0 })
 	}
@@ -175,12 +175,14 @@ function bumpDirty(sessionId: string, email?: string): boolean {
 	}
 }
 
-/** The durable fallback for a dirty mark that could not be written: a stale row plans the
- * session whole on the next flush, and a session without a row is marked again by every
- * load's backfill. */
-async function staleViaSyncRow(id: string, email = getCurrentUserEmail()): Promise<void> {
+/** The durable fallback for a dirty mark that could not be written: the bump goes on the
+ * sync row, where a flush in flight cannot lose it (`writeSync` keeps it). A session
+ * without a row is live without any mark, and marked again by every load's backfill. */
+async function bumpViaSyncRow(id: string, email = getCurrentUserEmail()): Promise<void> {
 	if (!email) return
-	await updateSyncRow(id, email, (row) => (row && !row.stale ? { ...row, stale: true } : undefined))
+	await updateSyncRow(id, email, (row) =>
+		row ? { ...row, extraV: (row.extraV ?? 0) + 1 } : undefined
+	)
 }
 
 /** Reads a row and writes what `update` makes of it, in the store of `email`: through the
@@ -350,8 +352,14 @@ async function writeSync(states: MirrorSyncState[], email: string): Promise<void
 	if (!db || states.length === 0) return
 	const tx = db.transaction('sync', 'readwrite')
 	for (const s of states) {
-		const removed = s.removed || (await tx.store.get(s.id))?.removed
-		await tx.store.put(removed ? { ...s, removed: true } : s)
+		const cur = await tx.store.get(s.id)
+		const removed = s.removed || cur?.removed
+		const extraV = Math.max(s.extraV ?? 0, cur?.extraV ?? 0)
+		await tx.store.put({
+			...s,
+			...(removed ? { removed: true } : {}),
+			...(extraV > 0 ? { extraV } : {})
+		})
 	}
 	await tx.done
 }
@@ -717,10 +725,13 @@ async function flush(): Promise<void> {
 		// telling them apart from live ones is what lets a flush with nothing to do stop
 		// here, before the sessions store.
 		const syncRows = new Map((await allSyncRows(email)).map((row) => [row.id, row]))
-		const live = marks.dirty.filter((d) => {
-			const sync = syncRows.get(d.id)
-			return !(sync && !sync.stale && (sync.flushedV ?? -1) >= d.v)
-		})
+		// A mark's counter counts with the bumps its row carries (the ones localStorage refused).
+		const live = marks.dirty
+			.map((d) => ({ id: d.id, v: d.v + (syncRows.get(d.id)?.extraV ?? 0) }))
+			.filter((d) => {
+				const sync = syncRows.get(d.id)
+				return !(sync && !sync.stale && (sync.flushedV ?? -1) >= d.v)
+			})
 		// A removal whose mark could not be written rides on the sync row instead.
 		const removals: { id: string; ws?: string; key?: string }[] = [...marks.removed]
 		for (const row of syncRows.values()) {
@@ -818,7 +829,6 @@ async function flush(): Promise<void> {
 				storageId: s.storageId
 			}))
 			await writeSync(written, email)
-			for (const row of written) unwritableMarks.delete(row.id)
 			// The server names the storage every answer comes from. Rows naming another one
 			// go stale, the ones written just now included: a session answered from a
 			// storage the later answers left behind, or pushed in part on top of a row from
@@ -1056,7 +1066,7 @@ if (BROWSER) {
 				if (mine) scheduleFlush()
 			} else {
 				if (mine) unwritableMarks.add(signal.sessionId)
-				void staleViaSyncRow(signal.sessionId, signal.email).finally(() => {
+				void bumpViaSyncRow(signal.sessionId, signal.email).finally(() => {
 					if (mine) scheduleFlush()
 				})
 			}

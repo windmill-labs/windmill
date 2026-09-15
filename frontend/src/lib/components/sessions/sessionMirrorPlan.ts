@@ -34,6 +34,9 @@ export interface MirrorSyncState {
 	/** The storage the push landed in, as the server names it. A row recorded against
 	 * another storage describes objects the server no longer looks at. */
 	storageId?: string
+	/** Bumps of the dirty mark that localStorage refused, recorded here instead: the mark's
+	 * counter plus this is what a push retires, and every row write keeps it. */
+	extraV?: number
 }
 
 /**

@@ -5311,10 +5311,17 @@ async fn set_encryption_key(
 
     // Build the previous cipher before the transaction (reads from cache/pool)
     let previous_encryption_key = build_crypt(&db, w_id.as_str()).await?;
-    let previous_key = windmill_common::variables::get_workspace_key(&w_id, &db).await?;
 
     let mut tx = db.begin().await?;
 
+    // Under the row's lock: two rotations racing would otherwise both record the same key
+    // as the one replaced, and the key the first of them committed would go unrecorded.
+    let previous_key: String = sqlx::query_scalar(
+        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud' FOR UPDATE",
+    )
+    .bind(&w_id)
+    .fetch_one(&mut *tx)
+    .await?;
     sqlx::query!(
         "UPDATE workspace_key SET key = $1 WHERE workspace_id = $2",
         request.new_key.clone(),
@@ -5325,8 +5332,8 @@ async fn set_encryption_key(
     // The AI session backups in the workspace storage are ciphertext under the key being
     // replaced; the walk that re-keys them needs `parquet`, but the record of that key is
     // kept by every build, so a rotation on one without the feature leaves them readable
-    // and re-keyable by a build with it. The walk drops the record once it found nothing
-    // under the key.
+    // and re-keyable by a build with it. The record stays: the walk notes the storages it
+    // completed on, and one that is not primary now may still hold objects under the key.
     if !request.skip_reencrypt.unwrap_or(false) {
         sqlx::query(
             "INSERT INTO ai_session_backup_rekey (workspace_id, previous_key) VALUES ($1, $2) \

@@ -83,7 +83,7 @@ function removalKeys(): string[] {
 async function pendingDirty(): Promise<string[]> {
 	const flushed = new Map<string, number>()
 	for (const r of await __syncRowsForTesting(EMAIL)) {
-		flushed.set(r.id, r.stale ? -1 : (r.flushedV ?? -1))
+		flushed.set(r.id, r.stale ? -1 : (r.flushedV ?? -1) - (r.extraV ?? 0))
 	}
 	const out: string[] = []
 	for (const key of pendingKeys()) {
@@ -472,32 +472,42 @@ describe('sessionMirror flush', () => {
 		expect(await __syncRowsForTesting(EMAIL)).toEqual([])
 	})
 
-	it('backs a session up whole when its dirty mark cannot be written', async () => {
-		pushMock.mockResolvedValue({ enabled: true, results: [{ id: 'sm' }] })
+	it('carries an edit on the sync row when its dirty mark cannot be written, even during a push', async () => {
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sm' }] })
 		const s: Session = { id: 'sm', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
 		sessionState.sessions = [s]
 		await putSession(s)
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(1)
 
-		// Storage full at the moment of the edit: the row goes stale instead.
+		// An edit's push is held open; storage is full for the edit that follows.
+		let release!: (value: unknown) => void
+		pushMock.mockImplementationOnce(() => new Promise((r) => (release = r)))
+		await putSession({ ...s, summary: 'first' })
+		const inFlight = __flushForTesting()
+		await vi.waitFor(() => expect(pushMock).toHaveBeenCalledTimes(2))
 		const setItem = localStorage.setItem.bind(localStorage)
 		localStorage.setItem = (key: string, value: string) => {
 			if (key.includes('::d::')) throw new Error('QuotaExceededError')
 			setItem(key, value)
 		}
 		try {
-			await putSession({ ...s, summary: 'changed' })
+			await putSession({ ...s, summary: 'second' })
 		} finally {
 			localStorage.setItem = setItem
 		}
 		await vi.waitFor(async () =>
-			expect((await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'sm')?.stale).toBe(true)
+			expect((await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'sm')?.extraV).toBe(1)
 		)
+		release({ enabled: true, results: [{ id: 'sm' }] })
+		await inFlight
+		// The push's own row write kept the bump, so the later edit is still pending.
+		expect(await pendingDirty()).toEqual(['sm'])
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sm' }] })
 		await __flushForTesting()
-		expect(pushMock).toHaveBeenCalledTimes(2)
-		expect(pushMock.mock.calls[1][0].requestBody.sessions[0].head.summary).toBe('changed')
-		expect((await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'sm')?.stale).toBeFalsy()
+		expect(pushMock).toHaveBeenCalledTimes(3)
+		expect(pushMock.mock.calls[2][0].requestBody.sessions[0].head.summary).toBe('second')
+		expect(await pendingDirty()).toEqual([])
 	})
 
 	it('files a mark under the user whose store the write landed in', async () => {
@@ -525,7 +535,7 @@ describe('sessionMirror flush', () => {
 		await vi.waitFor(async () => {
 			const db = await openDB('windmill-sessions-mirror::other@x.com', 1)
 			try {
-				expect((await db.get('sync', 'so'))?.stale).toBe(true)
+				expect((await db.get('sync', 'so'))?.extraV).toBe(1)
 			} finally {
 				db.close()
 			}
