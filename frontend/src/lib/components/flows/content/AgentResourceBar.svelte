@@ -70,7 +70,7 @@
 		// is the wrong way in.
 		fromAgentEditor?: boolean
 		chatInputEnabled?: boolean
-		// The linked agent's memory once its config has loaded, for the step's history row.
+		// The linked agent's memory once its config has loaded, for the step's history inputs.
 		linkedMemory?: { memory: unknown } | undefined
 	} = $props()
 
@@ -304,7 +304,7 @@
 		if (chatInputEnabled || value?.kind !== 'auto' || !value.memory_id || !value.context_length) {
 			return undefined
 		}
-		return "This step still uses a fixed memory id from an earlier version. In Memory, choose Keep as override or Use the run's memory id, then save it as an agent."
+		return "This step still uses a fixed memory id from an earlier version. In Managed memory, choose Keep as memory id or Use the run's memory id, then save it as an agent."
 	})
 
 	let providerSaveError = $derived.by(() => {

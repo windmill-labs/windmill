@@ -3,8 +3,8 @@ import { AI_AGENT_SCHEMA } from './flowInfers'
 import {
 	AGENT_FIELD_BY_KEY,
 	AGENT_FIELDS,
-	AGENT_HISTORY_KEYS,
-	memoryIdUnusedNote,
+	historyInputApplies,
+	keepsManagedMemory,
 	agentFieldIsSet,
 	agentStreamingEnabled,
 	initialVisibleAgentFields
@@ -63,7 +63,6 @@ describe('initialVisibleAgentFields', () => {
 			max_iterations: { type: 'static', value: 10 }
 		}
 		expect([...initialVisibleAgentFields(legacy, schemaProperties)].sort()).toEqual([
-			'history',
 			'provider',
 			'system_prompt',
 			'tools',
@@ -80,8 +79,7 @@ describe('initialVisibleAgentFields', () => {
 	})
 
 	it('covers every schema key, so no field can only be reached through the raw doc', () => {
-		// The history keys are reached through the history row, which edits them as one choice.
-		const registered = new Set<string>([...AGENT_FIELDS.map((f) => f.key), ...AGENT_HISTORY_KEYS])
+		const registered = new Set<string>(AGENT_FIELDS.map((f) => f.key))
 		expect(Object.keys(schemaProperties).filter((k) => !registered.has(k))).toEqual([])
 	})
 })
@@ -129,15 +127,17 @@ describe('agentStreamingEnabled', () => {
 	})
 })
 
-describe('memoryIdUnusedNote', () => {
-	// Mirrors the worker's order: offering a memory id that a run would ignore misleads the author.
-	it('offers a memory id only when the policy reads memory', () => {
-		expect(memoryIdUnusedNote(undefined)).toMatch(/off/)
-		expect(memoryIdUnusedNote({ kind: 'off' })).toMatch(/off/)
-		expect(memoryIdUnusedNote({ kind: 'window', context_length: 0 })).toMatch(/off/)
-		expect(memoryIdUnusedNote({ kind: 'auto' })).toMatch(/off/)
-		expect(memoryIdUnusedNote({ kind: 'manual', messages: [] })).toMatch(/fixed list/)
-		expect(memoryIdUnusedNote({ kind: 'window', context_length: 10 })).toBeUndefined()
-		expect(memoryIdUnusedNote({ kind: 'auto', context_length: 4, memory_id: 'x' })).toBeUndefined()
+describe('historyInputApplies', () => {
+	// Mirrors the worker: offering a step input a run would ignore misleads the author.
+	it('offers a memory id only with managed memory, and messages only without', () => {
+		expect(keepsManagedMemory(undefined)).toBe(false)
+		expect(keepsManagedMemory({ kind: 'window', context_length: 0 })).toBe(false)
+		expect(keepsManagedMemory({ kind: 'manual', messages: [] })).toBe(false)
+		expect(keepsManagedMemory({ kind: 'auto', context_length: 4, memory_id: 'x' })).toBe(true)
+		expect(historyInputApplies('memory_id', true)).toBe(true)
+		expect(historyInputApplies('messages', true)).toBe(false)
+		expect(historyInputApplies('memory_id', false)).toBe(false)
+		expect(historyInputApplies('messages', false)).toBe(true)
+		expect(historyInputApplies('messages', undefined)).toBe(true)
 	})
 })

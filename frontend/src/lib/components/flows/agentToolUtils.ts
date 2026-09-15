@@ -1,4 +1,4 @@
-import { AGENT_HISTORY_KEYS, DEFAULT_AGENT_MEMORY } from './agentFormFields'
+import { AGENT_HISTORY_KEYS } from './agentFormFields'
 import type { AiAgent, FlowModule, FlowModuleValue, InputTransform } from '$lib/gen'
 import { loadStoredConfig } from '../aiProviderStorage'
 import { AI_AGENT_SCHEMA } from './flowInfers'
@@ -110,7 +110,6 @@ export function createAiAgentTool(id: string): AiAgentTool {
 			value: loadStoredConfig() ?? { kind: 'openai', resource: '', model: '' }
 		},
 		output_type: { type: 'static', value: 'text' },
-		memory: { type: 'static', value: structuredClone(DEFAULT_AGENT_MEMORY) },
 		user_message: { type: 'ai' }
 	}
 	for (const key of Object.keys(AI_AGENT_SCHEMA.properties ?? {})) {

@@ -594,14 +594,14 @@
 				}
 			]
 			sendUserToast(
-				'Chat mode enabled. AI agent created with the user message as its input.',
+				'Chat mode enabled. AI agent created with the user message as its input and managed memory on.',
 				false
 			)
 		} else if (aiAgentModules.length === 1) {
 			// Exactly one AI agent exists: fill in defaults only for inputs the
 			// user hasn't configured, so re-enabling chat mode on an already
 			// configured agent doesn't clobber a custom user_message expression
-			// or memory, which chat mode leaves to the agent.
+			// or a deliberate memory choice (e.g. off).
 			const aiAgent = aiAgentModules[0]
 			const value = aiAgent.value as AiAgent
 
@@ -623,6 +623,20 @@
 					expr: 'flow_input.user_message'
 				}
 				applied.push('user message input')
+			}
+
+			// A linked step's memory belongs to the agent it links, and a step supplying its own
+			// messages reads them only while memory is off.
+			if (
+				!value.agent &&
+				value.input_transforms['messages'] == undefined &&
+				isUnconfigured(value.input_transforms['memory'])
+			) {
+				value.input_transforms['memory'] = {
+					type: 'static',
+					value: structuredClone(DEFAULT_AGENT_MEMORY)
+				}
+				applied.push('managed memory on')
 			}
 
 			sendUserToast(

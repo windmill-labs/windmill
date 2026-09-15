@@ -133,46 +133,65 @@ fn keep_authored_history_args(
     }
     match step_input_transforms.get("messages") {
         Some(InputTransform::Javascript { .. }) => {}
-        Some(InputTransform::Static { value }) if value.get().trim() != "null" => {}
+        Some(InputTransform::Static { .. })
+            if args.messages.as_ref().is_some_and(|m| !m.is_empty()) => {}
         _ => args.messages = None,
     }
 }
 
 /// Reconciles the step's history inputs, the agent's memory policy and the run's memory id, for
-/// every shape a flow or agent resource may still carry. Also returns a line for the job log when a
-/// policy that remembers ends up stateless.
+/// every shape a flow or agent resource may still carry. Managed memory reads only a memory id, and
+/// memory that is off reads only messages. Also returns lines for the job log: a step input that
+/// went unused, or a policy that remembers ending up stateless.
 fn resolve_history_source<'a>(
     args: &'a AIAgentArgs,
     run_memory_id: Option<Uuid>,
     workspace_id: &str,
     flow_path: &str,
-) -> (HistorySource<'a>, Option<&'static str>) {
-    if let Some(messages) = &args.messages {
-        return (HistorySource::Messages(messages), None);
-    }
+) -> (HistorySource<'a>, Vec<&'static str>) {
+    let mut notes = Vec::new();
     let (context_length, legacy_memory_id) = match &args.memory {
-        Some(Memory::Manual { messages }) => return (HistorySource::Messages(messages), None),
         Some(Memory::Window { context_length }) => (*context_length, None),
         // An id baked in at save time only ever applied when the run carried none.
         Some(Memory::Auto { context_length, memory_id }) => (*context_length, *memory_id),
-        Some(Memory::Off) | None => return (HistorySource::Stateless, None),
+        Some(Memory::Manual { .. } | Memory::Off) | None => {
+            if args.memory_id.as_deref().is_some_and(|id| !id.is_empty()) {
+                notes.push("Managed memory is off, so this step's memory id is ignored.");
+            }
+            let history = match (&args.messages, &args.memory) {
+                (Some(messages), _) => HistorySource::Messages(messages),
+                // The fixed list an older editor stored in `memory`, which the step's messages replace.
+                (None, Some(Memory::Manual { messages })) => HistorySource::Messages(messages),
+                _ => HistorySource::Stateless,
+            };
+            return (history, notes);
+        }
     };
-    let memory_id =
-        match args.memory_id.as_deref() {
-            Some("") => return (
-                HistorySource::Stateless,
-                Some("This step's memory id evaluated to an empty value, so the agent runs without memory."),
-            ),
-            Some(step_memory_id) => memory_key(workspace_id, flow_path, step_memory_id),
-            None => match run_memory_id.or(legacy_memory_id) {
-                Some(memory_id) => memory_id,
-                None => return (
-                    HistorySource::Stateless,
-                    Some("No memory id was passed to this run, so the agent runs without memory."),
-                ),
-            },
-        };
-    (HistorySource::Window { memory_id, context_length }, None)
+    if args
+        .messages
+        .as_ref()
+        .is_some_and(|messages| !messages.is_empty())
+    {
+        notes.push("Managed memory is on, so this step's messages are ignored.");
+    }
+    let memory_id = match args.memory_id.as_deref() {
+        Some("") => {
+            notes.push(
+                "This step's memory id evaluated to an empty value, so the agent runs without memory.",
+            );
+            return (HistorySource::Stateless, notes);
+        }
+        Some(step_memory_id) => memory_key(workspace_id, flow_path, step_memory_id),
+        None => match run_memory_id.or(legacy_memory_id) {
+            Some(memory_id) => memory_id,
+            None => {
+                notes
+                    .push("No memory id was passed to this run, so the agent runs without memory.");
+                return (HistorySource::Stateless, notes);
+            }
+        },
+    };
+    (HistorySource::Window { memory_id, context_length }, notes)
 }
 
 fn find_module_by_id(
@@ -981,7 +1000,7 @@ pub async fn run_agent(
         .flow_status
         .as_ref()
         .and_then(|fs| fs.memory_id);
-    let (history, history_note) = resolve_history_source(
+    let (history, history_notes) = resolve_history_source(
         args,
         conversation_id,
         &job.workspace_id,
@@ -1005,7 +1024,7 @@ pub async fn run_agent(
     let is_text_output = output_type == &OutputType::Text;
 
     if matches!(output_type, OutputType::Text) {
-        if let Some(note) = history_note {
+        for note in history_notes {
             append_logs(&job.id, &job.workspace_id, format!("{note}\n"), conn).await;
         }
         match &history {
@@ -1799,6 +1818,10 @@ mod tests {
         let cust_1 = Uuid::parse_str("0168fcea-ffa7-5c15-bdb0-7709bb5f540d").unwrap();
         let window = json!({ "kind": "window", "context_length": 10 });
         let message = json!([{ "role": "user", "content": "earlier" }]);
+        let two_messages = json!([
+            { "role": "user", "content": "earlier" },
+            { "role": "assistant", "content": "reply" }
+        ]);
         let cases = [
             (
                 "absent memory is off",
@@ -1867,16 +1890,28 @@ mod tests {
                 Resolved::Stateless { noted: true },
             ),
             (
-                "an off policy ignores the step memory id",
+                "an off policy ignores the step memory id, and says so",
                 json!({ "memory": { "kind": "off" }, "memory_id": "cust_1" }),
                 Some(run),
-                Resolved::Stateless { noted: false },
+                Resolved::Stateless { noted: true },
             ),
             (
-                "provided messages win over memory",
+                "managed memory ignores the step's messages",
                 json!({ "memory": window, "memory_id": "cust_1", "messages": message }),
                 Some(run),
+                Resolved::Window(cust_1, 10),
+            ),
+            (
+                "memory that is off sends the step's messages",
+                json!({ "messages": message }),
+                Some(run),
                 Resolved::Messages(1),
+            ),
+            (
+                "the step's messages replace a legacy manual list",
+                json!({ "memory": { "kind": "manual", "messages": message }, "messages": two_messages }),
+                Some(run),
+                Resolved::Messages(2),
             ),
         ];
         for (name, history, run_memory_id, expected) in cases {
@@ -1890,7 +1925,9 @@ mod tests {
                 (HistorySource::Window { memory_id, context_length }, _) => {
                     Resolved::Window(memory_id, context_length)
                 }
-                (HistorySource::Stateless, note) => Resolved::Stateless { noted: note.is_some() },
+                (HistorySource::Stateless, notes) => {
+                    Resolved::Stateless { noted: !notes.is_empty() }
+                }
             };
             assert_eq!(resolved, expected, "{name}");
         }
@@ -1930,10 +1967,10 @@ mod tests {
         }
     }
 
-    /// Provided messages bypass memory even when their expression evaluates to null; only a static
-    /// placeholder leaves the step on its memory.
+    /// Empty messages a form leaves on a step never replace a legacy list; an expression does, even
+    /// when it evaluates to null.
     #[test]
-    fn a_messages_expression_evaluating_to_null_bypasses_memory() {
+    fn only_an_expression_can_empty_a_legacy_message_list() {
         let run = Uuid::from_u128(1);
         for (transform, expected) in [
             (
@@ -1942,16 +1979,16 @@ mod tests {
             ),
             (
                 r#"{ "type": "static", "value": null }"#,
-                Resolved::Window(run, 10),
+                Resolved::Messages(1),
             ),
             (
                 r#"{ "type": "static", "value": [] }"#,
-                Resolved::Messages(0),
+                Resolved::Messages(1),
             ),
         ] {
             let mut args: AIAgentArgs = serde_json::from_value(serde_json::json!({
                 "provider": { "kind": "openai", "resource": {}, "model": "m" },
-                "memory": { "kind": "window", "context_length": 10 },
+                "memory": { "kind": "manual", "messages": [{ "role": "user", "content": "earlier" }] },
                 "messages": if transform.contains("[]") { serde_json::json!([]) } else { serde_json::Value::Null },
             }))
             .unwrap();
@@ -1965,7 +2002,9 @@ mod tests {
                 (HistorySource::Window { memory_id, context_length }, _) => {
                     Resolved::Window(memory_id, context_length)
                 }
-                (HistorySource::Stateless, note) => Resolved::Stateless { noted: note.is_some() },
+                (HistorySource::Stateless, notes) => {
+                    Resolved::Stateless { noted: !notes.is_empty() }
+                }
             };
             assert_eq!(resolved, expected, "{transform}");
         }

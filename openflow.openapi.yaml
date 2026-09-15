@@ -604,7 +604,7 @@ components:
         - messages
 
     MemoryConfig:
-      description: How much of its memory the agent sends with each request. The memory itself is named by a memory id, see `memory_id`.
+      description: Managed memory, stored by Windmill and replayed with each request. The memory is named by a memory id, see `memory_id`. While it is off, a step can supply its history in `messages`.
       oneOf:
         - $ref: '#/components/schemas/MemoryOff'
         - $ref: '#/components/schemas/MemoryWindow'
@@ -1085,16 +1085,15 @@ components:
                 was started with (the chat conversation, an app chat session or the `memory_id` run
                 parameter). Leave unset to use the run's memory id. A fixed value shares one memory
                 across every run; an expression such as `flow_input.customer_id` keeps one memory per
-                key. When it evaluates to an empty value the agent runs without memory. Ignored when
-                `memory` is off. Mutually exclusive with `messages`.
+                key. When it evaluates to an empty value the agent runs without memory. Read only
+                while `memory` keeps messages; ignored when it is off.
             messages:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
               description: |
                 Array of MemoryMessage. History supplied by the flow, sent between the system prompt
-                and the user message. Memory is neither read nor written, also when an expression
-                evaluates to null, which sends no history. Takes precedence over `memory_id` and
-                `memory`.
+                and the user message. Read only while `memory` is off; ignored while it keeps
+                messages. Replaces the list of a deprecated `manual` memory.
             output_schema:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'

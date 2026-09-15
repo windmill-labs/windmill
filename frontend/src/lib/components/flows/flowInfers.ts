@@ -40,8 +40,22 @@ export const AI_AGENT_SCHEMA: Schema = {
 		},
 		memory: {
 			type: 'object',
-			description: 'How much of its history the agent sends with each request.',
+			description:
+				'Windmill stores the conversation and sends its last messages with each request.',
+			enumLabels: {
+				off: 'Off',
+				window: 'On',
+				auto: 'On (legacy)',
+				manual: 'Previous messages (legacy)'
+			},
 			oneOf: [
+				{
+					type: 'object',
+					title: 'off',
+					properties: {
+						kind: { type: 'string', enum: ['off'] }
+					}
+				},
 				{
 					type: 'object',
 					title: 'window',
@@ -49,18 +63,12 @@ export const AI_AGENT_SCHEMA: Schema = {
 						kind: { type: 'string', enum: ['window'] },
 						context_length: {
 							type: 'number',
+							title: 'Messages to keep',
 							description: 'Number of most recent messages to load and store.',
 							default: 10
 						}
 					},
 					required: ['kind', 'context_length']
-				},
-				{
-					type: 'object',
-					title: 'off',
-					properties: {
-						kind: { type: 'string', enum: ['off'] }
-					}
 				}
 			],
 			showExpr: "fields.output_type !== 'image'"
@@ -68,13 +76,13 @@ export const AI_AGENT_SCHEMA: Schema = {
 		memory_id: {
 			type: 'string',
 			description:
-				'Names the memory this step reads and writes, overriding the memory id the run was started with.',
+				'Names the memory this step reads and writes, overriding the memory id the run was started with. Read only while managed memory is on.',
 			showExpr: "fields.output_type !== 'image'"
 		},
 		messages: {
 			type: 'array',
 			description:
-				'Messages sent before the user message, supplied by this flow instead of read from memory.',
+				'History the flow supplies, sent before the user message. Read only while managed memory is off.',
 			items: {
 				type: 'object',
 				properties: {
@@ -160,6 +168,38 @@ export const AI_AGENT_SCHEMA: Schema = {
 		'temperature',
 		'max_iterations'
 	]
+}
+
+/** Memory shapes older editors wrote. The step form offers one only to a step that still holds it,
+ *  since the one-of field rewrites a value that matches none of its options. */
+export const LEGACY_MEMORY_VARIANTS: Record<string, any> = {
+	auto: {
+		type: 'object',
+		title: 'auto',
+		properties: {
+			kind: { type: 'string', enum: ['auto'] },
+			context_length: { type: 'number', title: 'Messages to keep', default: 10 },
+			memory_id: { type: 'string', title: 'Fixed memory id' }
+		},
+		required: ['kind']
+	},
+	manual: {
+		type: 'object',
+		title: 'manual',
+		properties: {
+			kind: { type: 'string', enum: ['manual'] },
+			messages: { type: 'array', items: AI_AGENT_SCHEMA.properties?.messages?.items }
+		},
+		required: ['kind', 'messages']
+	}
+}
+
+/** The memory property to render for a value: a legacy kind is added as an option only while the
+ *  value holds it. */
+export function memoryPropertyFor(property: any, value: any): any {
+	const legacy = value?.kind ? LEGACY_MEMORY_VARIANTS[value.kind] : undefined
+	if (!legacy || !property?.oneOf) return property
+	return { ...property, oneOf: [...property.oneOf, legacy] }
 }
 
 function migrateAiAgentInputTransforms(

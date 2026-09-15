@@ -288,7 +288,7 @@
 	}
 	let inputTransformSchemaForm: { setArgs: (nargs: Record<string, any>) => void } | undefined =
 		$state(undefined)
-	// The linked agent's memory, which decides what the step's history row offers.
+	// The linked agent's memory, which decides which history inputs the step offers.
 	let linkedAgentMemory: { memory: unknown } | undefined = $state(undefined)
 
 	let reloadError: string | undefined = $state(undefined)

@@ -23,6 +23,8 @@ export interface SchemaProperty {
 	pattern?: string
 	default?: any
 	enum?: EnumType
+	/** Display names by stored value, for an enum's options or a one-of's variants. */
+	enumLabels?: Record<string, string>
 	contentEncoding?: 'base64' | 'binary'
 	format?: string
 	items?: {

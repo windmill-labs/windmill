@@ -198,7 +198,8 @@ export async function createBranchAll(id: string): Promise<[FlowModule, FlowModu
 
 export async function createAiAgent(
 	id: string,
-	agentPath?: string
+	agentPath?: string,
+	chatInputEnabled = false
 ): Promise<[FlowModule, FlowModuleState]> {
 	const storedConfig = loadStoredConfig()
 	const providerValue = storedConfig ?? { kind: 'openai', resource: '', model: '' }
@@ -216,7 +217,15 @@ export async function createAiAgent(
 					? {}
 					: {
 							provider: { type: 'static', value: providerValue },
-							memory: { type: 'static', value: structuredClone(DEFAULT_AGENT_MEMORY) }
+							// A chat agent answers a conversation, so it remembers it from the start.
+							...(chatInputEnabled
+								? {
+										memory: {
+											type: 'static' as const,
+											value: structuredClone(DEFAULT_AGENT_MEMORY)
+										}
+									}
+								: {})
 						}),
 				user_message: { type: 'static', value: undefined }
 			}
@@ -493,7 +502,11 @@ export async function createNewModule(
 	} else if (kind == 'branchall') {
 		;[module, state] = await createBranchAll(module.id)
 	} else if (kind == 'aiagent') {
-		;[module, state] = await createAiAgent(module.id, agentPath)
+		;[module, state] = await createAiAgent(
+			module.id,
+			agentPath,
+			flowStore.val.value?.chat_input_enabled ?? false
+		)
 	} else if (inlineScript) {
 		const { language, kind, subkind, summary } = inlineScript
 		;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)

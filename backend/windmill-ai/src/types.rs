@@ -124,8 +124,8 @@ struct AIAgentArgsRaw {
     // nothing runs stateless instead of falling back to the run's memory id.
     #[serde(default, deserialize_with = "deserialize_present")]
     memory_id: Option<serde_json::Value>,
-    // Same distinction for an authored messages expression: null sends no history, and memory stays
-    // bypassed rather than being read and overwritten.
+    // Same distinction for an authored messages expression: null replaces a legacy manual list with
+    // no history, where an absent key keeps that list.
     #[serde(default, deserialize_with = "deserialize_present_messages")]
     messages: Option<Option<Vec<OpenAIMessage>>>,
     // Legacy field for backward compatibility

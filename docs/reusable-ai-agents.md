@@ -36,33 +36,37 @@ input editors (prop picker included) and a read-only view of its code — edits 
 
 ## Memory
 
-Memory is split between three owners, so a saved agent carries how much to remember and never
+Memory is split between three owners, so a saved agent carries whether it remembers and never
 which memory it is:
 
-- **Agent: memory policy.** `memory` is a brain key, so it moves with a saved agent.
-  `{ kind: window, context_length }` replays the last N messages and `{ kind: off }` keeps none.
-  An absent `memory` means off. `auto` and `manual` are the older spellings and are still read.
+- **Agent: managed memory.** `memory` is a brain key, so it moves with a saved agent.
+  `{ kind: window, context_length }` has Windmill store the conversation and replay its last N
+  messages; `{ kind: off }` keeps none. An absent `memory` means off, the default: the editor turns
+  it on when chat input is enabled. `auto` and `manual` are the older spellings and are still read.
 - **Run: memory id.** `flow_status.memory_id`, set when the run is queued: the chat conversation
   id, an app chat session id, or the `memory_id` run parameter. Any string is accepted, and one
   that is not a uuid is hashed to a v5 uuid scoped to the workspace and the flow the run started
   from (`memory_key` in `windmill-common/src/flow_conversations.rs`), so the same key in two flows
   names two memories. A uuid is used as is. Nothing is generated at save time, so schedules,
   webhooks, evals and plain runs pass no id and run stateless.
-- **Step: history inputs.** Flow-local, so they stay on a linked step. `memory_id` overrides the
-  run's id, hashed the same way: a fixed value is one memory shared by every run, an expression such
-  as `flow_input.customer_id` one memory per key, and an expression that evaluates to nothing runs
-  stateless rather than falling back to the run's id. `messages` supplies the history itself and
-  bypasses memory; an expression that evaluates to null sends no history and still bypasses it. The
-  editor writes at most one of them and never seeds a placeholder for either, because a present key
-  is the step's choice; if both are present, `messages` wins.
+- **Step: history inputs.** Flow-local, so they stay on a linked step. Each is read in one memory
+  state only, and the editor offers it only there, the memory id behind a *Custom* toggle that
+  writes the key only once it is on. With managed memory on, `memory_id` overrides
+  the run's id, hashed the same way: a fixed value is one memory shared by every run, an expression
+  such as `flow_input.customer_id` one memory per key, and an expression that evaluates to nothing
+  runs stateless rather than falling back to the run's id. With memory off, `messages` supplies the
+  history itself. The editor never seeds a placeholder for either, because a present key is the
+  step's choice, and a static empty value reads as unset.
 
 The worker reconciles them once per agent invocation, nested agent tools included, in
 `resolve_history_source` (`windmill-worker/src/ai_executor.rs`):
 
-1. `messages`, or a legacy `manual` memory, is the history. Nothing is read or written.
-2. A policy that is off runs stateless.
-3. The memory id is the step's, else the run's, else a legacy id baked into the `auto` object.
-4. With no memory id the agent runs stateless and says so in the job log.
+1. Memory off, or a legacy `manual` memory: the history is `messages`, else the `manual` list,
+   else nothing. Memory is neither read nor written, and a step `memory_id` is ignored.
+2. Managed memory: a step `messages` is ignored. The memory id is the step's, else the run's, else
+   a legacy id baked into the `auto` object. With no memory id the agent runs stateless.
+
+Each ignored input and each stateless fallback is written to the job log.
 
 Memory is stored per (memory id, step id), in `ai_agent_memory` or S3 at
 `memory/{workspace}/{memory id}/{step}.json`. The chat transcript (`flow_conversation_message`)
@@ -73,9 +77,9 @@ overwritten.
 Compatibility runs one way. New workers read every older shape. The editor rewrites a legacy step
 only when the author changes it, so a flow nobody edits keeps running on older workers, while a
 step saved with `window` or a history input needs a worker that knows them. An id an older editor
-baked into `memory` stays a fallback behind the run's id until the author chooses *Keep as
-override* or *Use the run's memory id*. In a chat flow it is dropped on save, since the
-conversation id always took precedence there.
+baked into `memory` stays a fallback behind the run's id until the author chooses *Keep as memory
+id* or *Use the run's memory id*. In a chat flow it is dropped on save, since the conversation id
+always took precedence there.
 
 ## Drafts
 

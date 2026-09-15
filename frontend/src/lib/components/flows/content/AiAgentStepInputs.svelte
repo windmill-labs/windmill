@@ -22,7 +22,7 @@
 	import { type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
-	import { getContext, untrack } from 'svelte'
+	import { getContext, untrack, type Snippet } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
 	import { Button } from '$lib/components/common'
 	import StepInputsGen from '$lib/components/copilot/StepInputsGen.svelte'
@@ -33,24 +33,31 @@
 	import type VariableEditor from '$lib/components/VariableEditor.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import ResizeTransitionWrapper from '$lib/components/common/ResizeTransitionWrapper.svelte'
+	import FieldHeader from '$lib/components/FieldHeader.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { Plus, X } from 'lucide-svelte'
 	import type { PickableProperties } from '../previousResults'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import type { AgentTool } from '../agentToolUtils'
 	import {
 		AGENT_FIELDS,
-		AGENT_HISTORY_ROW,
+		AGENT_FIELD_BY_KEY,
+		AGENT_HISTORY_KEYS,
+		AGENT_MEMORY_DOCS_URL,
 		AGENT_TOOLS_ROW,
-		memoryIdUnusedNote,
 		AGENT_FIELD_GROUPS,
 		agentFieldAppliesTo,
+		historyInputApplies,
 		initialVisibleAgentFields,
+		keepsManagedMemory,
 		type AgentFieldGroup,
-		type AgentFieldSpec
+		type AgentFieldSpec,
+		type AgentHistoryKey
 	} from '../agentFormFields'
 	import AgentToolRoster from './AgentToolRoster.svelte'
-	import AgentMemoryInput from './AgentMemoryInput.svelte'
-	import AgentHistoryInput from './AgentHistoryInput.svelte'
+	import AgentMemoryNotes from './AgentMemoryNotes.svelte'
+	import { memoryPropertyFor } from '../flowInfers'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any> }
@@ -94,8 +101,8 @@
 		onDeleteTool?: (toolId: string) => void
 		/** Where the tool picker's popover belongs, for a surface that is not the flow editor. */
 		toolPickerPortal?: string
-		/** A linked agent's memory, once its config has loaded: whether it keeps any decides what the
-		 *  step's history row offers. */
+		/** A linked agent's memory, once its config has loaded: whether it keeps managed memory decides
+		 *  which history inputs the step offers. */
 		linkedMemory?: { memory: unknown } | undefined
 	}
 
@@ -162,29 +169,31 @@
 
 	let schemaProperties = $derived((schema?.properties ?? {}) as Record<string, any>)
 
-	// The brain edited here, or the linked agent's. An expression, or a linked agent still loading,
-	// reads as keeping memory, so the history row never offers less than a run may use.
-	let memoryUnusedNote = $derived.by(() => {
+	// Whether the brain edited here, or the linked agent's, keeps managed memory. Unknown for an
+	// expression or a linked agent still loading, which leaves both history inputs open.
+	let managedMemory = $derived.by((): boolean | undefined => {
 		if ('memory' in schemaProperties) {
 			const transform = args?.memory
 			return transform == undefined || transform.type === 'static'
-				? memoryIdUnusedNote(transform?.value)
+				? keepsManagedMemory(transform?.value)
 				: undefined
 		}
-		return linkedMemory ? memoryIdUnusedNote(linkedMemory.memory) : undefined
+		return linkedMemory ? keepsManagedMemory(linkedMemory.memory) : undefined
 	})
 
-	// The messages a legacy `manual` memory sends, so providing messages on the step starts from them
-	// rather than from an empty list that would silently drop them.
-	let manualMemoryMessages = $derived.by(() => {
-		const memory: any =
-			'memory' in schemaProperties
-				? args?.memory?.type === 'static'
-					? args.memory.value
-					: undefined
-				: linkedMemory?.memory
-		return memory?.kind === 'manual' ? (memory.messages as unknown[] | undefined) : undefined
+	// The one-of field rewrites a value that matches none of its options, so a legacy kind the step
+	// still holds is offered alongside the current ones.
+	let memoryFieldSchema = $derived.by(() => {
+		const property = schemaProperties.memory
+		const value = args?.memory?.type === 'static' ? args.memory.value : undefined
+		const withLegacy = memoryPropertyFor(property, value)
+		if (withLegacy === property) return schema
+		return { ...schema, properties: { ...schemaProperties, memory: withLegacy } }
 	})
+
+	function isHistoryKey(key: string): key is AgentHistoryKey {
+		return (AGENT_HISTORY_KEYS as readonly string[]).includes(key)
+	}
 
 	let scopedFields = $derived(
 		AGENT_FIELDS.filter(
@@ -192,6 +201,37 @@
 				agentFieldAppliesTo(spec, schemaProperties) && (!filter || filter.includes(spec.key))
 		)
 	)
+
+	// Offered whenever the agent may keep managed memory: on, or an expression the form cannot read.
+	// Unset, the memory id the run was started with applies, so the step's own id sits behind a
+	// choice and the key exists only once Custom is picked.
+	let memoryIsExpression = $derived(
+		'memory' in schemaProperties &&
+			(args?.memory?.type === 'javascript' || args?.memory?.type === 'ai')
+	)
+	let memoryIdOffered = $derived(
+		(managedMemory === true || memoryIsExpression) &&
+			scopedFields.some((spec) => spec.key === 'memory_id')
+	)
+
+	// A history input's row follows its key: the remembered `visible` set can outlive a key that a
+	// save, an undo or the AI chat removed, and a row with no value renders no field.
+	function isShown(key: string): boolean {
+		if (isHistoryKey(key)) {
+			return args?.[key] != undefined || (key === 'memory_id' && memoryIdOffered)
+		}
+		return visible.has(key)
+	}
+
+	function setCustomMemoryId(on: boolean) {
+		if (!args || on === (args.memory_id != undefined)) return
+		if (on) {
+			args.memory_id = { type: 'static', value: '' }
+		} else {
+			delete args.memory_id
+			delete inputCheck.memory_id
+		}
+	}
 
 	let outputType = $derived.by(() => {
 		const transform = args?.['output_type']
@@ -239,14 +279,18 @@
 
 	function rowsIn(group: AgentFieldGroup): AgentFieldSpec[] {
 		return scopedFields.filter(
-			(spec) => spec.group === group && visible.has(spec.key) && !(imageOutput && spec.textOnly)
+			(spec) => spec.group === group && isShown(spec.key) && !(imageOutput && spec.textOnly)
 		)
 	}
 
 	function addableIn(): AgentFieldSpec[] {
 		return scopedFields.filter(
 			(spec) =>
-				!spec.core && !spec.virtual && !visible.has(spec.key) && !(imageOutput && spec.textOnly)
+				!spec.core &&
+				!spec.virtual &&
+				!isShown(spec.key) &&
+				!(imageOutput && spec.textOnly) &&
+				!(isHistoryKey(spec.key) && !historyInputApplies(spec.key, managedMemory))
 		)
 	}
 
@@ -262,10 +306,14 @@
 	function removeField(spec: AgentFieldSpec) {
 		visible.delete(spec.key)
 		if (args) {
-			// Back to exactly what `flowInfers` seeds, so removing a field leaves no diff behind.
-			// Never `delete args[key]`: the key returns on the next load, and the CLI linter requires
-			// `user_message` to be present.
-			args[spec.key] = { type: 'static', value: undefined }
+			if (isHistoryKey(spec.key)) {
+				delete args[spec.key]
+			} else {
+				// Back to exactly what `flowInfers` seeds, so removing a field leaves no diff behind.
+				// Never `delete args[key]`: the key returns on the next load, and the CLI linter requires
+				// `user_message` to be present.
+				args[spec.key] = { type: 'static', value: undefined }
+			}
 		}
 		// InputTransformSchemaForm leaks these on unmount, which would pin `isValid` false forever
 		// once hiding a row is routine.
@@ -299,24 +347,52 @@
 	{/if}
 {/snippet}
 
+{#snippet memoryIdHeader()}
+	<div class="flex flex-col gap-1">
+		<FieldHeader
+			label={AGENT_FIELD_BY_KEY.memory_id.label}
+			simpleTooltip={AGENT_FIELD_BY_KEY.memory_id.tooltip}
+			displayType={false}
+		/>
+		<ToggleButtonGroup
+			selected={args?.memory_id == undefined ? 'inherited' : 'custom'}
+			onSelected={(next) => setCustomMemoryId(next === 'custom')}
+		>
+			{#snippet children({ item })}
+				<ToggleButton value="inherited" label="Inherited" {item} />
+				<ToggleButton value="custom" label="Custom" {item} />
+			{/snippet}
+		</ToggleButtonGroup>
+	</div>
+{/snippet}
+
 {#snippet transformField(
 	key: string,
 	label: string,
 	tooltip: string | undefined,
 	removable: AgentFieldSpec | undefined,
-	error: string | undefined = undefined
+	header: Snippet | undefined = undefined,
+	collapsed: boolean = false
 )}
 	<InputTransformForm
 		{previousModuleId}
 		bind:arg={args[key]}
-		bind:schema
+		bind:schema={
+			() => (key === 'memory' ? memoryFieldSchema : schema),
+			(value) => {
+				if (key !== 'memory') schema = value
+			}
+		}
 		argName={key}
 		{label}
 		headerTooltip={tooltip}
 		hideDescription
 		subtleControls
+		{header}
+		indentUnderHeader={false}
+		{collapsed}
+		animateAppear={header != undefined}
 		argExtra={schemaProperties[key] ?? {}}
-		{error}
 		bind:inputCheck={() => inputCheck[key] ?? false, (value) => (inputCheck[key] = value)}
 		bind:extraLib={() => extraLib ?? 'missing extraLib', (v) => (extraLib = v)}
 		{variableEditor}
@@ -421,41 +497,42 @@
 									     `args`, and a read-only viewer's edit is rejected by the server. Dimmed
 									     with it, so a field that ignores a click looks like it meant to. -->
 									<div class="w-full {readOnly ? 'opacity-60' : ''}" inert={readOnly}>
-										{#if spec.key === AGENT_HISTORY_ROW}
-											<AgentHistoryInput
+										{#if spec.key === 'memory'}
+											{@render transformField(spec.key, spec.label, spec.tooltip, spec)}
+											<AgentMemoryNotes
 												bind:args
-												label={spec.label}
-												tooltip={spec.tooltip}
 												{chatInputEnabled}
-												{memoryUnusedNote}
-												seedMessages={manualMemoryMessages}
-												onRemoveKey={(key) => delete inputCheck[key]}
-											>
-												{#snippet field(key, error)}
-													{@render transformField(
-														key,
-														key === 'memory_id' ? 'Memory id' : 'Messages',
-														undefined,
-														undefined,
-														error
-													)}
-												{/snippet}
-											</AgentHistoryInput>
-										{:else if spec.key === 'memory' && args?.memory?.type !== 'javascript' && args?.memory?.type !== 'ai'}
-											<AgentMemoryInput
-												bind:args
-												label={spec.label}
-												tooltip={spec.tooltip}
-												{chatInputEnabled}
-												historyOnStep={scopedFields.some((f) => f.key === AGENT_HISTORY_ROW)}
+												historyOnStep={scopedFields.some((f) => f.key === 'messages')}
 												s3StorageConfigured={s3Storage.current}
-											>
-												{#snippet labelExtra()}
-													{@render unsetButton(spec)}
-												{/snippet}
-											</AgentMemoryInput>
+											/>
+										{:else if spec.key === 'memory_id' && memoryIdOffered}
+											{@render transformField(
+												spec.key,
+												spec.label,
+												spec.tooltip,
+												undefined,
+												memoryIdHeader,
+												args?.memory_id == undefined
+											)}
+											{#if args?.memory_id == undefined}
+												<p class="mt-1 text-xs text-secondary">
+													Uses the chat conversation id or the <code>memory_id</code> passed to the
+													run.
+													<a
+														href={AGENT_MEMORY_DOCS_URL}
+														target="_blank"
+														rel="noopener noreferrer"
+														class="underline">Learn more</a
+													>
+												</p>
+											{/if}
 										{:else}
 											{@render transformField(spec.key, spec.label, spec.tooltip, spec)}
+											{#if isHistoryKey(spec.key) && !historyInputApplies(spec.key, managedMemory)}
+												<p class="mt-1 text-2xs text-hint">
+													Ignored while managed memory is {managedMemory ? 'on' : 'off'}.
+												</p>
+											{/if}
 										{/if}
 									</div>
 								{/if}

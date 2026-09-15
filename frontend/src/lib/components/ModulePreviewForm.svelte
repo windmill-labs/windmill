@@ -8,17 +8,14 @@
 	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { evalValue } from './flows/utils.svelte'
+	import { memoryPropertyFor } from './flows/flowInfers'
 	import type { FlowModule } from '$lib/gen'
 	import type { PickableProperties } from './flows/previousResults'
 	import type SimpleEditor from './SimpleEditor.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import { twMerge } from 'tailwind-merge'
 	import { workspaceStore } from '$lib/stores'
-	import {
-		AGENT_FIELDS,
-		AGENT_HISTORY_KEYS,
-		initialVisibleAgentFields
-	} from './flows/agentFormFields'
+	import { AGENT_FIELDS, initialVisibleAgentFields } from './flows/agentFormFields'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
@@ -55,6 +52,9 @@
 	 *  kept whatever the step holds: this form has no add-field control, so hiding one would leave
 	 *  no way at all to supply it. */
 	let schemaKeys = $derived(Object.keys(schema?.properties ?? {}))
+	// A legacy memory kind this step still holds stays one of the options, or the one-of field would
+	// turn the test run's memory off.
+	let isAgent = $derived((mod.value as { type?: string })?.type === 'aiagent')
 
 	let visibleKeys = $derived.by(() => {
 		const all = schemaKeys
@@ -62,11 +62,12 @@
 		const transforms = (mod.value as { input_transforms?: Record<string, unknown> })
 			?.input_transforms
 		const visible = initialVisibleAgentFields(transforms, schema?.properties)
-		const known = new Set<string>([
-			...AGENT_FIELDS.filter((f) => !f.runInput).map((f) => f.key),
-			...AGENT_HISTORY_KEYS
-		])
-		return all.filter((key) => !known.has(key) || visible.has(key))
+		const known = new Set<string>(AGENT_FIELDS.filter((f) => !f.runInput).map((f) => f.key))
+		// Listed in the agent form's order rather than the schema's, so the two read the same.
+		const position = new Map(AGENT_FIELDS.map((f, i) => [f.key, i]))
+		return all
+			.filter((key) => !known.has(key) || visible.has(key))
+			.sort((a, b) => (position.get(a) ?? Infinity) - (position.get(b) ?? Infinity))
 	})
 
 	let keys: string[] = $state([])
@@ -177,7 +178,12 @@
 									(v) => stepsInputArgs?.setStepInputArgs(mod.id, argName, v)
 								}
 								type={schema.properties[argName].type}
-								oneOf={schema.properties[argName].oneOf}
+								oneOf={isAgent && argName === 'memory'
+									? memoryPropertyFor(
+											schema.properties[argName],
+											stepsInputArgs?.getStepInputArgs(mod.id, argName)
+										)?.oneOf
+									: schema.properties[argName].oneOf}
 								required={schema?.required?.includes(argName)}
 								pattern={schema.properties[argName].pattern}
 								bind:editor={editor[argName]}

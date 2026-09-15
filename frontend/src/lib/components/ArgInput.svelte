@@ -1136,7 +1136,11 @@
 						>
 							{#snippet children({ item })}
 								{#each oneOf as obj}
-									<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
+									<ToggleButton
+										value={obj.title ?? ''}
+										label={extra?.['enumLabels']?.[obj.title ?? ''] ?? obj.title}
+										{item}
+									/>
 								{/each}
 							{/snippet}
 						</ToggleButtonGroup>

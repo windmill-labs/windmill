@@ -25,46 +25,39 @@ export const AGENT_FIELD_GROUPS: { id: AgentFieldGroup; label: string }[] = [
  *  It lives in the registry so the groups keep a single ordering. */
 export const AGENT_TOOLS_ROW = 'tools'
 
-/** The step's history row, which edits `memory_id` and `messages` as one choice between them. */
-export const AGENT_HISTORY_ROW = 'history'
-
 /** A step's own history inputs. Never seeded with a placeholder: a run reads a present key as the
- *  step's choice, so only the history row writes them, and only one at a time. */
+ *  step's choice, so only the author adds them. */
 export const AGENT_HISTORY_KEYS = ['memory_id', 'messages'] as const
 export type AgentHistoryKey = (typeof AGENT_HISTORY_KEYS)[number]
 
-/** What a new agent remembers. An agent with no memory written still runs without, as it always has. */
+/** What turning managed memory on writes. */
 export const DEFAULT_AGENT_MEMORY: MemoryConfig = { kind: 'window', context_length: 10 }
 
-/** Whether a memory setting keeps nothing, mirroring the worker: absent, `off`, or a message count of
- *  0 for `window` and its older spelling `auto`. */
-export function memoryPolicyIsOff(memory: any): boolean {
-	if (memory == undefined || memory.kind === 'off') return true
-	if (memory.kind === 'window' || memory.kind === 'auto') return !memory.context_length
-	return false
+/** The docs section on how an agent's memory is named and kept. */
+export const AGENT_MEMORY_DOCS_URL =
+	'https://www.windmill.dev/docs/core_concepts/ai_agents#memory-auto--manual'
+
+/** Whether Windmill stores and replays the agent's conversation, mirroring the worker: `window`, or
+ *  its older spelling `auto`, with a message count above 0. A legacy `manual` list is not managed. */
+export function keepsManagedMemory(memory: any): boolean {
+	return (memory?.kind === 'window' || memory?.kind === 'auto') && Boolean(memory.context_length)
 }
 
-/** Why a step's history row offers no memory id, when it offers none: the agent keeps no memory, or
- *  its memory setting supplies a fixed list of messages, which the worker sends before it would
- *  read any memory. */
-export function memoryIdUnusedNote(memory: any): string | undefined {
-	if (memory?.kind === 'manual') {
-		return 'This agent sends a fixed list of messages set in its memory, so no memory id applies.'
-	}
-	if (memoryPolicyIsOff(memory)) {
-		return "This agent's memory is off, so no memory id applies. Turn memory on in the agent to change this."
-	}
-	return undefined
+/** Whether a run reads this step input, mirroring the worker: managed memory reads only a memory id,
+ *  memory that is off only messages. A setting the form cannot read yet leaves both open. */
+export function historyInputApplies(
+	key: AgentHistoryKey,
+	managedMemory: boolean | undefined
+): boolean {
+	if (managedMemory === undefined) return true
+	return (key === 'memory_id') === managedMemory
 }
 
 /** A memory setting in words, for a linked agent's summary. */
 export function describeMemoryPolicy(memory: any): string {
-	if (memory?.kind === 'manual') return 'Provided messages'
-	if (memoryPolicyIsOff(memory)) return 'Off'
-	if (memory.kind === 'window' || memory.kind === 'auto') {
-		return `Keep last ${memory.context_length} messages`
-	}
-	return String(memory.kind ?? 'configured')
+	if (keepsManagedMemory(memory)) return `Last ${memory.context_length} messages`
+	if (memory?.kind === 'manual') return 'Off, sends a fixed list of messages'
+	return 'Off'
 }
 
 export interface AgentFieldSpec {
@@ -117,6 +110,14 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		defaultHint: 'Default: the provider decides'
 	},
 	{
+		key: 'user_message',
+		group: 'messages',
+		label: 'User message',
+		tooltip:
+			"The user turn, sent after the system message and any history. Turn on chat input on the flow's input interface to feed it from the chat.",
+		core: true
+	},
+	{
 		key: 'system_prompt',
 		group: 'messages',
 		label: 'System message',
@@ -126,29 +127,30 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 	{
 		key: 'memory',
 		group: 'messages',
-		label: 'Memory',
-		tooltip: 'How much of its history the agent sends with each request.',
+		label: 'Managed memory',
+		tooltip: 'Windmill stores the conversation and sends its last messages with each request.',
 		implicit: { kind: 'off' },
 		defaultHint: 'Default: off',
 		textOnly: true
 	},
 	{
-		key: AGENT_HISTORY_ROW,
+		key: 'memory_id',
 		group: 'messages',
-		label: 'History',
+		label: 'Memory id',
 		tooltip:
-			'Which memory this step reads and writes, or the messages this flow provides in its place. Sent between the system message and the user message.',
-		core: true,
-		virtual: true,
+			'Conversation history id: runs with the same id share their history. Inherited uses the chat conversation id in chat mode, or the memory_id passed when the flow is run. Without either, each run starts fresh. Custom sets the id on the step: a fixed id shares one history across all runs, an expression keeps one history per value.',
+		implicit: '',
+		defaultHint: 'Default: inherited from the run',
 		textOnly: true
 	},
 	{
-		key: 'user_message',
+		key: 'messages',
 		group: 'messages',
-		label: 'User message',
-		tooltip:
-			"The user turn, sent after the system message and any history. Turn on chat input on the flow's input interface to feed it from the chat.",
-		core: true
+		label: 'Previous messages',
+		tooltip: 'History the flow supplies, sent between the system message and the user message.',
+		implicit: [],
+		defaultHint: 'Default: none',
+		textOnly: true
 	},
 	{
 		key: 'user_attachments',
@@ -261,10 +263,6 @@ export function agentFieldAppliesTo(
 	spec: AgentFieldSpec,
 	schemaProperties: Record<string, any> | undefined
 ): boolean {
-	// The history inputs belong to the step, so they stay on a linked step's reduced schema.
-	if (spec.key === AGENT_HISTORY_ROW) {
-		return Boolean(schemaProperties && 'memory_id' in schemaProperties)
-	}
 	// A virtual row has no schema key to look for, so it keys off the brain being editable here.
 	if (spec.virtual) return Boolean(schemaProperties && 'provider' in schemaProperties)
 	return Boolean(schemaProperties && spec.key in schemaProperties)
@@ -282,10 +280,6 @@ export function initialVisibleAgentFields(
 	for (const spec of AGENT_FIELDS) {
 		if (!agentFieldAppliesTo(spec, schemaProperties)) continue
 		if (agentFieldIsSet(spec, args?.[spec.key])) visible.add(spec.key)
-	}
-	// The history row stands for these keys; a form listing a run's inputs shows whichever is set.
-	for (const key of AGENT_HISTORY_KEYS) {
-		if (args?.[key] && schemaProperties && key in schemaProperties) visible.add(key)
 	}
 	return visible
 }
