@@ -450,7 +450,12 @@
 		}
 	}
 
+	/** Bumped per drawer opening: the fetches below are awaited, so a reopen (or a
+	 *  path change) while they run must not have the older one land last. */
+	let diffOpening = 0
+
 	export async function openDiffDrawer() {
+		const opening = ++diffOpening
 		if (!savedApp) {
 			return
 		}
@@ -459,10 +464,12 @@
 		await syncWithDeployed()
 
 		diffDrawer?.openDrawer()
+		const versions = await deployedVersionOptions()
+		if (opening !== diffOpening) return
 		diffDrawer?.setDiff({
 			mode: 'normal',
 			deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
-			versions: await deployedVersionOptions(),
+			versions,
 			onTakeLatest,
 			draftBase: draftBaseVersion,
 			deployedHead: deployedVersionShown != null ? String(deployedVersionShown) : undefined,

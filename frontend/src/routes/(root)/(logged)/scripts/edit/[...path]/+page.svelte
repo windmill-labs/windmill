@@ -389,6 +389,10 @@
 					...(pendingLoad.value as object),
 					parent_hash: (pendingLoad.value as { parent_hash?: string })?.parent_hash ?? parentHash
 				} as EditableScript
+				// Their draft's base, not ours: the prompt and the deploy guard read these,
+				// and deploying their content on our base would claim a version it never
+				// forked from.
+				draftBaseHash = loadedValue.parent_hash
 				if (hasOwnDraft) {
 					OtherUserDraftLoad.beginOverlay({
 						workspace: $workspaceStore!,

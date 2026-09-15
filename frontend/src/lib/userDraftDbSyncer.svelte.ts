@@ -340,9 +340,10 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		// cached state the same way an upsert does. Listener errors must never
 		// make a committed save read as failed.
 		notifyAnySaved({ workspace: opts.workspace, itemKind: opts.itemKind, path: opts.path })
-		// The item had moved and the save landed where its drafts went. Last,
+		// The item had moved and the write landed where its drafts went — a discard
+		// included, since the editor that sent it is on a path the item has left. Last,
 		// so the editor that reacts (by leaving this path) sees a settled key.
-		if (opts.value !== null && resp.path && resp.path !== opts.path) {
+		if (resp.path && resp.path !== opts.path) {
 			const listeners = relocationListeners.get(key)
 			if (listeners) for (const l of [...listeners]) l(resp.path)
 		}

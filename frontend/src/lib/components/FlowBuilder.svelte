@@ -1163,17 +1163,24 @@
 		}
 	}
 
+	/** Bumped per drawer opening: the fetches below are awaited, so a reopen (or a
+	 *  path change) while they run must not have the older one land last. */
+	let diffOpening = 0
+
 	export async function openDiffDrawer() {
+		const opening = ++diffOpening
 		if (!savedFlow) return
 		await syncWithDeployed()
 		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
 		diffDrawer?.openDrawer()
 		const currentFlow = flowStore.val
+		const versions = await deployedVersionOptions()
+		if (opening !== diffOpening) return
 		diffDrawer?.setDiff({
 			mode: 'normal',
 			deployed: deployedValue ?? savedFlow,
 			deployedLabel,
-			versions: await deployedVersionOptions(),
+			versions,
 			onTakeLatest,
 			draftBase: draftBaseVersion,
 			deployedHead: deployedVersionShown != null ? String(deployedVersionShown) : undefined,

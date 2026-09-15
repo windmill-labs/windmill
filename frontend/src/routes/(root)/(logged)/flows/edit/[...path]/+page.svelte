@@ -404,6 +404,11 @@
 			? ({ ...deployedFlow, ...(pendingLoad.value as object) } as Flow)
 			: effectiveFlow
 		flow = flowToRender
+		if (pendingLoad) {
+			// Their draft's base, not ours; see /scripts/edit.
+			const theirs = (pendingLoad.value as { version_id?: number })?.version_id
+			draftBaseVersion = theirs != null ? String(theirs) : undefined
+		}
 		if (pendingLoad && hasOwnDraft) {
 			OtherUserDraftLoad.beginOverlay({
 				workspace: $workspaceStore!,

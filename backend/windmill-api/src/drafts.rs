@@ -321,8 +321,8 @@ pub struct SaveDraftResponse {
     /// On `saved`: when the change was applied (client remembers it as the
     /// next `last_sync`). On `conflict`: the existing row's `created_at`.
     pub current_timestamp: chrono::DateTime<chrono::Utc>,
-    /// `saved` upserts only: where the draft is. Differs from the URL path when
-    /// the item had moved away from it; the editor follows it there.
+    /// `saved` only: where the write landed. Differs from the URL path when the item
+    /// had moved away from it; the editor follows it there.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
 }
@@ -538,7 +538,9 @@ async fn update_draft(
         )
         .fetch_optional(&db)
         .await?
-        .map(|ts| (ts, None))
+        // Named for the same reason an upsert is: the editor that discarded is still on
+        // the path the item left, and reloading there would land on nothing.
+        .map(|ts| (ts, moved_to.clone()))
     };
 
     if let Some((ts, path)) = applied {

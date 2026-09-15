@@ -870,7 +870,12 @@
 		}
 	}
 
+	/** Bumped per drawer opening: the fetches below are awaited, so a reopen (or a
+	 *  path change) while they run must not have the older one land last. */
+	let diffOpening = 0
+
 	export async function openDiffDrawer() {
+		const opening = ++diffOpening
 		if (!savedScript) {
 			return
 		}
@@ -893,11 +898,13 @@
 
 		diffDrawer?.openDrawer()
 		const headHash = (deployed as { hash?: string } | undefined)?.hash
+		const versions = await deployedVersionOptions(headHash)
+		if (opening !== diffOpening) return
 		diffDrawer?.setDiff({
 			mode: 'normal',
 			deployed,
 			deployedLabel: deployedVersionLabel(deployed),
-			versions: await deployedVersionOptions(headHash),
+			versions,
 			onTakeLatest,
 			draftBase: draftBaseHash,
 			deployedHead: headHash,

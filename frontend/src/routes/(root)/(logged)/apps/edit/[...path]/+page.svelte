@@ -307,6 +307,11 @@
 		}
 		if (pendingLoad) {
 			backendApp = { ...backendApp, value: pendingLoad.value as App } as typeof backendApp
+			// Their draft's base, not ours: the prompt and the deploy guard read it, and
+			// deploying their content on our base would claim a version it never forked
+			// from. See /scripts/edit.
+			const theirs = (pendingLoad.value as App)?.parent_version
+			draftBaseVersion = theirs != null ? String(theirs) : undefined
 			if (hasOwnDraft) {
 				// AppEditor `migrateApp`s the value in place on mount (see its
 				// `migratedDeployedBaseline`), so the draft cell settles to the
@@ -334,7 +339,8 @@
 		// draft value. An existing own draft already carries it (preserved by the
 		// value swap above). `parent_version` is in DRAFT_COMPARE_IGNORED_FIELDS, so it
 		// never trips the autosave no-op / "unsaved changes" comparison.
-		if (!hasOwnDraft && !backendApp.no_deployed && backendApp.value) {
+		// Not after loading a teammate's draft either: that value carries their base.
+		if (!hasOwnDraft && !pendingLoad && !backendApp.no_deployed && backendApp.value) {
 			const versions = (backendApp as { versions?: number[] }).versions
 			const head = Array.isArray(versions) ? versions[versions.length - 1] : undefined
 			if (head != null) (backendApp.value as App).parent_version = head
