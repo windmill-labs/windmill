@@ -253,6 +253,10 @@ class Entry<V> {
 	 *  each, and each row a caller says it wrote for one of them. A row left over after that is a
 	 *  row nobody here has the value of. */
 	private values = 0
+	/** Whether the discard that last ran had anything to say about the key's row — it had one, or
+	 *  it is deliberately keeping the one a newer edit put there. Decided inside the command, so
+	 *  after whatever load was queued in front of it, not before. */
+	private ownsRow = false
 	/** Whether the last value handed in made this entry write a row of its own. Loading, it
 	 *  cannot: the caller's own row is then the only one, and is already counted. */
 	private seedWroteRow = false
@@ -524,17 +528,15 @@ class Entry<V> {
 		const asked = this.asOf()
 		// A row this entry has none of is not one it can discard: it does nothing, and the caller
 		// would read that as the row being gone while another tab's is still there.
-		let knewRow = this.row !== null
 		await this.discard(asked)
 		if (this.retired || !this.loaded) return 'absent'
-		if (!this.stale) return knewRow ? 'done' : 'absent'
+		if (!this.stale) return this.ownsRow ? 'done' : 'absent'
 		// Stale refused it. A reload is what clears that, and with a baseline it can trust the
 		// discard means something again — so the one thing worth trying before giving up. The
 		// retry carries the state as of the request, so an edit typed during that reload stands.
 		if (!this.adapter || !(await this.load(this.adapter)).ok) return 'failed'
-		knewRow = this.row !== null
 		await this.discard(asked)
-		return this.stale ? 'failed' : knewRow ? 'done' : 'absent'
+		return this.stale ? 'failed' : this.ownsRow ? 'done' : 'absent'
 	}
 
 	/**
@@ -677,7 +679,11 @@ class Entry<V> {
 	 *  what the discard was asked to throw away. */
 	discard(asked?: AsOf): Promise<DiscardOutcome> {
 		return this.run(async (at) => {
+			this.ownsRow = false
 			if (!this.loaded || this.retired) return { removed: false }
+			// Whatever it decides below, this key's row is this entry's business: it has one, or
+			// it is about to keep one. Read here, after any load queued in front of this.
+			this.ownsRow = this.row !== null || this.dirty
 			// Reverting to a baseline known to be behind the server would write it back.
 			if (this.stale) return { removed: false }
 			// An edit typed or an outside write landed since the discard was asked for is newer

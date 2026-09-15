@@ -1127,6 +1127,27 @@ describe('item store: origins', () => {
 		})
 	})
 
+	it('owns the row a load queued in front of its discard turned up', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		const store = createItemStore(rows.port)
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/r' },
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(() => read.promise)
+		)
+		// The chat discards while that first GET is still out, so the discard queues behind it.
+		const discarding = store.bridge.discard('w', 'resource', 'u/me/r')
+		await settle()
+		read.resolve({ deployed: deployedRes, draft: { ...deployedRes, description: 'draft A' } })
+
+		// The load turns up a draft and the discard deletes it, so this editor did deal with the
+		// row. Answering `absent` would send a second, unconditional delete after that one.
+		expect(await discarding).toBe('done')
+		expect(item.dirty).toBe(false)
+		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: null })
+	})
+
 	it('says a row it never knew of is not its to discard', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
