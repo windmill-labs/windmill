@@ -577,6 +577,44 @@ describe('item store: one entry per key', () => {
 		expect(open.dirty).toBe(true)
 	})
 
+	it('leaves an item discarded while a write was landing on the deployed value', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const b = { ...deployedRes, path: 'u/me/b' }
+		let deployed = b
+		const { handle: open } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
+			{ workspace: 'w', path: 'u/me/b' },
+			adapter(async () => ({ deployed, draft: rows.sent.get('u/me/b') as Res | undefined }))
+		)
+		const gate = deferred()
+		const temporary = newItemPath()
+		const { handle: panel } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: temporary },
+			{ workspace: 'w', path: temporary, template: b, standsFor: 'u/me/b' },
+			adapter({}, async (ctx) => {
+				await gate.promise
+				deployed = { ...ctx.value }
+			})
+		)
+		await settle()
+		open.value = { ...b, description: 'typed in the open editor' }
+		panel.value = { ...b, args: { a: 2 } }
+		const wrote = panel.save()
+		await settle()
+		// Discard while the write is in flight: it queues behind the writer's claim on the key.
+		const discarded = open.discard()
+		gate.resolve()
+
+		expect(await wrote).toMatchObject({ ok: true, path: 'u/me/b' })
+		expect(await discarded).toEqual({ removed: false })
+		// The discard holds: what it dropped does not come back as a draft over the new value.
+		expect(open.deployed).toEqual({ ...b, args: { a: 2 } })
+		expect(open.value).toEqual({ ...b, args: { a: 2 } })
+		expect(open.dirty).toBe(false)
+		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/b', value: null })
+	})
+
 	it('keeps an edit typed while the row it re-reads behind is still going', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)

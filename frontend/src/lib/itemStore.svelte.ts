@@ -201,8 +201,10 @@ class Entry<V> {
 	/** The row last handed to the syncer (`null`: none, `undefined`: not known — the next
 	 *  reconcile writes whatever the rule says). What `reconcile` diffs against. */
 	private row: string | null | undefined = null
-	/** Counts value changes, so a load can tell whether one landed while it was in flight. */
-	private changes = 0
+	/** Counts what the user typed and what an outside writer put here, so a read can tell whether
+	 *  one landed while it was in flight. A command's own replacement of the value is not one:
+	 *  a discard that ran meanwhile is the answer to a question the read is not asking. */
+	private edits = 0
 	private queue: Promise<unknown> = Promise.resolve()
 	private ports: ItemRowPort
 	private store: StoreInternals
@@ -225,7 +227,7 @@ class Entry<V> {
 		const s = serialize(this.value)
 		if (s === this.seen) return
 		this.seen = s
-		this.changes++
+		this.edits++
 		if (this.pristine && this.origin === 'deployed' && this.value !== undefined) {
 			const value = snapshot(this.value)
 			if (!this.absorbs || this.deployed === undefined || this.absorbs(value, this.deployed)) {
@@ -257,7 +259,6 @@ class Entry<V> {
 	private replaceValue(value: V | undefined): void {
 		this.value = snapshot(value)
 		this.seen = serialize(this.value)
-		this.changes++
 		this.revision = nextRevision++
 	}
 
@@ -304,11 +305,11 @@ class Entry<V> {
 		this.replaceValue(template)
 	}
 
-	/** `changedBefore`: the value's change count as of when this read was decided on, for a caller
-	 *  that did something async first. */
-	load(adapter: ItemAdapter<V>, changedBefore?: number): Promise<CommandOutcome> {
+	/** `editedBefore`: the edit count as of when this read was decided on, for a caller that did
+	 *  something async first. */
+	load(adapter: ItemAdapter<V>, editedBefore?: number): Promise<CommandOutcome> {
 		this.loads++
-		const changesAtStart = changedBefore ?? this.changes
+		const editsAtStart = editedBefore ?? this.edits
 		return this.run(async () => {
 			const key = this.key
 			let res: ItemLoad<V>
@@ -324,7 +325,7 @@ class Entry<V> {
 			}
 			// Whatever landed since the read was asked for — an external write, an edit — is
 			// newer than what it read, so the read only moves the deployed side under it.
-			const keepValue = this.changes !== changesAtStart
+			const keepValue = this.edits !== editsAtStart
 			this.meta = res.meta
 			this.error = undefined
 			if (isTemporaryPath(key.path)) {
@@ -355,16 +356,15 @@ class Entry<V> {
 		if (!this.loaded || this.retired || !this.adapter) return { ok: true }
 		// Counted before the row goes, not after it lands: an edit typed while that write is in
 		// flight is in neither it nor the read that follows, and is newer than both.
-		// Counted before the row goes, not after it lands: an edit typed while that write is in
-		// flight is in neither it nor the read that follows, and is newer than both.
-		const changesAtStart = this.changes
+		const editsAtStart = this.edits
 		await this.ports.flush(this.key)
-		return this.load(this.adapter, changesAtStart)
+		return this.load(this.adapter, editsAtStart)
 	}
 
 	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
 	applyExternal(value: V): number {
 		if (this.loaded && serialize(value) === serialize(this.value)) return this.revision
+		this.edits++
 		this.pristine = false
 		this.removed = false
 		this.replaceValue(value)
