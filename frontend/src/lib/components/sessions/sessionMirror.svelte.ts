@@ -525,8 +525,15 @@ async function backfillMarks(marks: PendingMarks, email: string): Promise<boolea
 		const owed =
 			!row || row.stale || ((row.extraV ?? 0) > 0 && (row.flushedV ?? -1) < (row.extraV ?? 0))
 		if (s.workspace_id && owed && !marked.has(s.id)) {
-			if (!bumpDirty(s.id) && !unwritableMarks.has(s.id)) unwritableMarks.set(s.id, 0)
-			marks.dirty.push({ id: s.id, v: 1 })
+			// The counter as the next `readPending` will see it: the mark's, or this page's
+			// when none could be written, so what this flush retires is what a later bump
+			// counts from.
+			let v = 1
+			if (!bumpDirty(s.id)) {
+				if (!unwritableMarks.has(s.id)) unwritableMarks.set(s.id, 0)
+				v = unwritableMarks.get(s.id) ?? 0
+			}
+			marks.dirty.push({ id: s.id, v })
 		}
 	}
 	return true

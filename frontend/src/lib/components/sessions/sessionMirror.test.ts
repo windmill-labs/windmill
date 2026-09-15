@@ -370,20 +370,33 @@ describe('sessionMirror flush', () => {
 			await putSession({ ...s, summary: 'second' })
 			release({ enabled: true, results: [{ id: 'sx' }] })
 			await inFlight
+			expect(pendingKeys()).toEqual([])
+			const row = (await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'sx')
+			expect((row?.extraV ?? 0) > (row?.flushedV ?? -1)).toBe(true)
+
+			// A reload, storage still full: nothing in localStorage or memory names the
+			// session, the row does.
+			__resetMirrorForTesting()
+			pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sx' }] })
+			await __flushForTesting()
+			expect(pushMock).toHaveBeenCalledTimes(2)
+			expect(pushMock.mock.calls[1][0].requestBody.sessions[0].head.summary).toBe('second')
+			expect(await pendingDirty()).toEqual([])
+
+			// The next refused bump counts from what that push retired (the row carries it;
+			// `pendingDirty` reads localStorage marks only, so the push is the check).
+			await putSession({ ...s, summary: 'third' })
+			await vi.waitFor(async () =>
+				expect((await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'sx')?.extraV).toBe(3)
+			)
+			pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sx' }] })
+			await __flushForTesting()
+			expect(pushMock).toHaveBeenCalledTimes(3)
+			expect(pushMock.mock.calls[2][0].requestBody.sessions[0].head.summary).toBe('third')
+			expect(await pendingDirty()).toEqual([])
 		} finally {
 			localStorage.setItem = setItem
 		}
-		expect(pendingKeys()).toEqual([])
-		const row = (await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'sx')
-		expect((row?.extraV ?? 0) > (row?.flushedV ?? -1)).toBe(true)
-
-		// A reload: nothing in localStorage or memory names the session, the row does.
-		__resetMirrorForTesting()
-		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sx' }] })
-		await __flushForTesting()
-		expect(pushMock).toHaveBeenCalledTimes(2)
-		expect(pushMock.mock.calls[1][0].requestBody.sessions[0].head.summary).toBe('second')
-		expect(await pendingDirty()).toEqual([])
 	})
 
 	it('backs up and restores again at once when the backups are turned on from this page', async () => {
