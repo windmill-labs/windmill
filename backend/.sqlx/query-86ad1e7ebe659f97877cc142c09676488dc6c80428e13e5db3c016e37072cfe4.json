@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at, created_by, format_extension, is_fileset, display_name)\n         SELECT $2, name, schema, description, edited_at, created_by, format_extension, is_fileset, display_name\n         FROM resource_type\n         WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "86ad1e7ebe659f97877cc142c09676488dc6c80428e13e5db3c016e37072cfe4"
+}

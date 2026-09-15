@@ -19,6 +19,7 @@
 	import ResourceVersionHistory from './ResourceVersionHistory.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { addResourceTitle } from './resourceTypeDisplay'
+	import { loadResourceTypeDisplayName } from './displayNameLoaders'
 
 	let {
 		workspace = undefined,
@@ -111,6 +112,8 @@
 		// rather than left where the last one put it: a new resource is a typed form, whoever was
 		// looking at JSON before.
 		viewJsonSchema = false
+		// The title names the type, whose row nothing else on the page may have read.
+		void loadResourceTypeDisplayName(effectiveWorkspace, resourceType)
 		drawer?.openDrawer?.()
 	}
 

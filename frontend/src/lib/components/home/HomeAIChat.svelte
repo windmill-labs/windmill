@@ -46,10 +46,21 @@
 	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
 	import { USER_SETTINGS_HASH } from '../sidebar/settings'
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
+	import { onboardingProfile } from '$lib/onboardingProfile'
 
 	const COLLAPSED_SETTING = 'home-ai-composer-collapsed'
 
 	let value = $state('')
+	// The stock examples, unless the invite that brought this person here wrote prompts for
+	// them — those replace the set outright rather than joining it, since a prompt written
+	// for someone's own stack next to "Ban Discord users" reads as the generic one.
+	let examples = $state(homeAIExamples)
+	void onboardingProfile().then((p) => {
+		if (!p?.starter_prompts?.length) return
+		examples = p.starter_prompts
+		promptIndex = 0
+		placeholder = examples[0].prompt
+	})
 	let placeholder = $state(homeAIExamples[0].prompt)
 	let placeholderVisible = $state(true)
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
@@ -130,7 +141,7 @@
 		}
 	}
 
-	const prompts = homeAIExamples.map((e) => e.prompt)
+	let prompts = $derived(examples.map((e) => e.prompt))
 
 	const CYCLE_MS = 7_000
 	// Must match the `duration-*` class on the placeholder overlay: the swap happens once the
@@ -273,7 +284,7 @@
 		<div class="flex items-center justify-between gap-2 pt-2">
 			{#if showComposer && !collapsed}
 				<div class="flex flex-row flex-wrap items-center gap-1.5">
-					{#each homeAIExamples as example (example.label)}
+					{#each examples as example (example.label)}
 						<Button
 							variant="default"
 							unifiedSize="xs"
