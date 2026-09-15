@@ -7,8 +7,8 @@
 		 *  it moves into. */
 		args: Record<string, any>
 		chatInputEnabled?: boolean
-		/** Whether the step's own memory id and previous messages are on this form. A saved agent has neither:
-		 *  they belong to each step linking it. */
+		/** Whether the step's own memory id and previous messages are on this form. A saved agent has
+		 *  neither: they belong to each step linking it. */
 		historyOnStep?: boolean
 		s3StorageConfigured?: boolean
 	}

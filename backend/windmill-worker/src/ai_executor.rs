@@ -144,8 +144,8 @@ fn keep_authored_history_args(
 
 /// Reconciles the step's history inputs, the agent's memory policy and the run's memory id, for
 /// every shape a flow or agent resource may still carry. Managed memory reads only a memory id, and
-/// memory that is off reads only previous messages. Also returns lines for the job log: a step input that
-/// went unused, or a policy that remembers ending up stateless.
+/// memory that is off reads only previous messages. Also returns lines for the job log: a step
+/// input that went unused, or a policy that remembers ending up stateless.
 fn resolve_history_source<'a>(
     args: &'a AIAgentArgs,
     run_memory_id: Option<Uuid>,
@@ -2133,8 +2133,8 @@ mod tests {
         }
     }
 
-    /// Empty previous messages a form leaves on a step never replace a legacy list; an expression does, even
-    /// when it evaluates to null.
+    /// Empty previous messages a form leaves on a step never replace a legacy list; an expression
+    /// does, even when it evaluates to null.
     #[test]
     fn only_an_expression_can_empty_a_legacy_message_list() {
         let run = Uuid::from_u128(1);
