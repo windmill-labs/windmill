@@ -4300,10 +4300,31 @@ async fn execute_component(
             (Some(path), None, None) => {
                 get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?
             }
-            // inline script: "preview" mode, or run mode without an entry in the
-            // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
+            // inline script: "preview" mode, or run mode with no `app_script`
+            // entry. The run-mode case is legacy back-compat: current deploys
+            // assign an `app_script` id (reduce_app) and take the `Some(id)` arm
+            // below, so it can be dropped once id-less deployed apps are gone.
             (None, Some(raw_code), None) => {
                 let tag = resolved_inline_tag(raw_code.tag.clone());
+                let raw_code = if is_preview {
+                    // Preview (editor / `wmill app dev`) runs the caller's own code
+                    // as themselves, like `/jobs/run/preview` — honored verbatim.
+                    raw_code
+                } else {
+                    // Run mode authorizes only `content` (the `rawscript/<sha>` pin)
+                    // on a job that runs as the app publisher, so rebuild from the
+                    // pinned fields and default the rest: a caller `hash` (runs a
+                    // deployed script by hash), `lock` (installed verbatim), or
+                    // `modules` would otherwise run or install unpinned code as the
+                    // publisher. Reconstructing keeps a newly added field safe.
+                    RawCode {
+                        content: raw_code.content,
+                        language: raw_code.language,
+                        path: raw_code.path,
+                        cache_ttl: raw_code.cache_ttl,
+                        ..Default::default()
+                    }
+                };
                 (JobPayload::Code(raw_code), tag, None)
             }
             // inline script: run mode (deployed app) with an entry in `app_script`.
