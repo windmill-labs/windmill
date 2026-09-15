@@ -9280,6 +9280,10 @@ paths:
                     picks:
                       description: how often the integration has been picked, absent on a hub that does not count picks
                       type: integer
+                    display_name:
+                      description: the label the hub curates for the integration, null or absent where it names none
+                      type: string
+                      nullable: true
                   required:
                     - name
 
@@ -30777,6 +30781,11 @@ components:
           type: string
         is_fileset:
           type: boolean
+        display_name:
+          type: string
+          description: >-
+            The name the product goes by, e.g. "Google Sheets" for gsheets.
+            Absent where nobody named the type.
       required:
         - name
 
@@ -30794,6 +30803,12 @@ components:
           description: >-
             File extension for a type whose value is one file rather than a set
             of fields. Omit to leave it unchanged; send null to clear it.
+        display_name:
+          type: string
+          nullable: true
+          description: >-
+            The name the product goes by. Omit to leave it unchanged; send null
+            to clear it.
 
     TriggerHistoryEntry:
       type: object
