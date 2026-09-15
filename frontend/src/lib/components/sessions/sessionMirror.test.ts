@@ -657,11 +657,12 @@ describe('sessionMirror restore', () => {
 			chats: [],
 			images: [{ chat_id: 'c9', id: 'i9', data_url: IMAGE }]
 		}
-		// The first restore is cut short after staging the chat.
+		// The first restore is cut short after staging the chats.
+		const gone = { ...backup.chats[0], id: 'cx', record: { ...backup.chats[0].record, id: 'cx' } }
 		pullMock
 			.mockResolvedValueOnce({
 				enabled: true,
-				sessions: [{ ...backup, next: cursor }],
+				sessions: [{ ...backup, chats: [...backup.chats, gone], next: cursor }],
 				deferred: []
 			})
 			.mockRejectedValueOnce(new Error('offline'))
@@ -671,8 +672,10 @@ describe('sessionMirror restore', () => {
 		expect(pullMock).toHaveBeenCalledTimes(2)
 		expect(sessionState.sessions.map((s) => s.id)).toEqual([])
 		expect((await readStoredChat('c9', EMAIL))?.title).toBe('t')
+		expect((await readStoredChat('cx', EMAIL))?.id).toBe('cx')
 
-		// The backup moved on meanwhile: the retry takes the newer chat over the staged one.
+		// The backup moved on meanwhile: the retry takes the newer chat over the staged one
+		// and drops the chat the backup no longer has.
 		__resetMirrorForTesting()
 		const newer = {
 			...backup,
@@ -689,6 +692,7 @@ describe('sessionMirror restore', () => {
 		await __settleForTesting()
 		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s9']))
 		expect((await readStoredChat('c9', EMAIL))?.title).toBe('newer')
+		expect(await readStoredChat('cx', EMAIL)).toBeUndefined()
 		const { readImageDataUrl } = await import('../copilot/chat/HistoryManager.svelte')
 		expect(await readImageDataUrl('i9', EMAIL)).toBe(IMAGE)
 	})

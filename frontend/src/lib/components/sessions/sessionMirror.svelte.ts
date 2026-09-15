@@ -35,6 +35,7 @@ import {
 } from './sessionState.svelte'
 import {
 	importStoredChats,
+	pruneSessionChats,
 	listChatImageIds,
 	listSessionChatIds,
 	readImageDataUrl,
@@ -44,6 +45,7 @@ import {
 } from '../copilot/chat/HistoryManager.svelte'
 import {
 	importArtifacts,
+	pruneSessionArtifacts,
 	readSessionArtifacts,
 	type ArtifactVersion,
 	type PersistedArtifact
@@ -991,7 +993,8 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 	let restored = 0
 	// A session that did not fit one answer whole comes in pages, kept here until the last
 	// one: importing a page alone would leave a session the next restore takes for whole.
-	const staged = new Map<string, { session: Session; sync: MirrorSyncState }>()
+	type Staged = { session: Session; sync: MirrorSyncState; artifactIds: string[] }
+	const staged = new Map<string, Staged>()
 	const resumes: AISessionBackupCursor[] = []
 	while (ids.length > 0 || resumes.length > 0) {
 		if (getCurrentUserEmail() !== email) return
@@ -1020,7 +1023,7 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 		// pieces could not be written is left for the next restore, since recording it now
 		// would let the next flush push its half-empty local state over the backup. What a
 		// page leaves for the next is the sync row being assembled, never its pieces.
-		const ready: { session: Session; sync: MirrorSyncState }[] = []
+		const ready: Staged[] = []
 		for (const b of pulled.sessions) {
 			const earlier = staged.get(b.id)
 			staged.delete(b.id)
@@ -1042,7 +1045,8 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 				console.error(`Could not restore session ${u.session.id}`, e)
 				continue
 			}
-			const merged = earlier
+			const artifactIds = u.artifacts.items.map((i) => i.id)
+			const merged: Staged = earlier
 				? {
 						session: {
 							...u.session,
@@ -1056,9 +1060,10 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 							chats: { ...earlier.sync.chats, ...u.sync.chats },
 							images: { ...earlier.sync.images, ...u.sync.images },
 							artifacts: b.artifacts !== undefined ? u.sync.artifacts : earlier.sync.artifacts
-						}
+						},
+						artifactIds: b.artifacts !== undefined ? artifactIds : earlier.artifactIds
 					}
-				: { session: u.session, sync: u.sync }
+				: { session: u.session, sync: u.sync, artifactIds }
 			if (b.next) {
 				staged.set(b.id, merged)
 				resumes.push(b.next)
@@ -1067,6 +1072,18 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 			ready.push(merged)
 		}
 		if (ready.length === 0) continue
+		// Pieces of the session the backup no longer has (staged by a restore cut short,
+		// before the backup moved on) go before the record lands, or a later flush would
+		// push them back.
+		for (const r of ready) {
+			await pruneSessionChats(
+				r.session.id,
+				new Set(Object.keys(r.sync.chats)),
+				new Set(Object.keys(r.sync.images)),
+				email
+			)
+			await pruneSessionArtifacts(r.session.id, new Set(r.artifactIds), email)
+		}
 		const imported = new Set(
 			await importSessions(
 				ready.map((r) => r.session),

@@ -170,8 +170,11 @@ progress) and names where the next picks up (`next`, a cursor the browser sends 
 `resume` with that session alone). The browser writes each page's pieces as it arrives, over whatever
 an earlier restore cut short had staged (the session is absent locally, so its pieces have no
 local edits to keep, and the backup may have moved on), and the record, which is what makes
-the session visible, only with the last page; between pages it holds nothing but the sync
-row being assembled, whose chats also admit the images of a later page. A pull sees every key of a session's listing but keeps the 5000 smallest
+the session visible, only with the last page, after deleting the session's local pieces the
+backup no longer has (staged before it moved on); between pages it holds nothing but the sync
+row being assembled, whose chats also admit the images of a later page. An object that grew
+since the listing (a push replaced it) ends its page just before it and the answer names that
+spot, so the next page sizes it anew rather than the session being imported without it. A pull sees every key of a session's listing but keeps the 5000 smallest
 past its cursor (a page is defined by key order, and the store promises none), so a session
 grown without bound by valid pushes cannot grow the answer's memory through its metadata
 either; removing a prefix and a rotation's deletion stream their listings. `list` scans at most 50 000 index markers, keeps the newest 500 as it goes and answers with

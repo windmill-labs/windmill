@@ -77,6 +77,18 @@ pub fn workspaced_service() -> Router {
         )
 }
 
+/// What reading an object yields. `Gone`: not there (deleted since the listing, or never
+/// pushed). `Grown`: larger than expected, so replaced since the listing (or planted), and
+/// left unread; a pull answers with a page ending before it rather than without it.
+/// `Foreign`: it does not decrypt for this user (written under another user's or
+/// workspace's key), and must not take the rest of the session down with it.
+enum Read {
+    Text(String),
+    Gone,
+    Grown,
+    Foreign,
+}
+
 /// The user's prefix in the workspace storage, plus what reads and writes it.
 struct Backend {
     store: Arc<dyn ObjectStore>,
@@ -141,36 +153,33 @@ impl Backend {
         self.put_sealed(key, self.seal(plaintext)).await
     }
 
-    /// `None` when the object does not exist, and also when it does not decrypt under this
-    /// user's key: an object written under another user's or workspace's key is nobody's
-    /// to read, and one such object must not take the rest of the session down with it.
-    ///
     /// `max` is what the listing said the object holds, or the cap of its kind for one read
     /// without a listing: checked before buffering, since whoever holds the bucket's
-    /// credentials can put anything at a predictable key, and an object grown past it since
-    /// the listing was replaced under this read's feet and is left for the next one.
-    async fn get(&self, key: &ObjectPath, max: usize) -> Result<Option<String>> {
+    /// credentials can put anything at a predictable key.
+    async fn get(&self, key: &ObjectPath, max: usize) -> Result<Read> {
         let result = match self.store.get(key).await {
             Ok(result) => result,
-            Err(ObjectStoreError::NotFound { .. }) => return Ok(None),
+            Err(ObjectStoreError::NotFound { .. }) => return Ok(Read::Gone),
             Err(e) => return Err(object_store_error_to_error(e)),
         };
         if result.meta.size as usize > max {
-            tracing::warn!("AI session backup object {key} is larger than expected; left unread");
-            return Ok(None);
+            return Ok(Read::Grown);
         }
         let bytes = result.bytes().await.map_err(object_store_error_to_error)?;
         // The objects are JSON and data URLs: a wrong key's output failing UTF-8 tells it
         // apart beyond the cipher's padding check, which a wrong key passes now and then.
-        let text = self
+        match self
             .mc
             .decrypt_bytes_to_bytes(&bytes)
             .ok()
-            .and_then(|plaintext| String::from_utf8(plaintext).ok());
-        if text.is_none() {
-            tracing::warn!("AI session backup object {key} does not decrypt for its reader");
+            .and_then(|plaintext| String::from_utf8(plaintext).ok())
+        {
+            Some(text) => Ok(Read::Text(text)),
+            None => {
+                tracing::warn!("AI session backup object {key} does not decrypt for its reader");
+                Ok(Read::Foreign)
+            }
         }
-        Ok(text)
     }
 
     async fn delete(&self, key: &ObjectPath) -> Result<()> {
@@ -500,7 +509,7 @@ async fn pull_session(
     first: bool,
     resume: Option<&PullCursor>,
 ) -> Result<PullStep> {
-    let Some(head) = backend
+    let Read::Text(head) = backend
         .get(&backend.head_key(sid), MAX_HEAD_BYTES + CIPHER_PADDING)
         .await?
     else {
@@ -509,13 +518,18 @@ async fn pull_session(
     let session_prefix = backend.session_prefix(sid);
     let images_prefix = backend.images_prefix(sid);
     let mut size = head.len();
-    let mut fetch = vec![];
-    let mut artifacts_key = None;
+    let mut chats = vec![];
+    let mut artifacts = None;
+    let mut images = vec![];
     let mut next = None;
+    let cursor = |images: bool, after: String| PullCursor { id: sid.to_string(), images, after };
     // Sizes come from the listings, and the listings stop at the budget, so nothing is read
     // past it even for the first session of the answer. One that outgrew it (chats
-    // accumulate over pushes) comes back in pages, in listing order, each answer naming
-    // where the next picks up; the browser imports nothing before the last page.
+    // accumulate over pushes) comes back in pages, in key order, each answer naming where
+    // the next picks up; the browser imports nothing before the last page. An object that
+    // grew since the listing (a push replaced it) ends the page just before it, and the
+    // answer names that spot: a new listing sizes it, whereas dropping it would import the
+    // session without it for good.
     let in_images = resume.is_some_and(|c| c.images);
     if !in_images {
         let after = resume.map(|c| ObjectPath::from(c.after.as_str()));
@@ -531,50 +545,57 @@ async fn pull_session(
             return Ok(PullStep::Deferred);
         }
         if cut {
-            next = entries.last().map(|(key, _)| PullCursor {
-                id: sid.to_string(),
-                images: false,
-                after: key.to_string(),
-            });
+            next = entries
+                .last()
+                .map(|(key, _)| cursor(false, key.to_string()));
         }
-        for (key, bytes) in entries {
-            let rel = key
-                .as_ref()
-                .strip_prefix(session_prefix.as_ref())
-                .unwrap_or_default()
-                .trim_start_matches('/');
-            if rel == "artifacts.json" {
-                artifacts_key = Some((key, bytes));
-                size += bytes;
-            } else if let Some(cid) = rel
-                .strip_prefix("chats/")
-                .and_then(|f| f.strip_suffix(".json"))
-            {
-                fetch.push((cid.to_string(), key, bytes));
-                size += bytes;
+        let to_read: Vec<(ObjectPath, usize, Option<String>)> = entries
+            .into_iter()
+            .filter_map(|(key, bytes)| {
+                let rel = key
+                    .as_ref()
+                    .strip_prefix(session_prefix.as_ref())
+                    .unwrap_or_default()
+                    .trim_start_matches('/');
+                if rel == "artifacts.json" {
+                    Some((key, bytes, None))
+                } else {
+                    let cid = rel
+                        .strip_prefix("chats/")?
+                        .strip_suffix(".json")?
+                        .to_string();
+                    Some((key, bytes, Some(cid)))
+                }
+            })
+            .collect();
+        let reads: Vec<(ObjectPath, usize, Option<String>, Read)> = futures::stream::iter(to_read)
+            .map(|(key, bytes, cid)| async move {
+                let read = backend.get(&key, bytes).await?;
+                Ok::<_, Error>((key, bytes, cid, read))
+            })
+            .buffered(IO_CONCURRENCY)
+            .try_collect()
+            .await?;
+        let mut before = resume.map(|c| c.after.clone()).unwrap_or_default();
+        for (key, bytes, cid, read) in reads {
+            match (cid, read) {
+                (_, Read::Grown) => {
+                    next = Some(cursor(false, before));
+                    break;
+                }
+                (None, Read::Text(text)) => {
+                    artifacts = Some(raw("artifacts", text)?);
+                    size += bytes;
+                }
+                (Some(cid), Read::Text(text)) => {
+                    chats.push(PulledChat { id: cid, record: raw("chat", text)? });
+                    size += bytes;
+                }
+                _ => {}
             }
+            before = key.to_string();
         }
     }
-    let chats: Vec<PulledChat> = futures::stream::iter(fetch)
-        .map(|(cid, key, bytes)| async move {
-            let record = backend.get(&key, bytes).await?;
-            Ok::<_, Error>(record.map(|r| (cid, r)))
-        })
-        .buffer_unordered(IO_CONCURRENCY)
-        .try_collect::<Vec<_>>()
-        .await?
-        .into_iter()
-        .flatten()
-        .map(|(cid, record)| Ok(PulledChat { id: cid, record: raw("chat", record)? }))
-        .collect::<Result<_>>()?;
-    let artifacts = match artifacts_key {
-        Some((key, bytes)) => match backend.get(&key, bytes).await? {
-            Some(text) => Some(raw("artifacts", text)?),
-            None => None,
-        },
-        None => None,
-    };
-    let mut image_keys: Vec<(String, String, ObjectPath, usize)> = vec![];
     if next.is_none() {
         let after = resume
             .filter(|c| c.images)
@@ -587,41 +608,49 @@ async fn pull_session(
                 first,
             )
             .await?;
+        let mut before = after.map(|a| a.to_string()).unwrap_or_default();
         if cut {
             // An answer with no room for a single image names where it stood, so the pull
             // owed the session alone picks it up there.
-            next = Some(PullCursor {
-                id: sid.to_string(),
-                images: true,
-                after: entries
+            next = Some(cursor(
+                true,
+                entries
                     .last()
                     .map(|(key, _)| key.to_string())
-                    .or_else(|| after.map(|a| a.to_string()))
-                    .unwrap_or_default(),
-            });
+                    .unwrap_or_else(|| before.clone()),
+            ));
         }
-        for (key, bytes) in entries {
-            let Some(rel) = key.as_ref().strip_prefix(images_prefix.as_ref()) else {
-                continue;
-            };
-            let Some((cid, iid)) = rel.trim_start_matches('/').split_once('/') else {
-                continue;
-            };
-            size += bytes;
-            image_keys.push((cid.to_string(), iid.to_string(), key, bytes));
+        let to_read: Vec<(ObjectPath, usize, String, String)> = entries
+            .into_iter()
+            .filter_map(|(key, bytes)| {
+                let rel = key.as_ref().strip_prefix(images_prefix.as_ref())?;
+                let (cid, iid) = rel.trim_start_matches('/').split_once('/')?;
+                Some((key.clone(), bytes, cid.to_string(), iid.to_string()))
+            })
+            .collect();
+        let reads: Vec<(ObjectPath, usize, String, String, Read)> = futures::stream::iter(to_read)
+            .map(|(key, bytes, cid, iid)| async move {
+                let read = backend.get(&key, bytes).await?;
+                Ok::<_, Error>((key, bytes, cid, iid, read))
+            })
+            .buffered(IO_CONCURRENCY)
+            .try_collect()
+            .await?;
+        for (key, bytes, chat_id, id, read) in reads {
+            match read {
+                Read::Grown => {
+                    next = Some(cursor(true, before));
+                    break;
+                }
+                Read::Text(data_url) => {
+                    images.push(ImageObject { chat_id, id, data_url });
+                    size += bytes;
+                }
+                _ => {}
+            }
+            before = key.to_string();
         }
     }
-    let images: Vec<ImageObject> = futures::stream::iter(image_keys)
-        .map(|(chat_id, id, key, bytes)| async move {
-            let data_url = backend.get(&key, bytes).await?;
-            Ok::<_, Error>(data_url.map(|data_url| ImageObject { chat_id, id, data_url }))
-        })
-        .buffer_unordered(IO_CONCURRENCY)
-        .try_collect::<Vec<_>>()
-        .await?
-        .into_iter()
-        .flatten()
-        .collect();
     Ok(PullStep::Fetched(
         PulledSession {
             id: sid.to_string(),

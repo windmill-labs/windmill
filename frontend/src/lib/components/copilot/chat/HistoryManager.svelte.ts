@@ -262,6 +262,33 @@ export async function importStoredChats(
 	return true
 }
 
+/** Deletes the session's chats not in `keepChats`, and the images not in `keepImages`, for
+ * a restore that found pieces of the session an earlier one had staged and the backup no
+ * longer has. */
+export async function pruneSessionChats(
+	sessionId: string,
+	keepChats: Set<string>,
+	keepImages: Set<string>,
+	email: string
+): Promise<void> {
+	const db = await backupDb(email)
+	if (!db) return
+	const tx = db.transaction(['chats', 'images'], 'readwrite')
+	const chatStore = tx.objectStore('chats')
+	const imageStore = tx.objectStore('images')
+	for (const chatId of await chatStore.index('by-session').getAllKeys(sessionId)) {
+		const keys = await imageStore
+			.index('by-chat')
+			.getAllKeys(IDBKeyRange.bound([chatId, -Infinity], [chatId, Infinity]))
+		const keep = keepChats.has(String(chatId))
+		if (!keep) await chatStore.delete(chatId)
+		for (const key of keys) {
+			if (!keep || !keepImages.has(String(key))) await imageStore.delete(key)
+		}
+	}
+	await tx.done
+}
+
 export default class HistoryManager {
 	// Per-instance handle to the shared per-user DB lifecycle. There is one
 	// HistoryManager per AIChatManager (the singleton + one per session runtime),
