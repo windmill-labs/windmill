@@ -261,7 +261,8 @@ pub fn remember_reasoning_summary_unavailable(credentials: &ProviderCredentials,
 /// `reasoning.summary`). An OpenAI-kind resource can also point at a gateway that validates
 /// the body strictly and names only the unknown `summary` property.
 pub fn rejects_reasoning_summary(status: u16, body: &str) -> bool {
-    if !matches!(status, 400 | 403) {
+    // 422 is how FastAPI-based gateways reject a body that fails validation.
+    if !matches!(status, 400 | 403 | 422) {
         return false;
     }
     let body = body.to_lowercase();
@@ -785,6 +786,10 @@ mod tests {
         assert!(rejects_reasoning_summary(
             400,
             r#"{"detail":"Additional properties are not allowed ('summary' was unexpected)"}"#
+        ));
+        assert!(rejects_reasoning_summary(
+            422,
+            r#"{"detail":[{"type":"extra_forbidden","loc":["body","reasoning","summary"],"msg":"Extra inputs are not permitted","input":"auto"}]}"#
         ));
         assert!(!rejects_reasoning_summary(
             400,
