@@ -658,11 +658,10 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-// Past the workspace's AI session retention by this browser's clock, counted from the
-// session's last activity or from when it was restored here (`restoredAt`), whichever is
-// later. What another device did with the session is not consulted: the backup is swept by
-// the server on the storage's clock, and a session swept here that the storage still lists
-// comes back on the next restore. Archived sessions count like any other.
+// Past the retention by this browser's clock, counted from the later of the session's last
+// activity and its restore here: a restored session carries the backup's time, the storage's
+// clock, so without `restoredAt` a browser running ahead would delete what it just brought
+// back. Archived sessions count like any other.
 function isSessionExpired(
 	session: Session,
 	retentionDays: number | undefined,
@@ -843,26 +842,17 @@ function retentionWorkspaceOf(session: Session): string | undefined {
 }
 
 // Deletes this browser's copies of the sessions past their workspace's retention, and the
-// pieces of the ones an earlier sweep could not finish. Called from the one moment a tab has
-// none of the user's sessions loaded, just before it takes its hold and reads them, and it
-// runs only while no other tab has them loaded either — the in-use lock, taken exclusively
-// and only if available, is granted exactly then. So nothing holds a copy of what it deletes
-// and nothing writes the store meanwhile, which also makes the deletions safe to do one
-// record at a time. It takes the tab lock the backup's flush and restore take too, again only
-// if available: a flush planning a session half deleted would push the deletions to the
-// backup, and a restore could stage pieces the sweep then deletes. Where Web Locks do not
-// exist (a plain http origin) it does not run, as the restore does not. What the remembered
-// retention says is only ever a reason to ask the server, asked under both locks so that a tab
-// which is not going to sweep never pays for the request; the answer is what deletes. Nothing
-// is sent to the backup: what this browser last did with a session says nothing about what
-// another device did, and the server applies the retention to the backup on its own. What the
-// backup keeps of the session in this browser goes (`sessionSwept`).
+// pieces of the ones an earlier sweep could not finish (docs/ai-session-backups.md). Deleting
+// one record at a time, without re-reading it, is safe only under the in-use lock held
+// exclusively, granted exactly when no tab has the sessions loaded — hence the call site.
 async function sweepExpiredSessions(email: string): Promise<void> {
 	const locks = webLocks()
 	if (!locks || inUse) return
 	try {
 		await locks.request(sessionsInUseLockName(email), { ifAvailable: true }, async (idle) => {
 			if (!idle) return
+			// The flush and the restore run under this one: neither must see a session half
+			// deleted, or plan a push from it.
 			await locks.request(sessionsLockName(email), { ifAvailable: true }, async (mirror) => {
 				if (!mirror) return
 				const db = await sessionsDb.whenReady()
