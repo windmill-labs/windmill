@@ -8,8 +8,18 @@
 	let {
 		status,
 		isFork,
-		forkDetached = false
-	}: { status: SessionChatStatus; isFork: boolean; forkDetached?: boolean } = $props()
+		forkDetached = false,
+		resting,
+		restingTitle
+	}: {
+		status: SessionChatStatus
+		isFork: boolean
+		forkDetached?: boolean
+		/** What the slot shows when there is no live signal. Sessions leave it unset and get
+		 * the workspace/fork mark below; another list passes its own resting mark. */
+		resting?: import('svelte').Snippet
+		restingTitle?: string
+	} = $props()
 
 	const statusTooltip: Record<SessionChatStatus, string> = {
 		idle: 'No chat activity',
@@ -39,7 +49,9 @@
 			: 'Root workspace session'
 	)
 
-	const title = $derived(liveOverride ? statusTooltip[status] : persistentTitle)
+	const title = $derived(
+		liveOverride ? statusTooltip[status] : (restingTitle ?? persistentTitle)
+	)
 </script>
 
 <span class="inline-flex items-center justify-center w-4 h-3 shrink-0" {title}>
@@ -55,6 +67,8 @@
 		<CircleHelp class="w-3 h-3 text-amber-500" />
 	{:else if status === 'error'}
 		<AlertTriangle class="w-3 h-3 text-red-500" />
+	{:else if resting}
+		{@render resting()}
 	{:else if isFork}
 		{#if forkDetached}
 			<GitPullRequestClosed class="w-3 h-3 text-red-500" />

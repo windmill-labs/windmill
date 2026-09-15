@@ -1,204 +1,373 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { MessageCircle, Plus, Trash2, PanelLeftClose, PanelLeftOpen } from 'lucide-svelte'
-	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { tick } from 'svelte'
+	import {
+		MessageSquare,
+		Pen,
+		Plus,
+		Trash2,
+		PanelLeftClose,
+		PanelLeftOpen,
+		Info
+	} from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import SessionStatusDot from '$lib/components/sessions/SessionStatusDot.svelte'
+	import type { SessionChatStatus } from '$lib/components/sessions/sessionRuntime.svelte'
+	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
+	import { PencilLine } from 'lucide-svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
+	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
+	import { emptyString, type Item } from '$lib/utils'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { Filter } from 'lucide-svelte'
+	import { type FlowConversation } from '$lib/gen'
 	import InfiniteList from '$lib/components/InfiniteList.svelte'
-	import { sendUserToast } from '$lib/toast'
 	import { twMerge } from 'tailwind-merge'
+	import {
+		FlowChatManager,
+		type ConversationKind,
+		type ConversationWithDraft
+	} from './FlowChatManager.svelte'
 	import { fade } from 'svelte/transition'
-	import { untrack } from 'svelte'
-	import type { Chat, ChatState, Conversation } from 'windmill-chat'
 
 	interface Props {
-		chat: Chat
-		chatState: ChatState
+		manager: FlowChatManager
+		/** The flow's description. The empty transcript shows it in full, but that is gone
+		 * once a chat is under way — this keeps it reachable for the rest of the session. */
+		description?: string
 	}
 
-	let { chat, chatState }: Props = $props()
+	let { manager, description = undefined }: Props = $props()
 
-	let expanded = $state(false)
-	let list = $state<InfiniteList | undefined>(undefined)
-	let items = $state<Conversation[]>([])
-	let deletingId = $state<string | undefined>(undefined)
-	// A conversation exists on the server only once its first turn ran, so "New chat"
-	// shows a draft row until then.
-	let draft = $state(false)
+	// The chat being renamed, and the text typed so far. One at a time: the input is the
+	// row's own label, so a second one would have nowhere to go.
+	let renamingId = $state<string | undefined>(undefined)
+	let renameDraft = $state('')
+	let renameInput = $state<TextInput | undefined>(undefined)
 
-	$effect(() => {
-		const l = list
-		const c = chat
-		if (!l) return
-		untrack(() => {
-			l.setLoader((page, perPage) => c.loadConversations({ page, perPage }))
-			l.setDeleteItemFn(async (id: string) => {
-				deletingId = id
-				try {
-					await c.deleteConversation(id)
-					sendUserToast('Conversation deleted successfully')
-				} catch (error) {
-					console.error('Failed to delete conversation:', error)
-					sendUserToast('Failed to delete conversation', true)
-					throw error
-				} finally {
-					deletingId = undefined
-				}
-			})
-		})
-	})
-
-	/** The container reports a started turn: a conversation's first one creates its server entry. */
-	export async function conversationStarted(conversationId: string) {
-		if (items.some((c) => c.id === conversationId)) return
-		draft = false
-		await list?.loadData('forceRefresh')
+	async function startRename(conversation: FlowConversation) {
+		renamingId = conversation.id
+		renameDraft = getConversationTitle(conversation)
+		// The field replaces the row, so it exists only after this render.
+		await tick()
+		renameInput?.focus()
+		renameInput?.select()
 	}
 
-	const draftShown = $derived(draft && !items.some((c) => c.id === chatState.conversationId))
-
-	function newChat() {
-		chat.newConversation()
-		draft = true
+	async function commitRename() {
+		const id = renamingId
+		renamingId = undefined
+		if (id) await manager.renameConversation(id, renameDraft)
 	}
 
-	function getConversationTitle(conversation: Conversation): string {
-		return conversation.title || `Conversation ${conversation.createdAt.slice(0, 10)}`
+	function deleteConversation(conversation: ConversationWithDraft) {
+		if (conversation.isDraft) {
+			// The draft is the first row and exists only here; there is nothing to delete.
+			manager.conversations = [...manager.conversations.slice(1)]
+		} else {
+			manager.conversationListComponent?.deleteItem(conversation.id)
+		}
+	}
+
+	function rowActions(conversation: ConversationWithDraft): Item[] {
+		return [
+			{ displayName: 'Rename', icon: Pen, action: () => startRename(conversation) },
+			{
+				displayName: 'Delete',
+				icon: Trash2,
+				type: 'delete',
+				disabled: manager.deletingConversationId === conversation.id,
+				action: () => deleteConversation(conversation)
+			}
+		]
+	}
+
+	const KIND_LABELS: Record<ConversationKind, string> = {
+		test: 'Test',
+		deployed: 'Deployed',
+		all: 'All'
+	}
+
+	/**
+	 * The sessions sidebar's own vocabulary, so the two lists read alike: a running turn is
+	 * its streaming signal and a failed one its error signal. A queued message is not a dot
+	 * there either — it is the pencil beside the count.
+	 */
+	function dotStatus(conversationId: string): SessionChatStatus {
+		const status = manager.conversationStatus(conversationId)
+		return status === 'running' ? 'streaming' : status === 'error' ? 'error' : 'idle'
+	}
+
+	/** Why this row cannot be opened, when something stops it. */
+	function rowLocked(conversation: ConversationWithDraft): string | undefined {
+		return manager.lockedReason(conversation.id)
+	}
+
+	function getConversationTitle(conversation: FlowConversation): string {
+		return conversation.title || `Conversation ${conversation.created_at.slice(0, 10)}`
 	}
 </script>
 
+{#snippet statusDot(conversation: ConversationWithDraft)}
+	<!-- The AI session sidebar's dot, with the resting mark this list needs: a session rests
+	     as a workspace or a fork, a conversation as a test run or one of the deployed flow's. -->
+	<SessionStatusDot
+		status={dotStatus(conversation.id)}
+		isFork={false}
+		restingTitle={conversation.is_test
+			? 'Test chat, run from the flow editor'
+			: 'Chat on the deployed flow'}
+	>
+		{#snippet resting()}
+			<span
+				class="w-[6px] h-[6px] rounded-full {conversation.is_test
+					? 'border border-gray-400 dark:border-gray-500'
+					: 'bg-gray-300 dark:bg-gray-600'}"
+			></span>
+		{/snippet}
+	</SessionStatusDot>
+{/snippet}
+
 <div
-	class="flex flex-col h-full bg-surface border-r transition-all duration-300 {expanded
+	class="flex flex-col h-full bg-surface border-r transition-all duration-300 {manager.isSidebarExpanded
 		? 'w-60'
 		: 'w-[44px]'}"
 >
 	<!-- Header -->
-	<div class="flex-shrink-0 border-b">
+	<div class="flex-shrink-0">
 		<div class="flex flex-col gap-2 p-1">
-			<Button
-				unifiedSize="md"
-				variant="subtle"
-				startIcon={{
-					icon: expanded ? PanelLeftClose : PanelLeftOpen,
-					classes: 'ml-[2px]'
-				}}
-				onClick={() => (expanded = !expanded)}
-				iconOnly={!expanded}
-				btnClasses={'justify-start transition-all duration-150'}
-				title="Conversations"
+			<!-- Same shape as the New chat row below: the wide button takes the width and the
+			     icon-only one sits at the end, stacking into the rail once collapsed. -->
+			<div
+				class={manager.isSidebarExpanded
+					? 'flex flex-row gap-1 items-center'
+					: 'flex flex-col gap-2'}
 			>
-				<div transition:fade={{ duration: 100 }}> Conversations </div>
-			</Button>
-			<Button
-				unifiedSize="md"
-				variant="subtle"
-				startIcon={{ icon: Plus, classes: 'ml-[2px]' }}
-				onClick={newChat}
-				title="Start new conversation"
-				iconOnly={!expanded}
-				btnClasses={'justify-start transition-all duration-150 whitespace-nowrap'}
+				<Button
+					unifiedSize="md"
+					variant="subtle"
+					startIcon={{
+						icon: manager.isSidebarExpanded ? PanelLeftClose : PanelLeftOpen,
+						classes: 'ml-[2px]'
+					}}
+					onClick={() => (manager.isSidebarExpanded = !manager.isSidebarExpanded)}
+					iconOnly={!manager.isSidebarExpanded}
+					wrapperClasses={manager.isSidebarExpanded ? 'grow min-w-0' : ''}
+					btnClasses={'w-full justify-start transition-all duration-150'}
+					title="Conversations"
+				>
+					<div transition:fade={{ duration: 100 }}> Conversations </div>
+				</Button>
+				{#if !emptyString(description)}
+					<!-- The icon is passed as the trigger rather than left to Tooltip's own: without
+					     children it renders an empty trigger span beside the icon, which takes a
+					     button's worth of height in this column.
+					     Anchored to the icon's top: a long description centred on it would grow up
+					     over the header above the chat. -->
+					<!-- Sized and inset like an icon-only Button's own icon (px-2 plus the ml-[2px]
+					     every icon in this column carries), so it lands on their line in the rail. -->
+					<Tooltip
+						placement="right-start"
+						class="inline-flex items-center size-8 shrink-0 pl-[10px] text-secondary hover:text-primary"
+					>
+						<Info size={14} />
+						{#snippet text()}
+							<!-- A flow description is markdown, and is rendered as such everywhere else it
+							     is shown. TooltipInner brings the width cap and the scroll. -->
+							<GfmMarkdown md={description ?? ''} noPadding prose="sm" />
+						{/snippet}
+					</Tooltip>
+				{/if}
+			</div>
+			<!-- Side by side while there is width for both labels; stacked once collapsed,
+			     where the rail fits one icon across. -->
+			<div
+				class={manager.isSidebarExpanded
+					? 'flex flex-row gap-1 items-center'
+					: 'flex flex-col gap-2'}
 			>
-				<div transition:fade={{ duration: 100 }}> New chat </div>
-			</Button>
+				<Button
+					unifiedSize="md"
+					variant="subtle"
+					startIcon={{ icon: Plus, classes: 'ml-[2px]' }}
+					onClick={() => manager.createConversation({ clearMessages: true })}
+					disabled={!!manager.newChatReason}
+					title={manager.newChatReason ?? 'Start new conversation'}
+					iconOnly={!manager.isSidebarExpanded}
+					wrapperClasses={manager.isSidebarExpanded ? 'grow min-w-0' : ''}
+					btnClasses={'w-full justify-start transition-all duration-150 whitespace-nowrap'}
+				>
+					<div transition:fade={{ duration: 100 }}> New chat </div>
+				</Button>
+				{#if manager.canFilterConversationKind}
+					<Popover placement="bottom-start" closeButton={false}>
+						{#snippet trigger()}
+							<!-- Icon-only next to the wider New chat: which kind is listed is named in
+							     the title and by the group inside. -->
+							<Button
+								nonCaptureEvent
+								unifiedSize="md"
+								variant="subtle"
+								startIcon={{ icon: Filter }}
+								disabled={manager.isTurnInFlight}
+								title={manager.isTurnInFlight
+									? 'Wait for the current answer to change which chats are listed'
+									: `Filter conversations · ${KIND_LABELS[manager.conversationKind]}`}
+								iconOnly
+							/>
+						{/snippet}
+						{#snippet content()}
+							<div class="p-3">
+								<ToggleButtonGroup
+									selected={manager.conversationKind}
+									onSelected={(kind) => manager.setConversationKind(kind as ConversationKind)}
+									noWFull
+								>
+									{#snippet children({ item })}
+										<ToggleButton size="sm" value="test" label={KIND_LABELS.test} {item} />
+										<ToggleButton size="sm" value="deployed" label={KIND_LABELS.deployed} {item} />
+										<ToggleButton size="sm" value="all" label={KIND_LABELS.all} {item} />
+									{/snippet}
+								</ToggleButtonGroup>
+								<p class="text-2xs text-tertiary mt-1.5 max-w-[190px]">
+									Test chats are the ones run from the flow editor's test panel, kept apart from the
+									conversations the deployed flow's users started.
+								</p>
+							</div>
+						{/snippet}
+					</Popover>
+				{/if}
+			</div>
 		</div>
 	</div>
 
 	<!-- Conversations List -->
-	{#if !expanded}
+	{#if !manager.isSidebarExpanded}
 		<!-- Collapsed state - show single chat icon with badge -->
 		<div class="p-1">
 			<Button
 				unifiedSize="md"
-				startIcon={{ icon: MessageCircle }}
-				onClick={() => (expanded = true)}
-				title="{items.length} conversation{items.length !== 1 ? 's' : ''}"
+				startIcon={{ icon: MessageSquare, classes: 'ml-[2px]' }}
+				onClick={() => (manager.isSidebarExpanded = true)}
+				title="{manager.conversations.length} conversation{manager.conversations.length !== 1
+					? 's'
+					: ''}{manager.totalUnread > 0 ? `, ${manager.totalUnread} unread` : ''}"
 				variant="subtle"
 				btnClasses="w-fit px-2 relative"
 			>
-				<CountBadge count={items.length} small alwaysVisible={true} class="right-[3px] top-[3px]" />
+				<!-- The same badge the rows carry, over the one icon that stands for all of them:
+				     collapsed, what is worth a number is what arrived, not how many chats exist. -->
+				<UnreadCountBadge
+					count={manager.totalUnread}
+					small
+					class="absolute right-[3px] top-[3px] pointer-events-none"
+				/>
 			</Button>
 		</div>
 	{/if}
 
 	<!-- Always mount InfiniteList, but hide it when collapsed -->
-	<div class="flex-1 overflow-hidden transition-all duration-150 p-1" class:hidden={!expanded}>
-		{#if draftShown && expanded}
-			<div class="w-full pb-1" transition:fade={{ duration: 100, delay: 30 }}>
-				<Button
-					unifiedSize="md"
-					variant="subtle"
-					selected={true}
-					btnClasses="transition-all duration-150 group"
-				>
-					<span class="flex-1 text-left truncate">New chat</span>
-					<Button
-						wrapperClasses="ml-2 transition-all duration-100 opacity-0 group-hover:opacity-100"
-						onClick={(e) => {
-							e?.stopPropagation()
-							draft = false
-							chat.newConversation()
-						}}
-						title="Discard draft"
-						destructive
-						unifiedSize="xs"
-						variant="subtle"
-						iconOnly
-						startIcon={{ icon: Trash2 }}
-					/>
-				</Button>
-			</div>
-		{/if}
+	<div
+		class="flex-1 overflow-hidden transition-all duration-150 p-1"
+		class:hidden={!manager.isSidebarExpanded}
+	>
 		<InfiniteList
-			bind:this={list}
-			bind:items
-			selectedItemId={chatState.conversationId}
+			bind:this={manager.conversationListComponent}
+			bind:items={manager.conversations}
+			selectedItemId={manager.selectedConversationId}
 			noBorder={true}
 			rounded={false}
 			preventXOverflow={true}
 		>
-			{#snippet customRow({ item: conversation })}
-				{#if expanded}
+			{#snippet customRow({ item: conversation, hover })}
+				{#if manager.isSidebarExpanded}
 					<div class={twMerge('w-full pb-1')} transition:fade={{ duration: 100, delay: 30 }}>
-						<Button
-							unifiedSize="md"
-							variant="subtle"
-							onClick={() => {
-								draft = false
-								chat.selectConversation(conversation.id)
-							}}
-							selected={chatState.conversationId === conversation.id}
-							btnClasses="transition-all duration-150 group"
-						>
-							<span class="flex-1 text-left truncate">
-								{getConversationTitle(conversation)}
-							</span>
+						{#if renamingId === conversation.id}
+							<!-- While renaming, the field replaces the row rather than sitting inside its
+							     button: a text input nested in a button is a nested interactive control,
+							     and every keystroke would have to be kept from reaching the row. -->
+							<div class="flex flex-row items-center gap-1 h-8 px-2 rounded-md bg-surface-selected">
+								{@render statusDot(conversation)}
+								<TextInput
+									bind:this={renameInput}
+									bind:value={renameDraft}
+									class="min-w-0 flex-1"
+									size="sm"
+									inputProps={{
+										'aria-label': 'Chat name',
+										onblur: commitRename,
+										onkeydown: (e: KeyboardEvent) => {
+											if (e.key === 'Enter') {
+												e.preventDefault()
+												commitRename()
+											} else if (e.key === 'Escape') {
+												e.preventDefault()
+												renamingId = undefined
+											}
+										}
+									}}
+								/>
+							</div>
+						{:else}
 							<Button
-								wrapperClasses={twMerge(
-									'ml-2 transition-all duration-100  opacity-0 group-hover:opacity-100',
-									deletingId === conversation.id ? 'opacity-100' : ' '
-								)}
-								disabled={deletingId === conversation.id}
-								onClick={(e) => {
-									e?.stopPropagation()
-									list?.deleteItem(conversation.id)
-								}}
-								title="Delete conversation"
-								destructive
-								unifiedSize="xs"
+								unifiedSize="md"
 								variant="subtle"
-								loading={deletingId === conversation.id}
-								iconOnly
-								startIcon={{ icon: Trash2 }}
-							/>
-						</Button>
+								onClick={() => manager.selectConversation(conversation.id, conversation.isDraft)}
+								selected={manager.selectedConversationId === conversation.id}
+								disabled={!!rowLocked(conversation)}
+								title={rowLocked(conversation)}
+								btnClasses="transition-all duration-150 group gap-2"
+							>
+								<!-- In the slot New chat's icon occupies above, so the column lines up. Says
+								     what the chat is doing where there is something to say, and which kind of
+								     chat it is otherwise. -->
+								{@render statusDot(conversation)}
+								{@const unread = manager.unreadCount(conversation.id)}
+								<span
+									class={twMerge(
+										'flex-1 text-left truncate',
+										unread > 0 ? 'font-semibold text-primary' : ''
+									)}
+								>
+									{getConversationTitle(conversation)}
+								</span>
+								{#if manager.conversationStatus(conversation.id) === 'queued' || unread > 0}
+									<span class="shrink-0 inline-flex items-center gap-1">
+										{#if manager.conversationStatus(conversation.id) === 'queued'}
+											<PencilLine class="w-3 h-3 text-tertiary" aria-label="Message waiting to send" />
+										{/if}
+										<UnreadCountBadge count={unread} />
+									</span>
+								{/if}
+								<!-- Hidden while the row is disabled: it sits inside the row's button, and a
+								     disabled button swallows every click in its subtree, so a visible menu
+								     here would be an affordance that does nothing. -->
+								{#if !rowLocked(conversation)}
+									<!-- svelte-ignore a11y_click_events_have_key_events -->
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
+									<div
+										class={twMerge(
+											'ml-2 transition-all duration-100 opacity-0 group-hover:opacity-100',
+											manager.deletingConversationId === conversation.id ? 'opacity-100' : ''
+										)}
+										onclick={(e) => e.stopPropagation()}
+									>
+										<DropdownV2 items={() => rowActions(conversation)} size="xs" />
+									</div>
+								{/if}
+							</Button>
+						{/if}
 					</div>
 				{/if}
 			{/snippet}
 
 			{#snippet empty()}
-				{#if !draftShown}
-					<div class="p-4 text-center">
-						<p class="text-sm text-secondary mb-2">No conversations yet</p>
-					</div>
-				{/if}
+				<div class="p-4 text-center">
+					<p class="text-sm text-secondary mb-2">No conversations yet</p>
+				</div>
 			{/snippet}
 		</InfiniteList>
 	</div>

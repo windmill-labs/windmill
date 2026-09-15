@@ -692,16 +692,53 @@ pub async fn delete_jobs(
     .await?
     .rows_affected();
 
-    let conversation_message_deleted = sqlx::query!(
+    // One row per message deleted, so the conversation of a chat losing several appears
+    // several times: the count is taken before the dedup below.
+    let mut conversation_ids: Vec<Uuid> = sqlx::query_scalar!(
         "DELETE FROM flow_conversation_message m
          USING flow_conversation c
-         WHERE m.conversation_id = c.id AND c.workspace_id = $1 AND m.job_id = ANY($2)",
+         WHERE m.conversation_id = c.id AND c.workspace_id = $1 AND m.job_id = ANY($2)
+         RETURNING m.conversation_id",
         &w_id,
         &job_ids
     )
-    .execute(&mut *tx)
-    .await?
-    .rows_affected();
+    .fetch_all(&mut *tx)
+    .await?;
+    let conversation_message_deleted = conversation_ids.len() as u64;
+
+    // Same rule as retention (windmill_common::jobs::delete_jobs): a conversation with no
+    // messages left goes, and the agent's memory for it with it.
+    conversation_ids.sort_unstable();
+    conversation_ids.dedup();
+    if !conversation_ids.is_empty() {
+        sqlx::query!(
+            "DELETE FROM ai_agent_memory a
+               USING flow_conversation c
+              WHERE c.id = ANY($1)
+                AND c.workspace_id = $2
+                AND a.conversation_id = c.id
+                AND a.workspace_id = c.workspace_id
+                AND NOT EXISTS (
+                    SELECT 1 FROM flow_conversation_message m WHERE m.conversation_id = c.id
+                )",
+            &conversation_ids,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            "DELETE FROM flow_conversation c
+              WHERE c.id = ANY($1)
+                AND c.workspace_id = $2
+                AND NOT EXISTS (
+                    SELECT 1 FROM flow_conversation_message m WHERE m.conversation_id = c.id
+                )",
+            &conversation_ids,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     // Resolutions are not exported, so a delete-then-reimport of the same UUID would
     // otherwise resurrect the old annotation on a job that never carried one.

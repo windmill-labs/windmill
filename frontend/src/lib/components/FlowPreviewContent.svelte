@@ -44,6 +44,7 @@
 	import FlowRestartButton from './FlowRestartButton.svelte'
 	import { useNestedRestartState } from './useNestedRestartState.svelte'
 	import { buildFlowRecording, downloadRecordingJson } from './recording/runRecording'
+	import { agentStreamingEnabled } from './flows/agentFormFields'
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -159,6 +160,13 @@
 	}
 
 	let loadingHistory = $state(false)
+
+	let shouldUseStreaming = $derived.by(() => {
+		const modules = flowStore.val.value?.modules
+		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
+		if (lastModule?.value?.type !== 'aiagent') return false
+		return agentStreamingEnabled(lastModule.value)
+	})
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		if (previewMode === 'whole') {
@@ -462,6 +470,7 @@
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex flex-row justify-center w-full mb-6">
 					<FlowChat
+						useStreaming={shouldUseStreaming}
 						onRunFlow={async (userMessage, conversationId, additionalInputs) => {
 							await runPreview(
 								{ user_message: userMessage, ...(additionalInputs ?? {}) },
@@ -470,9 +479,11 @@
 							)
 							return jobId ?? ''
 						}}
-						hideSidebar={true}
+						conversationKind="test"
+						frame="boxed"
 						path={$pathStore}
 						inputSchema={flowStore.val.schema}
+						flowModules={flowStore.val.value?.modules}
 					/>
 				</div>
 			{:else}
@@ -557,7 +568,13 @@
 				</div>
 			{/if}
 		{/if}
-		<div class="pt-4 flex flex-col border-t relative">
+		<!-- The rule divides the inputs form from its results. Chat mode has no form: the
+		     chat is its own panel, and a second line right under it reads as a stray edge. -->
+		<div
+			class="pt-4 flex flex-col relative {flowStore.val.value?.chat_input_enabled
+				? ''
+				: 'border-t'}"
+		>
 			{#if flowHasChanged()}
 				<div class="pb-2">
 					<div

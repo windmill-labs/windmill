@@ -3,7 +3,7 @@
 	import type { DisplayMessage, ToolDisplayMessage } from './shared'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import AssistantMessage from './AssistantMessage.svelte'
-	import { getAiChatManager } from './aiChatManagerContext'
+	import { getChatViewHost } from './chatViewHost'
 	import { Button } from '$lib/components/common'
 	import { RefreshCwIcon, Undo2Icon } from 'lucide-svelte'
 	import AIChatInput from './AIChatInput.svelte'
@@ -15,7 +15,7 @@
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import { workspaceStore } from '$lib/stores'
 
-	const aiChatManager = getAiChatManager()
+	const chatHost = getChatViewHost()
 
 	// Paths in a message name items the chat's tools reach, so they resolve against the
 	// operating workspace, never `workspaceStore`: a fork session leaves the store on the
@@ -25,7 +25,7 @@
 		// Registers the dependency that `operatingWorkspace`'s own untracked
 		// `get(workspaceStore)` cannot.
 		void $workspaceStore
-		return aiChatManager.operatingWorkspace
+		return chatHost.operatingWorkspace
 	})
 
 	// Per-message expand/collapse state for paste chips shown in the bubble.
@@ -62,7 +62,12 @@
 	let editContext = $state<ContextElement[]>([])
 
 	function editMessage() {
-		if (message.role !== 'user' || editingMessageIndex !== null || aiChatManager.loading) {
+		if (
+			!chatHost.supportsMessageEditing ||
+			message.role !== 'user' ||
+			editingMessageIndex !== null ||
+			chatHost.loading
+		) {
 			return
 		}
 		editContext = [...(message.contextElements ?? [])]
@@ -79,7 +84,9 @@
 			message.role === 'tool' && 'mb-1',
 			message.role === 'user' && messageIndex > 0 && 'mt-4 mb-6',
 			isLast && '!mb-12',
-			message.role !== 'user' ? 'cursor-default' : 'cursor-pointer'
+			message.role !== 'user' || !chatHost.supportsMessageEditing
+				? 'cursor-default'
+				: 'cursor-pointer'
 		)}
 		role="button"
 		tabindex="0"
@@ -116,7 +123,7 @@
 					bind:selectedContext={editContext}
 					initialInstructions={message.content}
 					initialPastes={message.pastes}
-					initialImages={aiChatManager.storedImages(messageIndex)}
+					initialImages={chatHost.storedImages(messageIndex)}
 					initialFiles={message.files}
 					{editingMessageIndex}
 					onClickOutside={() => (editingMessageIndex = null)}
@@ -131,7 +138,9 @@
 		{:else}
 			<div class={twMerge('text-sm py-1 px-2', message.role === 'tool' && 'text-primary py-0')}>
 				{#if message.role === 'assistant'}
-					<div class="px-[1px]"><AssistantMessage {message} workspace={messageWorkspace} /></div>
+					<div class="px-[1px] group/answer"
+						><AssistantMessage {message} workspace={messageWorkspace} /></div
+					>
 				{:else if message.role === 'tool'}
 					<div class="px-[1px]"
 						><ToolExecutionDisplay message={message as ToolDisplayMessage} /></div
@@ -185,9 +194,9 @@
 					on:click={() => {
 						if (message.snapshot) {
 							if (message.snapshot.type === 'flow') {
-								aiChatManager.flowAiChatHelpers?.revertToSnapshot(message.snapshot.value)
+								chatHost.flowAiChatHelpers?.revertToSnapshot(message.snapshot.value)
 							} else if (message.snapshot.type === 'app') {
-								aiChatManager.appAiChatHelpers?.revertToSnapshot(message.snapshot.value)
+								chatHost.appAiChatHelpers?.revertToSnapshot(message.snapshot.value)
 							}
 						}
 					}}
@@ -206,7 +215,7 @@
 				variant="default"
 				title="Retry generation"
 				startIcon={{ icon: RefreshCwIcon }}
-				onclick={() => aiChatManager.retryRequest(messageIndex)}
+				onclick={() => chatHost.retryRequest(messageIndex)}
 			>
 				Retry
 			</Button>
