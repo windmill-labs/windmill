@@ -87,7 +87,8 @@ async fn rotate(base: &str, key: &str) -> anyhow::Result<()> {
 }
 
 /// The user's prefix on disk, `windmill_ai_sessions/{w_id}/g{generation}/{email hash}`,
-/// under whichever generation is current.
+/// under the newest generation: deleting an older generation's objects leaves its
+/// directories behind, and `read_dir` order differs across filesystems.
 fn user_root(storage_dir: &std::path::Path, email: &str) -> std::path::PathBuf {
     let workspace = storage_dir.join("windmill_ai_sessions/test-workspace");
     let hash = calculate_hash(email);
@@ -96,8 +97,18 @@ fn user_root(storage_dir: &std::path::Path, email: &str) -> std::path::PathBuf {
         .into_iter()
         .flatten()
         .flatten()
-        .map(|entry| entry.path().join(&hash))
-        .find(|path| path.exists())
+        .filter_map(|entry| {
+            let generation: i64 = entry
+                .file_name()
+                .to_str()?
+                .strip_prefix('g')?
+                .parse()
+                .ok()?;
+            Some((generation, entry.path().join(&hash)))
+        })
+        .filter(|(_, path)| path.exists())
+        .max_by_key(|(generation, _)| *generation)
+        .map(|(_, path)| path)
         .expect("the user has backups under the current key")
 }
 
@@ -945,12 +956,9 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     .await?;
     assert_eq!(resp.status(), 200);
 
-    // An incremental push in one part that changes more than one object (a chat and the
-    // artifacts) unlists the session before its writes and lists it again after them, so
-    // a write failing after another landed leaves the session absent rather than listed
-    // with the new chat and the old artifacts; the browser's next push of it is refused
-    // and goes whole. The artifacts write fails on a directory planted where the object
-    // goes.
+    // An incremental part changing more than one object unlists the session before its
+    // writes, so one write failing after another landed leaves it absent rather than listed
+    // as a mix of old and new pieces. A directory planted at `artifacts.json` fails that write.
     let s10_head =
         json!({ "id": "s10", "workspace_id": "test-workspace", "createdAt": 10, "chatId": "c1" });
     let resp = push(
