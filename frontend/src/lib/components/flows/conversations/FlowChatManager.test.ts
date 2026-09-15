@@ -173,6 +173,37 @@ describe('a chat re-pointed at another flow', () => {
 })
 
 /**
+ * The messages endpoint answers oldest-first with a limit, so one request only reaches the
+ * start of a turn that wrote a lot of rows — an agent calling several tools a round. Its
+ * answer is among the rows that would be left behind.
+ */
+describe('reading a turn longer than one page', () => {
+	const assistantRows = (from: number, count: number) =>
+		Array.from({ length: count }, (_, i) => ({
+			id: `m${from + i}`,
+			conversation_id: 'a',
+			message_type: 'assistant',
+			content: `row ${from + i}`,
+			created_at: new Date().toISOString(),
+			created_seq: from + i
+		}))
+
+	it('keeps reading until a page comes back short', async () => {
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			.mockResolvedValueOnce(assistantRows(1, 50) as any)
+			.mockResolvedValueOnce(assistantRows(51, 12) as any)
+		const manager = managerWithRows()
+		manager.selectedConversationId = 'a'
+
+		await (manager as any).pollConversationMessages('a', {})
+
+		expect(manager.messages).toHaveLength(62)
+		expect(manager.messages.at(-1)?.content).toBe('row 62')
+	})
+})
+
+/**
  * A queued message goes out when the turn ahead of it reaches a terminal state — not
  * merely when the chat stops looking busy. The stream dropping is the case that separates
  * the two: `onerror` ends the turn's client-side state, but the flow job it was following

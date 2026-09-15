@@ -466,9 +466,13 @@ export class FlowChatViewHost implements ChatViewHost {
 		)
 		if (!started) {
 			// The upload succeeded and the run did not, so the composer's draft was spent on
-			// nothing. The uploaded objects stay where they are — a resend uploads its own,
-			// under its own prefix — but what the reader wrote comes back, to the chat it was
-			// written in rather than the one open by now.
+			// nothing. What the reader wrote comes back, to the chat it was written in rather
+			// than the one open by now.
+			//
+			// The uploaded objects are deliberately left in place. Deleting them is itself a
+			// request that can fail, on a path that is already failing, and a resend uploads
+			// its own under a fresh prefix — so a lost send costs one prefix, not a growing
+			// number. The workspace's own storage retention is what collects them.
 			this.#restoreToComposer({ ...options, conversationId })
 			return false
 		}
@@ -522,8 +526,12 @@ export class FlowChatViewHost implements ChatViewHost {
 	): Promise<S3Attachment[]> {
 		const workspace = this.#options.workspace?.()
 		if (!workspace) throw new Error('no workspace')
-		// One prefix per turn keeps a re-attached filename from overwriting the copy an
-		// earlier message still refers to.
+		// A prefix per turn, and a segment per attachment inside it. The turn's prefix keeps a
+		// re-attached filename off the copy an earlier message still points at; the segment
+		// does the same within one turn, where two files can arrive under one name and would
+		// otherwise race to a single key and leave the agent reading one of them twice. The
+		// name itself stays the last segment, so anything that reads a name off the key
+		// still sees what the reader attached.
 		const prefix = `windmill_chat_uploads/${randomUUID()}`
 		return Promise.all(
 			attachments.map(async (attachment, index) => {
@@ -534,7 +542,7 @@ export class FlowChatViewHost implements ChatViewHost {
 				)
 				const { file_key } = await HelpersService.fileUpload({
 					workspace,
-					fileKey: `${prefix}/${filename}`,
+					fileKey: `${prefix}/${index}/${filename}`,
 					contentType: blob.type,
 					requestBody: blob
 				})

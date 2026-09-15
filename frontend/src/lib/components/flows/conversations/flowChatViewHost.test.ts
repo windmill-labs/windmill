@@ -87,6 +87,41 @@ describe('a send whose attachments are still uploading', () => {
 	})
 
 	// Stop has no job to cancel yet, so it has to be honoured when the upload lands —
+
+	/**
+	 * Two files can arrive under one name. Keyed on the name alone they race to the same
+	 * object, and the agent reads whichever landed last — twice — while the other is gone.
+	 */
+	it('gives two attachments sharing a name their own objects', async () => {
+		const manager = stubManager('a')
+		const keys: string[] = []
+		vi.mocked(HelpersService.fileUpload).mockImplementation((async (args: any) => {
+			keys.push(args.fileKey)
+			return { file_key: args.fileKey }
+		}) as any)
+
+		await host(manager).sendRequest({
+			instructions: 'read both',
+			blobs: [
+				{
+					name: 'report.pdf',
+					dataUrl: 'data:application/pdf;base64,AAA',
+					mediaType: 'application/pdf'
+				},
+				{
+					name: 'report.pdf',
+					dataUrl: 'data:application/pdf;base64,BBB',
+					mediaType: 'application/pdf'
+				}
+			] as any
+		})
+
+		expect(keys).toHaveLength(2)
+		expect(new Set(keys).size).toBe(2)
+		// The name a reader sees is still the one they attached.
+		expect(keys.every((k) => k.endsWith('/report.pdf'))).toBe(true)
+	})
+
 	// otherwise the run starts and the reader watches a message they took back execute.
 	it('does not run after a Stop pressed while it uploaded', async () => {
 		const manager = stubManager('a')

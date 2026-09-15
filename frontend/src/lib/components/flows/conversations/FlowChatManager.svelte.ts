@@ -75,6 +75,11 @@ const FOLLOW_RETRY_DELAY_MS = 500
 /** How often a turn with no stream asks its job whether the run is over. */
 const SETTLE_POLL_MS = 2000
 
+/** A poll reads the conversation a page at a time, and stops after this many — enough for a
+ * long tool-using turn, bounded so a page that stops advancing cannot loop. */
+const POLL_PAGE_SIZE = 50
+const POLL_MAX_PAGES = 20
+
 /**
  * The agent events the worker streams, in the shape the transcript applies. The SDK names
  * the same six events after the wire protocol; this is the rest of the app's vocabulary.
@@ -922,18 +927,31 @@ export class FlowChatManager {
 		if (!this.#workspace()) return
 
 		try {
-			const lastSeq = this.getLastPersistedMessageSeq(conversationId)
 			const startedIn = this.#generation
-			const response = await FlowConversationsService.listConversationMessages({
-				workspace: this.#workspace()!,
-				conversationId: conversationId,
-				page: 1,
-				perPage: 50,
-				afterSeq: lastSeq
-			})
-			// An interval tick already dispatched outlives `clearInterval`, and a turn's final
-			// poll outlives its abort — either would put a forgotten flow's rows back.
-			if (startedIn !== this.#generation) return
+			// Paged, not one request: the endpoint answers oldest-first with a limit, so a turn
+			// that wrote more rows than a page — an agent calling several tools a round — would
+			// hand back its earliest and leave its answer behind, and the sweep below drops the
+			// temp rows that were standing in for it.
+			const response: ChatMessage[] = []
+			let afterSeq = this.getLastPersistedMessageSeq(conversationId)
+			for (let page = 0; page < POLL_MAX_PAGES; page++) {
+				const batch = await FlowConversationsService.listConversationMessages({
+					workspace: this.#workspace()!,
+					conversationId: conversationId,
+					page: 1,
+					perPage: POLL_PAGE_SIZE,
+					afterSeq
+				})
+				// An interval tick already dispatched outlives `clearInterval`, and a turn's final
+				// poll outlives its abort — either would put a forgotten flow's rows back.
+				if (startedIn !== this.#generation) return
+				response.push(...batch)
+				if (batch.length < POLL_PAGE_SIZE) break
+				const furthest = Math.max(...batch.map((m) => m.created_seq))
+				// A page that moved nothing would ask for the same rows forever.
+				if (afterSeq !== undefined && furthest <= afterSeq) break
+				afterSeq = furthest
+			}
 
 			if (options?.isNewConversation) {
 				await this.refreshConversations()
