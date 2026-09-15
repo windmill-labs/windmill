@@ -370,8 +370,10 @@ pub struct AIAgentResult<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wm_stream: Option<String>,
     /// The model's thinking across every iteration of the loop, in order, blank-line
-    /// separated. Filled whether or not the step streams, so a downstream step never
-    /// has to pick it out of `wm_stream`.
+    /// separated. Present whenever the provider's parser surfaced any, whether or not
+    /// the step streams, so a downstream step never has to pick it out of `wm_stream`.
+    /// Absent when the model thought nothing, and on the OpenAI Responses path, whose
+    /// parser does not return reasoning yet.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
