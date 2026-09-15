@@ -128,6 +128,26 @@ describe('unread bookkeeping', () => {
 	})
 })
 
+describe('a chat re-pointed at another flow', () => {
+	/**
+	 * The route component is reused between two flows, so the chat is re-pointed rather than
+	 * rebuilt. A selection carried across would open the new flow on the old flow's
+	 * conversation and send into its transcript and its agent's memory.
+	 */
+	it('forgets the flow it was pointed at when it is re-pointed', async () => {
+		vi.mocked(FlowConversationsService.listConversationMessages).mockResolvedValue([] as any)
+		const manager = managerWithRows()
+		await manager.selectConversation('a')
+		expect(manager.selectedConversationId).toBe('a')
+
+		manager.cleanup()
+
+		expect(manager.selectedConversationId).toBeUndefined()
+		expect(manager.messages).toEqual([])
+		expect(manager.conversations).toEqual([])
+	})
+})
+
 /**
  * A queued message goes out when the turn ahead of it reaches a terminal state — not
  * merely when the chat stops looking busy. The stream dropping is the case that separates
@@ -418,6 +438,26 @@ describe('a conversation opened while its run is still going', () => {
 		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(false))
 		// Nothing was taken over, so nothing is left for a later Stop to cancel.
 		expect(manager.currentJobId).toBeUndefined()
+	})
+
+	/**
+	 * The hold a failed load leaves behind gates the whole surface — New chat and every
+	 * other conversation with it — so Stop has to be able to release it.
+	 */
+	it('lets Stop release a chat whose rows never loaded', async () => {
+		vi.mocked(FlowConversationsService.listConversationMessages).mockRejectedValue(
+			new Error('transcript unavailable')
+		)
+		const manager = (live = managerWithRows())
+		;(manager as any).initialize(vi.fn(), 'u/admin/flow', true)
+		manager.operatingWorkspace = () => 'ws'
+
+		await manager.selectConversation('a')
+		expect(manager.isConversationBusy('a')).toBe(true)
+
+		await manager.cancelCurrentJob()
+
+		expect(manager.isConversationBusy('a')).toBe(false)
 	})
 
 	it('leaves a conversation whose run is over alone', async () => {

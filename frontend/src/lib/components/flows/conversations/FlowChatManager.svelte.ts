@@ -471,13 +471,33 @@ export class FlowChatManager {
 		status.isReasoningActive = false
 		status.isLoading = false
 		status.isWaitingForResponse = false
+		// Including a hold taken before a turn had a job — an upload, or a load working out
+		// whether this chat has a run in flight. Stop is the way out of those too, and it
+		// reaches them only here.
+		status.isDispatchingTurn = false
 		status.jobId = undefined
 		if (options?.settled) this.onTurnSettled?.(conversationId)
 	}
 
-	/** Every turn this chat is following. Called when the chat itself goes away. */
+	/**
+	 * Stop following every turn, and forget what this chat holds about one flow.
+	 *
+	 * Called when the chat goes away — which includes being re-pointed at another flow or
+	 * workspace, since the route component is reused between them. Keeping the selection
+	 * there would open the next flow on the previous one's conversation, and send its
+	 * messages into that transcript and its agent's memory.
+	 */
 	cleanup() {
 		for (const conversationId of Object.keys(this.#status)) this.endTurn(conversationId)
+		this.selectedConversationId = undefined
+		this.#rowsById = {}
+		this.#pagedTo = {}
+		this.#hasMoreById = {}
+		this.#status = {}
+		this.#runtime.clear()
+		this.#lastSeenCount = {}
+		this.conversations = []
+		this.inputMessage = ''
 	}
 
 	// Public methods for component to call

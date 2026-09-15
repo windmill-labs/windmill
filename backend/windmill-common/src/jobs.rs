@@ -499,6 +499,16 @@ pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> e
         // collects them — `ai_agent_memory` carries no job id for retention to match on.
         // Two statements rather than one CTE: a data-modifying CTE reads the snapshot from
         // before the delete above, so every conversation would still look non-empty.
+        // Two calls each deleting one of a conversation's last messages would each still see
+        // the other's row — uncommitted deletes are invisible across transactions — so
+        // neither would collect it and nothing would try again. Taking the conversation row
+        // first serialises them: the second reads the first's delete and finds it empty.
+        sqlx::query_scalar!(
+            "SELECT id FROM flow_conversation WHERE id = ANY($1) FOR UPDATE",
+            &conversation_ids
+        )
+        .fetch_all(&mut *conn)
+        .await?;
         // Memory first, since it reads the conversation row for its workspace.
         sqlx::query!(
             "DELETE FROM ai_agent_memory a
