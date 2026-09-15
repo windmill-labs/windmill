@@ -16,6 +16,10 @@
 		 *  this the drawer would outlive it (a relocation remounts the editor) and deploy it
 		 *  at a path it has left. Omit where the host cannot be remounted under the drawer. */
 		claimOpening?: () => number | undefined
+		/** The host cannot name the version it last deployed, so this confirmation is
+		 *  caution rather than an observed newer version: nobody may have deployed over
+		 *  the user, and `deployedBy` is then whoever wrote the head, possibly themselves. */
+		baseUnknown?: boolean
 	}
 
 	let {
@@ -25,13 +29,14 @@
 		confirmCallback,
 		deployedBy = undefined,
 		open = $bindable(false),
-		claimOpening = undefined
+		claimOpening = undefined,
+		baseUnknown = false
 	}: Props = $props()
 </script>
 
 <ConfirmationModal
 	{open}
-	title={'New version deployed by ' + deployedBy}
+	title={baseUnknown ? 'Deploy anyway?' : 'New version deployed by ' + deployedBy}
 	confirmationText="Override"
 	on:canceled={() => {
 		open = false
@@ -39,7 +44,11 @@
 	on:confirmed={() => confirmCallback()}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span>A new version was deployed while you were editing this one.</span>
+		<span>
+			{baseUnknown
+				? 'This editor could not confirm which version it last deployed, so it cannot tell whether this overwrites newer work.'
+				: 'A new version was deployed while you were editing this one.'}
+		</span>
 		{#if diffDrawer}
 			<Button
 				wrapperClasses="self-start"

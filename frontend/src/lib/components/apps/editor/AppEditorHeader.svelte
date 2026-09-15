@@ -470,8 +470,9 @@
 	}
 
 	let onLatest = $state(true)
-	/** The last deploy from here could not name the version it wrote, so this editor has no
-	 *  base: the head it holds may be another deploy's. Set by `updateApp`. */
+	/** The last deploy from here could not name the version it wrote: either one landed
+	 *  beside it or the anchor read failed. Either way this editor has no base to compare,
+	 *  so the guard confirms. Set by `updateApp`. */
 	let baseUnknown = $state(false)
 	async function compareVersions() {
 		if (baseUnknown) {
@@ -781,6 +782,7 @@
 	bind:open
 	{diffDrawer}
 	claimOpening={() => (lastOpening = diffDrawer?.beginOpening())}
+	{baseUnknown}
 	bind:deployedValue
 	currentValue={{
 		summary: $summary,

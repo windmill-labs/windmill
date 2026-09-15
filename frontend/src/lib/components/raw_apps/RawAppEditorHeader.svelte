@@ -563,8 +563,7 @@
 		})
 		// `claimed` is the version this deploy can prove it wrote and becomes the next
 		// draft's base; the head is what is deployed now. The route owns this `version`
-		// prop and re-pushes `parentVersion ?? head` as soon as `onDeploy` returns, so the
-		// guard compares the claimed base when there is one and the head otherwise.
+		// prop and re-pushes `parentVersion ?? head` as soon as `onDeploy` returns.
 		const claimed = versionThisDeployWrote(appHistory, $userStore?.username, anchor)
 		version = appHistory[0]?.version
 		// With no claim the head may be another deploy's, so it is not a base this editor
@@ -617,8 +616,9 @@
 	}
 
 	let onLatest = $state(true)
-	/** The last deploy from here could not name the version it wrote, so this editor has no
-	 *  base: the head it holds may be another deploy's. Set by `updateApp`. */
+	/** The last deploy from here could not name the version it wrote: either one landed
+	 *  beside it or the anchor read failed. Either way this editor has no base to compare,
+	 *  so the guard confirms. Set by `updateApp`. */
 	let baseUnknown = $state(false)
 	async function compareVersions() {
 		if (baseUnknown) {
@@ -732,6 +732,7 @@
 	bind:open
 	{diffDrawer}
 	claimOpening={() => (lastOpening = diffDrawer?.beginOpening())}
+	{baseUnknown}
 	bind:deployedValue
 	currentValue={currentDiffValue}
 />
