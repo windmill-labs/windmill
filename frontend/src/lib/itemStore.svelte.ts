@@ -826,6 +826,9 @@ export function createItemStore(ports: ItemRowPort) {
 			const holder = entries.get(keyString(key))
 			if (holder === by) return
 			if (holder) {
+				// Its row is debounced: unsent, an edit typed in the last moment is not what the
+				// re-read would find, and the read would put the screen back before it.
+				await ports.flush(key)
 				await holder.reread()
 				return
 			}

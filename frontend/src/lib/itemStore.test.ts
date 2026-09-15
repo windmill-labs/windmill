@@ -32,12 +32,20 @@ function fakeRows() {
 	const hints = new Map<string, boolean>()
 	/** Paths whose parked payload was dropped. */
 	const dropped: string[] = []
+	/** What a write leaves queued, and what a flush sends: the syncer debounces. */
+	const queued = new Map<string, unknown>()
+	const sent = new Map<string, unknown>()
 	const port: ItemRowPort = {
 		write: (key, value) => {
 			writes.push({ path: key.path, value })
+			queued.set(key.path, value)
 			if (failing.has(key.path)) failures.set(key.path, 'unreachable')
 		},
-		flush: async () => {},
+		flush: async (key) => {
+			if (!queued.has(key.path)) return
+			sent.set(key.path, queued.get(key.path))
+			queued.delete(key.path)
+		},
 		overwrite: async (key, value) => {
 			conflicts.delete(key.path)
 			writes.push({ path: key.path, value })
@@ -48,7 +56,7 @@ function fakeRows() {
 		dropPending: (key) => void dropped.push(key.path),
 		hint: (key, on) => void hints.set(key.path, on)
 	}
-	return { port, writes, conflicts, failing, hints, dropped }
+	return { port, writes, conflicts, failing, hints, dropped, sent }
 }
 
 const deployedRes: Res = { path: 'u/me/r', description: 'deployed', args: { a: 1 } }
@@ -527,17 +535,17 @@ describe('item store: one entry per key', () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
 		const b = { ...deployedRes, path: 'u/me/b' }
-		// What the server holds: the editor's own edits reach it as its draft row.
+		// What the server holds: the deployed value, and the row the syncer has actually sent. The
+		// editor's edit is only queued, so the re-read has to flush it before reading.
 		let deployed = b
-		let draft: Res | undefined
 		const { handle: open } = store.acquire(
 			{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
 			{ workspace: 'w', path: 'u/me/b' },
-			adapter(async () => ({ deployed, draft }))
+			adapter(async () => ({ deployed, draft: rows.sent.get('u/me/b') as Res | undefined }))
 		)
 		await settle()
-		open.value = { ...b, description: 'typed in the open editor' }
-		draft = { ...b, description: 'typed in the open editor' }
+		const typed = { ...b, description: 'typed in the open editor' }
+		open.value = typed
 
 		const temporary = newItemPath()
 		const { handle: panel } = store.acquire(
@@ -549,9 +557,9 @@ describe('item store: one entry per key', () => {
 		panel.value = { ...b, args: { a: 2 } }
 		expect(await panel.save()).toMatchObject({ ok: true, path: 'u/me/b' })
 
-		// The write landed under it, and its own edits came back over it from its row.
+		// The write landed under it, and its own edit came back over it from its row.
 		expect(open.deployed).toEqual({ ...b, args: { a: 2 } })
-		expect(open.value).toEqual(draft)
+		expect(open.value).toEqual(typed)
 		expect(open.dirty).toBe(true)
 	})
 
