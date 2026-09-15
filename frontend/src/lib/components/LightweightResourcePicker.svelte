@@ -10,6 +10,7 @@
 	import Select from './select/Select.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { addResourceTitle } from './resourceTypeDisplay'
+	import { loadResourceTypeDisplayName } from './displayNameLoaders'
 
 	interface Props {
 		value: string | undefined
@@ -218,6 +219,7 @@
 					on:click={() => {
 						refreshCount += 1
 						open = true
+						if (ws && resourceType) void loadResourceTypeDisplayName(ws, resourceType)
 						drawer?.openDrawer?.()
 					}}
 					startIcon={{ icon: Plus }}

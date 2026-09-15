@@ -51,6 +51,9 @@
 		// Accessible name when the visible label is absent or only shown some of
 		// the time, so the button stays announceable in every state.
 		ariaLabel?: string | undefined
+		// Classes for the label line only — `class` reaches the button, the label and the
+		// sublabel alike, which is the wrong tool for colouring one line of the two.
+		labelClass?: string | undefined
 	}
 
 	let {
@@ -75,7 +78,8 @@
 		showChevron = false,
 		emphasizeLabel = false,
 		disableTitle = false,
-		ariaLabel = undefined
+		ariaLabel = undefined,
+		labelClass = undefined
 	}: Props = $props()
 
 	let buttonRef: HTMLButtonElement | HTMLAnchorElement | undefined = $state(undefined)
@@ -161,7 +165,8 @@
 							'whitespace-pre truncate w-full',
 							emphasizeLabel ? 'text-primary text-sm font-semibold' : sidebarClasses.text,
 							'transition-all',
-							classNames
+							classNames,
+							labelClass
 						)}
 						title={disableTitle ? undefined : label}
 					>
