@@ -481,11 +481,13 @@
 						than rewriting it, and uncomment this together with the roles section at the
 						bottom of this file and the two imports at the top.
 
-						<DataTablePermissionsButton
-							workspace={$workspaceStore ?? ''}
-							datatable={dataTable.name}
-							disabled={!!dirtyMap[dataTable.name]}
-						/>
+						{#if $enterpriseLicense}
+							<DataTablePermissionsButton
+								workspace={$workspaceStore ?? ''}
+								datatable={dataTable.name}
+								disabled={!!dirtyMap[dataTable.name]}
+							/>
+						{/if}
 						-->
 						<Button
 							size="xs"
@@ -620,7 +622,7 @@ privileges, which arrives with the ACL editor.
 DataTableRolesSection.svelte is complete and reviewed — reuse it rather than rewriting it,
 and uncomment this together with the permissions button above and the two imports at the top.
 
-{#if $superadmin && !isCloudHosted()}
+{#if $superadmin && $enterpriseLicense && !isCloudHosted()}
 	<div class="mt-8">
 		<DataTableRolesSection />
 	</div>
