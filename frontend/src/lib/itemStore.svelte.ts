@@ -88,7 +88,8 @@ export type ItemRowPort = {
 	/** Send what `write` queued for `key` now; resolves once it landed. */
 	flush(key: ItemKey): Promise<void>
 	overwrite(key: ItemKey, value: unknown | null): Promise<void>
-	/** Rows landed for `key` so far, by any writer. Handed back to `seedSync` to order it. */
+	/** Rows handed to the syncer for `key` so far, by any writer, counted before the debounce
+	 *  rather than on the response. Handed back to `seedSync` to order it. */
 	rowMark(key: ItemKey): number
 	seedSync(key: ItemKey, draftSavedAt: string | undefined, since: number): void
 	conflicted(key: ItemKey): boolean

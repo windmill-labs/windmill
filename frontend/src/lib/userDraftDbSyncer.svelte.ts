@@ -538,12 +538,10 @@ export const UserDraftDbSyncer = {
 	},
 
 	/**
-	 * Seed the per-tab `last_sync` after an editor reads a draft from the
-	 * server. Pass the response's `draft_saved_at` so the next save sends a
-	 * matching `last_sync`; pass `undefined` when no draft existed (next
-	 * save omits `last_sync`, the backend's first-push branch). Pass the
-	 * `sendsSoFar` taken before the read as `since`: a row handed over after
-	 * that puts the syncer ahead of this response, which is then ignored.
+	 * Seed the per-tab `last_sync` from a read: its `draft_saved_at`, or
+	 * `undefined` when no draft existed (the backend's first-push branch).
+	 * `since` is the `sendsSoFar` taken before that read; a row handed over
+	 * after it leaves this response behind, so it is ignored.
 	 */
 	recordRemoteSync(
 		query: UserDraftLastSyncQuery,
