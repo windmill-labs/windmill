@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { listMock } = vi.hoisted(() => ({ listMock: vi.fn() }))
+const { listMock, listMetricsMock } = vi.hoisted(() => ({
+	listMock: vi.fn(),
+	listMetricsMock: vi.fn()
+}))
 
 vi.mock('./shared', () => ({
 	createToolDef: (_schema: unknown, name: string, description: string) => ({
@@ -10,7 +13,8 @@ vi.mock('./shared', () => ({
 }))
 
 vi.mock('$lib/gen', () => ({
-	WorkspaceService: { listDucklakes: listMock }
+	WorkspaceService: { listDucklakes: listMock },
+	DataMetricService: { listDataMetrics: listMetricsMock }
 }))
 
 import { getDucklakeTools } from './ducklakeTools'
@@ -31,7 +35,10 @@ function run(name: string, args: Record<string, unknown> = {}) {
 	})
 }
 
-beforeEach(() => listMock.mockReset())
+beforeEach(() => {
+	listMock.mockReset()
+	listMetricsMock.mockReset()
+})
 
 describe('list_ducklakes', () => {
 	it('returns the configured catalog names', async () => {
@@ -49,5 +56,53 @@ describe('list_ducklakes', () => {
 		expect(result).toContain('ask a workspace admin')
 		// Drafting is not blocked: the message must say the scripts can still be drafted.
 		expect(result).toContain('still draft the pipeline scripts')
+	})
+})
+
+describe('list_data_metrics', () => {
+	it('forwards the filters and returns the declarations', async () => {
+		listMetricsMock.mockResolvedValue({
+			metrics: [
+				{
+					script_path: 'f/analytics/rev',
+					table_path: 'main/main.orders',
+					kind: 'measure',
+					name: 'revenue',
+					expr: 'sum(amount)',
+					filter: 'not is_test'
+				}
+			]
+		})
+		const result = await run('list_data_metrics', {
+			table: 'ducklake://main/main.orders',
+			path_prefix: 'f/analytics',
+			limit: 50
+		})
+		expect(listMetricsMock).toHaveBeenCalledWith({
+			workspace: 'test-workspace',
+			table: 'ducklake://main/main.orders',
+			pathPrefix: 'f/analytics',
+			perPage: 50
+		})
+		expect(JSON.parse(result).metrics[0]).toMatchObject({ name: 'revenue', expr: 'sum(amount)' })
+	})
+
+	it('never reports an empty result as proof that nothing is declared', async () => {
+		listMetricsMock.mockResolvedValue({ metrics: [] })
+		const result = await run('list_data_metrics', {})
+		// Unreadable declarations are omitted, not flagged, so absence is unprovable.
+		expect(result).toContain('does not establish')
+		expect(result).toContain('cannot read')
+	})
+
+	it('warns that more declarations exist when the page is cut short', async () => {
+		listMetricsMock.mockResolvedValue({
+			metrics: [],
+			next_cursor: { table_path: 't', kind: 'measure', name: 'n', script_path: 's' }
+		})
+		const result = await run('list_data_metrics', {})
+		// Without this the model reads a partial page as "no such measure" and
+		// re-derives a number that disagrees with the declared one.
+		expect(result).toContain('rather than concluding a measure is undeclared')
 	})
 })

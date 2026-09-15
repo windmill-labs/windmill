@@ -17,7 +17,8 @@ import {
 	ScriptService,
 	SqsTriggerService,
 	VariableService,
-	WebsocketTriggerService
+	WebsocketTriggerService,
+	WorkerService
 } from '$lib/gen'
 import { createTwoFilesPatch } from 'diff'
 import { deepEqual } from 'fast-equals'
@@ -729,6 +730,15 @@ const listRunsSchema = z.object({
 		.describe('Max number of runs to return, most recent first. Defaults to 30.')
 })
 
+// `GET /workers/list` answers a caller without the devops role with an empty
+// list, not an error, when the instance sets HIDE_WORKERS_FOR_NON_ADMINS — so
+// "no workers" and "no visibility" are indistinguishable here, and asserting
+// the former would be confidently wrong in exactly the situation being debugged.
+const NO_WORKERS_VISIBLE_MESSAGE =
+	'No workers came back. This does NOT establish that no workers are running: an instance can hide workers from callers without the devops role, and it does so by returning an empty list rather than an error. ' +
+	'Tell the user you cannot see any workers and that worker visibility may be restricted for your account, and suggest they check the Workers page themselves. Never state that no workers are online or that the instance has none.'
+const WORKER_PAGE_SIZE = 100
+
 const deleteWorkspaceItemSchema = z.object({
 	type: itemTypeSchema,
 	path: z.string().describe('Workspace path of the item to delete.'),
@@ -1365,7 +1375,7 @@ ${pipelineBullet}
 			? ' By default it preselects the items this chat modified; pass items ("<kind>:<path>" entries) to control the selection'
 			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
 	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
-- For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
+- For a Windmill operation no other tool covers (queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
 - Default to test_run_script, test_run_flow, or test_run_step for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script or run_flow only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For those two, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema. test_run_script, test_run_flow, test_run_step, run_script and run_flow all show the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat. test_run_step's form is the step's own inputs, not the flow's.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
@@ -3772,6 +3782,42 @@ export const globalTools: Tool<{}>[] = [
 			const result = JSON.stringify(runs, null, 2)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Listed ${runs.length} run(s)`,
+				result
+			})
+			return result
+		}
+	},
+	{
+		def: createToolDef(
+			z.object({}),
+			'list_workers',
+			'List the workers connected to this Windmill instance (those that pinged in the last 5 minutes), with their worker group, custom tags, seconds since their last ping, and jobs executed. Pair with list_runs to diagnose a stuck queue: runs queued on a tag no listed worker picks up will never start. Two blind spots to report rather than reason past: an empty list can mean workers are hidden from you, not absent, and a missing custom_tags can mean tags are hidden from you, not unset.'
+		),
+		planModeSafe: true,
+		showDetails: true,
+		fn: async ({ toolId, toolCallbacks }) => {
+			toolCallbacks.setToolStatus(toolId, { content: 'Listing workers...' })
+			const pings = await WorkerService.listWorkers({ perPage: WORKER_PAGE_SIZE })
+			if (pings.length === 0) {
+				toolCallbacks.setToolStatus(toolId, { content: 'No workers visible' })
+				return NO_WORKERS_VISIBLE_MESSAGE
+			}
+			const workers = pings.map((w) => ({
+				worker: w.worker,
+				worker_group: w.worker_group,
+				custom_tags: w.custom_tags,
+				last_ping: w.last_ping,
+				jobs_executed: w.jobs_executed
+			}))
+			const note =
+				workers.length === WORKER_PAGE_SIZE
+					? {
+							note: `Only the first ${WORKER_PAGE_SIZE} workers are listed; more may be connected.`
+						}
+					: {}
+			const result = JSON.stringify({ workers, ...note }, null, 2)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Listed ${workers.length} worker(s)`,
 				result
 			})
 			return result
