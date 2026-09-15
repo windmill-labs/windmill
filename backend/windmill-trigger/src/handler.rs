@@ -97,14 +97,14 @@ pub trait TriggerCrud: Send + Sync + 'static {
     const DEPLOYMENT_NAME: &'static str;
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[];
     const IS_ALLOWED_ON_CLOUD: bool;
-    /// Whether enabling this trigger in a fork while the parent has the same
-    /// path enabled is a real conflict (shared upstream resource). True for
+    /// Whether enabling this trigger in a fork while an ancestor workspace has
+    /// the same path is a real conflict (shared upstream resource). True for
     /// listener-based kinds where two consumers compete (Kafka group, PG slot,
     /// SQS queue, etc.) and for Websocket where both subscribers fire on every
     /// broadcast. False for kinds whose upstream identifier is implicitly
     /// workspace-scoped at runtime (HTTP routes, Email local_part — clones for
     /// the non-workspaced sub-case are filtered out, so any cloned row is
-    /// already collision-free vs. the parent).
+    /// already collision-free vs. its ancestors).
     const FORK_CONFLICT_ON_ENABLE: bool = true;
 
     fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject;
@@ -1095,11 +1095,10 @@ async fn exists_trigger<T: TriggerCrud>(
 #[derive(serde::Deserialize)]
 struct SetTriggerModePayload {
     mode: TriggerMode,
-    /// When true, bypass the parent-state warning that would otherwise reject
-    /// enabling a trigger that's already enabled in the parent workspace.
-    /// The frontend sets this after the user confirms the duplicate-execution
-    /// dialog. See windmill-trigger/src/handler.rs::set_trigger_mode for the
-    /// full check.
+    /// When true, bypass the fork-conflict warning that would otherwise reject
+    /// enabling a trigger an ancestor workspace also has at this path. The
+    /// frontend sets this after the user confirms the duplicate-execution
+    /// dialog. See `set_trigger_mode` for the full check.
     #[serde(default)]
     force: bool,
 }

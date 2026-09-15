@@ -1687,9 +1687,9 @@ pub use windmill_queue::schedule::clear_schedule;
 #[derive(Deserialize)]
 pub struct SetEnabled {
     pub enabled: bool,
-    /// Bypass the parent-state warning when enabling a schedule in a fork
-    /// whose parent has the same path enabled. The frontend sets this after
-    /// the user confirms the duplicate-firing dialog.
+    /// Bypass the fork-conflict warning when enabling a schedule in a fork
+    /// while an ancestor workspace has the same path. The frontend sets this
+    /// after the user confirms the duplicate-firing dialog.
     #[serde(default)]
     pub force: bool,
 }
