@@ -5,7 +5,6 @@ import type {
 } from '$lib/gen/types.gen'
 import { FlowConversationsService, JobService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
-import { waitJob } from '$lib/components/waitJob'
 import { tick } from 'svelte'
 import InfiniteList from '$lib/components/InfiniteList.svelte'
 import { workspaceStore, userStore, enterpriseLicense } from '$lib/stores'
@@ -737,11 +736,14 @@ export class FlowChatManager {
 				})
 				sendUserToast(`Job ${jobId} cancelled`)
 			}
-		} catch (error) {
-			console.error('Error cancelling job:', error)
-			sendUserToast('Could not cancel job', true)
-		} finally {
 			this.endTurn(conversationId)
+		} catch (error) {
+			// The run may well still be going, and freeing the chat would let the next turn
+			// write the same agent memory. It is left to the job to say when it is over.
+			console.error('Error cancelling job:', error)
+			sendUserToast('Could not stop the run; waiting for it to finish', true)
+			if (jobId) this.#followFromJob(conversationId, jobId)
+			else this.endTurn(conversationId)
 		}
 	}
 
@@ -782,6 +784,9 @@ export class FlowChatManager {
 				return
 			}
 			this.isLoadingMessages = true
+			// Whether this chat has a run in flight is unknown until its rows are here and
+			// the job has answered, and a message accepted meanwhile starts a second one.
+			this.#liveStatus(conversationIdToUse).isDispatchingTurn = true
 		} else {
 			this.loadingMoreMessages = true
 		}
@@ -827,6 +832,9 @@ export class FlowChatManager {
 		} catch (error) {
 			console.error('Failed to load messages:', error)
 			sendUserToast('Failed to load messages: ' + error)
+			// Nothing was learned about a run in flight, but a chat with no rows on screen
+			// has nothing for a second turn to interleave with either.
+			this.#liveStatus(conversationIdToUse).isDispatchingTurn = false
 		} finally {
 			this.isLoadingMessages = false
 			this.loadingMoreMessages = false
@@ -872,20 +880,6 @@ export class FlowChatManager {
 	}
 
 	// Polling
-	private async pollJobResult(conversationId: string, jobId: string) {
-		try {
-			await waitJob(jobId, this.#workspace())
-		} catch (error) {
-			console.error('Error polling job result:', error)
-		} finally {
-			// Do a final poll to get all messages from database
-			try {
-				await this.pollConversationMessages(conversationId, { removeTempMessages: true })
-			} catch {}
-			this.endTurn(conversationId, { settled: true })
-		}
-	}
-
 	private async pollConversationMessages(
 		conversationId: string,
 		options?: { isNewConversation?: boolean; removeTempMessages?: boolean }
@@ -1246,7 +1240,19 @@ export class FlowChatManager {
 	 * server to answer which turn is running rather than this inferring it from a page.
 	 */
 	async #resumeRunningTurn(conversationId: string) {
-		if (this.isConversationBusy(conversationId)) return
+		const status = this.#liveStatus(conversationId)
+		try {
+			await this.#takeOverRunningTurn(conversationId, status)
+		} finally {
+			// Held by the load that called this; the turn it took over, if any, is busy on
+			// its own flags by now.
+			status.isDispatchingTurn = false
+		}
+	}
+
+	async #takeOverRunningTurn(conversationId: string, status: TurnStatus) {
+		// A turn already in flight here owns the chat; only the load's own hold is set.
+		if (status.isLoading || status.isWaitingForResponse) return
 		if (!this.#workspace()) return
 		// The newest turn is the only one that can still be running; the rows arrive oldest
 		// first, and a user row is named with its flow job by the run that created it.
@@ -1255,7 +1261,6 @@ export class FlowChatManager {
 		const jobId = startedAt >= 0 ? rows[startedAt].job_id : undefined
 		if (!jobId) return
 
-		const status = this.#liveStatus(conversationId)
 		const runtime = this.#liveRuntime(conversationId)
 		const api = this.#chatApi()
 		// Taken before the question so a chat torn down while it is in flight can still stop
@@ -1263,17 +1268,22 @@ export class FlowChatManager {
 		runtime.follow?.abort()
 		const controller = new AbortController()
 		runtime.follow = controller
-		status.isDispatchingTurn = true
-		try {
-			const { completed } = await api.getCompletedResult(jobId, controller.signal)
-			if (completed) return
-		} catch (error) {
-			// Whether it is still running is unknown, and claiming a turn that has finished
-			// would leave the chat busy with nothing to end it.
-			console.error('Could not tell whether a conversation had a run in flight:', error)
-			return
-		} finally {
-			status.isDispatchingTurn = false
+		{
+			// Asked until answered, for the same reason a turn is: an API that cannot be
+			// reached has not said the run is over, and a chat freed on that guess takes a
+			// message that writes the same agent memory. Stop is on screen throughout.
+			for (;;) {
+				if (controller.signal.aborted) return
+				try {
+					const { completed } = await api.getCompletedResult(jobId, controller.signal)
+					if (completed) return
+					break
+				} catch (error) {
+					if (controller.signal.aborted) return
+					console.error('Could not tell whether a conversation had a run in flight:', error)
+					await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS))
+				}
+			}
 		}
 		if (controller.signal.aborted) return
 
@@ -1302,6 +1312,15 @@ export class FlowChatManager {
 			// gates on the same thing.
 			pollDelayMs: get(enterpriseLicense) ? 50 : undefined
 		})
+	}
+
+	/** Hand a turn to its job, under this conversation's abort handle. */
+	#followFromJob(conversationId: string, jobId: string) {
+		const runtime = this.#liveRuntime(conversationId)
+		runtime.follow?.abort()
+		const controller = new AbortController()
+		runtime.follow = controller
+		void this.#settleFromJob(conversationId, jobId, this.#chatApi(), controller.signal)
 	}
 
 	/**
@@ -1362,7 +1381,7 @@ export class FlowChatManager {
 
 		// Start polling for intermediate messages in non-streaming mode too
 		this.startPolling(currentConversationId)
-		this.pollJobResult(currentConversationId, jobId)
+		this.#followFromJob(currentConversationId, jobId)
 		return true
 	}
 }
