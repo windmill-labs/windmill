@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { WorkspaceService } from '$lib/gen'
+import { DataMetricService, WorkspaceService } from '$lib/gen'
 import { createToolDef, type Tool } from './shared'
 
 /**
@@ -12,6 +12,8 @@ import { createToolDef, type Tool } from './shared'
  * role-appropriate next steps) instead of silently producing a pipeline that
  * cannot run. It is a plain read gated only by workspace membership, so it needs
  * no app context and belongs in the global tool set.
+ *
+ * `list_data_metrics` reads the same DuckLake tables, so it lives here too.
  */
 
 /** List the names of the DuckLake catalogs configured in the workspace. */
@@ -31,9 +33,71 @@ const listDucklakesToolDef = createToolDef(
 	'List the DuckLake catalogs configured in this workspace, by name. Call this before building or deploying a data pipeline that materializes DuckLake tables or reads/writes S3 assets: if it returns none, the workspace has no object storage + DuckLake configured and the pipeline cannot run until a workspace admin sets it up. Returns names only.'
 )
 
+const listDataMetricsSchema = z.object({
+	table: z
+		.string()
+		.optional()
+		.describe(
+			'Only declarations on this DuckLake table, as `<lake>/<table>` or `<lake>/<schema>.<table>`, with or without the `ducklake://` scheme. A name with no lake matches nothing and comes back empty.'
+		),
+	path_prefix: z
+		.string()
+		.optional()
+		.describe('Only declarations made by scripts under this path, e.g. `f/analytics`.'),
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.max(1000)
+		.optional()
+		.describe('Max number of declarations to return. Defaults to 200.')
+})
+const listDataMetricsToolDef = createToolDef(
+	listDataMetricsSchema,
+	'list_data_metrics',
+	'List the measures and dimensions declared on DuckLake tables (from `// measure` / `// dimension` annotations in deployed scripts). Call this before writing any aggregate query over a DuckLake table: a declared measure is the canonical definition of that number, and reproducing it yourself silently disagrees with it (a `revenue` measure typically excludes refunds or test rows). Use each returned `expr` verbatim, and when a measure has a `filter` write it as `expr FILTER (WHERE filter)` so measures with different predicates share one GROUP BY. Only declarations whose producing script you can read are returned, so what comes back is never proof of what exists: if the number you need is not here you may still write your own aggregate, but say that you found no declared measure for it rather than implying none exists.'
+)
+
+// The endpoint drops declarations whose producing script the caller cannot read
+// (token scope + RLS on `script`), so an empty result means "none declared" or
+// "none readable by you" and the tool cannot tell which.
+const NO_DATA_METRICS_NOTE =
+	'Nothing matched. That does not establish the table has no declared measures: declarations whose producing script you cannot read are omitted from this list, not flagged. You may write your own aggregate, but tell the user you found no declared measure you can read rather than stating none is declared.'
+
+// Well under the endpoint's 1000 cap: a full page is pretty-printed into the
+// chat context, and 1000 declarations would cost tens of thousands of tokens.
+const DEFAULT_DATA_METRICS_LIMIT = 200
+
 /** The workspace DuckLake tools, for registration in global mode. */
 export function getDucklakeTools(): Tool<{}>[] {
 	return [
+		{
+			def: listDataMetricsToolDef,
+			planModeSafe: true,
+			showDetails: true,
+			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+				const parsed = listDataMetricsSchema.parse(args)
+				toolCallbacks.setToolStatus(toolId, { content: 'Listing declared measures...' })
+				const limit = parsed.limit ?? DEFAULT_DATA_METRICS_LIMIT
+				const { metrics, next_cursor } = await DataMetricService.listDataMetrics({
+					workspace,
+					table: parsed.table,
+					pathPrefix: parsed.path_prefix,
+					perPage: limit
+				})
+				const note = next_cursor
+					? `More declarations exist beyond the first ${limit}. Re-call with table/path_prefix to target what you are looking for, or with a higher limit (max 1000) for the rest of the list, rather than concluding a measure is undeclared.`
+					: metrics.length === 0
+						? NO_DATA_METRICS_NOTE
+						: undefined
+				const result = JSON.stringify({ metrics, ...(note ? { note } : {}) }, null, 2)
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Listed ${metrics.length} declared measure(s)/dimension(s)`,
+					result
+				})
+				return result
+			}
+		},
 		{
 			def: listDucklakesToolDef,
 			planModeSafe: true,

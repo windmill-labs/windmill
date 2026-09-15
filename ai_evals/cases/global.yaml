@@ -1891,10 +1891,11 @@
     - when the lookup fails, tells the user instead of inventing table names
     - does not write scripts or resources to answer a read-only question
 
-# --- API catalog (search_api_endpoints / call_api_get / call_api_endpoint) ---
-# The harness serves the catalog and the executed calls itself (mock
-# listMcpTools + benchmark fetch handlers in adapters/frontend), so these cases
-# do not require an mcp-enabled eval backend.
+# --- Dedicated tools preferred over the API catalog ---
+# The harness serves worker/queue reads itself (benchmark fetch handlers in
+# adapters/frontend), so these cases do not require an mcp-enabled eval backend.
+# The stale `api-catalog` in the id below is kept so results stay comparable
+# across benchmark runs.
 
 - id: global-test30-api-catalog-workers
   prompt: |-
@@ -1906,21 +1907,16 @@
     draftCountExactly: 0
   toolExpect:
     requiredToolsUsed:
-      - search_api_endpoints
-      - call_api_get
+      - list_workers
     forbiddenToolsUsed:
+      - call_api_get
       - call_api_endpoint
       - write_script
       - deploy_workspace_item
-    toolCallArgs:
-      - tool: call_api_get
-        field: name
-        stringIncludesAnyOf:
-          - listWorkers
   # Read-only workspace inspection produces no draft; validate via tool use.
   skipJudge: true
   judgeChecklist:
-    - discovers the workers endpoint through the API catalog instead of guessing or fabricating
+    - reads worker state through list_workers instead of guessing or fabricating
     - reports worker status from the returned data
 
 - id: global-test31-draft-test-run-not-deployed
