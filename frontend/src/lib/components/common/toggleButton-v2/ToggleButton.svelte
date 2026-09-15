@@ -7,6 +7,9 @@
 
 	interface Props {
 		label?: string | undefined
+		/** Shown instead of `label` below the `xl` breakpoint, for groups that must keep
+		 *  their width inside a narrow table cell. The full label stays the accessible name. */
+		shortLabel?: string | undefined
 		iconOnly?: boolean
 		tooltip?: string | undefined
 		icon?: any | undefined
@@ -30,6 +33,7 @@
 
 	let {
 		label = undefined,
+		shortLabel = undefined,
 		iconOnly = false,
 		tooltip = undefined,
 		icon = undefined,
@@ -68,6 +72,7 @@
 	<button
 		{id}
 		{disabled}
+		aria-label={shortLabel ? label : undefined}
 		class={twMerge(
 			'group rounded-md transition-all font-normal flex gap-1 flex-row items-center justify-center border text-xs',
 			horizontalPadding,
@@ -75,7 +80,7 @@
 			'text-primary data-[state=on]:text-primary',
 			'data-[state=on]:bg-surface-tertiary data-[state=off]:border-transparent data-[state=on]:border-border-normal/30',
 			'bg-surface-transparent hover:bg-surface-hover',
-			disabled ? '!shadow-none' : '',
+			disabled ? '!shadow-none !text-disabled' : '',
 			className
 		)}
 		use:melt={$item(value)}
@@ -102,7 +107,12 @@
 			/>
 		{/if}
 		{#if label && !iconOnly}
-			{label}
+			{#if shortLabel}
+				<span class="hidden xl:inline">{label}</span>
+				<span class="xl:hidden" aria-hidden="true">{shortLabel}</span>
+			{:else}
+				{label}
+			{/if}
 		{/if}
 		{#if showTooltipIcon}
 			<Info size={iconSize} class="text-gray-400" />
