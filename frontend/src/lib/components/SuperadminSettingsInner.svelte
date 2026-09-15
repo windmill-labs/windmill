@@ -654,6 +654,7 @@
 																				{
 																					displayName: 'Manage in workspace',
 																					icon: Settings,
+																					action: () => closeDrawer?.(),
 																					href: `${base}/workspace_settings?tab=users&workspace=${workspace_id}`
 																				}
 																			]}
