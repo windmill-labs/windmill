@@ -83,6 +83,10 @@ function fakeRows() {
 			}
 			parked.delete(key.path)
 			sent.set(key.path, going.value)
+			// A save that lands gives the key a baseline from its own response, the way `postSave`
+			// advances `lastSync` — or drops it, for a delete.
+			if (going.value === null) baselines.delete(key.path)
+			else baselines.add(key.path)
 		},
 		overwrite: async (key, value) => {
 			conflicts.delete(key.path)
@@ -1890,6 +1894,33 @@ describe('item store: conflicts', () => {
 		// baseline its own save had set. What was waiting when the read went out is what stands.
 		expect(acq.handle.value).toEqual(mine)
 		expect(rows.seeds).toEqual([])
+	})
+
+	it('does not raise a conflict against its own autosave landing during the reopen', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const mine = { ...deployedRes, description: 'typed before closing' }
+		const a = adapter(() => read.promise)
+		// No draft exists yet, so this first autosave carries no baseline.
+		rows.port.write(key, mine)
+		const acq = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+		// Its debounce fires and the save succeeds while the reopening GET is still out, which
+		// gives the key a baseline of its own.
+		await rows.port.flush(key)
+		read.resolve({ deployed: deployedRes, draft: mine, draftSavedAt: 'T-mine' })
+		await settle()
+
+		// The row it meets is the one it just wrote. Conflicting against your own successful save
+		// stops the editor autosaving with nobody else involved.
+		expect(acq.handle.status).not.toBe('conflicted')
+		acq.handle.value = { ...deployedRes, description: 'typed after reopening' }
+		expect(rows.writes.at(-1)).toEqual({
+			path: 'u/me/r',
+			value: { ...deployedRes, description: 'typed after reopening' }
+		})
 	})
 
 	it('does not replay a first failed autosave over a draft created since', async () => {

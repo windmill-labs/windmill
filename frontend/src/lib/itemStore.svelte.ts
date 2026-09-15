@@ -491,8 +491,10 @@ class Entry<V> {
 			// user's own unsent edit and "keep mine" means theirs: a payload written when this
 			// key had no row, meeting a row that exists now. Sending it would overwrite that
 			// unconditionally, and basing it on this read would claim it was built on a draft it
-			// never saw — so neither happens until the user says which wins.
-			if (unbasedPending && res.draft !== undefined && res.draftSavedAt !== undefined) {
+			// never saw — so neither happens until the user says which wins. Asked again here
+			// rather than taken from before the read: that payload may have landed while the read
+			// was out, and then it has a baseline of its own and the row is its own.
+			if (this.ports.unbased(key) && res.draft !== undefined && res.draftSavedAt !== undefined) {
 				this.ports.markConflict(key, res.draftSavedAt)
 			}
 			this.reconcile()
