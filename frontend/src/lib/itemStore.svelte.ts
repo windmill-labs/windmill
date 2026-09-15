@@ -472,13 +472,15 @@ class Entry<V> {
 	}
 
 	discard(): Promise<DiscardOutcome> {
-		// What a discard throws away is the value as of the click, like a save sends the value as
-		// of the click: one typed while it waited its turn behind a save is newer than it, and
-		// reverting that would drop it with nothing left to recover it from.
-		const askedAt = this.edits
+		// What a discard throws away is the value as of the click, the way a save sends the value
+		// as of the click. One typed while it waited its turn is newer than the discard, and
+		// reverting it would drop it with nothing left holding it. Measured as the value and not
+		// as a count of writes: an outside write of what is already on screen changes nothing the
+		// user can see, so it does not make their discard stale.
+		const asked = serialize(this.value)
 		return this.run(async () => {
 			if (!this.loaded || this.retired) return { removed: false }
-			if (this.edits !== askedAt) return { removed: false }
+			if (serialize(this.value) !== asked) return { removed: false }
 			if (this.origin === 'draft') {
 				const kept = snapshot(this.value)
 				const keptRow = this.row

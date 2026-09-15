@@ -519,6 +519,29 @@ describe('item store: origins', () => {
 		})
 	})
 
+	it('discards behind an outside write of the value already on screen', async () => {
+		const rows = fakeRows()
+		const gate = deferred()
+		const { item } = await open(
+			rows,
+			adapter({ deployed: deployedRes }, () => gate.promise)
+		)
+		item.value = { ...deployedRes, description: 'edited' }
+		const saving = item.save()
+		await settle()
+		const discarding = item.discard()
+		await settle()
+		// The chat saves what the user is already looking at: nothing on screen moves, so the
+		// discard is still about the value its click named.
+		item.applyExternal({ ...deployedRes, description: 'edited' })
+		gate.resolve()
+
+		expect(await saving).toMatchObject({ ok: true })
+		expect(await discarding).toEqual({ removed: false })
+		expect(item.dirty).toBe(false)
+		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: null })
+	})
+
 	it('keeps a draft-only item an outside write put back while its delete was going', async () => {
 		const rows = fakeRows()
 		const draft = { ...deployedRes, description: 'only a draft' }
