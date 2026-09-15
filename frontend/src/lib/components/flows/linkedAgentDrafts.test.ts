@@ -4,6 +4,7 @@ import {
 	inlineAgentDraft,
 	inlineAgentDrafts,
 	loadLinkedAgentDrafts,
+	repointLinkedAgent,
 	type LinkedAgentDraft
 } from './linkedAgentDrafts'
 import { ResourceService, type FlowModule, type FlowValue } from '$lib/gen'
@@ -115,6 +116,38 @@ describe('inlineAgentDrafts', () => {
 		})
 		// The input the flow supplies survives the rewrite.
 		expect(inner.value.input_transforms.user_message).toEqual({ type: 'static', value: 'hi' })
+	})
+})
+
+describe('repointLinkedAgent', () => {
+	// A rename from the agent editor moves every step of the host flow onto the new path, nested ones
+	// included. Miss one and it silently stays linked to a path that no longer exists.
+	it('repoints linked steps at any depth and leaves other agents alone', () => {
+		const value = {
+			modules: [
+				{ id: 'a', value: { type: 'aiagent', agent: 'f/team/support', tools: [] } },
+				{
+					id: 'b',
+					value: {
+						type: 'branchall',
+						branches: [
+							{
+								modules: [
+									{ id: 'c', value: { type: 'aiagent', agent: 'f/team/support', tools: [] } },
+									{ id: 'd', value: { type: 'aiagent', agent: 'f/team/other', tools: [] } }
+								]
+							}
+						]
+					}
+				}
+			]
+		} as unknown as FlowValue
+
+		expect(repointLinkedAgent(value, 'f/team/support', 'f/team/helpdesk')).toEqual(['a', 'c'])
+		const branch = (value.modules[1].value as any).branches[0].modules
+		expect((value.modules[0].value as any).agent).toBe('f/team/helpdesk')
+		expect(branch[0].value.agent).toBe('f/team/helpdesk')
+		expect(branch[1].value.agent).toBe('f/team/other')
 	})
 })
 
