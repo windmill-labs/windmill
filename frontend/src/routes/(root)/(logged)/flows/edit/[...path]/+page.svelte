@@ -546,16 +546,8 @@
 	<FlowBuilder
 		onTakeLatest={draftBaseVersion
 			? async (shown?: string) => {
-					// The version the drawer showed as head, else a fresh read; see /scripts/edit.
-					const head =
-						(shown != null ? Number(shown) : undefined) ??
-						(
-							await FlowService.getFlowLatestVersion({
-								workspace: $workspaceStore!,
-								path: flowDraftPath
-							}).catch(() => undefined)
-						)?.id ??
-						version
+					// The version the drawer showed as head; see /scripts/edit.
+					const head = shown != null ? Number(shown) : version
 					if (!draftSync.draft || head == null || !$workspaceStore) return
 					draftSync.draft = { ...draftSync.draft, version_id: head }
 					draftBaseVersion = String(head)

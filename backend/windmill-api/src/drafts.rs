@@ -685,6 +685,11 @@ async fn move_draft(
         }
     }
 
+    // A NUL in the summary reaches Postgres as a raw byte and fails the statement with
+    // an encoding error, so it is dropped here the way `strip_json_nul` drops one from a
+    // draft value. `json` cannot store it either.
+    let summary = req.summary.as_ref().map(|s| s.replace('\0', ""));
+
     // A classic app and a raw app share the `app` table, so a draft of either kind
     // occupies the destination for both: deploying there deletes the caller's drafts
     // of both kinds, taking the item that lost the collision with it.
@@ -741,7 +746,7 @@ async fn move_draft(
         kind as UserDraftItemKind,
         typed_field,
         &authed.email,
-        req.summary,
+        summary,
         mirror_field,
         &collision_typs as &[&str],
     )

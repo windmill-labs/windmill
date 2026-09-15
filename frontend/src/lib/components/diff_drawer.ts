@@ -35,9 +35,9 @@ export type DiffDrawerDiff =
 			/** The version the draft forked from. The drawer offers `onTakeLatest` only
 			 *  while it differs from the head, and passes that head to it. */
 			draftBase?: string
-			/** The deployed head as the editor knows it, used when no `versions` list
-			 *  loaded. Without either, the drawer cannot tell whether the draft is behind
-			 *  and offers nothing. */
+			/** The version the deployed payload passed here came from, used as the head when
+			 *  no `versions` list loaded. Without either, the drawer cannot tell whether the
+			 *  draft is behind and offers nothing. */
 			deployedHead?: string
 			draft?: Value | undefined
 			current: Value

@@ -528,18 +528,10 @@
 		{draftBaseHash}
 		onTakeLatest={draftBaseHash
 			? async (shown?: string) => {
-					// The version the drawer showed as head, else a fresh read: taking the one
-					// this page loaded with would say the draft is up to date with a version
-					// that is not the latest any more.
-					const head =
-						shown ??
-						(
-							await ScriptService.getScriptLatestVersion({
-								workspace: $workspaceStore!,
-								path: draftPath
-							}).catch(() => undefined)
-						)?.script_hash ??
-						deployedHeadHash
+					// The version the drawer showed as head: it offers this action only when it
+					// has one, and adopting the head this page loaded with would claim the
+					// draft is up to date with a version that may not be the latest.
+					const head = shown ?? deployedHeadHash
 					if (!draftSync.draft || !head || !$workspaceStore) return
 					draftSync.draft = { ...draftSync.draft, parent_hash: head }
 					// The baseline mirrors the draft's base so an unedited draft still
