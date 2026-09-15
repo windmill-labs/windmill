@@ -657,8 +657,10 @@ async fn move_draft(
     };
     // Validate before authorizing: `require_can_write_path` is not a format check
     // (an admin returns immediately, and a user returns early inside their own
-    // namespace), so without this a malformed destination is stored as-is, and an
-    // over-long or NUL-bearing one reaches Postgres as a raw server error.
+    // namespace), so without this a malformed path is stored as-is, and an over-long
+    // or NUL-bearing one reaches Postgres as a raw server error. The source is a URL
+    // segment and arrives decoded, so it needs the same check as the destination.
+    check_proper_path(path)?;
     check_proper_path(new_path)?;
     // A summary-only edit is a legitimate use of this endpoint: the drawer edits
     // both fields, and for a draft-only script the path it posts back is the row
