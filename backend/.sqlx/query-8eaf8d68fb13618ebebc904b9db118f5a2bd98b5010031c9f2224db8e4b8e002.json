@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT req.id AS \"id!\",\n                (CASE\n                    WHEN workspace.id IS NULL THEN 'deleted'\n                    WHEN usr.email IS NULL AND NOT $3 THEN 'deleted'\n                    WHEN workspace.deleted THEN 'archived'\n                    ELSE 'active'\n                END) AS \"status!\",\n                workspace_settings.ai_config->'sessions_retention_days' AS retention\n         FROM unnest($1::text[]) AS req(id)\n         LEFT JOIN workspace ON workspace.id = req.id\n         LEFT JOIN usr ON usr.workspace_id = workspace.id AND usr.email = $2\n         LEFT JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "retention",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "8eaf8d68fb13618ebebc904b9db118f5a2bd98b5010031c9f2224db8e4b8e002"
+}
