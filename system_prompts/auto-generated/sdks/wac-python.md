@@ -62,8 +62,9 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 # instead of running it again. A task is keyed on its step key (its name and
 # call order) and the workflow's input, not on the arguments it is called
 # with, so cache one only when whether it runs, and what it receives, follow
-# from the workflow's input alone. A ``task_script`` or ``task_flow`` target
-# is keyed on the arguments it is called with.
+# from the workflow's input alone. A ``task_script`` target is keyed on the
+# arguments it is called with. It has no effect on a ``task_flow`` target,
+# which keeps its flow's own cache policy.
 #
 # Usage::
 #
