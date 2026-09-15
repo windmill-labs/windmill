@@ -1,6 +1,6 @@
-//! Who may change a data table's grants and owners: its administrators, from the workspace that
-//! governs it, on an edition that has the planner. Each refusal is decided before anything
-//! connects to the data table, so the fixture's database never has to exist.
+//! Who may read and change a data table's grants and owners. On the Enterprise Edition: its
+//! administrators, from the workspace that governs it. Without it: nobody. Each refusal is decided
+//! before anything connects to the data table, so the fixture's database never has to exist.
 
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
@@ -34,6 +34,7 @@ async fn post_acl(
 
 /// A fork reaches the data table through a pointer: it may use it, never change what each role may
 /// touch on it — not even as an admin of the fork.
+#[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
 async fn a_fork_cannot_change_access_on_the_data_table_it_points_at(
     db: Pool<Postgres>,
@@ -48,6 +49,7 @@ async fn a_fork_cannot_change_access_on_the_data_table_it_points_at(
     Ok(())
 }
 
+#[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
 async fn a_member_who_is_not_an_admin_cannot_change_access(
     db: Pool<Postgres>,
@@ -62,17 +64,45 @@ async fn a_member_who_is_not_an_admin_cannot_change_access(
     Ok(())
 }
 
+/// Not even reading, and not even on a data table that is not under roles — which any member
+/// reaches, so only the edition stands between them and the instance's credentials.
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
-async fn only_the_enterprise_edition_changes_access(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn only_the_enterprise_edition_has_the_access_editor(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     initialize_tracing().await;
+    sqlx::query(
+        "UPDATE workspace_settings
+         SET datatable = datatable #- '{datatables,main,permissions}'
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .execute(&db)
+    .await?;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
+
+    let read = reqwest::Client::new()
+        .get(format!(
+            "http://localhost:{port}/api/w/test-workspace/workspaces/datatable_acl/main?kind=database"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .send()
+        .await?;
+    let mut responses = vec![("read", read)];
     for action in ["plan", "apply"] {
-        let resp = post_acl(port, "test-workspace", action, "SECRET_TOKEN").await?;
+        responses.push((
+            action,
+            post_acl(port, "test-workspace", action, "SECRET_TOKEN").await?,
+        ));
+    }
+    for (action, resp) in responses {
         assert_eq!(resp.status(), 400, "{action}");
         let body = resp.text().await?;
-        assert!(body.contains("Enterprise Edition"), "{action}: {body}");
+        assert!(
+            body.contains("Data table roles are a Windmill Enterprise Edition feature"),
+            "{action}: {body}"
+        );
     }
     Ok(())
 }

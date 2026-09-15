@@ -13,8 +13,8 @@
 //! `ALTER ... OWNER TO` or `ALTER DEFAULT PRIVILEGES`, so Postgres is what enforces it.
 //!
 //! Reading is open to anyone who reaches the data table. Planning and applying are for those who
-//! administer it — admins of the workspace that governs it, and superadmins — and the planner
-//! itself is Enterprise Edition ([`crate::datatable_acl_oss`]).
+//! administer it — admins of the workspace that governs it, and superadmins. All of it is
+//! Enterprise Edition ([`crate::datatable_acl_oss`]).
 
 use std::collections::BTreeMap;
 
@@ -1009,14 +1009,14 @@ async fn get_datatable_acl(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<AclTargetQuery>,
 ) -> JsonResult<DatatableAclInfo> {
+    crate::datatable_acl_oss::ensure_datatable_acl_available()?;
     let target: AclTarget = query.try_into()?;
     ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed).await?;
     let governing = resolve_governing_datatable(&db, &w_id, &datatable_name).await?;
     ensure_instance(&governing)?;
-    let editable = crate::datatable_acl_oss::ensure_acl_planner().is_ok()
-        && ensure_governs_datatable(&db, &authed, &w_id, &governing)
-            .await
-            .is_ok();
+    let editable = ensure_governs_datatable(&db, &authed, &w_id, &governing)
+        .await
+        .is_ok();
     let roles = if editable {
         role_names(&read_role_catalog(&db).await?)
     } else {
@@ -1294,8 +1294,7 @@ fn grant_read_error(e: tokio_postgres::Error) -> Error {
 }
 
 /// Changing a data table's access is administering it. Checked in full before anything connects
-/// with the instance's credentials — the edition included, since without the planner every
-/// request ends in the same refusal.
+/// with the instance's credentials.
 async fn authorize_acl_change(
     db: &DB,
     authed: &ApiAuthed,
@@ -1305,7 +1304,6 @@ async fn authorize_acl_change(
     let governing = resolve_governing_datatable(db, w_id, datatable_name).await?;
     ensure_governs_datatable(db, authed, w_id, &governing).await?;
     ensure_instance(&governing)?;
-    crate::datatable_acl_oss::ensure_acl_planner()?;
     Ok(governing)
 }
 
@@ -1482,6 +1480,7 @@ async fn plan_datatable_acl(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Json(req): Json<AclChangeRequest>,
 ) -> JsonResult<AclPlan> {
+    crate::datatable_acl_oss::ensure_datatable_acl_available()?;
     let governing = authorize_acl_change(&db, &authed, &w_id, &datatable_name).await?;
     let catalog = read_role_catalog(&db).await?;
     let (client, _notices, dbname) = connect_as_admin_unchecked(&db, &governing).await?;
@@ -1496,6 +1495,7 @@ async fn apply_datatable_acl(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Json(req): Json<AclChangeRequest>,
 ) -> Result<String> {
+    crate::datatable_acl_oss::ensure_datatable_acl_available()?;
     let confirmed = req.statements.as_ref().ok_or_else(|| {
         Error::BadRequest(
             "An apply runs exactly the statements its plan showed; plan the change first"

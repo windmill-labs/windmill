@@ -8,30 +8,28 @@
 
 //! Where the ACL planner comes from: the enterprise one, or a refusal.
 //!
-//! Reading who owns what stays open in every edition; every change is a plan, so an edition
-//! without the planner cannot make one. `private` alone is not that edition — community builds
-//! carry it — so the planner is behind `enterprise` as well.
+//! Data table roles are an Enterprise Edition feature, and so is everything here — reading who
+//! owns what included. `private` alone is not that edition — community builds carry it — so the
+//! planner is behind `enterprise` as well.
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
 pub(crate) use crate::datatable_acl_ee::plan_statements;
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
-pub(crate) fn ensure_acl_planner() -> windmill_common::error::Result<()> {
+pub(crate) fn ensure_datatable_acl_available() -> windmill_common::error::Result<()> {
     Ok(())
 }
 
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
 use {
     crate::datatable_acl::{AclChange, AclPlan, AclTarget, CatalogFacts},
-    windmill_common::error::{Error, Result},
+    windmill_common::{datatable_roles_oss::datatable_roles_unavailable, error::Result},
 };
 
-/// Checked right after authorization, before anything connects with the instance's credentials.
+/// Checked first by every ACL route, before anything is read or connected to.
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
-pub(crate) fn ensure_acl_planner() -> Result<()> {
-    Err(Error::BadRequest(
-        "Data table permissions are a Windmill Enterprise Edition feature".to_string(),
-    ))
+pub(crate) fn ensure_datatable_acl_available() -> Result<()> {
+    Err(datatable_roles_unavailable())
 }
 
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
@@ -42,8 +40,5 @@ pub(crate) fn plan_statements(
     _pg_role: &str,
     _facts: &CatalogFacts,
 ) -> Result<AclPlan> {
-    ensure_acl_planner()?;
-    Err(Error::internal_err(
-        "No ACL planner in this edition".to_string(),
-    ))
+    Err(datatable_roles_unavailable())
 }
