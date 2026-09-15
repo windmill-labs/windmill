@@ -2042,8 +2042,6 @@ async fn edit_large_file_storage_config(
     Json(new_config): Json<EditLargeFileStorageConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
-    #[cfg(feature = "parquet")]
-    let configures_storage = new_config.large_file_storage.is_some();
 
     let mut tx = db.begin().await?;
 
@@ -2095,6 +2093,17 @@ async fn edit_large_file_storage_config(
             serde_json::to_value::<LargeFileStorageWithSecondary>(lfs_config)
                 .map_err(|err| Error::internal_err(err.to_string()))?;
 
+        // A workspace whose AI session backups fell back to the instance store leaves it
+        // here: the generation moves on, so nothing it left in any instance store is read
+        // again, whichever one a later return to the fallback finds (`ai_session_backups`).
+        sqlx::query(
+            "UPDATE workspace_settings SET ai_sessions_backup_generation = \
+             ai_sessions_backup_generation + 1 \
+             WHERE workspace_id = $1 AND large_file_storage IS NULL",
+        )
+        .bind(&w_id)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query!(
             "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",
             serialized_lfs_config,
@@ -2110,14 +2119,22 @@ async fn edit_large_file_storage_config(
         .execute(&mut *tx)
         .await?;
     }
+    let backups_generation: Option<i64> = sqlx::query_scalar(
+        "SELECT ai_sessions_backup_generation FROM workspace_settings WHERE workspace_id = $1",
+    )
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
     tx.commit().await?;
 
-    // The AI session backups answer from the new storage from now on; what the workspace
-    // kept in the instance store while it had none is swept out.
+    // Read by nothing any more, whatever the storage is now: what the AI session backups
+    // left in the instance store under a generation older than the one just committed.
     #[cfg(feature = "parquet")]
-    if configures_storage {
-        crate::ai_session_backups::spawn_delete_fallback(db.clone(), w_id.clone());
+    if let Some(generation) = backups_generation {
+        crate::ai_session_backups::spawn_delete_fallback(w_id.clone(), generation);
     }
+    #[cfg(not(feature = "parquet"))]
+    let _ = backups_generation;
 
     // Trigger git sync for large file storage changes
     handle_deployment_metadata(

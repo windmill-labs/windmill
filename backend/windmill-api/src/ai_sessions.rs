@@ -415,31 +415,37 @@ fn require_json_object(kind: &str, raw: &RawValue, max_bytes: usize) -> Result<(
 /// no instance store to stand in, or the admin switched them off. Both read as
 /// `enabled: false` so the browser stops trying.
 async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backend>> {
-    let (disabled, generation) = sqlx::query_as::<_, (Option<bool>, i64)>(
-        "SELECT (ai_config->>'sessions_storage_disabled')::bool, ai_sessions_backup_generation \
-         FROM workspace_settings WHERE workspace_id = $1",
+    let (disabled, generation, has_storage) = sqlx::query_as::<_, (Option<bool>, i64, bool)>(
+        "SELECT (ai_config->>'sessions_storage_disabled')::bool, ai_sessions_backup_generation, \
+         large_file_storage IS NOT NULL FROM workspace_settings WHERE workspace_id = $1",
     )
     .bind(w_id)
     .fetch_optional(db)
     .await?
-    .unwrap_or((None, 0));
+    .unwrap_or((None, 0, false));
     if disabled.unwrap_or(false) {
         return Ok(None);
     }
-    let (_, resource) =
-        crate::job_helpers_oss::get_workspace_s3_resource(authed, db, None, w_id, None).await?;
-    let (store, storage_id, fallback) = match resource {
-        Some(resource) => (
+    // Decided from the row the generation came from: the instance store is written only
+    // under a generation read while the workspace had no storage of its own, which
+    // configuring one moves past (`ai_session_backups`).
+    let (store, storage_id, fallback) = if has_storage {
+        let (_, resource) =
+            crate::job_helpers_oss::get_workspace_s3_resource(authed, db, None, w_id, None).await?;
+        let Some(resource) = resource else {
+            return Ok(None);
+        };
+        (
             build_object_store_client(&resource).await?,
             storage_id(&resource),
             false,
-        ),
-        // No storage of its own: the instance store stands in, under the same layout and
-        // the same key.
-        None => match fallback_store(db).await? {
+        )
+    } else {
+        // The instance store stands in, under the same layout and the same key.
+        match fallback_store(db).await? {
             Some(f) => (f.store, f.storage_id, true),
             None => return Ok(None),
-        },
+        }
     };
     let user = calculate_hash(&authed.email);
     // Keyed per user, not per workspace: anyone who can write the bucket could otherwise copy
@@ -476,7 +482,8 @@ struct ListResponse {
     backup_generation: Option<i64>,
     /// The storage is the instance store standing in for a workspace without one of its
     /// own; a removal owed to it is retired by any answer from the workspace's own storage
-    /// once it has one (configuring it sweeps the workspace out of the instance store).
+    /// once it has one (configuring it moved the generation past everything the workspace
+    /// left in any instance store).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     fallback: bool,
     sessions: Vec<SessionListing>,

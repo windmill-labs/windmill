@@ -118,6 +118,10 @@ pub fn object_store_error_to_error(err: object_store::Error) -> error::Error {
 pub struct ExpirableObjectStore {
     pub store: Arc<dyn ObjectStore>,
     pub refresh: Option<ObjectStoreRefresh>,
+    /// What locates the store's objects ([`object_store_location`]), for a store built from
+    /// settings. Kept with the store rather than read off the settings again, so a server
+    /// whose reload is still pending never names one store by another's location.
+    pub location: Option<String>,
 }
 
 #[cfg(feature = "parquet")]
@@ -155,7 +159,7 @@ impl ObjectStoreRefresh {
 #[cfg(feature = "parquet")]
 impl From<Arc<dyn ObjectStore>> for ExpirableObjectStore {
     fn from(store: Arc<dyn ObjectStore>) -> Self {
-        Self { store, refresh: None }
+        Self { store, refresh: None, location: None }
     }
 }
 
@@ -197,6 +201,15 @@ static CACHE_OVERRIDE_GENERATION: std::sync::atomic::AtomicU64 =
 async fn resolve_object_store(
     settings_lock: &RwLock<Option<ExpirableObjectStore>>,
 ) -> Option<Arc<dyn ObjectStore>> {
+    resolve_object_store_with_location(settings_lock)
+        .await
+        .map(|(store, _)| store)
+}
+
+#[cfg(feature = "parquet")]
+async fn resolve_object_store_with_location(
+    settings_lock: &RwLock<Option<ExpirableObjectStore>>,
+) -> Option<(Arc<dyn ObjectStore>, Option<String>)> {
     let settings = settings_lock.read().await;
     let Some(s) = settings.as_ref() else {
         return None;
@@ -212,24 +225,31 @@ async fn resolve_object_store(
                 // A reload may have installed a different store while the credentials were
                 // being minted; that one reflects newer config, so the refresh is stale.
                 Some(current) if !Arc::ptr_eq(&current.store, &refreshed_from) => {
-                    Some(current.store.clone())
+                    Some((current.store.clone(), current.location.clone()))
                 }
                 Some(_) => {
-                    let arc = new_store.store.clone();
+                    let found = (new_store.store.clone(), new_store.location.clone());
                     *settings = Some(new_store);
-                    Some(arc)
+                    Some(found)
                 }
                 // Cleared while refreshing.
                 None => None,
             }
         }
-        _ => Some(s.store.clone()),
+        _ => Some((s.store.clone(), s.location.clone())),
     }
 }
 
 #[cfg(feature = "parquet")]
 pub async fn get_object_store() -> Option<Arc<dyn ObjectStore>> {
     resolve_object_store(&OBJECT_STORE_SETTINGS).await
+}
+
+/// The instance object store with what locates its objects ([`object_store_location`]),
+/// read together; the location is `None` for a store installed without settings.
+#[cfg(feature = "parquet")]
+pub async fn get_object_store_with_location() -> Option<(Arc<dyn ObjectStore>, Option<String>)> {
+    resolve_object_store_with_location(&OBJECT_STORE_SETTINGS).await
 }
 
 /// The store the dependency cache reads and writes: the worker group's override when it has one,
@@ -422,20 +442,22 @@ pub async fn reload_object_store_setting(db: &windmill_common::DB) -> ObjectStor
                     tracing::error!("S3 cache is not available for pro plan");
                     return ObjectStoreReload::Never;
                 }
-                *s3_cache_settings = build_s3_client_from_settings(S3Settings {
-                    bucket: None,
-                    region: None,
-                    access_key: None,
-                    secret_key: None,
-                    endpoint: None,
-                    store_logs: None,
-                    path_style: None,
-                    allow_http: None,
-                    port: None,
-                })
+                *s3_cache_settings = build_object_store_from_settings(
+                    ObjectSettings::S3(S3Settings {
+                        bucket: None,
+                        region: None,
+                        access_key: None,
+                        secret_key: None,
+                        endpoint: None,
+                        store_logs: None,
+                        path_style: None,
+                        allow_http: None,
+                        port: None,
+                    }),
+                    Some(db),
+                )
                 .await
                 .ok()
-                .map(|x| ExpirableObjectStore::from(x))
             } else {
                 *s3_cache_settings = None;
             }
@@ -887,19 +909,49 @@ impl ObjectStore for FilesystemStoreIgnoringAttributes {
     }
 }
 
+/// What locates a store's objects: endpoint, port, region and bucket (or account and
+/// container, or root), never the credentials, which rotate. Two stores with the same
+/// location hold the same objects.
+pub fn object_store_location(resource: &ObjectStoreResource) -> String {
+    match resource {
+        ObjectStoreResource::S3(s) => format!(
+            "s3:{}:{}:{}:{}",
+            s.endpoint,
+            s.port.unwrap_or_default(),
+            s.region,
+            s.bucket
+        ),
+        ObjectStoreResource::Azure(a) => format!(
+            "azure:{}:{}:{}",
+            a.endpoint.as_deref().unwrap_or_default(),
+            a.account_name,
+            a.container_name
+        ),
+        ObjectStoreResource::Gcs(g) => format!("gcs:{}", g.bucket),
+        ObjectStoreResource::Filesystem(f) => format!("fs:{}", f.root_path),
+    }
+}
+
 #[cfg(feature = "parquet")]
 pub async fn build_object_store_from_settings(
     settings: ObjectSettings,
     init_private_key: Option<&windmill_common::DB>,
 ) -> error::Result<ExpirableObjectStore> {
+    let located =
+        |store: Arc<dyn ObjectStore>, resource: ObjectStoreResource| ExpirableObjectStore {
+            store,
+            refresh: None,
+            location: Some(object_store_location(&resource)),
+        };
     match settings {
-        ObjectSettings::S3(s3_settings) => build_s3_client_from_settings(s3_settings)
-            .await
-            .map(|x| ExpirableObjectStore::from(x)),
-        ObjectSettings::Azure(azure_settings) => {
-            let azure_blob_resource = azure_settings;
-            build_azure_blob_client(&azure_blob_resource).map(|x| ExpirableObjectStore::from(x))
+        ObjectSettings::S3(s3_settings) => {
+            let s3_resource = s3_resource_from_settings(s3_settings);
+            build_s3_client(&s3_resource)
+                .await
+                .map(|x| located(x, ObjectStoreResource::S3(s3_resource)))
         }
+        ObjectSettings::Azure(azure_settings) => build_azure_blob_client(&azure_settings)
+            .map(|x| located(x, ObjectStoreResource::Azure(azure_settings))),
         ObjectSettings::AwsOidc(ref s3_aws_oidc_settings) => {
             let token_generator = crate::job_s3_helpers_oss::TokenGenerator::AsServerInstance();
             let res = crate::job_s3_helpers_oss::generate_s3_aws_oidc_resource(
@@ -914,17 +966,14 @@ pub async fn build_object_store_from_settings(
                 .map(|x| ExpirableObjectStore {
                     store: x,
                     refresh: Some(ObjectStoreRefresh::new(settings.clone(), res.expiration())),
+                    location: Some(object_store_location(&res)),
                 })
         }
-        ObjectSettings::Gcs(gcs_settings) => {
-            let gcs_resource = gcs_settings;
-            build_gcs_client(&gcs_resource)
-                .await
-                .map(|x| ExpirableObjectStore::from(x))
-        }
-        ObjectSettings::Filesystem(fs) => {
-            build_filesystem_client(&fs.root_path).map(|x| ExpirableObjectStore::from(x))
-        }
+        ObjectSettings::Gcs(gcs_settings) => build_gcs_client(&gcs_settings)
+            .await
+            .map(|x| located(x, ObjectStoreResource::Gcs(gcs_settings))),
+        ObjectSettings::Filesystem(fs) => build_filesystem_client(&fs.root_path)
+            .map(|x| located(x, ObjectStoreResource::Filesystem(fs))),
     }
 }
 
@@ -937,14 +986,14 @@ fn none_if_empty(s: Option<String>) -> Option<String> {
     }
 }
 
+/// The S3 resource instance settings resolve to, the environment filling in what they
+/// leave out.
 #[cfg(feature = "parquet")]
-pub async fn build_s3_client_from_settings(
-    settings: S3Settings,
-) -> error::Result<Arc<dyn ObjectStore>> {
+fn s3_resource_from_settings(settings: S3Settings) -> S3Resource {
     let region = none_if_empty(settings.region)
         .unwrap_or_else(|| std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string()));
 
-    let s3_resource = S3Resource {
+    S3Resource {
         endpoint: none_if_empty(settings.endpoint).unwrap_or_else(|| {
             std::env::var("S3_ENDPOINT").unwrap_or_else(|_| format!("s3.{region}.amazonaws.com"))
         }),
@@ -959,9 +1008,7 @@ pub async fn build_s3_client_from_settings(
         port: settings.port,
         token: None,
         expiration: None,
-    };
-
-    build_s3_client(&s3_resource).await
+    }
 }
 
 // Resolving the default chain goes over the network (ECS/IMDS) on instances relying on an

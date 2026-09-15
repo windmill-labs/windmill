@@ -722,8 +722,8 @@ async function pushWorkspace(
 				)
 				// Answered from a storage holding no copy: the copies are still where they
 				// were, and the mark waits for those storages to answer. The workspace's own
-				// storage answering retires the instance store's share too: configuring the
-				// storage swept the workspace out of the instance store.
+				// storage answering retires every instance store's share too: configuring it
+				// moved the generation past all the workspace left in any instance store.
 				if (holding.size === 0 || storageId === undefined) out.removedDone.push(mark)
 				else {
 					const before = holding.size

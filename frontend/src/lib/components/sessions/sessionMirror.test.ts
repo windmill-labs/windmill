@@ -712,27 +712,38 @@ describe('sessionMirror flush', () => {
 		expect((await __syncRowsForTesting(EMAIL)).some((r) => r.id === 'sr3')).toBe(false)
 	})
 
-	it("retires a removal owed to the instance store once the workspace's own storage answered", async () => {
+	it("retires a removal owed to any instance store once the workspace's own storage answered", async () => {
 		const s: Session = { id: 'fb1', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
 		sessionState.sessions = [s]
 		await putSession(s)
 		pushMock.mockResolvedValueOnce({
 			enabled: true,
-			storage_id: 'I',
+			storage_id: 'I1',
 			fallback: true,
 			results: [{ id: 'fb1' }]
 		})
 		await __flushForTesting()
-		expect((await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'fb1')?.storageId).toBe(
-			'instance:I'
-		)
+		// The operator moved the instance store: the session goes whole to the new one, and
+		// the row remembers the copy the old one keeps.
+		await putSession({ ...s, summary: 'changed' })
+		pushMock.mockResolvedValue({
+			enabled: true,
+			storage_id: 'I2',
+			fallback: true,
+			results: [{ id: 'fb1' }]
+		})
+		await __flushForTesting()
+		await __flushForTesting()
+		const row = (await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'fb1')
+		expect(row?.storageId).toBe('instance:I2')
+		expect(row?.alsoIn).toEqual(['instance:I1'])
 
-		// The workspace got a storage of its own meanwhile, which swept it out of the instance
-		// store: that storage's answer settles the removal, the instance store never answering
-		// for the workspace again.
+		// The workspace got a storage of its own meanwhile, which moved the generation past
+		// everything it left in either instance store: that storage's answer settles the
+		// removal.
 		deleteSession('fb1')
 		await flush()
-		pushMock.mockResolvedValueOnce({ enabled: true, storage_id: 'A', results: [{ id: 'fb1' }] })
+		pushMock.mockResolvedValue({ enabled: true, storage_id: 'A', results: [{ id: 'fb1' }] })
 		await __flushForTesting()
 		expect(pushMock.mock.lastCall?.[0].requestBody.removed).toEqual(['fb1'])
 		expect(removalKeys()).toEqual([])

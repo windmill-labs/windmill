@@ -54,9 +54,10 @@ const FALLBACK_STORAGE_PREFIX = 'instance:'
  * How a storage the server answered from is named in the sync rows and the removal marks:
  * by the id the server gives it, the instance object store standing in for a workspace
  * without storage of its own (`fallback` on the answer) told apart from a workspace's own.
- * A removal owed to the instance store is retired by any answer from the workspace's own
- * storage (configuring one sweeps the workspace out of the instance store), where one owed
- * to a workspace storage waits for that storage.
+ * A removal owed to an instance store is retired by any answer from the workspace's own
+ * storage (configuring one moves the backup generation past everything the workspace left
+ * in any instance store, so none of it is read again), where one owed to a workspace
+ * storage waits for that storage.
  */
 export function storageName(id: string, fallback: boolean | undefined): string
 export function storageName(

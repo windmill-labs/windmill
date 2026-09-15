@@ -1134,10 +1134,20 @@ async fn test_backup_writes_are_refused_for_the_wrong_owner_token_or_id(
     Ok(())
 }
 
+/// Puts the process-wide instance store back to none, even when an assertion fails.
+struct ResetInstanceStore;
+impl Drop for ResetInstanceStore {
+    fn drop(&mut self) {
+        if let Ok(mut store) = windmill_object_store::OBJECT_STORE_SETTINGS.try_write() {
+            *store = None;
+        }
+    }
+}
+
 /// A workspace without storage of its own backs up to the instance object store, every
-/// answer saying so (`fallback`); a storage of its own, once configured, answers instead
-/// and sweeps the workspace out of the instance store, unless it is the instance store's
-/// own bucket, where what the workspace holds is the live backups.
+/// answer saying so (`fallback`); a storage of its own, once configured, answers instead,
+/// under a generation past everything the workspace left in the instance store, which the
+/// change deletes.
 #[sqlx::test(fixtures("base"))]
 async fn test_backups_fall_back_to_the_instance_storage(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -1147,12 +1157,19 @@ async fn test_backups_fall_back_to_the_instance_storage(db: Pool<Postgres>) -> a
         server.addr.port()
     );
 
-    // The instance store, as `reload_object_store_setting` loads it from the setting.
+    // The instance store, built from its settings as `reload_object_store_setting` does.
     let instance_dir = tempfile::tempdir()?;
+    let instance_root = instance_dir.path().to_string_lossy().to_string();
     *windmill_object_store::OBJECT_STORE_SETTINGS.write().await = Some(
-        windmill_object_store::build_filesystem_client(&instance_dir.path().to_string_lossy())?
-            .into(),
+        windmill_object_store::build_object_store_from_settings(
+            windmill_object_store::ObjectSettings::Filesystem(
+                windmill_object_store::FilesystemSettings { root_path: instance_root.clone() },
+            ),
+            None,
+        )
+        .await?,
     );
+    let _reset = ResetInstanceStore;
     let in_instance = instance_dir
         .path()
         .join("windmill_ai_sessions/test-workspace");
@@ -1213,8 +1230,10 @@ async fn test_backups_fall_back_to_the_instance_storage(db: Pool<Postgres>) -> a
     assert_eq!(push_whole().await?.status(), 200);
     assert!(!files_under(&in_instance).is_empty());
 
-    // A storage of its own answers instead, and the workspace is swept out of the instance
-    // store: nothing there could come back if the workspace dropped its storage again.
+    // A storage of its own answers instead, under a generation the configuration moved past
+    // everything the workspace left in the instance store: nothing there is read again,
+    // whichever store a later return to the fallback finds, and it is deleted.
+    let before = list(&base, "SECRET_TOKEN").await?;
     let storage_dir = tempfile::tempdir()?;
     configure_primary_lfs_via_route(&base, &storage_dir.path().to_string_lossy()).await?;
     wait_until_empty(&in_instance, "configuring a workspace storage").await;
@@ -1222,21 +1241,40 @@ async fn test_backups_fall_back_to_the_instance_storage(db: Pool<Postgres>) -> a
     assert_eq!(listing["enabled"], true);
     assert!(listing.get("fallback").is_none(), "{listing}");
     assert_ne!(listing["storage_id"], fallback_storage_id);
+    assert_eq!(
+        listing["backup_generation"].as_i64(),
+        before["backup_generation"].as_i64().map(|g| g + 1),
+        "configuring a storage over the fallback must move the generation on"
+    );
     assert_eq!(listing["sessions"], json!([]));
     assert_eq!(push_whole().await?.status(), 200);
     assert!(!files_under(storage_dir.path()).is_empty());
     assert!(files_under(&in_instance).is_empty());
+    let resp = authed(
+        client().get(format!("{base}/job_helpers/storage_usage?refresh=true")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let usage: Value = resp.json().await?;
+    assert!(
+        !usage.to_string().contains("_ai_sessions_fallback_"),
+        "nothing is counted in the instance store for a workspace with storage: {usage}"
+    );
 
-    // A storage of its own that is the instance store's very bucket holds the live
-    // backups there: saving the settings again sweeps nothing.
-    configure_primary_lfs_via_route(&base, &instance_dir.path().to_string_lossy()).await?;
+    // Pointed at the instance store's own bucket, a storage of its own keeps its live
+    // backups there under the current generation, which no storage change deletes.
+    configure_primary_lfs_via_route(&base, &instance_root).await?;
     assert_eq!(push_whole().await?.status(), 200);
     assert!(!files_under(&in_instance).is_empty());
-    configure_primary_lfs_via_route(&base, &instance_dir.path().to_string_lossy()).await?;
+    let same = list(&base, "SECRET_TOKEN").await?;
+    configure_primary_lfs_via_route(&base, &instance_root).await?;
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     assert!(!files_under(&in_instance).is_empty());
     let listing = list(&base, "SECRET_TOKEN").await?;
     assert!(listing.get("fallback").is_none(), "{listing}");
+    assert_eq!(listing["backup_generation"], same["backup_generation"]);
     assert_eq!(listing["sessions"][0]["id"], "s1");
 
     Ok(())

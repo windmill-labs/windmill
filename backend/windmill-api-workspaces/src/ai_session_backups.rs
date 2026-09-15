@@ -17,25 +17,26 @@
 //!
 //! A workspace without storage of its own keeps its backups in the instance object store
 //! instead, under the same layout and key, while `ai_sessions_instance_storage_fallback`
-//! allows it. Configuring a storage for the workspace moves the routes there, and deletes
-//! its prefix in the instance store off the request, so no copy is left behind that a later
-//! return to the instance store would bring back; the browser is told which kind of store
-//! answered (`fallback`), and retires a removal owed to the instance store on any answer
-//! from the workspace's own storage, since nothing of the workspace is there any more.
+//! allows it. Configuring a storage for such a workspace bumps the generation in the
+//! transaction that sets it, so everything the workspace left in any instance store sits
+//! under a generation the routes never read again: a later return to the instance store,
+//! whichever it is by then, starts from a newer one. That is what lets a storage change
+//! delete the older generations from the instance store without fencing against what
+//! happens next, and a browser retire a removal owed to an instance store once the
+//! workspace's own storage answered.
 
 use std::sync::Arc;
 
 use futures::{StreamExt, TryStreamExt};
 use windmill_common::error::{Error, Result};
-use windmill_common::global_settings::{
-    load_value_from_global_settings, AI_SESSIONS_INSTANCE_STORAGE_FALLBACK_SETTING,
-};
 use windmill_common::utils::calculate_hash;
 use windmill_common::DB;
 use windmill_object_store::object_store_reexports::{
     ObjectStore, ObjectStoreError, Path as ObjectPath,
 };
-use windmill_object_store::{object_store_error_to_error, ObjectStoreResource};
+use windmill_object_store::{
+    object_store_error_to_error, object_store_location, ObjectStoreResource,
+};
 use windmill_types::s3::LargeFileStorage;
 
 /// The root of every AI session backup key in a workspace's storage.
@@ -64,64 +65,58 @@ fn workspace_prefix(w_id: &str) -> ObjectPath {
 /// recorded against another storage; the generation, answered alongside, tells it a
 /// rotation happened in this one.
 pub fn storage_id(resource: &ObjectStoreResource) -> String {
-    let location = match resource {
-        ObjectStoreResource::S3(s) => format!(
-            "s3:{}:{}:{}:{}",
-            s.endpoint,
-            s.port.unwrap_or_default(),
-            s.region,
-            s.bucket
-        ),
-        ObjectStoreResource::Azure(a) => format!(
-            "azure:{}:{}:{}",
-            a.endpoint.as_deref().unwrap_or_default(),
-            a.account_name,
-            a.container_name
-        ),
-        ObjectStoreResource::Gcs(g) => format!("gcs:{}", g.bucket),
-        ObjectStoreResource::Filesystem(f) => format!("fs:{}", f.root_path),
-    };
-    calculate_hash(&location)[..16].to_string()
+    calculate_hash(&object_store_location(resource))[..16].to_string()
 }
 
-/// Names the instance store the way `storage_id` names a workspace's, by the store's own
-/// description (its bucket, container or root), in a namespace of its own: a browser holds
-/// the two kinds apart (see `fallback`), whatever bucket each is.
-fn instance_storage_id(store: &Arc<dyn ObjectStore>) -> String {
-    calculate_hash(&format!("instance:{store}"))[..16].to_string()
-}
-
-/// Where a workspace's backups live: its primary storage, or, when it has none, the
-/// instance object store standing in for it.
+/// Where a workspace's backups live: its primary storage, or the instance object store
+/// standing in for it.
 pub struct BackupStore {
     pub store: Arc<dyn ObjectStore>,
     pub storage_id: String,
     pub fallback: bool,
 }
 
-/// The instance object store, for a workspace without storage of its own: loaded (an
-/// instance setting; never on the Pro plan, see `reload_object_store_setting`) and not
-/// turned off by `ai_sessions_instance_storage_fallback`, which is on unless set to false.
+/// The instance object store, for a workspace without storage of its own: loaded from
+/// settings that say where its objects are (never on the Pro plan, see
+/// `reload_object_store_setting`), and not turned off by
+/// `ai_sessions_instance_storage_fallback`, which is on unless set to false. Named like a
+/// workspace storage, by that location, in a namespace of its own. Never in a build without
+/// `private`, which has neither workspace storage nor the quota the fallback counts toward.
+///
+/// Authorizes nothing, and the store reaches every workspace's objects: the caller must have
+/// authorized the user for the workspace and keep what it reads and writes under that
+/// user's prefix in it, as the backup routes do.
 pub async fn fallback_store(db: &DB) -> Result<Option<BackupStore>> {
-    let Some(store) = windmill_object_store::get_object_store().await else {
-        return Ok(None);
-    };
-    let off = matches!(
-        load_value_from_global_settings(db, AI_SESSIONS_INSTANCE_STORAGE_FALLBACK_SETTING).await?,
-        Some(serde_json::Value::Bool(false))
-    );
-    if off {
-        return Ok(None);
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = db;
+        Ok(None)
     }
-    Ok(Some(BackupStore {
-        storage_id: instance_storage_id(&store),
-        store,
-        fallback: true,
-    }))
+    #[cfg(feature = "private")]
+    {
+        let Some((store, Some(location))) =
+            windmill_object_store::get_object_store_with_location().await
+        else {
+            return Ok(None);
+        };
+        let setting = windmill_common::global_settings::load_value_from_global_settings(
+            db,
+            windmill_common::global_settings::AI_SESSIONS_INSTANCE_STORAGE_FALLBACK_SETTING,
+        )
+        .await?;
+        if matches!(setting, Some(serde_json::Value::Bool(false))) {
+            return Ok(None);
+        }
+        Ok(Some(BackupStore {
+            storage_id: calculate_hash(&format!("instance:{location}"))[..16].to_string(),
+            store,
+            fallback: true,
+        }))
+    }
 }
 
-/// The workspace's primary storage, resolved without a caller: a rotation or a storage
-/// change runs its deletion off its own request.
+/// The workspace's primary storage, resolved without a caller: a rotation runs its deletion
+/// off its own request.
 async fn primary_store(db: &DB, w_id: &str) -> Result<Option<BackupStore>> {
     let Some(lfs_json) = sqlx::query_scalar!(
         "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
@@ -162,14 +157,6 @@ async fn workspace_store(db: &DB, w_id: &str) -> Result<Option<BackupStore>> {
     fallback_store(db).await
 }
 
-/// Whether a workspace's own storage is the very bucket the instance store is: what the
-/// workspace holds there is then its live backups, not copies to sweep or count twice. By
-/// the stores' descriptions (a bucket, container or root), which tell the same bucket apart
-/// from another whatever else differs, and err towards the same.
-fn same_bucket(a: &Arc<dyn ObjectStore>, b: &Arc<dyn ObjectStore>) -> bool {
-    a.to_string() == b.to_string()
-}
-
 /// The generation an object key sits under, `None` for a key of no generation (an older
 /// layout), which counts as older than any.
 fn generation_of(w_id: &str, key: &ObjectPath) -> Option<i64> {
@@ -181,36 +168,30 @@ fn generation_of(w_id: &str, key: &ObjectPath) -> Option<i64> {
         .ok()
 }
 
-/// Deletes, as the listing streams, every object under the prefix but the ones `keep` says.
-async fn delete_under(
-    store: &Arc<dyn ObjectStore>,
-    prefix: &ObjectPath,
-    keep: impl Fn(&ObjectPath) -> bool,
-) -> Result<()> {
+/// Deletes, as the listing streams, every object of the workspace's backups in the store
+/// from a generation older than `current`.
+async fn delete_older(store: &Arc<dyn ObjectStore>, w_id: &str, current: i64) -> Result<()> {
     store
-        .list(Some(prefix))
+        .list(Some(&workspace_prefix(w_id)))
         .map_err(object_store_error_to_error)
-        .try_for_each_concurrent(IO_CONCURRENCY, |meta| {
-            let (store, keep) = (store, &keep);
-            async move {
-                if keep(&meta.location) {
-                    return Ok(());
-                }
-                match store.delete(&meta.location).await {
-                    Ok(()) | Err(ObjectStoreError::NotFound { .. }) => Ok(()),
-                    Err(e) => Err(object_store_error_to_error(e)),
-                }
+        .try_for_each_concurrent(IO_CONCURRENCY, |meta| async move {
+            if generation_of(w_id, &meta.location).is_some_and(|g| g >= current) {
+                return Ok(());
+            }
+            match store.delete(&meta.location).await {
+                Ok(()) | Err(ObjectStoreError::NotFound { .. }) => Ok(()),
+                Err(e) => Err(object_store_error_to_error(e)),
             }
         })
         .await
 }
 
-/// Deletes, off the request and as the listing streams, every object of the workspace's
-/// backups from a generation older than `current`, once the rotation that made `current`
-/// the generation has committed: nothing writes there any more but a push that resolved its
-/// prefix before the commit, junk the browser's next push of that session rewrites under the
-/// current prefix, as is anything a deletion cut short left behind. For the rotation route,
-/// which authorized its caller as a superadmin.
+/// Deletes, off the request, every object of the workspace's backups from a generation
+/// older than `current`, once the rotation that made `current` the generation has
+/// committed: nothing writes there any more but a push that resolved its prefix before the
+/// commit, junk the browser's next push of that session rewrites under the current prefix,
+/// as is anything a deletion cut short left behind. For the rotation route, which
+/// authorized its caller as a superadmin.
 pub(crate) fn spawn_delete_older(db: DB, w_id: String, current: i64) {
     tokio::spawn(async move {
         let store = match workspace_store(&db, &w_id).await {
@@ -221,11 +202,7 @@ pub(crate) fn spawn_delete_older(db: DB, w_id: String, current: i64) {
                 return;
             }
         };
-        let deleted = delete_under(&store, &workspace_prefix(&w_id), |key| {
-            generation_of(&w_id, key).is_some_and(|g| g >= current)
-        })
-        .await;
-        match deleted {
+        match delete_older(&store, &w_id, current).await {
             Ok(()) => {
                 tracing::info!("deleted the AI session backups of {w_id} older than g{current}")
             }
@@ -234,30 +211,23 @@ pub(crate) fn spawn_delete_older(db: DB, w_id: String, current: i64) {
     });
 }
 
-/// Deletes, off the request, everything the workspace backed up in the instance store once
-/// a storage of its own is configured: the routes answer from that storage from now on, so
-/// nothing writes to the instance store's prefix any more, and a copy left there would come
-/// back if the workspace ever dropped its storage. Whether the fallback is on or off (copies
-/// from when it was on may be there), and only while the workspace has a storage of its own
-/// that is not the instance store's own bucket (there, what it holds is the live backups).
-/// For the storage settings route, which authorized its caller as a workspace admin.
-pub(crate) fn spawn_delete_fallback(db: DB, w_id: String) {
+/// Deletes, off the request, what the workspace's backups left in the instance store under
+/// a generation older than `current`, the one a storage settings change committed. Nothing
+/// reads there: the routes use the workspace's own storage, or, back in the instance store,
+/// `current` or a newer generation, since configuring a storage over the fallback bumped
+/// it. So it runs whatever the storage is now and whatever the setting says (copies from
+/// when it was on may be there), and a deletion that is slow, cut short or overtaken by a
+/// later change deletes nothing live. For the storage settings route, which authorized its
+/// caller as a workspace admin.
+pub(crate) fn spawn_delete_fallback(w_id: String, current: i64) {
     tokio::spawn(async move {
         let Some(instance) = windmill_object_store::get_object_store().await else {
             return;
         };
-        match primary_store(&db, &w_id).await {
-            Ok(Some(primary)) if !same_bucket(&primary.store, &instance) => {}
-            Ok(_) => return,
-            Err(e) => {
-                tracing::warn!("AI session backups of {w_id} left in the instance store: {e:#}");
-                return;
-            }
-        }
-        match delete_under(&instance, &workspace_prefix(&w_id), |_| false).await {
-            Ok(()) => {
-                tracing::info!("deleted the AI session backups of {w_id} from the instance store")
-            }
+        match delete_older(&instance, &w_id, current).await {
+            Ok(()) => tracing::info!(
+                "deleted the AI session backups of {w_id} older than g{current} from the instance store"
+            ),
             Err(e) => tracing::warn!(
                 "deleting the AI session backups of {w_id} from the instance store: {e:#}"
             ),
@@ -265,23 +235,32 @@ pub(crate) fn spawn_delete_fallback(db: DB, w_id: String) {
     });
 }
 
-/// The bytes of the workspace's backups in the instance store, for its storage usage:
-/// `None` when there is no instance store, or the workspace's own storage is its bucket
-/// (counted with that storage). Whether the fallback is on or off, as for the deletion.
+/// The bytes of the workspace's backups in the instance store, for its storage usage while
+/// it has no storage of its own (once it has one nothing writes there, and the change
+/// deleted what was): `None` when it has one, when there is no instance store, or when
+/// there is nothing, so no empty usage entry shows up. Whether the setting is on or off,
+/// since copies from when it was on may be there.
+///
+/// Authorizes nothing: for the storage usage recount, which reports a total for the
+/// workspace it was run for and hands out nothing it read.
 pub async fn fallback_bytes(db: &DB, w_id: &str) -> Result<Option<i64>> {
+    let has_storage = sqlx::query_scalar::<_, bool>(
+        "SELECT large_file_storage IS NOT NULL FROM workspace_settings WHERE workspace_id = $1",
+    )
+    .bind(w_id)
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false);
+    if has_storage {
+        return Ok(None);
+    }
     let Some(instance) = windmill_object_store::get_object_store().await else {
         return Ok(None);
     };
-    if primary_store(db, w_id)
-        .await?
-        .is_some_and(|primary| same_bucket(&primary.store, &instance))
-    {
-        return Ok(None);
-    }
     let mut total: i64 = 0;
     let mut stream = instance.list(Some(&workspace_prefix(w_id)));
     while let Some(meta) = stream.next().await {
         total += meta.map_err(object_store_error_to_error)?.size as i64;
     }
-    Ok(Some(total))
+    Ok((total > 0).then_some(total))
 }

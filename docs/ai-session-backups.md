@@ -141,34 +141,43 @@ A workspace without storage of its own keeps its backups in the instance object 
 (`object_store_cache_config`, loaded the way every other use of it is, so never on the Pro
 plan and never with `DISABLE_S3_STORE`), under the same layout and the same per-user key,
 while the instance setting `ai_sessions_instance_storage_fallback` allows it (on unless set
-to false; the instance settings page shows it under Object Storage). Every answer says which
-kind of store it came from (`fallback`), and the instance store is named (`storage_id`) by
-its own description in a namespace of its own, so a browser never takes it for a workspace's
-bucket even when it is the same bucket. The store a workspace's backups live in is resolved
-in one place (`ai_session_backups::workspace_store`), for the routes and for the rotation's
-deletion of older generations alike.
+to false; the instance settings page shows it under Object Storage). A build without
+`private` has neither workspace storage nor the quota below, and never falls back. Every
+answer says which kind of store it came from (`fallback`), and the instance store is named
+(`storage_id`) by what locates its objects, the endpoint, region and bucket its settings
+resolve to, in a namespace of its own: moving the instance store to another endpoint under
+the same bucket name is a storage switch for the browsers, and a workspace bucket is never
+taken for it. The location is kept with the loaded store, so a server whose reload is still
+pending names the store it writes to. A route decides between the workspace's storage and
+the instance store from the row it reads the generation from, so a push lands in the
+instance store only under a generation read while the workspace had no storage. The store a
+workspace's backups live in is resolved in one place
+(`ai_session_backups::workspace_store`), for the routes and for the rotation's deletion of
+older generations alike.
 
-Configuring a storage for the workspace (`edit_large_file_storage_config`) moves the routes
-there at once and, off the request, deletes the workspace's whole prefix in the instance
-store, whether the setting is on or off (copies from when it was on may be there), so no
-copy is left that a later return to the instance store would bring back; a rotation sweeps
-the older generations out of whichever store the workspace is on. A storage that is the
-instance store's own bucket is told by the stores' descriptions, and nothing is swept: what
-the workspace holds there is its live backups. Dropping the storage again is a switch like
-any other: the rows go stale, the sessions are pushed whole into the instance store, and
-the old bucket keeps its copy. On the browser side a removal owed to the instance store is
-retired by any answer from the workspace's own storage (the row names the instance store
-apart, `storageName` in `sessionMirrorPlan.ts`), since configuring that storage swept the
-workspace out; one owed to a workspace storage still waits for that storage, whatever the
-instance store answered. The sweep is best effort: a copy it could not delete comes back
-only if the workspace drops its storage again, and a deleted workspace's copies stay, as
-they do in a workspace bucket.
+Configuring a storage for a workspace that had none (`edit_large_file_storage_config`) bumps
+the backup generation in the transaction that sets it, so everything the workspace left in
+any instance store sits under a generation the routes never read again: a later return to
+the instance store, whichever it is by then, starts from a newer one. Every storage settings
+change then deletes from the instance store, off the request, the workspace's generations
+older than the one it committed, whether the setting is on or off (copies from when it was
+on may be there). Nothing live is older, whatever happens next: a deletion that is slow, cut
+short, or overtaken by the storage being dropped or pointed at the instance store's own
+bucket touches only generations nothing reads. Dropping the storage bumps nothing and is a
+switch like any other: the rows go stale, the sessions are pushed whole into the instance
+store, and the old bucket keeps its copy. On the browser side a removal owed to an instance
+store (the row names it apart, `storageName` in `sessionMirrorPlan.ts`) is retired by any
+answer from the workspace's own storage, since that storage being there means the
+generation moved past the copy; one owed to a workspace storage still waits for that
+storage, whatever the instance store answered. Copies a deletion missed stay in the
+operator's bucket unread, as a deleted workspace's copies do.
 
 On CE the bytes in the instance store count toward the workspace's storage quota under a
-storage name of their own (`_ai_sessions_fallback_`, listed by the periodic recount), so a
-member cannot fill the operator's bucket past what the workspace may use; on EE, where
-workspace storage has no quota either, nothing bounds them but the per-push caps and the
-instance setting.
+storage name of their own (`_ai_sessions_fallback_`, listed by the periodic recount while
+the workspace has no storage of its own, and left out when there are none), so a member
+cannot fill the operator's bucket past what the workspace may use; on EE, where workspace
+storage has no quota either, nothing bounds them but the per-push caps and the instance
+setting.
 
 ## Conflicts and deletion
 
