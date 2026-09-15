@@ -29,7 +29,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::sync::Arc;
 use windmill_api_auth::is_effectively_unscoped;
-use windmill_api_workspaces::ai_session_rekey::{open, pending_ciphers, spawn_rekey, ROOT};
+use windmill_api_workspaces::ai_session_rekey::{
+    open, pending_ciphers, spawn_rekey, MAX_OBJECT_BYTES, ROOT,
+};
 use windmill_common::error::{Error, JsonResult, Result};
 use windmill_common::utils::calculate_hash;
 use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key};
@@ -40,7 +42,7 @@ use windmill_object_store::{
     build_object_store_client, object_store_error_to_error, ObjectStoreResource,
 };
 
-const PUSH_BODY_LIMIT: usize = 32 * 1024 * 1024;
+const PUSH_BODY_LIMIT: usize = MAX_OBJECT_BYTES;
 /// A pull names at most MAX_PULL_IDS ids of 64 bytes; anything larger is not a pull.
 const PULL_BODY_LIMIT: usize = 64 * 1024;
 /// A pull answer larger than this hands the remaining ids back as `deferred`.
@@ -154,6 +156,12 @@ impl Backend {
             Err(ObjectStoreError::NotFound { .. }) => return Ok(None),
             Err(e) => return Err(object_store_error_to_error(e)),
         };
+        // Before buffering: whoever holds the bucket's credentials can put anything at a
+        // predictable key, and nothing written through the routes is this large.
+        if result.meta.size as usize > MAX_OBJECT_BYTES {
+            tracing::warn!("AI session backup object {key} is larger than any push writes");
+            return Ok(None);
+        }
         let bytes = result.bytes().await.map_err(object_store_error_to_error)?;
         let text = std::iter::once(&self.mc)
             .chain(&self.previous)

@@ -210,6 +210,19 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     .await?;
     assert_eq!(resp.status(), 200);
 
+    // An object larger than any push writes, planted with the bucket's credentials at a
+    // predictable key, is not read.
+    let planted = storage_dir
+        .path()
+        .join("windmill_ai_sessions/test-workspace")
+        .join(calculate_hash("test@windmill.dev"))
+        .join("sessions/planted/head.json");
+    std::fs::create_dir_all(planted.parent().unwrap())?;
+    std::fs::File::create(&planted)?.set_len(32 * 1024 * 1024 + 1)?;
+    let pulled = pull(&base, "SECRET_TOKEN", &["planted"]).await?;
+    assert_eq!(pulled["sessions"], json!([]));
+    std::fs::remove_dir_all(planted.parent().unwrap())?;
+
     let pulled = pull(&base, "SECRET_TOKEN", &["s1", "never-pushed"]).await?;
     assert_eq!(pulled["deferred"], json!([]));
     let sessions = pulled["sessions"].as_array().unwrap();

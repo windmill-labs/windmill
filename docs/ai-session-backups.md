@@ -175,7 +175,10 @@ out (they hydrate to placeholders). The listings themselves stop at the budget a
 objects per session, so a session grown without bound by valid pushes cannot grow the answer's
 memory through its metadata either; removing a prefix and the re-key walk stream their
 listings too. `list` scans at most 50 000 index markers, keeps the newest 500 as it goes and answers with
-them (`truncated` says when there were more); the restore takes 50 of them. Nothing is read past the budget, whatever a session holds. A
+them (`truncated` says when there were more); the restore takes 50 of them. An object larger
+than any push writes (32 MB, the push body cap) is left unread by `pull` and by the re-key
+walk, its size checked before it is buffered: whoever holds the bucket's credentials can
+plant one at a predictable key. Nothing is read past the budget, whatever a session holds. A
 restore takes the newest 50 sessions per workspace: every visible session gets a runtime, and
 each runtime's history load reads the whole chat store. On CE the push checks the storage quota
 and bumps usage by bytes written (an over-count on overwrites; the periodic recount settles it).

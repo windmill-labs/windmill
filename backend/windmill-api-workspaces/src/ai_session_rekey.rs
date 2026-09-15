@@ -26,6 +26,9 @@ use windmill_types::s3::LargeFileStorage;
 
 /// The root of every AI session backup key in a workspace's storage.
 pub const ROOT: &str = "windmill_ai_sessions";
+/// The push body cap: no object written through the routes is larger. One that is was
+/// planted by whoever holds the bucket's credentials, and is left unread.
+pub const MAX_OBJECT_BYTES: usize = 32 * 1024 * 1024;
 
 const IO_CONCURRENCY: usize = 8;
 
@@ -159,6 +162,13 @@ async fn rekey_object(
 ) -> Result<bool> {
     // The session index markers are empty, and under no key.
     if meta.size == 0 {
+        return Ok(false);
+    }
+    if meta.size as usize > MAX_OBJECT_BYTES {
+        tracing::warn!(
+            "AI session backup object {} is larger than any push writes; left unread",
+            meta.location
+        );
         return Ok(false);
     }
     let key = meta.location;
