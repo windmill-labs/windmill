@@ -879,7 +879,7 @@ Arguments (omit both to be prompted interactively):
   .option("-y --yes", "Skip interactive prompts (defaults datatable behavior to 'skip'). On a non-base branch, requires --from-branch since the base branch can't be prompted for.")
   .action(createWorkspaceFork as any)
   .command("delete-fork")
-  .description("Delete a forked workspace, dropping the databases of the data tables it cloned")
+  .description("Delete a forked workspace")
   .arguments("<fork_name:string>")
   .option("-y --yes", "Skip confirmation prompt")
   .action(deleteWorkspaceFork as any)

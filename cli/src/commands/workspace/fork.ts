@@ -598,7 +598,7 @@ async function deleteWorkspaceFork(
   if (!opts.yes) {
     const { Select } = await import("@cliffy/prompt/select");
     const choice = await Select.prompt({
-      message: `Are you sure you want to delete the forked workspace \`${forkWorkspaceId}\`, and drop the databases of the data tables it cloned?`,
+      message: `Are you sure you want to delete the forked workspace \`${forkWorkspaceId}\`?`,
       options: [
         { name: "Yes", value: "confirm" },
         { name: "No", value: "cancel" },
@@ -615,22 +615,6 @@ async function deleteWorkspaceFork(
     token,
     remote.endsWith("/") ? remote.substring(0, remote.length - 1) : remote
   );
-
-  // The fork's data table copies are named after its id and nothing else drops them: left behind,
-  // they would refuse a new fork of the same data tables under that id.
-  const settings = await wmill.getPublicSettings({ workspace: forkWorkspaceId });
-  const clones = Object.entries(settings.datatable?.datatables ?? {})
-    .filter(([_, dt]) => dt.forked_from != null && dt.database != null)
-    .map(([name]) => name);
-  if (clones.length > 0) {
-    const errors = await wmill.dropForkedDatatableDatabases({
-      workspace: forkWorkspaceId,
-      requestBody: { datatable_names: clones },
-    });
-    for (const error of errors) {
-      log.info(colors.yellow(`  ${error}`));
-    }
-  }
 
   const result = await wmill.deleteWorkspace({
     workspace: forkWorkspaceId
