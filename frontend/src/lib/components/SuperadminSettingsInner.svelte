@@ -448,15 +448,17 @@
 													{@const isServiceAccount = login_type === 'service_account'}
 													{@const groupRole =
 														role_source === 'instance_group' && (super_admin || devops)}
-													<!-- The backend re-applies a group role on any manual demotion below it but keeps a
-													     manual promotion above it, so only the options below the granted role lock. -->
+													<!-- Any elevated role picked here is stored as manual and wins over the group on later
+													     syncs; only a demotion to User is re-applied from the group. So only User locks. -->
 													{@const groupRoleTooltip =
-														'Role is set by an instance group. A higher role can still be given here, but demoting below the group role requires removing the user from the group.'}
+														'Role is set by an instance group. Superadmin and Devops can be set here, but demoting to User requires removing the user from the group.'}
 													{@const serviceAccountTooltip =
 														'Service accounts are always users in the instance. Their workspace role is managed in the workspace user settings.'}
+													<!-- Dimmed per cell content, not on the row: opacity on the row would make the pinned
+													     actions cell translucent and let the columns scrolling under it show through. -->
 													<tr
 														class="{i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'} {disabled
-															? 'opacity-60'
+															? '[&>td>*]:opacity-60'
 															: ''}"
 													>
 														<Cell first class="max-w-[240px]">
@@ -506,13 +508,15 @@
 														>
 														{#if activeOnly}
 															<Cell>
-																{#if is_workspace_admin}
-																	Admin
-																{:else if operator_only}
-																	Operator only
-																{:else}
-																	Developer
-																{/if}
+																<span>
+																	{#if is_workspace_admin}
+																		Admin
+																	{:else if operator_only}
+																		Operator only
+																	{:else}
+																		Developer
+																	{/if}
+																</span>
 															</Cell>
 														{/if}
 														<Cell>
@@ -586,12 +590,10 @@
 																				small
 																				label="Devops"
 																				shortLabel="Dev"
-																				disabled={isServiceAccount || (groupRole && super_admin)}
+																				disabled={isServiceAccount}
 																				tooltip={isServiceAccount
 																					? serviceAccountTooltip
-																					: groupRole && super_admin
-																						? groupRoleTooltip
-																						: "Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"}
+																					: "Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"}
 																				{item}
 																			/>
 																			<ToggleButton
@@ -749,10 +751,11 @@
 													</tr>
 												{/each}
 												{#if filteredUsers.length > nbDisplayed}
+													{@const remaining = Math.min(50, filteredUsers.length - nbDisplayed)}
 													<!-- Last row rather than a footer under the scroller, the way the runs
 													     list pages: the control scrolls with the rows it extends. -->
 													<tr>
-														<td
+														<Cell
 															colspan={5 +
 																(automateUsernameCreation ? 1 : 0) +
 																(activeOnly ? 1 : 0)}
@@ -760,14 +763,14 @@
 															<Button
 																variant="subtle"
 																unifiedSize="xs"
-																wrapperClasses="w-full justify-center py-1"
+																wrapperClasses="w-full justify-center"
 																onClick={() => {
 																	nbDisplayed += 50
 																}}
 															>
-																Load next {Math.min(50, filteredUsers.length - nbDisplayed)} users
+																Load next {remaining} user{remaining !== 1 ? 's' : ''}
 															</Button>
-														</td>
+														</Cell>
 													</tr>
 												{/if}
 											{/if}
