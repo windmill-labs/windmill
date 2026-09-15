@@ -256,8 +256,7 @@
 				autosavePath={path}
 				policy={cell.store.val.policy}
 				bind:savedApp={cell.saved.val}
-				version={cell.store.val?.parent_version ??
-					(cell.saved.val as { versions?: number[] } | undefined)?.versions?.at(-1)}
+				version={cell.store.val?.parent_version ?? cell.saved.val?.deployed_version}
 				draftBaseVersion={cell.store.val?.parent_version != null
 					? String(cell.store.val.parent_version)
 					: undefined}

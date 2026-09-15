@@ -762,10 +762,12 @@ async fn move_draft(
              AND ($2 = $3 OR NOT EXISTS (
                  SELECT 1 FROM draft o
                  WHERE o.workspace_id = $1 AND o.path = $3 AND o.typ::text = ANY($9::text[])
-                   -- The legacy row counts: a deploy at that path wipes it together with
-                   -- the caller's, so parking a second draft there discards edits the
-                   -- caller never saw.
-                   AND (o.email = $6 OR o.email IS NULL)
+                   -- Of this kind only the caller's own row and the legacy one collide:
+                   -- teammates' drafts of one item share its path by design, but a deploy
+                   -- there wipes those two together, so a second would discard edits the
+                   -- caller never saw. The other app kind is a different item on the same
+                   -- deployed path, so it collides whoever owns it.
+                   AND (o.typ <> $4 OR o.email = $6 OR o.email IS NULL)
              ))
            RETURNING id"#,
         &w_id,
@@ -796,14 +798,18 @@ async fn move_draft(
     if moved.is_none() {
         let row = sqlx::query!(
             r#"SELECT
-                 -- Own row first: with both an own and a legacy row at the destination,
-                 -- a bare LIMIT 1 would name an arbitrary one and the two need different
-                 -- remedies (discard your own vs. ask an admin).
+                 -- The guard's own predicate, ordered own row, then legacy, then another
+                 -- user's other-kind row: each needs a different remedy, and a bare
+                 -- LIMIT 1 would name an arbitrary one.
                  (SELECT typ::text FROM draft WHERE workspace_id = $1 AND path = $3
-                  AND typ::text = ANY($6::text[]) AND (email = $4 OR email IS NULL)
-                  ORDER BY email NULLS LAST LIMIT 1) as "at_target",
+                  AND typ::text = ANY($6::text[])
+                  AND (typ <> $2 OR email = $4 OR email IS NULL)
+                  ORDER BY CASE WHEN email = $4 THEN 0 WHEN email IS NULL THEN 1 ELSE 2 END
+                  LIMIT 1) as "at_target",
                  EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $3
                         AND typ::text = ANY($6::text[]) AND email = $4) as "at_target_own!",
+                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $3
+                        AND typ::text = ANY($6::text[]) AND email IS NULL) as "at_target_legacy!",
                  EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5
                         AND typ = $2 AND email = $4
                         AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0
@@ -841,13 +847,20 @@ async fn move_draft(
             let occupant = occupant.replace('_', " ");
             if row.at_target_own {
                 format!("You already have a draft at '{new_path}' ({occupant})")
-            } else {
+            } else if row.at_target_legacy {
                 // An ownerless row the caller cannot clear themselves, so send them to
                 // the one place it can be resolved rather than to "discard your draft".
                 format!(
                     "A legacy workspace draft with no owner is already at '{new_path}' \
                      ({occupant}). A workspace admin can claim or discard it on the Review & \
                      deploy drafts page."
+                )
+            } else {
+                // The other app kind, owned by someone else: one deployed path cannot hold
+                // both, so this is the other item's path, not a teammate's copy of this one.
+                format!(
+                    "Another user has a {occupant} draft at '{new_path}', and an app and a \
+                     raw app cannot share a path."
                 )
             }
         } else {

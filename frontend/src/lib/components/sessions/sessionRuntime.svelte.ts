@@ -146,6 +146,9 @@ export interface RawAppSavedValue {
 	/** No deployed counterpart (draft-only); disables the topbar Diff. */
 	no_deployed?: boolean
 	custom_path?: string
+	/** The deployed head at load time, which the editor's deploy guard falls back to when
+	 *  the draft carries no base of its own. */
+	deployed_version?: number
 }
 
 // One editor cell per (kind, path) the session loads: the load slot plus the
@@ -605,7 +608,9 @@ function createRuntime(session: Session): SessionRuntime {
 					// yet on the backend — draft-only flows are a valid state.
 					try {
 						const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-						saved.val = result as SavedFlow
+						// `getDraft` omits `version_id`; the editor's deploy guard compares
+						// against it, so put the head fetched above back on the baseline.
+						saved.val = { ...(result as SavedFlow), version_id: deployedVersionId }
 					} catch {
 						saved.val = undefined
 					}
@@ -617,7 +622,7 @@ function createRuntime(session: Session): SessionRuntime {
 
 				// No local draft yet — seed from `result.draft ?? result`.
 				const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-				saved.val = result as SavedFlow
+				saved.val = { ...(result as SavedFlow), version_id: deployedVersionId }
 				const serverDraft = (result as SavedFlow).draft as Flow | undefined
 				const flow: Flow = (serverDraft ?? (result as Flow)) as Flow
 				// Seed the per-tab last_sync from the server draft's timestamp so the
@@ -783,7 +788,10 @@ function createRuntime(session: Session): SessionRuntime {
 							path: result.path,
 							policy: result.policy,
 							custom_path: result.custom_path,
-							no_deployed: result.no_deployed
+							no_deployed: result.no_deployed,
+							deployed_version: Array.isArray(result.versions)
+								? result.versions[result.versions.length - 1]
+								: undefined
 						}
 					} catch {
 						saved.val = undefined
@@ -819,7 +827,10 @@ function createRuntime(session: Session): SessionRuntime {
 					path: result.path,
 					policy: result.policy,
 					custom_path: result.custom_path,
-					no_deployed: result.no_deployed
+					no_deployed: result.no_deployed,
+					deployed_version: Array.isArray(result.versions)
+						? result.versions[result.versions.length - 1]
+						: undefined
 				}
 				// Prefer the server draft over the deployed value (mirrors the
 				// flow/script `result.draft ?? result`). A raw-app draft is already

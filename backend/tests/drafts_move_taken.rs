@@ -181,3 +181,54 @@ async fn test_draft_move_refuses_the_other_app_kind(db: Pool<Postgres>) -> anyho
     );
     Ok(())
 }
+
+/// Teammates' drafts of one item share its path by design, so another user's row is no
+/// obstacle — except across the app pair, where the two kinds are different items on one
+/// deployed path: deploying either strands the other, and deleting the app takes both.
+#[sqlx::test(fixtures("base", "drafts_move_taken"))]
+async fn test_draft_move_refuses_another_users_other_app_kind(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let move_to = |kind: &'static str, from: &'static str, to: &'static str| async move {
+        let resp = reqwest::Client::new()
+            .post(format!(
+                "http://localhost:{port}/api/w/test-workspace/drafts/move/{kind}/{from}"
+            ))
+            .header("Authorization", "Bearer SECRET_TOKEN")
+            .json(&json!({ "new_path": to }))
+            .send()
+            .await?;
+        Ok::<_, anyhow::Error>((resp.status(), resp.text().await?))
+    };
+
+    let (status, body) = move_to(
+        "app",
+        "u/test-user/mvtaken_app",
+        "u/test-user/mvtaken_theirs",
+    )
+    .await?;
+    assert_eq!(
+        status, 400,
+        "a classic app was moved onto another user's raw app: {body}"
+    );
+    assert!(
+        body.contains("Another user has a raw app draft"),
+        "the refusal did not name the occupant: {body}"
+    );
+
+    // The same-kind case is the ordinary one: two users' drafts of one raw app.
+    let (status, body) = move_to(
+        "raw_app",
+        "u/test-user/mvtaken_raw",
+        "u/test-user/mvtaken_theirs",
+    )
+    .await?;
+    assert!(
+        status.is_success(),
+        "a raw app was refused beside another user's raw-app draft: {body}"
+    );
+    Ok(())
+}
