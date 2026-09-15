@@ -755,7 +755,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s9", "whole": "t2", "head": s9_head, "chats": s9_chats(&["c1"]) }]
+            "sessions": [{ "id": "s9", "whole": "t2", "epoch": 1, "head": s9_head, "chats": s9_chats(&["c1"]) }]
         }),
     )
     .await?;
@@ -763,6 +763,51 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     assert_eq!(
         pulled_chats(pull(&base, "SECRET_TOKEN", &["s9"]).await?),
         vec!["c1"]
+    );
+    // The marker carries the move count the push named, once; an incremental push at
+    // another count rides on nothing, one at the same count lands.
+    let s9_epochs = |listing: Value| -> Vec<Value> {
+        listing["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| s["id"] == "s9")
+            .map(|s| s["epoch"].clone())
+            .collect()
+    };
+    assert_eq!(
+        s9_epochs(list(&base, "SECRET_TOKEN").await?),
+        vec![json!(1)]
+    );
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s9", "chats": s9_chats(&["c7"]) }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let answer: Value = resp.json().await?;
+    assert_eq!(answer["results"][0]["needs_whole"], true);
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s9", "epoch": 1, "chats": s9_chats(&["c7"]) }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        pulled_chats(pull(&base, "SECRET_TOKEN", &["s9"]).await?),
+        vec!["c1", "c7"]
+    );
+    assert_eq!(
+        s9_epochs(list(&base, "SECRET_TOKEN").await?),
+        vec![json!(1)]
     );
 
     // Two devices pushing the session whole at once: the push that opened later replaced

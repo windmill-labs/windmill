@@ -28447,12 +28447,16 @@ components:
       required:
         - id
         - updated_at
+        - epoch
       properties:
         id:
           type: string
         updated_at:
           type: string
           format: date-time
+        epoch:
+          type: integer
+          description: the session's move count when this copy was pushed; of a session two workspaces list, the copy with the higher one is the later
 
     AISessionBackupImage:
       type: object
@@ -28571,6 +28575,9 @@ components:
         whole:
           type: string
           description: a part of a push of the session whole, named by a token the browser draws for that push; the head is on the first of them, which replaces whatever the storage holds of the session, and every piece the browser has is on one of them. A part of another whole push than the one in progress is refused with needs_whole, and so is a part without a token (an incremental one) when the storage lists no such session
+        epoch:
+          type: integer
+          description: the session's move count (its record's `moves`), kept with the marker that lists the session; an incremental part rides on the marker of the same count
 
     FreeTierInfo:
       type: object

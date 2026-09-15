@@ -65,6 +65,7 @@ export type SessionHead = Pick<
 	| 'createdAt'
 	| 'archived'
 	| 'archivedByWorkspace'
+	| 'moves'
 	| 'previewTabs'
 	| 'activePreviewTabId'
 	| 'previewCollapsed'
@@ -79,6 +80,7 @@ export function sessionHead(s: Session): SessionHead {
 	if (s.summarySource !== undefined) head.summarySource = s.summarySource
 	if (s.archived !== undefined) head.archived = s.archived
 	if (s.archivedByWorkspace !== undefined) head.archivedByWorkspace = s.archivedByWorkspace
+	if (s.moves !== undefined) head.moves = s.moves
 	if (s.previewTabs !== undefined) head.previewTabs = s.previewTabs
 	if (s.activePreviewTabId !== undefined) head.activePreviewTabId = s.activePreviewTabId
 	if (s.previewCollapsed !== undefined) head.previewCollapsed = s.previewCollapsed

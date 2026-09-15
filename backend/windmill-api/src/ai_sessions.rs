@@ -10,7 +10,7 @@
 //! windmill_ai_sessions/{w_id}/g{generation}/{sha256(email)}/sessions/{sid}/chats/{cid}.json
 //! windmill_ai_sessions/{w_id}/g{generation}/{sha256(email)}/sessions/{sid}/artifacts.json
 //! windmill_ai_sessions/{w_id}/g{generation}/{sha256(email)}/images/{sid}/{cid}/{iid}
-//! windmill_ai_sessions/{w_id}/g{generation}/{sha256(email)}/index/{sid}
+//! windmill_ai_sessions/{w_id}/g{generation}/{sha256(email)}/index/{sid}/{epoch}
 //! ```
 //!
 //! The index marker is empty, written last by every push of the session, and is what a
@@ -108,8 +108,14 @@ impl Backend {
         ObjectPath::from(format!("{}/index/", self.prefix))
     }
 
-    fn index_key(&self, sid: &str) -> ObjectPath {
-        ObjectPath::from(format!("{}/index/{sid}", self.prefix))
+    /// The marker that lists the session, named by the session's move count so that of a
+    /// session two workspaces list, the copy moved last is told from the listing alone.
+    fn index_key(&self, sid: &str, epoch: u32) -> ObjectPath {
+        ObjectPath::from(format!("{}/index/{sid}/{epoch}", self.prefix))
+    }
+
+    fn index_session_prefix(&self, sid: &str) -> ObjectPath {
+        ObjectPath::from(format!("{}/index/{sid}/", self.prefix))
     }
 
     /// The token of the whole push in progress, under the session so a removal or the next
@@ -291,22 +297,17 @@ impl Backend {
             (location, size, modified, e_tag, version).hash(&mut hasher);
             acc.wrapping_add(hasher.finish())
         }
-        let mut acc = match self.store.head(&self.index_key(sid)).await {
-            Ok(meta) => fold(
-                0,
-                meta.location.as_ref(),
-                meta.size,
-                meta.last_modified.timestamp_millis(),
-                meta.e_tag.as_deref(),
-                meta.version.as_deref(),
-            ),
-            Err(ObjectStoreError::NotFound { .. }) => return Ok(None),
-            Err(e) => return Err(object_store_error_to_error(e)),
-        };
-        for prefix in [self.session_prefix(sid), self.images_prefix(sid)] {
+        let mut acc = 0u64;
+        let mut listed = false;
+        for (marker, prefix) in [
+            (true, self.index_session_prefix(sid)),
+            (false, self.session_prefix(sid)),
+            (false, self.images_prefix(sid)),
+        ] {
             let mut stream = self.store.list(Some(&prefix));
             while let Some(meta) = stream.next().await {
                 let meta = meta.map_err(object_store_error_to_error)?;
+                listed |= marker;
                 acc = fold(
                     acc,
                     meta.location.as_ref(),
@@ -316,6 +317,9 @@ impl Backend {
                     meta.version.as_deref(),
                 );
             }
+        }
+        if !listed {
+            return Ok(None);
         }
         Ok(Some(format!("{acc:016x}")))
     }
@@ -438,6 +442,8 @@ async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backe
 struct SessionListing {
     id: String,
     updated_at: chrono::DateTime<chrono::Utc>,
+    /// The session's move count when this copy was pushed (see `PushedSession::epoch`).
+    epoch: u32,
 }
 
 #[derive(Serialize)]
@@ -477,7 +483,7 @@ async fn list(
     // One marker per session, whatever the session holds: the newest LIST_MAX are kept as
     // the scan goes (a min-heap drops the oldest), and the scan itself is bounded.
     let mut newest: std::collections::BinaryHeap<
-        std::cmp::Reverse<(chrono::DateTime<chrono::Utc>, String)>,
+        std::cmp::Reverse<(chrono::DateTime<chrono::Utc>, u32, String)>,
     > = Default::default();
     let mut scanned = 0;
     let mut truncated = false;
@@ -492,11 +498,20 @@ async fn list(
         let Some(rel) = meta.location.as_ref().strip_prefix(prefix.as_ref()) else {
             continue;
         };
-        let sid = rel.trim_start_matches('/');
+        let Some((sid, epoch)) = rel.trim_start_matches('/').split_once('/') else {
+            continue;
+        };
+        let Ok(epoch) = epoch.parse::<u32>() else {
+            continue;
+        };
         if sid.is_empty() || sid.contains('/') {
             continue;
         }
-        newest.push(std::cmp::Reverse((meta.last_modified, sid.to_string())));
+        newest.push(std::cmp::Reverse((
+            meta.last_modified,
+            epoch,
+            sid.to_string(),
+        )));
         if newest.len() > LIST_MAX {
             newest.pop();
             truncated = true;
@@ -504,7 +519,7 @@ async fn list(
     }
     let mut sessions: Vec<SessionListing> = newest
         .into_iter()
-        .map(|std::cmp::Reverse((updated_at, id))| SessionListing { id, updated_at })
+        .map(|std::cmp::Reverse((updated_at, epoch, id))| SessionListing { id, updated_at, epoch })
         .collect();
     sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     Ok(Json(ListResponse {
@@ -889,6 +904,12 @@ struct PushedSession {
     /// without a token (an incremental one) when the storage lists no such session.
     #[serde(default)]
     whole: Option<String>,
+    /// The session's move count (its record's `moves`), the marker that lists the session
+    /// is named by: a session moved to another workspace is listed by both until the old
+    /// copy's removal lands, and the copy with the higher count is the later one. An
+    /// incremental part rides on the marker of the same count.
+    #[serde(default)]
+    epoch: u32,
 }
 
 #[derive(Deserialize)]
@@ -1011,7 +1032,9 @@ fn push_payload_bytes(req: &PushRequest) -> usize {
 async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bool)> {
     match &s.whole {
         Some(token) if s.head.is_some() => {
-            backend.delete(&backend.index_key(&s.id)).await?;
+            backend
+                .delete_prefix(&backend.index_session_prefix(&s.id))
+                .await?;
             backend
                 .delete_prefix(&backend.session_prefix(&s.id))
                 .await?;
@@ -1028,7 +1051,7 @@ async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bo
             _ => return Ok((0, true)),
         },
         None => {
-            if !backend.exists(&backend.index_key(&s.id)).await? {
+            if !backend.exists(&backend.index_key(&s.id, s.epoch)).await? {
                 return Ok((0, true));
             }
         }
@@ -1090,7 +1113,7 @@ async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bo
     // Last, and by the last part only, so a session is listed once its whole entry landed.
     backend
         .store
-        .put(&backend.index_key(&s.id), PutPayload::new())
+        .put(&backend.index_key(&s.id, s.epoch), PutPayload::new())
         .await
         .map_err(object_store_error_to_error)?;
     if s.whole.is_some() {
@@ -1102,7 +1125,9 @@ async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bo
 /// The marker goes first so a removal cut short leaves nothing listed, then the head so
 /// nothing pulls either, and no push takes it for a session still there (see `push_session`).
 async fn remove_session(backend: &Backend, sid: &str) -> Result<()> {
-    backend.delete(&backend.index_key(sid)).await?;
+    backend
+        .delete_prefix(&backend.index_session_prefix(sid))
+        .await?;
     backend.delete(&backend.head_key(sid)).await?;
     backend.delete_prefix(&backend.session_prefix(sid)).await?;
     backend.delete_prefix(&backend.images_prefix(sid)).await

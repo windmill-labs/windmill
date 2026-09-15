@@ -43,7 +43,7 @@ last pushed, kept per session in the `windmill-sessions-mirror` store:
 | chat | `sessions/{sid}/chats/{cid}.json` | its `lastModified` moved |
 | artifacts | `sessions/{sid}/artifacts.json` | their fingerprint changed |
 | image | `images/{sid}/{cid}/{iid}` | never pushed before (write-once) |
-| index marker | `index/{sid}` | last, by the part that completes a push of the session (empty) |
+| index marker | `index/{sid}/{epoch}` | last, by the part that completes a push of the session (empty; named by the record's move count) |
 
 All under `windmill_ai_sessions/{w_id}/g{generation}/{sha256(email)}/` in the workspace's
 primary storage (the generation is what a key rotation moves, see below).
@@ -132,11 +132,14 @@ hide chats a newer device wrote. Two devices continuing the same chat still coll
 
 Restore brings back only sessions the browser does not have (`importSessions` is write-if-absent,
 and skips ids the user deleted in this page) and never overwrites or deletes a local one from
-remote state. It covers the workspace and its forks together: a session listed by two of them
-(moved between them, the old copy not yet removed, since that mark is the moving browser's,
-which may never come back) is brought back from the one whose copy is newest, by the
-storage's own modification time, and not from the other, which would otherwise take the id
-first and keep the newer copy out for good. Only a user-initiated `deleteSession` removes the backup; the next push from
+remote state. It covers the workspace and its forks together, and only once every one of them
+that keeps backups has listed (a listing that failed leaves the family for the next page load
+or workspace switch, or the copy that did list could be the stale one): a session listed by
+two of them (moved between them, the old copy not yet removed, since that mark is the moving
+browser's, which may never come back) is brought back from the copy that moved last (`epoch`,
+the record's move count, which names the marker), the storage's own modification time
+deciding between two of the same count, and not from the other, which would otherwise take
+the id first and keep the later copy out for good. Only a user-initiated `deleteSession` removes the backup; the next push from
 another device that still has the session is refused with `needs_whole` (nothing of it is
 written), its row goes stale without a backoff, and that device's next flush sends the session
 whole; the workspace-lifecycle

@@ -749,12 +749,13 @@ async function pushWorkspace(
 		// the first, whichever that is: the server replaces the backup on that part, lists
 		// the session by the last, and meanwhile refuses any other push of it.
 		const whole = plan.whole ? randomUUID() : undefined
+		const epoch = item.session.moves ?? 0
 		let opened = false
 		const open = (part: AISessionBackupPush): AISessionBackupPush => {
-			if (!whole) return part
+			if (!whole) return { ...part, epoch }
 			const first = !opened
 			opened = true
-			return first ? { ...part, head: plan.entry?.head, whole } : { ...part, whole }
+			return first ? { ...part, epoch, head: plan.entry?.head, whole } : { ...part, epoch, whole }
 		}
 		let images: AISessionBackupImage[] = []
 		let imagesBytes = 0
@@ -1099,20 +1100,24 @@ function unpackBackup(
 
 type BackupListing = Awaited<ReturnType<typeof AiService.listAiSessionBackups>>
 
-/** The workspace's listing, or nothing when its backups are off or could not be listed. */
-async function listWorkspace(ws: string, email: string): Promise<BackupListing | undefined> {
+/** The workspace's listing; `off` when it keeps no backups, `failed` when it could not be
+ * listed this time. */
+async function listWorkspace(ws: string, email: string): Promise<BackupListing | 'off' | 'failed'> {
 	let listing
 	try {
 		listing = await AiService.listAiSessionBackups({ workspace: ws })
 	} catch (e) {
 		const status = statusOf(e)
-		if (status === 404 || status === 403) wsState.set(ws, 'off')
-		else console.warn('Could not list session backups', e)
-		return undefined
+		if (status === 404 || status === 403) {
+			wsState.set(ws, 'off')
+			return 'off'
+		}
+		console.warn('Could not list session backups', e)
+		return 'failed'
 	}
 	if (!listing.enabled) {
 		wsState.set(ws, 'off')
-		return undefined
+		return 'off'
 	}
 	if (!wsState.has(ws)) wsState.set(ws, 'on')
 	const foreign =
@@ -1134,21 +1139,30 @@ async function listWorkspace(ws: string, email: string): Promise<BackupListing |
 /** The workspaces of one family are restored together: a session moved between two of them
  * is listed by both until the old copy's removal lands (that mark is the moving browser's,
  * which may never come back), and whichever were restored first would take the id and keep
- * the other out. The newest copy, by the storage's own modification time, is the one brought
- * back; the other is left where it is. */
+ * the other out. The copy that moved last (`epoch`, the record's move count, kept with the
+ * marker) is the one brought back, the storage's own modification time deciding between two
+ * of the same count; the other is left where it is. A family one of whose workspaces could
+ * not be listed is not restored at all this time, or the copy that lists could be the stale
+ * one; the next page load or workspace switch tries again. */
 async function restoreFamily(family: string[], email: string): Promise<void> {
 	const listings = new Map<string, BackupListing>()
 	for (const ws of family) {
 		if (getCurrentUserEmail() !== email) return
 		const listing = await listWorkspace(ws, email)
-		if (listing) listings.set(ws, listing)
+		if (listing === 'failed') {
+			for (const w of family) restoredWorkspaces.delete(w)
+			return
+		}
+		if (listing !== 'off') listings.set(ws, listing)
 	}
-	const newest = new Map<string, { ws: string; at: number }>()
+	const newest = new Map<string, { ws: string; epoch: number; at: number }>()
 	for (const [ws, listing] of listings) {
 		for (const s of listing.sessions) {
 			const at = Date.parse(s.updated_at)
 			const cur = newest.get(s.id)
-			if (!cur || at > cur.at) newest.set(s.id, { ws, at })
+			if (!cur || s.epoch > cur.epoch || (s.epoch === cur.epoch && at > cur.at)) {
+				newest.set(s.id, { ws, epoch: s.epoch, at })
+			}
 		}
 	}
 	for (const [ws, listing] of listings) {

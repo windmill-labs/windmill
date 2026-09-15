@@ -104,6 +104,10 @@ export type Session = {
 	// archived (not by the user). Lets reconciliation auto-unarchive the session
 	// when the workspace is unarchived, while leaving user-archived sessions be.
 	archivedByWorkspace?: boolean
+	// How many times the session moved to another workspace. The backup keeps it
+	// with the session's marker, so a restore that finds a copy in two workspaces
+	// (moved, the old copy not yet removed) takes the later one without a clock.
+	moves?: number
 	// In-memory-only flag: the session exists but hasn't been written to
 	// IndexedDB yet. Set at creation, cleared on the first genuine user touch
 	// (typed prompt, workspace/fork pick, preview tab, rename) which persists
@@ -1078,6 +1082,7 @@ export async function moveSessionToWorkspace(id: string, newWorkspaceId: string)
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
 	if (s.workspace_id === newWorkspaceId) return
+	if (s.workspace_id !== undefined) s.moves = (s.moves ?? 0) + 1
 	s.workspace_id = newWorkspaceId
 	delete s.pending_workspace_id
 	delete s.pending_fork
