@@ -3152,6 +3152,7 @@ mod tests {
         DataTableRoleTenants { tenants: list.iter().map(|t| t.to_string()).collect() }
     }
 
+    #[cfg(all(feature = "private", feature = "enterprise"))]
     #[test]
     fn a_tenant_list_covers_users_groups_folders_and_the_wildcard() {
         let groups = vec!["analysts".to_string()];
@@ -3187,6 +3188,29 @@ mod tests {
         let is_admin = true;
         let admin = crate::db::AuthedRef { is_admin: &is_admin, ..authed };
         assert!(can_use_datatable_role(&tenants(&[]), &admin));
+    }
+
+    #[cfg(not(all(feature = "private", feature = "enterprise")))]
+    #[test]
+    fn without_the_enterprise_edition_no_tenant_list_covers_anyone() {
+        let groups = vec![];
+        let folders = vec![];
+        let scopes = None;
+        let token_prefix = None;
+        let is_admin = true;
+        let is_operator = false;
+        let admin = crate::db::AuthedRef {
+            email: "alice@windmill.dev",
+            username: "alice",
+            is_admin: &is_admin,
+            is_operator: &is_operator,
+            groups: &groups,
+            folders: &folders,
+            scopes: &scopes,
+            token_prefix: &token_prefix,
+        };
+        assert!(!can_use_datatable_role(&tenants(&["*"]), &admin));
+        assert!(!can_use_datatable_role(&tenants(&["u/alice"]), &admin));
     }
 
     #[test]
