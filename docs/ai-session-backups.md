@@ -139,7 +139,10 @@ two of them (moved between them, the old copy not yet removed, since that mark i
 browser's, which may never come back) is brought back from the copy that moved last (`epoch`,
 the record's move count, which names the marker), the storage's own modification time
 deciding between two of the same count, and not from the other, which would otherwise take
-the id first and keep the later copy out for good. Only a user-initiated `deleteSession` removes the backup; the next push from
+the id first and keep the later copy out for good. The family is listed again just before a
+batch of records lands, since a move from another device can land in a workspace between its
+listing and the pull: a session a later copy of which showed up elsewhere is left, with the
+family, for the next time. Only a user-initiated `deleteSession` removes the backup; the next push from
 another device that still has the session is refused with `needs_whole` (nothing of it is
 written), its row goes stale without a backoff, and that device's next flush sends the session
 whole; the workspace-lifecycle

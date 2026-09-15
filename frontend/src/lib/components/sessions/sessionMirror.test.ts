@@ -926,6 +926,47 @@ describe('sessionMirror restore', () => {
 		expect(sessionState.sessions[0].workspace_id).toBe('ws2')
 	})
 
+	it('leaves a session whose later copy showed up elsewhere after the listings, and tries again', async () => {
+		// The move lands in the other workspace between the family's listings and the pull:
+		// the listing taken again before the record lands shows it, and the copy about to be
+		// imported is the stale one.
+		let ws2Listings = 0
+		listMock.mockImplementation(async ({ workspace }: { workspace: string }) => {
+			if (workspace === 'ws') {
+				return {
+					enabled: true,
+					sessions: [{ id: 's9', updated_at: '2026-09-14T00:00:00Z', epoch: 0 }]
+				}
+			}
+			ws2Listings += 1
+			return {
+				enabled: true,
+				sessions:
+					ws2Listings === 1 ? [] : [{ id: 's9', updated_at: '2026-09-14T00:00:00Z', epoch: 1 }]
+			}
+		})
+		pullMock.mockImplementation(async ({ workspace }: { workspace: string }) => ({
+			enabled: true,
+			sessions: [{ ...backup, head: { ...backup.head, workspace_id: workspace, moves: 1 } }],
+			deferred: []
+		}))
+		usersWorkspaceStore.set({
+			email: EMAIL,
+			workspaces: [
+				{ id: 'ws', name: 'ws', username: 'u' },
+				{ id: 'ws2', name: 'ws2', username: 'u', parent_workspace_id: 'ws' }
+			]
+		} as never)
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		expect(pullMock.mock.calls.map((c) => c[0].workspace)).toEqual(['ws'])
+		expect(sessionState.sessions).toEqual([])
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s9']))
+		expect(sessionState.sessions[0].workspace_id).toBe('ws2')
+	})
+
 	it('restores nothing of a family one of whose workspaces could not be listed, and tries again', async () => {
 		listMock
 			.mockImplementationOnce(async () => ({

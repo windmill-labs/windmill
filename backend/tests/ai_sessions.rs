@@ -925,8 +925,8 @@ async fn test_backup_writes_are_refused_for_the_wrong_owner_token_or_id(
     .await?;
     assert_eq!(resp.status(), 400, "{}", resp.text().await?);
 
-    // A whole push whose head never landed gets no marker, so nothing lists a session that
-    // pulls as absent.
+    // A part of a whole push nothing opened (no head went first, so no token names the
+    // push) is refused before anything of it lands, and nothing lists the session.
     let resp = push(
         &base,
         "SECRET_TOKEN",
@@ -941,14 +941,6 @@ async fn test_backup_writes_are_refused_for_the_wrong_owner_token_or_id(
         .unwrap()
         .iter()
         .all(|s| s["id"] != "s7"));
-    // Its pieces landed (the browser's whole push overwrites them); a removal clears them.
-    let resp = push(
-        &base,
-        "SECRET_TOKEN",
-        json!({ "owner": "test@windmill.dev", "removed": ["s7"] }),
-    )
-    .await?;
-    assert_eq!(resp.status(), 200);
     let resp = push(
         &base,
         "SECRET_TOKEN",

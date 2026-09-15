@@ -1165,10 +1165,33 @@ async function restoreFamily(family: string[], email: string): Promise<void> {
 			}
 		}
 	}
+	// A move landing between the listings and a pull (another device pushing the session
+	// into a workspace listed before it held it) would make the copy about to be imported
+	// the stale one: the family is listed again just before a record lands, and a session
+	// a later copy of which showed up elsewhere is left, with the family, for next time.
+	const verify = async (ids: string[]): Promise<Set<string>> => {
+		const superseded = new Set<string>()
+		for (const w of listings.keys()) {
+			const listing = await listWorkspace(w, email)
+			if (listing === 'failed') {
+				for (const id of ids) superseded.add(id)
+				break
+			}
+			if (listing === 'off') continue
+			for (const s of listing.sessions) {
+				const cur = newest.get(s.id)
+				if (!cur || !ids.includes(s.id) || w === cur.ws) continue
+				const at = Date.parse(s.updated_at)
+				if (s.epoch > cur.epoch || (s.epoch === cur.epoch && at > cur.at)) superseded.add(s.id)
+			}
+		}
+		if (superseded.size > 0) for (const w of family) restoredWorkspaces.delete(w)
+		return superseded
+	}
 	for (const [ws, listing] of listings) {
 		if (getCurrentUserEmail() !== email) return
 		const elsewhere = listing.sessions.filter((s) => newest.get(s.id)?.ws !== ws).map((s) => s.id)
-		await restoreWorkspace(ws, email, listing, new Set(elsewhere))
+		await restoreWorkspace(ws, email, listing, new Set(elsewhere), verify)
 	}
 }
 
@@ -1176,7 +1199,8 @@ async function restoreWorkspace(
 	ws: string,
 	email: string,
 	listing: BackupListing,
-	elsewhere: Set<string>
+	elsewhere: Set<string>,
+	verify: (ids: string[]) => Promise<Set<string>>
 ): Promise<void> {
 	const rows = await allSyncRows(email)
 	const local = new Set<string>()
@@ -1277,7 +1301,7 @@ async function restoreWorkspace(
 			// The backup moved between two pages (a chat sorting before the cursor would be
 			// missed) or under this one (the page may mix two versions): the pages so far do
 			// not belong together, the session starts over.
-			if (b.moved || (earlier?.listing !== undefined && b.listing !== earlier.listing)) {
+			if (b.moved || (earlier && b.listing !== earlier.listing)) {
 				const n = (restarts.get(b.id) ?? 0) + 1
 				restarts.set(b.id, n)
 				if (earlier) {
@@ -1392,14 +1416,17 @@ async function restoreWorkspace(
 			pruned.push(r)
 		}
 		if (pruned.length === 0) continue
+		const superseded = await verify(pruned.map((r) => r.session.id))
+		const current = pruned.filter((r) => !superseded.has(r.session.id))
+		if (current.length === 0) continue
 		const imported = new Set(
 			await importSessions(
-				pruned.map((r) => r.session),
+				current.map((r) => r.session),
 				email
 			)
 		)
 		await writeSync(
-			pruned.filter((r) => imported.has(r.session.id)).map((r) => r.sync),
+			current.filter((r) => imported.has(r.session.id)).map((r) => r.sync),
 			email
 		)
 		restored += imported.size
