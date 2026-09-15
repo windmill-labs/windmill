@@ -13,6 +13,8 @@ export interface ResolvedConfig {
   storage: StorageLike | undefined
   storageKey: string | undefined
   pageSize: number
+  pollDelayMs: number | undefined
+  run: ChatOptions['run']
   onFinish: ChatOptions['onFinish']
   onError: ChatOptions['onError']
 }
@@ -75,6 +77,8 @@ export function resolveConfig(options: ChatOptions): ResolvedConfig {
     storage: options.storage,
     storageKey: options.storageKey,
     pageSize: options.pageSize ?? 50,
+    pollDelayMs: options.pollDelayMs,
+    run: options.run,
     onFinish: options.onFinish,
     onError: options.onError
   }

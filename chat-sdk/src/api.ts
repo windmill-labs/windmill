@@ -6,6 +6,8 @@ export interface WindmillChatApiOptions {
   /** Omit to rely on the session cookie of the Windmill origin. */
   token?: TokenSource
   fetch?: FetchLike
+  /** Server poll interval for a turn's stream (Enterprise; see `ChatOptions.pollDelayMs`). */
+  pollDelayMs?: number
 }
 
 export class WindmillApiError extends Error {
@@ -73,6 +75,8 @@ export interface FlowJobStatus {
 export interface FlowStepStatus {
   job?: string | null
   flow_jobs?: string[] | null
+  /** An agent step's rounds; a tool call ran as a job of its own, which its row is persisted under. */
+  agent_actions?: { type?: string; job_id?: string | null }[] | null
 }
 
 /** Thin client over the Windmill endpoints a chat-mode flow uses. */
@@ -81,12 +85,14 @@ export class WindmillChatApi {
   readonly #workspace: string
   readonly #token: TokenSource | undefined
   readonly #fetch: FetchLike
+  readonly #pollDelayMs: number | undefined
 
   constructor(options: WindmillChatApiOptions) {
     this.#baseUrl = normalizeBaseUrl(options.baseUrl)
     this.#workspace = options.workspace
     this.#token = options.token
     this.#fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init))
+    this.#pollDelayMs = options.pollDelayMs
   }
 
   /** Starts a turn: runs the flow with `memory_id` set to the conversation id. Returns the job id. */
@@ -114,6 +120,7 @@ export class WindmillChatApi {
     options: { streamOffset?: number; signal?: AbortSignal } = {}
   ): AsyncGenerator<JobUpdateEvent> {
     const query: Record<string, string> = { fast: 'true', only_result: 'true' }
+    if (this.#pollDelayMs !== undefined) query.poll_delay_ms = String(this.#pollDelayMs)
     if (options.streamOffset !== undefined) {
       query.stream_offset = String(options.streamOffset)
     }

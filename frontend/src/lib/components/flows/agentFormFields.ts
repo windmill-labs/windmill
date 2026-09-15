@@ -198,31 +198,6 @@ export function agentFieldIsSet(
 }
 
 /**
- * Whether a run of this step would stream its answer, mirroring the worker's
- * `has_stream = user_wants_streaming && is_text_output`. Absence means on
- * (`args.streaming.unwrap_or(true)`), so an unwritten field streams.
- *
- * A caller that reads this wrong does not merely mislabel the run: a chat surface that opens a
- * stream for an answer the worker sends in one piece re-runs the flow when its connection times
- * out. So the rule is that anything this cannot settle from the step alone reads as off, the cost
- * of being wrong that way being a live answer arriving at the end instead of as it is written.
- * Unsettled means either of the two fields holding an expression, whose value exists only once the
- * run it decides is already under way, or a linked agent, whose brain lives in the resource where
- * this has no sight of it at all.
- */
-export function agentStreamingEnabled(value: Record<string, any> | undefined): boolean {
-	if (value?.agent) return false
-	const transforms = value?.input_transforms as Record<string, InputTransform | any> | undefined
-	const settled = (t: InputTransform | any | undefined) => t == undefined || t.type === 'static'
-	const outputType = transforms?.output_type
-	const streaming = transforms?.streaming
-	if (!settled(outputType) || !settled(streaming)) return false
-	// An image answer never streams, whatever `streaming` says.
-	if (outputType?.value === 'image') return false
-	return streaming?.value !== false
-}
-
-/**
  * Whether the current schema carries this field at all. A linked step's schema is reduced to the
  * flow-local inputs, which is what collapses its form to the Messages group on its own.
  */

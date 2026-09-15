@@ -67,7 +67,8 @@ class ChatImpl implements Chat {
       baseUrl: this.#config.baseUrl,
       workspace: this.#config.workspace,
       token: this.#config.token,
-      fetch: this.#config.fetch
+      fetch: this.#config.fetch,
+      pollDelayMs: this.#config.pollDelayMs
     })
     this.#local = createLocalHistory(
       this.#config.storage,
@@ -133,11 +134,11 @@ class ChatImpl implements Chat {
     this.#rememberConversation()
 
     try {
-      turn.jobId = await this.#api.runFlow(
-        this.#config.flowPath,
-        { ...this.#config.inputs, ...options.inputs, user_message: content },
-        { memoryId: conversationId, signal: turn.controller.signal }
-      )
+      const args = { ...this.#config.inputs, ...options.inputs, user_message: content }
+      const context = { memoryId: conversationId, conversationId, signal: turn.controller.signal }
+      turn.jobId = this.#config.run
+        ? await this.#config.run(args, context)
+        : await this.#api.runFlow(this.#config.flowPath, args, context)
       const stopPolling = this.#state.history === 'server' ? this.#startPolling(turn) : () => {}
       let result: unknown
       try {
@@ -467,6 +468,7 @@ class ChatImpl implements Chat {
    * this read returned: the turn's polling may have merged the answer already.
    */
   async #reconcileTurn(turn: Turn): Promise<boolean> {
+    const answered = () => this.#answered(turn)
     for (let attempt = 1; attempt <= RECONCILE_ATTEMPTS; attempt++) {
       let rows: FlowConversationMessage[]
       try {
@@ -479,38 +481,52 @@ class ChatImpl implements Chat {
         if (isAbortError(e)) throw e
         if (this.#fallBackToLocal(e)) return false
         const refused = e instanceof WindmillApiError && (e.status === 401 || e.status === 403)
-        if (refused || attempt === RECONCILE_ATTEMPTS) return this.#answered(turn)
+        if (refused || attempt === RECONCILE_ATTEMPTS) return answered()
         await sleep(RECONCILE_DELAY_MS, turn.controller.signal)
         continue
       }
       if (!this.#turnActive(turn)) return true
       this.#mergeRows(rows)
-      if (this.#answered(turn) && !this.#state.messages.some((m) => m.pending && m.content)) break
+      if (answered() && !this.#state.messages.some((m) => m.pending && m.content)) break
       if (attempt < RECONCILE_ATTEMPTS) await sleep(RECONCILE_DELAY_MS, turn.controller.signal)
     }
     if (!this.#turnActive(turn)) return true
     this.#set({ messages: finalized(this.#state.messages) })
-    return this.#answered(turn)
+    return answered()
   }
 
   /**
-   * A persisted assistant message written by one of the turn's jobs follows the
-   * turn's user message. Tool rows alone are not an answer, and neither is a row
-   * from an earlier turn whose job outlived `stop()` (a token without `jobs:write`
-   * cannot cancel it), which can land after this turn's user row.
+   * The latest row the turn persisted after its user message is an assistant
+   * message. An agent issues each round's text row before that round's tool rows,
+   * and a tool row when the tool finishes, so an earlier round's text is followed
+   * by a tool row and only the answer closes the turn (the inserts are spawned, so
+   * a badly delayed one can invert that order at the cost of the reconcile
+   * retries). The content is not compared with the flow result: an image answer, a
+   * structured one and a forwarded agent result are all persisted in a shape the
+   * result does not reproduce. Rows carrying a job id belong to the turn when the
+   * job is one of the turn's, which leaves out an earlier turn whose job outlived
+   * `stop()` (a token without `jobs:write` cannot cancel it); a tool row without one
+   * (an MCP call runs inside the agent step) belongs to whatever turn is under way.
    */
   #answered(turn: Turn): boolean {
     const messages = this.#state.messages
     const from = messages.findIndex((m) => m.id === turn.userMessageId)
     const ownJob = (m: ChatMessage) =>
-      turn.jobIds === undefined || (m.jobId !== undefined && turn.jobIds.has(m.jobId))
-    return messages.some((m, i) => i > from && m.role === 'assistant' && m.seq !== undefined && ownJob(m))
+      turn.jobIds === undefined || (m.jobId === undefined ? m.role === 'tool' : turn.jobIds.has(m.jobId))
+    let latest: ChatMessage | undefined
+    for (let i = from + 1; i < messages.length; i++) {
+      const m = messages[i]
+      if (m.seq === undefined || m.role === 'user' || !ownJob(m)) continue
+      if (latest === undefined || m.seq > latest.seq!) latest = m
+    }
+    return latest?.role === 'assistant'
   }
 
   /**
    * The flow job plus every step job it ran, the failure and preprocessor steps
-   * included (a failure handler's answer is persisted under its own job). Unknown
-   * when the read fails.
+   * included (a failure handler's answer is persisted under its own job), and the
+   * jobs an agent step's tool calls ran as (a tool row is persisted under its own
+   * job too). Unknown when the read fails.
    */
   async #turnJobIds(turn: Turn): Promise<Set<string> | undefined> {
     try {
@@ -520,6 +536,7 @@ class ChatImpl implements Chat {
       for (const m of [...(status?.modules ?? []), status?.failure_module, status?.preprocessor_module]) {
         if (m?.job) ids.add(m.job)
         for (const j of m?.flow_jobs ?? []) ids.add(j)
+        for (const a of m?.agent_actions ?? []) if (a.job_id) ids.add(a.job_id)
       }
       return ids
     } catch (e) {

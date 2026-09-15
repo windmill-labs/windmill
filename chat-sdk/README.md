@@ -123,8 +123,9 @@ export function Support() {
 The hook returns the [state](#state) plus the chat's methods. It recreates the chat
 (fresh state, old one destroyed) when `flowPath`, `baseUrl`, `workspace`, `history`,
 `storageKey` or the credential change: a different token string, or a switch between
-no token, a string and a function. A token function is called through a ref, so
-passing a new closure on every render is fine and never resets the chat; when users
+no token, a string and a function; and when a `run` callback appears or goes away.
+A token function is called through a ref, so passing a new closure on every render
+is fine and never resets the chat, and so are `run` and the callbacks; when users
 sign in and out behind a token function, change `storageKey` (their id) so local
 history and state start over with them.
 
@@ -184,7 +185,9 @@ await chat.sendMessage('Hello')
 | `storageKey` | Namespace for `local` history, e.g. the signed-in user's id. Local history is per browser and per flow; without it, users sharing a browser share it. |
 | `fetch`, `storage` | Replacements for the globals, for tests and unusual runtimes. |
 | `pageSize` | Messages and conversations per page of server history. Default 50. |
+| `pollDelayMs` | How often, in ms, the server polls a running turn for the stream (Enterprise; 50 at the fastest, other servers ignore it). Unset, the server relaxes from 100 ms to 3 s over a long turn; set it when tokens must keep flowing at that pace. |
 | `onFinish`, `onError` | Called when a turn has its answer, or could not run at all. |
+| `run` | Runs the flow for a turn yourself and returns the job id, instead of the deployed flow at `flowPath` (Windmill's editor chats with an undeployed flow through a preview run this way). Pass `memory_id` = the conversation id. |
 
 ## State
 

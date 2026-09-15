@@ -99,6 +99,19 @@ export interface ChatOptions {
   storageKey?: string
   /** Messages fetched per page of server history. */
   pageSize?: number
+  /**
+   * How often, in milliseconds, the server polls a running turn for the stream
+   * (Enterprise; 50 at the fastest, other servers ignore it). Unset, the server
+   * relaxes from 100 ms to 3 s over a long turn.
+   */
+  pollDelayMs?: number
+  /**
+   * Runs the flow for a turn and returns the job id, instead of the deployed flow at
+   * `flowPath`. `args` carries `user_message` and the extra inputs; the run must set
+   * `memory_id` to the conversation id for the conversation and its memory to line up.
+   * Windmill's own editor uses this to chat with an undeployed flow through a preview run.
+   */
+  run?: (args: Record<string, unknown>, turn: { conversationId: string; signal: AbortSignal }) => Promise<string>
   /** Called once a turn has its answer (a failed flow included: its error is the answer). */
   onFinish?: (turn: { conversationId: string; jobId?: string; messages: ChatMessage[] }) => void
   /** Called when a turn could not run or be followed; `state.error` holds the same error. */
