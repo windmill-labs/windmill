@@ -196,29 +196,40 @@ CLI; 1 to 3650) puts an age on sessions, counted from their last activity. Each 
 it with its own clock against its own timestamps, so no clock is compared with another
 machine's:
 
-- The server sweeps the object store hourly (`sweep_expired_ai_session_backups`, from the
-  monitor, one server at a time under a session-level advisory lock). For every workspace
-  with a retention and a storage it names the users under the generation prefix
-  (`list_with_delimiter`) and lists each user's `index/` once: one object per session,
-  nothing of what the sessions hold. A session whose marker is older than the retention is
-  deleted under its lock (`lock_session`), once its markers, listed again there, are still
-  all older: a push that renewed the session between the walk and the lock keeps it, and
-  one in progress either holds the lock or has the session unlisted (its last part lists it
-  again). At most 1000 sessions per workspace and pass; the rest wait for the next. `list`
-  leaves an expired marker out of its answer meanwhile, so a browser never restores a
-  session the sweep has not reached yet. The marker's modification time is the storage's
-  clock and the cutoff the server's.
-- The browser sweeps its own stores on every reconcile (`reconcileSessionsLifecycle`: at
+- The server sweeps the object store (`sweep_expired_ai_session_backups`, from the monitor
+  about every 40 minutes on each server, one pass at a time under a session-level advisory
+  lock). For every workspace with a retention and a storage it names the users under the
+  generation prefix (`list_with_delimiter`) and lists each user's `index/` once: one object
+  per session, nothing of what the sessions hold. A session whose marker is older than the
+  retention is removed under its lock (`lock_session`), once its markers, listed again
+  there, are still all older: a push that renewed the session between the walk and the lock
+  keeps it, and one split over parts either holds the lock or has the session unlisted,
+  which the sweep leaves alone. Before deleting anything the sweep writes a record next to
+  the markers (`index/{sid}/sweep`, not an epoch, so neither `list` nor `pull` counts it),
+  and `remove_session` deletes it last: a removal cut short, its markers already gone, is
+  found by the next pass and finished, unless a push listed the session again first. At
+  most 1000 sessions per workspace and pass; the rest wait for the next. `list` leaves an
+  expired marker out of its answer meanwhile, so a browser never restores a session the
+  sweep has not reached. The marker's modification time is the storage's clock and the
+  cutoff the server's.
+- The browser sweeps its own stores after every reconcile (`reconcileSessionsLifecycle`: at
   load, after a workspace change, and when the setting is saved from this page), which
-  learns every referenced workspace's retention from the status answer. A session whose own
-  `lastActivityAt` (a restored one carries the backup's `updated_at`) is older than the
-  retention by the browser's clock is deleted locally, record, chats, images, attached
-  files and artifacts, except the one on screen. Archived sessions count like any other,
-  and persisted unsent drafts by their pending workspace. Nothing is sent to the storage:
-  the local copy's age says nothing about another device's, which may have pushed the
-  session since, and the server applies the rule to the backup on its own. A session swept
-  here that the storage still lists comes back on the next restore, with that copy's
-  activity time.
+  learns every referenced workspace's retention from the status answer. A session whose last
+  activity is older than the retention by the browser's clock is deleted locally, record,
+  chats, images, attached files and artifacts, except the one on screen. A restored session
+  carries the backup's time as its last activity, the storage's clock, so it counts from the
+  later of that and the moment it was restored here (`restoredAt`): a browser clock ahead of
+  the storage's never deletes a session it just brought back. Archived sessions count like
+  any other, and persisted unsent drafts by their pending workspace. The sweep runs under the
+  tab lock the flush and the restore take, so neither plans or stages a session half deleted,
+  and so only where Web Locks exist, as the restore. Each record is deleted in the
+  transaction that reads it still expired, so activity since the reconcile read keeps the
+  session. The record goes before its pieces, and a localStorage key written before it and
+  removed once every piece is gone makes the next sweep finish a deletion that failed,
+  unless a restore brought the session back since. Nothing is sent to the storage: the
+  local copy's age says nothing about another device's, which may have pushed the session
+  since, and the server applies the rule to the backup on its own. A session swept here that
+  the storage still lists comes back on the next restore.
 
 ## Limits
 

@@ -696,7 +696,7 @@
 		</SettingCard>
 		<SettingCard
 			label="AI session retention"
-			description="Deletes AI sessions whose last activity is older than this many days: their backups from the workspace's object storage, hourly, and their local copies from each member's browser when it loads. Archived sessions count too. Leave empty to keep sessions until their owner deletes them."
+			description="Deletes AI sessions whose last activity is older than this many days: their backups in the workspace's object storage, by the server, and their local copies, by each member's browser. Archived sessions count too. Leave empty to keep sessions until their owner deletes them."
 		>
 			<div class="flex items-center gap-2">
 				<div class="w-28">

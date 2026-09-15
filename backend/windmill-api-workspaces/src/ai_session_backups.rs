@@ -64,15 +64,6 @@ pub fn storage_id(resource: &ObjectStoreResource) -> String {
     calculate_hash(&location)[..16].to_string()
 }
 
-/// `ai_config.sessions_retention_days` as stored, `None` when unset or not a count of days:
-/// the retention sweep and the workspace status answer read it off the row's JSON.
-pub fn sessions_retention_days(value: Option<&serde_json::Value>) -> Option<u32> {
-    value
-        .and_then(|v| v.as_u64())
-        .filter(|days| *days >= 1)
-        .and_then(|days| u32::try_from(days).ok())
-}
-
 /// The workspace's primary storage, resolved without a caller, with the resource it was
 /// built from: for the rotation's deletion and the retention sweep, which run off no
 /// request. The caller must be the server itself; nothing here checks who asks.

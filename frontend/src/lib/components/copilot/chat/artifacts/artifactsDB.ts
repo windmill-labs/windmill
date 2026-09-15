@@ -449,9 +449,10 @@ export async function pruneSessionArtifacts(
 	}
 }
 
-export async function deleteArtifactsForSession(sessionId: string): Promise<void> {
+/** False when the store could not be reached or the deletion failed. */
+export async function deleteArtifactsForSession(sessionId: string): Promise<boolean> {
 	const db = await getDB()
-	if (!db) return
+	if (!db) return false
 	try {
 		const tx = db.transaction(['items', 'versions'], 'readwrite')
 		const items = tx.objectStore('items')
@@ -464,8 +465,10 @@ export async function deleteArtifactsForSession(sessionId: string): Promise<void
 			await deleteVersionsIn(versions, id)
 		}
 		await tx.done
+		return true
 	} catch (err) {
 		console.error('Could not delete artifacts for session', err)
+		return false
 	}
 }
 

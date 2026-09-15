@@ -9,14 +9,16 @@ vi.mock('esm-env', async (importOriginal) => ({
 }))
 
 // Spy on the attached-file GC so we can assert lifecycle deletes clean it up.
-const { deleteItemsForSessionMock } = vi.hoisted(() => ({ deleteItemsForSessionMock: vi.fn() }))
+const { deleteItemsForSessionMock } = vi.hoisted(() => ({
+	deleteItemsForSessionMock: vi.fn().mockResolvedValue(true)
+}))
 vi.mock('../copilot/chat/files/attachedFilesDB', async (orig) => ({
 	...(await orig<typeof import('../copilot/chat/files/attachedFilesDB')>()),
 	deleteItemsForSession: deleteItemsForSessionMock
 }))
 
 const { deleteArtifactsForSessionMock } = vi.hoisted(() => ({
-	deleteArtifactsForSessionMock: vi.fn()
+	deleteArtifactsForSessionMock: vi.fn().mockResolvedValue(true)
 }))
 vi.mock('../copilot/chat/artifacts/artifactsDB', async (orig) => ({
 	...(await orig<typeof import('../copilot/chat/artifacts/artifactsDB')>()),
@@ -687,7 +689,7 @@ describe('sessionState IndexedDB persistence', () => {
 		deleteSession('draftRec')
 	})
 
-	it('sweeps sessions past their workspace retention, but not the one on screen', async () => {
+	it('sweeps sessions past their workspace retention, and finishes a deletion that failed', async () => {
 		const user = freshUser()
 		usersWorkspaceStore.set({
 			email: user.email,
@@ -697,55 +699,76 @@ describe('sessionState IndexedDB persistence', () => {
 			] as never
 		})
 		await login(user)
+		// The sweep runs under the backup's tab lock, so only where Web Locks exist.
+		if (typeof navigator === 'undefined') {
+			Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true })
+		}
+		Object.defineProperty(navigator, 'locks', {
+			value: { request: (_name: string, run: (lock: unknown) => Promise<void>) => run({}) },
+			configurable: true
+		})
 		const day = 24 * 60 * 60 * 1000
 		const old = Date.now() - 31 * day
+		const stale = (id: string, over: Partial<Session> = {}) =>
+			session({ id, createdAt: old, lastActivityAt: old, workspace_id: 'kept-ws', ...over })
 		// Archived or not, a session is judged by its own last activity; one read a day ago
-		// stays, and so does one in a workspace without retention.
-		await putSession(
-			session({ id: 'stale', createdAt: old, lastActivityAt: old, workspace_id: 'kept-ws' })
-		)
-		await putSession(
-			session({
-				id: 'stale-archived',
-				createdAt: old,
-				lastActivityAt: old,
-				archived: true,
-				workspace_id: 'kept-ws'
-			})
-		)
-		await putSession(
-			session({
-				id: 'read-lately',
-				createdAt: old,
-				lastActivityAt: Date.now() - day,
-				workspace_id: 'kept-ws'
-			})
-		)
-		await putSession(
-			session({ id: 'open', createdAt: old, lastActivityAt: old, workspace_id: 'kept-ws' })
-		)
-		await putSession(
-			session({ id: 'elsewhere', createdAt: old, lastActivityAt: old, workspace_id: 'other-ws' })
-		)
+		// stays, as do one restored here a day ago whatever the backup's time, one in a
+		// workspace without retention, and the one on screen.
+		await putSession(stale('stale'))
+		await putSession(stale('stale-archived', { archived: true }))
+		await putSession(stale('read-lately', { lastActivityAt: Date.now() - day }))
+		await putSession(stale('restored-lately', { restoredAt: Date.now() - day }))
+		await putSession(stale('open'))
+		await putSession(stale('used-meanwhile'))
+		await putSession(stale('elsewhere', { workspace_id: 'other-ws' }))
 		sessionState.currentSessionId = 'open'
 
-		vi.mocked(WorkspaceService.getSessionWorkspaceStatus).mockResolvedValueOnce({
+		const statusMock = vi.mocked(WorkspaceService.getSessionWorkspaceStatus)
+		const statusCalls = statusMock.mock.calls.length
+		let answer!: (value: unknown) => void
+		statusMock.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)) as never)
+		// The chats of the first expired session cannot be deleted this time.
+		deleteSessionChatsMock.mockResolvedValueOnce(false)
+		const reconciled = reconcileSessionsLifecycle()
+		await vi.waitFor(() => expect(statusMock.mock.calls.length).toBe(statusCalls + 1))
+		// Another tab uses a stale session while the status request is out.
+		await putSession(stale('used-meanwhile', { lastActivityAt: Date.now() }))
+		const retention = {
 			'kept-ws': { status: 'active', sessions_retention_days: 30 },
 			'other-ws': { status: 'active' }
-		} as never)
-		await reconcileSessionsLifecycle()
-
-		const db = await openDB(`windmill-sessions::${user.email}`, 1)
-		const ids = ((await db.getAll('sessions' as never)) as Session[]).map((s) => s.id).sort()
-		db.close()
-		expect(ids).toEqual(['elsewhere', 'open', 'read-lately'])
-		expect(sessionState.currentSessionId).toBe('open')
-		for (const id of ['stale', 'stale-archived']) {
-			expect(deleteSessionChatsMock).toHaveBeenCalledWith(id, user.email)
-			expect(deleteArtifactsForSessionMock).toHaveBeenCalledWith(id)
-			expect(deleteItemsForSessionMock).toHaveBeenCalledWith(id)
 		}
-		expect(deleteSessionChatsMock).not.toHaveBeenCalledWith('open', user.email)
+		answer(retention)
+		await reconciled
+
+		const stored = async () => {
+			const db = await openDB(`windmill-sessions::${user.email}`, 1)
+			const ids = ((await db.getAll('sessions' as never)) as Session[]).map((s) => s.id)
+			db.close()
+			return ids.sort()
+		}
+		await vi.waitFor(async () =>
+			expect(await stored()).toEqual([
+				'elsewhere',
+				'open',
+				'read-lately',
+				'restored-lately',
+				'used-meanwhile'
+			])
+		)
+		const pending = (id: string) =>
+			localStorage.getItem(`windmill_sessions_retention_pending::${user.email}::${id}`)
+		const chatDeletions = (id: string) =>
+			deleteSessionChatsMock.mock.calls.filter(([sid, email]) => sid === id && email === user.email)
+		await vi.waitFor(() => expect(chatDeletions('stale-archived')).toHaveLength(1))
+		expect(pending('stale')).toBe('1')
+		expect(pending('stale-archived')).toBeNull()
+		expect(chatDeletions('open')).toHaveLength(0)
+
+		// The next sweep deletes what the failed deletion left.
+		statusMock.mockResolvedValueOnce(retention as never)
+		await reconcileSessionsLifecycle()
+		await vi.waitFor(() => expect(pending('stale')).toBeNull())
+		expect(chatDeletions('stale')).toHaveLength(2)
 	})
 
 	it('clears the in-memory list on logout', async () => {

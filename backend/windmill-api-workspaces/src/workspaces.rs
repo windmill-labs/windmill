@@ -5612,6 +5612,14 @@ struct SessionWorkspaceStatus {
     sessions_retention_days: Option<u32>,
 }
 
+/// `ai_config.sessions_retention_days` as stored, `None` when unset or not a count of days.
+pub fn sessions_retention_days(value: Option<&serde_json::Value>) -> Option<u32> {
+    value
+        .and_then(|v| v.as_u64())
+        .filter(|days| *days >= 1)
+        .and_then(|days| u32::try_from(days).ok())
+}
+
 /// Reconciliation support for client-side AI sessions, which the backend cannot touch
 /// directly. The client posts the workspace ids its sessions reference and uses the
 /// per-id status to keep sessions in sync with workspace lifecycle: `deleted` (no row, or
@@ -5637,40 +5645,40 @@ async fn session_workspace_status(
     }
     let email = &authed.email;
     let is_superadmin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
-    let rows = sqlx::query_as::<_, (String, String, Option<serde_json::Value>)>(
+    let rows = sqlx::query!(
         // A missing workspace row must be caught before the membership arm: for a
         // superadmin the two arms below both fall through, and a hard-deleted workspace
         // would report `active` forever.
-        "SELECT req.id,
+        "SELECT req.id AS \"id!\",
                 (CASE
                     WHEN workspace.id IS NULL THEN 'deleted'
                     WHEN usr.email IS NULL AND NOT $3 THEN 'deleted'
                     WHEN workspace.deleted THEN 'archived'
                     ELSE 'active'
-                END),
-                workspace_settings.ai_config->'sessions_retention_days'
+                END) AS \"status!\",
+                workspace_settings.ai_config->'sessions_retention_days' AS retention
          FROM unnest($1::text[]) AS req(id)
          LEFT JOIN workspace ON workspace.id = req.id
          LEFT JOIN usr ON usr.workspace_id = workspace.id AND usr.email = $2
          LEFT JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id",
+        &req.workspace_ids[..],
+        email,
+        is_superadmin,
     )
-    .bind(&req.workspace_ids)
-    .bind(email)
-    .bind(is_superadmin)
     .fetch_all(&db)
     .await?;
     let statuses = rows
         .into_iter()
-        .map(|(id, status, retention)| {
+        .map(|r| {
             // A workspace this caller cannot reach tells them nothing of its settings.
-            let sessions_retention_days = if status == "deleted" {
+            let sessions_retention_days = if r.status == "deleted" {
                 None
             } else {
-                crate::ai_session_backups::sessions_retention_days(retention.as_ref())
+                sessions_retention_days(r.retention.as_ref())
             };
             (
-                id,
-                SessionWorkspaceStatus { status, sessions_retention_days },
+                r.id,
+                SessionWorkspaceStatus { status: r.status, sessions_retention_days },
             )
         })
         .collect();

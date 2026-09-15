@@ -1151,16 +1151,35 @@ async fn test_expired_backups_are_swept_by_age_and_left_out_of_the_listing(
     windmill_api::sweep_expired_ai_session_backups(&db).await;
     assert_eq!(listed(list(&base, "SECRET_TOKEN").await?), ["live", "old"]);
 
-    sqlx::query(
-        "UPDATE workspace_settings SET ai_config = coalesce(ai_config, '{}'::jsonb) \
-         || '{\"sessions_retention_days\": 30}' WHERE workspace_id = 'test-workspace'",
-    )
-    .execute(&db)
-    .await?;
+    let set_retention = |days: Value| {
+        authed(
+            client().post(format!("{base}/workspaces/edit_copilot_config")),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({ "sessions_retention_days": days }))
+        .send()
+    };
+    let resp = set_retention(json!(0)).await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+    let resp = set_retention(json!(30)).await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
 
     // The listing leaves the expired session out before the sweep reaches it.
     assert_eq!(listed(list(&base, "SECRET_TOKEN").await?), ["live"]);
     assert!(root.join("sessions/old/head.json").exists());
+
+    // A removal cut short (a directory stands where the head is, so it cannot be unlinked)
+    // leaves the sweep's record with the markers gone; the next pass finds it and finishes.
+    let head = root.join("sessions/old/head.json");
+    std::fs::remove_file(&head)?;
+    std::fs::create_dir(&head)?;
+    std::fs::write(head.join("planted"), b"")?;
+    windmill_api::sweep_expired_ai_session_backups(&db).await;
+    assert!(root.join("index/old/sweep").exists());
+    assert!(!root.join("index/old/0").exists());
+    assert!(root.join("sessions/old/chats/c1.json").exists());
+    assert_eq!(listed(list(&base, "SECRET_TOKEN").await?), ["live"]);
+    std::fs::remove_dir_all(&head)?;
 
     windmill_api::sweep_expired_ai_session_backups(&db).await;
     let remaining = objects(&root);

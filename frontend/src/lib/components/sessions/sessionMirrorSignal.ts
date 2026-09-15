@@ -29,6 +29,13 @@ export function markSessionRemoved(sessionId: string, workspaceId?: string, emai
 	emit({ kind: 'removed', sessionId, workspaceId, email })
 }
 
+/** The Web Lock one tab of the user holds while it reads or writes the stores wholesale: the
+ * backup's flush and restore, and the retention sweep, which must not interleave with either
+ * (a flush planning a session half deleted would push the deletions to the backup). */
+export function sessionsLockName(email: string): string {
+	return `wm-ai-sessions-mirror::${email}`
+}
+
 export function onMirrorSignal(fn: (signal: MirrorSignal) => void): void {
 	handler = fn
 	const replay = buffered

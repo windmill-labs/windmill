@@ -27,7 +27,7 @@ import { getCurrentUserEmail, onUserChange, scopedKey, scopedKeyFor } from '$lib
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { randomUUID } from '$lib/utils/uuid'
 import { workspaceRootId } from './sessionScope.svelte'
-import { onMirrorSignal } from './sessionMirrorSignal'
+import { onMirrorSignal, sessionsLockName } from './sessionMirrorSignal'
 import {
 	importSessions,
 	isSessionTombstoned,
@@ -383,7 +383,7 @@ function hasWebLocks(): boolean {
 async function withUserLock(email: string, fn: () => Promise<void>, wait = false): Promise<void> {
 	const locks = webLocks()
 	if (!locks) return fn()
-	await locks.request(`wm-ai-sessions-mirror::${email}`, { ifAvailable: !wait }, async (lock) => {
+	await locks.request(sessionsLockName(email), { ifAvailable: !wait }, async (lock) => {
 		if (lock) await fn()
 		// The other tab's flush read the marks before this one's were written: try again
 		// once it is done, rather than wait for the next write or load.
