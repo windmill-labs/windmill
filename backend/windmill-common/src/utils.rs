@@ -1130,7 +1130,15 @@ pub trait WarnAfterExt: Future + Sized {
     #[track_caller]
     fn warn_after_seconds(self, seconds: u8) -> WarnAfterFuture<Self> {
         let caller = Location::caller();
-        self.build_from_caller(seconds, caller, None)
+        self.build_from_caller(seconds, caller, None, None)
+    }
+
+    /// Same, for a step that is not a database query (a child process, a cache transfer):
+    /// the warning names `step` instead of reporting a slow query.
+    #[track_caller]
+    fn warn_after_seconds_for(self, seconds: u8, step: &str) -> WarnAfterFuture<Self> {
+        let caller = Location::caller();
+        self.build_from_caller(seconds, caller, None, Some(step.to_string()))
     }
 
     fn build_from_caller(
@@ -1138,6 +1146,7 @@ pub trait WarnAfterExt: Future + Sized {
         seconds: u8,
         caller: &Location,
         sql: Option<String>,
+        step: Option<String>,
     ) -> WarnAfterFuture<Self> {
         let location = format!("{}:{}", caller.file(), caller.line());
         WarnAfterFuture {
@@ -1148,12 +1157,13 @@ pub trait WarnAfterExt: Future + Sized {
             location,
             seconds,
             sql,
+            step,
         }
     }
     #[track_caller]
     fn warn_after_seconds_with_sql(self, seconds: u8, sql: String) -> WarnAfterFuture<Self> {
         let caller = Location::caller();
-        self.build_from_caller(seconds, caller, Some(sql))
+        self.build_from_caller(seconds, caller, Some(sql), None)
     }
 }
 
@@ -1172,6 +1182,7 @@ pin_project! {
         start_time: std::time::Instant,
         seconds: u8,
         sql: Option<String>,
+        step: Option<String>,
     }
 }
 
@@ -1191,12 +1202,20 @@ impl<F: Future> Future for WarnAfterFuture<F> {
         // Poll the timeout future to check if it has elapsed.
         if !*this.warned {
             if this.timeout.poll(cx).is_ready() {
-                tracing::warn!(
-                    location = this.location,
-                    "SLOW_QUERY: query {} to db taking longer than expected (> {} seconds)",
-                    build_query_string(&this.location, this.sql.as_deref()),
-                    this.seconds,
-                );
+                match this.step.as_deref() {
+                    Some(step) => tracing::warn!(
+                        location = this.location,
+                        "SLOW_STEP: {step} at {} taking longer than expected (> {} seconds)",
+                        this.location,
+                        this.seconds,
+                    ),
+                    None => tracing::warn!(
+                        location = this.location,
+                        "SLOW_QUERY: query {} to db taking longer than expected (> {} seconds)",
+                        build_query_string(&this.location, this.sql.as_deref()),
+                        this.seconds,
+                    ),
+                }
                 *this.warned = true;
             }
         }
@@ -1206,12 +1225,20 @@ impl<F: Future> Future for WarnAfterFuture<F> {
             Poll::Ready(output) => {
                 if *this.warned {
                     let elapsed = this.start_time.elapsed();
-                    tracing::warn!(
-                        location = this.location,
-                        "SLOW_QUERY: completed query {} with total duration: {:.2?}",
-                        build_query_string(&this.location, this.sql.as_deref()),
-                        elapsed
-                    );
+                    match this.step.as_deref() {
+                        Some(step) => tracing::warn!(
+                            location = this.location,
+                            "SLOW_STEP: {step} at {} completed with total duration: {:.2?}",
+                            this.location,
+                            elapsed
+                        ),
+                        None => tracing::warn!(
+                            location = this.location,
+                            "SLOW_QUERY: completed query {} with total duration: {:.2?}",
+                            build_query_string(&this.location, this.sql.as_deref()),
+                            elapsed
+                        ),
+                    }
                 }
                 Poll::Ready(output)
             }

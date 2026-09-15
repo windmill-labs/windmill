@@ -15,7 +15,7 @@ lazy_static::lazy_static! {
     /// payload can stream for as long as it needs. A cache transfer must not inherit that:
     /// a put or get that stalls after connecting would otherwise hold the job for its whole
     /// duration limit, with nothing in the job log saying why.
-    pub static ref OBJECT_STORE_CACHE_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
+    pub(crate) static ref OBJECT_STORE_CACHE_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
         std::env::var("OBJECT_STORE_CACHE_IO_TIMEOUT_SECS")
             .ok()
             .and_then(|x| x.parse::<u64>().ok())
@@ -27,7 +27,7 @@ lazy_static::lazy_static! {
 /// logged here, once, and handed back as the same error the transfer itself would have
 /// produced, so every caller keeps treating it like any other failed cache access.
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-async fn bounded_cache_io<T>(
+pub(crate) async fn bounded_cache_io<T>(
     what: &str,
     path: &str,
     io: impl std::future::Future<Output = error::Result<T>>,
