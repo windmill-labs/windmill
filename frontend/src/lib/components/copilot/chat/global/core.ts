@@ -730,13 +730,15 @@ const listRunsSchema = z.object({
 		.describe('Max number of runs to return, most recent first. Defaults to 30.')
 })
 
-// `GET /workers/list` answers a caller without the devops role with an empty
-// list, not an error, when the instance sets HIDE_WORKERS_FOR_NON_ADMINS — so
-// "no workers" and "no visibility" are indistinguishable here, and asserting
-// the former would be confidently wrong in exactly the situation being debugged.
+// `GET /workers/list` hides workers from a caller without the devops role by
+// returning an empty list, not an error, when HIDE_WORKERS_FOR_NON_ADMINS is set.
+// So an empty list means absence only for a devops or superadmin caller — the
+// answer a stuck queue waits on.
 const NO_WORKERS_VISIBLE_MESSAGE =
 	'No workers came back. This does NOT establish that no workers are running: an instance can hide workers from callers without the devops role, and it does so by returning an empty list rather than an error. ' +
 	'Tell the user you cannot see any workers and that worker visibility may be restricted for your account, and suggest they check the Workers page themselves. Never state that no workers are online or that the instance has none.'
+const NO_WORKERS_CONNECTED_MESSAGE =
+	'No workers are connected to this instance (none pinged in the last 5 minutes). Queued runs will stay queued until a worker starts.'
 const WORKER_PAGE_SIZE = 100
 
 const deleteWorkspaceItemSchema = z.object({
@@ -3791,7 +3793,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			z.object({}),
 			'list_workers',
-			'List the workers connected to this Windmill instance (those that pinged in the last 5 minutes), with their worker group, custom tags, seconds since their last ping, and jobs executed. Pair with list_runs to diagnose a stuck queue: runs queued on a tag no listed worker picks up will never start. Two blind spots to report rather than reason past: an empty list can mean workers are hidden from you, not absent, and a missing custom_tags can mean tags are hidden from you, not unset.'
+			'List the workers connected to this Windmill instance (those that pinged in the last 5 minutes), with their worker group, custom tags, seconds since their last ping, and jobs executed. Pair with list_runs to diagnose a stuck queue: runs queued on a tag no listed worker picks up will never start. Two blind spots to report rather than reason past: an empty result states whether no worker is connected or whether workers may be hidden from you, so relay the one it gives instead of picking, and a missing custom_tags can mean tags are hidden from you, not unset.'
 		),
 		planModeSafe: true,
 		showDetails: true,
@@ -3799,8 +3801,11 @@ export const globalTools: Tool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing workers...' })
 			const pings = await WorkerService.listWorkers({ perPage: WORKER_PAGE_SIZE })
 			if (pings.length === 0) {
-				toolCallbacks.setToolStatus(toolId, { content: 'No workers visible' })
-				return NO_WORKERS_VISIBLE_MESSAGE
+				const hiddenFromCaller = !get(superadmin) && !get(devopsRole)
+				toolCallbacks.setToolStatus(toolId, {
+					content: hiddenFromCaller ? 'No workers visible' : 'No workers connected'
+				})
+				return hiddenFromCaller ? NO_WORKERS_VISIBLE_MESSAGE : NO_WORKERS_CONNECTED_MESSAGE
 			}
 			const workers = pings.map((w) => ({
 				worker: w.worker,

@@ -372,7 +372,7 @@ import {
 	VariableService,
 	WorkerService
 } from '$lib/gen'
-import { superadmin, userStore, usersWorkspaceStore } from '$lib/stores'
+import { devopsRole, superadmin, userStore, usersWorkspaceStore } from '$lib/stores'
 import { processSecretArgs } from '$lib/components/secretArgUtils'
 import { clearWorkspaceRoleCache } from '$lib/user'
 import { get } from 'svelte/store'
@@ -752,7 +752,9 @@ describe('global AI tools', () => {
 		expect(result).not.toContain('10.0.0.1')
 	})
 
-	it('never reports an empty worker list as an absence of workers', async () => {
+	it('never reports an empty worker list as an absence to a caller workers can be hidden from', async () => {
+		superadmin.set(false)
+		devopsRole.set(false)
 		vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce([])
 
 		const result = await callGlobalTool('list_workers', {})
@@ -762,6 +764,21 @@ describe('global AI tools', () => {
 		expect(result).toContain('does NOT establish that no workers are running')
 		expect(result).toContain('devops role')
 		expect(result).not.toContain('"workers"')
+		superadmin.set(undefined)
+		devopsRole.set(undefined)
+	})
+
+	it('reports an empty worker list as an absence to a devops caller', async () => {
+		devopsRole.set('devops@windmill.dev')
+		vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce([])
+
+		const result = await callGlobalTool('list_workers', {})
+
+		// Nothing is hidden from this caller, so hedging would withhold the answer a
+		// stuck queue is waiting on.
+		expect(result).toContain('No workers are connected')
+		expect(result).not.toContain('does NOT establish')
+		devopsRole.set(undefined)
 	})
 
 	it('fetches job logs by id and always suppresses the backend ansi hint line', async () => {

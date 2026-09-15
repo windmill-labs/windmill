@@ -38,7 +38,7 @@ const listDataMetricsSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'Only declarations on this DuckLake table, with or without the `ducklake://` scheme.'
+			'Only declarations on this DuckLake table, as `<lake>/<table>` or `<lake>/<schema>.<table>`, with or without the `ducklake://` scheme. A name with no lake matches nothing and comes back empty.'
 		),
 	path_prefix: z
 		.string()
@@ -86,7 +86,7 @@ export function getDucklakeTools(): Tool<{}>[] {
 					perPage: limit
 				})
 				const note = next_cursor
-					? `More declarations exist beyond the first ${limit}. Re-call with a higher limit (max 1000), or with table/path_prefix if you know what you are looking for, rather than concluding a measure is undeclared.`
+					? `More declarations exist beyond the first ${limit}. Re-call with table/path_prefix to target what you are looking for, or with a higher limit (max 1000) for the rest of the list, rather than concluding a measure is undeclared.`
 					: metrics.length === 0
 						? NO_DATA_METRICS_NOTE
 						: undefined

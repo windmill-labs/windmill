@@ -97,7 +97,8 @@ describe('list_data_metrics', () => {
 
 	it('warns that more declarations exist when the page is cut short', async () => {
 		listMetricsMock.mockResolvedValue({
-			metrics: [],
+			// A cursor only comes back on a full page, never with an empty one.
+			metrics: [{ table_path: 't', kind: 'measure', name: 'n', script_path: 's' }],
 			next_cursor: { table_path: 't', kind: 'measure', name: 'n', script_path: 's' }
 		})
 		const result = await run('list_data_metrics', {})
