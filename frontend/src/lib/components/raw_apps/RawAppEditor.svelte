@@ -70,8 +70,10 @@
 		formatDataTableRef,
 		isDatatableTableAllowed,
 		type RawAppData,
-		DEFAULT_DATA
+		DEFAULT_DATA,
+		appDatatableRole
 	} from './dataTableRefUtils'
+	import { datatableReference } from '../dbTypes'
 	import { randomUUID } from '$lib/utils/uuid'
 
 	interface Props {
@@ -878,7 +880,8 @@
 		aiChatManager.datatableCreationPolicy = {
 			enabled: data.datatable !== undefined,
 			datatable: data.datatable,
-			schema: data.schema
+			schema: data.schema,
+			roles: data.roles
 		}
 
 		// Start auto-snapshot
@@ -900,9 +903,15 @@
 		// Read the current policy from aiChatManager
 		const policy = aiChatManager.datatableCreationPolicy
 		// Only update if different to avoid infinite loops
-		if (data.datatable !== policy.datatable || data.schema !== policy.schema) {
+		if (
+			data.datatable !== policy.datatable ||
+			data.schema !== policy.schema ||
+			// By value: the policy holds its own proxy of the same map.
+			JSON.stringify(data.roles) !== JSON.stringify(policy.roles)
+		) {
 			data.datatable = policy.datatable
 			data.schema = policy.schema
+			data.roles = policy.roles
 		}
 	})
 
@@ -1079,10 +1088,23 @@
 					return []
 				}
 
-				const tables = await WorkspaceService.listDataTableTables({
-					workspace: opWorkspace
+				// A data table the app uses through a role is listed as that role, so the AI sees
+				// what the app's own queries reach.
+				const workspace = opWorkspace
+				const roled = Object.entries(data.roles ?? {})
+				const [tables, ...roledTables] = await Promise.all([
+					WorkspaceService.listDataTableTables({ workspace }),
+					...roled.map(([roleFor, role]) =>
+						WorkspaceService.listDataTableTables({ workspace, roleFor, role })
+					)
+				])
+				const merged = tables.map((entry) => {
+					const i = roled.findIndex(([dt]) => dt === entry.datatable_name)
+					return i === -1
+						? entry
+						: (roledTables[i].find((t) => t.datatable_name === entry.datatable_name) ?? entry)
 				})
-				return filterDatatableTables(tables)
+				return filterDatatableTables(merged)
 			},
 			getDatatableTableSchema: async (
 				datatableName: string,
@@ -1106,7 +1128,8 @@
 					workspace: opWorkspace,
 					datatableName,
 					schemaName,
-					tableName
+					tableName,
+					role: appDatatableRole(data.roles, datatableName)
 				})
 				return schema.columns
 			},
@@ -1124,13 +1147,15 @@
 				}
 
 				try {
+					// The same role the app's runnables use, so a table the AI creates belongs to it.
+					const role = appDatatableRole(data.roles, datatableName)
 					const result = await runScriptAndPollResult(
 						{
 							workspace: opWorkspace,
 							requestBody: {
 								language: 'postgresql',
 								content: sql,
-								args: { database: `datatable://${datatableName}` }
+								args: { database: datatableReference(datatableName, role) }
 							}
 						},
 						writingJobOptions
@@ -1150,6 +1175,12 @@
 							const resourcePath = `datatable://${datatableName}`
 							delete $dbSchemas[resourcePath]
 							delete $dbSchemas[`${opWorkspace}:${resourcePath}`]
+							// The DB manager keys its cache by the role it connected as too.
+							for (const key of Object.keys($dbSchemas)) {
+								if (key.startsWith(`${opWorkspace}:${resourcePath}?role=`)) {
+									delete $dbSchemas[key]
+								}
+							}
 						}
 					}
 
@@ -2366,6 +2397,14 @@
 								...aiChatManager.datatableCreationPolicy,
 								datatable,
 								schema
+							}
+						}}
+						datatableRoles={data.roles}
+						onDatatableRolesChange={(roles) => {
+							data.roles = roles
+							aiChatManager.datatableCreationPolicy = {
+								...aiChatManager.datatableCreationPolicy,
+								roles
 							}
 						}}
 						{runnables}

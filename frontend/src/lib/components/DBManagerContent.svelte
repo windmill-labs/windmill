@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { dbSchemas, workspaceStore, type DBSchema } from '$lib/stores'
+	import type { DataTableTables } from '$lib/gen'
 	import { sortArray } from '$lib/utils'
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
 	import Alert from './common/alert/Alert.svelte'
@@ -11,6 +12,7 @@
 	import {
 		dbSchemaOpsWithPreviewScripts,
 		dbTableOpsWithPreviewScripts,
+		getDatabaseArg,
 		getDbType,
 		getDefaultDbTag,
 		getDucklakeSchema
@@ -18,11 +20,11 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SqlRepl from './SqlRepl.svelte'
 	import SimpleAgTable from './SimpleAgTable.svelte'
-	import { type Snippet } from 'svelte'
-	import type { DbInput } from './dbTypes'
+	import type { DatatableRowAction, DbInput } from './dbTypes'
+	import { schemaCacheKey } from './dbSchemaCache'
 	import { getDbSchemas, loadAllTablesMetaData } from './apps/components/display/dbtable/metadata'
 
-	import type { SelectedTable } from './DBManager.svelte'
+	import type { PendingRowAction, SelectedTable } from './DBManager.svelte'
 	import { getDbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import { resource } from 'runed'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -36,7 +38,15 @@
 		hasReplResult?: boolean
 		selectedSchemaKey?: string | undefined
 		selectedTableKey?: string | undefined
-		dbSelector?: Snippet<[]>
+		/** Every data table with its schemas and tables, for the left-pane tree. Undefined when
+		 * the manager is not on a data table, which drops the tree's top level. */
+		datatableTree?: DataTableTables[]
+		datatableTreeLoading?: boolean
+		onSelectDatatable?: (datatable: string) => void
+		onSelectRole?: (datatable: string, role: string) => void
+		pendingAction?: PendingRowAction | undefined
+		onDatatableAction?: (datatable: string, action: DatatableRowAction) => void
+		canManageDatatable?: boolean
 		/** Enable multi-select mode with checkboxes in sidebar */
 		multiSelectMode?: boolean
 		/** Selected tables in multi-select mode */
@@ -59,7 +69,13 @@
 		hasReplResult = $bindable(false),
 		selectedSchemaKey = $bindable(undefined),
 		selectedTableKey = $bindable(undefined),
-		dbSelector,
+		datatableTree,
+		datatableTreeLoading,
+		onSelectDatatable,
+		onSelectRole,
+		pendingAction = $bindable(),
+		onDatatableAction,
+		canManageDatatable,
 		multiSelectMode = false,
 		selectedTables = $bindable([]),
 		disabledTables = [],
@@ -70,26 +86,9 @@
 
 	let ws = $derived(workspace ?? $workspaceStore)
 
-	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[schemaCacheKey(input)])
+	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[schemaCacheKey(ws, input)])
 
 	const outOfOrderModal = createAsyncConfirmationModal()
-
-	function getDbSchemasPath(input: DbInput): string {
-		switch (input.type) {
-			case 'database':
-				return input.resourcePath
-			case 'ducklake':
-				return 'ducklake://' + input.ducklake
-		}
-	}
-
-	// Scope the shared `dbSchemas` cache by the acting workspace: a datatable of
-	// the same name can exist in both the nav and the acting workspace, so the
-	// bare resource path alone would let one workspace's schema be reused for the
-	// other while DB operations target the acting one.
-	function schemaCacheKey(input: DbInput): string {
-		return `${ws}:${getDbSchemasPath(input)}`
-	}
 
 	// Reported in place of the loading spinner: both queries run as jobs, so
 	// anything from a bad connection to a tag no worker serves surfaces here
@@ -136,14 +135,23 @@
 			const run = ++schemaRun
 			schemaError = undefined
 			if (!input) return
-			const dbSchemasPath = schemaCacheKey(input)
+			const dbSchemasPath = schemaCacheKey(ws, input)
 			if (input.type == 'database') {
+				let connection = input.resourcePath
+				try {
+					// The role'd reference, validated: an invalid role fails here rather than
+					// reading the schema as the data table's default role.
+					if (connection.startsWith('datatable://')) connection = getDatabaseArg(input).database!
+				} catch (e) {
+					schemaError = (e as Error)?.message ?? String(e)
+					return
+				}
 				// Reported through a local, not `schemaError` directly, so a superseded
 				// run's callback can't fail a load that already succeeded.
 				let queryError: string | undefined
 				const schema = await getDbSchemas(
 					input.resourceType,
-					input.resourcePath,
+					connection,
 					ws,
 					(message: string) => (queryError = message),
 					{ customTag: workerTag }
@@ -306,7 +314,15 @@
 						: undefined}
 				{dbType}
 				refresh={() => refresh()}
-				{dbSelector}
+				{datatableTree}
+				{datatableTreeLoading}
+				{onSelectDatatable}
+				{onSelectRole}
+				workspace={ws}
+				currentRole={input.type === 'database' ? input.role : undefined}
+				bind:pendingAction
+				{onDatatableAction}
+				{canManageDatatable}
 				{onImport}
 				bind:selectedSchemaKey
 				bind:selectedTableKey

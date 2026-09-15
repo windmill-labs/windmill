@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { Sparkles, Plus, List, Ban, ExternalLinkIcon, Loader2 } from 'lucide-svelte'
 	import type { Policy } from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
@@ -19,10 +20,17 @@
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { react18Template, react19Template, svelte5Template } from './templates'
 	import type { Runnable } from './rawAppPolicy'
-	import { type DataTableRef, type RawAppData, formatDataTableRef } from './dataTableRefUtils'
 	import {
+		type DataTableRef,
+		type RawAppData,
+		formatDataTableRef,
+		withAppDatatableRole
+	} from './dataTableRefUtils'
+	import {
+		createDatatableAccessResource,
 		createDatatablesResource,
-		createSchemasResource,
+		createRolesResource,
+		rolesWorthPicking,
 		toDatatableItems,
 		toSchemaItems
 	} from './datatableUtils.svelte'
@@ -62,19 +70,95 @@
 	let appSummary = $state('')
 	let initialPrompt = $state('')
 	let preWhitelistedTables = $state<DataTableRef[]>([])
+	/** The role each pre-whitelisted table's data table was browsed as. */
+	let preWhitelistedRoles = $state<Record<string, string>>({})
 	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
 
 	const getOpWs = getRawAppOperatingWorkspace()
 	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
 
 	const datatables = createDatatablesResource(() => opWs)
-	const schemas = createSchemasResource(
+	const roles = createRolesResource(
 		() => selectedDatatable,
 		() => opWs
 	)
+	let selectedRole = $state<string | undefined>(undefined)
+
+	// Every reader waits for an answer stamped with the current selection: until then `current`
+	// belongs to the previous data table or role.
+	const loadedRoles = $derived(
+		roles.current.datatable === selectedDatatable ? roles.current.roles : []
+	)
+	const showRolePicker = $derived(rolesWorthPicking(loadedRoles))
+	// Saved explicitly rather than left to resolve: "whatever the default is then" moves the app
+	// the day an admin changes the default.
+	const effectiveRole = $derived(
+		selectedRole !== undefined && loadedRoles.includes(selectedRole) ? selectedRole : undefined
+	)
 
 	const availableDatatables = $derived(datatables.current)
-	const availableSchemas = $derived(schemas.current)
+	// `undefined` while the list loads, so this is false until it has answered.
+	const hasNoDatatables = $derived(availableDatatables?.length === 0)
+
+	const rolesSettled = $derived(
+		hasNoDatatables ||
+			(selectedDatatable !== undefined && roles.current.datatable === selectedDatatable)
+	)
+
+	// A role is picked on one data table: two data tables can both define an `analyst` that
+	// means something different, so a name surviving the switch is not the role surviving it.
+	let rolesPickedOn = $state<string | undefined>(undefined)
+	$effect(() => {
+		const loaded = roles.current
+		if (loaded.datatable !== selectedDatatable) return
+		const switched = untrack(() => rolesPickedOn) !== selectedDatatable
+		const current = untrack(() => selectedRole)
+		if (switched || current === undefined || !loaded.roles.includes(current)) {
+			selectedRole = loaded.roles.includes(loaded.defaultRole)
+				? loaded.defaultRole
+				: loaded.roles[0]
+			rolesPickedOn = selectedDatatable
+		}
+	})
+
+	const access = createDatatableAccessResource(
+		() => selectedDatatable,
+		() => effectiveRole,
+		() => opWs
+	)
+	// Under roles, and this caller may use none of them: the app would be saved with queries the
+	// server refuses.
+	const noUsableRole = $derived(
+		rolesSettled &&
+			selectedDatatable !== undefined &&
+			roles.current.permissioned &&
+			loadedRoles.length === 0
+	)
+	const rolesUnknown = $derived(rolesSettled && roles.current.failed)
+	const accessSettled = $derived(
+		hasNoDatatables ||
+			(rolesSettled &&
+				selectedDatatable !== undefined &&
+				access.current.datatable === selectedDatatable &&
+				access.current.role === effectiveRole)
+	)
+	const accessUnknown = $derived(accessSettled && access.current.failed)
+	const availableSchemas = $derived(accessSettled ? access.current.schemas : [])
+	const canCreateSchema = $derived(accessSettled && access.current.canCreateSchema)
+
+	// Only an app that keeps the data table is held back by it: with table creation off nothing
+	// saves it.
+	const blockedByRole = $derived(
+		(noUsableRole || rolesUnknown || accessUnknown) && tableCreationEnabled
+	)
+
+	// A role that cannot create schemas has nothing to name, so the mode goes back to the one
+	// every role has, once that is an answer.
+	$effect(() => {
+		if (accessSettled && !accessUnknown && schemaMode === 'new' && !canCreateSchema) {
+			schemaMode = 'none'
+		}
+	})
 
 	let hasAutoSelected = false
 	$effect(() => {
@@ -119,8 +203,6 @@
 		schemaMode === 'new' ? newSchemaName : schemaMode === 'existing' ? selectedSchema : undefined
 	)
 
-	const hasNoDatatables = $derived(availableDatatables?.length === 0)
-
 	// copilotInfo is a global that stays empty until some ancestor's fetch lands, so
 	// `enabled` alone cannot tell "no providers" from "not loaded yet" and the modal
 	// would announce AI as unconfigured while it is merely unknown. Gate on the
@@ -140,7 +222,13 @@
 	async function start(withPrompt: boolean) {
 		const template = templates[selectedTemplateIndex]
 
-		if (schemaMode === 'new' && newSchemaName && selectedDatatable && opWs) {
+		if (
+			tableCreationEnabled &&
+			schemaMode === 'new' &&
+			newSchemaName &&
+			selectedDatatable &&
+			opWs
+		) {
 			try {
 				const { dbSchemaOpsWithPreviewScripts } = await import('$lib/components/dbOps')
 				const dbOps = dbSchemaOpsWithPreviewScripts({
@@ -148,7 +236,8 @@
 					input: {
 						type: 'database',
 						resourceType: 'postgresql',
-						resourcePath: `datatable://${selectedDatatable}`
+						resourcePath: `datatable://${selectedDatatable}`,
+						role: effectiveRole
 					}
 				})
 				await dbOps.onCreateSchema({ schema: newSchemaName })
@@ -159,14 +248,20 @@
 		}
 
 		const formattedTables = preWhitelistedTables.map(formatDataTableRef)
-		const data: RawAppData =
-			tableCreationEnabled && selectedDatatable
-				? {
-						tables: formattedTables,
-						datatable: selectedDatatable,
-						schema: effectiveSchema
-					}
-				: { tables: formattedTables, datatable: undefined, schema: undefined }
+		const keepsDatatable = tableCreationEnabled && selectedDatatable !== undefined
+		const appRoles = keepsDatatable
+			? withAppDatatableRole(preWhitelistedRoles, selectedDatatable!, effectiveRole)
+			: Object.keys(preWhitelistedRoles).length > 0
+				? { ...preWhitelistedRoles }
+				: undefined
+		const data: RawAppData = keepsDatatable
+			? {
+					tables: formattedTables,
+					datatable: selectedDatatable,
+					schema: effectiveSchema,
+					roles: appRoles
+				}
+			: { tables: formattedTables, datatable: undefined, schema: undefined, roles: appRoles }
 
 		const policy: Policy = {
 			on_behalf_of: $userStore?.username.includes('@')
@@ -259,15 +354,43 @@
 										<label class="text-xs text-emphasis font-semibold" for="datatable"
 											>Datatable</label
 										>
-										<Select
-											id="datatable"
-											disablePortal
-											items={datatableItems}
-											bind:value={selectedDatatable}
-											placeholder="Datatable"
-											size="sm"
-											class="w-40"
-										/>
+										<div class="flex flex-row items-center gap-2">
+											<Select
+												id="datatable"
+												disablePortal
+												items={datatableItems}
+												bind:value={selectedDatatable}
+												placeholder="Datatable"
+												size="sm"
+												class="w-40"
+											/>
+											{#if showRolePicker}
+												<!-- Reads as one phrase, "main as analyst", so the role needs no label. -->
+												<span class="text-xs text-secondary">as</span>
+												<Select
+													id="datatable-role"
+													disablePortal
+													items={loadedRoles.map((r) => ({ value: r, label: r }))}
+													bind:value={selectedRole}
+													clearable={false}
+													placeholder="Role"
+													size="sm"
+													class="w-40"
+												/>
+											{/if}
+											{#if noUsableRole || rolesUnknown || accessUnknown}
+												<span
+													class="text-xs text-red-600 dark:text-red-400"
+													title={access.current.error}
+												>
+													{rolesUnknown
+														? 'could not read its roles'
+														: noUsableRole
+															? 'no role you can use'
+															: 'could not reach it'}
+												</span>
+											{/if}
+										</div>
 									</div>
 									<div>
 										<span class="text-xs text-emphasis font-semibold">Schema</span>
@@ -276,7 +399,21 @@
 												<ToggleButtonGroup bind:selected={schemaMode} noWFull>
 													{#snippet children({ item })}
 														<ToggleButton value="none" label="None" icon={Ban} {item} size="sm" />
-														<ToggleButton value="new" label="New" icon={Plus} {item} size="sm" />
+														<ToggleButton
+															value="new"
+															label="New"
+															icon={Plus}
+															disabled={!canCreateSchema}
+															tooltip={canCreateSchema
+																? undefined
+																: noUsableRole
+																	? `You can use no role of ${selectedDatatable}`
+																	: accessUnknown
+																		? `Could not read what may be created in ${selectedDatatable}`
+																		: `${effectiveRole ?? 'This connection'} cannot create schemas in ${selectedDatatable}`}
+															{item}
+															size="sm"
+														/>
 														<ToggleButton
 															value="existing"
 															label="Existing"
@@ -333,6 +470,7 @@
 								dataTableRefs={preWhitelistedTables}
 								defaultDatatable={selectedDatatable}
 								defaultSchema={effectiveSchema}
+								roles={preWhitelistedRoles}
 								standalone
 								hideDefaultSelector
 								onAdd={() => dataTableDrawer?.openDrawer()}
@@ -418,7 +556,11 @@
 					variant="default"
 					size="sm"
 					on:click={() => start(false)}
-					disabled={!templates[selectedTemplateIndex] || newSchemaAlreadyExists}
+					disabled={!templates[selectedTemplateIndex] ||
+						newSchemaAlreadyExists ||
+						!rolesSettled ||
+						!accessSettled ||
+						blockedByRole}
 				>
 					{$copilotInfo.workspaceDisabled ? 'Start' : 'Start without AI'}
 				</Button>
@@ -426,7 +568,10 @@
 					<Button
 						variant="accent"
 						on:click={() => start(true)}
-						disabled={!templates[selectedTemplateIndex] ||
+						disabled={!rolesSettled ||
+							!accessSettled ||
+							blockedByRole ||
+							!templates[selectedTemplateIndex] ||
 							!initialPrompt.trim() ||
 							newSchemaAlreadyExists}
 						startIcon={{ icon: Sparkles }}
@@ -444,7 +589,9 @@
 	bind:this={dataTableDrawer}
 	offset={10000}
 	existingRefs={preWhitelistedTables}
-	onAdd={(ref) => {
-		preWhitelistedTables = [...preWhitelistedTables, ref]
+	roles={preWhitelistedRoles}
+	onAdd={(refs, browsedRoles) => {
+		preWhitelistedTables = [...preWhitelistedTables, ...refs]
+		preWhitelistedRoles = { ...preWhitelistedRoles, ...browsedRoles }
 	}}
 />

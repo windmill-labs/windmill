@@ -64,11 +64,10 @@
 </script>
 
 <script lang="ts">
-	import { Plus, PlugZap } from 'lucide-svelte'
+	import { History, KeyRound, Plus, PlugZap, Trash2 } from 'lucide-svelte'
+	import DropdownV2 from '../DropdownV2.svelte'
 
 	import Button from '../common/button/Button.svelte'
-
-	import CloseButton from '../common/CloseButton.svelte'
 
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
@@ -103,7 +102,7 @@
 	import DataTablePermissionsButton from './DataTablePermissionsButton.svelte'
 	import DataTableRolesSection from './DataTableRolesSection.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { clone } from '$lib/utils'
+	import { clone, onlyAlphaNumAndUnderscore } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
@@ -284,6 +283,9 @@
 	}
 
 	let confirmationModal = createAsyncConfirmationModal()
+	// Each mounts its own modal or drawer; the row menu opens them.
+	let migrationsButtons = $state<Record<string, DataTableMigrationsButton | undefined>>({})
+	let permissionsButtons = $state<Record<string, DataTablePermissionsButton | undefined>>({})
 	let dirtyMap = $derived.by(() => {
 		const map: Record<string, boolean> = {}
 		for (let i = 0; i < tempSettings.dataTables.length; i++) {
@@ -465,14 +467,16 @@
 				<Cell class="whitespace-nowrap">
 					<div class="flex gap-2">
 						<DataTableMigrationsButton
+							bind:this={migrationsButtons[dataTable.name]}
+							hideTrigger
 							workspace={$workspaceStore ?? ''}
 							datatable={dataTable.name}
-							disabled={!!dirtyMap[dataTable.name]}
 						/>
 						<DataTablePermissionsButton
+							bind:this={permissionsButtons[dataTable.name]}
+							hideTrigger
 							workspace={$workspaceStore ?? ''}
 							datatable={dataTable.name}
-							disabled={!!dirtyMap[dataTable.name]}
 						/>
 						<Button
 							size="xs"
@@ -507,9 +511,37 @@
 					</div>
 				</Cell>
 				<Cell class="w-12">
-					{#if !dataTable.reference}
-						<CloseButton small on:close={() => removeDataTable(dataTableIndex)} />
-					{/if}
+					<DropdownV2
+						items={() => [
+							{
+								displayName: 'Migrations',
+								icon: History,
+								// Both act on the saved data table, which unsaved edits are not.
+								disabled: !!dirtyMap[dataTable.name],
+								tooltip: dirtyMap[dataTable.name] ? 'Save the settings first' : undefined,
+								action: () => migrationsButtons[dataTable.name]?.open()
+							},
+							{
+								displayName: 'Roles',
+								icon: KeyRound,
+								disabled: !!dirtyMap[dataTable.name],
+								tooltip: dirtyMap[dataTable.name] ? 'Save the settings first' : undefined,
+								action: () => permissionsButtons[dataTable.name]?.open()
+							},
+							// A fork's pointer entry is written by forking and kept by the server, not this form.
+							...(dataTable.reference
+								? []
+								: [
+										{
+											displayName: 'Remove',
+											icon: Trash2,
+											type: 'delete' as const,
+											action: () => removeDataTable(dataTableIndex)
+										}
+									])
+						]}
+						btnId={'datatable-settings-actions-' + onlyAlphaNumAndUnderscore(dataTable.name)}
+					/>
 				</Cell>
 			</Row>
 		{/each}

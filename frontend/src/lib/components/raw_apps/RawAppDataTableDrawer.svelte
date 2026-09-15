@@ -4,32 +4,39 @@
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Button from '../common/button/Button.svelte'
-	import Select from '../select/Select.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import type { DataTableRef } from './dataTableRefUtils'
+	import { appDatatableRole, type DataTableRef } from './dataTableRefUtils'
+	import { untrack } from 'svelte'
 	import { resource } from 'runed'
-	import { ArrowLeft, Expand, LoaderCircle, Minimize, Plus, RefreshCcw } from 'lucide-svelte'
+	import { ArrowLeft, Expand, Minimize, Plus, RefreshCcw } from 'lucide-svelte'
 	import DBManagerContent from '../DBManagerContent.svelte'
-	import type { DbInput } from '../dbTypes'
-	import type { SelectedTable } from '../DBManager.svelte'
+	import { ADMIN_DATATABLE_ROLE, type DbInput } from '../dbTypes'
+	import type { PendingRowAction, SelectedTable } from '../DBManager.svelte'
 	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import { useDbManagerTag } from '../dbManagerTag.svelte'
 	import DbWorkerTagButton from '../DbWorkerTagButton.svelte'
+	import type { DataTableTables } from '$lib/gen'
 
 	const getOpWs = getRawAppOperatingWorkspace()
 	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
 
 	interface Props {
-		onAdd?: (ref: DataTableRef) => void
+		/** `roles` holds, for each added table's data table under roles, the role its tables were
+		 * browsed as: the app uses the data table through it from then on. */
+		onAdd?: (refs: DataTableRef[], roles: Record<string, string>) => void
 		existingRefs?: DataTableRef[]
+		/** The role the app uses each data table through, by data table name */
+		roles?: Record<string, string>
 		/** Z-index offset for the drawer, useful when opening from within modals */
 		offset?: number
 	}
 
-	let { onAdd, existingRefs = [], offset = 0 }: Props = $props()
+	let { onAdd, existingRefs = [], roles = undefined, offset = 0 }: Props = $props()
 
 	let open = $state(false)
 	let selectedDatatable = $state<string | undefined>(undefined)
+	/** Role the manager connects as; undefined means the data table's default. */
+	let selectedRole = $state<string | undefined>(undefined)
 
 	// For DB manager
 	let dbManagerContent: DBManagerContent | undefined = $state()
@@ -39,6 +46,11 @@
 
 	// Multi-select mode: selected tables
 	let selectedTables = $state<SelectedTable[]>([])
+	/** The role each data table's selected tables were browsed as. */
+	let browsedRoles = $state<Record<string, string>>({})
+
+	// Survives the re-mount a data table switch causes.
+	let pendingAction = $state<PendingRowAction | undefined>(undefined)
 
 	// Selected schema/table from DBManager (for preview)
 	let selectedSchemaKey = $state<string | undefined>(undefined)
@@ -55,32 +67,108 @@
 		}
 	})
 
-	export function openDrawer() {
-		// Auto-select first datatable if only one exists
-		if (datatables.current.length === 1) {
-			selectedDatatable = datatables.current[0]
-		} else if (datatables.current.length > 1 && datatables.current.includes('main')) {
-			selectedDatatable = 'main'
-		} else {
-			selectedDatatable = undefined
+	const usableRoles = resource(
+		() => [open, opWs, selectedDatatable] as const,
+		async ([isOpen, workspace, datatable]) => {
+			if (!isOpen || !workspace || !datatable) return undefined
+			try {
+				return {
+					datatable,
+					...(await WorkspaceService.listUsableDatatableRoles({
+						workspace,
+						datatableName: datatable
+					}))
+				}
+			} catch (e) {
+				// Opens anyway: without a role the server connects as the default and says so if
+				// that is refused.
+				console.error('Failed to load datatable roles:', e)
+				return {
+					datatable,
+					permissioned: false,
+					roles: [] as string[],
+					default_role: ADMIN_DATATABLE_ROLE
+				}
+			}
 		}
+	)
+
+	// A resource keeps its previous value while it refetches, and roles are per data table.
+	const rolesOfCurrent = $derived(
+		usableRoles.current?.datatable === selectedDatatable ? usableRoles.current : undefined
+	)
+
+	// Mounting the manager fires its first queries, so it waits for the role: a round sent
+	// without one runs, and caches, as whatever the server defaults to.
+	const roleSettled = $derived(
+		selectedDatatable === undefined ||
+			(rolesOfCurrent !== undefined &&
+				(!rolesOfCurrent.permissioned ||
+					rolesOfCurrent.roles.length === 0 ||
+					selectedRole !== undefined))
+	)
+
+	$effect(() => {
+		const current = rolesOfCurrent
+		if (!current?.permissioned || selectedRole !== undefined) return
+		const effective = current.roles.includes(current.default_role)
+			? current.default_role
+			: current.roles[0]
+		if (effective) untrack(() => (selectedRole = effective))
+	})
+
+	// Every data table with its schemas and tables: the tree is the picker. The privileges it
+	// reports are the connected role's, so the role picked on the open data table is asked too.
+	const datatableTree = resource(
+		() => [open, opWs, selectedDatatable, selectedRole] as const,
+		async ([isOpen, workspace, roleFor, role]): Promise<DataTableTables[]> => {
+			if (!isOpen || !workspace) return []
+			try {
+				return await WorkspaceService.listDataTableTables({
+					workspace,
+					roleFor: role ? roleFor : undefined,
+					role
+				})
+			} catch (e) {
+				console.error('Failed to load datatable tables:', e)
+				return []
+			}
+		},
+		{ initialValue: [] }
+	)
+
+	/** Remembers the role the connected data table's selected tables were seen through. */
+	function recordBrowsedRole() {
+		const dt = selectedDatatable
+		if (!dt || !selectedRole || !rolesOfCurrent?.permissioned) return
+		if (selectedTables.some((t) => (t.datatable ?? dt) === dt)) {
+			browsedRoles = { ...browsedRoles, [dt]: selectedRole }
+		}
+	}
+
+	function selectDatatable(datatable: string, role?: string) {
+		recordBrowsedRole()
+		selectedDatatable = datatable
+		// A data table the app already uses through a role opens as that role.
+		selectedRole = role ?? appDatatableRole(roles, datatable)
+	}
+
+	export function openDrawer() {
+		selectDatatable(datatables.current.includes('main') ? 'main' : datatables.current[0])
 		selectedSchemaKey = undefined
 		selectedTableKey = undefined
 		selectedTables = []
+		browsedRoles = {}
 		expand = false
 		open = true
 	}
 
-	let initialTableKey: string | undefined = $state<string | undefined>(undefined)
-	let initialSchemaKey: string | undefined = $state<string | undefined>(undefined)
-
 	export function openDrawerWithRef(ref: DataTableRef) {
-		selectedDatatable = ref.datatable
+		selectDatatable(ref.datatable)
 		selectedSchemaKey = ref.schema
 		selectedTableKey = ref.table
-		initialTableKey = ref.table
-		initialSchemaKey = ref.schema
 		selectedTables = []
+		browsedRoles = {}
 		expand = false
 		open = true
 	}
@@ -88,49 +176,43 @@
 	export function closeDrawer() {
 		open = false
 		dbManagerContent?.clearReplResult()
+		// An action outlives the data table it was asked for otherwise.
+		pendingAction = undefined
 	}
 
 	function handleAddTables() {
-		if (!selectedDatatable) {
-			sendUserToast('Please select a data table first', true)
-			return
-		}
-
 		if (selectedTables.length === 0) {
 			sendUserToast('Please select at least one table', true)
 			return
 		}
+		recordBrowsedRole()
 
-		// Add all selected tables
+		const refs: DataTableRef[] = []
 		for (const table of selectedTables) {
-			const ref: DataTableRef = {
-				datatable: selectedDatatable,
-				schema: table.schema,
-				table: table.table
-			}
-			onAdd?.(ref)
+			const datatable = table.datatable ?? selectedDatatable
+			if (!datatable) continue
+			refs.push({ datatable, schema: table.schema, table: table.table })
 		}
+		const added = new Set(refs.map((r) => r.datatable))
+		onAdd?.(refs, Object.fromEntries(Object.entries(browsedRoles).filter(([dt]) => added.has(dt))))
 
-		const count = selectedTables.length
+		const count = refs.length
 		sendUserToast(`Added ${count} table${count > 1 ? 's' : ''} to app`)
 		selectedTables = []
+		browsedRoles = {}
 	}
 
-	const datatableItems = $derived(
-		datatables.current.map((dt) => ({
-			value: dt,
-			label: dt
-		}))
-	)
-
+	// Carries the picked schema/table, so a click on a row of another data table lands on that
+	// table once the manager re-mounts against it.
 	const dbInput: DbInput | undefined = $derived(
 		selectedDatatable
 			? {
 					type: 'database' as const,
 					resourceType: 'postgresql' as const,
 					resourcePath: `datatable://${selectedDatatable}`,
-					specificSchema: initialSchemaKey,
-					specificTable: initialTableKey
+					role: selectedRole,
+					specificSchema: selectedSchemaKey,
+					specificTable: selectedTableKey
 				}
 			: undefined
 	)
@@ -141,15 +223,13 @@
 		}
 	})
 
-	// Convert existingRefs to disabledTables format for the current datatable
 	const disabledTables = $derived(
 		existingRefs
-			.filter((ref) => ref.datatable === selectedDatatable && ref.schema && ref.table)
-			.map((ref) => ({ schema: ref.schema!, table: ref.table! }))
+			.filter((ref) => ref.schema && ref.table)
+			.map((ref) => ({ datatable: ref.datatable, schema: ref.schema!, table: ref.table! }))
 	)
 
-	// Can add: has tables selected
-	const canAdd = $derived(selectedDatatable && selectedTables.length > 0)
+	const canAdd = $derived(selectedTables.length > 0)
 
 	// Shares the drawer-set override with the Database Manager: same data table,
 	// same worker group needed to reach it.
@@ -175,37 +255,27 @@
 		noPadding
 	>
 		{#if dbInput && opWs}
-			{#key selectedDatatable}
-				<DBManagerContent
-					bind:this={dbManagerContent}
-					input={dbInput}
-					workspace={opWs}
-					bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
-					bind:hasReplResult
-					bind:selectedSchemaKey
-					bind:selectedTableKey
-					multiSelectMode={true}
-					bind:selectedTables
-					{disabledTables}
-				>
-					{#snippet dbSelector()}
-						{#if datatables.loading}
-							<div class="flex items-center gap-2 text-tertiary ml-2">
-								<LoaderCircle size={14} class="animate-spin" />
-								<span class="text-sm">Loading...</span>
-							</div>
-						{:else if datatables.current.length >= 1}
-							<Select
-								transformInputSelectedText={(s) => `Datatable: ${s}`}
-								items={datatableItems}
-								bind:value={selectedDatatable}
-								placeholder="Select data table"
-								size="md"
-							/>
-						{/if}
-					{/snippet}
-				</DBManagerContent>
-			{/key}
+			{#if roleSettled}
+				{#key `${selectedDatatable}~${selectedRole ?? ''}`}
+					<DBManagerContent
+						bind:this={dbManagerContent}
+						input={dbInput}
+						workspace={opWs}
+						bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
+						bind:hasReplResult
+						bind:selectedSchemaKey
+						bind:selectedTableKey
+						multiSelectMode={true}
+						bind:selectedTables
+						{disabledTables}
+						datatableTree={datatableTree.current}
+						datatableTreeLoading={datatableTree.loading}
+						onSelectDatatable={(dt) => selectDatatable(dt)}
+						onSelectRole={(dt, role) => selectDatatable(dt, role)}
+						bind:pendingAction
+					/>
+				{/key}
+			{/if}
 		{:else}
 			<div class="flex items-center justify-center h-full text-tertiary">
 				<span>Select a data table to explore</span>
@@ -214,12 +284,11 @@
 
 		{#snippet actions()}
 			<Button
-				variant="contained"
-				color="blue"
+				variant="accent"
 				disabled={!canAdd}
 				on:click={handleAddTables}
 				startIcon={{ icon: Plus }}
-				size="xs"
+				unifiedSize="sm"
 			>
 				{#if selectedTables.length > 0}
 					Add {selectedTables.length} table{selectedTables.length > 1 ? 's' : ''}
@@ -240,8 +309,8 @@
 				loading={dbManagerContent?.isLoading() ?? false}
 				on:click={() => dbManagerContent?.refresh()}
 				startIcon={{ icon: RefreshCcw }}
-				size="xs"
-				color="light"
+				unifiedSize="sm"
+				variant="default"
 				disabled={!selectedDatatable}
 			>
 				Refresh
@@ -250,8 +319,9 @@
 			<Button
 				on:click={() => (expand = !expand)}
 				startIcon={{ icon: expand ? Minimize : Expand }}
-				size="xs"
-				color="light"
+				unifiedSize="sm"
+				variant="default"
+				iconOnly
 			/>
 		{/snippet}
 	</DrawerContent>
