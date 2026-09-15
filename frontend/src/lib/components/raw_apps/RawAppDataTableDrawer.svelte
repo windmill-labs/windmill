@@ -192,8 +192,9 @@
 		openSchemaKey = selectedSchemaKey
 		openTableKey = selectedTableKey
 		selectedDatatable = datatable
-		// A data table the app already uses through a role opens as that role.
-		connectAs(datatable, role ?? appDatatableRole(roles, datatable))
+		// A data table opens as the role its picked tables were browsed as, else the one the app
+		// already uses it through.
+		connectAs(datatable, role ?? browsedRoles[datatable] ?? appDatatableRole(roles, datatable))
 	}
 
 	/** Connects to `datatable` as `role`. The tables picked on it under another role are dropped:

@@ -68,10 +68,14 @@
 
 	// The app's role on the data table can change without the data table changing (tables added
 	// under another role): a default schema that role no longer reaches is where the AI could not
-	// create tables, so it is unset once the answer for this role is in.
+	// create tables, so it is unset once the answer for this role is in. Only after a role change
+	// made here: opening an app must not modify it.
+	// svelte-ignore state_referenced_locally
+	const roleOnOpen = role
 	$effect(() => {
 		const answer = access.current
 		if (
+			role !== roleOnOpen &&
 			schema !== undefined &&
 			answer.datatable === datatable &&
 			answer.role === role &&

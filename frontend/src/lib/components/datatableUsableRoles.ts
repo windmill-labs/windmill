@@ -2,7 +2,8 @@ import { WorkspaceService, type ListUsableDatatableRolesResponse } from '$lib/ge
 import { isCloudHosted } from '$lib/cloud'
 import { ADMIN_DATATABLE_ROLE } from './dbTypes'
 
-// `datatable_roles_unavailable` on the server.
+// `datatable_roles_unavailable` on the server, which is a plain 400: rewording it there without
+// here makes every role picker on a non-Enterprise build fail instead of reading "not under roles".
 const ROLES_UNAVAILABLE = 'Data table roles are a Windmill Enterprise Edition feature'
 
 const NOT_UNDER_ROLES: ListUsableDatatableRolesResponse = {
@@ -25,7 +26,8 @@ export async function listUsableDatatableRoles(
 	try {
 		return await WorkspaceService.listUsableDatatableRoles({ workspace, datatableName })
 	} catch (e) {
-		const detail = `${(e as { body?: unknown })?.body ?? ''} ${(e as Error)?.message ?? e}`
+		const body = (e as { body?: unknown })?.body
+		const detail = `${typeof body === 'string' ? body : JSON.stringify(body ?? '')} ${(e as Error)?.message ?? e}`
 		if (detail.includes(ROLES_UNAVAILABLE)) return NOT_UNDER_ROLES
 		throw e
 	}
