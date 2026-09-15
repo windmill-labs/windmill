@@ -934,6 +934,7 @@ export class FlowChatManager {
 			// temp rows that were standing in for it.
 			const response: ChatMessage[] = []
 			let afterSeq = this.getLastPersistedMessageSeq(conversationId)
+			let readWhole = false
 			for (let page = 0; page < POLL_MAX_PAGES; page++) {
 				const batch = await FlowConversationsService.listConversationMessages({
 					workspace: this.#workspace()!,
@@ -946,10 +947,16 @@ export class FlowChatManager {
 				// poll outlives its abort — either would put a forgotten flow's rows back.
 				if (startedIn !== this.#generation) return
 				response.push(...batch)
-				if (batch.length < POLL_PAGE_SIZE) break
+				if (batch.length < POLL_PAGE_SIZE) {
+					readWhole = true
+					break
+				}
 				const furthest = Math.max(...batch.map((m) => m.created_seq))
 				// A page that moved nothing would ask for the same rows forever.
-				if (afterSeq !== undefined && furthest <= afterSeq) break
+				if (afterSeq !== undefined && furthest <= afterSeq) {
+					readWhole = true
+					break
+				}
 				afterSeq = furthest
 			}
 
@@ -967,9 +974,15 @@ export class FlowChatManager {
 				}
 			}
 
+			if (!readWhole) {
+				// The cap is a guard against a cursor that stops advancing, not a reason to
+				// believe the conversation ends here. Sweeping now would drop the rows standing
+				// in for what was never read — the failure this paging exists to prevent.
+				console.warn(`Stopped reading conversation ${conversationId} after ${POLL_MAX_PAGES} pages`)
+			}
 			// Only remove temporary messages when explicitly requested (e.g., after job completion)
 			// During streaming, we keep temp messages to avoid them disappearing due to race conditions
-			if (options?.removeTempMessages) {
+			if (options?.removeTempMessages && readWhole) {
 				this.#rowsById[conversationId] = this.#rowsOf(conversationId).filter(
 					(msg) => !msg.id.startsWith('temp-') || msg.message_type === 'user'
 				)

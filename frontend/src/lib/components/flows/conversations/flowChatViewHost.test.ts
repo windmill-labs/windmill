@@ -87,6 +87,23 @@ describe('a send whose attachments are still uploading', () => {
 	})
 
 	// Stop has no job to cancel yet, so it has to be honoured when the upload lands —
+	// otherwise the run starts and the reader watches a message they took back execute.
+	it('does not run after a Stop pressed while it uploaded', async () => {
+		const manager = stubManager('a')
+		const chatHost = host(manager)
+		vi.mocked(HelpersService.fileUpload).mockImplementation(async () => {
+			chatHost.cancel()
+			return { file_key: 'k' } as any
+		})
+
+		const started = await chatHost.sendRequest({
+			instructions: 'stop me',
+			blobs: [anAttachment] as any
+		})
+
+		expect(started).toBe(false)
+		expect(manager.sendMessage).not.toHaveBeenCalled()
+	})
 
 	/**
 	 * Two files can arrive under one name. Keyed on the name alone they race to the same
@@ -120,24 +137,6 @@ describe('a send whose attachments are still uploading', () => {
 		expect(new Set(keys).size).toBe(2)
 		// The name a reader sees is still the one they attached.
 		expect(keys.every((k) => k.endsWith('/report.pdf'))).toBe(true)
-	})
-
-	// otherwise the run starts and the reader watches a message they took back execute.
-	it('does not run after a Stop pressed while it uploaded', async () => {
-		const manager = stubManager('a')
-		const chatHost = host(manager)
-		vi.mocked(HelpersService.fileUpload).mockImplementation(async () => {
-			chatHost.cancel()
-			return { file_key: 'k' } as any
-		})
-
-		const started = await chatHost.sendRequest({
-			instructions: 'stop me',
-			blobs: [anAttachment] as any
-		})
-
-		expect(started).toBe(false)
-		expect(manager.sendMessage).not.toHaveBeenCalled()
 	})
 
 	// The first message of a chat has no conversation until one is made. Left to

@@ -200,6 +200,10 @@ describe('reading a turn longer than one page', () => {
 
 		expect(manager.messages).toHaveLength(62)
 		expect(manager.messages.at(-1)?.content).toBe('row 62')
+		// The second read starts where the first stopped; a cursor that did not move would
+		// re-fetch the same page and still look right from the rows alone.
+		const calls = vi.mocked(FlowConversationsService.listConversationMessages).mock.calls
+		expect((calls[1][0] as any).afterSeq).toBe(50)
 	})
 })
 
