@@ -13340,7 +13340,7 @@ paths:
                           type: string
                         needs_whole:
                           type: boolean
-                          description: nothing was written and the session must be pushed whole again; an incremental part found no listed session to ride on (the backup was removed, or another device is still pushing it whole), or a part of a whole push found another one in progress
+                          description: nothing was written and the session must be pushed whole again; an incremental part found no listed session to ride on (the backup was removed, or a push split over parts is in progress or was abandoned), or a later part of a push split over parts found another push had superseded it
 
   /w/{workspace}/ai/shared_artifacts/share:
     post:
@@ -28574,8 +28574,14 @@ components:
           type: boolean
           description: more parts of this session follow, in this push or a later one; the session is not listed on this one
         whole:
+          type: boolean
+          description: a part of a push of the session whole; the head is on the part that opens it, which replaces whatever the storage holds of the session, and every piece the browser has is on one of them. An incremental part instead rides on a session the storage lists and is refused with needs_whole when it lists none
+        push:
           type: string
-          description: a part of a push of the session whole, named by a token the browser draws for that push; the head is on the first of them, which replaces whatever the storage holds of the session, and every piece the browser has is on one of them. A part of another whole push than the one in progress is refused with needs_whole, and so is a part without a token (an incremental one) when the storage lists no such session
+          description: a push split over several parts names itself on each with a token the browser draws; the part that opens it unlists the session and the last part lists it again, and a later part is written only while that token is the one there (refused with needs_whole otherwise)
+        opens:
+          type: boolean
+          description: this part opens the push named by `push`
         epoch:
           type: integer
           description: the session's move count (its record's `moves`), kept with the marker that lists the session; an incremental part rides on the marker of the same count

@@ -54,17 +54,20 @@ part follows (a session split over several entries says `partial` on all but the
 lists a session only once a whole push landed; the parts of a session after a failed one are
 not written either, on the server within one push and on the client across pushes, so the
 marker on the last part never lists a session missing a chat, and a new session whose last part
-never lands is not listed at all. A push of the session whole (no sync row, or a stale one)
-names itself on every part with a token the browser draws (`whole`) and opens with the head
-on the first: that part replaces the backup (the marker goes first, then everything under
-the session, then the token is written), so what an old storage still held of the session
-and the push does not carry is gone, and a later part is written only while that token is
-the one there, so two devices pushing the session whole at once cannot list a mix of their
-pieces (the push that opened later wins; the other is refused with `needs_whole` and goes
-again). An incremental part rides on a listed session, and the server refuses it with
-`needs_whole`, writing nothing, when none is listed (a removal deletes the marker first, and a
-whole push lists nothing until its last part), rather than write a marker over a session
-missing what earlier parts or earlier pushes carried. A push and a removal of one session
+never lands is not listed at all. A push of the session whole (no sync row, or a stale one,
+`whole` on every part) opens with the head on the first: that part replaces the backup (the
+marker goes first, then everything under the session), so what an old storage still held of
+the session and the push does not carry is gone. An incremental part rides on a listed
+session, and the server refuses it with `needs_whole`, writing nothing, when none is listed
+(a removal deletes the marker first), rather than write a marker over a session missing what
+earlier parts or earlier pushes carried. A push split over several parts, whole or
+incremental, names itself on each with a token the browser draws (`push`, `opens` on the
+first): the opening part unlists the session, so a pull between two parts finds it absent
+rather than a mix of old and new pieces, the last part lists it again, and a later part is
+written only while that token is the one there, so two devices pushing the session at once
+cannot list a mix of their pieces (the push that opened later wins; the other is refused with
+`needs_whole` and goes again), and one abandoned leaves the session unlisted, so the next
+push of it goes whole. A push and a removal of one session
 are serialized on the server by a Postgres advisory lock keyed on the session's prefix, so
 the two never interleave object by object.
 

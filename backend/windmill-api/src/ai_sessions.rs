@@ -118,8 +118,8 @@ impl Backend {
         ObjectPath::from(format!("{}/index/{sid}/", self.prefix))
     }
 
-    /// The token of the whole push in progress, under the session so a removal or the next
-    /// whole push clears it with the rest.
+    /// The token of the push split over parts in progress, under the session so a removal
+    /// or the next whole push clears it with the rest.
     fn push_key(&self, sid: &str) -> ObjectPath {
         ObjectPath::from(format!("{}/sessions/{sid}/push", self.prefix))
     }
@@ -897,13 +897,21 @@ struct PushedSession {
     /// listed on this one.
     #[serde(default)]
     partial: bool,
-    /// A part of a push of the session whole, named by a token the browser draws for that
-    /// push: the head is on the first of them, which replaces whatever the storage holds of
-    /// the session, and every piece the browser has is on one of them. A part of another
-    /// whole push than the one in progress is refused with `needs_whole`, and so is a part
-    /// without a token (an incremental one) when the storage lists no such session.
+    /// A part of a push of the session whole: the head is on the part that opens it, which
+    /// replaces whatever the storage holds of the session, and every piece the browser has
+    /// is on one of them. An incremental part instead rides on a session the storage lists,
+    /// and is refused with `needs_whole` when it lists none.
     #[serde(default)]
-    whole: Option<String>,
+    whole: bool,
+    /// A push split over several parts names itself on each of them with a token the
+    /// browser draws; the part that `opens` it unlists the session (a pull between two parts
+    /// would otherwise take a mix of old and new pieces for the backup) and the last part
+    /// lists it again. A later part is written only while that token is the one there, so a
+    /// part of a push another one superseded is refused with `needs_whole`.
+    #[serde(default)]
+    push: Option<String>,
+    #[serde(default)]
+    opens: bool,
     /// The session's move count (its record's `moves`), the marker that lists the session
     /// is named by: a session moved to another workspace is listed by both until the old
     /// copy's removal lands, and the copy with the higher count is the later one. An
@@ -930,8 +938,9 @@ struct PushResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     /// Nothing was written; the session must be pushed whole again: an incremental part
-    /// found no listed session to ride on (another device removed the backup, or is still
-    /// pushing it whole), or a part of a whole push found another one in progress.
+    /// found no listed session to ride on (another device removed the backup, or a push
+    /// split over parts is in progress or was abandoned), or a later part of a push split
+    /// over parts found another push had superseded it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     needs_whole: bool,
 }
@@ -976,8 +985,19 @@ fn validate_push(req: &PushRequest) -> Result<()> {
     }
     for s in &req.sessions {
         require_valid_id("session", &s.id)?;
-        if let Some(token) = &s.whole {
+        if let Some(token) = &s.push {
             require_valid_id("push", token)?;
+        } else if s.opens {
+            return Err(Error::BadRequest(format!(
+                "session {} opens a push with no token",
+                s.id
+            )));
+        }
+        if s.whole && (s.push.is_none() || s.opens) && s.head.is_none() {
+            return Err(Error::BadRequest(format!(
+                "session {} is pushed whole without its head",
+                s.id
+            )));
         }
         if let Some(head) = &s.head {
             require_json_object("head", head, MAX_HEAD_BYTES)?;
@@ -1017,42 +1037,54 @@ fn push_payload_bytes(req: &PushRequest) -> usize {
         .sum()
 }
 
-/// Runs under the session's lock (see `lock_session`). The first part of a whole push (the
-/// one with the head) replaces the backup: the marker goes first, so nothing lists the
-/// session until the last part, then everything else, then the token naming the push. A
-/// later part of a whole push is written only while that token is the one there, so two
-/// devices pushing the session whole at once cannot list a mix of their pieces: the push
-/// that opened later wins, the other is refused and goes again. An incremental part assumes
-/// the rest of the session is in the storage, which a removal since would have taken, or a
-/// whole push may still be bringing: it is refused unless the session is listed. Every
+/// Runs under the session's lock (see `lock_session`). The part that opens a whole push
+/// (the one with the head) replaces the backup: the marker goes first, so nothing lists the
+/// session until the last part, then everything else. An incremental part assumes the rest
+/// of the session is in the storage, which a removal since would have taken, or a push
+/// split over parts may still be bringing: it is refused unless the session is listed. A
+/// push split over parts names itself with a token: the part that opens it unlists the
+/// session (a pull between two parts would otherwise take a mix of old and new pieces for
+/// the backup) and writes the token, and a later part is written only while that token is
+/// the one there, so two devices pushing the session at once cannot list a mix of their
+/// pieces: the push that opened later wins, the other is refused and goes again. Every
 /// refusal comes before anything of the part lands. Deletes run last, and the marker only
 /// by the last part, so a push cut short never leaves a listed session pointing at chats
 /// that are not there.
 /// Bytes written, and whether the part was refused for the session to go whole.
 async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bool)> {
-    match &s.whole {
-        Some(token) if s.head.is_some() => {
-            backend
-                .delete_prefix(&backend.index_session_prefix(&s.id))
-                .await?;
-            backend
-                .delete_prefix(&backend.session_prefix(&s.id))
-                .await?;
-            backend.delete_prefix(&backend.images_prefix(&s.id)).await?;
-            backend
-                .put(&backend.push_key(&s.id), token.as_bytes())
-                .await?;
+    match &s.push {
+        Some(token) if !s.opens => {
+            match backend
+                .get(&backend.push_key(&s.id), token.len() + CIPHER_PADDING)
+                .await?
+            {
+                Read::Text(current) if current == *token => {}
+                _ => return Ok((0, true)),
+            }
         }
-        Some(token) => match backend
-            .get(&backend.push_key(&s.id), token.len() + CIPHER_PADDING)
-            .await?
-        {
-            Read::Text(current) if current == *token => {}
-            _ => return Ok((0, true)),
-        },
-        None => {
-            if !backend.exists(&backend.index_key(&s.id, s.epoch)).await? {
-                return Ok((0, true));
+        _ => {
+            if s.whole {
+                backend
+                    .delete_prefix(&backend.index_session_prefix(&s.id))
+                    .await?;
+                backend
+                    .delete_prefix(&backend.session_prefix(&s.id))
+                    .await?;
+                backend.delete_prefix(&backend.images_prefix(&s.id)).await?;
+            } else {
+                if !backend.exists(&backend.index_key(&s.id, s.epoch)).await? {
+                    return Ok((0, true));
+                }
+                if s.push.is_some() {
+                    backend
+                        .delete_prefix(&backend.index_session_prefix(&s.id))
+                        .await?;
+                }
+            }
+            if let Some(token) = &s.push {
+                backend
+                    .put(&backend.push_key(&s.id), token.as_bytes())
+                    .await?;
             }
         }
     }
@@ -1116,7 +1148,7 @@ async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bo
         .put(&backend.index_key(&s.id, s.epoch), PutPayload::new())
         .await
         .map_err(object_store_error_to_error)?;
-    if s.whole.is_some() {
+    if s.push.is_some() {
         backend.delete(&backend.push_key(&s.id)).await?;
     }
     Ok((written, false))

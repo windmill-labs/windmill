@@ -748,14 +748,24 @@ async function pushWorkspace(
 		// A push of the session whole names itself on every part and opens with its head on
 		// the first, whichever that is: the server replaces the backup on that part, lists
 		// the session by the last, and meanwhile refuses any other push of it.
-		const whole = plan.whole ? randomUUID() : undefined
 		const epoch = item.session.moves ?? 0
 		let opened = false
+		let token: string | undefined
 		const open = (part: AISessionBackupPush): AISessionBackupPush => {
-			if (!whole) return { ...part, epoch }
 			const first = !opened
 			opened = true
-			return first ? { ...part, epoch, head: plan.entry?.head, whole } : { ...part, epoch, whole }
+			// A push split over parts (the first says more follow) names itself on each, so
+			// the server keeps the session unlisted between them; a whole one opens with the
+			// head on whichever part goes first.
+			if (first && part.partial) token = randomUUID()
+			return {
+				...part,
+				epoch,
+				...(plan.whole ? { whole: true } : {}),
+				...(plan.whole && first ? { head: plan.entry?.head } : {}),
+				...(token ? { push: token } : {}),
+				...(token && first ? { opens: true } : {})
+			}
 		}
 		let images: AISessionBackupImage[] = []
 		let imagesBytes = 0

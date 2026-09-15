@@ -196,11 +196,15 @@ describe('sessionMirror flush', () => {
 		expect(imageEntry.images).toEqual([{ chat_id: 'c1', id: expect.any(String), data_url: IMAGE }])
 		// A first push goes whole, under one token on every part: the head opens it on the
 		// first part, whichever that is.
-		expect(typeof imageEntry.whole).toBe('string')
+		expect(imageEntry.whole).toBe(true)
 		expect(imageEntry.partial).toBe(true)
+		expect(typeof imageEntry.push).toBe('string')
+		expect(imageEntry.opens).toBe(true)
 		expect(imageEntry.head).toEqual({ id: 's1', createdAt: 1, workspace_id: 'ws', chatId: 'c1' })
 		expect(entry.head).toBeUndefined()
-		expect(entry.whole).toBe(imageEntry.whole)
+		expect(entry.whole).toBe(true)
+		expect(entry.push).toBe(imageEntry.push)
+		expect(entry.opens).toBeUndefined()
 		expect(entry.chats.map((c: { id: string }) => c.id)).toEqual(['c1'])
 		// The record keeps its blob ref; bytes travel as the image object only.
 		expect(JSON.stringify(entry.chats[0].record)).not.toContain(IMAGE)
@@ -514,13 +518,49 @@ describe('sessionMirror flush', () => {
 		// the entry server-side.
 		const [first, last] = pushMock.mock.calls.map((c) => c[0].requestBody.sessions[0])
 		expect(first.partial).toBe(true)
-		expect(typeof first.whole).toBe('string')
+		expect(first.whole).toBe(true)
+		expect(typeof first.push).toBe('string')
+		expect(first.opens).toBe(true)
 		expect(first.head).toBeDefined()
 		expect(last.partial).toBeUndefined()
-		expect(last.whole).toBe(first.whole)
+		expect(last.whole).toBe(true)
+		expect(last.push).toBe(first.push)
+		expect(last.opens).toBeUndefined()
 		expect(last.head).toBeUndefined()
 		expect(await pendingDirty()).toEqual(['sp'])
 		expect(await __syncRowsForTesting(EMAIL)).toEqual([])
+	})
+
+	it('names an incremental push split over requests on each of its parts', async () => {
+		await splitSession('si')
+		pushMock.mockResolvedValue({ enabled: true, results: [{ id: 'si' }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(await pendingDirty()).toEqual([])
+		// Every chat changes: the update spans two requests again, incremental this time.
+		const hm = new HistoryManager()
+		await hm.init()
+		hm.setSessionId('si')
+		const big = 'y'.repeat(1.5 * 1024 * 1024)
+		for (const cid of ['c1', 'c2', 'c3']) {
+			hm.setCurrentChatId(cid)
+			await hm.saveChat(
+				[{ role: 'user', content: big } as never],
+				[{ role: 'user', content: big } as never]
+			)
+		}
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(4)
+		const [first, last] = pushMock.mock.calls.slice(2).map((c) => c[0].requestBody.sessions[0])
+		expect(first.whole).toBeUndefined()
+		expect(first.partial).toBe(true)
+		expect(typeof first.push).toBe('string')
+		expect(first.opens).toBe(true)
+		expect(last.partial).toBeUndefined()
+		expect(last.push).toBe(first.push)
+		expect(last.opens).toBeUndefined()
+		expect(await pendingDirty()).toEqual([])
+		hm.close()
 	})
 
 	it('retires a removal only once the storage holding the backup answered it', async () => {
@@ -682,7 +722,8 @@ describe('sessionMirror flush', () => {
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(3)
 		const whole = pushMock.mock.calls[2][0].requestBody.sessions[0]
-		expect(typeof whole.whole).toBe('string')
+		expect(whole.whole).toBe(true)
+		expect(whole.push).toBeUndefined()
 		expect(whole.head).toBeDefined()
 		expect(whole.chats.map((c: { id: string }) => c.id).sort()).toEqual(['c1', 'c2'])
 		expect(await pendingDirty()).toEqual([])
