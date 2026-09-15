@@ -145,9 +145,9 @@ let nextPatch = 1
 
 const superseded = { ok: false, error: 'Another save of this item replaced this one' } as const
 
-/** An item as it stood when a command was asked for: the value on screen, the count of edits
- *  and outside writes it has taken, and the count of rows sent for its key. */
-type AsOf = { value: string | undefined; edits: number; rows: number }
+/** An item as it stood when a command was asked for: whether it was on screen at all, the value
+ *  it showed, the count of edits and outside writes it has taken, and the rows sent for its key. */
+type AsOf = { loaded: boolean; value: string | undefined; edits: number; rows: number }
 
 class Entry<V> {
 	key: ItemKey = $state()!
@@ -280,14 +280,10 @@ class Entry<V> {
 		this.ports.write(key, desired === null ? null : snapshot(this.value))
 	}
 
-	/**
-	 * Take the row a read reported, as both the baseline `reconcile` diffs against and the
-	 * syncer's `last_sync`. The two are one fact and are taken together, against `asOf`: the
-	 * count of rows sent when the read was issued. A row sent since is newer than the one the
-	 * read saw, and seeding behind it puts `last_sync` before what the syncer has already sent,
-	 * which the server refuses from then on. Every reader of a row goes through here, so the
-	 * ordering cannot be left out.
-	 */
+	/** The row a read reported, as both the baseline `reconcile` diffs against and the syncer's
+	 *  `last_sync`: one fact, so taken together and against one `asOf`, the rows sent when the
+	 *  read was issued. Seeding behind a row sent since puts `last_sync` before what the syncer
+	 *  has already sent, which the server refuses from then on. */
 	private adoptRow(key: ItemKey, draft: unknown, draftSavedAt: string | undefined, asOf: number) {
 		if (this.rowWrites !== asOf) return
 		this.row = serialize(draft) ?? null
@@ -336,7 +332,12 @@ class Entry<V> {
 	/** The registers that move on their own: what the user is editing, and the rows already sent.
 	 *  A command compares against these to tell what has happened since it was asked for. */
 	private asOf(): AsOf {
-		return { value: serialize(this.value), edits: this.edits, rows: this.rowWrites }
+		return {
+			loaded: this.loaded,
+			value: serialize(this.value),
+			edits: this.edits,
+			rows: this.rowWrites
+		}
 	}
 
 	/** Count a command as started now, ahead of its turn in the queue; returns its release. */
@@ -523,7 +524,9 @@ class Entry<V> {
 		// of what is already on screen, changing nothing the user sees, leaves the discard good.
 		return this.run(async (at) => {
 			if (!this.loaded || this.retired) return { removed: false }
-			if (serialize(this.value) !== at.value) return { removed: false }
+			// Nothing was on screen to compare against: the discard was asked of the item, not of
+			// a value, so whatever the load in front of it turned up is what it throws away.
+			if (at.loaded && serialize(this.value) !== at.value) return { removed: false }
 			if (this.origin === 'draft') {
 				const kept = snapshot(this.value)
 				const keptRow = this.row

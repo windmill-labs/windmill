@@ -638,6 +638,26 @@ describe('item store: origins', () => {
 		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: null })
 	})
 
+	it('discards the draft a read turns up when the discard was asked for before it', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		const store = createItemStore(rows.port)
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/r' },
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(() => read.promise)
+		)
+		// The chat discards the draft while this editor's read is still out: nothing is on screen
+		// yet, so there is no value the discard could be measured against.
+		const discarding = item.discard()
+		read.resolve({ draft: { ...deployedRes, description: 'only a draft' } })
+
+		expect(await discarding).toEqual({ removed: true })
+		expect(item.removed).toBe(true)
+		expect(item.value).toBeUndefined()
+		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: null })
+	})
+
 	it('keeps a draft-only item an outside write put back while its delete was going', async () => {
 		const rows = fakeRows()
 		const draft = { ...deployedRes, description: 'only a draft' }
