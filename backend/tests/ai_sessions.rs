@@ -1501,6 +1501,9 @@ async fn test_backups_fall_back_to_the_instance_storage(db: Pool<Postgres>) -> a
     windmill_api::sweep_expired_ai_session_backups(&db).await;
     assert!(!instance_user.join("index/s1/0").exists());
     assert!(!instance_user.join("sessions/s1/head.json").exists());
+    // Pushed again, so the rotation below has a backup to delete.
+    assert_eq!(push_whole().await?.status(), 200);
+    assert!(!files_under(&in_instance).is_empty());
 
     // A key rotation sweeps the older generation out of the instance store too.
     rotate(&base, &"c".repeat(64)).await?;
