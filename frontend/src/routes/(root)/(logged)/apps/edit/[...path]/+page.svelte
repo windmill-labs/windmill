@@ -495,13 +495,16 @@
 				{loadedFromDraft}
 				othersDraftsCount={otherDraftsUsers.length}
 				onOpenOthersDrafts={() => (othersModalOpen = true)}
-				onDeploy={({ version, head }) => {
-					// The editor stays open across a deploy, so the pair the out-of-date prompt
-					// reads has to move with it: the base is what the deploy could claim it
-					// wrote (unknown when another landed beside it), the head what is deployed.
+				onDeploy={({ version, head, headBy, headAt }) => {
+					// The editor stays open across a deploy, so what the out-of-date prompt reads
+					// has to move with it: the base is what the deploy could claim it wrote
+					// (unknown when another landed beside it), and the head is what is deployed,
+					// named by whoever deployed it rather than by the page load's author.
 					draftBaseVersion = version != null ? String(version) : undefined
 					if (head != null) {
 						deployedHeadVersion = String(head)
+						deployedBy = headBy
+						deployedAt = headAt
 					}
 				}}
 			/>

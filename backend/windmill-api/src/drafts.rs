@@ -1177,8 +1177,8 @@ async fn require_can_write_path(
 
 /// Resolves to `Ok(())` if `authed` can read at `path`. Three layers:
 ///   1. admin → always.
-///   2. Path-prefix match against own `u/{username}` or any folder in
-///      `authed.folders` (the precomputed read set, with groups + direct
+///   2. Path-prefix match against own `u/{username}`, a group in `authed.groups`, or any
+///      folder in `authed.folders` (the precomputed read set, with groups + direct
 ///      grants already factored in).
 ///   3. RLS-aware `SELECT 1` against the backing table — covers item-level
 ///      extra_perms grants that bypass folder/owner checks.
@@ -1203,6 +1203,10 @@ async fn require_can_read_path(
     if parts.len() >= 2 {
         match parts[0] {
             "u" if parts[1] == authed.username => return Ok(()),
+            // As `require_can_write_path` and the `see_member` RLS policy read it: a
+            // draft-only `g/` path has no row for the probe below to fall back on, so
+            // without this a member cannot see a draft their group owns.
+            "g" if authed.groups.iter().any(|g| g == parts[1]) => return Ok(()),
             "f" => {
                 let folder = parts[1];
                 if authed.folders.iter().any(|(name, _, _)| name == folder) {

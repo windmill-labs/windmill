@@ -655,7 +655,7 @@
 							}
 						}
 					: undefined}
-				onDeploy={({ version, head }) => {
+				onDeploy={({ version, head, headBy, headAt }) => {
 					// The version this deploy wrote is the base the next autosave carries; the
 					// head is what is deployed now. They differ when another deploy landed
 					// beside this one, and the next draft is then behind from the start. A
@@ -665,6 +665,9 @@
 					draftBaseVersion = version != null ? String(version) : undefined
 					if (head != null) {
 						deployedHeadVersion = String(head)
+						// Named by whoever deployed the head, not by the page load's author.
+						deployedBy = headBy
+						deployedAt = headAt
 					}
 				}}
 				onResetToDeployed={reloadDeployed}

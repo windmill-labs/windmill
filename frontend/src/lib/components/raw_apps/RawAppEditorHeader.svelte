@@ -155,8 +155,15 @@
 		autosavePath?: string
 		// Fired after a successful deploy; lets the session preview reload. `version` is
 		// what this deploy wrote, for the next draft's fork base; `head` is what is
-		// deployed now, and the two differ when another deploy landed beside this one.
-		onDeploy?: (e: { path: string; version?: number; head?: number }) => void
+		// deployed now, with its author and time, and the two differ when another deploy
+		// landed beside this one.
+		onDeploy?: (e: {
+			path: string
+			version?: number
+			head?: number
+			headBy?: string
+			headAt?: string
+		}) => void
 		/** Surfaces the user-typed path (`newEditedPath`) up to the route
 		 *  when (and only when) it differs from the deployed/seeded
 		 *  `savedApp.path`. The route writes it into the autosaved raw-app
@@ -575,7 +582,13 @@
 		if (appPath !== npath) {
 			onSavedNewAppPath?.(npath)
 		}
-		onDeploy?.({ path: npath, version: claimed, head: version })
+		onDeploy?.({
+			path: npath,
+			version: claimed,
+			head: version,
+			headBy: appHistory[0]?.created_by,
+			headAt: appHistory[0]?.created_at
+		})
 	}
 
 	async function setPublishState(message?: string) {
@@ -899,7 +912,13 @@
 				itemKind="raw_app"
 				path={indicatorPath}
 				draftOnly={newApp}
-				{onResetToDeployed}
+				onResetToDeployed={onResetToDeployed &&
+					(async () => {
+						// Back on the deployed version, so whatever the last deploy could not claim
+						// no longer describes this editor.
+						baseUnknown = false
+						await onResetToDeployed()
+					})}
 				{loadedFromDraft}
 				{othersDraftsCount}
 				{onOpenOthersDrafts}

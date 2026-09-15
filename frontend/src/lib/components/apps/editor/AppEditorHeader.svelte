@@ -111,8 +111,9 @@
 		// event up through these runes-mode components silently drops it.
 		onRestore?: (restoredApp: any) => void
 		// Fired after a successful deploy, which keeps this editor open: `version` is what
-		// the deploy wrote, for the next draft's fork base, and `head` what is deployed now.
-		onDeploy?: (e: { version?: number; head?: number }) => void
+		// the deploy wrote, for the next draft's fork base, and `head` what is deployed
+		// now, with its author and time.
+		onDeploy?: (e: { version?: number; head?: number; headBy?: string; headAt?: string }) => void
 	}
 
 	let {
@@ -416,7 +417,12 @@
 		if ($app) $app.parent_version = claimed
 		// The route owns the pair the out-of-date prompt reads, and this editor stays open
 		// across the deploy, so hand both over rather than leaving it on the old ones.
-		onDeploy?.({ version: claimed, head: version })
+		onDeploy?.({
+			version: claimed,
+			head: version,
+			headBy: appHistory[0]?.created_by,
+			headAt: appHistory[0]?.created_at
+		})
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
@@ -1042,7 +1048,13 @@
 					itemKind="app"
 					path={userDraftPath}
 					draftOnly={newApp}
-					{onResetToDeployed}
+					onResetToDeployed={onResetToDeployed &&
+						(async () => {
+							// Back on the deployed version, so whatever the last deploy could not claim
+							// no longer describes this editor.
+							baseUnknown = false
+							await onResetToDeployed()
+						})}
 					{loadedFromDraft}
 					{othersDraftsCount}
 					{onOpenOthersDrafts}
