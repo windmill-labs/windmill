@@ -6679,11 +6679,13 @@ async function discardLocalDraft(
 		throw new Error(`No draft found for ${type} "${path}".`)
 	}
 
-	await deleteGlobalDraft(workspace, type, path, triggerKind)
+	const discarded = await deleteGlobalDraft(workspace, type, path, triggerKind)
 
 	// The chat's touch on the item is undone — drop it from the mask so a
-	// pre-existing deployed item doesn't keep reading as this chat's edit.
-	const discardedKind = itemKindFor(type, triggerKind)
+	// pre-existing deployed item doesn't keep reading as this chat's edit. Only when the draft
+	// actually went: one an editor kept is still this chat's edit, and dropping it would leave it
+	// out of Compare & Deploy.
+	const discardedKind = discarded.removed ? itemKindFor(type, triggerKind) : undefined
 	if (discardedKind) {
 		toolCallbacks.onItemDiscarded?.(
 			discardedKind,
@@ -6693,12 +6695,14 @@ async function discardLocalDraft(
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Discarded ${type} "${path}" draft`,
-		result: 'Draft discarded'
+		result: discarded.removed ? 'Draft discarded' : 'Newer draft kept'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Discarded the draft for ${type} "${path}". The deployed workspace item was not changed.`,
+			message: discarded.removed
+				? `Discarded the draft for ${type} "${path}". The deployed workspace item was not changed.`
+				: `The draft for ${type} "${path}" was changed in an open editor after the discard was asked for, so that newer draft was kept. The deployed workspace item was not changed.`,
 			type,
 			path,
 			triggerKind
@@ -8068,7 +8072,10 @@ async function deployDraft(
 	// fork comparisons before the fallible draft cleanup below.
 	invalidateWorkspaceComparison(workspace)
 
-	await deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
+	const cleanup = await deleteGlobalDraft(workspace, type, path, triggerKind, {
+		preserveLiveDraft: true,
+		deployed: true
+	})
 
 	// Move the chat's mask entry to the deployed path: a draft-only item's
 	// synthetic storage key never exists deployed, so the entry would otherwise
@@ -8101,9 +8108,11 @@ async function deployDraft(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed.${
-				deployNote ? ` ${deployNote}` : ''
-			}`,
+			message: `Deployed draft ${type} "${path}" to the workspace. ${
+				cleanup.removed
+					? 'Draft removed.'
+					: 'Its editor was changed while the deploy ran, so a draft of those later changes remains and is not deployed.'
+			}${deployNote ? ` ${deployNote}` : ''}`,
 			type,
 			path,
 			triggerKind
@@ -8249,7 +8258,7 @@ async function deleteWorkspaceItem(
 	// are no longer trustworthy (same rule as deploy success). Before the
 	// draft cleanup: a cleanup failure must not leave stale comparisons.
 	invalidateWorkspaceComparison(workspace)
-	await deleteGlobalDraft(workspace, type, path, triggerKind)
+	await deleteGlobalDraft(workspace, type, path, triggerKind, { itemDeleted: true })
 
 	// Record the deletion in the chat's modified-items mask. In a fork this leaves a
 	// reviewable "removed" diff vs the parent that stays scoped to this chat. Keyed

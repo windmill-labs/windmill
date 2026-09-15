@@ -19,6 +19,12 @@
 		onDiscard: () => void | Promise<void>
 		/** When true (e.g. no write access), hide the Discard action. */
 		disabled?: boolean
+		/**
+		 * A command is in flight on the item. What a discard would revert to is whatever that
+		 * command leaves behind, which is not what the user is looking at, so it waits, greyed
+		 * rather than hidden, like Save.
+		 */
+		busy?: boolean
 		/** Diff drawer title. */
 		title?: string
 		/**
@@ -35,6 +41,7 @@
 		getCurrent,
 		onDiscard,
 		disabled = false,
+		busy = false,
 		title = 'Deployed <> Local changes',
 		reserveSpace
 	}: Props = $props()
@@ -56,6 +63,9 @@
 	// partially-reserved slot below (keeps the toggle shift small); new entities
 	// have none, so no slot and no gap.
 	let hasBaseline = $derived(reserveSpace ?? getDeployed() != null)
+	// A draft-only item: the draft is the item, so there is nothing to diff it against and
+	// discarding it deletes it.
+	let draftOnly = $derived(getDeployed() == null)
 
 	// Suppress the banner when:
 	//   • There's no deployed baseline (brand-new entity — "Show diff"
@@ -82,23 +92,24 @@
 		const original = $state.snapshot(deployed) as Value
 		const current = $state.snapshot(getCurrent()) as Value
 		diffDrawer?.openDrawer()
-		// Mirror the inline Discard's `disabled` gate inside the diff drawer —
-		// otherwise a read-only user could still trigger onDiscard via the
-		// drawer button even though we hid the banner's inline action.
+		// Mirror the inline Discard's gates inside the diff drawer — otherwise a read-only user
+		// could still trigger onDiscard via the drawer button even though we hid the banner's
+		// inline action.
 		diffDrawer?.setDiff({
 			mode: 'simple',
 			original,
 			current,
 			title,
-			button: disabled
-				? undefined
-				: {
-						text: 'Discard changes',
-						onClick: async () => {
-							await onDiscard()
-							diffDrawer?.closeDrawer()
+			button:
+				disabled || busy
+					? undefined
+					: {
+							text: 'Discard changes',
+							onClick: async () => {
+								await onDiscard()
+								diffDrawer?.closeDrawer()
+							}
 						}
-					}
 		})
 	}
 </script>
@@ -122,21 +133,24 @@
 				<div class="flex flex-row items-center gap-2 min-w-0">
 					<AlertCircle class={classes.warning.iconClass} size={16} />
 					<span class={twMerge('text-xs font-semibold truncate', classes.warning.titleClass)}>
-						You have unsaved changes
+						{draftOnly ? 'This draft has never been deployed' : 'You have unsaved changes'}
 					</span>
 				</div>
 				<div class="flex flex-row items-center gap-2 shrink-0">
-					<Button
-						unifiedSize="sm"
-						variant="default"
-						startIcon={{ icon: Diff }}
-						btnClasses={classes.warning.titleClass}
-						on:click={showDiff}>Show diff</Button
-					>
+					{#if !draftOnly}
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							startIcon={{ icon: Diff }}
+							btnClasses={classes.warning.titleClass}
+							on:click={showDiff}>Show diff</Button
+						>
+					{/if}
 					{#if !disabled}
 						<Button
 							unifiedSize="sm"
 							variant="subtle"
+							disabled={busy}
 							btnClasses={classes.warning.titleClass}
 							on:click={onDiscard}>Discard</Button
 						>

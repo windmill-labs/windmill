@@ -19,6 +19,13 @@ import { setLocalDraftHint } from './localDraftHints.svelte'
  */
 type DraftLastSyncEntry = { lastSync: string }
 const lastSyncMap = new Map<string, DraftLastSyncEntry>()
+/**
+ * Rows handed to this syncer per key, counting every writer: the item store's reconcile, and the
+ * AI chat, which saves through here directly. A reader takes this before its GET and hands it
+ * back to `recordRemoteSync`, which then knows its response predates a row already issued.
+ * Seeding an older `lastSync` over a newer row makes the server refuse every write after it.
+ */
+const sends = new Map<string, number>()
 
 /** Must match `mapKey` in `userDraft.svelte.ts`. */
 function draftKey(workspace: string, itemKind: UserDraftItemKind, path: string): string {
@@ -461,6 +468,9 @@ export const UserDraftDbSyncer = {
 		// keepalive flush replays carry the same payload as the live POST.
 		opts = { ...opts, value: sanitizeDraftValueForSave(opts.itemKind, opts.value) }
 		const key = draftKey(opts.workspace, opts.itemKind, opts.path)
+		// Counted when the row is handed over, not when it lands: a read issued before this is
+		// already behind it, whether or not the POST has gone out yet.
+		sends.set(key, (sends.get(key) ?? 0) + 1)
 		// Hard lock (editing another user's loaded draft): block EVERY save path
 		// for this key — no parking, no POST. Notify the overlay so the first
 		// blocked attempt (the user's first edit) can prompt before overwriting.
@@ -523,13 +533,58 @@ export const UserDraftDbSyncer = {
 	},
 
 	/**
-	 * Seed the per-tab `last_sync` after an editor reads a draft from the
-	 * server. Pass the response's `draft_saved_at` so the next save sends a
-	 * matching `last_sync`; pass `undefined` when no draft existed (next
-	 * save omits `last_sync`, the backend's first-push branch).
+	 * The row parked for a later attempt, when one is waiting: a payload the server refused or
+	 * never received. It was handed over after the last successful sync, so it is newer than
+	 * anything a read can report, and an editor opening the key shows it rather than the
+	 * response. `undefined` when nothing is parked; `null` is a parked delete.
 	 */
-	recordRemoteSync(query: UserDraftLastSyncQuery, draftSavedAt: string | undefined): void {
+	pendingValue(query: UserDraftLastSyncQuery): unknown | undefined {
+		const parked = pendingSaveOpts.get(draftKey(query.workspace, query.itemKind, query.path))
+		return parked ? parked.value : undefined
+	},
+
+	/**
+	 * Record a conflict nobody's POST reported: a payload is parked that was written when no row
+	 * existed, and a row exists now. Sending it would be unconditional and would take that row;
+	 * giving it the row's timestamp would claim it was based on something it never saw. Neither
+	 * is ours to choose, so it goes to the same resolution the server's own rejections use.
+	 */
+	markConflict(query: UserDraftLastSyncQuery, serverTimestamp: string): void {
 		const key = draftKey(query.workspace, query.itemKind, query.path)
+		if (conflicts.has(key)) return
+		conflicts.set(key, { serverTimestamp, localLastSync: null })
+	},
+
+	/**
+	 * Whether a payload is parked for `query` with no `last_sync` behind it — it was written when
+	 * no row existed, so sending it now would be unconditional and would take over a row created
+	 * since. A reader must get a baseline before letting one of these go out.
+	 */
+	hasUnbasedPending(query: UserDraftLastSyncQuery): boolean {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		return pendingSaveOpts.has(key) && !lastSyncMap.has(key)
+	},
+
+	/** Rows handed over for `query` so far, for a reader to hand back to `recordRemoteSync`. */
+	sendsSoFar(query: UserDraftLastSyncQuery): number {
+		return sends.get(draftKey(query.workspace, query.itemKind, query.path)) ?? 0
+	},
+
+	/**
+	 * Seed the per-tab `last_sync` from a read: its `draft_saved_at`, or
+	 * `undefined` when no draft existed (the backend's first-push branch).
+	 * `since` is the `sendsSoFar` taken before that read; a row handed over
+	 * after it leaves this response behind, so it is ignored.
+	 */
+	recordRemoteSync(
+		query: UserDraftLastSyncQuery,
+		draftSavedAt: string | undefined,
+		since?: number
+	): void {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		// A row was handed over after this read was issued, so its response is behind what the
+		// syncer holds and taking it would make every later write a conflict.
+		if (since !== undefined && (sends.get(key) ?? 0) !== since) return
 		if (draftSavedAt) {
 			setLastSync(query.workspace, query.itemKind, query.path, draftSavedAt)
 		} else {

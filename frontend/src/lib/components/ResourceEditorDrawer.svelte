@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { createEventDispatcher } from 'svelte'
 	import { Button, Drawer } from './common'
 
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -37,6 +38,8 @@
 		onSaved?: () => void
 	} = $props()
 
+	const dispatch = createEventDispatcher<{ refresh: string | undefined }>()
+
 	let drawer: Drawer | undefined = $state()
 	let historyDrawer: Drawer | undefined = $state()
 	let canSave = $state(true)
@@ -48,11 +51,15 @@
 				save: () => void
 				localDraftDeployed: () => unknown
 				localDraftCurrent: () => unknown
-				discardLocalDraft: () => void
+				discardLocalDraft: () => Promise<boolean>
 		  }
 		| undefined = $state(undefined)
+	// Bumped by every opening, so each gets an editor of its own even when one opens before
+	// the previous one has finished closing.
+	let session = $state(0)
 	let hasLocalDraft = $state(false)
 	let canWriteSelected = $state(true)
+	let editorBusy = $state(false)
 
 	let path: string | undefined = $state(undefined)
 	let selected: string | undefined = $state(undefined)
@@ -90,6 +97,7 @@
 		// anchor clear. Every session starts having to clear its own.
 		keepAnchorOnClose = false
 		historyUser.forgetFailures()
+		session++
 		resource_type = undefined
 		path = p
 		selected = effectiveWorkspace
@@ -104,6 +112,7 @@
 	): Promise<void> {
 		keepAnchorOnClose = false
 		historyUser.forgetFailures()
+		session++
 		path = undefined
 		resource_type = resourceType
 		defaultValues = nDefaultValues
@@ -151,19 +160,22 @@
 		{#await import('./ResourceEditor.svelte')}
 			<Loader2 class="animate-spin" />
 		{:then Module}
-			<Module.default
-				{path}
-				{resource_type}
-				{defaultValues}
-				workspace={effectiveWorkspace}
-				on:refresh
-				bind:this={resourceEditor}
-				bind:canSave
-				bind:selected
-				bind:viewJsonSchema
-				onDraftStateChange={(v) => (hasLocalDraft = v)}
-				onCanWriteChange={(v) => (canWriteSelected = v)}
-			/>
+			{#key session}
+				<Module.default
+					{path}
+					{resource_type}
+					{defaultValues}
+					workspace={effectiveWorkspace}
+					on:refresh
+					bind:this={resourceEditor}
+					bind:canSave
+					bind:selected
+					bind:viewJsonSchema
+					onDraftStateChange={(v) => (hasLocalDraft = v)}
+					onCanWriteChange={(v) => (canWriteSelected = v)}
+					onBusyChange={(v) => (editorBusy = v)}
+				/>
+			{/key}
 		{/await}
 		{#snippet banner()}
 			<LocalDraftBanner
@@ -171,8 +183,20 @@
 				reserveSpace={mode == 'edit'}
 				getDeployed={() => resourceEditor?.localDraftDeployed()}
 				getCurrent={() => resourceEditor?.localDraftCurrent()}
-				onDiscard={() => resourceEditor?.discardLocalDraft()}
+				onDiscard={async () => {
+					// A draft-only resource is its draft: discarding it leaves nothing to show. The
+					// discard is awaited, and by then the drawer may be closed, which unmounts the
+					// editor, or showing another resource or workspace version: that stays as it is,
+					// and the list, which the editor's removal effect no longer reaches, is told here.
+					const opening = session
+					const shownWs = selected
+					const removedPath = path
+					if (!(await resourceEditor?.discardLocalDraft())) return
+					if (session === opening && selected === shownWs && drawer?.isOpen()) drawer.closeDrawer()
+					else dispatch('refresh', removedPath)
+				}}
 				disabled={!canWriteSelected}
+				busy={editorBusy}
 			/>
 		{/snippet}
 		{#snippet actions()}

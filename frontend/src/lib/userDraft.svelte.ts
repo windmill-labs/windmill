@@ -125,6 +125,100 @@ export type ClearLiveEditorDraftOptions = UserDraftOptions & {
 
 const entries = new Map<string, DraftEntry>()
 const liveEditorDrafts = new Map<string, LiveEditorDraft>()
+
+/**
+ * Items the item store (`itemStore.svelte.ts`) holds live — resources, variables, schedules
+ * open in an editor. Their draft row follows the store's value, so the calls below hand such a
+ * key to the store rather than to a cell of their own. Registered by the store, which imports
+ * this module, not the other way round.
+ */
+export type LiveItemBridge = {
+	/** Apply `value` as an outside write. False when no live item holds the key. */
+	seed(workspace: string, itemKind: UserDraftItemKind, path: string, value: unknown): boolean
+	/** The row a live item keeps for the key: `{ value }` when its value diverges from the deployed
+	 *  one, `null` when it does not. `undefined` when no live item can answer. */
+	rowFor(
+		workspace: string,
+		itemKind: UserDraftItemKind,
+		path: string
+	): { value: unknown } | null | undefined
+	/** `undefined` when no live item holds the key; else the draft, if it has one. */
+	read(
+		workspace: string,
+		itemKind: UserDraftItemKind,
+		path: string
+	): { value: unknown | undefined } | undefined
+	/** Re-read the live item, for a caller that has just written the deployed item under it.
+	 *  `undefined` when no live item holds the key; `absent` when one is registered but never had
+	 *  the item; `failed` when it has the item but could not re-read, so its baseline is stale. */
+	refresh(
+		workspace: string,
+		itemKind: UserDraftItemKind,
+		path: string
+	): Promise<'done' | 'absent' | 'failed'> | undefined
+	/** A row the caller wrote itself for a value it just handed in through `seed`. */
+	noteRow(workspace: string, itemKind: UserDraftItemKind, path: string): void
+	/** The deployed item was deleted: the live item reports itself gone. */
+	itemDeleted(workspace: string, itemKind: UserDraftItemKind, path: string): Promise<void>
+	/** Discard the live item's draft. `undefined` when no live item holds the key and `absent`
+	 *  when one is registered but never had the item — either way the caller deletes the row
+	 *  itself. `failed`: it has the item and still shows the draft, so nothing was dealt with. */
+	discard(
+		workspace: string,
+		itemKind: UserDraftItemKind,
+		path: string
+	): Promise<'done' | 'absent' | 'failed'> | undefined
+	list(workspace: string, itemKinds: readonly UserDraftItemKind[]): UserDraftEntry[]
+}
+
+let liveItems: LiveItemBridge | undefined
+
+/** Tell a live item that the deployed item under it has just been written, so its baseline is
+ *  current before anything resets to it. Resolves once it has re-read. */
+export function refreshLiveItem(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): Promise<'done' | 'absent' | 'failed'> | undefined {
+	return liveItems?.refresh(workspace, itemKind, path)
+}
+
+/** What a live item keeps in the key's row, for a caller about to write that row itself: the
+ *  store's rule is that a row exists exactly while the value diverges from the deployed one, so
+ *  persisting the raw value instead would leave a row behind for a value that matches it.
+ *  `undefined` when no live item can answer and the caller's own value is all there is. */
+export function liveItemRow(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): { value: unknown } | null | undefined {
+	return liveItems?.rowFor(workspace, itemKind, path)
+}
+
+/** Tell a live item that a row just written for it was written by whoever handed it that same
+ *  value through `seed`, not by some other editor whose value it does not have. */
+export function noteLiveItemRow(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): void {
+	liveItems?.noteRow(workspace, itemKind, path)
+}
+
+/** Tell a live item that the deployed item under it has been deleted, so it stops showing a
+ *  baseline that no longer exists. Resolves once it has. */
+export function markLiveItemDeleted(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): Promise<void> {
+	return liveItems?.itemDeleted(workspace, itemKind, path) ?? Promise.resolve()
+}
+
+export function registerLiveItemBridge(bridge: LiveItemBridge): void {
+	liveItems = bridge
+}
+
 /**
  * Map keys whose entry should start `syncSuspended` on acquire. Lets
  * callers `stopSync` BEFORE the editor has mounted (and called `use`).
@@ -258,9 +352,25 @@ export type UserDraftHandle<V> = {
 	set draft(value: V | undefined)
 }
 
+/**
+ * Put a value into a caller's own mirror without POSTing it, for a key whose live item took the
+ * value and persists it. A mirror left untouched keeps the first-write guard it was acquired with
+ * armed, so the caller's next real edit is swallowed as initialization instead of being saved.
+ */
+function seedLocalMirror(mk: string, value: unknown): void {
+	const entry = entries.get(mk)
+	if (!entry) return
+	entry.seedNextWrite = true
+	entry.state.val = snapshotDraftValue(value)
+}
+
 export const UserDraft = {
 	save<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
+		if (liveItems?.seed(ws, itemKind, path, value)) {
+			seedLocalMirror(mapKey(ws, itemKind, path), value)
+			return
+		}
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
@@ -318,6 +428,8 @@ export const UserDraft = {
 		opts?: UserDraftOptions
 	): V | undefined {
 		const ws = resolveWorkspace(opts)
+		const live = liveItems?.read(ws, itemKind, path)
+		if (live) return snapshotDraftValue(live.value as V | undefined)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) return snapshotDraftValue(entry.state.val as V | undefined)
@@ -332,14 +444,29 @@ export const UserDraft = {
 	 */
 	has(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): boolean {
 		const ws = resolveWorkspace(opts)
+		const live = liveItems?.read(ws, itemKind, path)
+		if (live) return live.value !== undefined
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) return entry.state.val !== undefined
 		return writtenCache.get(mk)?.val !== undefined
 	},
 
-	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+	remove(
+		itemKind: UserDraftItemKind,
+		path: string,
+		opts?: UserDraftOptions
+	): Promise<'done' | 'absent' | 'failed'> | undefined {
 		const ws = resolveWorkspace(opts)
+		const live = liveItems?.discard(ws, itemKind, path)
+		if (live) {
+			// The live item owns the row, and its own discard deletes it. Falling through to the
+			// POST below would race that delete with an unconditional one (see `forgetLocal`), so
+			// only this caller's mirror is dropped — otherwise its reads keep answering with a
+			// draft that is gone.
+			UserDraft.forgetLocal(itemKind, path, opts)
+			return live
+		}
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
@@ -378,8 +505,12 @@ export const UserDraft = {
 		writtenCache.delete(mk)
 	},
 
-	clear(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
-		UserDraft.discard(itemKind, path, undefined, opts)
+	clear(
+		itemKind: UserDraftItemKind,
+		path: string,
+		opts?: UserDraftOptions
+	): Promise<'done' | 'absent' | 'failed'> | undefined {
+		return UserDraft.discard(itemKind, path, undefined, opts)
 	},
 
 	/**
@@ -425,14 +556,15 @@ export const UserDraft = {
 	 * editor's `initContent` cascading into the bound value).
 	 *
 	 * No-op if the entry isn't live yet (acquire via `use`/`useMany` first).
+	 *
+	 * Returns whether a live item took the value, for a caller about to persist it: only then does
+	 * `liveItemRow` describe that value rather than whatever the item held already.
 	 */
-	seed<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
+	seed<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): boolean {
 		const ws = resolveWorkspace(opts)
-		const mk = mapKey(ws, itemKind, path)
-		const entry = entries.get(mk)
-		if (!entry) return
-		entry.seedNextWrite = true
-		entry.state.val = snapshotDraftValue(value)
+		const took = liveItems?.seed(ws, itemKind, path, value) ?? false
+		seedLocalMirror(mapKey(ws, itemKind, path), value)
+		return took
 	},
 
 	/**
@@ -444,11 +576,17 @@ export const UserDraft = {
 		const itemKinds = opts?.itemKinds ?? USER_DRAFT_ITEM_KINDS
 		const out: UserDraftEntry<V>[] = []
 		const seen = new Set<string>()
+		for (const live of liveItems?.list(ws, itemKinds) ?? []) {
+			seen.add(mapKey(live.workspace, live.itemKind, live.path))
+			out.push(live as UserDraftEntry<V>)
+		}
 		for (const entry of entries.values()) {
 			if (entry.workspace !== ws || !itemKinds.includes(entry.itemKind)) continue
+			const mk = mapKey(entry.workspace, entry.itemKind, entry.path)
+			if (seen.has(mk)) continue
 			const val = untrack(() => entry.state.val as V | undefined)
 			if (val === undefined) continue
-			seen.add(mapKey(entry.workspace, entry.itemKind, entry.path))
+			seen.add(mk)
 			out.push({
 				workspace: entry.workspace,
 				itemKind: entry.itemKind,
@@ -521,11 +659,23 @@ export const UserDraft = {
 			 * leave it unset. */
 			auto?: boolean
 		}
-	): void {
+	): Promise<'done' | 'absent' | 'failed'> | undefined {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		const safeFallback = snapshotDraftValue(fallback)
+		const live = liveItems?.discard(ws, itemKind, path)
+		if (live) {
+			// No POST, for the reason `remove` gives. The cell still has to reach `fallback`:
+			// a caller holding one resets it to what it just saved, and its apply-effect would
+			// otherwise copy the stale draft straight back over the form.
+			if (entry) {
+				entry.skipNextSync = true
+				entry.state.val = safeFallback
+			}
+			writtenCache.delete(mk)
+			return live
+		}
 		if (entry) {
 			entry.skipNextSync = true
 			entry.state.val = safeFallback

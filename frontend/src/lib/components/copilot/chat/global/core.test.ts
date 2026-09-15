@@ -344,7 +344,12 @@ import {
 	setListAppRunsHandler,
 	setOpenPreviewHandler
 } from './core'
-import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
+import {
+	UserDraft,
+	__resetUserDraftForTesting,
+	registerLiveItemBridge,
+	type LiveItemBridge
+} from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import {
 	clearGlobalDrafts,
@@ -2316,6 +2321,241 @@ describe('global AI tools', () => {
 			runnables: {}
 		} as any)
 		expect(res.status).toBe('conflict')
+	})
+
+	/** A bridge with nobody holding any key. Spread it and override only what the test is about, so
+	 *  a member added to the bridge later cannot quietly answer for a fixture that never meant to. */
+	function noLiveItems(): LiveItemBridge {
+		return {
+			seed: () => false,
+			rowFor: () => undefined,
+			read: () => undefined,
+			refresh: () => undefined,
+			noteRow: () => {},
+			itemDeleted: () => Promise.resolve(),
+			discard: () => undefined,
+			list: () => []
+		}
+	}
+
+	// The chat can write a value that turns out to be the deployed one. A live editor takes it and
+	// stays clean, keeping no row — so this save has to clear the row rather than persist a draft
+	// its own editor does not have: nothing would show it, and nothing short of an edit would
+	// remove it, while it still lists and goes stale once the deployed item moves on.
+	it('clears the row when the chat writes the value the live editor already deploys', async () => {
+		const path = 'f/res/noop'
+		const deployed = { path, value: { a: 1 } }
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		registerLiveItemBridge({ ...noLiveItems(), seed: () => true, rowFor: () => null })
+		try {
+			const res = await persistGlobalDraft(WORKSPACE, 'resource', path, deployed)
+			expect(res.status).toBe('saved')
+			expect(getBackendDraft('resource', path)).toBeUndefined()
+		} finally {
+			registerLiveItemBridge(noLiveItems())
+		}
+	})
+
+	// An open editor owns its own row: the chat must defer to that editor's discard rather than
+	// send a delete of its own, which would be a second unconditional request.
+	it('leaves the delete to a live editor that owns the draft', async () => {
+		const path = 'f/scripts/livedel'
+		seedBackendDraft('script', path, {
+			path,
+			summary: 's',
+			content: 'export function main() {}',
+			language: 'bun'
+		})
+		let discards = 0
+		registerLiveItemBridge({
+			...noLiveItems(),
+			// Claims the key and removes nothing, so anything still gone was deleted by the chat.
+			discard: () => {
+				discards++
+				return Promise.resolve('done' as const)
+			}
+		})
+		try {
+			await deleteGlobalDraft(WORKSPACE, 'script', path)
+			expect(discards).toBe(1)
+			expect(getBackendDraft('script', path)).toBeDefined()
+		} finally {
+			registerLiveItemBridge(noLiveItems())
+		}
+	})
+
+	// Deploying a draft writes the item, so an editor open on it is a baseline behind. Re-reading
+	// is the whole cleanup: discarding on top would throw away anything typed during the deploy,
+	// which was never part of it.
+	it('re-reads a live editor after a deploy and leaves the cleanup to it', async () => {
+		const path = 'u/admin/deployed_res'
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		const calls: string[] = []
+		registerLiveItemBridge({
+			...noLiveItems(),
+			refresh: () => {
+				calls.push('refresh')
+				return Promise.resolve('done' as const)
+			},
+			itemDeleted: () => {
+				calls.push('itemDeleted')
+				return Promise.resolve()
+			},
+			discard: () => {
+				calls.push('discard')
+				return Promise.resolve({ removed: true })
+			}
+		})
+		try {
+			await deleteGlobalDraft(WORKSPACE, 'resource', path, undefined, {
+				preserveLiveDraft: true,
+				deployed: true
+			})
+			expect(calls).toEqual(['refresh'])
+			// The chat sends no delete of its own either: the row is the editor's to settle.
+			expect(getBackendDraft('resource', path)).toBeDefined()
+		} finally {
+			registerLiveItemBridge(noLiveItems())
+		}
+	})
+
+	// A cleanup that the editor could not do — its first read still in flight, or failed — means
+	// the row is nobody's, so the chat must still delete it rather than report success.
+	it('deletes the draft itself when the live editor could not refresh', async () => {
+		const path = 'u/admin/notyetloaded'
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		registerLiveItemBridge({
+			...noLiveItems(),
+			// Registered, but never had the item: it has not dealt with the row.
+			refresh: () => Promise.resolve('absent' as const),
+			discard: () => Promise.resolve('absent' as const)
+		})
+		try {
+			await deleteGlobalDraft(WORKSPACE, 'resource', path, undefined, {
+				preserveLiveDraft: true,
+				deployed: true
+			})
+			expect(getBackendDraft('resource', path)).toBeUndefined()
+		} finally {
+			registerLiveItemBridge(noLiveItems())
+		}
+	})
+
+	// Deleting the deployed item leaves the editor with no baseline to reset to, so it is told
+	// the item is gone rather than handed a draft discard.
+	it('tells a live editor its item was deleted rather than discarding its draft', async () => {
+		const path = 'u/admin/goneitem'
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		const calls: string[] = []
+		registerLiveItemBridge({
+			...noLiveItems(),
+			refresh: () => Promise.resolve('done' as const),
+			itemDeleted: () => {
+				calls.push('itemDeleted')
+				return Promise.resolve()
+			},
+			discard: () => {
+				calls.push('discard')
+				return Promise.resolve('done' as const)
+			}
+		})
+		try {
+			await deleteGlobalDraft(WORKSPACE, 'resource', path, undefined, { itemDeleted: true })
+			expect(calls).toEqual(['itemDeleted'])
+			expect(getBackendDraft('resource', path)).toBeUndefined()
+		} finally {
+			registerLiveItemBridge(noLiveItems())
+		}
+	})
+
+	// An editor that still has the item and still shows the draft has not discarded anything.
+	// Deleting the row here would take away the only copy the server holds while leaving that
+	// editor free to write it back, so the chat has to say the discard did not happen.
+	it('does not report a discard done when the live editor could not do it', async () => {
+		const path = 'u/admin/stale_res'
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		registerLiveItemBridge({
+			...noLiveItems(),
+			refresh: () => Promise.resolve('failed' as const),
+			discard: () => Promise.resolve('failed' as const)
+		})
+		try {
+			await expect(deleteGlobalDraft(WORKSPACE, 'resource', path)).rejects.toThrow()
+			expect(getBackendDraft('resource', path)).toBeDefined()
+		} finally {
+			registerLiveItemBridge(noLiveItems())
+		}
+	})
+
+	// A deploy carries the draft as it stood when it started. An editor changed since has a
+	// divergence from that which is still undeployed, so saying "Draft removed" sends the model
+	// and the user away from an edit that still needs deploying.
+	it('reports a draft the deploy deliberately left in place', async () => {
+		const path = 'u/admin/kept_res'
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		registerLiveItemBridge({
+			...noLiveItems(),
+			// The editor kept a row: it diverged from what was deployed while the deploy ran.
+			read: () => ({ value: { path, value: { a: 3 } } }),
+			refresh: () => Promise.resolve('done' as const),
+			discard: () => Promise.resolve('done' as const)
+		})
+		try {
+			const cleanup = await deleteGlobalDraft(WORKSPACE, 'resource', path, undefined, {
+				preserveLiveDraft: true,
+				deployed: true
+			})
+			expect(cleanup).toEqual({ removed: false })
+		} finally {
+			registerLiveItemBridge(noLiveItems())
+		}
+	})
+
+	// An open editor stands its discard down when the user typed after the chat asked for it. The
+	// row is then there on purpose, and reporting it discarded would say the opposite.
+	it('reports a draft an editor kept rather than discarded', async () => {
+		const path = 'u/admin/kept_on_discard'
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		registerLiveItemBridge({
+			...noLiveItems(),
+			// Still holding a draft after the discard: the user typed after it was asked for.
+			read: () => ({ value: { path, value: { a: 3 } } }),
+			discard: () => Promise.resolve('done' as const)
+		})
+		try {
+			const out = await deleteGlobalDraft(WORKSPACE, 'resource', path)
+			expect(out).toEqual({ removed: false })
+		} finally {
+			registerLiveItemBridge(noLiveItems())
+		}
+	})
+
+	// "Clear all" deletes each row, then drops the in-tab mirrors. That second pass must not go
+	// back through a live editor's discard: one that kept its draft, because it was changed after
+	// the discard was asked for, would have that newer edit taken on the way past.
+	it('does not discard again when clearing the mirrors after a clear-all', async () => {
+		const path = 'u/admin/cleared_res'
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		let discards = 0
+		registerLiveItemBridge({
+			...noLiveItems(),
+			read: () => ({ value: { path, value: { a: 3 } } }),
+			discard: () => {
+				discards++
+				return Promise.resolve('done' as const)
+			},
+			list: () => [{ workspace: WORKSPACE, itemKind: 'resource', path, value: { a: 3 } }]
+		})
+		try {
+			const { removed } = await deleteGlobalDraft(WORKSPACE, 'resource', path)
+			expect(removed).toBe(false)
+			expect(discards).toBe(1)
+			// The row is there on purpose, so the mirror pass leaves it alone entirely.
+			clearGlobalDrafts(WORKSPACE, new Set([path]))
+			expect(discards).toBe(1)
+		} finally {
+			registerLiveItemBridge(noLiveItems())
+		}
 	})
 
 	// A failed server delete must surface (throw), not silently report removed —

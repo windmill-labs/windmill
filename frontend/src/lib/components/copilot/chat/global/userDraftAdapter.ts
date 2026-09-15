@@ -2,7 +2,15 @@ import type { Flow, NewSchedule, NewScript } from '$lib/gen/types.gen'
 import { DraftService } from '$lib/gen'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-import { UserDraft, type UserDraftEntry, type UserDraftItemKind } from '$lib/userDraft.svelte'
+import {
+	liveItemRow,
+	markLiveItemDeleted,
+	noteLiveItemRow,
+	refreshLiveItem,
+	UserDraft,
+	type UserDraftEntry,
+	type UserDraftItemKind
+} from '$lib/userDraft.svelte'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import {
 	getWorkspaceItemKey,
@@ -422,12 +430,21 @@ export async function persistGlobalDraft(
 	const itemKind = itemKindFor(type, opts.triggerKind)
 	if (!itemKind) throw new Error(`Unsupported draft type "${type}".`)
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
-	UserDraft.seed(itemKind, storagePath, value, { workspace })
+	// A live item that took the value decides what belongs in the row, and answers `null` when the
+	// value it now holds is the deployed one. Persisting `value` regardless would leave a row for a
+	// draft that item does not have, invisible to its banner and undeletable by its Save. Asked
+	// only of an item that took this value, so the answer is about it and not what it held before.
+	const took = UserDraft.seed(itemKind, storagePath, value, { workspace })
+	const held = took ? liveItemRow(workspace, itemKind, storagePath) : undefined
+	const row = held === undefined ? value : held === null ? null : held.value
+	// An open editor took that value and may have written its own row for it; this save is a
+	// second row for the same value, so say so rather than leave it looking like someone else's.
+	noteLiveItemRow(workspace, itemKind, storagePath)
 	await UserDraftDbSyncer.save({
 		workspace,
 		itemKind,
 		path: storagePath,
-		value,
+		value: row,
 		immediate: true,
 		force: opts.force
 	})
@@ -575,36 +592,110 @@ export async function saveGlobalAppDraft(
 
 type DeleteGlobalDraftOptions = {
 	preserveLiveDraft?: boolean
+	/** The deployed item was just written from this draft. An editor open on it is holding the
+	 *  baseline from before that, and discarding the draft resets it to exactly that — showing
+	 *  the pre-deploy value, clean, ready to be saved back over the deployment. */
+	deployed?: boolean
+	/** The deployed item itself was deleted. An editor open on it has nothing to reset to, so it
+	 *  is told the item is gone rather than handed draft-discard semantics. */
+	itemDeleted?: boolean
 }
 
+/** `removed` is false when a draft is deliberately left in place: an open editor diverged from
+ *  what was deployed while the deploy was running, and that divergence is still to be deployed. */
 export async function deleteGlobalDraft(
 	workspace: string,
 	type: WorkspaceItemType,
 	path: string,
 	triggerKind?: TriggerKind,
 	options: DeleteGlobalDraftOptions = {}
-): Promise<void> {
+): Promise<{ removed: boolean }> {
 	const itemKind = itemKindFor(type, triggerKind)
-	if (!itemKind) return
+	if (!itemKind) return { removed: false }
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
-	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
-	if (options.preserveLiveDraft && liveDraft?.storagePath === storagePath) {
-		UserDraft.remove(itemKind, storagePath, { workspace })
-	} else {
-		UserDraft.clear(itemKind, storagePath, { workspace })
+	if (options.itemDeleted) {
+		// Nothing to discard against: the item is gone. The editor is told that, and the row is
+		// deleted here rather than by an editor that no longer has a baseline to discard to.
+		await markLiveItemDeleted(workspace, itemKind, storagePath)
+		UserDraft.forgetLocal(itemKind, storagePath, { workspace })
+		await UserDraftDbSyncer.save({
+			workspace,
+			itemKind,
+			path: storagePath,
+			value: null,
+			immediate: true
+		})
+		await assertDraftCleanupLanded(workspace, itemKind, path, storagePath)
+		return { removed: true }
 	}
-	// `remove`/`clear` only debounce the delete; persist it now so a deploy/discard
-	// that the caller awaits has actually cleared the server draft on return.
-	await UserDraftDbSyncer.save({
-		workspace,
-		itemKind,
-		path: storagePath,
-		value: null,
-		immediate: true
-	})
-	// A failed (network/5xx) or conflicted delete is recorded in the syncer state,
-	// not thrown — surface it so callers don't report the draft as removed while
-	// the DB-backed source of truth still has it (same guard as the write path).
+	if (options.deployed) {
+		// Re-reading the open editor is the whole cleanup, and discarding on top of it is wrong:
+		// the deploy carried the draft as it stood when it started, so anything typed since is a
+		// divergence from what was deployed and belongs in the row. The editor's own rule drops
+		// the row when the two match and keeps it when they do not.
+		const refreshed = await refreshLiveItem(workspace, itemKind, storagePath)
+		if (refreshed === 'done') {
+			// Its reconcile only queued that; send it, so a caller awaiting this sees the server
+			// settled — with no draft, or with the newer edit.
+			await UserDraftDbSyncer.flush({ workspace, itemKind, path: storagePath })
+			await assertDraftCleanupLanded(workspace, itemKind, path, storagePath)
+			// The editor keeps a row when it diverged from what was deployed while the deploy was
+			// running. Saying it was removed would send the caller away from an undeployed edit.
+			return { removed: !UserDraft.has(itemKind, storagePath, { workspace }) }
+		}
+		if (refreshed === 'failed') {
+			// It has the item and a baseline from before the deploy. Discarding its row would
+			// reset it to that and throw away anything typed during the deploy, so the deploy is
+			// reported as done and its draft cleanup as not, which is what happened.
+			throw new Error(
+				`Deployed "${path}", but its open editor could not be refreshed, so its draft was left in place. Reload the editor.`
+			)
+		}
+		// `absent`: never had the item, so it has not dealt with the row and this caller must.
+	}
+	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
+	const live =
+		options.preserveLiveDraft && liveDraft?.storagePath === storagePath
+			? UserDraft.remove(itemKind, storagePath, { workspace })
+			: UserDraft.clear(itemKind, storagePath, { workspace })
+	// An open editor owns this row and deletes it itself; a delete of ours alongside would be a
+	// second request with no baseline to check, free to remove a draft saved in between.
+	const handled = live ? await live : 'absent'
+	if (handled === 'failed') {
+		// It still has the item and still shows the draft. Deleting the row here would take away
+		// the only copy the server has while leaving the editor free to write it back.
+		throw new Error(
+			`Draft "${path}" is open in an editor that could not be refreshed, so it was not removed. Reload the editor and retry.`
+		)
+	}
+	if (handled !== 'done') {
+		// `remove`/`clear` only debounce the delete; persist it now so a deploy/discard
+		// that the caller awaits has actually cleared the server draft on return.
+		await UserDraftDbSyncer.save({
+			workspace,
+			itemKind,
+			path: storagePath,
+			value: null,
+			immediate: true
+		})
+	}
+	await assertDraftCleanupLanded(workspace, itemKind, path, storagePath)
+	// An open editor stands its discard down when the user typed after it was asked for, so the
+	// row is still there on purpose. Saying it was removed would report the opposite.
+	return { removed: !UserDraft.has(itemKind, storagePath, { workspace }) }
+}
+
+/**
+ * A failed (network/5xx) or conflicted delete is recorded in the syncer state, not thrown —
+ * surface it so callers don't report the draft as removed while the DB-backed source of truth
+ * still has it (same guard as the write path), and only then invalidate the draft readers.
+ */
+async function assertDraftCleanupLanded(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string,
+	storagePath: string
+): Promise<void> {
 	const state = UserDraftDbSyncer.getState({ workspace, itemKind, path: storagePath })
 	if (state.state === 'failed') {
 		throw new Error(state.failureMessage ?? `Failed to delete draft "${path}".`)
@@ -679,8 +770,15 @@ export async function flushGlobalDraftSaves(
 	return { unflushedPaths }
 }
 
-export function clearGlobalDrafts(workspace: string): void {
+/**
+ * Drop the in-tab mirrors left after the rows themselves have been deleted. Only the mirrors:
+ * `clear` would route to a live editor's discard, and one that kept its draft — because it was
+ * changed after that discard was asked for — would have that newer edit taken on this pass,
+ * undoing exactly what the first one preserved. `keep` names the paths to leave alone.
+ */
+export function clearGlobalDrafts(workspace: string, keep: ReadonlySet<string> = new Set()): void {
 	for (const draft of UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] })) {
-		UserDraft.clear(draft.itemKind, draft.path, { workspace })
+		if (keep.has(draft.path)) continue
+		UserDraft.forgetLocal(draft.itemKind, draft.path, { workspace })
 	}
 }
