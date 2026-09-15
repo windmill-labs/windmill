@@ -81,7 +81,8 @@ the read path decrypts with the recorded keys too, for good: a workspace may poi
 storages over time, and objects in one that is not primary at the moment are never rewritten.
 The walk notes each storage it has rewritten every object of (`walked_storages`), and every use
 of the backups starts it again for a storage not noted yet, so a server restart mid-walk and a
-storage switched away from and back both leave nothing unreadable. The
+storage switched away from and back both leave nothing unreadable; a key rotated back to and
+away from again gets a fresh record, since objects were written under it in between. The
 walk writes each object conditionally on the version it read (`PutMode::Update`): a push or a
 delete landing in between used the current key already, and rewriting over it would bring back
 what it replaced. The filesystem store has no conditional writes and keeps that window. A push
@@ -175,10 +176,11 @@ budget: a session's size is known from the listings before anything of it is rea
 would not fit is deferred unless it is the first of the answer, in which case it comes in
 pages: the answer carries what fits in key order (at least one object, so every page makes
 progress) and names where the next picks up (`next`, a cursor the browser sends back as
-`resume` with that session alone). The browser writes each page's pieces as it arrives (the
-writes are absent-only, so a restore cut short leaves nothing a later one cannot finish) and
-the record, which is what makes the session visible, only with the last page; between pages
-it holds nothing but the sync row being assembled. A pull sees every key of a session's listing but keeps the 5000 smallest
+`resume` with that session alone). The browser writes each page's pieces as it arrives, over whatever
+an earlier restore cut short had staged (the session is absent locally, so its pieces have no
+local edits to keep, and the backup may have moved on), and the record, which is what makes
+the session visible, only with the last page; between pages it holds nothing but the sync
+row being assembled, whose chats also admit the images of a later page. A pull sees every key of a session's listing but keeps the 5000 smallest
 past its cursor (a page is defined by key order, and the store promises none), so a session
 grown without bound by valid pushes cannot grow the answer's memory through its metadata
 either; removing a prefix and the re-key walk stream their listings. `list` scans at most 50 000 index markers, keeps the newest 500 as it goes and answers with

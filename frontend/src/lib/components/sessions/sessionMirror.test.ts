@@ -645,4 +645,51 @@ describe('sessionMirror restore', () => {
 		expect((await readStoredChat('c9', EMAIL))?.displayMessages).toHaveLength(1)
 		expect((await readStoredChat('c9b', EMAIL))?.id).toBe('c9b')
 	})
+
+	it('keeps an image whose chat came on an earlier page, and restages after a page failed', async () => {
+		listMock.mockResolvedValue({
+			enabled: true,
+			sessions: [{ id: 's9', updated_at: '2026-09-14T00:00:00Z' }]
+		})
+		const cursor = { id: 's9', images: true, after: '' }
+		const imagePage = {
+			...backup,
+			chats: [],
+			images: [{ chat_id: 'c9', id: 'i9', data_url: IMAGE }]
+		}
+		// The first restore is cut short after staging the chat.
+		pullMock
+			.mockResolvedValueOnce({
+				enabled: true,
+				sessions: [{ ...backup, next: cursor }],
+				deferred: []
+			})
+			.mockRejectedValueOnce(new Error('offline'))
+		usersWorkspaceStore.set({ email: EMAIL, workspaces: [] } as never)
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		expect(pullMock).toHaveBeenCalledTimes(2)
+		expect(sessionState.sessions.map((s) => s.id)).toEqual([])
+		expect((await readStoredChat('c9', EMAIL))?.title).toBe('t')
+
+		// The backup moved on meanwhile: the retry takes the newer chat over the staged one.
+		__resetMirrorForTesting()
+		const newer = {
+			...backup,
+			chats: [{ ...backup.chats[0], record: { ...backup.chats[0].record, title: 'newer' } }]
+		}
+		pullMock
+			.mockResolvedValueOnce({
+				enabled: true,
+				sessions: [{ ...newer, next: cursor }],
+				deferred: []
+			})
+			.mockResolvedValueOnce({ enabled: true, sessions: [imagePage], deferred: [] })
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s9']))
+		expect((await readStoredChat('c9', EMAIL))?.title).toBe('newer')
+		const { readImageDataUrl } = await import('../copilot/chat/HistoryManager.svelte')
+		expect(await readImageDataUrl('i9', EMAIL)).toBe(IMAGE)
+	})
 })

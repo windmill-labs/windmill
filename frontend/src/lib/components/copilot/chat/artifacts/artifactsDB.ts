@@ -154,7 +154,8 @@ export async function readSessionArtifacts(
 export async function importArtifacts(
 	items: PersistedArtifact[],
 	versions: ArtifactVersion[],
-	email: string
+	email: string,
+	overwrite = false
 ): Promise<boolean> {
 	if (items.length === 0 && versions.length === 0) return true
 	const db = await getDB()
@@ -164,10 +165,12 @@ export async function importArtifacts(
 		const itemStore = tx.objectStore('items')
 		const versionStore = tx.objectStore('versions')
 		for (const item of items) {
-			if ((await itemStore.getKey(item.id)) === undefined) await itemStore.put(item)
+			if (overwrite || (await itemStore.getKey(item.id)) === undefined) await itemStore.put(item)
 		}
 		for (const version of versions) {
-			if ((await versionStore.getKey(version.key)) === undefined) await versionStore.put(version)
+			if (overwrite || (await versionStore.getKey(version.key)) === undefined) {
+				await versionStore.put(version)
+			}
 		}
 		await tx.done
 		return true

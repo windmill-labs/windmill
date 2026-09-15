@@ -5335,9 +5335,12 @@ async fn set_encryption_key(
     // and re-keyable by a build with it. The record stays: the walk notes the storages it
     // completed on, and one that is not primary now may still hold objects under the key.
     if !request.skip_reencrypt.unwrap_or(false) {
+        // A key rotated back to and away from again is owed a fresh walk: objects were
+        // written under it since its earlier record was walked.
         sqlx::query(
             "INSERT INTO ai_session_backup_rekey (workspace_id, previous_key) VALUES ($1, $2) \
-             ON CONFLICT DO NOTHING",
+             ON CONFLICT (workspace_id, previous_key) \
+             DO UPDATE SET walked_storages = '{}', started_at = now()",
         )
         .bind(&w_id)
         .bind(&previous_key)

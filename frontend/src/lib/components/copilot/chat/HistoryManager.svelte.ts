@@ -241,7 +241,8 @@ export interface RestoredImage {
 export async function importStoredChats(
 	chats: StoredChat[],
 	images: RestoredImage[],
-	email: string
+	email: string,
+	overwrite = false
 ): Promise<boolean> {
 	const db = await backupDb(email)
 	if (!db) return false
@@ -250,12 +251,12 @@ export async function importStoredChats(
 	const imageStore = tx.objectStore('images')
 	const savedAt = Date.now()
 	for (const image of images) {
-		if ((await imageStore.getKey(image.id)) === undefined) {
+		if (overwrite || (await imageStore.getKey(image.id)) === undefined) {
 			await imageStore.put({ id: image.id, chatId: image.chatId, dataUrl: image.dataUrl, savedAt })
 		}
 	}
 	for (const chat of chats) {
-		if ((await chatStore.getKey(chat.id)) === undefined) await chatStore.put(chat)
+		if (overwrite || (await chatStore.getKey(chat.id)) === undefined) await chatStore.put(chat)
 	}
 	await tx.done
 	return true

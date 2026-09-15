@@ -892,7 +892,8 @@ function unpackBackup(
 	ws: string,
 	backup: AISessionBackup,
 	updatedAt: number,
-	storageId: string | undefined
+	storageId: string | undefined,
+	earlierChats: Iterable<string> = []
 ):
 	| {
 			session: Session
@@ -920,7 +921,8 @@ function unpackBackup(
 		}
 		chats.push(record as unknown as StoredChat)
 	}
-	const chatIds = new Set(chats.map((c) => c.id))
+	// An image's chat may have come on an earlier page of the session.
+	const chatIds = new Set([...chats.map((c) => c.id), ...earlierChats])
 	const images: RestoredImage[] = backup.images
 		.filter((i) => chatIds.has(i.chat_id) && typeof i.data_url === 'string')
 		.map((i) => ({ id: i.id, chatId: i.chat_id, dataUrl: i.data_url }))
@@ -1020,13 +1022,22 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 		// page leaves for the next is the sync row being assembled, never its pieces.
 		const ready: { session: Session; sync: MirrorSyncState }[] = []
 		for (const b of pulled.sessions) {
-			const u = unpackBackup(ws, b, updatedAt.get(b.id) ?? Date.now(), pulled.storage_id)
 			const earlier = staged.get(b.id)
 			staged.delete(b.id)
+			const u = unpackBackup(
+				ws,
+				b,
+				updatedAt.get(b.id) ?? Date.now(),
+				pulled.storage_id,
+				Object.keys(earlier?.sync.chats ?? {})
+			)
 			if (!u) continue
+			// Written over whatever is there: the session is absent locally, so its pieces
+			// can only be what an earlier restore staged before it was cut short, and the
+			// backup may have moved on since.
 			try {
-				if (!(await importArtifacts(u.artifacts.items, u.artifacts.versions, email))) continue
-				if (!(await importStoredChats(u.chats, u.images, email))) continue
+				if (!(await importArtifacts(u.artifacts.items, u.artifacts.versions, email, true))) continue
+				if (!(await importStoredChats(u.chats, u.images, email, true))) continue
 			} catch (e) {
 				console.error(`Could not restore session ${u.session.id}`, e)
 				continue

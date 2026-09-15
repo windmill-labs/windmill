@@ -88,6 +88,18 @@ fn all_rewritten(dir: &std::path::Path, snapshot: &std::path::Path) -> bool {
         })
 }
 
+async fn rotate(base: &str, key: &str) -> anyhow::Result<()> {
+    let resp = authed(
+        client().post(format!("{base}/workspaces/encryption_key")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "new_key": key }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    Ok(())
+}
+
 async fn wait_for_rekey(db: &Pool<Postgres>) -> anyhow::Result<()> {
     for _ in 0..100 {
         let pending: i64 = sqlx::query_scalar(
@@ -541,6 +553,33 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     assert!(
         all_rewritten(&first, snapshot.path()),
         "the walk a pull started must rewrite every object"
+    );
+    let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
+    assert_eq!(pulled["sessions"][0]["head"], head);
+
+    // A key rotated back to and away from again is owed a fresh walk: an object written
+    // under its second generation must not stay under it because its first was walked.
+    rotate(&base, &"d".repeat(64)).await?;
+    wait_for_rekey(&db).await?;
+    rotate(&base, &"b".repeat(64)).await?;
+    wait_for_rekey(&db).await?;
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s1", "chats": [{ "id": "c3", "record": { "id": "c3" } }] }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let under_second_generation = tempfile::tempdir()?;
+    copy_dir(&first, under_second_generation.path())?;
+    rotate(&base, &"c".repeat(64)).await?;
+    wait_for_rekey(&db).await?;
+    assert!(
+        all_rewritten(&first, under_second_generation.path()),
+        "objects written under a key's second generation must be rewritten"
     );
     let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
     assert_eq!(pulled["sessions"][0]["head"], head);
