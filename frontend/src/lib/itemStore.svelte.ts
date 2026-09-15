@@ -160,10 +160,12 @@ const outOfDate = {
 	error: 'This item changed elsewhere and could not be re-read. Reload it before saving.'
 } as const
 
-/** What a command did not do, so it can tell what moved under it. `edits`: what the user can see
- *  change, which a discard measures against — an outside write of the value already shown does
- *  not cancel one. `externals`: every outside write, that one included, since it made the value a
- *  row a read in flight has not got. */
+/** Where a command asked to undo or fold into something found it, so it can tell that what is
+ *  here now is no longer that. Only commands that act on the value they were asked about need it:
+ *  a read does not, since it answers against whoever owns the value now rather than against when
+ *  it was issued. `edits`: what the user can see change, which a discard measures against, so an
+ *  outside write of the value already shown does not cancel one. `externals`: every outside
+ *  write, that one included, which is what a patch and a fold must not write over. */
 type AsOf = { edits: number; externals: number }
 
 class Entry<V> {
@@ -211,6 +213,10 @@ class Entry<V> {
 
 	busy = $derived(this.commands > 0)
 
+	/** A patch is holding a field ahead of the server. The value carries it and so does
+	 *  `deployed`, so the two agree and `dirty` cannot see it: it takes asking. */
+	private patching = $derived(Object.keys(this.patched).length > 0)
+
 	status: ItemStatus = $derived.by(() => {
 		if (this.loads > 0 && !this.loaded) return 'loading'
 		if (this.commands > 0) return 'saving'
@@ -257,6 +263,11 @@ class Entry<V> {
 	 *  it is deliberately keeping the one a newer edit put there. Decided inside the command, so
 	 *  after whatever load was queued in front of it, not before. */
 	private ownsRow = false
+	/** Whether the value here was put here by someone editing this item — the user, or an outside
+	 *  writer — rather than installed by a command reading it. A read must not replace one that
+	 *  was: it is an intent, and the read predates it. Cleared by every command that installs a
+	 *  value of its own, which is what makes the value the server's again. */
+	private local = false
 	private queue: Promise<unknown> = Promise.resolve()
 	private ports: ItemRowPort
 	private store: StoreInternals
@@ -286,7 +297,10 @@ class Entry<V> {
 				this.serverDeployed = value
 			} else {
 				this.pristine = false
+				this.local = true
 			}
+		} else {
+			this.local = true
 		}
 		this.reconcile()
 	}
@@ -338,9 +352,12 @@ class Entry<V> {
 		if (!waiting) this.ports.seedSync(key, draftSavedAt, asOf)
 	}
 
+	/** Install a value on the item's behalf: a read, a discard, a delete. Answers whatever local
+	 *  value was here, so the next read is free to speak for this item again. */
 	private replaceValue(value: V | undefined): void {
 		this.value = snapshot(value)
 		this.seen = serialize(this.value)
+		this.local = false
 		this.revision = nextRevision++
 	}
 
@@ -400,11 +417,11 @@ class Entry<V> {
 		this.replaceValue(template)
 	}
 
-	/** `editedBefore`: the edit count as of when this read was decided on, for a caller that did
-	 *  something async first. */
-	load(adapter: ItemAdapter<V>, asOf?: AsOf, unasked = false): Promise<CommandOutcome> {
+	/** `unasked`: a read this entry decided to do rather than one a caller asked for, which must
+	 *  not answer a conflict on the user's behalf. */
+	load(adapter: ItemAdapter<V>, unasked = false): Promise<CommandOutcome> {
 		this.loads++
-		return this.run(async (at) => {
+		return this.run(async () => {
 			const key = this.key
 			let rowsAtRead = 0
 			let valuesAtRead = 0
@@ -449,9 +466,11 @@ class Entry<V> {
 			// its place, nor answer the conflict on the user's behalf. Checked here rather than
 			// before the read, because the flush that precedes one is itself a way to find out.
 			const standOff = unasked && this.ports.conflicted(key)
-			// Whatever landed since the read was asked for — an external write, an edit — is
-			// newer than what it read, so the read only moves the deployed side under it.
-			const keepValue = standOff || this.edits !== at.edits || this.externals !== at.externals
+			// A read answers with what the server held when it went out. Anything here that someone
+			// put here is newer than that, whenever it arrived: an edit, an outside write, a field
+			// a patch is holding ahead of the server. The read moves the deployed side under it
+			// and leaves it alone.
+			const keepValue = standOff || this.local || this.patching
 			// More rows appeared while the read was out than values arrived to account for them,
 			// so one was written by someone this entry cannot see — and it is later than anything
 			// held here. Writing from this would post an older value over that row, on the
@@ -501,18 +520,16 @@ class Entry<V> {
 			}
 			this.reconcile()
 			return { ok: true }
-		}, asOf)
+		})
 	}
 
 	/** Read the item again after someone else wrote it. The edits on screen are in the draft row,
-	 *  so they come back over what was written; one typed since the read was asked for stays. */
+	 *  so they come back over what was written; one typed while the flush is out stays, because
+	 *  it makes the value local and a read never answers over one of those. */
 	async reread(): Promise<CommandOutcome> {
 		if (!this.loaded || this.retired || !this.adapter) return { ok: true }
-		// Taken before the row goes, not after it lands: an edit typed while that write is in
-		// flight is in neither it nor the read that follows, and is newer than both.
-		const asOf = this.asOf()
 		await this.ports.flush(this.key)
-		return this.load(this.adapter, asOf, true)
+		return this.load(this.adapter, true)
 	}
 
 	/** Re-read for a caller that has just written the deployed item, after whatever is queued:
@@ -583,11 +600,17 @@ class Entry<V> {
 	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
 	applyExternal(value: V): number {
 		this.externals++
-		if (this.loaded && serialize(value) === serialize(this.value)) return this.revision
+		if (this.loaded && serialize(value) === serialize(this.value)) {
+			// Nothing to look at changed, but that value is now on the server as a row a read in
+			// flight has not got, so it is still an intent that read must not answer over.
+			this.local = true
+			return this.revision
+		}
 		this.edits++
 		this.pristine = false
 		this.removed = false
 		this.replaceValue(value)
+		this.local = true
 		// Whatever row this produces is counted by `reconcile`; a value that produces none
 		// accounts for nothing, and must not pay for a row some other writer puts there.
 		this.reconcile()
@@ -878,6 +901,9 @@ class Entry<V> {
 		// the timestamp the reload adopts — over the version the user just chose.
 		if (how === 'reload') {
 			this.ports.dropPending(this.key)
+			// Taking the server's version is the user saying their own is spent, so the read that
+			// follows is not one that has to defer to it: without this it would keep it.
+			this.local = false
 			return this.load(adapter)
 		}
 		return this.run(async () => {
