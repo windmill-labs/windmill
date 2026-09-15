@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AI_AGENT_SCHEMA } from './flowInfers'
+import { AI_AGENT_SCHEMA, memoryPropertyFor } from './flowInfers'
 import {
 	AGENT_FIELD_BY_KEY,
 	AGENT_FIELDS,
@@ -98,5 +98,22 @@ describe('historyInputApplies', () => {
 		expect(historyInputApplies('memory_id', false)).toBe(false)
 		expect(historyInputApplies('messages', false)).toBe(true)
 		expect(historyInputApplies('messages', undefined)).toBe(true)
+	})
+})
+
+describe('memoryPropertyFor', () => {
+	const property = schemaProperties.memory
+	const kinds = (value: unknown) =>
+		memoryPropertyFor(property, value).oneOf.map((variant: { title: string }) => variant.title)
+
+	it('adds a legacy kind as an option only while the value holds it', () => {
+		expect(memoryPropertyFor(property, { kind: 'window', context_length: 10 })).toBe(property)
+		expect(memoryPropertyFor(property, undefined)).toBe(property)
+		expect(kinds({ kind: 'auto', context_length: 4, memory_id: 'x' })).toEqual([
+			'off',
+			'window',
+			'auto'
+		])
+		expect(kinds({ kind: 'manual', messages: [] })).toEqual(['off', 'window', 'manual'])
 	})
 })

@@ -90,7 +90,7 @@
 	} from './flows/linkedAgentDrafts'
 	import { agentDraftDeployRefusal } from './flows/agentDraft.svelte'
 	import { markAgentWritten } from './flows/agentEditorStore.svelte'
-	import { logReusableAgentUsage, logStepMemoryIdUsage } from './flows/agentTelemetry'
+	import { logReusableAgentUsage } from './flows/agentTelemetry'
 	import { deployDraft } from '$lib/utils_draft_deploy'
 	import { getUserExt } from '$lib/user'
 	import { Triggers } from './triggers/triggers.svelte'
@@ -657,11 +657,6 @@
 				...structuredClone($state.snapshot(newSavedFlow)),
 				path: $pathStore
 			} as Flow
-			dfsApply(flow.value.modules ?? [], (module) => {
-				if (module.value.type === 'aiagent') {
-					logStepMemoryIdUsage(module.value.input_transforms?.memory_id)
-				}
-			})
 			setDraftTriggers([])
 			loadingSave = false
 			onDeploy?.({ path: $pathStore })

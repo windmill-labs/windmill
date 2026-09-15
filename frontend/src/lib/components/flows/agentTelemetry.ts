@@ -1,4 +1,3 @@
-import type { InputTransform } from '$lib/gen'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 // Anonymous counters for the reusable-agent lifecycle (`docs/reusable-ai-agents.md`). Same rules
@@ -21,13 +20,4 @@ export type ReusableAgentEvent =
 
 export function logReusableAgentUsage(event: ReusableAgentEvent): void {
 	logFeatureUsage('ai_agent', 'reusable', { key: event })
-}
-
-/** An agent step deployed with a memory id of its own instead of the run's, keyed by whether it is
- *  one fixed id or an expression giving one memory per key. */
-export function logStepMemoryIdUsage(memoryId: InputTransform | undefined): void {
-	if (!memoryId) return
-	logFeatureUsage('ai_agent', 'memory_id', {
-		key: memoryId.type === 'static' ? 'fixed' : 'expression'
-	})
 }

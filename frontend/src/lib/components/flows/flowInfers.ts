@@ -210,7 +210,8 @@ export const LEGACY_MEMORY_VARIANTS: Record<string, any> = {
 }
 
 /** The memory property to render for a value: a legacy kind is added as an option only while the
- *  value holds it. */
+ *  value holds it. Otherwise the property itself is returned, which callers compare by identity to
+ *  avoid rebuilding the step schema. */
 export function memoryPropertyFor(property: any, value: any): any {
 	const legacy = value?.kind ? LEGACY_MEMORY_VARIANTS[value.kind] : undefined
 	if (!legacy || !property?.oneOf) return property

@@ -180,7 +180,7 @@
 	let schemaProperties = $derived((schema?.properties ?? {}) as Record<string, any>)
 
 	// Whether the brain edited here, or the linked agent's, keeps managed memory. Unknown for an
-	// expression or a linked agent still loading, which leaves both history inputs open.
+	// expression or a linked agent that has not loaded, which keeps previous messages addable.
 	let managedMemory = $derived.by((): boolean | undefined => {
 		if ('memory' in schemaProperties) {
 			const transform = args?.memory
@@ -232,7 +232,8 @@
 		)
 	)
 
-	// Offered whenever the agent may keep managed memory: on, or an expression the form cannot read.
+	// Offered when managed memory is on or an expression the form cannot read, not while a linked
+	// agent's setting is unknown.
 	// Unset, the memory id the run was started with applies, so the step's own id sits behind a
 	// choice and the key exists only once Custom is picked.
 	let memoryIsExpression = $derived(
@@ -325,6 +326,8 @@
 				!spec.virtual &&
 				!isShown(spec.key) &&
 				!(imageOutput && spec.textOnly) &&
+				// Memory id's row appears on its own when it is offered, so the menu never adds it.
+				spec.key !== 'memory_id' &&
 				!(isHistoryKey(spec.key) && !historyInputApplies(spec.key, managedMemory))
 		)
 	}

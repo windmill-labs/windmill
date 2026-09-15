@@ -142,7 +142,6 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		tooltip:
 			'Conversation history id: runs with the same id share their history. Inherited uses the memory_id the run was started with: the conversation id in chat mode, or the memory_id query parameter otherwise. Without either, each run starts fresh. Custom sets the id on the step: a fixed id shares one history across all runs, an expression keeps one history per value.',
 		implicit: '',
-		defaultHint: 'Default: inherited from the run',
 		textOnly: true
 	},
 	{
