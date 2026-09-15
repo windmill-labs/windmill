@@ -91,7 +91,8 @@ fn all_rewritten(dir: &std::path::Path, snapshot: &std::path::Path) -> bool {
 async fn wait_for_rekey(db: &Pool<Postgres>) -> anyhow::Result<()> {
     for _ in 0..100 {
         let pending: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM ai_session_backup_rekey WHERE workspace_id = 'test-workspace'",
+            "SELECT count(*) FROM ai_session_backup_rekey WHERE workspace_id = 'test-workspace' \
+             AND cardinality(walked_storages) = 0",
         )
         .fetch_one(db)
         .await?;
@@ -210,6 +211,28 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     .await?;
     assert_eq!(resp.status(), 200);
 
+    // A head at exactly its cap round-trips: the ciphertext read back is a block larger.
+    let mut big_head = json!({ "id": "s3", "workspace_id": "test-workspace", "createdAt": 3, "chatId": "c", "pad": "" });
+    let pad = 1024 * 1024 - serde_json::to_string(&big_head)?.len();
+    big_head["pad"] = json!("x".repeat(pad));
+    assert_eq!(serde_json::to_string(&big_head)?.len(), 1024 * 1024);
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "sessions": [{ "id": "s3", "head": big_head }] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let pulled = pull(&base, "SECRET_TOKEN", &["s3"]).await?;
+    assert_eq!(pulled["sessions"][0]["head"], big_head);
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "removed": ["s3"] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+
     // An object larger than any push writes, planted with the bucket's credentials at a
     // predictable key, is not read.
     let planted = storage_dir
@@ -313,10 +336,6 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
 
     // Rotating the workspace key re-keys the backup objects off the request: they read back
     // at once through the previous key, and still once the walk has rewritten them.
-    let original_key: String =
-        sqlx::query_scalar("SELECT key FROM workspace_key WHERE workspace_id = 'test-workspace'")
-            .fetch_one(&db)
-            .await?;
     let snapshot = tempfile::tempdir()?;
     copy_dir(&first, snapshot.path())?;
     let resp = authed(
@@ -346,20 +365,42 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
 
     // A walk cut short (a restart) leaves objects under the previous key with the rotation
     // still recorded: the next use of the backups reads them through that key and finishes
-    // the walk.
+    // the walk. Here after a detour through another, empty storage: what the walk there
+    // notes must not stand for this one.
     copy_dir(snapshot.path(), &first)?;
-    sqlx::query(
-        "INSERT INTO ai_session_backup_rekey (workspace_id, previous_key) VALUES ('test-workspace', $1)",
-    )
-    .bind(&original_key)
-    .execute(&db)
-    .await?;
+    sqlx::query("UPDATE ai_session_backup_rekey SET walked_storages = '{}' WHERE workspace_id = 'test-workspace'")
+        .execute(&db)
+        .await?;
+    let other_storage = tempfile::tempdir()?;
+    configure_primary_lfs(&db, &other_storage.path().to_string_lossy()).await?;
+    assert_eq!(list(&base, "SECRET_TOKEN").await?["sessions"], json!([]));
+    wait_for_rekey(&db).await?;
+    configure_primary_lfs(&db, &storage_dir.path().to_string_lossy()).await?;
     let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
     assert_eq!(
         pulled["sessions"][0]["head"], head,
         "objects left under the previous key must read: {pulled}"
     );
-    wait_for_rekey(&db).await?;
+    let walked_here = || async {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM ai_session_backup_rekey WHERE workspace_id = 'test-workspace' \
+             AND cardinality(walked_storages) = 2",
+        )
+        .fetch_one(&db)
+        .await?;
+        Ok::<_, anyhow::Error>(n)
+    };
+    for _ in 0..100 {
+        if walked_here().await? == 1 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert_eq!(
+        walked_here().await?,
+        1,
+        "the walk must run again on the storage it was owed to"
+    );
     assert!(
         all_rewritten(&first, snapshot.path()),
         "the walk a pull started must rewrite every object"

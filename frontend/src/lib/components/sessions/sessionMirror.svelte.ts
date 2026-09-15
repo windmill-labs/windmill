@@ -11,7 +11,7 @@
 // admin switch) turns it off for the page.
 import { BROWSER } from 'esm-env'
 import { get } from 'svelte/store'
-import { type DBSchema } from 'idb'
+import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import {
 	AiService,
 	ApiError,
@@ -90,12 +90,11 @@ interface MirrorSchema extends DBSchema {
 	sync: { key: string; value: MirrorSyncState }
 }
 
-const syncDbh = userScopedDb<MirrorSchema>(SYNC_DB, {
-	version: 1,
-	upgrade(db) {
-		if (!db.objectStoreNames.contains('sync')) db.createObjectStore('sync', { keyPath: 'id' })
-	}
-})
+function createSyncStore(db: IDBPDatabase<MirrorSchema>): void {
+	if (!db.objectStoreNames.contains('sync')) db.createObjectStore('sync', { keyPath: 'id' })
+}
+
+const syncDbh = userScopedDb<MirrorSchema>(SYNC_DB, { version: 1, upgrade: createSyncStore })
 
 async function syncDb(email: string) {
 	const db = await syncDbh.whenReady()
@@ -181,8 +180,33 @@ function bumpDirty(sessionId: string, email?: string): boolean {
  * load's backfill. */
 async function staleViaSyncRow(id: string, email = getCurrentUserEmail()): Promise<void> {
 	if (!email) return
-	const row = await readSync(id, email)
-	if (row && !row.stale) await writeSync([{ ...row, stale: true }], email)
+	await updateSyncRow(id, email, (row) => (row && !row.stale ? { ...row, stale: true } : undefined))
+}
+
+/** Reads a row and writes what `update` makes of it, in the store of `email`: through the
+ * shared handle when that is the current user, and through a connection of its own
+ * otherwise, since the shared handle follows the current user and a write that landed
+ * after a switch must still reach the store it belongs to. */
+async function updateSyncRow(
+	id: string,
+	email: string,
+	update: (row: MirrorSyncState | undefined) => MirrorSyncState | undefined
+): Promise<void> {
+	if (email === getCurrentUserEmail()) {
+		const next = update(await readSync(id, email))
+		if (next) await writeSync([next], email)
+		return
+	}
+	let db: IDBPDatabase<MirrorSchema> | undefined
+	try {
+		db = await openDB<MirrorSchema>(scopedKeyFor(SYNC_DB, email), 1, { upgrade: createSyncStore })
+		const next = update(await db.get('sync', id))
+		if (next) await db.put('sync', next)
+	} catch (e) {
+		console.error('Could not update the session backup state of another user', e)
+	} finally {
+		db?.close()
+	}
 }
 
 /** Drop the dirty mark of a session gone from the store, the one case nothing can bump
@@ -309,9 +333,13 @@ async function removeViaSyncRow(
 	email = getCurrentUserEmail()
 ): Promise<void> {
 	if (!email) return
-	const row = await readSync(id, email)
-	if (row) await writeSync([{ ...row, removed: true }], email)
-	else if (ws) await writeSync([{ id, ws, head: '', chats: {}, images: {}, removed: true }], email)
+	await updateSyncRow(id, email, (row) =>
+		row
+			? { ...row, removed: true }
+			: ws
+				? { id, ws, head: '', chats: {}, images: {}, removed: true }
+				: undefined
+	)
 }
 
 /** Writes rows whole, except that a removal filed on a row meanwhile survives: the flush

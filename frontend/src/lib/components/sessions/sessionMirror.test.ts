@@ -504,6 +504,32 @@ describe('sessionMirror flush', () => {
 		markSessionDirty('sw', undefined, 'other@x.com')
 		expect(localStorage.getItem('windmill_sessions_mirror_pending::other@x.com::d::sw')).toBe('1')
 		expect(pendingKeys()).toEqual([])
+
+		// The mark of another user that cannot be written goes to that user's own rows.
+		const { openDB } = await import('idb')
+		const theirs = await openDB('windmill-sessions-mirror::other@x.com', 1, {
+			upgrade: (db) => db.createObjectStore('sync', { keyPath: 'id' })
+		})
+		await theirs.put('sync', { id: 'so', ws: 'ws', head: 'h', chats: {}, images: {}, flushedV: 1 })
+		theirs.close()
+		const setItem = localStorage.setItem.bind(localStorage)
+		localStorage.setItem = (key: string, value: string) => {
+			if (key.includes('::d::')) throw new Error('QuotaExceededError')
+			setItem(key, value)
+		}
+		try {
+			markSessionDirty('so', undefined, 'other@x.com')
+		} finally {
+			localStorage.setItem = setItem
+		}
+		await vi.waitFor(async () => {
+			const db = await openDB('windmill-sessions-mirror::other@x.com', 1)
+			try {
+				expect((await db.get('sync', 'so'))?.stale).toBe(true)
+			} finally {
+				db.close()
+			}
+		})
 	})
 
 	it('keeps the marks when the server refuses a request, for the next page load', async () => {

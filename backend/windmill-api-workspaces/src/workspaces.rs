@@ -5400,8 +5400,8 @@ async fn set_encryption_key(
     #[cfg(feature = "parquet")]
     if !request.skip_reencrypt.unwrap_or(false) {
         match crate::ai_session_rekey::primary_store(&db, &w_id).await {
-            Ok(Some(store)) => {
-                crate::ai_session_rekey::spawn_rekey(db.clone(), w_id.clone(), store)
+            Ok(Some((store, storage_id))) => {
+                crate::ai_session_rekey::spawn_rekey(db.clone(), w_id.clone(), store, storage_id)
             }
             Ok(None) => {}
             Err(e) => tracing::warn!("AI session backups of {w_id} not re-keyed yet: {e:#}"),

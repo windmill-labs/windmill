@@ -30,7 +30,7 @@ use serde_json::value::RawValue;
 use std::sync::Arc;
 use windmill_api_auth::is_effectively_unscoped;
 use windmill_api_workspaces::ai_session_rekey::{
-    open, pending_ciphers, spawn_rekey, MAX_OBJECT_BYTES, ROOT,
+    open, pending_ciphers, spawn_rekey, storage_id, MAX_OBJECT_BYTES, ROOT,
 };
 use windmill_common::error::{Error, JsonResult, Result};
 use windmill_common::utils::calculate_hash;
@@ -38,9 +38,7 @@ use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key};
 use windmill_object_store::object_store_reexports::{
     ObjectStore, ObjectStoreError, Path as ObjectPath, PutPayload,
 };
-use windmill_object_store::{
-    build_object_store_client, object_store_error_to_error, ObjectStoreResource,
-};
+use windmill_object_store::{build_object_store_client, object_store_error_to_error};
 
 const PUSH_BODY_LIMIT: usize = MAX_OBJECT_BYTES;
 /// A pull names at most MAX_PULL_IDS ids of 64 bytes; anything larger is not a pull.
@@ -48,6 +46,9 @@ const PULL_BODY_LIMIT: usize = 64 * 1024;
 /// A pull answer larger than this hands the remaining ids back as `deferred`.
 const PULL_RESPONSE_BUDGET: usize = 32 * 1024 * 1024;
 const MAX_HEAD_BYTES: usize = 1024 * 1024;
+/// What the cipher adds to a plaintext at most (a block of padding): an object stored at a
+/// cap is that much larger than the cap when read back.
+const CIPHER_PADDING: usize = 16;
 /// The browser bounds an image to a 1568 px edge and re-encodes past 700 KB; this is
 /// well above what that produces.
 const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -328,14 +329,19 @@ async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backe
     // another member's ciphertext under their own prefix and have `pull` decrypt it for them.
     let key = get_workspace_key(w_id, db).await?;
     let mc = crypt_from_key_with_suffix(&key, &user);
-    // A rotation whose walk has not finished (or was cut short by a restart) leaves objects
-    // under the keys it replaced: read those too, and see the walk through.
-    let previous = pending_ciphers(db, w_id, &user).await?;
-    if !previous.is_empty() {
-        spawn_rekey(db.clone(), w_id.to_string(), store.clone());
+    let storage_id = storage_id(&resource);
+    // Objects may still be under the keys rotations replaced: read those too, and see the
+    // walk through on this storage if it has not been.
+    let (previous, needs_walk) = pending_ciphers(db, w_id, &user, &storage_id).await?;
+    if needs_walk {
+        spawn_rekey(
+            db.clone(),
+            w_id.to_string(),
+            store.clone(),
+            storage_id.clone(),
+        );
     }
     let prefix = format!("{ROOT}/{w_id}/{user}");
-    let storage_id = storage_id(&resource);
     Ok(Some(Backend {
         store,
         key,
@@ -344,30 +350,6 @@ async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backe
         prefix,
         storage_id,
     }))
-}
-
-/// Names the storage the backups are in, so a browser can tell that its sync state was
-/// recorded against another one (a new bucket starts empty). Built from what locates the
-/// objects, not from the credentials, which rotate.
-fn storage_id(resource: &ObjectStoreResource) -> String {
-    let location = match resource {
-        ObjectStoreResource::S3(s) => format!(
-            "s3:{}:{}:{}:{}",
-            s.endpoint,
-            s.port.unwrap_or_default(),
-            s.region,
-            s.bucket
-        ),
-        ObjectStoreResource::Azure(a) => format!(
-            "azure:{}:{}:{}",
-            a.endpoint.as_deref().unwrap_or_default(),
-            a.account_name,
-            a.container_name
-        ),
-        ObjectStoreResource::Gcs(g) => format!("gcs:{}", g.bucket),
-        ObjectStoreResource::Filesystem(f) => format!("fs:{}", f.root_path),
-    };
-    calculate_hash(&location)[..16].to_string()
 }
 
 #[derive(Serialize)]
@@ -507,7 +489,10 @@ async fn pull_session(
     budget: usize,
     first: bool,
 ) -> Result<PullStep> {
-    let Some(head) = backend.get(&backend.head_key(sid), MAX_HEAD_BYTES).await? else {
+    let Some(head) = backend
+        .get(&backend.head_key(sid), MAX_HEAD_BYTES + CIPHER_PADDING)
+        .await?
+    else {
         return Ok(PullStep::Absent);
     };
     let session_prefix = backend.session_prefix(sid);

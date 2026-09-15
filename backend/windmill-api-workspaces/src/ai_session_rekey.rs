@@ -3,10 +3,11 @@
 //! segment of its key as the cipher suffix, so the walk needs no email.
 //!
 //! A rotation records the key it replaced in `ai_session_backup_rekey` inside its own
-//! transaction (`set_encryption_key`, on every build), and the walk deletes that row only
-//! once every object it found reads under the current key. Until then the read path decrypts with the recorded keys as well, and
-//! every use of the backups starts the walk again, so a server restart mid-walk leaves
-//! nothing unreadable and nothing under the old key for good.
+//! transaction (`set_encryption_key`, on every build). The read path decrypts with the
+//! recorded keys as well, for good: a workspace may point at several storages over time,
+//! and objects in one that is not primary at the moment are never rewritten. The walk notes
+//! each storage it has rewritten every object of, and every use of the backups starts it
+//! again for a storage not noted yet, so a server restart mid-walk leaves nothing behind.
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -15,13 +16,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::TryStreamExt;
 use magic_crypt::{MagicCrypt256, MagicCryptTrait};
 use windmill_common::error::{Error, Result};
+use windmill_common::utils::calculate_hash;
 use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key};
 use windmill_common::DB;
-use windmill_object_store::object_store_error_to_error;
 use windmill_object_store::object_store_reexports::{
     ObjectMeta, ObjectStore, ObjectStoreError, Path as ObjectPath, PutMode, PutOptions, PutPayload,
     UpdateVersion,
 };
+use windmill_object_store::{object_store_error_to_error, ObjectStoreResource};
 use windmill_types::s3::LargeFileStorage;
 
 /// The root of every AI session backup key in a workspace's storage.
@@ -44,34 +46,69 @@ fn in_flight() -> MutexGuard<'static, HashSet<String>> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// The keys of rotations whose walk has not completed, oldest first (recorded by the
-/// rotation itself, in its transaction).
-
-async fn previous_keys(db: &DB, w_id: &str) -> Result<Vec<String>> {
-    Ok(sqlx::query_scalar::<_, String>(
-        "SELECT previous_key FROM ai_session_backup_rekey WHERE workspace_id = $1 \
-         ORDER BY started_at",
+/// The keys every rotation replaced, oldest first (recorded by the rotation itself, in its
+/// transaction), each with the storages the walk has completed on since.
+async fn recorded_keys(db: &DB, w_id: &str) -> Result<Vec<(String, Vec<String>)>> {
+    Ok(sqlx::query_as::<_, (String, Vec<String>)>(
+        "SELECT previous_key, walked_storages FROM ai_session_backup_rekey \
+         WHERE workspace_id = $1 ORDER BY started_at",
     )
     .bind(w_id)
     .fetch_all(db)
     .await?)
 }
 
-/// The ciphers, with `key_suffix`, of rotations whose walk has not completed: an object may
-/// still be under one of them. Empty once nothing is pending. Derives ciphers rather than
-/// handing out the keys, and is for a route that already authorized its caller to the
-/// workspace's backups: it does no authorization of its own.
-pub async fn pending_ciphers(db: &DB, w_id: &str, key_suffix: &str) -> Result<Vec<MagicCrypt256>> {
-    Ok(previous_keys(db, w_id)
-        .await?
+/// The ciphers, with `key_suffix`, of the keys rotations replaced (an object may still be
+/// under one of them), and whether the walk is still owed on the storage `storage_id`.
+/// Derives ciphers rather than handing out the keys, and is for a route that already
+/// authorized its caller to the workspace's backups: it does no authorization of its own.
+pub async fn pending_ciphers(
+    db: &DB,
+    w_id: &str,
+    key_suffix: &str,
+    storage_id: &str,
+) -> Result<(Vec<MagicCrypt256>, bool)> {
+    let rows = recorded_keys(db, w_id).await?;
+    let needs_walk = rows
         .iter()
-        .map(|key| crypt_from_key_with_suffix(key, key_suffix))
-        .collect())
+        .any(|(_, walked)| !walked.iter().any(|s| s == storage_id));
+    let ciphers = rows
+        .iter()
+        .map(|(key, _)| crypt_from_key_with_suffix(key, key_suffix))
+        .collect();
+    Ok((ciphers, needs_walk))
 }
 
-/// The workspace's primary storage, resolved without a caller: a rotation runs the walk
-/// off its own request.
-pub(crate) async fn primary_store(db: &DB, w_id: &str) -> Result<Option<Arc<dyn ObjectStore>>> {
+/// Names a storage by what locates its objects (endpoint, region, bucket; never the
+/// credentials, which rotate): the walk notes the storages it completed on, and a browser
+/// tells its sync state was recorded against another one.
+pub fn storage_id(resource: &ObjectStoreResource) -> String {
+    let location = match resource {
+        ObjectStoreResource::S3(s) => format!(
+            "s3:{}:{}:{}:{}",
+            s.endpoint,
+            s.port.unwrap_or_default(),
+            s.region,
+            s.bucket
+        ),
+        ObjectStoreResource::Azure(a) => format!(
+            "azure:{}:{}:{}",
+            a.endpoint.as_deref().unwrap_or_default(),
+            a.account_name,
+            a.container_name
+        ),
+        ObjectStoreResource::Gcs(g) => format!("gcs:{}", g.bucket),
+        ObjectStoreResource::Filesystem(f) => format!("fs:{}", f.root_path),
+    };
+    calculate_hash(&location)[..16].to_string()
+}
+
+/// The workspace's primary storage and its id, resolved without a caller: a rotation runs
+/// the walk off its own request.
+pub(crate) async fn primary_store(
+    db: &DB,
+    w_id: &str,
+) -> Result<Option<(Arc<dyn ObjectStore>, String)>> {
     let Some(lfs_json) = sqlx::query_scalar!(
         "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
         w_id
@@ -95,21 +132,20 @@ pub(crate) async fn primary_store(db: &DB, w_id: &str) -> Result<Option<Arc<dyn 
         )
         .await?
     };
-    let store = windmill_object_store::build_object_store_client(
-        &windmill_object_store::lfs_to_object_store_resource(&lfs, resource_value)?,
-    )
-    .await?;
-    Ok(Some(store))
+    let resource = windmill_object_store::lfs_to_object_store_resource(&lfs, resource_value)?;
+    let store = windmill_object_store::build_object_store_client(&resource).await?;
+    Ok(Some((store, storage_id(&resource))))
 }
 
-/// Starts the walk for the workspace unless this process is already running one. `store`
-/// is the workspace's storage as the caller resolved it under its own authorization.
-pub fn spawn_rekey(db: DB, w_id: String, store: Arc<dyn ObjectStore>) {
+/// Starts the walk of `store` (the workspace's storage as the caller resolved it under its
+/// own authorization, named by `storage_id`) unless this process is already running one
+/// for the workspace.
+pub fn spawn_rekey(db: DB, w_id: String, store: Arc<dyn ObjectStore>, storage_id: String) {
     if !in_flight().insert(w_id.clone()) {
         return;
     }
     tokio::spawn(async move {
-        match rekey(&db, &w_id, store).await {
+        match rekey(&db, &w_id, store, &storage_id).await {
             Ok(n) => tracing::info!("re-keyed {n} AI session backup objects in {w_id}"),
             Err(e) => tracing::error!("re-keying the AI session backups in {w_id}: {e:#}"),
         }
@@ -117,9 +153,22 @@ pub fn spawn_rekey(db: DB, w_id: String, store: Arc<dyn ObjectStore>) {
     });
 }
 
-async fn rekey(db: &DB, w_id: &str, store: Arc<dyn ObjectStore>) -> Result<usize> {
-    let previous = previous_keys(db, w_id).await?;
-    if previous.is_empty() {
+async fn rekey(
+    db: &DB,
+    w_id: &str,
+    store: Arc<dyn ObjectStore>,
+    storage_id: &str,
+) -> Result<usize> {
+    let rows = recorded_keys(db, w_id).await?;
+    // Every recorded key can open an object; the walk is owed to the keys not yet noted
+    // as walked on this storage.
+    let previous: Vec<String> = rows.iter().map(|(key, _)| key.clone()).collect();
+    let owed: Vec<String> = rows
+        .iter()
+        .filter(|(_, walked)| !walked.iter().any(|s| s == storage_id))
+        .map(|(key, _)| key.clone())
+        .collect();
+    if owed.is_empty() {
         return Ok(0);
     }
     let current = get_workspace_key(w_id, db).await?;
@@ -140,14 +189,17 @@ async fn rekey(db: &DB, w_id: &str, store: Arc<dyn ObjectStore>) -> Result<usize
         })
         .await?;
     let rekeyed = rekeyed.into_inner();
-    // Every object listed reads under the current key now, or was rewritten by a push that
-    // used it: the recorded keys have nothing left to open. The rows stay on any failure
-    // above, for the next walk.
+    // Every object listed in this storage reads under the current key now, or was
+    // rewritten by a push that used it. The note is not made on any failure above, so the
+    // next use of the backups walks again; the keys themselves stay recorded, since a
+    // storage that is not primary now may still hold objects under them.
     sqlx::query(
-        "DELETE FROM ai_session_backup_rekey WHERE workspace_id = $1 AND previous_key = ANY($2)",
+        "UPDATE ai_session_backup_rekey SET walked_storages = array_append(walked_storages, $3) \
+         WHERE workspace_id = $1 AND previous_key = ANY($2) AND NOT ($3 = ANY(walked_storages))",
     )
     .bind(w_id)
-    .bind(&previous)
+    .bind(&owed)
+    .bind(storage_id)
     .execute(db)
     .await?;
     Ok(rekeyed)
