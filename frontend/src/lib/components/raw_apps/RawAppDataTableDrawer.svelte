@@ -23,8 +23,10 @@
 
 	interface Props {
 		/** `roles` holds, for each added table's data table under roles, the role its tables were
-		 * browsed as: the app uses the data table through it from then on. */
-		onAdd?: (refs: DataTableRef[], roles: Record<string, string>) => void
+		 * browsed as: the app uses the data table through it from then on. `replaced` names the data
+		 * tables whose existing refs were used through another role: the new ones replace them, since
+		 * the new role may not reach them. */
+		onAdd?: (refs: DataTableRef[], roles: Record<string, string>, replaced: Set<string>) => void
 		existingRefs?: DataTableRef[]
 		/** The role the app uses each data table through, by data table name */
 		roles?: Record<string, string>
@@ -156,6 +158,14 @@
 		return entry?.permissioned ? entry.default_role : undefined
 	}
 
+	function defaultRoleOf(datatable: string): string | undefined {
+		if (datatable === selectedDatatable && rolesOfCurrent?.permissioned) {
+			return rolesOfCurrent.default_role
+		}
+		const entry = datatableTree.current.find((t) => t.datatable_name === datatable)
+		return entry?.permissioned ? entry.default_role : undefined
+	}
+
 	const tableDatatable = (t: SelectedTable) => t.datatable ?? selectedDatatable
 
 	/** Stamps each newly selected table with the role it was seen through. A data table's
@@ -249,7 +259,22 @@
 			refs.push({ datatable, schema: table.schema, table: table.table })
 		}
 		const added = new Set(refs.map((r) => r.datatable))
-		onAdd?.(refs, Object.fromEntries(Object.entries(browsedRoles).filter(([dt]) => added.has(dt))))
+		const addedRoles = Object.fromEntries(
+			Object.entries(browsedRoles).filter(([dt]) => added.has(dt))
+		)
+		// An existing ref is used through the app's role on its data table, or that data table's
+		// default role when the app names none.
+		const replaced = new Set(
+			Object.entries(addedRoles)
+				.filter(([dt, role]) => {
+					const usedAs = appDatatableRole(roles, dt) ?? defaultRoleOf(dt)
+					return (
+						usedAs !== undefined && usedAs !== role && existingRefs.some((r) => r.datatable === dt)
+					)
+				})
+				.map(([dt]) => dt)
+		)
+		onAdd?.(refs, addedRoles, replaced)
 
 		const count = refs.length
 		sendUserToast(`Added ${count} table${count > 1 ? 's' : ''} to app`)

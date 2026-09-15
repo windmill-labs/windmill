@@ -637,15 +637,7 @@
 	offset={10000}
 	existingRefs={preWhitelistedTables}
 	roles={pickerRoles}
-	onAdd={(refs, browsedRoles) => {
-		// Tables added under another role than a data table's earlier ones replace those: the app
-		// uses each data table through one role.
-		const shown = pickerRoles ?? {}
-		const replaced = new Set(
-			Object.entries(browsedRoles)
-				.filter(([dt, role]) => shown[dt] !== undefined && shown[dt] !== role)
-				.map(([dt]) => dt)
-		)
+	onAdd={(refs, browsedRoles, replaced) => {
 		preWhitelistedTables = [
 			...preWhitelistedTables.filter((t) => !replaced.has(t.datatable)),
 			...refs

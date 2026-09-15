@@ -72,8 +72,12 @@
 	let selectedDataTableIndex: number | undefined = $state(undefined)
 	let sharedUiDrawer: RawAppSharedUiDrawer | undefined = $state()
 
-	function handleAddDataTables(refs: DataTableRef[], browsedRoles: Record<string, string>) {
-		onDataTableRefsChange?.([...dataTableRefs, ...refs])
+	function handleAddDataTables(
+		refs: DataTableRef[],
+		browsedRoles: Record<string, string>,
+		replaced: Set<string>
+	) {
+		onDataTableRefsChange?.([...dataTableRefs.filter((r) => !replaced.has(r.datatable)), ...refs])
 		if (Object.keys(browsedRoles).length > 0) {
 			onDatatableRolesChange?.({ ...datatableRoles, ...browsedRoles })
 		}
