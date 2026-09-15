@@ -153,9 +153,10 @@
 		 *  falls back to `$workspaceStore`/`liveEditorDraftStoragePath`. */
 		autosaveWorkspace?: string
 		autosavePath?: string
-		// Fired after a successful deploy; lets the session preview reload. Carries
-		// the version just written so the route can re-pin the draft's fork base.
-		onDeploy?: (e: { path: string; version?: number }) => void
+		// Fired after a successful deploy; lets the session preview reload. `version` is
+		// what this deploy wrote, for the next draft's fork base; `head` is what is
+		// deployed now, and the two differ when another deploy landed beside this one.
+		onDeploy?: (e: { path: string; version?: number; head?: number }) => void
 		/** Surfaces the user-typed path (`newEditedPath`) up to the route
 		 *  when (and only when) it differs from the deployed/seeded
 		 *  `savedApp.path`. The route writes it into the autosaved raw-app
@@ -511,6 +512,12 @@
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
+		// Read the head this deploy is about to append to, so the entry it writes can be
+		// told from one landing beside it (see versionThisDeployWrote).
+		const headBefore = await AppService.getAppLatestVersion({
+			workspace: opWorkspace!,
+			path: appPath!
+		}).catch(() => undefined)
 		await AppService.updateAppRaw({
 			workspace: opWorkspace!,
 			path: appPath!,
@@ -547,7 +554,7 @@
 		})
 		// The version this deploy wrote, not the head: they differ when someone else's
 		// deploy landed in between, and this becomes the next draft's base below.
-		version = versionThisDeployWrote(appHistory, $userStore?.username)
+		version = versionThisDeployWrote(appHistory, $userStore?.username, headBefore?.version)
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
@@ -562,7 +569,7 @@
 		if (appPath !== npath) {
 			onSavedNewAppPath?.(npath)
 		}
-		onDeploy?.({ path: npath, version })
+		onDeploy?.({ path: npath, version, head: appHistory[0]?.version })
 	}
 
 	async function setPublishState(message?: string) {

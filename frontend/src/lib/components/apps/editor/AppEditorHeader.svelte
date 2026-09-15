@@ -362,6 +362,12 @@
 
 	async function updateApp(npath: string) {
 		policy = await updatePolicy($app, policy)
+		// Read the head this deploy is about to append to, so the entry it writes can be
+		// told from one landing beside it (see versionThisDeployWrote).
+		const headBefore = await AppService.getAppLatestVersion({
+			workspace: $workspaceStore!,
+			path: $appPath
+		}).catch(() => undefined)
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $appPath!,
@@ -392,7 +398,7 @@
 			workspace: $workspaceStore!,
 			path: npath
 		})
-		version = versionThisDeployWrote(appHistory, $userStore?.username)
+		version = versionThisDeployWrote(appHistory, $userStore?.username, headBefore?.version)
 		// Re-pin the fork base to the version just written: the editor stays open, so a
 		// follow-up deploy (or a new edit) would otherwise compare against the now-
 		// superseded base and falsely warn. parent_version is in

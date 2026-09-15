@@ -655,13 +655,16 @@
 							}
 						}
 					: undefined}
-				onDeploy={({ version }) => {
-					// The version just written is the new head, and the base the next
-					// autosave should carry.
+				onDeploy={({ version, head }) => {
+					// The version this deploy wrote is the base the next autosave carries; the
+					// head is what is deployed now. They differ when another deploy landed
+					// beside this one, and the next draft is then behind from the start.
 					if (version != null) {
 						parentVersion = version
 						draftBaseVersion = String(version)
-						deployedHeadVersion = String(version)
+					}
+					if (head != null) {
+						deployedHeadVersion = String(head)
 					}
 				}}
 				onResetToDeployed={reloadDeployed}
