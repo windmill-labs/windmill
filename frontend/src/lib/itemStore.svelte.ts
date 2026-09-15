@@ -159,8 +159,9 @@ const outOfDate = {
 /** What a command did not do, so it can tell what moved under it. `edits`: what the user can see
  *  change, which a discard measures against, so an outside write of the value already shown does
  *  not cancel one. `externals`: every outside write, that one included — it still made the value
- *  a row, which a read in flight has not got and must not answer over. */
-type AsOf = { edits: number; externals: number }
+ *  a row, which a read in flight has not got and must not answer over. `values`: both of those,
+ *  counted once each, to weigh against the rows that appeared alongside them. */
+type AsOf = { edits: number; externals: number; values: number }
 
 class Entry<V> {
 	key: ItemKey = $state()!
@@ -245,6 +246,9 @@ class Entry<V> {
 	/** Counts outside writes, the ones that change nothing on screen included: those still put the
 	 *  value on the server as a row, which a read already in flight knows nothing about. */
 	private externals = 0
+	/** Counts every value this entry took from outside a command — typed or written in — once
+	 *  each. A row that appeared without one of these is a row nobody here has the value of. */
+	private values = 0
 	private queue: Promise<unknown> = Promise.resolve()
 	private ports: ItemRowPort
 	private store: StoreInternals
@@ -268,6 +272,7 @@ class Entry<V> {
 		if (s === this.seen) return
 		this.seen = s
 		this.edits++
+		this.values++
 		if (this.pristine && this.origin === 'deployed' && this.value !== undefined) {
 			const value = snapshot(this.value)
 			if (!this.absorbs || this.deployed === undefined || this.absorbs(value, this.deployed)) {
@@ -365,7 +370,7 @@ class Entry<V> {
 	/** The registers that move on their own: what the user is editing, and the rows already sent.
 	 *  A command compares against these to tell what has happened since it was asked for. */
 	private asOf(): AsOf {
-		return { edits: this.edits, externals: this.externals }
+		return { edits: this.edits, externals: this.externals, values: this.values }
 	}
 
 	/** Count a command as started now, ahead of its turn in the queue; returns its release. */
@@ -419,11 +424,12 @@ class Entry<V> {
 			// newer than what it read, so the read only moves the deployed side under it.
 			const keepValue =
 				standOff || this.edits !== at.edits || this.externals !== at.externals
-			// A row landed while the read was out and no newer value came with it, so it was
-			// written by someone this entry cannot see. Its response predates that row, and
-			// writing from it would post it back over it on the baseline that row advanced — so
-			// nothing goes out, and nothing is saved or discarded, until a reload.
-			this.stale = this.ports.rowMark(key) !== rowsAtRead && !keepValue
+			// More rows appeared while the read was out than values arrived to account for them,
+			// so one was written by someone this entry cannot see — and it is later than anything
+			// held here. Writing from this would post an older value over that row, on the
+			// baseline it advanced, so nothing goes out and nothing is saved until a reload.
+			this.stale =
+				this.ports.rowMark(key) - rowsAtRead > this.values - at.values
 			this.meta = res.meta
 			this.error = undefined
 			if (isTemporaryPath(key.path)) {
@@ -520,6 +526,7 @@ class Entry<V> {
 	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
 	applyExternal(value: V): number {
 		this.externals++
+		this.values++
 		if (this.loaded && serialize(value) === serialize(this.value)) return this.revision
 		this.edits++
 		this.pristine = false

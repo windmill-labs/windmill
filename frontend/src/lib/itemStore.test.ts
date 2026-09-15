@@ -873,6 +873,34 @@ describe('item store: origins', () => {
 		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: typed })
 	})
 
+	it('stays blocked when an unseen row follows the edit it kept', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		let reads = 0
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const { handle: item } = store.acquire(
+			key,
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(() => (reads++ === 0 ? Promise.resolve({ deployed: deployedRes }) : read.promise))
+		)
+		await settle()
+
+		const reloading = item.reload()
+		await settle()
+		// The user types while the GET is out: newer than the read, and its own row goes out.
+		item.value = { ...deployedRes, description: 'mine' }
+		// Then another draft surface writes this key directly, later than that edit.
+		rows.handExternally('u/me/r')
+		read.resolve({ deployed: deployedRes })
+		await reloading
+
+		// A value did arrive during the read, but the unseen row came after it, so what is held
+		// here is older than what the server has. Saving it would deploy the older of the two.
+		expect(item.value?.description).toBe('mine')
+		expect(item.canSave).toBe(false)
+	})
+
 	it('does not post a read back over a row another editor landed during it', async () => {
 		const rows = fakeRows()
 		const read = deferred<ItemLoad<Res>>()
