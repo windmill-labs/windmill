@@ -1251,6 +1251,33 @@ describe('item store: conflicts', () => {
 		})
 	})
 
+	it('re-issues a draft delete the server never received, on reopening', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const draft = { ...deployedRes, description: 'a draft to be discarded' }
+		// The server keeps the draft throughout: the delete never reaches it.
+		const a = adapter(async () => ({ deployed: deployedRes, draft }))
+		const first = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+		rows.failing.add('u/me/r')
+		expect(await first.handle.discard()).toEqual({ removed: false })
+		expect(rows.sent.has('u/me/r')).toBe(false)
+		first.release()
+		const writesBefore = rows.writes.length
+
+		const second = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+
+		// Reopening must not read the parked delete as "there is no draft": the row is still the
+		// server's, so the delete has to go out again rather than be quietly forgotten.
+		expect(second.handle.value).toEqual(deployedRes)
+		expect(rows.writes.slice(writesBefore)).toEqual([{ path: 'u/me/r', value: null }])
+		rows.failing.delete('u/me/r')
+		await rows.port.flush(key)
+		expect(rows.sent.get('u/me/r')).toBeNull()
+	})
+
 	it('opens a conflicted item afresh, past the payload the server refused', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)

@@ -407,8 +407,11 @@ class Entry<V> {
 			// copy of that edit, so the item opens on it. One the server *refused* is the other
 			// way round — the response is what won — and `adoptRow` drops it below.
 			const unsent = this.ports.conflicted(key) ? undefined : this.ports.pending(key)
-			const row = unsent === undefined ? res.draft : unsent
-			const draft = (row ?? undefined) as V | undefined
+			// A parked delete is what this tab wants gone, not what is there: the row is still the
+			// server's, so the reconcile at the end re-issues the delete instead of believing it
+			// landed and leaving the draft behind with nothing to remove it.
+			const row = unsent == null ? res.draft : unsent
+			const draft = (unsent === null ? undefined : row) as V | undefined
 			// The deployed side above always advances: the item did change, and a discard after
 			// the user keeps theirs has to land on what the server holds now.
 			if (!standOff) this.adoptRow(key, row, res.draftSavedAt, rowsAtRead)
