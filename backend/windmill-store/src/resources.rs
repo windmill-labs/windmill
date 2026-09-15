@@ -118,6 +118,10 @@ pub struct ResourceType {
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub format_extension: Option<String>,
     pub is_fileset: bool,
+    /// The name the product goes by (`gsheets` is "Google Sheets"), null where nobody named it.
+    /// Skipped when absent, so the type files of a synced repo gain nothing until one is set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -127,6 +131,7 @@ pub struct CreateResourceType {
     pub description: Option<String>,
     pub format_extension: Option<String>,
     pub is_fileset: Option<bool>,
+    pub display_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -143,6 +148,13 @@ pub struct EditResourceType {
         deserialize_with = "windmill_common::more_serde::double_option"
     )]
     pub format_extension: Option<Option<String>>,
+    /// Doubly optional for the same reason. A push from a CLI that predates the field omits it,
+    /// and must not clear a name the hub set.
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
+    pub display_name: Option<Option<String>>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -2729,7 +2741,7 @@ async fn list_resource_types(
 ) -> JsonResult<Vec<ResourceType>> {
     let rows = sqlx::query_as!(
         ResourceType,
-        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') ORDER \
+        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') ORDER \
          BY name",
         &w_id
     )
@@ -3109,7 +3121,7 @@ async fn get_resource_type(
 
     let resource_type_o = sqlx::query_as!(
         ResourceType,
-        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')",
+        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')",
         &name,
         &w_id
     )
@@ -3135,6 +3147,20 @@ async fn exists_resource_type(
     .unwrap_or(false);
 
     Ok(Json(exists))
+}
+
+/// Trimmed, blank as none, and held to the column's 100 characters, so an over-long name is
+/// refused with a message rather than a database error.
+fn normalize_display_name(name: Option<&str>) -> Result<Option<String>> {
+    let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) else {
+        return Ok(None);
+    };
+    if name.chars().count() > 100 {
+        return Err(Error::BadRequest(
+            "display_name must be at most 100 characters".to_string(),
+        ));
+    }
+    Ok(Some(name.to_string()))
 }
 
 async fn create_resource_type(
@@ -3170,11 +3196,12 @@ async fn create_resource_type(
             "A fileset resource type cannot have a format_extension".to_string(),
         ));
     }
+    let display_name = normalize_display_name(resource_type.display_name.as_deref())?;
 
     sqlx::query!(
         "INSERT INTO resource_type
-            (workspace_id, name, schema, description, created_by, format_extension, is_fileset, edited_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, now())",
+            (workspace_id, name, schema, description, created_by, format_extension, is_fileset, display_name, edited_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())",
         w_id,
         resource_type.name,
         resource_type.schema,
@@ -3182,6 +3209,7 @@ async fn create_resource_type(
         authed.username,
         resource_type.format_extension,
         is_fileset,
+        display_name,
     )
     .execute(&mut *tx)
     .await?;
@@ -3347,6 +3375,12 @@ async fn update_resource_type(
         match format_extension {
             Some(ext) => sqlb.set_str("format_extension", ext),
             None => sqlb.set("format_extension", "NULL"),
+        };
+    }
+    if let Some(display_name) = &ns.display_name {
+        match normalize_display_name(display_name.as_deref())? {
+            Some(name) => sqlb.set_str("display_name", name),
+            None => sqlb.set("display_name", "NULL"),
         };
     }
     sqlb.set_str("edited_at", "now()");

@@ -1038,6 +1038,14 @@
 												: 'Checking the tracked branch about every minute. New commits deploy automatically.'}
 										{/if}
 									</div>
+									{#if repo.auto_pull?.enabled_by}
+										<div class="text-2xs text-secondary mt-1">
+											Pulls apply changes as {repo.auto_pull.enabled_by}, the admin who last saved
+											these settings{repo.auto_pull.sync_forks
+												? ', in this workspace and its forks'
+												: ''}.
+										</div>
+									{/if}
 									{#if hasManagedCredential && repo.auto_pull?.webhook_error}
 										<div class="mt-2">
 											<Alert type="warning" title="Falling back to polling" size="xs">
