@@ -464,8 +464,10 @@ async function planFor(
 
 interface WorkspaceWork {
 	items: { session: Session; v: number; sync?: MirrorSyncState }[]
-	/** `key` is the localStorage mark; absent when the removal rides on the sync row. */
-	removed: { id: string; key?: string }[]
+	/** `key` is the localStorage mark; absent when the removal rides on the sync row.
+	 * `storageId` is the storage the backup is in, when a sync row says: a removal is done
+	 * only once that storage answered it. */
+	removed: { id: string; key?: string; storageId?: string }[]
 }
 
 type SendStatus = 'ok' | 'off' | 'refused' | 'abort' | 'transient'
@@ -583,7 +585,13 @@ async function pushWorkspace(
 			if (errors.has(id)) failed.add(id)
 			else {
 				const mark = work.removed.find((r) => r.id === id)
-				if (mark) out.removedDone.push(mark)
+				// Answered from another storage than the one holding the backup: the copy is
+				// still there, and the mark waits for that storage to answer again.
+				const elsewhere =
+					mark?.storageId !== undefined &&
+					res.storage_id !== undefined &&
+					mark.storageId !== res.storage_id
+				if (mark && !elsewhere) out.removedDone.push(mark)
 			}
 		}
 		return 'ok'
@@ -772,7 +780,7 @@ async function flush(): Promise<void> {
 			if (!ws) {
 				if (r.key) consumedRemoved.push(r.key)
 			} else if (!wsState.has(ws) || wsState.get(ws) === 'on') {
-				workFor(ws).removed.push({ id: r.id, key: r.key })
+				workFor(ws).removed.push({ id: r.id, key: r.key, storageId: sync?.storageId })
 			} else if (wsState.get(ws) === 'off' && !sync && r.key) consumedRemoved.push(r.key)
 		}
 		for (const d of live) {
@@ -1001,8 +1009,13 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 		sync: MirrorSyncState
 		artifactIds: string[]
 		versionKeys: string[]
+		/** The listing fingerprint the pages so far were answered with. */
+		listing?: string
 	}
 	const staged = new Map<string, Staged>()
+	// A session whose backup moved between two of its pages starts over, a few times.
+	const restarts = new Map<string, number>()
+	const MAX_RESTARTS = 3
 	const resumes: AISessionBackupCursor[] = []
 	while (ids.length > 0 || resumes.length > 0) {
 		if (getCurrentUserEmail() !== email) return
@@ -1038,6 +1051,15 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 			// Imported by another tab meanwhile (the lock keeps that from happening where Web
 			// Locks exist): its pieces are not ours to write over any more.
 			if ((await readStoredSessions(email))?.some((s) => s.id === b.id)) continue
+			// The backup moved between two pages (a chat sorting before the cursor would be
+			// missed): the pages so far do not belong together, the session starts over.
+			if (earlier?.listing !== undefined && b.listing !== earlier.listing) {
+				const n = (restarts.get(b.id) ?? 0) + 1
+				restarts.set(b.id, n)
+				if (n < MAX_RESTARTS) ids.unshift(b.id)
+				else console.warn(`Session backup ${b.id} kept changing while restoring; left for later`)
+				continue
+			}
 			const u = unpackBackup(
 				ws,
 				b,
@@ -1077,6 +1099,7 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 						versionKeys: b.artifacts !== undefined ? versionKeys : earlier.versionKeys
 					}
 				: { session: u.session, sync: u.sync, artifactIds, versionKeys }
+			merged.listing = b.listing
 			if (b.next) {
 				staged.set(b.id, merged)
 				resumes.push(b.next)

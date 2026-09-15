@@ -469,6 +469,32 @@ describe('sessionMirror flush', () => {
 		expect(await __syncRowsForTesting(EMAIL)).toEqual([])
 	})
 
+	it('retires a removal only once the storage holding the backup answered it', async () => {
+		const s: Session = { id: 'sr2', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
+		sessionState.sessions = [s]
+		await putSession(s)
+		pushMock.mockResolvedValueOnce({ enabled: true, storage_id: 'A', results: [{ id: 'sr2' }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(1)
+
+		// The workspace moved to another storage before the delete: the copy in A stays.
+		deleteSession('sr2')
+		await flush()
+		pushMock.mockResolvedValueOnce({ enabled: true, storage_id: 'B', results: [{ id: 'sr2' }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(removalKeys()).toEqual(['r::sr2::ws'])
+		expect((await __syncRowsForTesting(EMAIL)).some((r) => r.id === 'sr2')).toBe(true)
+
+		// Back on A, the removal lands.
+		pushMock.mockResolvedValueOnce({ enabled: true, storage_id: 'A', results: [{ id: 'sr2' }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(3)
+		expect(pushMock.mock.calls[2][0].requestBody.removed).toEqual(['sr2'])
+		expect(removalKeys()).toEqual([])
+		expect((await __syncRowsForTesting(EMAIL)).some((r) => r.id === 'sr2')).toBe(false)
+	})
+
 	it('holds the rest of a session back once the server refused a part of it', async () => {
 		await splitSession('sf')
 		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sf', error: 'boom' }] })
@@ -649,6 +675,47 @@ describe('sessionMirror restore', () => {
 		expect(pullMock.mock.calls[1][0].requestBody).toEqual({ ids: ['s9'], resume: cursor })
 		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s9']))
 		expect((await readStoredChat('c9', EMAIL))?.displayMessages).toHaveLength(1)
+		expect((await readStoredChat('c9b', EMAIL))?.id).toBe('c9b')
+	})
+
+	it('starts a session over when its backup moved between two pages', async () => {
+		listMock.mockResolvedValue({
+			enabled: true,
+			sessions: [{ id: 's9', updated_at: '2026-09-14T00:00:00Z' }]
+		})
+		const cursor = { id: 's9', images: false, after: 'sessions/s9/chats/c9.json' }
+		const c9b = { ...backup.chats[0], id: 'c9b', record: { ...backup.chats[0].record, id: 'c9b' } }
+		const c9a = { ...backup.chats[0], id: 'c9a', record: { ...backup.chats[0].record, id: 'c9a' } }
+		pullMock
+			// The first attempt: a chat sorting before the cursor lands between the pages.
+			.mockResolvedValueOnce({
+				enabled: true,
+				sessions: [{ ...backup, next: cursor, listing: 'L1' }],
+				deferred: []
+			})
+			.mockResolvedValueOnce({
+				enabled: true,
+				sessions: [{ ...backup, chats: [c9b], listing: 'L2' }],
+				deferred: []
+			})
+			// The second attempt sees the whole of it.
+			.mockResolvedValueOnce({
+				enabled: true,
+				sessions: [{ ...backup, chats: [c9a, backup.chats[0]], next: cursor, listing: 'L2' }],
+				deferred: []
+			})
+			.mockResolvedValueOnce({
+				enabled: true,
+				sessions: [{ ...backup, chats: [c9b], listing: 'L2' }],
+				deferred: []
+			})
+		usersWorkspaceStore.set({ email: EMAIL, workspaces: [] } as never)
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		expect(pullMock).toHaveBeenCalledTimes(4)
+		expect(pullMock.mock.calls[2][0].requestBody).toEqual({ ids: ['s9'], resume: undefined })
+		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s9']))
+		expect((await readStoredChat('c9a', EMAIL))?.id).toBe('c9a')
 		expect((await readStoredChat('c9b', EMAIL))?.id).toBe('c9b')
 	})
 

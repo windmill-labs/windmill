@@ -28492,6 +28492,9 @@ components:
           additionalProperties: true
         next:
           $ref: "#/components/schemas/AISessionBackupCursor"
+        listing:
+          type: string
+          description: a fingerprint of the session's listing; pages of one session whose fingerprints differ do not belong together
 
     AISessionBackupCursor:
       type: object

@@ -260,6 +260,24 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         assert!(pages.len() < 5, "a paged pull must end");
     }
     assert!(pages.len() >= 2, "36 MB must not fit one answer");
+    // Every page of an unchanged backup carries the same listing fingerprint; a chat added
+    // to the session changes it, which is what tells a browser its pages do not belong
+    // together any more.
+    let listing = pages[0]["listing"].clone();
+    assert!(listing.is_string());
+    assert!(pages.iter().all(|p| p["listing"] == listing));
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s4", "chats": [{ "id": "c0", "record": { "id": "c0" } }] }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let pulled = pull(&base, "SECRET_TOKEN", &["s4"]).await?;
+    assert_ne!(pulled["sessions"][0]["listing"], listing);
     let mut chat_ids: Vec<String> = pages
         .iter()
         .flat_map(|p| p["chats"].as_array().unwrap().iter())

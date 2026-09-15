@@ -258,6 +258,30 @@ impl Backend {
         Ok(())
     }
 
+    /// A fingerprint of everything listed under the session's two prefixes (key, size,
+    /// modification time), combined as the listing streams and in no particular order, so a
+    /// session of any size costs bounded memory. Pages of one pull carry it, and the browser
+    /// starts the session over when it moved between two of them.
+    async fn listing_fingerprint(&self, sid: &str) -> Result<String> {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        let mut acc: u64 = 0;
+        for prefix in [self.session_prefix(sid), self.images_prefix(sid)] {
+            let mut stream = self.store.list(Some(&prefix));
+            while let Some(meta) = stream.next().await {
+                let meta = meta.map_err(object_store_error_to_error)?;
+                let mut hasher = DefaultHasher::new();
+                (
+                    meta.location.as_ref(),
+                    meta.size,
+                    meta.last_modified.timestamp_millis(),
+                )
+                    .hash(&mut hasher);
+                acc = acc.wrapping_add(hasher.finish());
+            }
+        }
+        Ok(format!("{acc:016x}"))
+    }
+
     /// Deletes as the listing streams, so a prefix of any size costs bounded memory.
     async fn delete_prefix(&self, prefix: &ObjectPath) -> Result<()> {
         self.store
@@ -483,6 +507,9 @@ struct PulledSession {
     /// The session did not fit this answer whole: the rest follows a pull with this cursor.
     #[serde(skip_serializing_if = "Option::is_none")]
     next: Option<PullCursor>,
+    /// A fingerprint of the session's listing (every key, size and modification time), so
+    /// the browser tells that the backup changed between the pages it assembled.
+    listing: String,
 }
 
 #[derive(Serialize)]
@@ -660,6 +687,7 @@ async fn pull_session(
             before = key.to_string();
         }
     }
+    let listing = backend.listing_fingerprint(sid).await?;
     Ok(PullStep::Fetched(
         PulledSession {
             id: sid.to_string(),
@@ -668,6 +696,7 @@ async fn pull_session(
             images,
             artifacts,
             next,
+            listing,
         },
         size,
     ))

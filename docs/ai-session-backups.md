@@ -134,10 +134,13 @@ session whose pieces could not be written: recording it would let the next flush
 half-empty local state over the backup.
 
 Every answer names the storage it came from (`storage_id`, a hash of what locates the objects,
-endpoint, region and bucket, not the credentials, which rotate, and of the workspace key). A
-sync row records it, and a row naming another storage goes stale and its session is marked
-again: a workspace pointed at a new bucket, or whose key was rotated, holds nothing, and the
-server looks nowhere else, so the next flush carries the session whole. That includes the rows a flush has just written, when a later answer of the
+endpoint, region and bucket, not the credentials, which rotate, and of the backup generation
+a key rotation bumps). A sync row records it, and a row naming another storage goes stale and
+its session is marked again: a workspace pointed at a new bucket, or whose key was rotated,
+holds nothing, and the server looks nowhere else, so the next flush carries the session
+whole. A removal is done only once the storage the row names answered it: answered from
+another storage, the copy is still where it was, and the mark waits for that storage to
+answer again. That includes the rows a flush has just written, when a later answer of the
 same flush names another storage or the session was pushed in part on top of a row from the
 old one; a session whose own parts were answered from different storages is not settled at
 all. The listing a restore starts with runs the same check, so a storage switch is noticed at
@@ -183,7 +186,10 @@ the same absent session's pieces over the other's; where Web Locks do not exist 
 session another tab imported meanwhile is dropped, a restore never writes an older record
 over a newer one, and it prunes nothing newer than the backup it works from, so the worst
 two lockless tabs can do to each other is leave a piece the other would have pruned; between pages it holds nothing but the sync
-row being assembled, whose chats also admit the images of a later page. An object that grew
+row being assembled, whose chats also admit the images of a later page. Every page carries a
+fingerprint of the session's listing (`listing`); a session whose fingerprint moved between
+two of its pages (a chat added by another device could sort before the cursor and be missed)
+starts over, up to three times, then waits for the next restore. An object that grew
 since the listing (a push replaced it) ends its page just before it and the answer names that
 spot, so the next page sizes it anew rather than the session being imported without it. A pull sees every key of a session's listing but keeps the 5000 smallest
 past its cursor (a page is defined by key order, and the store promises none), so a session
