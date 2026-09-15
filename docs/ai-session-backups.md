@@ -154,7 +154,8 @@ its pulls are done, and just before they do the whole family is listed again (me
 backups were off included, since a move from another device can land in a workspace between
 the first listings and the pulls; a family of one, with nowhere else for a copy to show up, is
 not): a session a later copy of which showed up elsewhere is left, with the family, for the
-next time. Only a user-initiated `deleteSession` removes the backup; the next push from
+next time. Only a user-initiated `deleteSession`, and the retention sweep below, remove the
+backup; the next push from
 another device that still has the session is refused with `needs_whole` (nothing of it is
 written), its row goes stale without a backoff, and that device's next flush sends the session
 whole; the workspace-lifecycle
@@ -186,6 +187,38 @@ same flush names another storage or the session was pushed in part on top of a r
 old one; a session whose own parts were answered from different storages is not settled at
 all. The listing a restore starts with runs the same check, so a storage switch is noticed at
 the first push after it or on the next page load, whichever comes first.
+
+## Retention
+
+`ai_config.sessions_retention_days` (per workspace, in the AI settings; unset by default;
+the `sessions_storage_disabled` pattern: no migration, carried by settings export and the
+CLI; 1 to 3650) puts an age on sessions, counted from their last activity. Each side applies
+it with its own clock against its own timestamps, so no clock is compared with another
+machine's:
+
+- The server sweeps the object store hourly (`sweep_expired_ai_session_backups`, from the
+  monitor, one server at a time under a session-level advisory lock). For every workspace
+  with a retention and a storage it names the users under the generation prefix
+  (`list_with_delimiter`) and lists each user's `index/` once: one object per session,
+  nothing of what the sessions hold. A session whose marker is older than the retention is
+  deleted under its lock (`lock_session`), once its markers, listed again there, are still
+  all older: a push that renewed the session between the walk and the lock keeps it, and
+  one in progress either holds the lock or has the session unlisted (its last part lists it
+  again). At most 1000 sessions per workspace and pass; the rest wait for the next. `list`
+  leaves an expired marker out of its answer meanwhile, so a browser never restores a
+  session the sweep has not reached yet. The marker's modification time is the storage's
+  clock and the cutoff the server's.
+- The browser sweeps its own stores on every reconcile (`reconcileSessionsLifecycle`: at
+  load, after a workspace change, and when the setting is saved from this page), which
+  learns every referenced workspace's retention from the status answer. A session whose own
+  `lastActivityAt` (a restored one carries the backup's `updated_at`) is older than the
+  retention by the browser's clock is deleted locally, record, chats, images, attached
+  files and artifacts, except the one on screen. Archived sessions count like any other,
+  and persisted unsent drafts by their pending workspace. Nothing is sent to the storage:
+  the local copy's age says nothing about another device's, which may have pushed the
+  session since, and the server applies the rule to the backup on its own. A session swept
+  here that the storage still lists comes back on the next restore, with that copy's
+  activity time.
 
 ## Limits
 

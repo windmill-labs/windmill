@@ -455,6 +455,12 @@ pub struct AIConfig {
     /// (`ai_sessions.rs`). Read from the workspace's own row like `copilot_disabled`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub sessions_storage_disabled: bool,
+    /// Sessions whose last activity is older than this many days are deleted: their backups
+    /// by the server's sweep (`ai_sessions.rs`), their local copies by each browser. Unset
+    /// keeps them until the user deletes them. Read from the workspace's own row like
+    /// `copilot_disabled`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sessions_retention_days: Option<u32>,
 }
 
 /// Negotiated rates in USD per million tokens. An unset cache rate is read as the
@@ -491,12 +497,26 @@ impl ModelPriceOverride {
     }
 }
 
+/// Ten years: past any plausible retention, and well within what a day count is turned into.
+pub const MAX_SESSIONS_RETENTION_DAYS: u32 = 3650;
+
 impl AIConfig {
     pub fn validate_model_pricing(&self) -> Result<()> {
         for (key, price) in self.model_pricing.iter().flatten() {
             price.validate(key)?;
         }
         Ok(())
+    }
+
+    pub fn validate_sessions_retention(&self) -> Result<()> {
+        match self.sessions_retention_days {
+            Some(days) if !(1..=MAX_SESSIONS_RETENTION_DAYS).contains(&days) => {
+                Err(Error::BadRequest(format!(
+                    "AI session retention must be between 1 and {MAX_SESSIONS_RETENTION_DAYS} days (got {days})"
+                )))
+            }
+            _ => Ok(()),
+        }
     }
 
     pub fn has_providers(&self) -> bool {

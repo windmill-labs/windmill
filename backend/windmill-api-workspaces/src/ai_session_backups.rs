@@ -64,9 +64,22 @@ pub fn storage_id(resource: &ObjectStoreResource) -> String {
     calculate_hash(&location)[..16].to_string()
 }
 
-/// The workspace's primary storage, resolved without a caller: a rotation runs the
-/// deletion off its own request.
-async fn primary_store(db: &DB, w_id: &str) -> Result<Option<Arc<dyn ObjectStore>>> {
+/// `ai_config.sessions_retention_days` as stored, `None` when unset or not a count of days:
+/// the retention sweep and the workspace status answer read it off the row's JSON.
+pub fn sessions_retention_days(value: Option<&serde_json::Value>) -> Option<u32> {
+    value
+        .and_then(|v| v.as_u64())
+        .filter(|days| *days >= 1)
+        .and_then(|days| u32::try_from(days).ok())
+}
+
+/// The workspace's primary storage, resolved without a caller, with the resource it was
+/// built from: for the rotation's deletion and the retention sweep, which run off no
+/// request. The caller must be the server itself; nothing here checks who asks.
+pub async fn primary_store(
+    db: &DB,
+    w_id: &str,
+) -> Result<Option<(Arc<dyn ObjectStore>, ObjectStoreResource)>> {
     let Some(lfs_json) = sqlx::query_scalar!(
         "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
         w_id
@@ -91,9 +104,8 @@ async fn primary_store(db: &DB, w_id: &str) -> Result<Option<Arc<dyn ObjectStore
         .await?
     };
     let resource = windmill_object_store::lfs_to_object_store_resource(&lfs, resource_value)?;
-    Ok(Some(
-        windmill_object_store::build_object_store_client(&resource).await?,
-    ))
+    let store = windmill_object_store::build_object_store_client(&resource).await?;
+    Ok(Some((store, resource)))
 }
 
 /// The generation an object key sits under, `None` for a key of no generation (an older
@@ -116,7 +128,7 @@ fn generation_of(w_id: &str, key: &ObjectPath) -> Option<i64> {
 pub(crate) fn spawn_delete_older(db: DB, w_id: String, current: i64) {
     tokio::spawn(async move {
         let store = match primary_store(&db, &w_id).await {
-            Ok(Some(store)) => store,
+            Ok(Some((store, _))) => store,
             Ok(None) => return,
             Err(e) => {
                 tracing::warn!("older AI session backups of {w_id} left in place: {e:#}");

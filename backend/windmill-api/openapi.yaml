@@ -1265,17 +1265,25 @@ paths:
                 - workspace_ids
       responses:
         "200":
-          description: map of workspace id to status (active, archived, or deleted)
+          description: map of workspace id to its status (active, archived, or deleted) and, when reachable, its AI session retention
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties:
-                  type: string
-                  enum:
-                    - active
-                    - archived
-                    - deleted
+                  type: object
+                  required:
+                    - status
+                  properties:
+                    status:
+                      type: string
+                      enum:
+                        - active
+                        - archived
+                        - deleted
+                    sessions_retention_days:
+                      type: integer
+                      description: the workspace's `ai_config.sessions_retention_days`, when set; the browser deletes its sessions whose last activity is older
 
   /w/{workspace}/workspaces/get_as_superadmin:
     get:
@@ -28441,6 +28449,15 @@ components:
           description: >-
             Stops browsers from backing their AI sessions up to the workspace's object
             storage. Read from the workspace's own settings like `copilot_disabled`.
+        sessions_retention_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
+          description: >-
+            Sessions whose last activity is older than this many days are deleted: their
+            backups by the server, their local copies by each browser. Unset keeps them
+            until the user deletes them. Read from the workspace's own settings like
+            `copilot_disabled`.
 
     AISessionBackupListing:
       type: object

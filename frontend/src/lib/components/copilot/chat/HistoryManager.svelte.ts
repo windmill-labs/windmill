@@ -267,6 +267,31 @@ export async function importStoredChats(
 	return true
 }
 
+/** Deletes every chat tagged with the session, and their images: for a session past its
+ * workspace's retention, which no runtime has mounted. False when the store could not be
+ * reached, so the caller can leave the session for a later pass. */
+export async function deleteSessionChats(sessionId: string, email: string): Promise<boolean> {
+	const db = await backupDb(email)
+	if (!db) return false
+	try {
+		const tx = db.transaction(['chats', 'images'], 'readwrite')
+		const chatStore = tx.objectStore('chats')
+		const imageStore = tx.objectStore('images')
+		for (const chatId of await chatStore.index('by-session').getAllKeys(sessionId)) {
+			await chatStore.delete(chatId)
+			const keys = await imageStore
+				.index('by-chat')
+				.getAllKeys(IDBKeyRange.bound([chatId, -Infinity], [chatId, Infinity]))
+			for (const key of keys) await imageStore.delete(key)
+		}
+		await tx.done
+		return true
+	} catch (err) {
+		console.error('Could not delete the chats of session', err)
+		return false
+	}
+}
+
 /** Deletes these chats of the session (with their images) and these images: what an earlier
  * restore staged for it and the backup no longer has. False when nothing could be deleted. */
 export async function pruneSessionChats(

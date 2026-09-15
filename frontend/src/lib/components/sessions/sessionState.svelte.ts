@@ -27,6 +27,7 @@ import { userScopedDb } from '$lib/userScopedDb'
 import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
+import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
 import { markSessionDirty, markSessionRemoved } from './sessionMirrorSignal'
 
 // Switch the global workspace iff the target differs from the active one
@@ -550,6 +551,22 @@ export function decideSessionLifecycle(
 	return { action: 'noop' }
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// Past the workspace's AI session retention, by this browser's clock against its own
+// record. What another device did with the session is not consulted: its copy has its own
+// activity time, and the backup is swept by the server on the storage's clock, so a session
+// swept here that the storage still lists comes back on the next restore with that time.
+// Archived sessions count like any other.
+export function isSessionExpired(
+	session: Session,
+	retentionDays: number | undefined,
+	now: number
+): boolean {
+	if (retentionDays === undefined || !(retentionDays >= 1)) return false
+	return sessionLastActivityAt(session) < now - retentionDays * DAY_MS
+}
+
 // Apply a decision patch in place: `undefined` removes the key (the unarchive
 // path needs the flags gone, not set to undefined), any other value assigns.
 function applyLifecyclePatch(session: Session, patch: Partial<Session>): void {
@@ -587,7 +604,7 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	}
 	if (wsIds.size === 0) return
 
-	let status: Record<string, 'active' | 'archived' | 'deleted'>
+	let status: Awaited<ReturnType<typeof WorkspaceService.getSessionWorkspaceStatus>>
 	try {
 		status = await WorkspaceService.getSessionWorkspaceStatus({
 			requestBody: { workspace_ids: [...wsIds] }
@@ -598,17 +615,28 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	}
 
 	const deletedIds = new Set<string>()
+	const now = Date.now()
+	const email = emailOfScopedKey(SESSIONS_DB, db.name)
 	try {
 		for (const s of sessions) {
 			const ws = s.workspace_id ?? s.pending_workspace_id
 			if (!ws) continue
-			const { action, patch } = decideSessionLifecycle(s, status[ws])
-			if (action === 'delete') {
+			const { action, patch } = decideSessionLifecycle(s, status[ws]?.status)
+			// The one on screen is never swept mid-use; its record is touched the next time
+			// the user reads or writes it, and it is judged again on the next reconcile.
+			const expired =
+				action !== 'delete' &&
+				s.id !== sessionState.currentSessionId &&
+				isSessionExpired(s, status[ws]?.sessions_retention_days, now)
+			if (action === 'delete' || expired) {
 				await deleteSessionRow(db, s.id)
 				// GC linked files too, matching deleteSession — a record-only delete
 				// here would orphan the session's attached-file blobs/handles.
 				void deleteItemsForSession(s.id)
 				void deleteArtifactsForSession(s.id)
+				// The retention is what keeps IndexedDB from growing without bound, and the
+				// chats are most of it; no runtime has an expired session mounted.
+				if (expired && email) void deleteSessionChats(s.id, email)
 				deletedIds.add(s.id)
 				continue
 			}
