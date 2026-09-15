@@ -723,7 +723,8 @@ function webLocks(): LockManager | undefined {
 }
 
 // Held, shared, by every tab for the session it has selected: `currentSessionId` is per tab
-// while the stores are shared, so this is how a sweep in another tab knows to leave it.
+// while the stores are shared, so a sweep in another tab deletes a session only while holding
+// this lock exclusively.
 function openSessionLockName(email: string, id: string): string {
 	return `${sessionsLockName(email)}::open::${id}`
 }
@@ -754,11 +755,34 @@ if (BROWSER) {
 	})
 }
 
+// Deletes one expired session's record, then its pieces. False when the record was not
+// deleted: the pending key could not be written, or the session is no longer expired.
+async function sweepSession(
+	db: IDBPDatabase<SessionSchema>,
+	id: string,
+	retention: Map<string, number>,
+	email: string
+): Promise<boolean> {
+	try {
+		localStorage.setItem(retentionPendingPrefix(email) + id, '1')
+	} catch {
+		return false
+	}
+	const still = (cur: Session) => isSweepable(cur, retention, Date.now())
+	if (!(await deleteSessionRowIf(db, id, still))) {
+		forgetRetentionPending(email, id)
+		return false
+	}
+	await sessionSwept(id, email)
+	if (await deleteSessionPieces(id, email)) forgetRetentionPending(email, id)
+	return true
+}
+
 // Chats with their images, artifacts and attached files. False when any of them could not
 // be deleted.
 async function deleteSessionPieces(id: string, email: string): Promise<boolean> {
 	const chats = await deleteSessionChats(id, email)
-	const artifacts = await deleteArtifactsForSession(id)
+	const artifacts = await deleteArtifactsForSession(id, email)
 	const files = await deleteItemsForSession(id)
 	return chats && artifacts && files
 }
@@ -798,21 +822,14 @@ async function sweepExpiredSessions(retention: Map<string, number>, email: strin
 			let swept = false
 			for (const s of await db.getAll('sessions')) {
 				if (!isSweepable(s, retention, Date.now())) continue
-				const held = (await locks.query()).held ?? []
-				if (held.some((lock) => lock.name === openSessionLockName(email, s.id))) continue
-				try {
-					localStorage.setItem(retentionPendingPrefix(email) + s.id, '1')
-				} catch {
-					continue
-				}
-				const still = (cur: Session) => isSweepable(cur, retention, Date.now())
-				if (!(await deleteSessionRowIf(db, s.id, still))) {
-					forgetRetentionPending(email, s.id)
-					continue
-				}
-				swept = true
-				await sessionSwept(s.id, email)
-				if (await deleteSessionPieces(s.id, email)) forgetRetentionPending(email, s.id)
+				// Exclusive against the shared hold of a tab that has the session selected: not
+				// granted while one holds it, and a tab selecting it meanwhile waits for the end.
+				const deleted = await locks.request(
+					openSessionLockName(email, s.id),
+					{ mode: 'exclusive', ifAvailable: true },
+					async (lock) => lock !== null && (await sweepSession(db, s.id, retention, email))
+				)
+				swept = deleted === true || swept
 			}
 			if (swept) await hydrateSessions()
 		})

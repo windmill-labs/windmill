@@ -230,8 +230,9 @@ writes to the session again (its incremental push is refused and goes whole):
   tab lock the flush and the restore take, so neither plans or stages a session half deleted,
   and so only where Web Locks exist, as the restore. `currentSessionId` is per tab while the
   stores are shared, so every tab holds a shared Web Lock named after the session it has
-  selected, and the sweep leaves one another tab holds (`locks.query()` before each
-  deletion). Each record is deleted in the transaction that reads it still expired, so
+  selected, and the sweep deletes a session only while holding that lock exclusively,
+  requested if available: a tab that has it selected keeps it, and one selecting it meanwhile
+  waits for the deletion to end. Each record is deleted in the transaction that reads it still expired, so
   activity since the reconcile read keeps the session. The record goes before its pieces,
   and a localStorage key written before it and removed once every piece is gone makes a later
   reconcile finish a deletion that failed, whether a retention is still set or not, unless a

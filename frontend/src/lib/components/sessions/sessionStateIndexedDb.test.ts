@@ -700,7 +700,8 @@ describe('sessionState IndexedDB persistence', () => {
 		})
 		await login(user)
 		// The sweep runs under the backup's tab lock, so only where Web Locks exist; `held` is
-		// what `query` reports every tab holding.
+		// every tab's shared holds, against which an exclusive request made if available is not
+		// granted.
 		const held = new Set<string>()
 		if (typeof navigator === 'undefined') {
 			Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true })
@@ -709,15 +710,17 @@ describe('sessionState IndexedDB persistence', () => {
 			value: {
 				request: async (name: string, ...rest: unknown[]) => {
 					const run = rest[rest.length - 1] as (lock: unknown) => Promise<unknown>
-					const shared = rest.length > 1 && (rest[0] as LockOptions).mode === 'shared'
-					if (shared) held.add(name)
-					try {
-						return await run({})
-					} finally {
-						if (shared) held.delete(name)
+					const options = (rest.length > 1 ? rest[0] : {}) as LockOptions
+					if (options.mode === 'shared') {
+						held.add(name)
+						try {
+							return await run({})
+						} finally {
+							held.delete(name)
+						}
 					}
-				},
-				query: async () => ({ held: [...held].map((name) => ({ name, mode: 'shared' })) })
+					return run(options.ifAvailable && held.has(name) ? null : {})
+				}
 			},
 			configurable: true
 		})

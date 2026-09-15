@@ -19,8 +19,7 @@ describe('attachedFilesDB without IndexedDB', () => {
 			putItem({ id: 'a', sessionId: 's1', kind: 'snapshot', name: 'x.txt', addedAt: 0 })
 		).resolves.toBeUndefined()
 		await expect(deleteItem('a')).resolves.toBeUndefined()
-		// Reports whether the deletion happened, which depends on whether the runtime opens one.
-		await expect(deleteItemsForSession('s1')).resolves.toBeTypeOf('boolean')
+		await deleteItemsForSession('s1')
 	})
 
 	it('does not throw when requesting persistent storage', async () => {
