@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT raw_lock, runnable_id, jsonb_exists(args, '_MODULES') AS has_modules FROM v2_job WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "raw_lock",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "runnable_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "has_modules",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "07ad3afbbcca85766a515496d489ba12ed40541b4fadce7c65a714fd7c9edb95"
+}
