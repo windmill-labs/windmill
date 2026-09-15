@@ -55,10 +55,12 @@ import {
 import {
 	artifactsFingerprint,
 	headSig,
+	isFallbackStorage,
 	jsonBytes,
 	operationsOf,
 	planSessionPush,
 	splitEntry,
+	storageName,
 	type ChatSnapshot,
 	type MirrorSyncState,
 	type PlannedPush,
@@ -682,9 +684,10 @@ async function pushWorkspace(
 			return 'transient'
 		}
 		if (!res.enabled) return 'off'
-		out.storageId = res.storage_id
+		const storageId = storageName(res.storage_id, res.fallback)
+		out.storageId = storageId
 		out.generation = res.backup_generation
-		const answered = `${res.storage_id}:${res.backup_generation}`
+		const answered = `${storageId}:${res.backup_generation}`
 		const errors = new Set<string>()
 		for (const r of res.results) {
 			if (r.error) {
@@ -705,7 +708,7 @@ async function pushWorkspace(
 			// settle, the session goes again whole.
 			if (a.answered !== undefined && a.answered !== answered) failed.add(entry.id)
 			a.answered = answered
-			a.storageId = res.storage_id
+			a.storageId = storageId
 			a.generation = res.backup_generation
 			if (errors.has(entry.id)) failed.add(entry.id)
 		}
@@ -718,12 +721,20 @@ async function pushWorkspace(
 					[mark.storageId, ...(mark.alsoIn ?? [])].filter((s): s is string => s !== undefined)
 				)
 				// Answered from a storage holding no copy: the copies are still where they
-				// were, and the mark waits for those storages to answer.
-				if (holding.size === 0 || res.storage_id === undefined) out.removedDone.push(mark)
-				else if (holding.has(res.storage_id)) {
-					holding.delete(res.storage_id)
+				// were, and the mark waits for those storages to answer. The workspace's own
+				// storage answering retires every instance store's share too: configuring it
+				// moved the generation past all the workspace left in any instance store.
+				if (holding.size === 0 || storageId === undefined) out.removedDone.push(mark)
+				else {
+					const before = holding.size
+					holding.delete(storageId)
+					if (!res.fallback) {
+						for (const name of [...holding]) if (isFallbackStorage(name)) holding.delete(name)
+					}
 					if (holding.size === 0) out.removedDone.push(mark)
-					else out.removedFrom.push({ id, key: mark.key, remaining: [...holding] })
+					else if (holding.size < before) {
+						out.removedFrom.push({ id, key: mark.key, remaining: [...holding] })
+					}
 				}
 			}
 		}
@@ -1204,7 +1215,7 @@ async function listWorkspace(ws: string, email: string): Promise<BackupListing |
 			? []
 			: foreignRows(
 					ws,
-					listing.storage_id,
+					storageName(listing.storage_id, listing.fallback),
 					listing.backup_generation ?? 0,
 					await allSyncRows(email)
 				)
@@ -1399,7 +1410,7 @@ async function restoreWorkspace(
 				ws,
 				b,
 				updatedAt.get(b.id) ?? Date.now(),
-				pulled.storage_id,
+				storageName(pulled.storage_id, pulled.fallback),
 				pulled.backup_generation,
 				Object.keys(earlier?.sync.chats ?? {})
 			)

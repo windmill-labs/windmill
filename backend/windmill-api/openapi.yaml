@@ -13230,6 +13230,9 @@ paths:
                   backup_generation:
                     type: integer
                     description: bumped by every workspace key rotation; sync state recorded under another one is void
+                  fallback:
+                    type: boolean
+                    description: the storage answered from is the instance object store, standing in for a workspace without storage of its own; a removal owed to it is retired by any answer from the workspace's own storage
                   sessions:
                     type: array
                     description: the newest 500 at most
@@ -13281,6 +13284,8 @@ paths:
                     type: string
                   backup_generation:
                     type: integer
+                  fallback:
+                    type: boolean
                   sessions:
                     type: array
                     items:
@@ -13335,6 +13340,8 @@ paths:
                     type: string
                   backup_generation:
                     type: integer
+                  fallback:
+                    type: boolean
                   results:
                     type: array
                     items:

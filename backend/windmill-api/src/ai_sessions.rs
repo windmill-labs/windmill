@@ -30,7 +30,7 @@ use serde_json::value::RawValue;
 use std::sync::Arc;
 use windmill_api_auth::is_effectively_unscoped;
 use windmill_api_workspaces::ai_session_backups::{
-    generation_prefix, primary_store, storage_id, MAX_OBJECT_BYTES,
+    fallback_store, generation_prefix, primary_store, storage_id, MAX_OBJECT_BYTES,
 };
 use windmill_api_workspaces::workspaces::sessions_retention_days;
 use windmill_common::error::{Error, JsonResult, Result};
@@ -145,6 +145,9 @@ struct Backend {
     /// `ai_config.sessions_retention_days`: a session whose marker is older is not listed,
     /// whether or not the sweep has deleted it yet.
     retention_days: Option<u32>,
+    /// The store is the instance object store standing in for a workspace without storage
+    /// of its own (`ai_session_backups::fallback_store`).
+    fallback: bool,
 }
 
 impl Backend {
@@ -471,35 +474,51 @@ fn require_json_object(kind: &str, raw: &RawValue, max_bytes: usize) -> Result<(
     Ok(())
 }
 
-/// `None` when the workspace has nowhere to keep backups: no primary storage configured, or
-/// the admin switched them off. Both read as `enabled: false` so the browser stops trying.
+/// `None` when the workspace has nowhere to keep backups: no primary storage configured and
+/// no instance store to stand in, or the admin switched them off. Both read as
+/// `enabled: false` so the browser stops trying.
 async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backend>> {
-    let (disabled, retention, generation) =
-        sqlx::query_as::<_, (Option<bool>, Option<serde_json::Value>, i64)>(
+    let (disabled, retention, generation, has_storage) =
+        sqlx::query_as::<_, (Option<bool>, Option<serde_json::Value>, i64, bool)>(
             "SELECT (ai_config->>'sessions_storage_disabled')::bool, \
-                    ai_config->'sessions_retention_days', ai_sessions_backup_generation \
+                    ai_config->'sessions_retention_days', ai_sessions_backup_generation, \
+                    large_file_storage IS NOT NULL \
              FROM workspace_settings WHERE workspace_id = $1",
         )
         .bind(w_id)
         .fetch_optional(db)
         .await?
-        .unwrap_or((None, None, 0));
+        .unwrap_or((None, None, 0, false));
     if disabled.unwrap_or(false) {
         return Ok(None);
     }
     let retention_days = sessions_retention_days(retention.as_ref());
-    let (_, resource) =
-        crate::job_helpers_oss::get_workspace_s3_resource(authed, db, None, w_id, None).await?;
-    let Some(resource) = resource else {
-        return Ok(None);
+    // Decided from the row the generation came from: the instance store is written only
+    // under a generation read while the workspace had no storage of its own, which
+    // configuring one moves past (`ai_session_backups`).
+    let (store, storage_id, fallback) = if has_storage {
+        let (_, resource) =
+            crate::job_helpers_oss::get_workspace_s3_resource(authed, db, None, w_id, None).await?;
+        let Some(resource) = resource else {
+            return Ok(None);
+        };
+        (
+            build_object_store_client(&resource).await?,
+            storage_id(&resource),
+            false,
+        )
+    } else {
+        // The instance store stands in, under the same layout and the same key.
+        match fallback_store(db).await? {
+            Some(f) => (f.store, f.storage_id, true),
+            None => return Ok(None),
+        }
     };
-    let store = build_object_store_client(&resource).await?;
     let user = calculate_hash(&authed.email);
     // Keyed per user, not per workspace: anyone who can write the bucket could otherwise copy
     // another member's ciphertext under their own prefix and have `pull` decrypt it for them.
     let key = get_workspace_key(w_id, db).await?;
     let mc = crypt_from_key_with_suffix(&key, &user);
-    let storage_id = storage_id(&resource);
     let prefix = format!("{}/{user}", generation_prefix(w_id, generation));
     Ok(Some(Backend {
         store,
@@ -508,6 +527,7 @@ async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backe
         storage_id,
         generation,
         retention_days,
+        fallback,
     }))
 }
 
@@ -528,6 +548,12 @@ struct ListResponse {
     storage_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     backup_generation: Option<i64>,
+    /// The storage is the instance store standing in for a workspace without one of its
+    /// own; a removal owed to it is retired by any answer from the workspace's own storage
+    /// once it has one (configuring it moved the generation past everything the workspace
+    /// left in any instance store).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    fallback: bool,
     sessions: Vec<SessionListing>,
     /// The user has more sessions than the answer names.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -549,6 +575,7 @@ async fn list(
             enabled: false,
             storage_id: None,
             backup_generation: None,
+            fallback: false,
             sessions: vec![],
             truncated: false,
         }));
@@ -595,6 +622,7 @@ async fn list(
         enabled: true,
         storage_id: Some(backend.storage_id.clone()),
         backup_generation: Some(backend.generation),
+        fallback: backend.fallback,
         sessions,
         truncated,
     }))
@@ -663,6 +691,8 @@ struct PullResponse {
     storage_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     backup_generation: Option<i64>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    fallback: bool,
     sessions: Vec<PulledSession>,
     /// Ids that did not fit the response budget; ask for them again.
     deferred: Vec<String>,
@@ -908,6 +938,7 @@ async fn pull(
             enabled: false,
             storage_id: None,
             backup_generation: None,
+            fallback: false,
             sessions: vec![],
             deferred: vec![],
         }));
@@ -930,6 +961,7 @@ async fn pull(
         enabled: true,
         storage_id: Some(backend.storage_id),
         backup_generation: Some(backend.generation),
+        fallback: backend.fallback,
         sessions,
         deferred,
     }))
@@ -1021,6 +1053,8 @@ struct PushResponse {
     storage_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     backup_generation: Option<i64>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    fallback: bool,
     results: Vec<PushResult>,
 }
 
@@ -1350,19 +1384,19 @@ pub async fn sweep_expired_ai_session_backups(db: &DB) {
 }
 
 async fn sweep_workspaces(db: &DB) -> Result<()> {
-    let workspaces = sqlx::query_as::<_, (String, Option<serde_json::Value>, i64)>(
-        "SELECT workspace_id, ai_config->'sessions_retention_days', ai_sessions_backup_generation \
+    let workspaces = sqlx::query_as::<_, (String, Option<serde_json::Value>, i64, bool)>(
+        "SELECT workspace_id, ai_config->'sessions_retention_days', ai_sessions_backup_generation, \
+                large_file_storage IS NOT NULL \
          FROM workspace_settings \
-         WHERE ai_config->'sessions_retention_days' IS NOT NULL \
-           AND large_file_storage IS NOT NULL",
+         WHERE ai_config->'sessions_retention_days' IS NOT NULL",
     )
     .fetch_all(db)
     .await?;
-    for (w_id, retention, generation) in workspaces {
+    for (w_id, retention, generation, has_storage) in workspaces {
         let Some(days) = sessions_retention_days(retention.as_ref()) else {
             continue;
         };
-        match sweep_workspace(db, &w_id, days, generation).await {
+        match sweep_workspace(db, &w_id, days, generation, has_storage).await {
             Ok(0) => {}
             Ok(deleted) => tracing::info!(
                 "AI session retention deleted {deleted} session backups of {w_id} older than {days} days"
@@ -1373,12 +1407,25 @@ async fn sweep_workspaces(db: &DB) -> Result<()> {
     Ok(())
 }
 
-async fn sweep_workspace(db: &DB, w_id: &str, days: u32, generation: i64) -> Result<usize> {
-    let Some((store, resource)) = primary_store(db, w_id).await? else {
+/// `has_storage` comes from the row `generation` was read from, as in `backend`: the instance
+/// store is swept only under a generation read while the workspace had no storage of its own.
+async fn sweep_workspace(
+    db: &DB,
+    w_id: &str,
+    days: u32,
+    generation: i64,
+    has_storage: bool,
+) -> Result<usize> {
+    let resolved = if has_storage {
+        primary_store(db, w_id).await?
+    } else {
+        fallback_store(db).await?
+    };
+    let Some(resolved) = resolved else {
         return Ok(0);
     };
     let key = get_workspace_key(w_id, db).await?;
-    let storage_id = storage_id(&resource);
+    let (store, storage_id) = (resolved.store, resolved.storage_id);
     let cutoff = retention_cutoff(days);
     let root = ObjectPath::from(generation_prefix(w_id, generation));
     let users = store
@@ -1399,6 +1446,7 @@ async fn sweep_workspace(db: &DB, w_id: &str, days: u32, generation: i64) -> Res
             storage_id: storage_id.clone(),
             generation,
             retention_days: Some(days),
+            fallback: resolved.fallback,
         };
         let index = backend.index_prefix();
         let mut markers = backend.store.list(Some(&index));
@@ -1509,6 +1557,7 @@ async fn push(
             enabled: false,
             storage_id: None,
             backup_generation: None,
+            fallback: false,
             results: vec![],
         }));
     };
@@ -1562,16 +1611,16 @@ async fn push(
         results.push(PushResult { id: sid.clone(), error, needs_whole: false });
     }
     // Overwrites and deletes make this an over-count; the periodic recount the quota check
-    // schedules once usage is stale settles it.
+    // schedules once usage is stale settles it. Bytes in the instance store count under a
+    // name of their own, which the recount lists there.
     #[cfg(not(feature = "enterprise"))]
     if written > 0 {
-        crate::job_helpers_oss::bump_storage_usage(
-            &db,
-            &w_id,
-            windmill_object_store::DEFAULT_STORAGE,
-            written as i64,
-        )
-        .await;
+        let storage = if backend.fallback {
+            windmill_api_workspaces::ai_session_backups::FALLBACK_STORAGE
+        } else {
+            windmill_object_store::DEFAULT_STORAGE
+        };
+        crate::job_helpers_oss::bump_storage_usage(&db, &w_id, storage, written as i64).await;
     }
     #[cfg(feature = "enterprise")]
     let _ = written;
@@ -1579,6 +1628,7 @@ async fn push(
         enabled: true,
         storage_id: Some(backend.storage_id),
         backup_generation: Some(backend.generation),
+        fallback: backend.fallback,
         results,
     }))
 }

@@ -134,11 +134,15 @@
 		}
 		applyFormDefaults(nvalues)
 
-		// Apply select/select_python defaults so initialValues matches what InstanceSetting's $effect does
+		// Apply declared defaults before snapshotting initialValues, so a default shows without
+		// marking the form dirty: a select's mirrors InstanceSetting's $effect, a boolean's is
+		// what its toggle shows while the key is unset.
 		for (const category of settingsKeys) {
 			for (const s of settings[category]) {
 				if (
-					(s.fieldType === 'select' || s.fieldType === 'select_python') &&
+					(s.fieldType === 'select' ||
+						s.fieldType === 'select_python' ||
+						s.fieldType === 'boolean') &&
 					nvalues[s.key] == undefined &&
 					s.defaultValue
 				) {

@@ -684,7 +684,7 @@
 		</SettingCard>
 		<SettingCard
 			label="AI session backups"
-			description="Browsers back their AI sessions up to this workspace's object storage, encrypted with the workspace key, and restore them on a new device or after clearing site data. Nothing is stored while the workspace has no object storage configured. Turn it off to keep sessions in the browser only, for example to spare the storage quota."
+			description="Browsers back their AI sessions up to this workspace's object storage, encrypted with the workspace key, and restore them on a new device or after clearing site data. While the workspace has no object storage configured, the instance object storage stands in if the instance has one and allows it; otherwise nothing is stored. Turn it off to keep sessions in the browser only, for example to spare the storage quota."
 		>
 			<Toggle
 				checked={sessionsStorageDisabled}
