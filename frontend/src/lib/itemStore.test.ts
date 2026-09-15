@@ -2051,6 +2051,40 @@ describe('item store: conflicts', () => {
 		expect(rows.sent.get('u/me/r')).toBeNull()
 	})
 
+	it('keeps the failed edit its own reopening retry got refused', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const a = adapter(async () => ({
+			deployed: deployedRes,
+			draft: rows.sent.get('u/me/r') as Res | undefined,
+			draftSavedAt: 'T1'
+		}))
+		// A draft exists, so this key has a baseline and its autosave is not unconditional.
+		rows.sent.set('u/me/r', { ...deployedRes, description: 'the first draft' })
+		const first = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+		rows.failing.add('u/me/r')
+		const mine = { ...deployedRes, description: 'mine, never sent' }
+		first.handle.value = mine
+		await rows.port.flush(key)
+		first.release()
+
+		// Another tab writes a newer draft, and this tab's network recovers. Reopening retries
+		// the parked edit before reading, and that retry is what the server refuses.
+		rows.sent.set('u/me/r', { ...deployedRes, description: 'the other tab' })
+		rows.failing.delete('u/me/r')
+		rows.conflictOnFlush.add('u/me/r')
+
+		const second = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+
+		// That edit is the only copy anyone has. Dropping it for the remote draft and clearing
+		// the conflict on the way past would lose it with nothing said.
+		expect(second.handle.value).toEqual(mine)
+		expect(second.handle.status).toBe('conflicted')
+	})
+
 	it('opens a conflicted item afresh, past the payload the server refused', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)

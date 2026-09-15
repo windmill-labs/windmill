@@ -412,6 +412,7 @@ class Entry<V> {
 			let rowsAtRead = 0
 			let valuesAtRead = 0
 			let unbasedPending = false
+			let refusedBefore = false
 			let waitingBefore: unknown | undefined
 			let res: ItemLoad<V>
 			try {
@@ -423,6 +424,8 @@ class Entry<V> {
 				// would go out unconditional and take over a row created since. The read below
 				// gives it one, and `pending` keeps showing it meanwhile.
 				unbasedPending = this.ports.unbased(key)
+				// Whether the server had already refused this key before this read went near it.
+				refusedBefore = this.ports.conflicted(key)
 				if (!unbasedPending) await this.ports.flush(key)
 				// Taken here, not when the command was asked for: rows this read's own flush sent
 				// are in the response it is about to get. Only one handed over from now on, while
@@ -472,7 +475,10 @@ class Entry<V> {
 			// A row the syncer took but could not send is newer than this response and is the only
 			// copy of that edit, so the item opens on it. One the server *refused* is the other
 			// way round — the response is what won — and `adoptRow` drops it below.
-			const unsent = this.ports.conflicted(key) ? undefined : waitingBefore
+			// A payload the server refused *before* this read is stale: the response is what won.
+			// One refused by this read's own retry is not — it is the user's unsent edit, and the
+			// only copy of it, so it stays on screen with the conflict for them to settle.
+			const unsent = refusedBefore ? undefined : waitingBefore
 			// A parked delete is what this tab wants gone, not what is there: the row is still the
 			// server's, so the reconcile at the end re-issues the delete instead of believing it
 			// landed and leaving the draft behind with nothing to remove it.
