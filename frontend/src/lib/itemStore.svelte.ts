@@ -522,15 +522,19 @@ class Entry<V> {
 	 *  item, so the row is the caller's. `failed`: has it, on a baseline it cannot refresh. */
 	async discarded(): Promise<'done' | 'absent' | 'failed'> {
 		const asked = this.asOf()
+		// A row this entry has none of is not one it can discard: it does nothing, and the caller
+		// would read that as the row being gone while another tab's is still there.
+		let knewRow = this.row !== null
 		await this.discard(asked)
 		if (this.retired || !this.loaded) return 'absent'
-		if (!this.stale) return 'done'
+		if (!this.stale) return knewRow ? 'done' : 'absent'
 		// Stale refused it. A reload is what clears that, and with a baseline it can trust the
 		// discard means something again — so the one thing worth trying before giving up. The
 		// retry carries the state as of the request, so an edit typed during that reload stands.
 		if (!this.adapter || !(await this.load(this.adapter)).ok) return 'failed'
+		knewRow = this.row !== null
 		await this.discard(asked)
-		return this.stale ? 'failed' : 'done'
+		return this.stale ? 'failed' : knewRow ? 'done' : 'absent'
 	}
 
 	/**

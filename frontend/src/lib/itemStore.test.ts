@@ -1127,6 +1127,27 @@ describe('item store: origins', () => {
 		})
 	})
 
+	it('says a row it never knew of is not its to discard', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		// Loaded clean: no draft existed when this editor read the item.
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/r' },
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter({ deployed: deployedRes })
+		)
+		await settle()
+		expect(item.dirty).toBe(false)
+
+		// Another tab creates the draft afterwards. This editor knows nothing of it.
+		rows.sent.set('u/me/r', { ...deployedRes, description: 'the other tab' })
+		rows.handExternally('u/me/r')
+
+		// Its discard does nothing, so answering `done` would have the caller skip the delete and
+		// report a draft gone that is still on the server.
+		expect(await store.bridge.discard('w', 'resource', 'u/me/r')).toBe('absent')
+	})
+
 	it('says it did not deal with the row when its own first read never arrived', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
