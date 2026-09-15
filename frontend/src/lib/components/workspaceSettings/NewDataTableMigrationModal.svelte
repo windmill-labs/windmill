@@ -101,7 +101,7 @@
 		malformedLine !== undefined
 			? malformedMessage(malformedLine)
 			: declaredDown !== undefined && roleOf(declaredDown) !== roleOf(declaredUp)
-				? `The down migration runs as ${roleOf(declaredDown) ?? 'admin (no role)'} but the up migration as ${roleOf(declaredUp) ?? 'admin (no role)'}: make their role annotations match, or pick the role above`
+				? `The down migration runs as ${roleOf(declaredDown) ?? 'admin (no role)'} but the up migration as ${roleOf(declaredUp) ?? 'admin (no role)'}: make their role annotations match`
 				: undefined
 	)
 	let selectedRole = $derived(declaredUp.kind === 'role' ? declaredUp.role : NO_ROLE)

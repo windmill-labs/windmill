@@ -118,7 +118,8 @@
 		const effective = current.roles.includes(current.default_role)
 			? current.default_role
 			: current.roles[0]
-		if (effective) untrack(() => (selectedRole = effective))
+		const datatable = selectedDatatable
+		if (effective && datatable) untrack(() => connectAs(datatable, effective))
 	})
 
 	// Every data table with its schemas and tables: the tree is the picker. The privileges it
@@ -194,7 +195,19 @@
 		openTableKey = selectedTableKey
 		selectedDatatable = datatable
 		// A data table the app already uses through a role opens as that role.
-		selectedRole = role ?? appDatatableRole(roles, datatable)
+		connectAs(datatable, role ?? appDatatableRole(roles, datatable))
+	}
+
+	/** Connects to `datatable` as `role`. The tables picked on it under another role are dropped:
+	 * they would be saved under a role other than the one on screen. */
+	function connectAs(datatable: string, role: string | undefined) {
+		selectedRole = role
+		const browsed = browsedRoles[datatable]
+		if (browsed !== undefined && role !== undefined && role !== browsed) {
+			selectedTables = selectedTables.filter((t) => (t.datatable ?? datatable) !== datatable)
+			const { [datatable]: _, ...rest } = browsedRoles
+			browsedRoles = rest
+		}
 	}
 
 	export function openDrawer() {

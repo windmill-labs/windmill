@@ -71,7 +71,9 @@ export function dbTableOpsWithPreviewScripts({
 }): IDbTableOps {
 	const dbType = getDbType(input)
 	const language = getLanguageByResourceType(dbType)
-	const dbArg = getDatabaseArg(input)
+	// Built per call: an invalid role throws there, as that operation's error, rather than while
+	// the manager renders.
+	const dbArg = () => getDatabaseArg(input)
 	const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
 
 	function makeMarker(op: string, payload: Record<string, unknown>): string {
@@ -92,7 +94,7 @@ export function dbTableOpsWithPreviewScripts({
 			})
 			const result = await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, quicksearch }, language, content, tag }
+				requestBody: { args: { ...dbArg(), quicksearch }, language, content, tag }
 			})
 			const count = result?.[0].count as number
 			return count
@@ -107,7 +109,7 @@ export function dbTableOpsWithPreviewScripts({
 			})
 			let items = (await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, ...params }, language, content, tag }
+				requestBody: { args: { ...dbArg(), ...params }, language, content, tag }
 			})) as unknown[]
 			if (!items || !Array.isArray(items)) {
 				throw 'items is not an array'
@@ -124,7 +126,7 @@ export function dbTableOpsWithPreviewScripts({
 				{
 					workspace,
 					requestBody: {
-						args: { ...dbArg, value_to_update: newValue, ...values },
+						args: { ...dbArg(), value_to_update: newValue, ...values },
 						language,
 						content,
 						tag
@@ -136,14 +138,14 @@ export function dbTableOpsWithPreviewScripts({
 		onDelete: async ({ values }) => {
 			const content = makeMarker('DELETE', { table: tableKey, columns: colDefs })
 			await runScriptAndPollResult(
-				{ workspace, requestBody: { args: { ...dbArg, ...values }, language, content, tag } },
+				{ workspace, requestBody: { args: { ...dbArg(), ...values }, language, content, tag } },
 				writingJobOptions
 			)
 		},
 		onInsert: async ({ values }) => {
 			const content = makeMarker('INSERT', { table: tableKey, columns: colDefs })
 			await runScriptAndPollResult(
-				{ workspace, requestBody: { args: { ...dbArg, ...values }, language, content, tag } },
+				{ workspace, requestBody: { args: { ...dbArg(), ...values }, language, content, tag } },
 				writingJobOptions
 			)
 		}
@@ -285,7 +287,8 @@ export function dbSchemaOpsWithPreviewScripts({
 	tag?: string
 }): IDbSchemaOps {
 	const dbType = getDbType(input)
-	const dbArg = getDatabaseArg(input)
+	// Built per call, for the same reason as in the table ops above.
+	const dbArg = () => getDatabaseArg(input)
 	const language = getLanguageByResourceType(dbType)
 	const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
 
@@ -363,7 +366,7 @@ export function dbSchemaOpsWithPreviewScripts({
 			: undefined
 		if (!datatableName || !status?.enabled) {
 			await runScriptAndPollResult(
-				{ workspace, requestBody: { args: dbArg, content, language, tag } },
+				{ workspace, requestBody: { args: dbArg(), content, language, tag } },
 				writingJobOptions
 			)
 			return
@@ -423,7 +426,7 @@ export function dbSchemaOpsWithPreviewScripts({
 			const fkContent = makeMarker('FOREIGN_KEYS', { table, schema })
 			const fkResult = await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: dbArg, content: fkContent, language, tag }
+				requestBody: { args: dbArg(), content: fkContent, language, tag }
 			})
 
 			let rawForeignKeys: RawForeignKey[]
@@ -525,7 +528,7 @@ export function dbSchemaOpsWithPreviewScripts({
 					const pkContent = makeMarker('PRIMARY_KEY_CONSTRAINT', { table, schema })
 					const pkResult = (await runScriptAndPollResult({
 						workspace,
-						requestBody: { args: dbArg, content: pkContent, language, tag }
+						requestBody: { args: dbArg(), content: pkContent, language, tag }
 					})) as { constraint_name?: string; CONSTRAINT_NAME?: string }[]
 
 					if (pkResult && Array.isArray(pkResult) && pkResult.length > 0) {

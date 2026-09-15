@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { Settings } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Select from '$lib/components/select/Select.svelte'
@@ -63,6 +64,22 @@
 			onChange?.(datatable, undefined)
 		}
 		previousDatatable = datatable
+	})
+
+	// The app's role on the data table can change without the data table changing (tables added
+	// under another role): a default schema that role no longer reaches is where the AI could not
+	// create tables, so it is unset once the answer for this role is in.
+	$effect(() => {
+		const answer = access.current
+		if (
+			schema !== undefined &&
+			answer.datatable === datatable &&
+			answer.role === role &&
+			!answer.failed &&
+			!answer.schemas.includes(schema)
+		) {
+			untrack(() => onChange?.(datatable, undefined))
+		}
 	})
 </script>
 
