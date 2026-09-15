@@ -2874,15 +2874,17 @@ pub async fn handle_wac_v2_output(
                 .collect();
 
             // Resolve job_payload once (same for all children since they re-run
-            // the parent script)
+            // the parent script). The step's cache setting is for the workflow's
+            // result; a task is cached only through its own `cache_ttl` option,
+            // under a key of its own (see `cached_result_path`).
             let job_payload_template = match job.kind {
                 JobKind::Script => {
                     if let Some(hash) = job.runnable_id {
                         Ok(JobPayload::ScriptHash {
                             hash,
                             path: job.runnable_path.clone().unwrap_or_default(),
-                            cache_ttl: job.cache_ttl,
-                            cache_ignore_s3_path: job.cache_ignore_s3_path,
+                            cache_ttl: None,
+                            cache_ignore_s3_path: None,
                             dedicated_worker: None,
                             language: job.script_lang.unwrap_or(ScriptLang::Bun),
                             priority: job.priority,
@@ -2894,6 +2896,27 @@ pub async fn handle_wac_v2_output(
                     } else {
                         Err(error::Error::internal_err(
                             "WAC v2 Script job missing runnable_id".to_string(),
+                        ))
+                    }
+                }
+                // A deployed flow runs an inline step as the `flow_node` its deploy
+                // rewrote it into; the child re-runs that node the way a `Script`
+                // child re-runs its hash, so `runnable_id` (the checkpoint's source
+                // hash) stays the same across parent and children.
+                JobKind::FlowScript => {
+                    if let Some(id) = job.runnable_id {
+                        Ok(JobPayload::FlowScript {
+                            id: windmill_common::flows::FlowNodeId(id.0),
+                            path: job.runnable_path.clone().unwrap_or_default(),
+                            language: job.script_lang.unwrap_or(ScriptLang::Bun),
+                            cache_ttl: None,
+                            cache_ignore_s3_path: None,
+                            dedicated_worker: None,
+                            concurrency_settings: ConcurrencySettings::default(),
+                        })
+                    } else {
+                        Err(error::Error::internal_err(
+                            "WAC v2 FlowScript job missing runnable_id".to_string(),
                         ))
                     }
                 }
@@ -2912,8 +2935,8 @@ pub async fn handle_wac_v2_output(
                         hash: None,
                         language: job.script_lang.unwrap_or(ScriptLang::Bun),
                         lock: lock,
-                        cache_ttl: job.cache_ttl,
-                        cache_ignore_s3_path: job.cache_ignore_s3_path,
+                        cache_ttl: None,
+                        cache_ignore_s3_path: None,
                         dedicated_worker: None,
                         concurrency_settings: ConcurrencySettingsWithCustom::default(),
                         debouncing_settings: DebouncingSettings::default(),
@@ -3012,6 +3035,12 @@ pub async fn handle_wac_v2_output(
             let mut pushed_ids: Vec<Uuid> = Vec::with_capacity(num_steps);
             let push_result: error::Result<()> = async {
                 for (step, (_, child_uuid)) in steps.iter().zip(job_ids.iter()) {
+                    // A task with a runnable of its own (a deployed script or flow) queues
+                    // at that runnable's priority; any other task is the parent's code and
+                    // queues at the parent's.
+                    let own_runnable = matches!(step.dispatch_type.as_str(), "script" | "flow")
+                        && !step.script.starts_with("./");
+
                     // Resolve job payload based on dispatch_type
                     let (job_payload, child_args, is_external, on_behalf_of) =
                         match step.dispatch_type.as_str() {
@@ -3025,8 +3054,8 @@ pub async fn handle_wac_v2_output(
                                     hash: None,
                                     language: module.language,
                                     lock: module.lock,
-                                    cache_ttl: job.cache_ttl,
-                                    cache_ignore_s3_path: job.cache_ignore_s3_path,
+                                    cache_ttl: None,
+                                    cache_ignore_s3_path: None,
                                     dedicated_worker: None,
                                     concurrency_settings: ConcurrencySettingsWithCustom::default(),
                                     debouncing_settings: DebouncingSettings::default(),
@@ -3110,7 +3139,8 @@ pub async fn handle_wac_v2_output(
                     let mut job_payload = job_payload;
                     if let Some(cache_ttl) = step.cache_ttl {
                         match &mut job_payload {
-                            JobPayload::ScriptHash { cache_ttl: ref mut ct, .. } => {
+                            JobPayload::ScriptHash { cache_ttl: ref mut ct, .. }
+                            | JobPayload::FlowScript { cache_ttl: ref mut ct, .. } => {
                                 *ct = Some(cache_ttl)
                             }
                             JobPayload::Code(ref mut code) => code.cache_ttl = Some(cache_ttl),
@@ -3122,7 +3152,8 @@ pub async fn handle_wac_v2_output(
                         || step.concurrency_time_window_s.is_some()
                     {
                         match &mut job_payload {
-                            JobPayload::ScriptHash { concurrency_settings: ref mut cs, .. } => {
+                            JobPayload::ScriptHash { concurrency_settings: ref mut cs, .. }
+                            | JobPayload::FlowScript { concurrency_settings: ref mut cs, .. } => {
                                 if let Some(limit) = step.concurrent_limit {
                                     cs.concurrent_limit = Some(limit);
                                 }
@@ -3188,13 +3219,14 @@ pub async fn handle_wac_v2_output(
                         job.visible_to_owner,
                         step.tag.clone().or_else(|| Some(job.tag.clone())),
                         step.timeout.or(job.timeout),
-                        None,          // flow_step_id
-                        step.priority, // priority_override
-                        None,          // authed
-                        false,         // running
-                        None,          // end_user_email
-                        None,          // trigger
-                        None,          // suspended_mode
+                        None, // flow_step_id
+                        step.priority
+                            .or(if own_runnable { None } else { job.priority }),
+                        None,  // authed
+                        false, // running
+                        None,  // end_user_email
+                        None,  // trigger
+                        None,  // suspended_mode
                     )
                     .await?;
 
@@ -3202,10 +3234,14 @@ pub async fn handle_wac_v2_output(
                     // _executing_key to know which step to run). External
                     // scripts/flows don't need a WAC checkpoint.
                     if !is_external {
-                        let child_checkpoint_json = serde_json::json!({
+                        let mut child_checkpoint_json = serde_json::json!({
                             "completed_steps": &checkpoint.completed_steps,
                             "_executing_key": &step.key,
+                            "_executing_args": &step.args,
                         });
+                        if let Some(fn_id) = &step.fn_id {
+                            child_checkpoint_json["_executing_fn"] = serde_json::json!(fn_id);
+                        }
                         sqlx::query(
                             "INSERT INTO v2_job_status (id, workflow_as_code_status)
                              VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))

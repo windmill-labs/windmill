@@ -1209,6 +1209,111 @@ export function main() {
     Ok(())
 }
 
+/// A deployed flow runs an inline step as the `flow_node` its deploy rewrote it into,
+/// a `FlowScript` job rather than the preview job the editor runs. A workflow-as-code
+/// step's `task()` children must dispatch from that kind too, as re-runs of the same
+/// node, or the step passes its editor test and fails once deployed.
+///
+/// The step is cached: a child that shared the parent's result-cache key would hand
+/// its own result (`10`) back to the parent on resume, in place of the workflow's.
+#[sqlx::test(fixtures("base", "wac_flow_script"))]
+async fn test_bun_wac_task_dispatch_from_flow_script(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::flows::FlowNodeId;
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let node = FlowNodeId(3000000000000011);
+    let job = RunJob::from(JobPayload::FlowScript {
+        id: node,
+        path: "f/system/wac_flow_script/a".to_string(),
+        language: ScriptLang::Bun,
+        cache_ttl: Some(60),
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
+    })
+    .arg("n", serde_json::json!(5))
+    .run_until_complete(&db, false, port)
+    .await;
+
+    assert_eq!(
+        job.json_result().unwrap(),
+        serde_json::json!({"doubled": 10})
+    );
+
+    let children: Vec<(String, Option<i64>, Option<i32>)> = sqlx::query_as(
+        "SELECT kind::text, runnable_id, cache_ttl FROM v2_job WHERE parent_job = $1",
+    )
+    .bind(job.id)
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        children,
+        vec![("flowscript".to_string(), Some(node.0), None)],
+        "the task child re-runs the parent's flow node, outside the result cache"
+    );
+    Ok(())
+}
+
+/// `task(fn, { cache_ttl })` on an inline task of a deployed flow's step: the child runs
+/// the parent's code with the parent's arguments, so its result is keyed on the task
+/// and the arguments it was called with, or the parent and every sibling would read
+/// its result back as their own, and a task fed by an earlier step would be served a
+/// result computed for another input.
+#[sqlx::test(fixtures("base", "wac_flow_script"))]
+async fn test_bun_wac_inline_task_cache_is_per_task(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::flows::FlowNodeId;
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Runs the step of node `node` with n=5; returns its result and how many of its
+    // task children were served from the result cache.
+    async fn run(
+        db: &Pool<Postgres>,
+        port: u16,
+        node: i64,
+    ) -> anyhow::Result<(serde_json::Value, i64)> {
+        let job = RunJob::from(JobPayload::FlowScript {
+            id: FlowNodeId(node),
+            path: "f/system/wac_flow_script/a".to_string(),
+            language: ScriptLang::Bun,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            ),
+        })
+        .arg("n", serde_json::json!(5))
+        .run_until_complete(db, false, port)
+        .await;
+        let from_cache: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM job_logs l JOIN v2_job j ON j.id = l.job_id \
+             WHERE j.parent_job = $1 AND l.logs LIKE '%found in cache%'",
+        )
+        .bind(job.id)
+        .fetch_one(db)
+        .await?;
+        Ok((job.json_result().unwrap(), from_cache))
+    }
+
+    // Two cached tasks on the same input: the second run serves each from its own entry.
+    for expected_from_cache in [0, 2] {
+        let (result, from_cache) = run(&db, port, 3000000000000012).await?;
+        assert_eq!(result, serde_json::json!({"doubled": 10, "tripled": 15}));
+        assert_eq!(from_cache, expected_from_cache);
+    }
+
+    // A cached task called with a fresh value each run is never served a stale result.
+    for _ in 0..2 {
+        let (result, from_cache) = run(&db, port, 3000000000000013).await?;
+        assert_eq!(result, serde_json::json!({"fresh": true}));
+        assert_eq!(from_cache, 0);
+    }
+    Ok(())
+}
+
 // ============================================================================
 // Environment Variable Tests
 // ============================================================================

@@ -1712,6 +1712,10 @@ export interface TaskRetry {
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
+  /** Seconds during which a previous result of this task is served instead of
+   *  running it again. The result is keyed on the task and the arguments it is
+   *  called with, so anything a cached task reads from its closure must be
+   *  passed in as an argument. */
   cache_ttl?: number;
   priority?: number;
   concurrency_limit?: number;
@@ -1849,6 +1853,7 @@ export class WorkflowCtx {
     args: Record<string, any> = {},
     dispatch_type: string = "inline",
     options?: TaskOptions,
+    fnId?: string,
   ): PromiseLike<any> {
     this._rethrowSwallowed();
     const stepName = name || script || "step";
@@ -1902,6 +1907,7 @@ export class WorkflowCtx {
       }
 
       const stepInfo: any = { name: name || key, script: script || key, args, key, dispatch_type };
+      if (fnId) stepInfo.fn_id = fnId;
       if (options) {
         if (options.timeout !== undefined) stepInfo.timeout = options.timeout;
         if (options.tag !== undefined) stepInfo.tag = options.tag;
@@ -2278,6 +2284,18 @@ export async function step<T>(
   return jsonRoundTrip(await fn());
 }
 
+// A stable identity for a task's code, what its cached result is keyed on: a
+// name is shared by any two tasks called the same, and a step key by any two
+// tasks called at the same position, so neither can tell them apart.
+function fnFingerprint(fn: Function): string {
+  const src = fn.toString();
+  let h = 0xcbf29ce484222325n;
+  for (let i = 0; i < src.length; i++) {
+    h = ((h ^ BigInt(src.charCodeAt(i))) * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  return h.toString(16);
+}
+
 /**
  * Wrap an async function as a workflow task.
  *
@@ -2315,6 +2333,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
   assertUsableRetry(taskOptions?.retry);
 
   const taskName = fn.name || taskPath || "";
+  const fnId = fnFingerprint(fn);
 
   // NOT async — in workflow context we return the thenable directly so that
   // unawaited task calls leave the step in ctx.pending (for _flushPending).
@@ -2335,7 +2354,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
           kwargs[`arg${i}`] = args[i];
         }
       }
-      const stepResult = ctx._nextStep(taskName, script, kwargs, "inline", taskOptions);
+      const stepResult = ctx._nextStep(taskName, script, kwargs, "inline", taskOptions, fnId);
       // If this step should execute directly (child job mode), run the inner function
       // and throw StepSuspend with mode "step_complete" to signal that we're done
       if ((stepResult as any)?._execute_directly) {
