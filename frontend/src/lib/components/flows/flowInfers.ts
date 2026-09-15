@@ -213,8 +213,15 @@ export const LEGACY_MEMORY_VARIANTS: Record<string, any> = {
  *  value holds it. Otherwise the property itself is returned, which callers compare by identity to
  *  avoid rebuilding the step schema. */
 export function memoryPropertyFor(property: any, value: any): any {
-	const legacy = value?.kind ? LEGACY_MEMORY_VARIANTS[value.kind] : undefined
+	let legacy = value?.kind ? LEGACY_MEMORY_VARIANTS[value.kind] : undefined
 	if (!legacy || !property?.oneOf) return property
+	// The form fills an empty string field with `''` when it opens, so the baked id field is only
+	// offered to a value saved with the key. Keyed on presence rather than content, or clearing the
+	// id to retype it would remove the field mid-edit.
+	if (value.kind === 'auto' && !('memory_id' in value)) {
+		const { memory_id: _, ...properties } = legacy.properties
+		legacy = { ...legacy, properties }
+	}
 	return { ...property, oneOf: [...property.oneOf, legacy] }
 }
 

@@ -85,13 +85,26 @@ pub enum Memory {
     Auto {
         #[serde(default)]
         context_length: usize,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "deserialize_blank_as_none")]
         memory_id: Option<Uuid>,
     },
     /// Written before the step's `messages` input, which it is equivalent to.
     Manual {
         messages: Vec<OpenAIMessage>,
     },
+}
+
+// An editor form can leave `""` in a legacy baked id it never filled; it means no id rather than
+// failing every run of the step.
+fn deserialize_blank_as_none<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Uuid>, D::Error> {
+    match <Option<String> as serde::Deserialize>::deserialize(deserializer)? {
+        Some(id) if !id.trim().is_empty() => Uuid::parse_str(id.trim())
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+        _ => Ok(None),
+    }
 }
 
 fn deserialize_present_messages<'de, D: serde::Deserializer<'de>>(

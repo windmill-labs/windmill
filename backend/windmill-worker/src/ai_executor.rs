@@ -1979,6 +1979,18 @@ mod tests {
                 Resolved::Window(baked, 4),
             ),
             (
+                "legacy auto with an empty baked id uses the run's",
+                json!({ "memory": { "kind": "auto", "context_length": 4, "memory_id": "" } }),
+                Some(run),
+                Resolved::Window(run, 4),
+            ),
+            (
+                "legacy auto with an empty baked id and no run id is stateless",
+                json!({ "memory": { "kind": "auto", "context_length": 4, "memory_id": " " } }),
+                None,
+                Resolved::Stateless { noted: true },
+            ),
+            (
                 "legacy auto without a length is off",
                 json!({ "memory": { "kind": "auto", "memory_id": baked } }),
                 Some(run),

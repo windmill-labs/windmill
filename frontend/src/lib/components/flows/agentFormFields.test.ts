@@ -115,5 +115,10 @@ describe('memoryPropertyFor', () => {
 			'auto'
 		])
 		expect(kinds({ kind: 'manual', messages: [] })).toEqual(['off', 'window', 'manual'])
+		const autoVariant = (value: unknown) => memoryPropertyFor(property, value).oneOf.at(-1)
+		expect(autoVariant({ kind: 'auto', context_length: 4 }).properties.memory_id).toBeUndefined()
+		expect(
+			autoVariant({ kind: 'auto', context_length: 4, memory_id: 'x' }).properties.memory_id
+		).toBeDefined()
 	})
 })

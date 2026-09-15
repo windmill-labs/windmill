@@ -163,10 +163,10 @@ export function normalizeAgentHistory(
 	if (!inputTransforms) return
 	const memory = inputTransforms.memory
 	if (
-		chatInputEnabled &&
 		memory?.type === 'static' &&
 		memory.value?.kind === 'auto' &&
-		memory.value.memory_id
+		'memory_id' in memory.value &&
+		(chatInputEnabled || !String(memory.value.memory_id ?? '').trim())
 	) {
 		const { memory_id: _, ...policy } = memory.value
 		memory.value = policy
