@@ -459,6 +459,18 @@ class Entry<V> {
 	}
 
 	/**
+	 * Discard for an outside caller, resolving to whether this editor dealt with the row. Like
+	 * `refreshed`, it waits for the load in front of it; false when that never arrived, because
+	 * an entry with nothing loaded writes no delete and the caller has to issue one itself.
+	 */
+	async discarded(): Promise<boolean> {
+		await this.run(async () => {})
+		if (!this.loaded || this.retired) return false
+		await this.discard()
+		return true
+	}
+
+	/**
 	 * The deployed item itself was deleted elsewhere. Not a discard: there is no baseline left to
 	 * reset to, so the editor reports it gone rather than sitting clean on something whose next
 	 * save would 404. The server removes the row with the item, so none is written.
@@ -1132,12 +1144,13 @@ export function createItemStore(ports: ItemRowPort) {
 			workspace: string,
 			kind: UserDraftItemKind,
 			path: string
-		): Promise<unknown> | undefined {
+		): Promise<boolean> | undefined {
 			const entry = find(workspace, kind, path)
 			if (!entry) return undefined
 			// Returned rather than left running: the caller would otherwise send its own delete
-			// alongside this one, and the second goes out with no baseline to check.
-			return entry.discard()
+			// alongside this one, and the second goes out with no baseline to check. It resolves
+			// false if this entry turns out not to have dealt with the row, so the caller still can.
+			return entry.discarded()
 		},
 		list(workspace: string, kinds: readonly UserDraftItemKind[]): UserDraftEntry[] {
 			const out: UserDraftEntry[] = []

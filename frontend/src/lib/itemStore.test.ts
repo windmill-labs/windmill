@@ -752,6 +752,26 @@ describe('item store: origins', () => {
 		expect(item.value).toEqual(typed)
 	})
 
+	it('says it did not deal with the row when its own first read never arrived', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/r' },
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(async () => {
+				throw new Error('the GET failed')
+			})
+		)
+		await settle()
+		expect(item.loaded).toBe(false)
+
+		// It is registered, so the chat would otherwise take its answer as the cleanup being done
+		// — while an entry with nothing loaded writes no delete at all and the row survives.
+		expect(await store.bridge.discard('w', 'resource', 'u/me/r')).toBe(false)
+		expect(await store.bridge.refresh('w', 'resource', 'u/me/r')).toBe(false)
+		expect(rows.writes).toEqual([])
+	})
+
 	it('reports an item deleted elsewhere as gone, not as clean', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)

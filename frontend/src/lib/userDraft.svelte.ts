@@ -150,13 +150,14 @@ export type LiveItemBridge = {
 	): Promise<boolean> | undefined
 	/** The deployed item was deleted: the live item reports itself gone. */
 	itemDeleted(workspace: string, itemKind: UserDraftItemKind, path: string): Promise<void>
-	/** Discard the live item's draft, resolving once its delete has landed. `undefined` when no
-	 *  live item holds the key, so the caller issues the delete itself. */
+	/** Discard the live item's draft, resolving to whether it dealt with the row. `undefined` when
+	 *  no live item holds the key; false when one does but could not, so either way the caller
+	 *  issues the delete itself. */
 	discard(
 		workspace: string,
 		itemKind: UserDraftItemKind,
 		path: string
-	): Promise<unknown> | undefined
+	): Promise<boolean> | undefined
 	list(workspace: string, itemKinds: readonly UserDraftItemKind[]): UserDraftEntry[]
 }
 
@@ -408,7 +409,7 @@ export const UserDraft = {
 		itemKind: UserDraftItemKind,
 		path: string,
 		opts?: UserDraftOptions
-	): Promise<unknown> | undefined {
+	): Promise<boolean> | undefined {
 		const ws = resolveWorkspace(opts)
 		const live = liveItems?.discard(ws, itemKind, path)
 		if (live) {
@@ -461,7 +462,7 @@ export const UserDraft = {
 		itemKind: UserDraftItemKind,
 		path: string,
 		opts?: UserDraftOptions
-	): Promise<unknown> | undefined {
+	): Promise<boolean> | undefined {
 		return UserDraft.discard(itemKind, path, undefined, opts)
 	},
 
@@ -611,7 +612,7 @@ export const UserDraft = {
 			 * leave it unset. */
 			auto?: boolean
 		}
-	): Promise<unknown> | undefined {
+	): Promise<boolean> | undefined {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)

@@ -2401,10 +2401,10 @@ describe('global AI tools', () => {
 		registerLiveItemBridge({
 			seed: () => false,
 			read: () => undefined,
-			// Registered, but not loaded: it has not dealt with the row.
+			// Registered, but not loaded: it answers, and says it has not dealt with the row.
 			refresh: () => Promise.resolve(false),
 			itemDeleted: () => Promise.resolve(),
-			discard: () => undefined,
+			discard: () => Promise.resolve(false),
 			list: () => []
 		})
 		try {
@@ -2441,7 +2441,7 @@ describe('global AI tools', () => {
 			},
 			discard: () => {
 				calls.push('discard')
-				return Promise.resolve({ removed: true })
+				return Promise.resolve(true)
 			},
 			list: () => []
 		})
