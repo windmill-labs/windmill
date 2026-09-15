@@ -579,13 +579,27 @@ async fn update_draft(
             let now = sqlx::query_scalar!(r#"SELECT now() as "now!""#)
                 .fetch_one(&db)
                 .await?;
+            // A retry of a routed discard whose answer was lost lands here: the row is
+            // gone but the editor is still on the path the item left, so it needs the
+            // destination as much as the first attempt did. Unlike the arm above there is
+            // no deleted row proving the caller ever held that draft, and an own discard
+            // skips the write check, so name the destination only to someone who could
+            // write there. Otherwise any member could read `draft_move` by discarding at
+            // a guessed path.
+            let disclosed = match moved_to {
+                Some(dest) => {
+                    match require_can_write_path(&authed, &db, &user_db, &w_id, kind, &dest).await {
+                        Ok(()) => Some(dest),
+                        Err(Error::NotAuthorized(_)) | Err(Error::BadRequest(_)) => None,
+                        Err(e) => return Err(e),
+                    }
+                }
+                None => None,
+            };
             Ok(Json(SaveDraftResponse {
                 status: SaveDraftStatus::Saved,
                 current_timestamp: now,
-                // A retry of a routed discard whose answer was lost lands here: the row
-                // is gone but the editor is still on the path the item left, so it needs
-                // the destination as much as the first attempt did.
-                path: moved_to,
+                path: disclosed,
             }))
         }
     }

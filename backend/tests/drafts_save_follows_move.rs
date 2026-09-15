@@ -396,29 +396,43 @@ async fn test_a_retried_discard_still_names_the_destination(
 
     rename(port, HEAD_HASH, "u/test-user/follow_b").await?;
 
-    let discard = || async {
-        client
-            .post(format!(
-                "http://localhost:{port}/api/w/test-workspace/drafts/update/script/u/test-user/follow_a"
-            ))
-            .header("Authorization", "Bearer SECRET_TOKEN")
-            .json(&json!({ "value": null }))
-            .send()
-            .await?
-            .json::<Value>()
-            .await
+    let discard = |token: &'static str| {
+        let client = client.clone();
+        async move {
+            client
+                .post(format!(
+                    "http://localhost:{port}/api/w/test-workspace/drafts/update/script/u/test-user/follow_a"
+                ))
+                .header("Authorization", format!("Bearer {token}"))
+                .json(&json!({ "value": null }))
+                .send()
+                .await?
+                .json::<Value>()
+                .await
+        }
     };
 
-    let first = discard().await?;
+    let first = discard("SECRET_TOKEN").await?;
     assert_eq!(first["status"], "saved", "{first}");
     assert_eq!(first["path"], "u/test-user/follow_b", "{first}");
 
-    let retry = discard().await?;
+    let retry = discard("SECRET_TOKEN").await?;
     assert_eq!(
         retry["status"], "saved",
         "the retry was not idempotent: {retry}"
     );
     assert_eq!(retry["path"], "u/test-user/follow_b", "{retry}");
+
+    // A third user has no draft on this item, so their discard deletes nothing and the
+    // destination is a move record and nothing else: it is answered only to a caller who
+    // could write there.
+    let other = discard("SECRET_TOKEN_3").await?;
+    assert_eq!(other["status"], "saved", "{other}");
+    assert_eq!(
+        other["path"],
+        Value::Null,
+        "a user who cannot write the destination was told where the item went: {other}"
+    );
     Ok(())
 }
 
