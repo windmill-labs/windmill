@@ -708,9 +708,21 @@
 			runnables = update.runnables
 		}
 		if (update.data !== undefined) {
-			data = update.data
+			replaceData(update.data)
 		}
 		historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)
+	}
+
+	/** Replaces `data` from outside the editor (history, YAML). The policy sync writes the policy
+	 * into `data`, so the policy takes the new values first or it puts the old ones straight back. */
+	function replaceData(next: RawAppData) {
+		data = next
+		aiChatManager.datatableCreationPolicy = {
+			...aiChatManager.datatableCreationPolicy,
+			datatable: next.datatable,
+			schema: next.schema,
+			roles: next.roles
+		}
 	}
 
 	let jobs: string[] = $state([])
@@ -2177,15 +2189,7 @@
 			files = structuredClone($state.snapshot(entry.files))
 			runnables = structuredClone($state.snapshot(entry.runnables))
 			summary = entry.summary
-			data = structuredClone($state.snapshot(entry.data))
-			// The policy sync writes the policy into `data`, so the policy has to take the restored
-			// values first or it puts the newer ones straight back.
-			aiChatManager.datatableCreationPolicy = {
-				...aiChatManager.datatableCreationPolicy,
-				datatable: data.datatable,
-				schema: data.schema,
-				roles: data.roles
-			}
+			replaceData(structuredClone($state.snapshot(entry.data)))
 
 			// If the open document survives into the new files, use the combined message
 			if (iframeDocument && isOpenableDocument(iframeDocument)) {

@@ -121,12 +121,32 @@
 		const switched = untrack(() => rolesPickedOn) !== selectedDatatable
 		const current = untrack(() => selectedRole)
 		if (switched || current === undefined || !loaded.roles.includes(current)) {
-			selectedRole = loaded.roles.includes(loaded.defaultRole)
-				? loaded.defaultRole
-				: loaded.roles[0]
+			// Tables already picked on this data table were browsed as a role: keep that one.
+			const browsed = selectedDatatable
+				? untrack(() => preWhitelistedRoles)[selectedDatatable]
+				: undefined
+			pickRole(
+				browsed !== undefined && loaded.roles.includes(browsed)
+					? browsed
+					: loaded.roles.includes(loaded.defaultRole)
+						? loaded.defaultRole
+						: loaded.roles[0]
+			)
 			rolesPickedOn = selectedDatatable
 		}
 	})
+
+	/** Picks the app's role on the selected data table. Tables picked on it under another role are
+	 * dropped: that role may reach them where this one does not. */
+	function pickRole(role: string | undefined) {
+		selectedRole = role
+		const dt = selectedDatatable
+		const browsed = dt ? preWhitelistedRoles[dt] : undefined
+		if (dt === undefined || role === undefined || browsed === undefined || browsed === role) return
+		preWhitelistedTables = preWhitelistedTables.filter((t) => t.datatable !== dt)
+		const { [dt]: _, ...rest } = preWhitelistedRoles
+		preWhitelistedRoles = rest
+	}
 
 	const access = createDatatableAccessResource(
 		() => selectedDatatable,
@@ -398,7 +418,7 @@
 													id="datatable-role"
 													disablePortal
 													items={loadedRoles.map((r) => ({ value: r, label: r }))}
-													bind:value={selectedRole}
+													bind:value={() => selectedRole, pickRole}
 													clearable={false}
 													placeholder="Role"
 													size="sm"
@@ -618,7 +638,18 @@
 	existingRefs={preWhitelistedTables}
 	roles={pickerRoles}
 	onAdd={(refs, browsedRoles) => {
-		preWhitelistedTables = [...preWhitelistedTables, ...refs]
+		// Tables added under another role than a data table's earlier ones replace those: the app
+		// uses each data table through one role.
+		const shown = pickerRoles ?? {}
+		const replaced = new Set(
+			Object.entries(browsedRoles)
+				.filter(([dt, role]) => shown[dt] !== undefined && shown[dt] !== role)
+				.map(([dt]) => dt)
+		)
+		preWhitelistedTables = [
+			...preWhitelistedTables.filter((t) => !replaced.has(t.datatable)),
+			...refs
+		]
 		preWhitelistedRoles = { ...preWhitelistedRoles, ...browsedRoles }
 		if (selectedDatatable !== undefined && browsedRoles[selectedDatatable] !== undefined) {
 			selectedRole = browsedRoles[selectedDatatable]
