@@ -2473,7 +2473,7 @@ async fn list_one_datatable_tables(
         let governing = resolve_governing_datatable(db, w_id, &entry.datatable_name).await?;
         entry.instance = governing.is_instance();
         let usable =
-            crate::datatable_permissions::usable_datatable_roles(db, authed, w_id, &governing)
+            crate::datatable_permissions_oss::usable_datatable_roles(db, authed, w_id, &governing)
                 .await?;
         entry.permissioned = usable.permissioned;
         entry.usable_roles = usable.roles;

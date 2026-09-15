@@ -238,7 +238,7 @@
 					{#if editable && availableRoles.length === 0}
 						<Alert type="warning" title="No role defined on this instance" size="xs">
 							Only <span class="font-mono">admin</span> can be used until a superadmin adds a data table
-							role in the data table settings page.
+							role, from Instance roles at the top of the data tables settings page.
 						</Alert>
 					{/if}
 

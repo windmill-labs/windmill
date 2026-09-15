@@ -1,6 +1,7 @@
 import { resource } from 'runed'
 import { workspaceStore } from '$lib/stores'
 import { WorkspaceService } from '$lib/gen'
+import { listUsableDatatableRoles } from '$lib/components/datatableUsableRoles'
 import { ADMIN_DATATABLE_ROLE } from '$lib/components/dbTypes'
 import { get } from 'svelte/store'
 
@@ -73,7 +74,7 @@ export function createRolesResource(
 				const empty = { ...initialValue, datatable: datatableName || undefined }
 				if (!datatableName || !workspace) return empty
 				try {
-					const res = await WorkspaceService.listUsableDatatableRoles({ workspace, datatableName })
+					const res = await listUsableDatatableRoles(workspace, datatableName)
 					return {
 						...empty,
 						permissioned: res.permissioned,

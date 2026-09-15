@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
+	import { listUsableDatatableRoles } from '../datatableUsableRoles'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Button from '../common/button/Button.svelte'
@@ -78,10 +79,7 @@
 			try {
 				return {
 					datatable,
-					...(await WorkspaceService.listUsableDatatableRoles({
-						workspace,
-						datatableName: datatable
-					}))
+					...(await listUsableDatatableRoles(workspace, datatable))
 				}
 			} catch (e) {
 				// Opens anyway: without a role the server connects as the default and says so if

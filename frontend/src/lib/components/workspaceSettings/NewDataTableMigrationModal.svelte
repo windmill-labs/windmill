@@ -8,6 +8,7 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import { WorkspaceService, type DatatableMigration } from '$lib/gen'
+	import { listUsableDatatableRoles } from '../datatableUsableRoles'
 	import { sendUserToast } from '$lib/toast'
 	import { tick } from 'svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
@@ -73,10 +74,7 @@
 		() => [workspace, datatable] as const,
 		async ([ws, dt]) => {
 			try {
-				return await WorkspaceService.listUsableDatatableRoles({
-					workspace: ws,
-					datatableName: dt
-				})
+				return await listUsableDatatableRoles(ws, dt)
 			} catch (e) {
 				console.error('Failed to load data table roles:', e)
 				return null

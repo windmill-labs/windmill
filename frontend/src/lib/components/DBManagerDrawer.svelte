@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { WorkspaceService, type DataTableTables } from '$lib/gen'
+	import { listUsableDatatableRoles } from './datatableUsableRoles'
 	import Button from './common/button/Button.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -53,10 +54,7 @@
 			try {
 				return {
 					datatable,
-					...(await WorkspaceService.listUsableDatatableRoles({
-						workspace,
-						datatableName: datatable
-					}))
+					...(await listUsableDatatableRoles(workspace, datatable))
 				}
 			} catch (e) {
 				// Never leave the drawer waiting on this: fall back to the
@@ -301,7 +299,7 @@
 						uriState.selectedRole = role
 					}}
 					bind:pendingAction
-					canManageDatatable={!!($superadmin || $userStore?.is_admin)}
+					canManageDatatable={!!($superadmin || $userStore?.is_admin) && !!$enterpriseLicense}
 					onDatatableAction={runDatatableAction}
 					bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
 					bind:hasReplResult
@@ -366,13 +364,15 @@
 			datatable={actionDatatable}
 			onSchemaChanged={refreshManager}
 		/>
-		<DataTablePermissionsButton
-			bind:this={permissionsDrawer}
-			hideTrigger
-			workspace={ws}
-			datatable={actionDatatable}
-			onSaved={refreshRoles}
-		/>
+		{#if $enterpriseLicense}
+			<DataTablePermissionsButton
+				bind:this={permissionsDrawer}
+				hideTrigger
+				workspace={ws}
+				datatable={actionDatatable}
+				onSaved={refreshRoles}
+			/>
+		{/if}
 	{/key}
 {/if}
 
