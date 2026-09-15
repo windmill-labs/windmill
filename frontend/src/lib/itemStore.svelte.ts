@@ -152,10 +152,17 @@ let nextPatch = 1
 
 const superseded = { ok: false, error: 'Another save of this item replaced this one' } as const
 
-/** An item as it stood when a command was asked for: the count of edits and outside writes it had
- *  taken. A count of things the command did not do, so it can tell what moved under it without
- *  mistaking its own effects for movement. */
-type AsOf = { edits: number }
+/**
+ * An item as it stood when a command was asked for, as counts of things the command did not do,
+ * so it can tell what moved under it without mistaking its own effects for movement.
+ *
+ * Two counts, because there are two questions. `edits` is what the user can *see* change: what
+ * they typed, and an outside write that differs from what was on screen. A discard measures
+ * against that, so an outside write of the value already shown does not cancel one. `externals`
+ * counts every outside write, that one included, because it still made the value a row on the
+ * server — a read already in flight has not got it, and must not put its own answer over it.
+ */
+type AsOf = { edits: number; externals: number }
 
 class Entry<V> {
 	key: ItemKey = $state()!
@@ -233,6 +240,9 @@ class Entry<V> {
 	 *  one landed while it was in flight. A command's own replacement of the value is not one:
 	 *  a discard that ran meanwhile is the answer to a question the read is not asking. */
 	private edits = 0
+	/** Counts outside writes, the ones that change nothing on screen included: those still put the
+	 *  value on the server as a row, which a read already in flight knows nothing about. */
+	private externals = 0
 	private queue: Promise<unknown> = Promise.resolve()
 	private ports: ItemRowPort
 	private store: StoreInternals
@@ -350,7 +360,7 @@ class Entry<V> {
 	/** The registers that move on their own: what the user is editing, and the rows already sent.
 	 *  A command compares against these to tell what has happened since it was asked for. */
 	private asOf(): AsOf {
-		return { edits: this.edits }
+		return { edits: this.edits, externals: this.externals }
 	}
 
 	/** Count a command as started now, ahead of its turn in the queue; returns its release. */
@@ -402,7 +412,8 @@ class Entry<V> {
 			const standOff = unasked && this.ports.conflicted(key)
 			// Whatever landed since the read was asked for — an external write, an edit — is
 			// newer than what it read, so the read only moves the deployed side under it.
-			const keepValue = standOff || this.edits !== at.edits
+			const keepValue =
+				standOff || this.edits !== at.edits || this.externals !== at.externals
 			this.meta = res.meta
 			this.error = undefined
 			if (isTemporaryPath(key.path)) {
@@ -495,6 +506,7 @@ class Entry<V> {
 
 	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
 	applyExternal(value: V): number {
+		this.externals++
 		if (this.loaded && serialize(value) === serialize(this.value)) return this.revision
 		this.edits++
 		this.pristine = false
@@ -689,7 +701,7 @@ class Entry<V> {
 		// Taken after this patch's own touch, so it counts only what happens next. The value it
 		// put on screen is the user's copy, and a field carrying the value this patch sent is not
 		// proof this patch put it there: the chat can write a draft holding the same value.
-		const appliedAt = this.edits
+		const appliedAt = this.asOf()
 		/** Release each field this patch still owns; one a later patch has taken stays with it. */
 		const release = () => {
 			for (const k of Object.keys(sent)) {
@@ -718,7 +730,9 @@ class Entry<V> {
 				const base = (onTemplate ? this.template : this.deployed) as
 					| Record<string, unknown>
 					| undefined
-				if (base !== undefined && this.value !== undefined && this.edits === appliedAt) {
+				const moved =
+					this.edits !== appliedAt.edits || this.externals !== appliedAt.externals
+				if (base !== undefined && this.value !== undefined && !moved) {
 					const out = snapshot(this.value) as Record<string, unknown>
 					let changed = false
 					for (const [k, v] of Object.entries(sent)) {

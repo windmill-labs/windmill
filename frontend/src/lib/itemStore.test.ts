@@ -785,6 +785,41 @@ describe('item store: origins', () => {
 		})
 	})
 
+	it('keeps a value the chat persisted while a read that predates it was in flight', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		let reads = 0
+		const store = createItemStore(rows.port)
+		const onScreen = { ...deployedRes, description: 'what the editor is showing' }
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/r' },
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(() => {
+				if (reads++ === 0) return Promise.resolve({ deployed: deployedRes, draft: onScreen })
+				return read.promise
+			})
+		)
+		await settle()
+		expect(item.value).toEqual(onScreen)
+
+		const reloading = item.reload()
+		await settle()
+		// The chat persists exactly what is on screen. Nothing the user can see changes, but the
+		// value is now a row on the server that the read in flight knows nothing about.
+		item.applyExternal({ ...onScreen })
+		rows.handExternally('u/me/r')
+		// The read predates that, and answers with the newly deployed value and no draft.
+		const deployedSince = { ...deployedRes, description: 'deployed while the read was out' }
+		read.resolve({ deployed: deployedSince })
+		await reloading
+
+		// Answering with the deployed value here would hide a draft that exists, and the next
+		// edit would go out over it on a baseline this read had just made fresh.
+		expect(item.value).toEqual(onScreen)
+		expect(item.deployed).toEqual(deployedSince)
+		expect(item.dirty).toBe(true)
+	})
+
 	it('tells a caller its post-deploy re-read failed, apart from never having the item', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
