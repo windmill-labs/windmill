@@ -74,20 +74,6 @@ fn copy_dir(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()>
     Ok(())
 }
 
-/// No ciphertext file under `dir` still holds the bytes its copy under `snapshot` has (the
-/// session index markers are empty and not under any key).
-fn all_rewritten(dir: &std::path::Path, snapshot: &std::path::Path) -> bool {
-    let files: Vec<_> = files_under(dir)
-        .into_iter()
-        .filter(|(_, bytes)| !bytes.is_empty())
-        .collect();
-    !files.is_empty()
-        && files.iter().all(|(path, bytes)| {
-            let rel = path.strip_prefix(dir).expect("under dir");
-            std::fs::read(snapshot.join(rel)).ok().as_ref() != Some(bytes)
-        })
-}
-
 async fn rotate(base: &str, key: &str) -> anyhow::Result<()> {
     let resp = authed(
         client().post(format!("{base}/workspaces/encryption_key")),
@@ -98,22 +84,6 @@ async fn rotate(base: &str, key: &str) -> anyhow::Result<()> {
     .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     Ok(())
-}
-
-async fn wait_for_rekey(db: &Pool<Postgres>) -> anyhow::Result<()> {
-    for _ in 0..100 {
-        let pending: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM ai_session_backup_rekey WHERE workspace_id = 'test-workspace' \
-             AND cardinality(walked_storages) = 0",
-        )
-        .fetch_one(db)
-        .await?;
-        if pending == 0 {
-            return Ok(());
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-    anyhow::bail!("the re-key walk did not finish")
 }
 
 /// Every file under the storage root, as bytes.
@@ -483,106 +453,45 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     assert_eq!(s1["chats"][0]["id"], "c2");
     assert_eq!(s1["images"], json!([]));
 
-    // Rotating the workspace key re-keys the backup objects off the request: they read back
-    // at once through the previous key, and still once the walk has rewritten them.
-    let snapshot = tempfile::tempdir()?;
-    copy_dir(&first, snapshot.path())?;
-    let resp = authed(
-        client().post(format!("{base}/workspaces/encryption_key")),
-        "SECRET_TOKEN",
-    )
-    .json(&json!({ "new_key": "b".repeat(64) }))
-    .send()
-    .await?;
-    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
-    let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
-    assert_eq!(
-        pulled["sessions"][0]["head"], head,
-        "the backup must read while the walk runs: {pulled}"
-    );
-    wait_for_rekey(&db).await?;
-    assert!(
-        all_rewritten(&first, snapshot.path()),
-        "every object must be rewritten under the new key"
-    );
-    let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
-    assert_eq!(
-        pulled["sessions"][0]["head"], head,
-        "the backup must read under the rotated key alone: {pulled}"
-    );
-    assert_eq!(pulled["sessions"][0]["chats"][0]["id"], "c2");
-
-    // A walk cut short (a restart) leaves objects under the previous key with the rotation
-    // still recorded: the next use of the backups reads them through that key and finishes
-    // the walk. Here after a detour through another, empty storage: what the walk there
-    // notes must not stand for this one.
-    copy_dir(snapshot.path(), &first)?;
-    sqlx::query("UPDATE ai_session_backup_rekey SET walked_storages = '{}' WHERE workspace_id = 'test-workspace'")
-        .execute(&db)
-        .await?;
-    let other_storage = tempfile::tempdir()?;
-    configure_primary_lfs(&db, &other_storage.path().to_string_lossy()).await?;
-    assert_eq!(list(&base, "SECRET_TOKEN").await?["sessions"], json!([]));
-    wait_for_rekey(&db).await?;
-    configure_primary_lfs(&db, &storage_dir.path().to_string_lossy()).await?;
-    let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
-    assert_eq!(
-        pulled["sessions"][0]["head"], head,
-        "objects left under the previous key must read: {pulled}"
-    );
-    let walked_here = || async {
-        let n: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM ai_session_backup_rekey WHERE workspace_id = 'test-workspace' \
-             AND cardinality(walked_storages) = 2",
-        )
-        .fetch_one(&db)
-        .await?;
-        Ok::<_, anyhow::Error>(n)
-    };
+    // Rotating the workspace key deletes the backups (off the request) rather than re-key
+    // them, and the storage identity the answers carry changes with the key, which is what
+    // makes every browser push its sessions whole again.
+    let before = list(&base, "SECRET_TOKEN").await?["storage_id"].clone();
+    rotate(&base, &"b".repeat(64)).await?;
     for _ in 0..100 {
-        if walked_here().await? == 1 {
+        if files_under(storage_dir.path()).is_empty() {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
-    assert_eq!(
-        walked_here().await?,
-        1,
-        "the walk must run again on the storage it was owed to"
-    );
     assert!(
-        all_rewritten(&first, snapshot.path()),
-        "the walk a pull started must rewrite every object"
+        files_under(storage_dir.path()).is_empty(),
+        "a rotation must leave no backup object behind"
     );
-    let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
-    assert_eq!(pulled["sessions"][0]["head"], head);
-
-    // A key rotated back to and away from again is owed a fresh walk: an object written
-    // under its second generation must not stay under it because its first was walked.
-    rotate(&base, &"d".repeat(64)).await?;
-    wait_for_rekey(&db).await?;
-    rotate(&base, &"b".repeat(64)).await?;
-    wait_for_rekey(&db).await?;
+    let listing = list(&base, "SECRET_TOKEN").await?;
+    assert_eq!(listing["sessions"], json!([]));
+    assert_ne!(
+        listing["storage_id"], before,
+        "a rotation must change the storage identity"
+    );
+    assert_eq!(
+        pull(&base, "SECRET_TOKEN", &["s1"]).await?["sessions"],
+        json!([])
+    );
+    // The browser's next push fills the storage back under the new key.
     let resp = push(
         &base,
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s1", "chats": [{ "id": "c3", "record": { "id": "c3" } }] }]
+            "sessions": [{ "id": "s1", "head": head, "chats": [{ "id": "c2", "record": { "id": "c2" } }] }]
         }),
     )
     .await?;
-    assert_eq!(resp.status(), 200);
-    let under_second_generation = tempfile::tempdir()?;
-    copy_dir(&first, under_second_generation.path())?;
-    rotate(&base, &"c".repeat(64)).await?;
-    wait_for_rekey(&db).await?;
-    assert!(
-        all_rewritten(&first, under_second_generation.path()),
-        "objects written under a key's second generation must be rewritten"
-    );
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
     assert_eq!(pulled["sessions"][0]["head"], head);
+    assert_eq!(pulled["sessions"][0]["chats"][0]["id"], "c2");
 
     // Removal empties both prefixes.
     let resp = push(

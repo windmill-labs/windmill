@@ -1,5 +1,5 @@
 #[cfg(feature = "parquet")]
-pub mod ai_session_rekey;
+pub mod ai_session_backups;
 pub mod data_metrics;
 pub mod datatable_migrations;
 pub mod deployment_requests;

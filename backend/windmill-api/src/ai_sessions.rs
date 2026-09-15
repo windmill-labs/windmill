@@ -29,9 +29,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::sync::Arc;
 use windmill_api_auth::is_effectively_unscoped;
-use windmill_api_workspaces::ai_session_rekey::{
-    open, pending_ciphers, spawn_rekey, storage_id, MAX_OBJECT_BYTES, ROOT,
-};
+use windmill_api_workspaces::ai_session_backups::{storage_id, MAX_OBJECT_BYTES, ROOT};
 use windmill_common::error::{Error, JsonResult, Result};
 use windmill_common::utils::calculate_hash;
 use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key};
@@ -82,14 +80,9 @@ pub fn workspaced_service() -> Router {
 /// The user's prefix in the workspace storage, plus what reads and writes it.
 struct Backend {
     store: Arc<dyn ObjectStore>,
-    /// The workspace key `mc` derives from, to tell a rotation that landed meanwhile.
-    key: String,
     mc: MagicCrypt256,
-    /// The ciphers of rotations whose re-key walk has not finished: an object may still
-    /// be under one of them.
-    previous: Vec<MagicCrypt256>,
     prefix: String,
-    /// Names the storage the objects are in, for the browser's sync state.
+    /// Names the storage and key the objects are under, for the browser's sync state.
     storage_id: String,
 }
 
@@ -167,9 +160,12 @@ impl Backend {
             return Ok(None);
         }
         let bytes = result.bytes().await.map_err(object_store_error_to_error)?;
-        let text = std::iter::once(&self.mc)
-            .chain(&self.previous)
-            .find_map(|mc| open(mc, &bytes))
+        // The objects are JSON and data URLs: a wrong key's output failing UTF-8 tells it
+        // apart beyond the cipher's padding check, which a wrong key passes now and then.
+        let text = self
+            .mc
+            .decrypt_bytes_to_bytes(&bytes)
+            .ok()
             .and_then(|plaintext| String::from_utf8(plaintext).ok());
         if text.is_none() {
             tracing::warn!("AI session backup object {key} does not decrypt for its reader");
@@ -345,27 +341,9 @@ async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backe
     // another member's ciphertext under their own prefix and have `pull` decrypt it for them.
     let key = get_workspace_key(w_id, db).await?;
     let mc = crypt_from_key_with_suffix(&key, &user);
-    let storage_id = storage_id(&resource);
-    // Objects may still be under the keys rotations replaced: read those too, and see the
-    // walk through on this storage if it has not been.
-    let (previous, needs_walk) = pending_ciphers(db, w_id, &user, &storage_id).await?;
-    if needs_walk {
-        spawn_rekey(
-            db.clone(),
-            w_id.to_string(),
-            store.clone(),
-            storage_id.clone(),
-        );
-    }
+    let storage_id = storage_id(&resource, &key);
     let prefix = format!("{ROOT}/{w_id}/{user}");
-    Ok(Some(Backend {
-        store,
-        key,
-        mc,
-        previous,
-        prefix,
-        storage_id,
-    }))
+    Ok(Some(Backend { store, mc, prefix, storage_id }))
 }
 
 #[derive(Serialize)]
@@ -989,16 +967,6 @@ async fn push(
     }
     #[cfg(feature = "enterprise")]
     let _ = written;
-    // A rotation that committed while this push ran re-keys what its walk listed; a piece
-    // written after that listing, under the key this push started with, would stay behind
-    // unreadable. The push fails whole instead, and the browser sends it again under the
-    // new key.
-    if get_workspace_key(&w_id, &db).await? != backend.key {
-        return Err(Error::Generic(
-            http::StatusCode::SERVICE_UNAVAILABLE,
-            "the workspace key was rotated during this push; retry".to_string(),
-        ));
-    }
     Ok(Json(PushResponse {
         enabled: true,
         storage_id: Some(backend.storage_id),

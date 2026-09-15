@@ -70,25 +70,16 @@ shared far more widely than a user's transcripts: `public_resource` storages and
 READ/WRITE hand any member the bucket. The key is per user rather than per workspace so that a
 member who copies another user's ciphertext under their own prefix gets nothing from `pull`; an
 object that does not decrypt for its reader is treated as absent. Rotating the workspace key
-(`set_encryption_key`) re-keys every backup object off the request, the way it re-encrypts the
-workspace's secrets, unless `skip_reencrypt` was asked for; the user segment of an object's key
-is the cipher suffix, so the walk needs no email (`windmill-api-workspaces/src/ai_session_rekey.rs`).
-The rotation records the key it replaced (`ai_session_backup_rekey`) in its own transaction,
-read under the key row's lock so two rotations racing record each other's key, on every
-build (the walk needs `parquet`, the record does not, so a rotation on a build without the
-feature loses nothing);
-the read path decrypts with the recorded keys too, for good: a workspace may point at several
-storages over time, and objects in one that is not primary at the moment are never rewritten.
-The walk notes each storage it has rewritten every object of (`walked_storages`), and every use
-of the backups starts it again for a storage not noted yet, so a server restart mid-walk and a
-storage switched away from and back both leave nothing unreadable; a key rotated back to and
-away from again gets a fresh record, since objects were written under it in between. The
-walk writes each object conditionally on the version it read (`PutMode::Update`): a push or a
-delete landing in between used the current key already, and rewriting over it would bring back
-what it replaced. The filesystem store has no conditional writes and keeps that window. A push
-that started under the key a rotation replaced may write pieces after the walk listed the
-bucket; it reads the key again once its writes are done and fails whole (503) if it moved, so
-the browser sends those pieces again under the new key rather than settle them. The
+(`set_encryption_key`) does not re-key the backups the way it re-encrypts the workspace's
+secrets: it deletes them, off the request and best effort
+(`windmill-api-workspaces/src/ai_session_backups.rs`), and the storage identity the answers
+carry (`storage_id`, below) is derived from the key as well as the storage, so every browser
+marks its sync rows stale and pushes its sessions whole again under the new key. Sessions no
+browser holds any more are lost. A rotation is rare, and the alternative, rewriting every
+object in place while pushes, restarts, storage switches and further rotations race the
+rewrite, is where the complexity would be; with this, nothing but the current key ever reads
+an object, and an object left behind by a deletion cut short is ciphertext nothing reads,
+overwritten by the browser's next push of that session. The
 server builds every key from ids it validated
 (`[A-Za-z0-9_-]{1,64}`) and the caller's own email; the client never names a key, and the
 workspace storage permission rules are not consulted (the same stance as volumes). Only an
@@ -136,11 +127,11 @@ A restore writes a session's artifacts and chats before its record, and records 
 session whose pieces could not be written: recording it would let the next flush push the
 half-empty local state over the backup.
 
-Every answer names the storage it came from (`storage_id`, a hash of what locates the objects:
-endpoint, region and bucket, not the credentials, which rotate). A sync row records it, and a
-row naming another storage goes stale and its session is marked again: a workspace pointed at
-a new bucket holds nothing, and the server looks nowhere else, so the next flush carries the
-session whole. That includes the rows a flush has just written, when a later answer of the
+Every answer names the storage it came from (`storage_id`, a hash of what locates the objects,
+endpoint, region and bucket, not the credentials, which rotate, and of the workspace key). A
+sync row records it, and a row naming another storage goes stale and its session is marked
+again: a workspace pointed at a new bucket, or whose key was rotated, holds nothing, and the
+server looks nowhere else, so the next flush carries the session whole. That includes the rows a flush has just written, when a later answer of the
 same flush names another storage or the session was pushed in part on top of a row from the
 old one; a session whose own parts were answered from different storages is not settled at
 all. The listing a restore starts with runs the same check, so a storage switch is noticed at
@@ -183,10 +174,9 @@ the session visible, only with the last page; between pages it holds nothing but
 row being assembled, whose chats also admit the images of a later page. A pull sees every key of a session's listing but keeps the 5000 smallest
 past its cursor (a page is defined by key order, and the store promises none), so a session
 grown without bound by valid pushes cannot grow the answer's memory through its metadata
-either; removing a prefix and the re-key walk stream their listings. `list` scans at most 50 000 index markers, keeps the newest 500 as it goes and answers with
+either; removing a prefix and a rotation's deletion stream their listings. `list` scans at most 50 000 index markers, keeps the newest 500 as it goes and answers with
 them (`truncated` says when there were more); the restore takes 50 of them. Every read checks the object's size before buffering it, against what the listing said
-(or the head cap for the head, read without one) in `pull` and against the push body cap
-(32 MB, more than any push writes) in the re-key walk: whoever holds the bucket's
+(or the head cap for the head, read without one): whoever holds the bucket's
 credentials can plant anything at a predictable key, and an object replaced between the
 listing and the read is left for the next pull. A dirty mark that cannot be written
 (localStorage full) records its bump on the session's sync row instead (`extraV`, counted

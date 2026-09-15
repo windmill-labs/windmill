@@ -5314,14 +5314,6 @@ async fn set_encryption_key(
 
     let mut tx = db.begin().await?;
 
-    // Under the row's lock: two rotations racing would otherwise both record the same key
-    // as the one replaced, and the key the first of them committed would go unrecorded.
-    let previous_key: String = sqlx::query_scalar(
-        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud' FOR UPDATE",
-    )
-    .bind(&w_id)
-    .fetch_one(&mut *tx)
-    .await?;
     sqlx::query!(
         "UPDATE workspace_key SET key = $1 WHERE workspace_id = $2",
         request.new_key.clone(),
@@ -5329,24 +5321,6 @@ async fn set_encryption_key(
     )
     .execute(&mut *tx)
     .await?;
-    // The AI session backups in the workspace storage are ciphertext under the key being
-    // replaced; the walk that re-keys them needs `parquet`, but the record of that key is
-    // kept by every build, so a rotation on one without the feature leaves them readable
-    // and re-keyable by a build with it. The record stays: the walk notes the storages it
-    // completed on, and one that is not primary now may still hold objects under the key.
-    if !request.skip_reencrypt.unwrap_or(false) {
-        // A key rotated back to and away from again is owed a fresh walk: objects were
-        // written under it since its earlier record was walked.
-        sqlx::query(
-            "INSERT INTO ai_session_backup_rekey (workspace_id, previous_key) VALUES ($1, $2) \
-             ON CONFLICT (workspace_id, previous_key) \
-             DO UPDATE SET walked_storages = '{}', started_at = now()",
-        )
-        .bind(&w_id)
-        .bind(&previous_key)
-        .execute(&mut *tx)
-        .await?;
-    }
 
     let mut reencrypted_secret_paths: Vec<String> = Vec::new();
     if !request.skip_reencrypt.unwrap_or(false) {
@@ -5403,20 +5377,11 @@ async fn set_encryption_key(
     // Invalidate the cache only after the transaction has committed
     WORKSPACE_CRYPT_CACHE.remove(w_id.as_str());
 
-    // The AI session backups in the workspace storage are ciphertext under the previous
-    // key too; re-key them off the request, since there can be many. The rotation is
-    // recorded (above, in the transaction), so a walk cut short is finished by the next
-    // use of the backups, and the storage failing to resolve here only defers it.
+    // The AI session backups in the workspace storage are ciphertext under the key just
+    // replaced and are not re-keyed: they go, and the browsers push their sessions again
+    // under the new key (see `ai_session_backups`).
     #[cfg(feature = "parquet")]
-    if !request.skip_reencrypt.unwrap_or(false) {
-        match crate::ai_session_rekey::primary_store(&db, &w_id).await {
-            Ok(Some((store, storage_id))) => {
-                crate::ai_session_rekey::spawn_rekey(db.clone(), w_id.clone(), store, storage_id)
-            }
-            Ok(None) => {}
-            Err(e) => tracing::warn!("AI session backups of {w_id} not re-keyed yet: {e:#}"),
-        }
-    }
+    crate::ai_session_backups::spawn_delete(db.clone(), w_id.clone());
 
     // Build the batch: one event for the encryption key itself plus one per
     // re-encrypted secret variable. The batch entrypoint dispatches a single
