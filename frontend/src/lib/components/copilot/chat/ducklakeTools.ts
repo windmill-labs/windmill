@@ -13,9 +13,7 @@ import { createToolDef, type Tool } from './shared'
  * cannot run. It is a plain read gated only by workspace membership, so it needs
  * no app context and belongs in the global tool set.
  *
- * `list_data_metrics` sits here because it reads the same DuckLake tables: the
- * measures and dimensions deployed scripts declare on them, which an aggregate
- * query must reuse rather than re-derive.
+ * `list_data_metrics` reads the same DuckLake tables, so it lives here too.
  */
 
 /** List the names of the DuckLake catalogs configured in the workspace. */

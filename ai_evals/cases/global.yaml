@@ -1894,9 +1894,8 @@
 # --- Dedicated tools preferred over the API catalog ---
 # The harness serves worker/queue reads itself (benchmark fetch handlers in
 # adapters/frontend), so these cases do not require an mcp-enabled eval backend.
-# The `api-catalog` in the id below is historical: the case once required
-# search_api_endpoints + call_api_get and now asserts the opposite, but the id is
-# kept so its results stay comparable across benchmark runs.
+# The stale `api-catalog` in the id below is kept so results stay comparable
+# across benchmark runs.
 
 - id: global-test30-api-catalog-workers
   prompt: |-

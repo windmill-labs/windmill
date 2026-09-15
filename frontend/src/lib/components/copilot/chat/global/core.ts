@@ -3811,11 +3811,9 @@ export const globalTools: Tool<{}>[] = [
 			}))
 			const note =
 				workers.length === WORKER_PAGE_SIZE
-					? {
-							note: `Only the first ${WORKER_PAGE_SIZE} workers are listed; more may be connected.`
-						}
-					: {}
-			const result = JSON.stringify({ workers, ...note }, null, 2)
+					? `Only the first ${WORKER_PAGE_SIZE} workers are listed; more may be connected.`
+					: undefined
+			const result = JSON.stringify({ workers, ...(note ? { note } : {}) }, null, 2)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Listed ${workers.length} worker(s)`,
 				result

@@ -8,7 +8,6 @@ const DEFAULT_WORKSPACE_PREFIX = "ai-evals";
 // suffix would double.
 const MAX_WORKSPACE_ID_LENGTH = 50;
 
-/** Id of the temporary workspace one eval attempt runs in. */
 export function buildWorkspaceId(caseId: string, attempt: number): string {
   const caseSlug = caseId
     .toLowerCase()
