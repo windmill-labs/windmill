@@ -107,11 +107,11 @@ pub struct SetDatatablePermissions {
 }
 
 #[derive(Serialize)]
-struct UsableDatatableRoles {
-    permissioned: bool,
+pub(crate) struct UsableDatatableRoles {
+    pub(crate) permissioned: bool,
     /// Names, not ids: this is what a caller writes in `-- role <name>`.
-    roles: Vec<String>,
-    default_role: String,
+    pub(crate) roles: Vec<String>,
+    pub(crate) default_role: String,
 }
 
 /// Administering a data table — its permissions, its migrations that declare no role, its exports
@@ -527,14 +527,25 @@ async fn list_usable_datatable_roles(
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<UsableDatatableRoles> {
     let governing = resolve_governing_datatable(&db, &w_id, &datatable_name).await?;
+    Ok(Json(
+        usable_datatable_roles(&db, &authed, &w_id, &governing).await?,
+    ))
+}
+
+pub(crate) async fn usable_datatable_roles(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    governing: &GoverningDatatable,
+) -> Result<UsableDatatableRoles> {
     let Some(permissions) = governing.datatable.permissions.as_ref() else {
-        return Ok(Json(UsableDatatableRoles {
+        return Ok(UsableDatatableRoles {
             permissioned: false,
             roles: vec![],
             default_role: ADMIN_DATATABLE_ROLE.to_string(),
-        }));
+        });
     };
-    let catalog = read_role_catalog(&db).await?;
+    let catalog = read_role_catalog(db).await?;
     let access = DatatableAccess::Authed(authed.to_authed_ref());
 
     let mut roles = Vec::new();
@@ -550,9 +561,9 @@ async fn list_usable_datatable_roles(
             }
         };
         if can_use_datatable_role_in_governing_workspace(
-            &db,
+            db,
             &governing.workspace_id,
-            &w_id,
+            w_id,
             tenants,
             &access,
         )
@@ -563,7 +574,7 @@ async fn list_usable_datatable_roles(
     }
 
     let default_role = permissions.default_role();
-    Ok(Json(UsableDatatableRoles {
+    Ok(UsableDatatableRoles {
         permissioned: true,
         roles,
         default_role: if default_role == ADMIN_DATATABLE_ROLE {
@@ -574,5 +585,5 @@ async fn list_usable_datatable_roles(
                 .map(|r| r.name.clone())
                 .unwrap_or_else(|| default_role.to_string())
         },
-    }))
+    })
 }

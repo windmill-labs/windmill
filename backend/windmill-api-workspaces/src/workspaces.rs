@@ -2214,6 +2214,23 @@ struct DataTableTables {
     schemas: TableListMap,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    /// On the instance database: the only kind that can be under roles or have its access edited.
+    instance: bool,
+    permissioned: bool,
+    /// The roles this caller may connect as, by name; empty when not under roles.
+    usable_roles: Vec<String>,
+    default_role: String,
+    /// What the role the listing connected as may create.
+    can_create_schema: bool,
+    creatable_schemas: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ListDataTableTablesQuery {
+    /// The data table `role` applies to. Every other one is listed as its default role, since a
+    /// role name means nothing outside the data table it belongs to.
+    role_for: Option<String>,
+    role: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2221,6 +2238,7 @@ struct GetDataTableSchemaQuery {
     datatable_name: String,
     schema_name: String,
     table_name: String,
+    role: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -2388,23 +2406,72 @@ async fn list_datatable_tables(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(query): Query<ListDataTableTablesQuery>,
 ) -> JsonResult<Vec<DataTableTables>> {
+    if query.role.is_some() && query.role_for.is_none() {
+        return Err(Error::BadRequest(
+            "`role` needs `role_for`, the data table it is a role of".to_string(),
+        ));
+    }
     let datatable_names = list_datatable_names(&db, &w_id).await?;
+    if let Some(role_for) = query.role_for.as_deref() {
+        if !datatable_names.iter().any(|n| n == role_for) {
+            return Err(Error::NotFound(format!(
+                "No data table named '{role_for}' in this workspace"
+            )));
+        }
+    }
     let mut results = Vec::new();
 
     for datatable_name in datatable_names {
-        let tables = match get_datatable_tables(&db, &authed, &w_id, &datatable_name).await {
-            Ok(schemas) => DataTableTables { datatable_name, schemas, error: None },
-            Err(e) => DataTableTables {
-                datatable_name,
-                schemas: HashMap::new(),
-                error: Some(e.to_string()),
-            },
-        };
-        results.push(tables);
+        let role = query
+            .role
+            .as_deref()
+            .filter(|_| query.role_for.as_deref() == Some(datatable_name.as_str()));
+        results.push(list_one_datatable_tables(&db, &authed, &w_id, datatable_name, role).await);
     }
 
     Ok(Json(results))
+}
+
+async fn list_one_datatable_tables(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    datatable_name: String,
+    role: Option<&str>,
+) -> DataTableTables {
+    let mut entry = DataTableTables {
+        datatable_name,
+        schemas: HashMap::new(),
+        error: None,
+        instance: false,
+        permissioned: false,
+        usable_roles: vec![],
+        default_role: windmill_common::datatable_roles::ADMIN_DATATABLE_ROLE.to_string(),
+        can_create_schema: false,
+        creatable_schemas: vec![],
+    };
+    let result: Result<()> = async {
+        let governing = resolve_governing_datatable(db, w_id, &entry.datatable_name).await?;
+        entry.instance = governing.is_instance();
+        let usable =
+            crate::datatable_permissions::usable_datatable_roles(db, authed, w_id, &governing)
+                .await?;
+        entry.permissioned = usable.permissioned;
+        entry.usable_roles = usable.roles;
+        entry.default_role = usable.default_role;
+        let listing = get_datatable_tables(db, authed, w_id, &entry.datatable_name, role).await?;
+        entry.schemas = listing.schemas;
+        entry.can_create_schema = listing.can_create_schema;
+        entry.creatable_schemas = listing.creatable_schemas;
+        Ok(())
+    }
+    .await;
+    if let Err(e) = result {
+        entry.error = Some(e.to_string());
+    }
+    entry
 }
 
 async fn get_datatable_table_schema(
@@ -2420,6 +2487,7 @@ async fn get_datatable_table_schema(
         &query.datatable_name,
         &query.schema_name,
         &query.table_name,
+        query.role.as_deref(),
     )
     .await?;
 
@@ -2458,14 +2526,13 @@ async fn resolve_datatable_pg_as_caller(
     authed: &ApiAuthed,
     w_id: &str,
     datatable_name: &str,
+    role: Option<&str>,
 ) -> Result<PgDatabase> {
     let db_resource = get_datatable_resource_from_db(
         db,
         w_id,
         datatable_name,
-        // The data table's default role. Browsing has no way to name another one yet; when the
-        // database manager grows a role picker it passes the pick through here.
-        None,
+        role,
         DatatableAccess::Authed(authed.to_authed_ref()),
     )
     .await?;
@@ -2479,7 +2546,7 @@ async fn get_datatable_schema(
     w_id: &str,
     datatable_name: &str,
 ) -> Result<SchemaMap> {
-    let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name).await?;
+    let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name, None).await?;
 
     // Connect to the datatable database
     let (client, connection) = pg_db.connect(Some(db)).await?;
@@ -2567,13 +2634,20 @@ async fn get_datatable_schema(
     Ok(schema_map)
 }
 
+struct DatatableTableListing {
+    schemas: TableListMap,
+    can_create_schema: bool,
+    creatable_schemas: Vec<String>,
+}
+
 async fn get_datatable_tables(
     db: &DB,
     authed: &ApiAuthed,
     w_id: &str,
     datatable_name: &str,
-) -> Result<TableListMap> {
-    let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name).await?;
+    role: Option<&str>,
+) -> Result<DatatableTableListing> {
+    let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name, role).await?;
     let (client, connection) = pg_db.connect(Some(db)).await?;
 
     tokio::spawn(async move {
@@ -2585,7 +2659,7 @@ async fn get_datatable_tables(
     let schema_rows = client
         .query(
             r#"
-            SELECT nspname::text AS schema_name
+            SELECT nspname::text AS schema_name, has_schema_privilege(oid, 'CREATE') AS can_create
             FROM pg_namespace
             WHERE nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
               AND nspname NOT LIKE 'pg_%'
@@ -2599,11 +2673,29 @@ async fn get_datatable_tables(
             Error::internal_err(format!("Failed to query schemas: {}", pg_error_message(&e)))
         })?;
 
+    let can_create_schema: bool = client
+        .query_one(
+            "SELECT has_database_privilege(current_database(), 'CREATE')",
+            &[],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to read database privileges: {}",
+                pg_error_message(&e)
+            ))
+        })?
+        .get(0);
+
     let mut table_map: TableListMap = HashMap::new();
+    let mut creatable_schemas = Vec::new();
     let schema_names: Vec<String> = schema_rows
         .iter()
         .map(|row| {
             let name: String = row.get(0);
+            if row.get::<_, bool>(1) {
+                creatable_schemas.push(name.clone());
+            }
             table_map.entry(name.clone()).or_default();
             name
         })
@@ -2633,7 +2725,7 @@ async fn get_datatable_tables(
         table_map.entry(table_schema).or_default().push(table_name);
     }
 
-    Ok(table_map)
+    Ok(DatatableTableListing { schemas: table_map, can_create_schema, creatable_schemas })
 }
 
 async fn get_datatable_table_columns(
@@ -2643,6 +2735,7 @@ async fn get_datatable_table_columns(
     datatable_name: &str,
     schema_name: &str,
     table_name: &str,
+    role: Option<&str>,
 ) -> Result<ColumnMap> {
     if is_system_pg_schema(schema_name) {
         return Err(Error::BadRequest(format!(
@@ -2651,7 +2744,7 @@ async fn get_datatable_table_columns(
         )));
     }
 
-    let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name).await?;
+    let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name, role).await?;
     let (client, connection) = pg_db.connect(Some(db)).await?;
 
     tokio::spawn(async move {
