@@ -96,8 +96,11 @@ struct Backend {
     store: Arc<dyn ObjectStore>,
     mc: MagicCrypt256,
     prefix: String,
-    /// Names the storage and key the objects are under, for the browser's sync state.
+    /// Name the storage and the generation the objects are under, for the browser's sync
+    /// state: a row recorded against another storage or generation is stale, a removal is
+    /// owed to the storage alone (a rotation deleted the older generation's copy anyway).
     storage_id: String,
+    generation: i64,
 }
 
 impl Backend {
@@ -383,9 +386,9 @@ async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backe
     // another member's ciphertext under their own prefix and have `pull` decrypt it for them.
     let key = get_workspace_key(w_id, db).await?;
     let mc = crypt_from_key_with_suffix(&key, &user);
-    let storage_id = storage_id(&resource, generation);
+    let storage_id = storage_id(&resource);
     let prefix = format!("{}/{user}", generation_prefix(w_id, generation));
-    Ok(Some(Backend { store, mc, prefix, storage_id }))
+    Ok(Some(Backend { store, mc, prefix, storage_id, generation }))
 }
 
 #[derive(Serialize)]
@@ -397,9 +400,12 @@ struct SessionListing {
 #[derive(Serialize)]
 struct ListResponse {
     enabled: bool,
-    /// The storage answered from; a browser whose sync state names another one starts over.
+    /// The storage answered from, and the generation a key rotation bumps; a browser whose
+    /// sync state names another storage or generation starts over.
     #[serde(skip_serializing_if = "Option::is_none")]
     storage_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_generation: Option<i64>,
     sessions: Vec<SessionListing>,
     /// The user has more sessions than the answer names.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -418,6 +424,7 @@ async fn list(
         return Ok(Json(ListResponse {
             enabled: false,
             storage_id: None,
+            backup_generation: None,
             sessions: vec![],
             truncated: false,
         }));
@@ -460,6 +467,7 @@ async fn list(
     Ok(Json(ListResponse {
         enabled: true,
         storage_id: Some(backend.storage_id.clone()),
+        backup_generation: Some(backend.generation),
         sessions,
         truncated,
     }))
@@ -517,6 +525,8 @@ struct PullResponse {
     enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     storage_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_generation: Option<i64>,
     sessions: Vec<PulledSession>,
     /// Ids that did not fit the response budget; ask for them again.
     deferred: Vec<String>,
@@ -545,6 +555,10 @@ async fn pull_session(
     first: bool,
     resume: Option<&PullCursor>,
 ) -> Result<PullStep> {
+    // Taken before anything of the page is listed or read: an object landing after it is
+    // in the next page's fingerprint, whereas one landing after the reads but before a
+    // fingerprint taken then would have certified a page without it.
+    let listing = backend.listing_fingerprint(sid).await?;
     let Read::Text(head) = backend
         .get(&backend.head_key(sid), MAX_HEAD_BYTES + CIPHER_PADDING)
         .await?
@@ -687,7 +701,6 @@ async fn pull_session(
             before = key.to_string();
         }
     }
-    let listing = backend.listing_fingerprint(sid).await?;
     Ok(PullStep::Fetched(
         PulledSession {
             id: sid.to_string(),
@@ -728,6 +741,7 @@ async fn pull(
         return Ok(Json(PullResponse {
             enabled: false,
             storage_id: None,
+            backup_generation: None,
             sessions: vec![],
             deferred: vec![],
         }));
@@ -749,6 +763,7 @@ async fn pull(
     Ok(Json(PullResponse {
         enabled: true,
         storage_id: Some(backend.storage_id),
+        backup_generation: Some(backend.generation),
         sessions,
         deferred,
     }))
@@ -811,6 +826,8 @@ struct PushResponse {
     enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     storage_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_generation: Option<i64>,
     results: Vec<PushResult>,
 }
 
@@ -974,6 +991,7 @@ async fn push(
         return Ok(Json(PushResponse {
             enabled: false,
             storage_id: None,
+            backup_generation: None,
             results: vec![],
         }));
     };
@@ -1037,6 +1055,7 @@ async fn push(
     Ok(Json(PushResponse {
         enabled: true,
         storage_id: Some(backend.storage_id),
+        backup_generation: Some(backend.generation),
         results,
     }))
 }

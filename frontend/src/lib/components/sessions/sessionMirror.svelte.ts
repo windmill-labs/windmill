@@ -396,10 +396,15 @@ async function staleWorkspaceSync(ws: string, email: string): Promise<void> {
 function foreignRows(
 	ws: string,
 	storageId: string,
+	generation: number,
 	rows: Iterable<MirrorSyncState>
 ): MirrorSyncState[] {
 	return [...rows].filter(
-		(row) => row.ws === ws && !row.stale && !row.removed && row.storageId !== storageId
+		(row) =>
+			row.ws === ws &&
+			!row.stale &&
+			!row.removed &&
+			(row.storageId !== storageId || (row.generation ?? 0) !== generation)
 	)
 }
 
@@ -474,8 +479,9 @@ type SendStatus = 'ok' | 'off' | 'refused' | 'abort' | 'transient'
 
 interface WorkspaceOutcome {
 	status: SendStatus
-	/** The storage the server answered from, once it answered. */
+	/** The storage and backup generation the server answered from, once it answered. */
 	storageId?: string
+	generation?: number
 	/** Sessions every part of which the server stored. */
 	settled: {
 		id: string
@@ -484,6 +490,7 @@ interface WorkspaceOutcome {
 		removeFrom?: string
 		carried: boolean
 		storageId?: string
+		generation?: number
 	}[]
 	/** Marks with nothing behind them (an unsent draft, a session gone from the store). */
 	dropped: { id: string; v: number }[]
@@ -527,7 +534,8 @@ async function pushWorkspace(
 			removeFrom?: string
 			carried: boolean
 			storageId?: string
-			/** The storage the last answer for this session came from. */
+			generation?: number
+			/** The storage and generation the last answer for this session came from. */
 			answered?: string
 		}
 	>()
@@ -563,6 +571,8 @@ async function pushWorkspace(
 		}
 		if (!res.enabled) return 'off'
 		out.storageId = res.storage_id
+		out.generation = res.backup_generation
+		const answered = `${res.storage_id}:${res.backup_generation}`
 		const errors = new Set<string>()
 		for (const r of res.results) {
 			if (r.error) {
@@ -576,9 +586,10 @@ async function pushWorkspace(
 			a.parts -= 1
 			// Parts answered from different storages sit in different buckets: nothing to
 			// settle, the session goes again whole.
-			if (a.answered !== undefined && a.answered !== res.storage_id) failed.add(entry.id)
-			a.answered = res.storage_id
+			if (a.answered !== undefined && a.answered !== answered) failed.add(entry.id)
+			a.answered = answered
 			a.storageId = res.storage_id
+			a.generation = res.backup_generation
 			if (errors.has(entry.id)) failed.add(entry.id)
 		}
 		for (const id of body.removed ?? []) {
@@ -637,7 +648,8 @@ async function pushWorkspace(
 					next: a.next,
 					removeFrom: a.removeFrom,
 					carried: a.carried,
-					storageId: a.storageId
+					storageId: a.storageId,
+					generation: a.generation
 				})
 			}
 		}
@@ -675,7 +687,8 @@ async function pushWorkspace(
 			complete: nothingToSend,
 			removeFrom: plan.removeFrom,
 			carried: plan.carried,
-			storageId: item.sync?.storageId
+			storageId: item.sync?.storageId,
+			generation: item.sync?.generation
 		})
 		if (nothingToSend) continue
 		let images: AISessionBackupImage[] = []
@@ -840,28 +853,31 @@ async function flush(): Promise<void> {
 			const written = recorded.map((s) => ({
 				...s.next,
 				flushedV: s.carried ? s.v - 1 : s.v,
-				storageId: s.storageId
+				storageId: s.storageId,
+				generation: s.generation
 			}))
 			await writeSync(written, email)
-			// The server names the storage every answer comes from. Rows naming another one
-			// go stale, the ones written just now included: a session answered from a
-			// storage the later answers left behind, or pushed in part on top of a row from
-			// another one, has its backup split across buckets the server no longer looks at
-			// as a whole.
+			// The server names the storage and generation every answer comes from. Rows
+			// naming another go stale, the ones written just now included: a session answered
+			// from a storage the later answers left behind, or pushed in part on top of a row
+			// from another one, has its backup split across buckets the server no longer
+			// looks at as a whole.
 			if (out.storageId !== undefined) {
 				const storageId = out.storageId
+				const generation = out.generation ?? 0
+				const elsewhere = (row: MirrorSyncState) =>
+					row.storageId !== storageId || (row.generation ?? 0) !== generation
 				const removed = new Set(out.removedDone.map((r) => r.id))
 				const writtenIds = new Set(written.map((row) => row.id))
 				const untouched = [...syncRows.values()].filter(
 					(row) => !removed.has(row.id) && !writtenIds.has(row.id)
 				)
 				const foreign = [
-					...foreignRows(ws, storageId, untouched),
+					...foreignRows(ws, storageId, generation, untouched),
 					...written.filter((row) => {
 						const prior = syncRows.get(row.id)
-						const partial =
-							prior && !prior.stale && prior.ws === ws && prior.storageId !== storageId
-						return row.storageId !== storageId || partial
+						const partial = prior && !prior.stale && prior.ws === ws && elsewhere(prior)
+						return elsewhere(row) || partial
 					})
 				]
 				if (foreign.length > 0) {
@@ -906,6 +922,7 @@ function unpackBackup(
 	backup: AISessionBackup,
 	updatedAt: number,
 	storageId: string | undefined,
+	generation: number | undefined,
 	earlierChats: Iterable<string> = []
 ):
 	| {
@@ -963,7 +980,8 @@ function unpackBackup(
 		chats: Object.fromEntries(chats.map((c) => [c.id, c.lastModified])),
 		images: Object.fromEntries(images.map((i) => [i.id, i.chatId])),
 		artifacts: artifactsFingerprint({ items, versions }),
-		storageId
+		storageId,
+		generation
 	}
 	return { session, chats, images, artifacts: { items, versions }, sync }
 }
@@ -984,7 +1002,10 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 	}
 	if (!wsState.has(ws)) wsState.set(ws, 'on')
 	const rows = await allSyncRows(email)
-	const foreign = listing.storage_id === undefined ? [] : foreignRows(ws, listing.storage_id, rows)
+	const foreign =
+		listing.storage_id === undefined
+			? []
+			: foreignRows(ws, listing.storage_id, listing.backup_generation ?? 0, rows)
 	if (foreign.length > 0) {
 		await markStale(foreign, email)
 		scheduleFlush()
@@ -1065,6 +1086,7 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 				b,
 				updatedAt.get(b.id) ?? Date.now(),
 				pulled.storage_id,
+				pulled.backup_generation,
 				Object.keys(earlier?.sync.chats ?? {})
 			)
 			if (!u) continue

@@ -495,6 +495,38 @@ describe('sessionMirror flush', () => {
 		expect((await __syncRowsForTesting(EMAIL)).some((r) => r.id === 'sr2')).toBe(false)
 	})
 
+	it('takes a bumped backup generation as a new storage for the rows, not for a removal', async () => {
+		const a: Session = { id: 'ga', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
+		const b: Session = { id: 'gb', name: 'session-2', createdAt: 2, workspace_id: 'ws' }
+		sessionState.sessions = [a, b]
+		await putSession(a)
+		await putSession(b)
+		pushMock.mockResolvedValueOnce({
+			enabled: true,
+			storage_id: 'A',
+			backup_generation: 0,
+			results: [{ id: 'ga' }, { id: 'gb' }]
+		})
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(1)
+
+		// The key was rotated before the delete: the removal is done (the old generation is
+		// gone with the rotation), and `gb` goes whole again under the new one.
+		deleteSession('ga')
+		await flush()
+		pushMock.mockResolvedValueOnce({
+			enabled: true,
+			storage_id: 'A',
+			backup_generation: 1,
+			results: [{ id: 'ga' }]
+		})
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(pushMock.mock.calls[1][0].requestBody.removed).toEqual(['ga'])
+		expect(removalKeys()).toEqual([])
+		expect(await pendingDirty()).toEqual(['gb'])
+	})
+
 	it('holds the rest of a session back once the server refused a part of it', async () => {
 		await splitSession('sf')
 		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sf', error: 'boom' }] })

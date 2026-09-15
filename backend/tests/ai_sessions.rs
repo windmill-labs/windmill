@@ -524,7 +524,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     // the older ones off the request rather than re-key anything; the storage identity the
     // answers carry changes with the generation, which is what makes every browser push its
     // sessions whole again.
-    let before = list(&base, "SECRET_TOKEN").await?["storage_id"].clone();
+    let before = list(&base, "SECRET_TOKEN").await?;
     rotate(&base, &"b".repeat(64)).await?;
     for _ in 0..100 {
         if files_under(storage_dir.path()).is_empty() {
@@ -538,9 +538,10 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     );
     let listing = list(&base, "SECRET_TOKEN").await?;
     assert_eq!(listing["sessions"], json!([]));
+    assert_eq!(listing["storage_id"], before["storage_id"]);
     assert_ne!(
-        listing["storage_id"], before,
-        "a rotation must change the storage identity"
+        listing["backup_generation"], before["backup_generation"],
+        "a rotation must bump the backup generation"
     );
     assert_eq!(
         pull(&base, "SECRET_TOKEN", &["s1"]).await?["sessions"],
@@ -562,10 +563,11 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     assert_eq!(pulled["sessions"][0]["chats"][0]["id"], "c2");
     // Setting the key already in place is not a rotation the browsers would notice, so it
     // keeps the backups.
-    let same = list(&base, "SECRET_TOKEN").await?["storage_id"].clone();
+    let same = list(&base, "SECRET_TOKEN").await?;
     rotate(&base, &"b".repeat(64)).await?;
     let listing = list(&base, "SECRET_TOKEN").await?;
-    assert_eq!(listing["storage_id"], same);
+    assert_eq!(listing["storage_id"], same["storage_id"]);
+    assert_eq!(listing["backup_generation"], same["backup_generation"]);
     assert_eq!(listing["sessions"][0]["id"], "s1");
     assert_eq!(
         pull(&base, "SECRET_TOKEN", &["s1"]).await?["sessions"][0]["head"],

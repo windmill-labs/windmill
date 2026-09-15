@@ -13215,6 +13215,9 @@ paths:
                   storage_id:
                     type: string
                     description: names the storage answered from; sync state recorded against another one is void
+                  backup_generation:
+                    type: integer
+                    description: bumped by every workspace key rotation; sync state recorded under another one is void
                   sessions:
                     type: array
                     description: the newest 500 at most
@@ -13264,6 +13267,8 @@ paths:
                     type: boolean
                   storage_id:
                     type: string
+                  backup_generation:
+                    type: integer
                   sessions:
                     type: array
                     items:
@@ -13316,6 +13321,8 @@ paths:
                     type: boolean
                   storage_id:
                     type: string
+                  backup_generation:
+                    type: integer
                   results:
                     type: array
                     items:

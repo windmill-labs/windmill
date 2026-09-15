@@ -39,9 +39,10 @@ pub fn generation_prefix(w_id: &str, generation: i64) -> String {
 }
 
 /// Names the storage the backups are in, by what locates its objects (endpoint, region,
-/// bucket; never the credentials, which rotate) and by the generation, so a browser tells
-/// that its sync state was recorded against another storage or before a rotation.
-pub fn storage_id(resource: &ObjectStoreResource, generation: i64) -> String {
+/// bucket; never the credentials, which rotate), so a browser tells that its sync state was
+/// recorded against another storage; the generation, answered alongside, tells it a
+/// rotation happened in this one.
+pub fn storage_id(resource: &ObjectStoreResource) -> String {
     let location = match resource {
         ObjectStoreResource::S3(s) => format!(
             "s3:{}:{}:{}:{}",
@@ -59,7 +60,7 @@ pub fn storage_id(resource: &ObjectStoreResource, generation: i64) -> String {
         ObjectStoreResource::Gcs(g) => format!("gcs:{}", g.bucket),
         ObjectStoreResource::Filesystem(f) => format!("fs:{}", f.root_path),
     };
-    calculate_hash(&format!("{location}:g{generation}"))[..16].to_string()
+    calculate_hash(&location)[..16].to_string()
 }
 
 /// The workspace's primary storage, resolved without a caller: a rotation runs the
