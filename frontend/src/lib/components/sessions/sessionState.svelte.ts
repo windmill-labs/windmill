@@ -24,7 +24,7 @@ import { workspaceRootId } from './sessionScope.svelte'
 import { clearSessionRecovered } from './sessionRecoveryNotice.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
-import { emailOfScopedKey, getCurrentUserEmail, scopedKeyFor } from '$lib/userScopedStorage'
+import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
 import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
@@ -722,37 +722,45 @@ function webLocks(): LockManager | undefined {
 	return typeof navigator === 'undefined' ? undefined : (navigator as { locks?: LockManager }).locks
 }
 
-// Held, shared, by every tab for the session it has selected: `currentSessionId` is per tab
-// while the stores are shared, so a sweep in another tab deletes a session only while holding
-// this lock exclusively.
-function openSessionLockName(email: string, id: string): string {
-	return `${sessionsLockName(email)}::open::${id}`
+// Held, shared, by every tab while it has the user's sessions loaded, from before it reads
+// them: the stores are shared while each tab keeps copies of the sessions in memory, so the
+// sweep deletes only while holding this exclusively.
+function sessionsInUseLockName(email: string): string {
+	return `${sessionsLockName(email)}::in-use`
 }
 
-let openHold: { released: boolean; release?: () => void } | undefined
+interface InUseHold {
+	email: string
+	released: boolean
+	release?: () => void
+	done?: Promise<unknown>
+}
 
-function holdOpenSession(email: string | undefined, id: string | undefined): void {
-	if (openHold) {
-		openHold.released = true
-		openHold.release?.()
-		openHold = undefined
-	}
+let inUse: InUseHold | undefined
+
+// Resolves once the hold is granted, which waits for a sweep another tab is running.
+async function holdSessionsInUse(email: string): Promise<void> {
 	const locks = webLocks()
-	if (!locks || !email || !id) return
-	const hold: { released: boolean; release?: () => void } = { released: false }
-	openHold = hold
-	void locks.request(openSessionLockName(email, id), { mode: 'shared' }, () =>
-		hold.released ? undefined : new Promise<void>((resolve) => (hold.release = resolve))
-	)
-}
-
-if (BROWSER) {
-	$effect.root(() => {
-		$effect(() => {
-			const id = sessionState.currentSessionId
-			holdOpenSession(getCurrentUserEmail(), id)
+	if (!locks || inUse?.email === email) return
+	await releaseSessionsInUse()
+	const hold: InUseHold = { email, released: false }
+	inUse = hold
+	await new Promise<void>((granted) => {
+		hold.done = locks.request(sessionsInUseLockName(email), { mode: 'shared' }, () => {
+			granted()
+			return hold.released ? undefined : new Promise<void>((resolve) => (hold.release = resolve))
 		})
 	})
+}
+
+// Resolves once the hold is let go of, so an exclusive request made next can be granted.
+async function releaseSessionsInUse(): Promise<void> {
+	const hold = inUse
+	if (!hold) return
+	inUse = undefined
+	hold.released = true
+	hold.release?.()
+	await hold.done?.catch(() => {})
 }
 
 // Deletes one expired session's record, then its pieces. False when the record was not
@@ -788,7 +796,7 @@ async function deleteSessionPieces(id: string, email: string): Promise<boolean> 
 }
 
 // Past its workspace's retention and not the session on screen in this tab, which is never
-// swept (another tab's is told by its open-session lock).
+// swept; no other tab has the sessions loaded while a sweep runs.
 function isSweepable(s: Session, retention: Map<string, number>, now: number): boolean {
 	const ws = s.workspace_id ?? s.pending_workspace_id
 	return (
@@ -798,44 +806,48 @@ function isSweepable(s: Session, retention: Map<string, number>, now: number): b
 	)
 }
 
-// Deletes this browser's copies of the sessions past their workspace's retention, under the
+// Deletes this browser's copies of the sessions past their workspace's retention, only while
+// no other tab of the user has the sessions loaded: having let go of this tab's own hold, it
+// takes the in-use lock exclusively if available, so no other tab keeps in memory what it
+// deletes, and a tab loading meanwhile reads the stores once it is done. Within, it holds the
 // tab lock the backup's flush and restore take: a flush planning a session half deleted would
 // push the deletions to the backup, and a restore could stage pieces the sweep then deletes.
 // Where Web Locks do not exist (a plain http origin) it does not run, as the restore does
-// not. A session another tab has selected is left. Each record is deleted in the transaction
-// that reads it still past the retention, so activity since the reconcile read keeps the
-// session. The record goes before its pieces, so no flush plans the session once the lock is
-// released; a pending key written before it and removed once every piece is gone makes a
-// later sweep finish a deletion that failed, unless a restore brought the session back since.
-// Nothing is sent to the backup; its state in this browser goes (`sessionSwept`).
+// not. Each record is deleted in the transaction that reads it still past the retention, so
+// activity in this tab since the reconcile read keeps the session. The record goes before its
+// pieces, so no flush plans the session once the lock is released; a pending key written
+// before it and removed once every piece is gone makes a later sweep finish a deletion that
+// failed, unless a restore brought the session back since. Nothing is sent to the backup; its
+// state in this browser goes (`sessionSwept`).
 async function sweepExpiredSessions(retention: Map<string, number>, email: string): Promise<void> {
 	const locks = webLocks()
 	if (!locks) return
+	const holding = inUse?.email === email
 	try {
-		await locks.request(sessionsLockName(email), async () => {
-			const db = await sessionsDb.whenReady()
-			if (!db || db.name !== scopedKeyFor(SESSIONS_DB, email)) return
-			for (const id of retentionPending(email)) {
-				const restored = (await db.getKey('sessions', id)) !== undefined
-				if (restored || (await deleteSessionPieces(id, email))) forgetRetentionPending(email, id)
-			}
-			let swept = false
-			for (const s of await db.getAll('sessions')) {
-				if (!isSweepable(s, retention, Date.now())) continue
-				// Exclusive against the shared hold of a tab that has the session selected: not
-				// granted while one holds it. A tab selecting it once this is granted still shows
-				// it: its hold request waits, its page does not.
-				const deleted = await locks.request(
-					openSessionLockName(email, s.id),
-					{ mode: 'exclusive', ifAvailable: true },
-					async (lock) => lock !== null && (await sweepSession(db, s.id, retention, email))
-				)
-				swept = deleted === true || swept
-			}
-			if (swept) await hydrateSessions()
+		if (holding) await releaseSessionsInUse()
+		await locks.request(sessionsInUseLockName(email), { ifAvailable: true }, async (lock) => {
+			if (!lock) return
+			await locks.request(sessionsLockName(email), async () => {
+				const db = await sessionsDb.whenReady()
+				if (!db || db.name !== scopedKeyFor(SESSIONS_DB, email)) return
+				for (const id of retentionPending(email)) {
+					const restored = (await db.getKey('sessions', id)) !== undefined
+					if (restored || (await deleteSessionPieces(id, email))) {
+						forgetRetentionPending(email, id)
+					}
+				}
+				let swept = false
+				for (const s of await db.getAll('sessions')) {
+					if (!isSweepable(s, retention, Date.now())) continue
+					swept = (await sweepSession(db, s.id, retention, email)) || swept
+				}
+				if (swept) await hydrateSessions()
+			})
 		})
 	} catch (e) {
 		console.error('Failed to sweep the sessions past their retention', e)
+	} finally {
+		if (holding) await holdSessionsInUse(email)
 	}
 }
 
@@ -920,6 +932,10 @@ export async function deleteSessionsForWorkspace(workspaceId: string): Promise<v
 // user's sessions never bleed into another.
 onUserChange(async (email, prevEmail) => {
 	if (!BROWSER) return
+	// Held before the sessions are read, so a sweep in another tab never deletes what this tab
+	// loads, and one already running is waited for.
+	if (email) await holdSessionsInUse(email)
+	else await releaseSessionsInUse()
 	await hydrateSessions({ dropTransients: prevEmail !== email })
 	// onUserChange also fires at registration time, before the email resolves —
 	// that hydration is an empty no-op and must not clear the loading state.
@@ -927,7 +943,6 @@ onUserChange(async (email, prevEmail) => {
 	if (prevEmail !== undefined && prevEmail !== email) {
 		sessionState.currentSessionId = undefined
 	}
-	holdOpenSession(email, sessionState.currentSessionId)
 	// Load-time reconcile: catch workspaces archived/deleted while away.
 	void reconcileSessionsLifecycle()
 })

@@ -278,14 +278,13 @@ writes to the session again (its incremental push is refused and goes whole):
   the storage's never deletes a session it just brought back. Archived sessions count like
   any other, and persisted unsent drafts by their pending workspace. The sweep runs under the
   tab lock the flush and the restore take, so neither plans or stages a session half deleted,
-  and so only where Web Locks exist, as the restore. `currentSessionId` is per tab while the
-  stores are shared, so every tab holds a shared Web Lock named after the session it has
-  selected, and the sweep deletes a session only while holding that lock exclusively,
-  requested if available, so a tab that has it selected keeps it. A tab that selects it while
-  the deletion runs is not held back (its lock request waits, its page does not): it can show a
-  session whose record and pieces are going, and a write from it re-creates the record without
-  them, the same gap the workspace-lifecycle deletion has. Each record is deleted in the
-  transaction that reads it still expired, so
+  and so only where Web Locks exist, as the restore. The stores are shared by the user's tabs
+  while each keeps copies of the sessions in memory, so every tab holds a shared Web Lock while
+  it has the sessions loaded, taken before it reads them, and the sweep runs only while holding
+  that lock exclusively, requested if available once its own tab let go of its hold: never
+  while another tab of the user is open, and a tab loading meanwhile reads the stores only once
+  it is done. With several tabs open, sessions are swept once one of them is the only tab left
+  and reconciles. Each record is deleted in the transaction that reads it still expired, so
   activity since the reconcile read keeps the session. The record goes before its pieces,
   and a localStorage key written before it and removed once every piece is gone makes a later
   reconcile finish a deletion that failed, whether a retention is still set or not, unless a

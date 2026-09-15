@@ -699,10 +699,9 @@ describe('sessionState IndexedDB persistence', () => {
 			] as never
 		})
 		await login(user)
-		// The sweep runs under the backup's tab lock, so only where Web Locks exist; `held` is
-		// every tab's shared holds, against which an exclusive request made if available is not
-		// granted.
-		const held = new Set<string>()
+		// The sweep runs only where Web Locks exist; `holders` counts the shared holds on each
+		// name across tabs, against which an exclusive request made if available is not granted.
+		const holders = new Map<string, number>()
 		if (typeof navigator === 'undefined') {
 			Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true })
 		}
@@ -712,37 +711,58 @@ describe('sessionState IndexedDB persistence', () => {
 					const run = rest[rest.length - 1] as (lock: unknown) => Promise<unknown>
 					const options = (rest.length > 1 ? rest[0] : {}) as LockOptions
 					if (options.mode === 'shared') {
-						held.add(name)
+						holders.set(name, (holders.get(name) ?? 0) + 1)
 						try {
 							return await run({})
 						} finally {
-							held.delete(name)
+							holders.set(name, (holders.get(name) ?? 1) - 1)
 						}
 					}
-					return run(options.ifAvailable && held.has(name) ? null : {})
+					return run(options.ifAvailable && (holders.get(name) ?? 0) > 0 ? null : {})
 				}
 			},
 			configurable: true
 		})
+		const inUse = `wm-ai-sessions-mirror::${user.email}::in-use`
 		const day = 24 * 60 * 60 * 1000
 		const old = Date.now() - 31 * day
 		const stale = (id: string, over: Partial<Session> = {}) =>
 			session({ id, createdAt: old, lastActivityAt: old, workspace_id: 'kept-ws', ...over })
 		// Archived or not, a session is judged by its own last activity; one read a day ago
 		// stays, as do one restored here a day ago whatever the backup's time, one in a
-		// workspace without retention, the one on screen, and one another tab has selected.
+		// workspace without retention, and the one on screen.
 		await putSession(stale('stale'))
 		await putSession(stale('stale-archived', { archived: true }))
 		await putSession(stale('read-lately', { lastActivityAt: Date.now() - day }))
 		await putSession(stale('restored-lately', { restoredAt: Date.now() - day }))
 		await putSession(stale('open'))
-		await putSession(stale('open-elsewhere'))
 		await putSession(stale('used-meanwhile'))
 		await putSession(stale('elsewhere', { workspace_id: 'other-ws' }))
 		sessionState.currentSessionId = 'open'
-		held.add(`wm-ai-sessions-mirror::${user.email}::open::open-elsewhere`)
 
 		const statusMock = vi.mocked(WorkspaceService.getSessionWorkspaceStatus)
+		const retention = {
+			'kept-ws': { status: 'active', sessions_retention_days: 30 },
+			'other-ws': { status: 'active' }
+		}
+		const stored = async () => {
+			const db = await openDB(`windmill-sessions::${user.email}`, 1)
+			const ids = ((await db.getAll('sessions' as never)) as Session[]).map((s) => s.id)
+			db.close()
+			return ids.sort()
+		}
+		const chatDeletions = (id: string) =>
+			deleteSessionChatsMock.mock.calls.filter(([sid, email]) => sid === id && email === user.email)
+
+		// While another tab has the sessions loaded, nothing is swept.
+		holders.set(inUse, 1)
+		statusMock.mockResolvedValueOnce(retention as never)
+		await reconcileSessionsLifecycle()
+		await new Promise((resolve) => setTimeout(resolve, 200))
+		expect(await stored()).toContain('stale')
+		expect(chatDeletions('stale')).toHaveLength(0)
+		holders.set(inUse, 0)
+
 		const statusCalls = statusMock.mock.calls.length
 		let answer!: (value: unknown) => void
 		statusMock.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)) as never)
@@ -750,26 +770,15 @@ describe('sessionState IndexedDB persistence', () => {
 		deleteSessionChatsMock.mockResolvedValueOnce(false)
 		const reconciled = reconcileSessionsLifecycle()
 		await vi.waitFor(() => expect(statusMock.mock.calls.length).toBe(statusCalls + 1))
-		// Another tab uses a stale session while the status request is out.
+		// The session is used while the status request is out.
 		await putSession(stale('used-meanwhile', { lastActivityAt: Date.now() }))
-		const retention = {
-			'kept-ws': { status: 'active', sessions_retention_days: 30 },
-			'other-ws': { status: 'active' }
-		}
 		answer(retention)
 		await reconciled
 
-		const stored = async () => {
-			const db = await openDB(`windmill-sessions::${user.email}`, 1)
-			const ids = ((await db.getAll('sessions' as never)) as Session[]).map((s) => s.id)
-			db.close()
-			return ids.sort()
-		}
 		await vi.waitFor(async () =>
 			expect(await stored()).toEqual([
 				'elsewhere',
 				'open',
-				'open-elsewhere',
 				'read-lately',
 				'restored-lately',
 				'used-meanwhile'
@@ -777,8 +786,6 @@ describe('sessionState IndexedDB persistence', () => {
 		)
 		const pending = (id: string) =>
 			localStorage.getItem(`windmill_sessions_retention_pending::${user.email}::${id}`)
-		const chatDeletions = (id: string) =>
-			deleteSessionChatsMock.mock.calls.filter(([sid, email]) => sid === id && email === user.email)
 		await vi.waitFor(() => expect(chatDeletions('stale-archived')).toHaveLength(1))
 		expect(pending('stale')).toBe('1')
 		expect(pending('stale-archived')).toBeNull()
@@ -793,7 +800,7 @@ describe('sessionState IndexedDB persistence', () => {
 		await reconcileSessionsLifecycle()
 		await vi.waitFor(() => expect(pending('stale')).toBeNull())
 		expect(chatDeletions('stale')).toHaveLength(2)
-		held.clear()
+		holders.clear()
 	})
 
 	it('clears the in-memory list on logout', async () => {
