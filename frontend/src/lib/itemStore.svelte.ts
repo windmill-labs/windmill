@@ -1089,6 +1089,13 @@ export function createItemStore(ports: ItemRowPort) {
 			if (!entry || !entry.loaded) return undefined
 			return { value: entry.dirty && entry.origin !== 'new' ? snapshot(entry.value) : undefined }
 		},
+		refresh(
+			workspace: string,
+			kind: UserDraftItemKind,
+			path: string
+		): Promise<unknown> | undefined {
+			return find(workspace, kind, path)?.reread()
+		},
 		discard(
 			workspace: string,
 			kind: UserDraftItemKind,

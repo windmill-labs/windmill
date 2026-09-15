@@ -141,6 +141,13 @@ export type LiveItemBridge = {
 		itemKind: UserDraftItemKind,
 		path: string
 	): { value: unknown | undefined } | undefined
+	/** Re-read the live item, for a caller that has just written the deployed item under it.
+	 *  `undefined` when no live item holds the key. */
+	refresh(
+		workspace: string,
+		itemKind: UserDraftItemKind,
+		path: string
+	): Promise<unknown> | undefined
 	/** Discard the live item's draft, resolving once its delete has landed. `undefined` when no
 	 *  live item holds the key, so the caller issues the delete itself. */
 	discard(
@@ -152,6 +159,16 @@ export type LiveItemBridge = {
 }
 
 let liveItems: LiveItemBridge | undefined
+
+/** Tell a live item that the deployed item under it has just been written, so its baseline is
+ *  current before anything resets to it. Resolves once it has re-read. */
+export function refreshLiveItem(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): Promise<unknown> | undefined {
+	return liveItems?.refresh(workspace, itemKind, path)
+}
 
 export function registerLiveItemBridge(bridge: LiveItemBridge): void {
 	liveItems = bridge

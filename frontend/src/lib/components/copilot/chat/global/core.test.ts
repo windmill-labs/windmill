@@ -2324,6 +2324,7 @@ describe('global AI tools', () => {
 		registerLiveItemBridge({
 			seed: () => false,
 			read: () => undefined,
+			refresh: () => undefined,
 			// Claims the key and removes nothing, so anything still gone was deleted by the chat.
 			discard: () => {
 				discards++
@@ -2339,6 +2340,43 @@ describe('global AI tools', () => {
 			registerLiveItemBridge({
 				seed: () => false,
 				read: () => undefined,
+				refresh: () => undefined,
+				discard: () => undefined,
+				list: () => []
+			})
+		}
+	})
+
+	// Deploying a draft writes the item, so an editor open on it is a baseline behind. Its row is
+	// discarded straight after, which resets it to that baseline — so it has to re-read first.
+	it('refreshes a live editor before a deploy discards its draft', async () => {
+		const path = 'u/admin/deployed_res'
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		const calls: string[] = []
+		registerLiveItemBridge({
+			seed: () => false,
+			read: () => undefined,
+			refresh: () => {
+				calls.push('refresh')
+				return Promise.resolve()
+			},
+			discard: () => {
+				calls.push('discard')
+				return Promise.resolve({ removed: true })
+			},
+			list: () => []
+		})
+		try {
+			await deleteGlobalDraft(WORKSPACE, 'resource', path, undefined, {
+				preserveLiveDraft: true,
+				deployed: true
+			})
+			expect(calls).toEqual(['refresh', 'discard'])
+		} finally {
+			registerLiveItemBridge({
+				seed: () => false,
+				read: () => undefined,
+				refresh: () => undefined,
 				discard: () => undefined,
 				list: () => []
 			})

@@ -7994,7 +7994,10 @@ async function deployDraft(
 	// fork comparisons before the fallible draft cleanup below.
 	invalidateWorkspaceComparison(workspace)
 
-	await deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
+	await deleteGlobalDraft(workspace, type, path, triggerKind, {
+		preserveLiveDraft: true,
+		deployed: true
+	})
 
 	// Move the chat's mask entry to the deployed path: a draft-only item's
 	// synthetic storage key never exists deployed, so the entry would otherwise

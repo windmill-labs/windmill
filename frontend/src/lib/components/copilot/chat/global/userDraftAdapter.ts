@@ -2,7 +2,12 @@ import type { Flow, NewSchedule, NewScript } from '$lib/gen/types.gen'
 import { DraftService } from '$lib/gen'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-import { UserDraft, type UserDraftEntry, type UserDraftItemKind } from '$lib/userDraft.svelte'
+import {
+	refreshLiveItem,
+	UserDraft,
+	type UserDraftEntry,
+	type UserDraftItemKind
+} from '$lib/userDraft.svelte'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import {
 	getWorkspaceItemKey,
@@ -574,6 +579,10 @@ export async function saveGlobalAppDraft(
 
 type DeleteGlobalDraftOptions = {
 	preserveLiveDraft?: boolean
+	/** The deployed item was just written from this draft. An editor open on it is holding the
+	 *  baseline from before that, and discarding the draft resets it to exactly that — showing
+	 *  the pre-deploy value, clean, ready to be saved back over the deployment. */
+	deployed?: boolean
 }
 
 export async function deleteGlobalDraft(
@@ -586,6 +595,7 @@ export async function deleteGlobalDraft(
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	if (options.deployed) await refreshLiveItem(workspace, itemKind, storagePath)
 	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
 	const live =
 		options.preserveLiveDraft && liveDraft?.storagePath === storagePath
