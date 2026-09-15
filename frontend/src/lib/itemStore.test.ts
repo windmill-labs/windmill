@@ -251,6 +251,64 @@ describe('item store: commands', () => {
 		expect(rows.writes.at(-1)).toEqual({ path: 's', value: null })
 	})
 
+	it('lets the later of two overlapping toggles stand, without a row in between', async () => {
+		type Sched = { path: string; enabled: boolean; summary: string }
+		const rows = fakeRows()
+		const first = deferred()
+		const store = createItemStore(rows.port)
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'trigger_schedule', path: 's' },
+			{ workspace: 'w', path: 's' },
+			{
+				load: async () => ({ deployed: { path: 's', enabled: false, summary: 'a' } })
+			} as ItemAdapter<Sched>
+		)
+		await settle()
+		const enabling = item.patch({ enabled: true }, () => first.promise)
+		const disabling = item.patch({ enabled: false }, async () => {})
+		first.resolve()
+
+		expect(await enabling).toEqual({ ok: true })
+		// The first request landing must not put its own `enabled` back over the second's.
+		expect(item.dirty).toBe(false)
+		expect(await disabling).toEqual({ ok: true })
+		expect(item.deployed).toEqual({ path: 's', enabled: false, summary: 'a' })
+		expect(item.dirty).toBe(false)
+		expect(rows.writes).toEqual([])
+	})
+
+	it('keeps a toggle made during a read the server answered before it', async () => {
+		type Sched = { path: string; enabled: boolean; summary: string }
+		const rows = fakeRows()
+		const reading = deferred()
+		let reads = 0
+		const store = createItemStore(rows.port)
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'trigger_schedule', path: 's' },
+			{ workspace: 'w', path: 's' },
+			{
+				load: async () => {
+					// The read in flight predates the toggle, so it still reports it disabled.
+					if (reads++ > 0) await reading.promise
+					return { deployed: { path: 's', enabled: false, summary: 'a' } }
+				}
+			} as ItemAdapter<Sched>
+		)
+		await settle()
+		const reloading = item.reload()
+		await settle()
+		const toggling = item.patch({ enabled: true }, async () => {})
+		reading.resolve()
+
+		expect(await reloading).toEqual({ ok: true })
+		// The read must not put the schedule back to disabled under the toggle: that reads as an
+		// unsaved change to `enabled` and would be written as a draft.
+		expect(item.dirty).toBe(false)
+		expect(await toggling).toEqual({ ok: true })
+		expect(item.deployed).toEqual({ path: 's', enabled: true, summary: 'a' })
+		expect(rows.writes).toEqual([])
+	})
+
 	it('holds a toggle behind a save, and keeps an unrelated edit through the toggle', async () => {
 		type Sched = { path: string; enabled: boolean; summary: string }
 		const rows = fakeRows()

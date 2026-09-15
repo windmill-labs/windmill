@@ -193,8 +193,7 @@ class Entry<V> {
 	waitingOn: Entry<any>[] = []
 	handles = new Set<Handle<V>>()
 	stopWatch: (() => void) | undefined
-	/** Fields a `patch` has put on the deployed side ahead of the server; a save landing
-	 *  meanwhile keeps them rather than rolling the baseline back past them. */
+	/** Fields a `patch` has put on the deployed side ahead of the server. */
 	private patched: Record<string, unknown> = {}
 	/** The value as last observed, serialized: `touch` acts only on a real change. */
 	private seen: string | undefined
@@ -254,6 +253,14 @@ class Entry<V> {
 		}
 		this.row = desired
 		this.ports.write(key, desired === null ? null : snapshot(this.value))
+	}
+
+	/** A deployed side the server gave, with the fields a patch is still ahead of it on. Every
+	 *  write of that side goes through here: rolling the baseline back past an optimistic toggle
+	 *  makes the value differ from it, which is a draft row of a change nobody made. */
+	private withPatched(deployed: V | undefined): V | undefined {
+		if (deployed === undefined) return undefined
+		return { ...deployed, ...this.patched } as V
 	}
 
 	private replaceValue(value: V | undefined): void {
@@ -335,7 +342,7 @@ class Entry<V> {
 				if (!keepValue) this.replaceValue(res.template)
 				return { ok: true }
 			}
-			this.deployed = snapshot(res.deployed)
+			this.deployed = this.withPatched(snapshot(res.deployed))
 			this.origin = res.deployed !== undefined ? 'deployed' : 'draft'
 			this.row = serialize(res.draft) ?? null
 			this.ports.seedSync(key, res.draftSavedAt)
@@ -428,7 +435,7 @@ class Entry<V> {
 				wrote = true
 				this.error = undefined
 				if (held !== sent) this.adopt(sent, held)
-				this.deployed = { ...held, ...this.patched } as V
+				this.deployed = this.withPatched(held)
 				this.origin = 'deployed'
 				this.template = undefined
 				if (moved) this.moveTo(to)
@@ -575,7 +582,10 @@ class Entry<V> {
 			}
 			settled()
 			this.error = undefined
-			if (this[baseKey] !== undefined) this[baseKey] = { ...this[baseKey], ...sent } as V
+			// `settled` has dropped from `patched` whatever this patch owned, so what is left is a
+			// newer patch of the same field, whose value stands over this one's.
+			if (this[baseKey] !== undefined)
+				this[baseKey] = this.withPatched({ ...this[baseKey], ...sent } as V)
 			this.touch()
 			this.reconcile()
 			return { ok: true }
