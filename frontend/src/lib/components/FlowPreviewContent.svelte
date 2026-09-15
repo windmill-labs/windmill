@@ -481,7 +481,7 @@
 						}}
 						conversationKind="test"
 						frame="boxed"
-						path={$initialPathStore || $pathStore}
+						path={$initialPathStore || fakeInitialPath}
 						inputSchema={flowStore.val.schema}
 						flowModules={flowStore.val.value?.modules}
 					/>

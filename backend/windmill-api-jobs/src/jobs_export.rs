@@ -715,7 +715,7 @@ pub async fn delete_jobs(
         // delete one of a conversation's last messages, neither sees the other's uncommitted
         // delete, and the conversation and its memory are left with nothing to collect them.
         sqlx::query_scalar!(
-            "SELECT id FROM flow_conversation WHERE id = ANY($1) AND workspace_id = $2 FOR UPDATE",
+            "SELECT id FROM flow_conversation WHERE id = ANY($1) AND workspace_id = $2 ORDER BY id FOR UPDATE",
             &conversation_ids,
             &w_id
         )

@@ -781,6 +781,7 @@ export class FlowChatManager {
 	private async loadConversations(page: number, perPage: number) {
 		if (!this.#workspace() || !this.#path) return []
 
+		const startedIn = this.#generation
 		try {
 			const response = await FlowConversationsService.listFlowConversations({
 				workspace: this.#workspace()!,
@@ -789,6 +790,9 @@ export class FlowChatManager {
 				page: page,
 				perPage: perPage
 			})
+			// The list is bound straight into the sidebar, so one fetched for the flow just
+			// left would otherwise become the list of the flow that replaced it.
+			if (startedIn !== this.#generation) return []
 
 			return response
 		} catch (error) {
@@ -919,6 +923,7 @@ export class FlowChatManager {
 
 		try {
 			const lastSeq = this.getLastPersistedMessageSeq(conversationId)
+			const startedIn = this.#generation
 			const response = await FlowConversationsService.listConversationMessages({
 				workspace: this.#workspace()!,
 				conversationId: conversationId,
@@ -926,6 +931,9 @@ export class FlowChatManager {
 				perPage: 50,
 				afterSeq: lastSeq
 			})
+			// An interval tick already dispatched outlives `clearInterval`, and a turn's final
+			// poll outlives its abort — either would put a forgotten flow's rows back.
+			if (startedIn !== this.#generation) return
 
 			if (options?.isNewConversation) {
 				await this.refreshConversations()
@@ -1223,9 +1231,13 @@ export class FlowChatManager {
 					// Anything still buffered would be dropped by the temp-row sweep below.
 					this.#flushReveals(currentConversationId)
 					// Do a final poll to get all messages from database
+					const startedIn = this.#generation
 					await this.pollConversationMessages(currentConversationId, {
 						removeTempMessages: true
 					})
+					// Settling releases this conversation's queue, and after a re-point that
+					// would run the message against the flow now loaded.
+					if (controller.signal.aborted || startedIn !== this.#generation) return
 					this.endTurn(currentConversationId, { settled: true })
 				}
 				return

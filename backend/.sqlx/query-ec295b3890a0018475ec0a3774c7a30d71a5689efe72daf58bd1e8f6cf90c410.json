@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id FROM flow_conversation WHERE id = ANY($1) FOR UPDATE",
+  "query": "SELECT id FROM flow_conversation WHERE id = ANY($1) ORDER BY id FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       false
     ]
   },
-  "hash": "0a5502ee13a1af720ca7cc0596a32f0fe91257bb31b595c05f64c7903ad80ead"
+  "hash": "ec295b3890a0018475ec0a3774c7a30d71a5689efe72daf58bd1e8f6cf90c410"
 }

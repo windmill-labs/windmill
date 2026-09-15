@@ -478,6 +478,9 @@ pub static WORKER_INTERNAL_SERVER_INLINE_UTILS: OnceCell<WorkerInternalServerInl
 /// set-based deletes below cost one scan per table per call instead. Because the cascade no
 /// longer fires, every code path that deletes from `v2_job` by id must go through this helper
 /// (or delete these tables itself) or it will leave orphan rows behind.
+/// **Transaction contract:** call this inside a transaction. The conversation cleanup below
+/// locks rows to serialise itself against a concurrent delete, and on an autocommit
+/// connection that lock is released at statement end, silently restoring the race.
 pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> error::Result<()> {
     sqlx::query!(
         "DELETE FROM dispatch_event WHERE producer_job_id = ANY($1)",
@@ -504,7 +507,7 @@ pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> e
         // neither would collect it and nothing would try again. Taking the conversation row
         // first serialises them: the second reads the first's delete and finds it empty.
         sqlx::query_scalar!(
-            "SELECT id FROM flow_conversation WHERE id = ANY($1) FOR UPDATE",
+            "SELECT id FROM flow_conversation WHERE id = ANY($1) ORDER BY id FOR UPDATE",
             &conversation_ids
         )
         .fetch_all(&mut *conn)
