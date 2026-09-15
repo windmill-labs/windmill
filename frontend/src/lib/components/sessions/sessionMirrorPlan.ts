@@ -36,6 +36,10 @@ export interface MirrorSyncState {
 	 * storage or generation describes objects the server no longer looks at. */
 	storageId?: string
 	generation?: number
+	/** Other storages this workspace was on that still hold a copy of the backup (a switch
+	 * leaves the old copy where it was): a removal is done only once each has answered it,
+	 * or a switch back would bring a deleted session back. */
+	alsoIn?: string[]
 	/** Bumps of the dirty mark that localStorage refused, recorded here instead: the mark's
 	 * counter plus this is what a push retires, and every row write keeps it. */
 	extraV?: number

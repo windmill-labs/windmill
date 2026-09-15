@@ -13340,7 +13340,7 @@ paths:
                           type: string
                         needs_whole:
                           type: boolean
-                          description: nothing was written; the part rides on a head the storage no longer has (the backup was removed), so the session must be pushed whole again
+                          description: the session must be pushed whole again; an incremental part found no listed session to ride on (the backup was removed, or another device is still pushing it whole) and wrote nothing, or the last part of a whole push found no head and wrote no marker
 
   /w/{workspace}/ai/shared_artifacts/share:
     post:
@@ -28567,7 +28567,7 @@ components:
           description: more parts of this session follow, in this push or a later one; the session is not listed on this one
         whole:
           type: boolean
-          description: opens a push of the session whole; the head is on this part and every piece the browser has follows. Any other part rides on the head already in the storage and is refused with needs_whole when there is none
+          description: a part of a push of the session whole; the head is on the first of them and every piece the browser has is on one of them. Any other part rides on a session the storage lists and is refused with needs_whole when it lists none
 
     FreeTierInfo:
       type: object

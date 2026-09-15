@@ -195,7 +195,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s2", "chats": [{ "id": "c", "record": { "id": "c" } }] }]
+            "sessions": [{ "id": "s2", "whole": true, "chats": [{ "id": "c", "record": { "id": "c" } }] }]
         }),
     )
     .await?;
@@ -228,7 +228,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
             "SECRET_TOKEN",
             json!({
                 "owner": "test@windmill.dev",
-                "sessions": [{ "id": "s4", "chats": [{ "id": cid, "record": { "id": cid, "big": big } }], "partial": cid != "c3" }]
+                "sessions": [{ "id": "s4", "whole": true, "chats": [{ "id": cid, "record": { "id": cid, "big": big } }], "partial": cid != "c3" }]
             }),
         )
         .await?;
@@ -316,7 +316,7 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
             "SECRET_TOKEN",
             json!({
                 "owner": "test@windmill.dev",
-                "sessions": [{ "id": "s5", "chats": chats, "partial": start + 100 < many }]
+                "sessions": [{ "id": "s5", "whole": true, "chats": chats, "partial": start + 100 < many }]
             }),
         )
         .await?;
@@ -641,6 +641,69 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
             .is_empty()
     );
 
+    // Between the parts of a whole push (head landed, marker not yet), an incremental push
+    // from another device is refused too: it rides on a listed session, and there is none
+    // until the last part, which lists it.
+    let s8_head =
+        json!({ "id": "s8", "workspace_id": "test-workspace", "createdAt": 8, "chatId": "c1" });
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s8", "whole": true, "head": s8_head, "partial": true }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s8", "chats": [{ "id": "c9", "record": { "id": "c9" } }] }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let answer: Value = resp.json().await?;
+    assert_eq!(answer["results"][0]["needs_whole"], true);
+    let listed = |listing: Value| {
+        listing["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["id"] == "s8")
+    };
+    assert!(!listed(list(&base, "SECRET_TOKEN").await?));
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s8", "whole": true, "chats": [{ "id": "c1", "record": { "id": "c1" } }] }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    assert!(listed(list(&base, "SECRET_TOKEN").await?));
+    assert_eq!(
+        pull(&base, "SECRET_TOKEN", &["s8"]).await?["sessions"][0]["chats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>(),
+        vec!["c1"]
+    );
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "removed": ["s8"] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+
     // Removal empties both prefixes.
     let resp = push(
         &base,
@@ -694,20 +757,30 @@ async fn test_backup_writes_are_refused_for_the_wrong_owner_token_or_id(
     .await?;
     assert_eq!(resp.status(), 400, "{}", resp.text().await?);
 
-    // A whole push opens with the head; without one nothing is written, so no marker can
-    // list a session that pulls as absent.
+    // A whole push whose head never landed gets no marker, so nothing lists a session that
+    // pulls as absent.
     let resp = push(
         &base,
         "SECRET_TOKEN",
         json!({ "owner": "test@windmill.dev", "sessions": [{ "id": "s7", "whole": true, "chats": [{ "id": "c", "record": { "id": "c" } }] }] }),
     )
     .await?;
-    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let answer: Value = resp.json().await?;
+    assert_eq!(answer["results"][0]["needs_whole"], true);
     assert!(list(&base, "SECRET_TOKEN").await?["sessions"]
         .as_array()
         .unwrap()
         .iter()
         .all(|s| s["id"] != "s7"));
+    // Its pieces landed (the browser's whole push overwrites them); a removal clears them.
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "removed": ["s7"] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
     let resp = push(
         &base,
         "SECRET_TOKEN",

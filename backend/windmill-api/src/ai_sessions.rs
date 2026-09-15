@@ -285,6 +285,14 @@ impl Backend {
         Ok(format!("{acc:016x}"))
     }
 
+    async fn exists(&self, key: &ObjectPath) -> Result<bool> {
+        match self.store.head(key).await {
+            Ok(_) => Ok(true),
+            Err(ObjectStoreError::NotFound { .. }) => Ok(false),
+            Err(e) => Err(object_store_error_to_error(e)),
+        }
+    }
+
     /// Deletes as the listing streams, so a prefix of any size costs bounded memory.
     async fn delete_prefix(&self, prefix: &ObjectPath) -> Result<()> {
         self.store
@@ -800,9 +808,9 @@ struct PushedSession {
     /// listed on this one.
     #[serde(default)]
     partial: bool,
-    /// Opens a push of the session whole: the head is on this part and every piece the
-    /// browser has follows in the parts after it. Any other part rides on the head already
-    /// in the storage, and is refused with `needs_whole` when there is none.
+    /// A part of a push of the session whole: the head is on the first of them, and every
+    /// piece the browser has is on one of them. Any other part rides on a session the
+    /// storage lists, and is refused with `needs_whole` when it lists none.
     #[serde(default)]
     whole: bool,
 }
@@ -824,8 +832,9 @@ struct PushResult {
     id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
-    /// Nothing was written: the part rides on a head the storage no longer has (another
-    /// device removed the backup), so the session must be pushed whole again.
+    /// The session must be pushed whole again: an incremental part found no listed session
+    /// to ride on (another device removed the backup, or is still pushing it whole) and
+    /// wrote nothing, or the last part of a whole push found no head and wrote no marker.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     needs_whole: bool,
 }
@@ -872,11 +881,6 @@ fn validate_push(req: &PushRequest) -> Result<()> {
         require_valid_id("session", &s.id)?;
         if let Some(head) = &s.head {
             require_json_object("head", head, MAX_HEAD_BYTES)?;
-        } else if s.whole {
-            return Err(Error::BadRequest(format!(
-                "session {} opens a whole push without its head",
-                s.id
-            )));
         }
         for c in &s.chats {
             require_valid_id("chat", &c.id)?;
@@ -913,20 +917,17 @@ fn push_payload_bytes(req: &PushRequest) -> usize {
         .sum()
 }
 
-/// Runs under the session's lock (see `lock_session`). A part that does not open a whole
-/// push assumes the rest of the session is in the storage, which a removal since would
-/// have taken: it is refused when the head is gone, before anything of it lands, or the
-/// marker it may write would list a session missing the pieces the browser never re-sent.
-/// Deletes run last, and the marker only by the last part, so a push cut short never
-/// leaves a listed session pointing at chats that are not there.
+/// Runs under the session's lock (see `lock_session`). An incremental part assumes the rest
+/// of the session is in the storage, which a removal since would have taken, or another
+/// device's whole push may still be bringing: it is refused unless the session is listed,
+/// before anything of it lands, or the marker it may write would list a session missing
+/// pieces the browser never re-sent. Deletes run last, and the marker only by the last part
+/// once the head is there, so a push cut short never leaves a listed session pointing at
+/// chats that are not there, nor one without a head.
 /// Bytes written, and whether the part was refused for the session to go whole.
 async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bool)> {
-    if !s.whole {
-        match backend.store.head(&backend.head_key(&s.id)).await {
-            Ok(_) => {}
-            Err(ObjectStoreError::NotFound { .. }) => return Ok((0, true)),
-            Err(e) => return Err(object_store_error_to_error(e)),
-        }
+    if !s.whole && !backend.exists(&backend.index_key(&s.id)).await? {
+        return Ok((0, true));
     }
     let mut written = 0;
     written += backend
@@ -981,6 +982,9 @@ async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bo
         .await?;
     if s.partial {
         return Ok((written, false));
+    }
+    if s.whole && !backend.exists(&backend.head_key(&s.id)).await? {
+        return Ok((written, true));
     }
     // Last, and by the last part only, so a session is listed once its whole entry landed.
     backend

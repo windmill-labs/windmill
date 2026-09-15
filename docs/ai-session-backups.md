@@ -55,12 +55,13 @@ lists a session only once a whole push landed; the parts of a session after a fa
 not written either, on the server within one push and on the client across pushes, so the
 marker on the last part never lists a session missing a chat, and a new session whose last part
 never lands is not listed at all. A push of the session whole (no sync row, or a stale one)
-opens with the head on its first part, marked `whole`; every other part, of that push or of
-an incremental one, rides on the head already in the storage, and the server refuses it with
-`needs_whole` when there is none (a removal deletes the head first), rather than write a
-marker over a session missing what earlier parts or earlier pushes carried. A push and a
-removal of one session are serialized on the server by a Postgres advisory lock keyed on the
-session's prefix, so the two never interleave object by object.
+says `whole` on every part and opens with the head on the first; its last part writes the
+marker only once the head is there. An incremental part rides on a listed session, and the
+server refuses it with `needs_whole`, writing nothing, when none is listed (a removal deletes
+the marker first, and a whole push from another device lists nothing until its last part),
+rather than write a marker over a session missing what earlier parts or earlier pushes
+carried. A push and a removal of one session are serialized on the server by a Postgres
+advisory lock keyed on the session's prefix, so the two never interleave object by object.
 
 The head signature leaves out `name` (a per-browser counter the sessions page routes by),
 the unsent-draft fields, `workspace_root_id` (recomputed on import), and the two fields reading
@@ -147,10 +148,12 @@ endpoint, region and bucket, not the credentials, which rotate) and the backup g
 key rotation bumps (`backup_generation`). A sync row records both, and a row naming another
 storage or generation goes stale and its session is marked again: a workspace pointed at a
 new bucket, or whose key was rotated, holds nothing, and the server looks nowhere else, so
-the next flush carries the session whole. A removal is done only once the storage the row
-names answered it, whatever the generation (a rotation deleted the older generation's copy
-anyway): answered from another storage, the copy is still where it was, and the mark waits
-for that storage to answer again. That includes the rows a flush has just written, when a later answer of the
+the next flush carries the session whole. A switch leaves the old copy where it was, so the
+row rewritten under the new storage records the old one (`alsoIn`, one entry per storage
+the workspace was on), and a removal is done only once every storage holding a copy answered
+it, whatever the generation (a rotation deleted the older generation's copy anyway): each
+answer narrows the row to the storages still holding one, and the mark waits for them to
+answer, so a switch back never brings a deleted session back. That includes the rows a flush has just written, when a later answer of the
 same flush names another storage or the session was pushed in part on top of a row from the
 old one; a session whose own parts were answered from different storages is not settled at
 all. The listing a restore starts with runs the same check, so a storage switch is noticed at

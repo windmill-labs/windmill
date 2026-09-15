@@ -199,7 +199,7 @@ describe('sessionMirror flush', () => {
 		expect(imageEntry.partial).toBe(true)
 		expect(imageEntry.head).toEqual({ id: 's1', createdAt: 1, workspace_id: 'ws', chatId: 'c1' })
 		expect(entry.head).toBeUndefined()
-		expect(entry.whole).toBeUndefined()
+		expect(entry.whole).toBe(true)
 		expect(entry.chats.map((c: { id: string }) => c.id)).toEqual(['c1'])
 		// The record keeps its blob ref; bytes travel as the image object only.
 		expect(JSON.stringify(entry.chats[0].record)).not.toContain(IMAGE)
@@ -516,7 +516,7 @@ describe('sessionMirror flush', () => {
 		expect(first.whole).toBe(true)
 		expect(first.head).toBeDefined()
 		expect(last.partial).toBeUndefined()
-		expect(last.whole).toBeUndefined()
+		expect(last.whole).toBe(true)
 		expect(last.head).toBeUndefined()
 		expect(await pendingDirty()).toEqual(['sp'])
 		expect(await __syncRowsForTesting(EMAIL)).toEqual([])
@@ -546,6 +546,40 @@ describe('sessionMirror flush', () => {
 		expect(pushMock.mock.calls[2][0].requestBody.removed).toEqual(['sr2'])
 		expect(removalKeys()).toEqual([])
 		expect((await __syncRowsForTesting(EMAIL)).some((r) => r.id === 'sr2')).toBe(false)
+	})
+
+	it('removes a deleted session from every storage that holds a copy of it', async () => {
+		const s: Session = { id: 'sr3', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
+		sessionState.sessions = [s]
+		await putSession(s)
+		pushMock.mockResolvedValueOnce({ enabled: true, storage_id: 'A', results: [{ id: 'sr3' }] })
+		await __flushForTesting()
+		// The workspace moves to B: the row goes stale, the session goes whole to B and
+		// settles there, and the row remembers the copy A keeps.
+		await putSession({ ...s, summary: 'changed' })
+		pushMock.mockResolvedValue({ enabled: true, storage_id: 'B', results: [{ id: 'sr3' }] })
+		await __flushForTesting()
+		await __flushForTesting()
+		expect(await pendingDirty()).toEqual([])
+		const row = (await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'sr3')
+		expect(row?.storageId).toBe('B')
+		expect(row?.alsoIn).toEqual(['A'])
+
+		// Deleted while on B: B's copy goes, and the mark waits for A to answer.
+		deleteSession('sr3')
+		await flush()
+		await __flushForTesting()
+		expect(removalKeys()).toEqual(['r::sr3::ws'])
+		const narrowed = (await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'sr3')
+		expect(narrowed?.storageId).toBe('A')
+		expect(narrowed?.alsoIn).toBeUndefined()
+
+		// Back on A, the copy there goes too, and only then is the removal done.
+		pushMock.mockResolvedValue({ enabled: true, storage_id: 'A', results: [{ id: 'sr3' }] })
+		await __flushForTesting()
+		expect(pushMock.mock.lastCall?.[0].requestBody.removed).toEqual(['sr3'])
+		expect(removalKeys()).toEqual([])
+		expect((await __syncRowsForTesting(EMAIL)).some((r) => r.id === 'sr3')).toBe(false)
 	})
 
 	it('takes a bumped backup generation as a new storage for the rows, not for a removal', async () => {

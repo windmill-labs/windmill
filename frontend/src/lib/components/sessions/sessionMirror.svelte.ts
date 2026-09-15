@@ -360,6 +360,9 @@ async function removeViaSyncRow(
 /** Writes rows whole, except that a removal filed on a row meanwhile survives: the flush
  * writes a session's row from state it read before the push, and the user may have deleted
  * the session in between. */
+/** A row that says where else the copy is (`alsoIn`) is believed; one that does not
+ * inherits it, plus the storage the row it replaces was on when that is another one of this
+ * workspace's: the copy there stays where it was. */
 async function writeSync(states: MirrorSyncState[], email: string): Promise<void> {
 	const db = await syncDb(email)
 	if (!db || states.length === 0) return
@@ -368,10 +371,18 @@ async function writeSync(states: MirrorSyncState[], email: string): Promise<void
 		const cur = await tx.store.get(s.id)
 		const removed = s.removed || cur?.removed
 		const extraV = Math.max(s.extraV ?? 0, cur?.extraV ?? 0)
+		const alsoIn = new Set(s.alsoIn ?? [])
+		if (s.alsoIn === undefined && cur?.ws === s.ws) {
+			for (const id of cur.alsoIn ?? []) alsoIn.add(id)
+			if (cur.storageId !== undefined) alsoIn.add(cur.storageId)
+		}
+		if (s.storageId !== undefined) alsoIn.delete(s.storageId)
+		const { alsoIn: _, ...rest } = s
 		await tx.store.put({
-			...s,
+			...rest,
 			...(removed ? { removed: true } : {}),
-			...(extraV > 0 ? { extraV } : {})
+			...(extraV > 0 ? { extraV } : {}),
+			...(alsoIn.size > 0 ? { alsoIn: [...alsoIn] } : {})
 		})
 	}
 	await tx.done
@@ -478,9 +489,9 @@ async function planFor(
 interface WorkspaceWork {
 	items: { session: Session; v: number; sync?: MirrorSyncState }[]
 	/** `key` is the localStorage mark; absent when the removal rides on the sync row.
-	 * `storageId` is the storage the backup is in, when a sync row says: a removal is done
-	 * only once that storage answered it. */
-	removed: { id: string; key?: string; storageId?: string }[]
+	 * `storageId` and `alsoIn` are the storages holding a copy, when a sync row says: a
+	 * removal is done only once each of them answered it. */
+	removed: { id: string; key?: string; storageId?: string; alsoIn?: string[] }[]
 }
 
 type SendStatus = 'ok' | 'off' | 'refused' | 'abort' | 'transient'
@@ -507,6 +518,9 @@ interface WorkspaceOutcome {
 	needsWhole: string[]
 	/** Removal marks the server carried out. */
 	removedDone: { id: string; key?: string }[]
+	/** Removals one storage carried out while others still hold a copy: the row narrows to
+	 * those, and the mark waits for them to answer. */
+	removedFrom: { id: string; remaining: string[] }[]
 	/** Some session the server could not store. */
 	anyFailed: boolean
 	/** Some store could not be read; its marks stay for a later flush. */
@@ -530,6 +544,7 @@ async function pushWorkspace(
 		dropped: [],
 		needsWhole: [],
 		removedDone: [],
+		removedFrom: [],
 		anyFailed: false,
 		unavailable: false
 	}
@@ -614,13 +629,18 @@ async function pushWorkspace(
 			if (errors.has(id)) failed.add(id)
 			else {
 				const mark = work.removed.find((r) => r.id === id)
-				// Answered from another storage than the one holding the backup: the copy is
-				// still there, and the mark waits for that storage to answer again.
-				const elsewhere =
-					mark?.storageId !== undefined &&
-					res.storage_id !== undefined &&
-					mark.storageId !== res.storage_id
-				if (mark && !elsewhere) out.removedDone.push(mark)
+				if (!mark) continue
+				const holding = new Set(
+					[mark.storageId, ...(mark.alsoIn ?? [])].filter((s): s is string => s !== undefined)
+				)
+				// Answered from a storage holding no copy: the copies are still where they
+				// were, and the mark waits for those storages to answer.
+				if (holding.size === 0 || res.storage_id === undefined) out.removedDone.push(mark)
+				else if (holding.has(res.storage_id)) {
+					holding.delete(res.storage_id)
+					if (holding.size === 0) out.removedDone.push(mark)
+					else out.removedFrom.push({ id, remaining: [...holding] })
+				}
 			}
 		}
 		return 'ok'
@@ -709,14 +729,15 @@ async function pushWorkspace(
 			generation: item.sync?.generation
 		})
 		if (nothingToSend) continue
-		// A push of the session whole opens with its head on the first part, whichever that
-		// is: every later part rides on that head, and the server refuses a part whose head
-		// is gone rather than list a session missing what an earlier part carried.
-		let opened = !plan.whole
+		// A push of the session whole says so on every part and opens with its head on the
+		// first, whichever that is: the server lists the session by the last part once the
+		// head landed, and meanwhile refuses any push that rides on a listed session.
+		let opened = false
 		const open = (part: AISessionBackupPush): AISessionBackupPush => {
-			if (opened) return part
+			if (!plan.whole) return part
+			const first = !opened
 			opened = true
-			return { ...part, head: plan.entry?.head, whole: true }
+			return first ? { ...part, head: plan.entry?.head, whole: true } : { ...part, whole: true }
 		}
 		let images: AISessionBackupImage[] = []
 		let imagesBytes = 0
@@ -827,7 +848,15 @@ async function flush(): Promise<void> {
 			if (!ws) {
 				if (r.key) consumedRemoved.push(r.key)
 			} else if (!wsState.has(ws) || wsState.get(ws) === 'on') {
-				workFor(ws).removed.push({ id: r.id, key: r.key, storageId: sync?.storageId })
+				// The row says where the copy is only for its own workspace: a session that
+				// moved on has the row its new workspace wrote.
+				const own = sync?.ws === ws ? sync : undefined
+				workFor(ws).removed.push({
+					id: r.id,
+					key: r.key,
+					storageId: own?.storageId,
+					alsoIn: own?.alsoIn
+				})
 			} else if (wsState.get(ws) === 'off' && !sync && r.key) consumedRemoved.push(r.key)
 		}
 		for (const d of live) {
@@ -934,6 +963,12 @@ async function flush(): Promise<void> {
 				// the row its new workspace wrote.
 				if ((await readSync(r.id, email))?.ws === ws) await deleteSync([r.id], email)
 				if (r.key) consumedRemoved.push(r.key)
+			}
+			for (const r of out.removedFrom) {
+				const row = await readSync(r.id, email)
+				if (row?.ws !== ws) continue
+				const [storageId, ...alsoIn] = r.remaining
+				await writeSync([{ ...row, storageId, alsoIn }], email)
 			}
 		}
 		if (settledAny && Date.now() >= retryAt) retryMs = RETRY_MIN_MS
