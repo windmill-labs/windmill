@@ -86,8 +86,8 @@ async fn rotate(base: &str, key: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The user's prefix on disk, `windmill_ai_sessions/{w_id}/{key fingerprint}/{email hash}`,
-/// under whichever fingerprint the current key gives it.
+/// The user's prefix on disk, `windmill_ai_sessions/{w_id}/g{generation}/{email hash}`,
+/// under whichever generation is current.
 fn user_root(storage_dir: &std::path::Path, email: &str) -> std::path::PathBuf {
     let workspace = storage_dir.join("windmill_ai_sessions/test-workspace");
     let hash = calculate_hash(email);
@@ -502,9 +502,9 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     assert_eq!(s1["chats"][0]["id"], "c2");
     assert_eq!(s1["images"], json!([]));
 
-    // Rotating the workspace key moves the routes to the new key's prefix and deletes the
-    // previous one off the request rather than re-key anything; the storage identity the
-    // answers carry changes with the key, which is what makes every browser push its
+    // Rotating the workspace key moves the routes to a fresh generation's prefix and deletes
+    // the older ones off the request rather than re-key anything; the storage identity the
+    // answers carry changes with the generation, which is what makes every browser push its
     // sessions whole again.
     let before = list(&base, "SECRET_TOKEN").await?["storage_id"].clone();
     rotate(&base, &"b".repeat(64)).await?;

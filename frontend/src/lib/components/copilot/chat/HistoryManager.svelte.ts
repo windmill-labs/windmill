@@ -255,8 +255,13 @@ export async function importStoredChats(
 			await imageStore.put({ id: image.id, chatId: image.chatId, dataUrl: image.dataUrl, savedAt })
 		}
 	}
+	// An overwrite never puts an older record over a newer one: without a cross-tab lock,
+	// another restore may have landed a newer backup's copy meanwhile.
 	for (const chat of chats) {
-		if (overwrite || (await chatStore.getKey(chat.id)) === undefined) await chatStore.put(chat)
+		const existing = await chatStore.get(chat.id)
+		if (existing === undefined || (overwrite && existing.lastModified <= chat.lastModified)) {
+			await chatStore.put(chat)
+		}
 	}
 	await tx.done
 	return true
@@ -269,21 +274,26 @@ export async function pruneSessionChats(
 	sessionId: string,
 	keepChats: Set<string>,
 	keepImages: Set<string>,
-	email: string
+	email: string,
+	notAfter: number
 ): Promise<void> {
 	const db = await backupDb(email)
 	if (!db) return
 	const tx = db.transaction(['chats', 'images'], 'readwrite')
 	const chatStore = tx.objectStore('chats')
 	const imageStore = tx.objectStore('images')
-	for (const chatId of await chatStore.index('by-session').getAllKeys(sessionId)) {
-		const keys = await imageStore
+	// Nothing newer than the backup this works from goes: without a cross-tab lock, another
+	// restore may have landed a newer backup's pieces meanwhile.
+	for (const chat of await chatStore.index('by-session').getAll(sessionId)) {
+		const keep = keepChats.has(chat.id) || chat.lastModified > notAfter
+		if (!keep) await chatStore.delete(chat.id)
+		const images = await imageStore
 			.index('by-chat')
-			.getAllKeys(IDBKeyRange.bound([chatId, -Infinity], [chatId, Infinity]))
-		const keep = keepChats.has(String(chatId))
-		if (!keep) await chatStore.delete(chatId)
-		for (const key of keys) {
-			if (!keep || !keepImages.has(String(key))) await imageStore.delete(key)
+			.getAll(IDBKeyRange.bound([chat.id, -Infinity], [chat.id, Infinity]))
+		for (const image of images) {
+			if (!keep || (!keepImages.has(image.id) && image.savedAt <= notAfter)) {
+				await imageStore.delete(image.id)
+			}
 		}
 	}
 	await tx.done

@@ -1089,17 +1089,20 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 		// before the backup moved on) go before the record lands, or a later flush would
 		// push them back.
 		for (const r of ready) {
+			const notAfter = updatedAt.get(r.session.id) ?? Date.now()
 			await pruneSessionChats(
 				r.session.id,
 				new Set(Object.keys(r.sync.chats)),
 				new Set(Object.keys(r.sync.images)),
-				email
+				email,
+				notAfter
 			)
 			await pruneSessionArtifacts(
 				r.session.id,
 				new Set(r.artifactIds),
 				new Set(r.versionKeys),
-				email
+				email,
+				notAfter
 			)
 		}
 		const imported = new Set(

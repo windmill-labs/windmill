@@ -2,15 +2,16 @@
 //! (`windmill-api/src/ai_sessions.rs`) share about the backups in the workspace storage.
 //!
 //! The backups are ciphertext under the workspace key and live under a prefix named by a
-//! fingerprint of that key. A rotation does not re-key them: once the new key is committed,
-//! the routes read and write under the new key's prefix, the storage identity they answer
-//! with changes with it, so every browser marks its sync state stale and pushes its sessions
-//! whole again there, and the old key's prefix, which nothing writes to any more, is deleted
-//! off the request at leisure. Sessions no browser holds any more are lost, which a rotation
-//! (a rare operation) accepts in exchange for having no key but the current one to read with
-//! and nothing to rewrite in place. A rotation that fails before its commit changes no prefix
-//! and deletes nothing; two rotations racing serialize on the key row, and each deletes only
-//! the prefix of the key it replaced.
+//! generation the rotation bumps (`workspace_settings.ai_sessions_backup_generation`) in the
+//! transaction that commits the new key. A rotation does not re-key them: once committed,
+//! the routes read and write under the new generation's prefix, the storage identity they
+//! answer with changes with it, so every browser marks its sync state stale and pushes its
+//! sessions whole again there, and every older generation, which nothing writes to any
+//! more, is deleted off the request at leisure. Sessions no browser holds any more are lost,
+//! which a rotation (a rare operation) accepts in exchange for having no key but the current
+//! one to read with and nothing to rewrite in place. A generation is never reused, so no
+//! deletion, however late, can touch live objects; a rotation that fails before its commit
+//! bumps nothing and deletes nothing; two rotations racing serialize on the key row.
 
 use std::sync::Arc;
 
@@ -32,16 +33,15 @@ pub const MAX_OBJECT_BYTES: usize = 32 * 1024 * 1024;
 
 const IO_CONCURRENCY: usize = 8;
 
-/// The segment of the object keys that names the workspace key they are under: a truncated
-/// hash of the key (64 random characters), which reveals nothing of it.
-pub fn key_fingerprint(key: &str) -> String {
-    calculate_hash(&format!("{ROOT}:{key}"))[..16].to_string()
+/// The prefix of one generation's objects: `windmill_ai_sessions/{w_id}/g{generation}/`.
+pub fn generation_prefix(w_id: &str, generation: i64) -> String {
+    format!("{ROOT}/{w_id}/g{generation}")
 }
 
 /// Names the storage the backups are in, by what locates its objects (endpoint, region,
-/// bucket; never the credentials, which rotate) and by the workspace key, so a browser
-/// tells that its sync state was recorded against another storage or another key.
-pub fn storage_id(resource: &ObjectStoreResource, key: &str) -> String {
+/// bucket; never the credentials, which rotate) and by the generation, so a browser tells
+/// that its sync state was recorded against another storage or before a rotation.
+pub fn storage_id(resource: &ObjectStoreResource, generation: i64) -> String {
     let location = match resource {
         ObjectStoreResource::S3(s) => format!(
             "s3:{}:{}:{}:{}",
@@ -59,7 +59,7 @@ pub fn storage_id(resource: &ObjectStoreResource, key: &str) -> String {
         ObjectStoreResource::Gcs(g) => format!("gcs:{}", g.bucket),
         ObjectStoreResource::Filesystem(f) => format!("fs:{}", f.root_path),
     };
-    calculate_hash(&format!("{location}:{}", key_fingerprint(key)))[..16].to_string()
+    calculate_hash(&format!("{location}:g{generation}"))[..16].to_string()
 }
 
 /// The workspace's primary storage, resolved without a caller: a rotation runs the
@@ -94,30 +94,43 @@ async fn primary_store(db: &DB, w_id: &str) -> Result<Option<Arc<dyn ObjectStore
     ))
 }
 
-/// Deletes, off the request and as the listing streams, the backups under the prefix of
-/// `previous_key`, once the rotation that replaced it has committed: nothing writes there
-/// any more but a push that resolved its prefix before the commit, junk the browser's next
-/// push of that session rewrites under the new prefix, as is anything a deletion cut short
-/// left behind. For the rotation route, which authorized its caller as a superadmin.
-pub(crate) fn spawn_delete_previous(db: DB, w_id: String, previous_key: String) {
+/// The generation an object key sits under, `None` for a key of no generation (an older
+/// layout), which counts as older than any.
+fn generation_of(w_id: &str, key: &ObjectPath) -> Option<i64> {
+    key.as_ref()
+        .strip_prefix(&format!("{ROOT}/{w_id}/g"))?
+        .split('/')
+        .next()?
+        .parse()
+        .ok()
+}
+
+/// Deletes, off the request and as the listing streams, every object of the workspace's
+/// backups from a generation older than `current`, once the rotation that made `current`
+/// the generation has committed: nothing writes there any more but a push that resolved its
+/// prefix before the commit, junk the browser's next push of that session rewrites under the
+/// current prefix, as is anything a deletion cut short left behind. For the rotation route,
+/// which authorized its caller as a superadmin.
+pub(crate) fn spawn_delete_older(db: DB, w_id: String, current: i64) {
     tokio::spawn(async move {
         let store = match primary_store(&db, &w_id).await {
             Ok(Some(store)) => store,
             Ok(None) => return,
             Err(e) => {
-                tracing::warn!(
-                    "AI session backups of {w_id} under the previous key left in place: {e:#}"
-                );
+                tracing::warn!("older AI session backups of {w_id} left in place: {e:#}");
                 return;
             }
         };
-        let prefix = ObjectPath::from(format!("{ROOT}/{w_id}/{}", key_fingerprint(&previous_key)));
+        let prefix = ObjectPath::from(format!("{ROOT}/{w_id}"));
         let deleted = store
             .list(Some(&prefix))
             .map_err(object_store_error_to_error)
             .try_for_each_concurrent(IO_CONCURRENCY, |meta| {
-                let store = &store;
+                let (store, w_id) = (&store, &w_id);
                 async move {
+                    if generation_of(w_id, &meta.location).is_some_and(|g| g >= current) {
+                        return Ok(());
+                    }
                     match store.delete(&meta.location).await {
                         Ok(()) | Err(ObjectStoreError::NotFound { .. }) => Ok(()),
                         Err(e) => Err(object_store_error_to_error(e)),
@@ -127,11 +140,9 @@ pub(crate) fn spawn_delete_previous(db: DB, w_id: String, previous_key: String) 
             .await;
         match deleted {
             Ok(()) => {
-                tracing::info!("deleted the AI session backups of {w_id} under the previous key")
+                tracing::info!("deleted the AI session backups of {w_id} older than g{current}")
             }
-            Err(e) => tracing::warn!(
-                "deleting the AI session backups of {w_id} under the previous key: {e:#}"
-            ),
+            Err(e) => tracing::warn!("deleting the older AI session backups of {w_id}: {e:#}"),
         }
     });
 }

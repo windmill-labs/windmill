@@ -164,8 +164,13 @@ export async function importArtifacts(
 		const tx = db.transaction(['items', 'versions'], 'readwrite')
 		const itemStore = tx.objectStore('items')
 		const versionStore = tx.objectStore('versions')
+		// An overwrite never puts an older record over a newer one: without a cross-tab lock,
+		// another restore may have landed a newer backup's copy meanwhile.
 		for (const item of items) {
-			if (overwrite || (await itemStore.getKey(item.id)) === undefined) await itemStore.put(item)
+			const existing = await itemStore.get(item.id)
+			if (existing === undefined || (overwrite && existing.updatedAt <= item.updatedAt)) {
+				await itemStore.put(item)
+			}
 		}
 		for (const version of versions) {
 			if (overwrite || (await versionStore.getKey(version.key)) === undefined) {
@@ -421,7 +426,8 @@ export async function pruneSessionArtifacts(
 	sessionId: string,
 	keepItems: Set<string>,
 	keepVersions: Set<string>,
-	email: string
+	email: string,
+	notAfter: number
 ): Promise<void> {
 	const db = await getDB()
 	if (!db || db.name !== scopedKeyFor(ARTIFACTS_DB, email)) return
@@ -429,15 +435,18 @@ export async function pruneSessionArtifacts(
 		const tx = db.transaction(['items', 'versions'], 'readwrite')
 		const items = tx.objectStore('items')
 		const versions = tx.objectStore('versions')
-		const ids = await items.index('by-session').getAllKeys(sessionId)
-		for (const id of ids) {
-			if (!keepItems.has(String(id))) {
-				await items.delete(id)
-				await deleteVersionsIn(versions, id)
+		// Nothing newer than the backup this works from goes: without a cross-tab lock,
+		// another restore may have landed a newer backup's pieces meanwhile.
+		for (const item of await items.index('by-session').getAll(sessionId)) {
+			if (!keepItems.has(item.id) && item.updatedAt <= notAfter) {
+				await items.delete(item.id)
+				await deleteVersionsIn(versions, item.id)
 				continue
 			}
-			for (const key of await versions.index('by-artifact').getAllKeys(id)) {
-				if (!keepVersions.has(String(key))) await versions.delete(key)
+			for (const version of await versions.index('by-artifact').getAll(item.id)) {
+				if (!keepVersions.has(version.key) && version.savedAt <= notAfter) {
+					await versions.delete(version.key)
+				}
 			}
 		}
 		await tx.done

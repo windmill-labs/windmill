@@ -676,6 +676,27 @@ describe('sessionMirror restore', () => {
 		expect((await readStoredChat('c9', EMAIL))?.title).toBe('newer')
 	})
 
+	it('never writes an older record over a newer one, nor prunes what is newer than the backup', async () => {
+		const { importStoredChats, pruneSessionChats } = await import(
+			'../copilot/chat/HistoryManager.svelte'
+		)
+		const chat = (lastModified: number, title: string) =>
+			({ ...backup.chats[0].record, lastModified, title }) as never
+		await importStoredChats([chat(20, 'newer')], [], EMAIL, true)
+		await importStoredChats([chat(10, 'older')], [], EMAIL, true)
+		expect((await readStoredChat('c9', EMAIL))?.title).toBe('newer')
+		await importStoredChats(
+			[{ ...backup.chats[0].record, id: 'c9b', lastModified: 30 } as never],
+			[],
+			EMAIL,
+			true
+		)
+		// A prune from a backup of time 25 leaves the chat written after it alone.
+		await pruneSessionChats('s9', new Set(), new Set(), EMAIL, 25)
+		expect(await readStoredChat('c9', EMAIL)).toBeUndefined()
+		expect((await readStoredChat('c9b', EMAIL))?.id).toBe('c9b')
+	})
+
 	it('keeps an image whose chat came on an earlier page, and restages after a page failed', async () => {
 		listMock.mockResolvedValue({
 			enabled: true,

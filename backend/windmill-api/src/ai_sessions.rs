@@ -6,11 +6,11 @@
 //! workspace key so bucket credentials do not read transcripts:
 //!
 //! ```text
-//! windmill_ai_sessions/{w_id}/{key fingerprint}/{sha256(email)}/sessions/{sid}/head.json
-//! windmill_ai_sessions/{w_id}/{key fingerprint}/{sha256(email)}/sessions/{sid}/chats/{cid}.json
-//! windmill_ai_sessions/{w_id}/{key fingerprint}/{sha256(email)}/sessions/{sid}/artifacts.json
-//! windmill_ai_sessions/{w_id}/{key fingerprint}/{sha256(email)}/images/{sid}/{cid}/{iid}
-//! windmill_ai_sessions/{w_id}/{key fingerprint}/{sha256(email)}/index/{sid}
+//! windmill_ai_sessions/{w_id}/g{generation}/{sha256(email)}/sessions/{sid}/head.json
+//! windmill_ai_sessions/{w_id}/g{generation}/{sha256(email)}/sessions/{sid}/chats/{cid}.json
+//! windmill_ai_sessions/{w_id}/g{generation}/{sha256(email)}/sessions/{sid}/artifacts.json
+//! windmill_ai_sessions/{w_id}/g{generation}/{sha256(email)}/images/{sid}/{cid}/{iid}
+//! windmill_ai_sessions/{w_id}/g{generation}/{sha256(email)}/index/{sid}
 //! ```
 //!
 //! The index marker is empty, written last by every push of the session, and is what a
@@ -30,7 +30,7 @@ use serde_json::value::RawValue;
 use std::sync::Arc;
 use windmill_api_auth::is_effectively_unscoped;
 use windmill_api_workspaces::ai_session_backups::{
-    key_fingerprint, storage_id, MAX_OBJECT_BYTES, ROOT,
+    generation_prefix, storage_id, MAX_OBJECT_BYTES,
 };
 use windmill_common::error::{Error, JsonResult, Result};
 use windmill_common::utils::calculate_hash;
@@ -337,15 +337,15 @@ fn require_json_object(kind: &str, raw: &RawValue, max_bytes: usize) -> Result<(
 /// `None` when the workspace has nowhere to keep backups: no primary storage configured, or
 /// the admin switched them off. Both read as `enabled: false` so the browser stops trying.
 async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backend>> {
-    let disabled = sqlx::query_scalar::<_, Option<bool>>(
-        "SELECT (ai_config->>'sessions_storage_disabled')::bool FROM workspace_settings WHERE workspace_id = $1",
+    let (disabled, generation) = sqlx::query_as::<_, (Option<bool>, i64)>(
+        "SELECT (ai_config->>'sessions_storage_disabled')::bool, ai_sessions_backup_generation \
+         FROM workspace_settings WHERE workspace_id = $1",
     )
     .bind(w_id)
     .fetch_optional(db)
     .await?
-    .flatten()
-    .unwrap_or(false);
-    if disabled {
+    .unwrap_or((None, 0));
+    if disabled.unwrap_or(false) {
         return Ok(None);
     }
     let (_, resource) =
@@ -359,8 +359,8 @@ async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backe
     // another member's ciphertext under their own prefix and have `pull` decrypt it for them.
     let key = get_workspace_key(w_id, db).await?;
     let mc = crypt_from_key_with_suffix(&key, &user);
-    let storage_id = storage_id(&resource, &key);
-    let prefix = format!("{ROOT}/{w_id}/{}/{user}", key_fingerprint(&key));
+    let storage_id = storage_id(&resource, generation);
+    let prefix = format!("{}/{user}", generation_prefix(w_id, generation));
     Ok(Some(Backend { store, mc, prefix, storage_id }))
 }
 
