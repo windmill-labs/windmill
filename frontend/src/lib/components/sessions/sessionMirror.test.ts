@@ -31,15 +31,54 @@ vi.mock('$lib/gen', async (orig) => {
 })
 
 // The chat store during a restore: real, or unreachable for one session.
-const { chatImport } = vi.hoisted(() => ({ chatImport: { unavailable: false } }))
+const { chatImport } = vi.hoisted(() => ({
+	chatImport: { unavailable: false, pruneFails: false }
+}))
 vi.mock('../copilot/chat/HistoryManager.svelte', async (orig) => {
 	const actual = await orig<typeof import('../copilot/chat/HistoryManager.svelte')>()
 	return {
 		...actual,
 		importStoredChats: (...args: Parameters<typeof actual.importStoredChats>) =>
-			chatImport.unavailable ? Promise.resolve(false) : actual.importStoredChats(...args)
+			chatImport.unavailable ? Promise.resolve(false) : actual.importStoredChats(...args),
+		pruneSessionChats: (...args: Parameters<typeof actual.pruneSessionChats>) =>
+			chatImport.pruneFails ? Promise.resolve(false) : actual.pruneSessionChats(...args)
 	}
 })
+
+/** The Web Locks API, which the node test environment lacks: one holder per name at a
+ * time, `ifAvailable` answering null while a holder is there. */
+function fakeLockManager(): LockManager {
+	const tails = new Map<string, Promise<unknown>>()
+	return {
+		request: async (
+			name: string,
+			options: LockOptions | undefined,
+			cb: (lock: Lock | null) => unknown
+		) => {
+			const prev = tails.get(name)
+			if (options?.ifAvailable && prev) return cb(null)
+			const run = (prev ?? Promise.resolve()).then(() => cb({ name, mode: 'exclusive' }))
+			const tail = run.catch(() => {})
+			tails.set(name, tail)
+			try {
+				return await run
+			} finally {
+				if (tails.get(name) === tail) tails.delete(name)
+			}
+		}
+	} as unknown as LockManager
+}
+
+function setWebLocks(locks: LockManager | undefined): void {
+	if (typeof navigator === 'undefined') {
+		Object.defineProperty(globalThis, 'navigator', {
+			value: {},
+			configurable: true,
+			writable: true
+		})
+	}
+	Object.defineProperty(navigator, 'locks', { value: locks, configurable: true })
+}
 
 import { superadmin, userStore, usersWorkspaceStore, type UserExt } from '$lib/stores'
 import HistoryManager, {
@@ -111,6 +150,8 @@ beforeEach(async () => {
 	listMock.mockReset()
 	pullMock.mockReset()
 	chatImport.unavailable = false
+	chatImport.pruneFails = false
+	setWebLocks(fakeLockManager())
 	superadmin.set(false)
 	usersWorkspaceStore.set(undefined)
 	userStore.set(undefined)
@@ -807,47 +848,63 @@ describe('sessionMirror restore', () => {
 		expect((await readStoredChat('c9b', EMAIL))?.id).toBe('c9b')
 	})
 
-	it('leaves a session another tab imported meanwhile alone, without Web Locks', async () => {
+	it('restores nothing without Web Locks, and still backs up', async () => {
+		setWebLocks(undefined)
 		listMock.mockResolvedValue({
 			enabled: true,
 			sessions: [{ id: 's9', updated_at: '2026-09-14T00:00:00Z' }]
 		})
-		// An earlier restore of this tab was cut short after staging a chat the backup has
-		// since dropped.
-		const { importStoredChats } = await import('../copilot/chat/HistoryManager.svelte')
-		const cx = { ...backup.chats[0].record, id: 'cx' } as never
-		await importStoredChats([cx], [], EMAIL, true)
-		await __writeSyncForTesting(
-			[
-				{
-					id: 's9',
-					ws: 'ws',
-					head: '',
-					chats: {},
-					images: {},
-					staging: { chats: ['cx'], images: [], items: [], versions: [] }
-				}
-			],
-			EMAIL
-		)
-		let release!: (value: unknown) => void
-		pullMock.mockImplementationOnce(() => new Promise((r) => (release = r)))
 		usersWorkspaceStore.set({ email: EMAIL, workspaces: [] } as never)
 		restoreSessionBackups('ws')
-		await vi.waitFor(() => expect(pullMock).toHaveBeenCalledTimes(1))
-		// The other tab's restore lands first, with a newer transcript that has that chat.
-		await importStoredChats(
-			[{ ...backup.chats[0].record, title: 'newer' } as never, cx],
-			[],
-			EMAIL,
-			true
-		)
-		await importSessions([{ ...backup.head, name: '' } as never], EMAIL)
-		release({ enabled: true, sessions: [backup], deferred: [] })
 		await __settleForTesting()
-		expect((await readStoredChat('c9', EMAIL))?.title).toBe('newer')
-		// Not this tab's session to prune: the staged chat the other tab holds stays.
+		expect(listMock).not.toHaveBeenCalled()
+		expect(sessionState.sessions).toEqual([])
+		const s: Session = { id: 'sl', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
+		sessionState.sessions = [s]
+		await putSession(s)
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sl' }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(1)
+	})
+
+	it('leaves a session for the next restore when what an earlier one staged cannot be pruned', async () => {
+		listMock.mockResolvedValue({
+			enabled: true,
+			sessions: [{ id: 's9', updated_at: '2026-09-14T00:00:00Z' }]
+		})
+		// An earlier restore was cut short after staging a chat the backup has since dropped.
+		const { importStoredChats } = await import('../copilot/chat/HistoryManager.svelte')
+		await importStoredChats([{ ...backup.chats[0].record, id: 'cx' } as never], [], EMAIL, true)
+		const staging = {
+			id: 's9',
+			ws: 'ws',
+			head: '',
+			chats: {},
+			images: {},
+			staging: { chats: ['cx'], images: [], items: [], versions: [] }
+		}
+		await __writeSyncForTesting([staging], EMAIL)
+		pullMock.mockResolvedValue({ enabled: true, sessions: [backup], deferred: [] })
+		chatImport.pruneFails = true
+		usersWorkspaceStore.set({ email: EMAIL, workspaces: [] } as never)
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		// No record, so no flush can push the stale chat back, and the staging row stays,
+		// now naming what this page wrote too.
+		expect(sessionState.sessions).toEqual([])
 		expect((await readStoredChat('cx', EMAIL))?.id).toBe('cx')
+		expect(
+			(await __syncRowsForTesting(EMAIL)).find((r) => r.id === 's9')?.staging?.chats?.sort()
+		).toEqual(['c9', 'cx'])
+
+		// The restore after prunes and brings the session back.
+		chatImport.pruneFails = false
+		__resetMirrorForTesting()
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s9']))
+		expect(await readStoredChat('cx', EMAIL)).toBeUndefined()
+		expect((await __syncRowsForTesting(EMAIL)).find((r) => r.id === 's9')?.staging).toBeUndefined()
 	})
 
 	it('never writes an older record over a newer one, and prunes only what it is told', async () => {

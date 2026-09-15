@@ -872,6 +872,11 @@ fn validate_push(req: &PushRequest) -> Result<()> {
         require_valid_id("session", &s.id)?;
         if let Some(head) = &s.head {
             require_json_object("head", head, MAX_HEAD_BYTES)?;
+        } else if s.whole {
+            return Err(Error::BadRequest(format!(
+                "session {} opens a whole push without its head",
+                s.id
+            )));
         }
         for c in &s.chats {
             require_valid_id("chat", &c.id)?;
@@ -1076,8 +1081,8 @@ async fn push(
 
     let mut results = Vec::with_capacity(req.sessions.len() + req.removed.len());
     let mut written: usize = 0;
-    // A session split into several entries has its head on the last: once one part failed,
-    // the later ones are not written, or the head would list a session missing a part.
+    // A session split into several entries is listed by the last: once one part failed, the
+    // later ones are not written, or the marker would list a session missing a part.
     let mut failed: std::collections::HashSet<&str> = Default::default();
     for s in &req.sessions {
         let (error, needs_whole) = if failed.contains(s.id.as_str()) {

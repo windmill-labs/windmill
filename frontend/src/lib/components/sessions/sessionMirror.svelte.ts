@@ -305,9 +305,16 @@ function backOff(): void {
 /** One tab of the user at a time in the flush and the restore. A flush finding the lock
  * taken reschedules itself; a restore waits its turn, since two tabs restoring the same
  * absent session would each write its pieces over the other's. */
+function webLocks(): LockManager | undefined {
+	return typeof navigator === 'undefined' ? undefined : (navigator as { locks?: LockManager }).locks
+}
+
+function hasWebLocks(): boolean {
+	return webLocks() !== undefined
+}
+
 async function withUserLock(email: string, fn: () => Promise<void>, wait = false): Promise<void> {
-	const locks =
-		typeof navigator === 'undefined' ? undefined : (navigator as { locks?: LockManager }).locks
+	const locks = webLocks()
 	if (!locks) return fn()
 	await locks.request(`wm-ai-sessions-mirror::${email}`, { ifAvailable: !wait }, async (lock) => {
 		if (lock) await fn()
@@ -1137,8 +1144,9 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 		for (const b of pulled.sessions) {
 			const earlier = staged.get(b.id)
 			staged.delete(b.id)
-			// Imported by another tab meanwhile (the lock keeps that from happening where Web
-			// Locks exist): its pieces are not ours to write over any more.
+			// Brought back meanwhile by this tab itself (a session moved here from another
+			// workspace, say; the lock keeps other tabs out): its pieces are not ours to write
+			// over any more.
 			if ((await readStoredSessions(email))?.some((s) => s.id === b.id)) continue
 			// The backup moved between two pages (a chat sorting before the cursor would be
 			// missed): the pages so far do not belong together, the session starts over.
@@ -1223,36 +1231,46 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 			ready.push(merged)
 		}
 		if (ready.length === 0) continue
+		// The staged pieces the backup no longer has go before the record: once the record
+		// is there, no restore looks at the session again, and a flush would push them back.
+		// A prune that could not run leaves the session, its pieces and its staging row for
+		// the next restore.
+		const pruned: Staged[] = []
+		for (const r of ready) {
+			const prior = earlierStaging.get(r.session.id)
+			if (prior) {
+				const gone = (was: Set<string>, now: Set<string>) =>
+					new Set([...was].filter((id) => !now.has(id)))
+				const ok =
+					(await pruneSessionChats(
+						r.session.id,
+						gone(prior.chats, r.pieces.chats),
+						gone(prior.images, r.pieces.images),
+						email
+					)) &&
+					(await pruneSessionArtifacts(
+						r.session.id,
+						gone(prior.items, r.pieces.items),
+						gone(prior.versions, r.pieces.versions),
+						email
+					))
+				if (!ok) {
+					console.warn(`Session backup ${r.session.id} could not be tidied; left for later`)
+					continue
+				}
+				earlierStaging.delete(r.session.id)
+			}
+			pruned.push(r)
+		}
+		if (pruned.length === 0) continue
 		const imported = new Set(
 			await importSessions(
-				ready.map((r) => r.session),
+				pruned.map((r) => r.session),
 				email
 			)
 		)
-		// Only for a session this restore brought back: one another tab imported meanwhile
-		// (without Web Locks) may hold pieces newer than this backup, which are not ours to
-		// prune. The record is not visible to a flush before the sync row below lands.
-		for (const r of ready) {
-			const prior = earlierStaging.get(r.session.id)
-			if (!prior || !imported.has(r.session.id)) continue
-			const gone = (was: Set<string>, now: Set<string>) =>
-				new Set([...was].filter((id) => !now.has(id)))
-			await pruneSessionChats(
-				r.session.id,
-				gone(prior.chats, r.pieces.chats),
-				gone(prior.images, r.pieces.images),
-				email
-			)
-			await pruneSessionArtifacts(
-				r.session.id,
-				gone(prior.items, r.pieces.items),
-				gone(prior.versions, r.pieces.versions),
-				email
-			)
-			earlierStaging.delete(r.session.id)
-		}
 		await writeSync(
-			ready.filter((r) => imported.has(r.session.id)).map((r) => r.sync),
+			pruned.filter((r) => imported.has(r.session.id)).map((r) => r.sync),
 			email
 		)
 		restored += imported.size
@@ -1267,6 +1285,11 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
  */
 export function restoreSessionBackups(currentWorkspace: string): void {
 	if (!BROWSER) return
+	// A restore writes an absent session's pieces page by page and prunes what an earlier
+	// one staged: two tabs doing that at once would write over each other, so it runs only
+	// under the tab lock. Where Web Locks do not exist (a plain http origin), the browser
+	// still backs up; its sessions come back on a secure one.
+	if (!hasWebLocks()) return
 	const email = getCurrentUserEmail()
 	if (!email) return
 	const all = get(userWorkspaces)

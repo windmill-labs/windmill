@@ -268,29 +268,35 @@ export async function importStoredChats(
 }
 
 /** Deletes these chats of the session (with their images) and these images: what an earlier
- * restore staged for it and the backup no longer has. */
+ * restore staged for it and the backup no longer has. False when nothing could be deleted. */
 export async function pruneSessionChats(
 	sessionId: string,
 	chats: Set<string>,
 	images: Set<string>,
 	email: string
-): Promise<void> {
-	if (chats.size === 0 && images.size === 0) return
+): Promise<boolean> {
+	if (chats.size === 0 && images.size === 0) return true
 	const db = await backupDb(email)
-	if (!db) return
-	const tx = db.transaction(['chats', 'images'], 'readwrite')
-	const chatStore = tx.objectStore('chats')
-	const imageStore = tx.objectStore('images')
-	for (const chatId of await chatStore.index('by-session').getAllKeys(sessionId)) {
-		if (!chats.has(String(chatId))) continue
-		await chatStore.delete(chatId)
-		const keys = await imageStore
-			.index('by-chat')
-			.getAllKeys(IDBKeyRange.bound([chatId, -Infinity], [chatId, Infinity]))
-		for (const key of keys) await imageStore.delete(key)
+	if (!db) return false
+	try {
+		const tx = db.transaction(['chats', 'images'], 'readwrite')
+		const chatStore = tx.objectStore('chats')
+		const imageStore = tx.objectStore('images')
+		for (const chatId of await chatStore.index('by-session').getAllKeys(sessionId)) {
+			if (!chats.has(String(chatId))) continue
+			await chatStore.delete(chatId)
+			const keys = await imageStore
+				.index('by-chat')
+				.getAllKeys(IDBKeyRange.bound([chatId, -Infinity], [chatId, Infinity]))
+			for (const key of keys) await imageStore.delete(key)
+		}
+		for (const id of images) await imageStore.delete(id)
+		await tx.done
+		return true
+	} catch (err) {
+		console.error('Could not prune chats for session', err)
+		return false
 	}
-	for (const id of images) await imageStore.delete(id)
-	await tx.done
 }
 
 export default class HistoryManager {

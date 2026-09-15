@@ -420,16 +420,17 @@ export async function deleteArtifact(id: string): Promise<void> {
 }
 
 /** Deletes these artifacts of the session (with their versions) and these versions: what
- * an earlier restore staged for it and the backup no longer has. */
+ * an earlier restore staged for it and the backup no longer has. False when nothing could
+ * be deleted. */
 export async function pruneSessionArtifacts(
 	sessionId: string,
 	itemIds: Set<string>,
 	versionKeys: Set<string>,
 	email: string
-): Promise<void> {
-	if (itemIds.size === 0 && versionKeys.size === 0) return
+): Promise<boolean> {
+	if (itemIds.size === 0 && versionKeys.size === 0) return true
 	const db = await getDB()
-	if (!db || db.name !== scopedKeyFor(ARTIFACTS_DB, email)) return
+	if (!db || db.name !== scopedKeyFor(ARTIFACTS_DB, email)) return false
 	try {
 		const tx = db.transaction(['items', 'versions'], 'readwrite')
 		const items = tx.objectStore('items')
@@ -441,8 +442,10 @@ export async function pruneSessionArtifacts(
 		}
 		for (const key of versionKeys) await versions.delete(key)
 		await tx.done
+		return true
 	} catch (err) {
 		console.error('Could not prune artifacts for session', err)
+		return false
 	}
 }
 

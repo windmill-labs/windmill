@@ -693,6 +693,21 @@ async fn test_backup_writes_are_refused_for_the_wrong_owner_token_or_id(
     )
     .await?;
     assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+
+    // A whole push opens with the head; without one nothing is written, so no marker can
+    // list a session that pulls as absent.
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "sessions": [{ "id": "s7", "whole": true, "chats": [{ "id": "c", "record": { "id": "c" } }] }] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+    assert!(list(&base, "SECRET_TOKEN").await?["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|s| s["id"] != "s7"));
     let resp = push(
         &base,
         "SECRET_TOKEN",

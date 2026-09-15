@@ -161,7 +161,9 @@ the first push after it or on the next page load, whichever comes first.
 Push bodies are packed to about 8 MB (UTF-8 bytes as sent), at most 100 entries, 200 removals and
 4000 pieces each (the server's caps, with 32 MB on the body, and 100 chats, 500 images or 1000
 deletes per entry, since every piece is an object-store call); an entry that
-outgrows the target is split into chat-only parts with the head riding on the last, and deletes
+outgrows the target is split into chat-only parts (the artifacts and deletes on the last, the
+head on the last too for an incremental push and on the first part, whatever it carries, for a
+push of the session whole), and deletes
 past the per-entry cap are carried over to the next push, which the session stays marked for. A chat above
 16 MB or a session's artifacts above 8 MB are left out with a console warning; a chat that grew
 past the cap after it was backed up has its copy deleted, so a restore never presents the old
@@ -192,11 +194,12 @@ local edits to keep, and the backup may have moved on), and the record, which is
 the session visible, only with the last page. A restore in progress keeps a staging row for
 the session (the ids of every chat, image, artifact and version it wrote), which outlives it
 if it is cut short; the next restore deletes the staged pieces the backup no longer has, by id
-and never by clock, once its record has landed and only for a session it brought back itself
-(before the sync row that lets a flush see the session), or a later flush would push them
-back. A restore holds the user's tab lock while it runs, so two tabs cannot each write the same
-absent session's pieces over the other's; where Web Locks do not exist a page whose session
-another tab imported meanwhile is dropped, its pieces are left unpruned as that tab's, and a
+and never by clock, before the record lands (once the record is there no restore looks at the
+session again, and a flush would push them back), and a prune that could not run leaves the
+session, its pieces and its staging row for the restore after. A restore holds the user's tab
+lock while it runs, so two tabs cannot each write the same absent session's pieces over the
+other's, and runs only where Web Locks exist (a secure context: https, or localhost); on a plain
+http origin the browser still backs up, and its sessions come back on a secure one. A
 restore never writes an older record over a newer
 one; between pages it holds nothing but the sync
 row being assembled, whose chats also admit the images of a later page. Every page carries a

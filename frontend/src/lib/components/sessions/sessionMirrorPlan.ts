@@ -268,9 +268,10 @@ export const MAX_DELETES_PER_ENTRY = 1000
 
 /**
  * Break an entry that outgrows the target, or the server's per-entry chat cap, into
- * chat-only entries, each written on its own, with the head and everything else riding on
- * the last one: the server writes an entry's chats before its head, and the entries go out
- * in order, so the head never lists a chat that has not landed.
+ * chat-only entries, each written on its own, with everything else riding on the last one:
+ * the entries go out in order and the server lists the session by the last, so the marker
+ * never lists a chat that has not landed. (A push of the session whole moves the head to
+ * whichever part goes first; see the mirror.)
  */
 export function splitEntry(entry: AISessionBackupPush, targetBytes: number): AISessionBackupPush[] {
 	if (
