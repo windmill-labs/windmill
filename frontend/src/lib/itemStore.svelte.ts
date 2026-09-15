@@ -315,13 +315,10 @@ class Entry<V> {
 		const desired = this.dirty ? (serialize(this.value) ?? null) : null
 		this.ports.hint(key, desired !== null)
 		// A rejected write is not retried: the row stays as the server has it until the conflict
-		// is resolved, by a reload or an overwrite. Checked before the row is compared, because a
-		// payload parked for retry has to go whether or not it matches what this thinks is there
-		// — a later flush would send it otherwise, deciding the conflict on the user's behalf.
-		if (this.ports.conflicted(key)) {
-			this.ports.dropPending(key)
-			return
-		}
+		// is resolved, by a reload or an overwrite. The refused payload stays parked, which is
+		// what keeps an edit that never landed once this entry is released; the syncer is what
+		// makes sure nothing sends it meanwhile.
+		if (this.ports.conflicted(key)) return
 		if (desired === this.row) return
 		this.row = desired
 		this.values++
@@ -340,11 +337,12 @@ class Entry<V> {
 		waiting: boolean
 	) {
 		if (this.ports.rowMark(key) !== asOf) return
-		// A payload the server *refused* predates this read and the baseline taken below would
-		// make it acceptable, so it goes; the reconcile after the read re-queues whatever the
-		// value needs. One merely unsent — a network failure the syncer parks to retry — is the
-		// only record of an edit that never reached anyone, so it stays.
-		if (this.ports.conflicted(key)) this.ports.dropPending(key)
+		// A payload the server refused *before* this read predates it, and the baseline taken
+		// below would make it acceptable, so it goes; the reconcile after the read re-queues
+		// whatever the value needs. One this read is holding on screen is the other way round:
+		// no baseline is taken over it, and it is the only record of an edit that never reached
+		// anyone, so it stays parked for the user to resolve however long that takes.
+		if (!waiting && this.ports.conflicted(key)) this.ports.dropPending(key)
 		this.row = row === null || row === undefined ? null : (serialize(row) ?? null)
 		// A payload still waiting to be sent was written against the baseline it had then. Taking
 		// this read's would make it acceptable over whatever has been written since, so it would
@@ -426,7 +424,6 @@ class Entry<V> {
 			let rowsAtRead = 0
 			let valuesAtRead = 0
 			let unbasedPending = false
-			let refusedBefore = false
 			let waitingBefore: unknown | undefined
 			let res: ItemLoad<V>
 			try {
@@ -438,8 +435,6 @@ class Entry<V> {
 				// would go out unconditional and take over a row created since. The read below
 				// gives it one, and `pending` keeps showing it meanwhile.
 				unbasedPending = this.ports.unbased(key)
-				// Whether the server had already refused this key before this read went near it.
-				refusedBefore = this.ports.conflicted(key)
 				if (!unbasedPending) await this.ports.flush(key)
 				// Taken here, not when the command was asked for: rows this read's own flush sent
 				// are in the response it is about to get. Only one handed over from now on, while
@@ -487,13 +482,12 @@ class Entry<V> {
 			}
 			this.serverDeployed = snapshot(res.deployed)
 			this.origin = res.deployed !== undefined ? 'deployed' : 'draft'
-			// A row the syncer took but could not send is newer than this response and is the only
-			// copy of that edit, so the item opens on it. One the server *refused* is the other
-			// way round — the response is what won — and `adoptRow` drops it below.
-			// A payload the server refused *before* this read is stale: the response is what won.
-			// One refused by this read's own retry is not — it is the user's unsent edit, and the
-			// only copy of it, so it stays on screen with the conflict for them to settle.
-			const unsent = refusedBefore ? undefined : waitingBefore
+			// A row the syncer took but never landed is the only copy of that edit, whether it
+			// failed to send or the server refused it, and whether that happened during this read
+			// or before an earlier editor was closed. A refusal nobody has answered yet does not
+			// go stale by being left alone, so the item opens on it and stays conflicted until
+			// the user settles it. Resolving is what ends that, not reopening.
+			const unsent = waitingBefore
 			// A parked delete is what this tab wants gone, not what is there: the row is still the
 			// server's, so the reconcile at the end re-issues the delete instead of believing it
 			// landed and leaving the draft behind with nothing to remove it.

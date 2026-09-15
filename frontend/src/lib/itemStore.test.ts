@@ -58,11 +58,13 @@ function fakeRows() {
 		},
 		flush: async (key) => {
 			// A POST carries what was queued when it went out; what is typed while it is in flight
-			// queues behind it. With nothing queued, a refused payload is replayed instead.
+			// queues behind it. With nothing queued, a payload parked by a failure is replayed
+			// instead — but never one the server refused: that is parked to keep it, not to retry
+			// it, and sending it is the user's to ask for.
 			const fromQueue = queued.has(key.path)
 			const going = fromQueue
 				? { value: queued.get(key.path) }
-				: parked.has(key.path)
+				: parked.has(key.path) && !conflicts.has(key.path)
 					? { value: parked.get(key.path) }
 					: undefined
 			queued.delete(key.path)
@@ -2113,9 +2115,20 @@ describe('item store: conflicts', () => {
 		// the conflict on the way past would lose it with nothing said.
 		expect(second.handle.value).toEqual(mine)
 		expect(second.handle.status).toBe('conflicted')
+
+		// Closing the drawer without answering the conflict must not answer it either. The edit
+		// lives in the parked payload rather than in the entry, so it outlives the entry, and
+		// the next opening still has both versions to offer.
+		second.release()
+		const third = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+		expect(third.handle.value).toEqual(mine)
+		expect(third.handle.status).toBe('conflicted')
+		// And nothing went out behind the user in the meantime.
+		expect(rows.sent.get('u/me/r')).toEqual({ ...deployedRes, description: 'the other tab' })
 	})
 
-	it('opens a conflicted item afresh, past the payload the server refused', async () => {
+	it('opens a conflicted item on the refused payload, and moves on once it is resolved', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
 		const theirs = { ...deployedRes, description: 'the other tab' }
@@ -2129,23 +2142,26 @@ describe('item store: conflicts', () => {
 		expect(first.handle.status).toBe('conflicted')
 		first.release()
 
-		// Reopening reads afresh. Its own flush replays the refused payload, which must not make
-		// the response that follows look stale — that would leave the editor conflicted forever.
+		// Reopening is not an answer to the conflict. The refused payload is still the only copy
+		// of that edit, so it is what the editor opens on, and nothing goes out — a page close
+		// with nothing typed must not settle it either way.
 		const second = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
 		await settle()
 
-		expect(second.handle.status).not.toBe('conflicted')
-		expect(second.handle.value?.description).toBe('the other tab')
-
-		// The baseline it just adopted is what would make the refused payload acceptable, so the
-		// next flush — a page close, with nothing typed — must not resend it over their draft.
+		expect(second.handle.status).toBe('conflicted')
+		expect(second.handle.value?.description).toBe('mine')
 		await rows.port.flush(key)
 		expect(rows.sent.get('u/me/r')).toBeUndefined()
 
-		second.handle.value = { ...deployedRes, description: 'typed after reopening' }
+		// Taking their version is the answer, and the editor writes normally again afterwards.
+		await second.handle.resolveConflict('reload')
+		expect(second.handle.status).not.toBe('conflicted')
+		expect(second.handle.value?.description).toBe('the other tab')
+
+		second.handle.value = { ...deployedRes, description: 'typed after resolving' }
 		expect(rows.writes.at(-1)).toEqual({
 			path: 'u/me/r',
-			value: { ...deployedRes, description: 'typed after reopening' }
+			value: { ...deployedRes, description: 'typed after resolving' }
 		})
 	})
 

@@ -369,6 +369,9 @@ function flushOnPageHide(): void {
 	for (const [key, opts] of pendingSaveOpts) {
 		// Editing another user's loaded draft: never flush the foreign value.
 		if (syncLocked.has(key)) continue
+		// Refused and not yet resolved: parked so the edit survives the page, never sent behind
+		// the user, who has still to say whose version wins.
+		if (conflicts.has(key)) continue
 		// Auto-save off: page-editor opts are dropped with the page;
 		// drawer-kind pendings (no `canBeDisabled`) still flush.
 		if (!autosaveEnabledState && opts.auto && opts.canBeDisabled) continue
@@ -525,6 +528,9 @@ export const UserDraftDbSyncer = {
 		} catch {}
 		if (enabled) {
 			for (const [key, opts] of pendingSaveOpts) {
+				// A refused payload is parked to keep it, not to retry it: catching up here would
+				// send it the moment its baseline is acceptable, without the user resolving.
+				if (conflicts.has(key)) continue
 				debouncer.schedule(key, () => {
 					runner.submit(key, () => postSave(opts))
 				})
@@ -707,6 +713,10 @@ export const UserDraftDbSyncer = {
 		try {
 			const parked = pendingSaveOpts.get(key)
 			if (!parked) return
+			// The server refused this payload and nothing has resolved that yet. It stays parked,
+			// as the only copy of an edit that never landed, but replaying it here would decide
+			// the conflict on the user's behalf the moment its baseline is acceptable again.
+			if (conflicts.has(key)) return
 			if (opts?.honorAutosaveToggle && !autosaveEnabledState && parked.auto && parked.canBeDisabled)
 				return
 			await this.save({ ...parked, immediate: true })
