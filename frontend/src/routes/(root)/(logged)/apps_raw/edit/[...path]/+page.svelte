@@ -641,6 +641,8 @@
 							parentVersion = head
 							if (deployedBaseline) deployedBaseline = { ...deployedBaseline, parent_version: head }
 							draftBaseVersion = String(head)
+							// See /scripts/edit: the head this page knows moves with the base.
+							deployedHeadVersion = String(head)
 							// Persisted explicitly, as the script and flow routes do: the reactive
 							// bundle mirror is parked while auto-save is off, and a parked write is
 							// dropped on pagehide, so the new base would not survive a reload.

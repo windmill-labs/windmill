@@ -543,6 +543,9 @@
 					// compares equal and the autosave can discard it.
 					if (deployedBaseline) deployedBaseline = { ...deployedBaseline, parent_hash: head }
 					draftBaseHash = head
+					// The head this page knows moves with it, or the prompt reopens comparing
+					// the fresh base against the stale head, the two the wrong way round.
+					deployedHeadHash = head
 					await UserDraft.forcePersist('script', draftPath, { workspace: $workspaceStore })
 				}
 			: undefined}

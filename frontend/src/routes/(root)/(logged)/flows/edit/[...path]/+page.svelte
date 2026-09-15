@@ -558,6 +558,8 @@
 					if (!draftSync.draft || head == null || !$workspaceStore) return
 					draftSync.draft = { ...draftSync.draft, version_id: head }
 					draftBaseVersion = String(head)
+					// See /scripts/edit: the head this page knows moves with the base.
+					version = head
 					await UserDraft.forcePersist('flow', flowDraftPath, { workspace: $workspaceStore })
 				}
 			: undefined}
