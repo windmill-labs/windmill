@@ -151,6 +151,10 @@ let nextRevision = 1
 let nextPatch = 1
 
 const superseded = { ok: false, error: 'Another save of this item replaced this one' } as const
+const outOfDate = {
+	ok: false,
+	error: 'This item changed elsewhere and could not be re-read. Reload it before saving.'
+} as const
 
 /** What a command did not do, so it can tell what moved under it. `edits`: what the user can see
  *  change, which a discard measures against, so an outside write of the value already shown does
@@ -466,7 +470,10 @@ class Entry<V> {
 		await this.run(async () => {})
 		if (this.retired || !this.adapter) return 'absent'
 		if (!this.loaded) return 'absent'
-		return (await this.reread()).ok ? 'done' : 'failed'
+		if ((await this.reread()).ok) return 'done'
+		// Same position as a failed `changed` re-read: the item moved and this did not see it.
+		this.stale = true
+		return 'failed'
 	}
 
 	/** Discard for an outside caller, resolving to whether this editor could deal with the row.
@@ -475,7 +482,8 @@ class Entry<V> {
 	 *  already follows the first load, so what is left to report is whether that ever arrived. */
 	async discarded(): Promise<boolean> {
 		await this.discard()
-		return this.loaded && !this.retired
+		// Stale refuses the discard, so the row is untouched and still the caller's to remove.
+		return this.loaded && !this.retired && !this.stale
 	}
 
 	/**
@@ -524,6 +532,9 @@ class Entry<V> {
 	save(adapter: ItemAdapter<V>, started?: () => void, asked = this.ask()): Promise<SaveOutcome> {
 		const body = async (): Promise<SaveOutcome> => {
 			if (this.retired) return superseded
+			// `canSave` is advisory and not every editor consults it, so the gate is here too:
+			// what would go out is a whole value built on a baseline known to be behind.
+			if (this.stale) return outOfDate
 			const sent = asked ?? this.ask()
 			if (sent === undefined) return { ok: false, error: this.error ?? 'Nothing to save' }
 			const from = this.key

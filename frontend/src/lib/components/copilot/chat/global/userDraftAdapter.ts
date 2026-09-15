@@ -642,11 +642,9 @@ export async function deleteGlobalDraft(
 		options.preserveLiveDraft && liveDraft?.storagePath === storagePath
 			? UserDraft.remove(itemKind, storagePath, { workspace })
 			: UserDraft.clear(itemKind, storagePath, { workspace })
-	// An open editor owns this row and its own discard deletes it, resolving once that has landed.
-	// A delete of ours alongside it would be a second request with nothing to check against, free
-	// to remove a draft saved from elsewhere in between. It resolves false when that editor turns
-	// out not to have dealt with the row — its own first read never arrived — and then the row is
-	// nobody's and this caller still has to delete it.
+	// An open editor owns this row and deletes it itself; a delete of ours alongside would be a
+	// second request with no baseline to check, free to remove a draft saved in between. False
+	// when that editor did not deal with the row after all, and then it is nobody's but ours.
 	if (!(live && (await live))) {
 		// `remove`/`clear` only debounce the delete; persist it now so a deploy/discard
 		// that the caller awaits has actually cleared the server draft on return.

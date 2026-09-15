@@ -820,6 +820,29 @@ describe('item store: origins', () => {
 		expect(item.dirty).toBe(true)
 	})
 
+	it('is left unable to act when its post-deploy re-read fails', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		let reads = 0
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/r' },
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(async () => {
+				if (reads++ > 0) throw new Error('the GET failed')
+				return { deployed: deployedRes }
+			})
+		)
+		await settle()
+		item.value = { ...deployedRes, description: 'typed during the deploy' }
+
+		expect(await store.bridge.refresh('w', 'resource', 'u/me/r')).toBe('failed')
+		// The deploy landed and this never saw it, so acting on the old baseline would undo it.
+		expect(item.canSave).toBe(false)
+		expect(await item.save()).toMatchObject({ ok: false })
+		expect(await item.discard()).toEqual({ removed: false })
+		expect(item.value?.description).toBe('typed during the deploy')
+	})
+
 	it('tells a caller its post-deploy re-read failed, apart from never having the item', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
@@ -1397,6 +1420,12 @@ describe('item store: conflicts', () => {
 		expect(open.canSave).toBe(false)
 		expect(await open.discard()).toEqual({ removed: false })
 		expect(open.value?.description).toBe('mine')
+
+		// The gate is in `save` itself, not only in `canSave`: not every editor consults that.
+		expect(await open.save()).toMatchObject({ ok: false })
+		expect(deployed).toEqual({ ...b, args: { a: 2 } })
+		// And an outside discard is told the row was not dealt with, so the caller removes it.
+		expect(await store.bridge.discard('w', 'resource', 'u/me/b')).toBe(false)
 
 		// A reload gets it the baseline it missed, and it can act again.
 		reads = 0
