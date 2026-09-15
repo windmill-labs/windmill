@@ -832,9 +832,9 @@ export class FlowChatManager {
 		} catch (error) {
 			console.error('Failed to load messages:', error)
 			sendUserToast('Failed to load messages: ' + error)
-			// Nothing was learned about a run in flight, but a chat with no rows on screen
-			// has nothing for a second turn to interleave with either.
-			this.#liveStatus(conversationIdToUse).isDispatchingTurn = false
+			// The hold stays: an empty transcript is not an idle conversation, and the run
+			// this could not ask about owns the agent memory a second turn would write.
+			// Selecting the chat again retries the load; Stop is the reader's way out.
 		} finally {
 			this.isLoadingMessages = false
 			this.loadingMoreMessages = false
@@ -1241,25 +1241,30 @@ export class FlowChatManager {
 	 */
 	async #resumeRunningTurn(conversationId: string) {
 		const status = this.#liveStatus(conversationId)
+		let tookOver = false
 		try {
-			await this.#takeOverRunningTurn(conversationId, status)
+			tookOver = await this.#takeOverRunningTurn(conversationId, status)
 		} finally {
-			// Held by the load that called this; the turn it took over, if any, is busy on
-			// its own flags by now.
+			// Held by the load that called this; a turn taken over is busy on its own flags
+			// by now, and one that was not leaves nothing for Stop to cancel.
 			status.isDispatchingTurn = false
+			if (!tookOver) status.jobId = undefined
 		}
 	}
 
-	async #takeOverRunningTurn(conversationId: string, status: TurnStatus) {
+	async #takeOverRunningTurn(conversationId: string, status: TurnStatus): Promise<boolean> {
 		// A turn already in flight here owns the chat; only the load's own hold is set.
-		if (status.isLoading || status.isWaitingForResponse) return
-		if (!this.#workspace()) return
+		if (status.isLoading || status.isWaitingForResponse) return false
+		if (!this.#workspace()) return false
 		// The newest turn is the only one that can still be running; the rows arrive oldest
 		// first, and a user row is named with its flow job by the run that created it.
 		const rows = this.#rowsOf(conversationId)
 		const startedAt = rows.findLastIndex((row) => row.message_type === 'user' && row.job_id)
 		const jobId = startedAt >= 0 ? rows[startedAt].job_id : undefined
-		if (!jobId) return
+		if (!jobId) return false
+		// Named before the question, not after it: the chat is held from here, so Stop is on
+		// offer, and Stop with no job cancels nothing while the run carries on.
+		status.jobId = jobId
 
 		const runtime = this.#liveRuntime(conversationId)
 		const api = this.#chatApi()
@@ -1273,23 +1278,22 @@ export class FlowChatManager {
 			// reached has not said the run is over, and a chat freed on that guess takes a
 			// message that writes the same agent memory. Stop is on screen throughout.
 			for (;;) {
-				if (controller.signal.aborted) return
+				if (controller.signal.aborted) return false
 				try {
 					const { completed } = await api.getCompletedResult(jobId, controller.signal)
-					if (completed) return
+					if (completed) return false
 					break
 				} catch (error) {
-					if (controller.signal.aborted) return
+					if (controller.signal.aborted) return false
 					console.error('Could not tell whether a conversation had a run in flight:', error)
 					await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS))
 				}
 			}
 		}
-		if (controller.signal.aborted) return
+		if (controller.signal.aborted) return false
 
 		status.isLoading = true
 		status.isWaitingForResponse = true
-		status.jobId = jobId
 		// Rows written while this turn ran are replayed by the stream it is about to
 		// re-attach to — an agent persists one per round — and the transcript has no way to
 		// tell a replayed round from a second one. The final poll brings them back.
@@ -1300,6 +1304,7 @@ export class FlowChatManager {
 		} else {
 			void this.#settleFromJob(conversationId, jobId, api, controller.signal)
 		}
+		return true
 	}
 
 	#chatApi(): WindmillChatApi {

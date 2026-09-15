@@ -409,8 +409,15 @@ describe('a conversation opened while its run is still going', () => {
 		await manager.selectConversation('a')
 
 		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(true))
+		// Stop is on offer for that whole window, and it cancels a job — so the run it would
+		// be cancelling has to be named before the question, not after it.
+		expect(manager.currentJobId).toBe('job-maybe')
+
 		release()
+
 		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(false))
+		// Nothing was taken over, so nothing is left for a later Stop to cancel.
+		expect(manager.currentJobId).toBeUndefined()
 	})
 
 	it('leaves a conversation whose run is over alone', async () => {
