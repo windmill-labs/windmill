@@ -165,6 +165,8 @@ No CI workflow runs \`wmill sync push\` automatically, so deploy directly from t
 - \`wmill sync push --dry-run\` to preview.
 - \`wmill sync push\` to apply.
 
+A push deletes remote items that have no local file. They land in the workspace trashbin for three days: \`wmill trash list\` shows them and \`wmill trash restore <id>\` puts one back (both need a workspace admin).
+
 ### In both cases
 
 Only deploy when the user explicitly asks to deploy, publish, push, or ship — not when they say "run", "try", or "test". For testing local edits use the per-entity \`preview\` commands (\`wmill script preview\`, \`wmill flow preview\`) — they don't deploy.

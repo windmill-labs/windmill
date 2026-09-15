@@ -4,7 +4,7 @@ const { getMcpToolsMock, callMcpToolMock, listResourceMock, session } = vi.hoist
 	getMcpToolsMock: vi.fn(),
 	callMcpToolMock: vi.fn(),
 	listResourceMock: vi.fn(),
-	session: { email: 'first@windmill.dev' }
+	session: { email: 'first@windmill.dev', workspace_id: 'test-ws', username: 'hugo', pgroups: [] }
 }))
 
 vi.mock('../shared', () => ({

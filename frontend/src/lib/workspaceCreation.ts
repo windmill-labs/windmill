@@ -109,7 +109,7 @@ export async function enterNewWorkspace(id: string): Promise<void> {
  * that time reads as nothing having happened — the floor is what makes it read as an action
  * that ran, and it covers the workspace layout's first load on the other side.
  */
-export const WORKSPACE_HANDOVER_MS = 900
+export const WORKSPACE_HANDOVER_MS = 500
 
 /**
  * What to call a workspace before its owner has said. The login provider's name when it gave
