@@ -367,7 +367,7 @@
 			failedSyncJobs = []
 			forkCreationError = ''
 
-			// Clone datatables BEFORE creating the workspace fork
+			// Each data table copy is confirmed first; the fork request makes the copies
 			if (forkDatatableSection) {
 				const queue = forkDatatableSection.buildCloneQueue(prefixed_id)
 				if (queue.length > 0) {
@@ -383,6 +383,15 @@
 	}
 
 	async function completeFork(prefixed_id: string): Promise<void> {
+		// The fork request makes these copies, and drops them if the fork is not created
+		const forkedDatatables = forkDatatableSection
+			? forkDatatableSection.getConfirmedCloneJobs().map((job) => ({
+					name: job.name,
+					new_dbname: job._newDbName,
+					fork_behavior: job.behavior
+				}))
+			: []
+
 		let gitSyncJobIds: string[]
 		try {
 			gitSyncJobIds = await WorkspaceService.createWorkspaceForkGitBranch({
@@ -391,6 +400,9 @@
 					id: prefixed_id,
 					name,
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
+					// Sent in this first phase too, so a clone the fork would refuse is refused before
+					// any branch is created.
+					forked_datatables: forkedDatatables,
 					is_dev_workspace: createAsDevWorkspace,
 					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					// Send the lock intent in this first phase too so the backend can reject a non-admin's
@@ -443,14 +455,6 @@
 			)
 			return
 		}
-
-		// Build forked_datatables info from completed clone jobs
-		const forkedDatatables = forkDatatableSection
-			? forkDatatableSection.getCompletedCloneJobs().map((job) => ({
-					name: job.name,
-					new_dbname: job._newDbName
-				}))
-			: []
 
 		try {
 			await WorkspaceService.createWorkspaceFork({

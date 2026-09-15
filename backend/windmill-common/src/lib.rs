@@ -1600,6 +1600,28 @@ pub async fn create_custom_instance_database(
             error::Error::internal_err(format!("Failed to create database '{}': {}", dbname, e))
         })?;
 
+    // Nothing names a database that failed past this point, and its name blocks the retry: drop it
+    // rather than leave it behind.
+    if let Err(e) = finish_custom_instance_database(db, dbname, tag).await {
+        if let Err(drop_err) = drop_custom_instance_database(db, dbname).await {
+            tracing::error!("Could not drop '{dbname}' after failing to set it up: {drop_err}");
+        }
+        return Err(e);
+    }
+
+    // A data table role can only reach a database it may CONNECT to, and PUBLIC's default CONNECT
+    // would otherwise let every role in regardless of what this instance defines. Best-effort: a
+    // failure here leaves the database usable as `admin`, and the next role change repairs it.
+    if let Err(e) = crate::datatable_roles::converge_connect_grants(db, dbname).await {
+        tracing::warn!("Could not set CONNECT grants on instance database '{dbname}': {e}");
+    }
+
+    tracing::info!("Created custom instance database '{}'", dbname);
+    Ok(())
+}
+
+/// Grant `custom_instance_user` its privileges on a database just created, and register it.
+async fn finish_custom_instance_database(db: &DB, dbname: &str, tag: &str) -> error::Result<()> {
     // Grant permissions to custom_instance_user
     let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
     let new_pg_creds = PgDatabase { dbname: dbname.to_string(), ..wmill_pg_creds };
@@ -1634,15 +1656,6 @@ pub async fn create_custom_instance_database(
     )
     .execute(db)
     .await?;
-
-    // A data table role can only reach a database it may CONNECT to, and PUBLIC's default CONNECT
-    // would otherwise let every role in regardless of what this instance defines. Best-effort: a
-    // failure here leaves the database usable as `admin`, and the next role change repairs it.
-    if let Err(e) = crate::datatable_roles::converge_connect_grants(db, dbname).await {
-        tracing::warn!("Could not set CONNECT grants on instance database '{dbname}': {e}");
-    }
-
-    tracing::info!("Created custom instance database '{}'", dbname);
     Ok(())
 }
 
