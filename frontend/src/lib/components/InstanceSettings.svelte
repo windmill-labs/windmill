@@ -81,10 +81,17 @@
 	// When the user enables object storage for the first time, default
 	// `monitor_logs_on_s3` to true so S3 log files get cleaned up with their
 	// jobs. Backend still defaults to false for backwards compat with
-	// operators who never touched the setting.
+	// operators who never touched the setting. `ai_sessions_instance_storage_fallback`
+	// shows the backend's own default, on, until the operator turns it off.
 	$effect(() => {
 		if ($values['object_store_cache_config'] && $values['monitor_logs_on_s3'] === undefined) {
 			values.update((v) => ({ ...v, monitor_logs_on_s3: true }))
+		}
+		if (
+			$values['object_store_cache_config'] &&
+			$values['ai_sessions_instance_storage_fallback'] === undefined
+		) {
+			values.update((v) => ({ ...v, ai_sessions_instance_storage_fallback: true }))
 		}
 	})
 

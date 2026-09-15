@@ -2042,6 +2042,8 @@ async fn edit_large_file_storage_config(
     Json(new_config): Json<EditLargeFileStorageConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
+    #[cfg(feature = "parquet")]
+    let configures_storage = new_config.large_file_storage.is_some();
 
     let mut tx = db.begin().await?;
 
@@ -2109,6 +2111,13 @@ async fn edit_large_file_storage_config(
         .await?;
     }
     tx.commit().await?;
+
+    // The AI session backups answer from the new storage from now on; what the workspace
+    // kept in the instance store while it had none is swept out.
+    #[cfg(feature = "parquet")]
+    if configures_storage {
+        crate::ai_session_backups::spawn_delete_fallback(db.clone(), w_id.clone());
+    }
 
     // Trigger git sync for large file storage changes
     handle_deployment_metadata(

@@ -34,6 +34,54 @@ async fn configure_primary_lfs(db: &Pool<Postgres>, root_path: &str) -> anyhow::
     Ok(())
 }
 
+/// Configures the primary storage through the route, which is what sweeps the workspace's
+/// backups out of the instance store.
+async fn configure_primary_lfs_via_route(base: &str, root_path: &str) -> anyhow::Result<()> {
+    let resp = authed(
+        client().post(format!("{base}/workspaces/edit_large_file_storage_config")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "large_file_storage": {
+        "type": "FilesystemStorage",
+        "root_path": root_path,
+        "public_resource": false,
+        "advanced_permissions": null,
+        "secondary_storage": {}
+    }}))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    Ok(())
+}
+
+/// The instance setting allowing the instance store to stand in for a workspace without
+/// storage: `None` leaves it unset, which is on.
+async fn set_instance_fallback(db: &Pool<Postgres>, on: Option<bool>) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM global_settings WHERE name = 'ai_sessions_instance_storage_fallback'")
+        .execute(db)
+        .await?;
+    if let Some(on) = on {
+        sqlx::query(
+            "INSERT INTO global_settings (name, value) VALUES ('ai_sessions_instance_storage_fallback', $1)",
+        )
+        .bind(json!(on))
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Polls until nothing is under the directory, for a deletion that runs off the request.
+async fn wait_until_empty(dir: &std::path::Path, what: &str) {
+    for _ in 0..100 {
+        if files_under(dir).is_empty() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!("{what}: objects left under {}", dir.display());
+}
+
 async fn list(base: &str, token: &str) -> anyhow::Result<Value> {
     let resp = authed(client().get(format!("{base}/ai/sessions/list")), token)
         .send()
@@ -132,7 +180,9 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         server.addr.port()
     );
 
-    // No storage configured: the browser is told to stop trying.
+    // No storage configured, and the instance store (another test of this process may
+    // have loaded one) not allowed to stand in: the browser is told to stop trying.
+    set_instance_fallback(&db, Some(false)).await?;
     let listing = list(&base, "SECRET_TOKEN").await?;
     assert_eq!(listing["enabled"], false);
     assert_eq!(listing["sessions"], json!([]));
@@ -1081,5 +1131,113 @@ async fn test_backup_writes_are_refused_for_the_wrong_owner_token_or_id(
     assert_eq!(resp.status(), 403, "{}", resp.text().await?);
 
     assert!(files_under(storage_dir.path()).is_empty());
+    Ok(())
+}
+
+/// A workspace without storage of its own backs up to the instance object store, every
+/// answer saying so (`fallback`); a storage of its own, once configured, answers instead
+/// and sweeps the workspace out of the instance store, unless it is the instance store's
+/// own bucket, where what the workspace holds is the live backups.
+#[sqlx::test(fixtures("base"))]
+async fn test_backups_fall_back_to_the_instance_storage(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace",
+        server.addr.port()
+    );
+
+    // The instance store, as `reload_object_store_setting` loads it from the setting.
+    let instance_dir = tempfile::tempdir()?;
+    *windmill_object_store::OBJECT_STORE_SETTINGS.write().await = Some(
+        windmill_object_store::build_filesystem_client(&instance_dir.path().to_string_lossy())?
+            .into(),
+    );
+    let in_instance = instance_dir
+        .path()
+        .join("windmill_ai_sessions/test-workspace");
+
+    // Turned off by the instance setting: the browser is told to stop trying.
+    set_instance_fallback(&db, Some(false)).await?;
+    assert_eq!(list(&base, "SECRET_TOKEN").await?["enabled"], false);
+    set_instance_fallback(&db, None).await?;
+
+    // On, as it is unless turned off: the backups land in the instance store, under the
+    // workspace's prefix, and every answer says which kind of store it came from.
+    let head =
+        json!({ "id": "s1", "workspace_id": "test-workspace", "createdAt": 1, "chatId": "c1" });
+    let entry = json!({ "id": "s1", "whole": true, "head": head, "chats": [{ "id": "c1", "record": { "id": "c1" } }] });
+    let push_whole = || {
+        push(
+            &base,
+            "SECRET_TOKEN",
+            json!({ "owner": "test@windmill.dev", "sessions": [entry.clone()] }),
+        )
+    };
+    let resp = push_whole().await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let pushed: Value = resp.json().await?;
+    assert_eq!(pushed["fallback"], true);
+    assert_eq!(pushed["results"], json!([{ "id": "s1" }]));
+    let listing = list(&base, "SECRET_TOKEN").await?;
+    assert_eq!(listing["enabled"], true);
+    assert_eq!(listing["fallback"], true);
+    assert_eq!(listing["sessions"][0]["id"], "s1");
+    let fallback_storage_id = listing["storage_id"].clone();
+    let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
+    assert_eq!(pulled["fallback"], true);
+    assert_eq!(pulled["sessions"][0]["head"], head);
+    assert!(!files_under(&in_instance).is_empty());
+
+    // The workspace's storage usage counts them, under a name of their own.
+    let resp = authed(
+        client().get(format!("{base}/job_helpers/storage_usage")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let usage: Value = resp.json().await?;
+    let fallback_usage = usage["storages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["storage"] == "_ai_sessions_fallback_")
+        .unwrap_or_else(|| panic!("no fallback usage in {usage}"));
+    assert!(fallback_usage["bytes"].as_i64().unwrap() > 0);
+
+    // A key rotation sweeps the older generation out of the instance store too.
+    rotate(&base, &"c".repeat(64)).await?;
+    wait_until_empty(&in_instance, "a rotation on the instance store").await;
+    assert_eq!(list(&base, "SECRET_TOKEN").await?["sessions"], json!([]));
+    assert_eq!(push_whole().await?.status(), 200);
+    assert!(!files_under(&in_instance).is_empty());
+
+    // A storage of its own answers instead, and the workspace is swept out of the instance
+    // store: nothing there could come back if the workspace dropped its storage again.
+    let storage_dir = tempfile::tempdir()?;
+    configure_primary_lfs_via_route(&base, &storage_dir.path().to_string_lossy()).await?;
+    wait_until_empty(&in_instance, "configuring a workspace storage").await;
+    let listing = list(&base, "SECRET_TOKEN").await?;
+    assert_eq!(listing["enabled"], true);
+    assert!(listing.get("fallback").is_none(), "{listing}");
+    assert_ne!(listing["storage_id"], fallback_storage_id);
+    assert_eq!(listing["sessions"], json!([]));
+    assert_eq!(push_whole().await?.status(), 200);
+    assert!(!files_under(storage_dir.path()).is_empty());
+    assert!(files_under(&in_instance).is_empty());
+
+    // A storage of its own that is the instance store's very bucket holds the live
+    // backups there: saving the settings again sweeps nothing.
+    configure_primary_lfs_via_route(&base, &instance_dir.path().to_string_lossy()).await?;
+    assert_eq!(push_whole().await?.status(), 200);
+    assert!(!files_under(&in_instance).is_empty());
+    configure_primary_lfs_via_route(&base, &instance_dir.path().to_string_lossy()).await?;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    assert!(!files_under(&in_instance).is_empty());
+    let listing = list(&base, "SECRET_TOKEN").await?;
+    assert!(listing.get("fallback").is_none(), "{listing}");
+    assert_eq!(listing["sessions"][0]["id"], "s1");
+
     Ok(())
 }

@@ -129,10 +129,46 @@ against it for the same reason.
 The feature is on wherever the workspace has primary storage, and off with
 `ai_config.sessions_storage_disabled` (the `copilot_disabled` pattern: no migration, carried by
 settings export and the CLI). A build without `parquet` has no routes (404), a workspace without
-storage answers `enabled: false`; either turns the backup off for ten minutes, after which the
+storage and nothing to stand in for it answers `enabled: false`; either turns the backup off
+for ten minutes, after which the
 page asks again on its own (a flush for whatever is pending, and a restore), and the AI
 settings page tells the mirror at once when the switch is saved there (the off state is
 forgotten, the rows that went stale are marked again, a restore runs).
+
+## The instance store standing in
+
+A workspace without storage of its own keeps its backups in the instance object store
+(`object_store_cache_config`, loaded the way every other use of it is, so never on the Pro
+plan and never with `DISABLE_S3_STORE`), under the same layout and the same per-user key,
+while the instance setting `ai_sessions_instance_storage_fallback` allows it (on unless set
+to false; the instance settings page shows it under Object Storage). Every answer says which
+kind of store it came from (`fallback`), and the instance store is named (`storage_id`) by
+its own description in a namespace of its own, so a browser never takes it for a workspace's
+bucket even when it is the same bucket. The store a workspace's backups live in is resolved
+in one place (`ai_session_backups::workspace_store`), for the routes and for the rotation's
+deletion of older generations alike.
+
+Configuring a storage for the workspace (`edit_large_file_storage_config`) moves the routes
+there at once and, off the request, deletes the workspace's whole prefix in the instance
+store, whether the setting is on or off (copies from when it was on may be there), so no
+copy is left that a later return to the instance store would bring back; a rotation sweeps
+the older generations out of whichever store the workspace is on. A storage that is the
+instance store's own bucket is told by the stores' descriptions, and nothing is swept: what
+the workspace holds there is its live backups. Dropping the storage again is a switch like
+any other: the rows go stale, the sessions are pushed whole into the instance store, and
+the old bucket keeps its copy. On the browser side a removal owed to the instance store is
+retired by any answer from the workspace's own storage (the row names the instance store
+apart, `storageName` in `sessionMirrorPlan.ts`), since configuring that storage swept the
+workspace out; one owed to a workspace storage still waits for that storage, whatever the
+instance store answered. The sweep is best effort: a copy it could not delete comes back
+only if the workspace drops its storage again, and a deleted workspace's copies stay, as
+they do in a workspace bucket.
+
+On CE the bytes in the instance store count toward the workspace's storage quota under a
+storage name of their own (`_ai_sessions_fallback_`, listed by the periodic recount), so a
+member cannot fill the operator's bucket past what the workspace may use; on EE, where
+workspace storage has no quota either, nothing bounds them but the per-push caps and the
+instance setting.
 
 ## Conflicts and deletion
 
@@ -172,7 +208,8 @@ session whose pieces could not be written: recording it would let the next flush
 half-empty local state over the backup.
 
 Every answer names the storage it came from (`storage_id`, a hash of what locates the objects,
-endpoint, region and bucket, not the credentials, which rotate) and the backup generation a
+endpoint, region and bucket, not the credentials, which rotate; the instance store standing
+in for a workspace without one is named apart, see above) and the backup generation a
 key rotation bumps (`backup_generation`). A sync row records both, and a row naming another
 storage or generation goes stale and its session is marked again: a workspace pointed at a
 new bucket, or whose key was rotated, holds nothing, and the server looks nowhere else, so

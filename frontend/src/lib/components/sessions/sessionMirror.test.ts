@@ -712,6 +712,66 @@ describe('sessionMirror flush', () => {
 		expect((await __syncRowsForTesting(EMAIL)).some((r) => r.id === 'sr3')).toBe(false)
 	})
 
+	it("retires a removal owed to the instance store once the workspace's own storage answered", async () => {
+		const s: Session = { id: 'fb1', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
+		sessionState.sessions = [s]
+		await putSession(s)
+		pushMock.mockResolvedValueOnce({
+			enabled: true,
+			storage_id: 'I',
+			fallback: true,
+			results: [{ id: 'fb1' }]
+		})
+		await __flushForTesting()
+		expect((await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'fb1')?.storageId).toBe(
+			'instance:I'
+		)
+
+		// The workspace got a storage of its own meanwhile, which swept it out of the instance
+		// store: that storage's answer settles the removal, the instance store never answering
+		// for the workspace again.
+		deleteSession('fb1')
+		await flush()
+		pushMock.mockResolvedValueOnce({ enabled: true, storage_id: 'A', results: [{ id: 'fb1' }] })
+		await __flushForTesting()
+		expect(pushMock.mock.lastCall?.[0].requestBody.removed).toEqual(['fb1'])
+		expect(removalKeys()).toEqual([])
+		expect((await __syncRowsForTesting(EMAIL)).some((r) => r.id === 'fb1')).toBe(false)
+	})
+
+	it('waits for the storage a workspace dropped, whatever the instance store answered', async () => {
+		const s: Session = { id: 'fb2', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
+		sessionState.sessions = [s]
+		await putSession(s)
+		pushMock.mockResolvedValueOnce({ enabled: true, storage_id: 'A', results: [{ id: 'fb2' }] })
+		await __flushForTesting()
+		// The workspace dropped its storage: the session goes whole to the instance store,
+		// and the row remembers the copy A keeps.
+		await putSession({ ...s, summary: 'changed' })
+		pushMock.mockResolvedValue({
+			enabled: true,
+			storage_id: 'I',
+			fallback: true,
+			results: [{ id: 'fb2' }]
+		})
+		await __flushForTesting()
+		await __flushForTesting()
+		const row = (await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'fb2')
+		expect(row?.storageId).toBe('instance:I')
+		expect(row?.alsoIn).toEqual(['A'])
+
+		// Deleted while on the instance store: its copy goes, and the mark waits for A.
+		deleteSession('fb2')
+		await flush()
+		await __flushForTesting()
+		expect(removalKeys()).toEqual(['r::fb2::ws'])
+		expect((await __syncRowsForTesting(EMAIL)).find((r) => r.id === 'fb2')?.storageId).toBe('A')
+		pushMock.mockResolvedValue({ enabled: true, storage_id: 'A', results: [{ id: 'fb2' }] })
+		await __flushForTesting()
+		expect(pushMock.mock.lastCall?.[0].requestBody.removed).toEqual(['fb2'])
+		expect(removalKeys()).toEqual([])
+	})
+
 	it("removes a moved session's old copy from the storage that held it, whatever its old workspace is on now", async () => {
 		const s: Session = { id: 'mv2', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
 		sessionState.sessions = [s]
