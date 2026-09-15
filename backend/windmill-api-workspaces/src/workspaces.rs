@@ -5311,7 +5311,6 @@ async fn set_encryption_key(
 
     // Build the previous cipher before the transaction (reads from cache/pool)
     let previous_encryption_key = build_crypt(&db, w_id.as_str()).await?;
-    #[cfg(feature = "parquet")]
     let previous_key = windmill_common::variables::get_workspace_key(&w_id, &db).await?;
 
     let mut tx = db.begin().await?;
@@ -5323,9 +5322,20 @@ async fn set_encryption_key(
     )
     .execute(&mut *tx)
     .await?;
-    #[cfg(feature = "parquet")]
+    // The AI session backups in the workspace storage are ciphertext under the key being
+    // replaced; the walk that re-keys them needs `parquet`, but the record of that key is
+    // kept by every build, so a rotation on one without the feature leaves them readable
+    // and re-keyable by a build with it. The walk drops the record once it found nothing
+    // under the key.
     if !request.skip_reencrypt.unwrap_or(false) {
-        crate::ai_session_rekey::record_rotation(&mut tx, &w_id, &previous_key).await?;
+        sqlx::query(
+            "INSERT INTO ai_session_backup_rekey (workspace_id, previous_key) VALUES ($1, $2) \
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(&w_id)
+        .bind(&previous_key)
+        .execute(&mut *tx)
+        .await?;
     }
 
     let mut reencrypted_secret_paths: Vec<String> = Vec::new();

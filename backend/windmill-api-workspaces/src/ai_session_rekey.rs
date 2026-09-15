@@ -3,8 +3,8 @@
 //! segment of its key as the cipher suffix, so the walk needs no email.
 //!
 //! A rotation records the key it replaced in `ai_session_backup_rekey` inside its own
-//! transaction, and the walk deletes that row only once every object it found reads under
-//! the current key. Until then the read path decrypts with the recorded keys as well, and
+//! transaction (`set_encryption_key`, on every build), and the walk deletes that row only
+//! once every object it found reads under the current key. Until then the read path decrypts with the recorded keys as well, and
 //! every use of the backups starts the walk again, so a server restart mid-walk leaves
 //! nothing unreadable and nothing under the old key for good.
 
@@ -41,25 +41,9 @@ fn in_flight() -> MutexGuard<'static, HashSet<String>> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Records, inside the rotation's transaction, that objects under `previous_key` may
-/// still exist; the walk removes the record once it found none.
-pub(crate) async fn record_rotation(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    w_id: &str,
-    previous_key: &str,
-) -> Result<()> {
-    sqlx::query(
-        "INSERT INTO ai_session_backup_rekey (workspace_id, previous_key) VALUES ($1, $2) \
-         ON CONFLICT DO NOTHING",
-    )
-    .bind(w_id)
-    .bind(previous_key)
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
-}
+/// The keys of rotations whose walk has not completed, oldest first (recorded by the
+/// rotation itself, in its transaction).
 
-/// The keys of rotations whose walk has not completed, oldest first.
 async fn previous_keys(db: &DB, w_id: &str) -> Result<Vec<String>> {
     Ok(sqlx::query_scalar::<_, String>(
         "SELECT previous_key FROM ai_session_backup_rekey WHERE workspace_id = $1 \

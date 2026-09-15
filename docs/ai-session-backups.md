@@ -43,14 +43,17 @@ last pushed, kept per session in the `windmill-sessions-mirror` store:
 | chat | `sessions/{sid}/chats/{cid}.json` | its `lastModified` moved |
 | artifacts | `sessions/{sid}/artifacts.json` | their fingerprint changed |
 | image | `images/{sid}/{cid}/{iid}` | never pushed before (write-once) |
-| index marker | `index/{sid}` | last, by every push of the session (empty) |
+| index marker | `index/{sid}` | last, by the part that completes a push of the session (empty) |
 
 All under `windmill_ai_sessions/{w_id}/{sha256(email)}/` in the workspace's primary storage.
 The listing reads only `index/`: one object per session whatever the session holds, so a
 session with many chats cannot crowd newer ones out of a bounded scan, and its
-`last_modified` is the session's `updated_at`. Written last, it lists a session only once a
-whole push entry landed; within one push, the parts of a session after a failed one are not
-written, so the head on the last part never lists a session missing a chat.
+`last_modified` is the session's `updated_at`. Written last, and only by an entry no unsent
+part follows (a session split over several entries says `partial` on all but the last), it
+lists a session only once a whole push landed; the parts of a session after a failed one are
+not written either, on the server within one push and on the client across pushes, so the
+head on the last part never lists a session missing a chat, and a new session whose last part
+never lands is not listed at all.
 
 The head signature leaves out `name` (a per-browser counter the sessions page routes by),
 the unsent-draft fields, `workspace_root_id` (recomputed on import), and the two fields reading
@@ -70,7 +73,9 @@ object that does not decrypt for its reader is treated as absent. Rotating the w
 (`set_encryption_key`) re-keys every backup object off the request, the way it re-encrypts the
 workspace's secrets, unless `skip_reencrypt` was asked for; the user segment of an object's key
 is the cipher suffix, so the walk needs no email (`windmill-api-workspaces/src/ai_session_rekey.rs`).
-The rotation records the key it replaced (`ai_session_backup_rekey`) in its own transaction;
+The rotation records the key it replaced (`ai_session_backup_rekey`) in its own transaction,
+on every build (the walk needs `parquet`, the record does not, so a rotation on a build
+without the feature loses nothing);
 until the walk has found every object under the current key and dropped that record, the read
 path decrypts with the recorded keys too and every use of the backups starts the walk again, so
 a server restart mid-walk leaves nothing unreadable and nothing under the old key for good. The

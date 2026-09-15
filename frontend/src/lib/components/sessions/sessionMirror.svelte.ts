@@ -619,7 +619,7 @@ async function pushWorkspace(
 				(images.length >= MAX_IMAGES_PER_ENTRY ||
 					imagesBytes + data_url.length > REQUEST_TARGET_BYTES)
 			) {
-				const status = await append({ id: item.session.id, images })
+				const status = await append({ id: item.session.id, images, partial: true })
 				if (status !== 'ok') return finish(status)
 				images = []
 				imagesBytes = 0
@@ -627,13 +627,20 @@ async function pushWorkspace(
 			images.push({ chat_id, id, data_url })
 			imagesBytes += data_url.length
 		}
+		// Every part but the last says so: the server lists a session on the part that
+		// completes its entry, never on one an unsent part still follows.
+		const parts = plan.entry ? splitEntry(plan.entry, REQUEST_TARGET_BYTES) : []
 		if (images.length > 0) {
-			const status = await append({ id: item.session.id, images })
+			const status = await append({
+				id: item.session.id,
+				images,
+				partial: parts.length > 0 || undefined
+			})
 			if (status !== 'ok') return finish(status)
 		}
-		for (const part of plan.entry ? splitEntry(plan.entry, REQUEST_TARGET_BYTES) : []) {
+		for (const [i, part] of parts.entries()) {
 			if (failed.has(item.session.id)) break
-			const status = await append(part)
+			const status = await append(i < parts.length - 1 ? { ...part, partial: true } : part)
 			if (status !== 'ok') return finish(status)
 		}
 		attempted.get(item.session.id)!.complete = true

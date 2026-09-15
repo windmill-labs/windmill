@@ -655,6 +655,10 @@ struct PushedSession {
     delete_chats: Vec<String>,
     #[serde(default)]
     delete_images: Vec<ImageRef>,
+    /// More parts of the session follow, in this push or a later one: the session is not
+    /// listed on this one.
+    #[serde(default)]
+    partial: bool,
 }
 
 #[derive(Deserialize)]
@@ -806,12 +810,14 @@ async fn push_session(backend: &Backend, s: &PushedSession) -> Result<usize> {
                 .collect(),
         )
         .await?;
-    // Last, so a session is listed only once the whole entry landed.
-    backend
-        .store
-        .put(&backend.index_key(&s.id), PutPayload::new())
-        .await
-        .map_err(object_store_error_to_error)?;
+    // Last, and by the last part only, so a session is listed once its whole entry landed.
+    if !s.partial {
+        backend
+            .store
+            .put(&backend.index_key(&s.id), PutPayload::new())
+            .await
+            .map_err(object_store_error_to_error)?;
+    }
     Ok(written)
 }
 

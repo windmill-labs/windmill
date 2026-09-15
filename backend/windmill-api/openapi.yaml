@@ -28526,6 +28526,9 @@ components:
                 type: string
               id:
                 type: string
+        partial:
+          type: boolean
+          description: more parts of this session follow, in this push or a later one; the session is not listed on this one
 
     FreeTierInfo:
       type: object

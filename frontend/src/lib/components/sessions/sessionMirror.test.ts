@@ -456,6 +456,9 @@ describe('sessionMirror flush', () => {
 			.mockResolvedValueOnce({ enabled: true, storage_id: 'bucket-2', results: [{ id: 'sp' }] })
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(2)
+		// Only the last part completes the entry server-side.
+		expect(pushMock.mock.calls[0][0].requestBody.sessions[0].partial).toBe(true)
+		expect(pushMock.mock.calls[1][0].requestBody.sessions[0].partial).toBeUndefined()
 		expect(await pendingDirty()).toEqual(['sp'])
 		expect(await __syncRowsForTesting(EMAIL)).toEqual([])
 	})

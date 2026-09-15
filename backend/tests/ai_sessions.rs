@@ -170,6 +170,46 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     assert_eq!(listing["enabled"], true);
     assert_eq!(listing["sessions"][0]["id"], "s1");
 
+    // A part with more of the session to follow lists nothing; the part that completes
+    // the push does, newest first.
+    let ids = |listing: &Value| -> Vec<String> {
+        listing["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s2", "chats": [{ "id": "c", "record": { "id": "c" } }], "partial": true }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(ids(&list(&base, "SECRET_TOKEN").await?), vec!["s1"]);
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s2", "head": { "id": "s2", "workspace_id": "test-workspace", "createdAt": 2, "chatId": "c" } }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(ids(&list(&base, "SECRET_TOKEN").await?), vec!["s2", "s1"]);
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "removed": ["s2"] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+
     let pulled = pull(&base, "SECRET_TOKEN", &["s1", "never-pushed"]).await?;
     assert_eq!(pulled["deferred"], json!([]));
     let sessions = pulled["sessions"].as_array().unwrap();
