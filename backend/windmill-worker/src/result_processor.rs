@@ -32,8 +32,8 @@ use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
     append_logs, asset_dispatch, get_mini_completed_job, is_pre_shaped_wm_failure_result,
-    CanceledBy, FlowRunners, JobCompleted, MiniCompletedJob, MiniPulledJob, ValidableJson,
-    WrappedError, INIT_SCRIPT_TAG, MANUAL_FAILURE_ERROR_NAME,
+    parse_result_object, CanceledBy, FlowRunners, JobCompleted, MiniCompletedJob, MiniPulledJob,
+    ValidableJson, WrappedError, INIT_SCRIPT_TAG, MANUAL_FAILURE_ERROR_NAME,
 };
 
 use serde_json::{json, value::RawValue, Value};
@@ -72,13 +72,11 @@ struct NestedErrorMessage {
 /// named `name`/`message`), and we want OTel to record the ManualFailure
 /// rather than the user's sibling fields.
 fn extract_error_message(raw: &str) -> Option<ErrorMessage> {
-    let nested = serde_json::from_str::<NestedErrorMessage>(raw)
-        .ok()
-        .map(|n| n.error);
+    let nested = parse_result_object::<NestedErrorMessage>(raw).map(|n| n.error);
     if matches!(&nested, Some(em) if em.name == MANUAL_FAILURE_ERROR_NAME) {
         return nested;
     }
-    if let Ok(em) = serde_json::from_str::<ErrorMessage>(raw) {
+    if let Some(em) = parse_result_object::<ErrorMessage>(raw) {
         return Some(em);
     }
     nested
