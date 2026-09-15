@@ -909,30 +909,33 @@
 		const headHash = (deployed as { hash?: string } | undefined)?.hash
 		const versions = await deployedVersionOptions(headHash)
 		if (!diffDrawer?.ownsOpening(opening)) return
-		diffDrawer.setDiff({
-			mode: 'normal',
-			deployed,
-			deployedLabel: deployedVersionLabel(deployed),
-			versions,
-			onTakeLatest,
-			draftBase: draftBaseHash,
-			deployedHead: headHash,
-			loadVersion: async (hash) => {
-				const v = await ScriptService.getScriptByHash({ workspace: opWorkspace!, hash })
-				return replaceFalseWithUndefined({
-					...v,
-					workspace_id: undefined,
-					created_at: undefined,
-					created_by: undefined,
-					extra_perms: undefined,
-					lock: undefined,
-					lock_error_logs: undefined,
-					parent_hashes: undefined
-				})
+		diffDrawer.setDiff(
+			{
+				mode: 'normal',
+				deployed,
+				deployedLabel: deployedVersionLabel(deployed),
+				versions,
+				onTakeLatest,
+				draftBase: draftBaseHash,
+				deployedHead: headHash,
+				loadVersion: async (hash) => {
+					const v = await ScriptService.getScriptByHash({ workspace: opWorkspace!, hash })
+					return replaceFalseWithUndefined({
+						...v,
+						workspace_id: undefined,
+						created_at: undefined,
+						created_by: undefined,
+						extra_perms: undefined,
+						lock: undefined,
+						lock_error_logs: undefined,
+						parent_hashes: undefined
+					})
+				},
+				draft: savedScript['draft'],
+				current
 			},
-			draft: savedScript['draft'],
-			current
-		})
+			opening
+		)
 	}
 
 	function computeDropdownItems(

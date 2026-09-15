@@ -642,18 +642,21 @@
 
 				if (!diffDrawer?.ownsOpening(opening)) return
 				diffDrawer.openDrawer(opening)
-				diffDrawer.setDiff({
-					mode: 'normal',
-					deployed: deployedValue ?? savedApp,
-					current: {
-						summary: $summary,
-						value: $app,
-						path: newEditedPath || savedApp.path,
-						policy,
-						custom_path: customPath,
-						labels
-					}
-				})
+				diffDrawer.setDiff(
+					{
+						mode: 'normal',
+						deployed: deployedValue ?? savedApp,
+						current: {
+							summary: $summary,
+							value: $app,
+							path: newEditedPath || savedApp.path,
+							policy,
+							custom_path: customPath,
+							labels
+						}
+					},
+					opening
+				)
 			},
 			disabled: !savedApp || newApp
 		},
@@ -781,28 +784,31 @@
 						if (!diffDrawer?.ownsOpening(opening)) return
 						saveDrawerOpen = false
 						diffDrawer.openDrawer(opening)
-						diffDrawer.setDiff({
-							mode: 'normal',
-							deployed: deployedValue ?? savedApp,
-							current: {
-								summary: $summary,
-								value: $app,
-								path: newEditedPath || savedApp.path,
-								policy,
-								custom_path: customPath,
-								labels
-							},
-							button: {
-								text: 'Looks good, deploy',
-								onClick: () => {
-									if (newApp) {
-										createApp(newEditedPath)
-									} else {
-										handleUpdateApp(newEditedPath)
+						diffDrawer.setDiff(
+							{
+								mode: 'normal',
+								deployed: deployedValue ?? savedApp,
+								current: {
+									summary: $summary,
+									value: $app,
+									path: newEditedPath || savedApp.path,
+									policy,
+									custom_path: customPath,
+									labels
+								},
+								button: {
+									text: 'Looks good, deploy',
+									onClick: () => {
+										if (newApp) {
+											createApp(newEditedPath)
+										} else {
+											handleUpdateApp(newEditedPath)
+										}
 									}
 								}
-							}
-						})
+							},
+							opening
+						)
 					}}
 				>
 					<div class="flex flex-row gap-2 items-center">

@@ -475,21 +475,24 @@
 		diffDrawer.openDrawer(opening)
 		const versions = await deployedVersionOptions()
 		if (!diffDrawer?.ownsOpening(opening)) return
-		diffDrawer.setDiff({
-			mode: 'normal',
-			deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
-			versions,
-			onTakeLatest,
-			draftBase: draftBaseVersion,
-			deployedHead: deployedVersionShown != null ? String(deployedVersionShown) : undefined,
-			loadVersion: async (id) => {
-				const v = await AppService.getAppByVersion({ workspace: opWorkspace!, id: Number(id) })
-				// Same normalization as `syncWithDeployed`, so switching versions doesn't
-				// reintroduce the post-deploy noise the head side already strips.
-				return replaceFalseWithUndefined(stripRawAppDiffNoise(v as any))
+		diffDrawer.setDiff(
+			{
+				mode: 'normal',
+				deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
+				versions,
+				onTakeLatest,
+				draftBase: draftBaseVersion,
+				deployedHead: deployedVersionShown != null ? String(deployedVersionShown) : undefined,
+				loadVersion: async (id) => {
+					const v = await AppService.getAppByVersion({ workspace: opWorkspace!, id: Number(id) })
+					// Same normalization as `syncWithDeployed`, so switching versions doesn't
+					// reintroduce the post-deploy noise the head side already strips.
+					return replaceFalseWithUndefined(stripRawAppDiffNoise(v as any))
+				},
+				current: currentDiffValue
 			},
-			current: currentDiffValue
-		})
+			opening
+		)
 	}
 
 	async function updateApp(npath: string) {
@@ -705,21 +708,24 @@
 						if (!diffDrawer?.ownsOpening(opening)) return
 						saveDrawerOpen = false
 						diffDrawer.openDrawer(opening)
-						diffDrawer.setDiff({
-							mode: 'normal',
-							deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
-							current: currentDiffValue,
-							button: {
-								text: 'Looks good, deploy',
-								onClick: () => {
-									if (newApp || appPath == '') {
-										createApp(newEditedPath)
-									} else {
-										handleUpdateApp(newEditedPath)
+						diffDrawer.setDiff(
+							{
+								mode: 'normal',
+								deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
+								current: currentDiffValue,
+								button: {
+									text: 'Looks good, deploy',
+									onClick: () => {
+										if (newApp || appPath == '') {
+											createApp(newEditedPath)
+										} else {
+											handleUpdateApp(newEditedPath)
+										}
 									}
 								}
-							}
-						})
+							},
+							opening
+						)
 					}}
 				>
 					<div class="flex flex-row gap-2 items-center">

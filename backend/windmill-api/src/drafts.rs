@@ -582,7 +582,10 @@ async fn update_draft(
             Ok(Json(SaveDraftResponse {
                 status: SaveDraftStatus::Saved,
                 current_timestamp: now,
-                path: None,
+                // A retry of a routed discard whose answer was lost lands here: the row
+                // is gone but the editor is still on the path the item left, so it needs
+                // the destination as much as the first attempt did.
+                path: moved_to,
             }))
         }
     }

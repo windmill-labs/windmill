@@ -1185,32 +1185,35 @@
 		const currentFlow = flowStore.val
 		const versions = await deployedVersionOptions()
 		if (!diffDrawer?.ownsOpening(opening)) return
-		diffDrawer.setDiff({
-			mode: 'normal',
-			deployed: deployedValue ?? savedFlow,
-			deployedLabel,
-			versions,
-			onTakeLatest,
-			draftBase: draftBaseVersion,
-			deployedHead: deployedVersionShown != null ? String(deployedVersionShown) : undefined,
-			loadVersion: async (id) => {
-				const v = await FlowService.getFlowVersion({
-					workspace: opWorkspace!,
-					version: Number(id)
-				})
-				return replaceFalseWithUndefined({
-					...v,
-					edited_at: undefined,
-					edited_by: undefined,
-					workspace_id: undefined
-				})
+		diffDrawer.setDiff(
+			{
+				mode: 'normal',
+				deployed: deployedValue ?? savedFlow,
+				deployedLabel,
+				versions,
+				onTakeLatest,
+				draftBase: draftBaseVersion,
+				deployedHead: deployedVersionShown != null ? String(deployedVersionShown) : undefined,
+				loadVersion: async (id) => {
+					const v = await FlowService.getFlowVersion({
+						workspace: opWorkspace!,
+						version: Number(id)
+					})
+					return replaceFalseWithUndefined({
+						...v,
+						edited_at: undefined,
+						edited_by: undefined,
+						workspace_id: undefined
+					})
+				},
+				current: {
+					...currentFlow,
+					path: $pathStore,
+					draft_triggers: currentDraftTriggers
+				}
 			},
-			current: {
-				...currentFlow,
-				path: $pathStore,
-				draft_triggers: currentDraftTriggers
-			}
-		})
+			opening
+		)
 	}
 
 	let flowCopilotContext: FlowCopilotContext = $state({

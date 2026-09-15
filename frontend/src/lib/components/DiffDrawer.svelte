@@ -219,8 +219,13 @@
 					current: Value
 					title: string
 					button?: { text: string; onClick: () => void }
-			  }
+			  },
+		token?: number
 	) {
+		// Same rule as `openDrawer`: an opening's own token has to still be current, and a
+		// caller with none is taking the drawer, so it claims one.
+		if (token != null && token !== openingToken) return
+		if (token == null) openingToken++
 		if (diff.mode === 'normal') {
 			const {
 				deployed,

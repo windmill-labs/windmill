@@ -395,7 +395,13 @@
 				// forked from. A draft that has none keeps none — seeding `parentHash`
 				// (the head, when we have no draft here) would mark their older content as
 				// forked from the current deploy and silence the stale prompt.
-				if (theirs == null) delete (loadedValue as { parent_hash?: string }).parent_hash
+				if (theirs == null) {
+					delete (loadedValue as { parent_hash?: string }).parent_hash
+					// The autosave's `discardIf` baseline has to carry the same lineage as the
+					// value, or an unedited copy of their content never compares equal to the
+					// deployed one and the draft can never discard itself.
+					if (deployedBaseline) delete (deployedBaseline as { parent_hash?: string }).parent_hash
+				}
 				draftBaseHash = theirs
 				if (hasOwnDraft) {
 					OtherUserDraftLoad.beginOverlay({

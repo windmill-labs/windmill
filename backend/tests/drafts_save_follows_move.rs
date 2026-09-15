@@ -130,7 +130,11 @@ async fn test_save_follows_a_draft_only_move(db: Pool<Postgres>) -> anyhow::Resu
         .json(&json!({ "new_path": "u/test-user/moved" }))
         .send()
         .await?;
-    assert!(resp.status().is_success(), "move failed: {}", resp.text().await?);
+    assert!(
+        resp.status().is_success(),
+        "move failed: {}",
+        resp.text().await?
+    );
 
     let saved: Value = client
         .post(format!(
@@ -293,7 +297,11 @@ async fn test_an_owner_move_extends_an_item_move(db: Pool<Postgres>) -> anyhow::
         .json(&json!({ "new_path": "u/test-user/follow_c" }))
         .send()
         .await?;
-    assert!(resp.status().is_success(), "move failed: {}", resp.text().await?);
+    assert!(
+        resp.status().is_success(),
+        "move failed: {}",
+        resp.text().await?
+    );
 
     assert_eq!(
         save_at(port, "u/test-user/follow_a", "after both moves").await?,
@@ -324,7 +332,11 @@ async fn test_redeploy_at_a_routed_path_ends_the_route(db: Pool<Postgres>) -> an
         .json(&json!({ "new_path": "u/test-user/follow_b" }))
         .send()
         .await?;
-    assert!(resp.status().is_success(), "move failed: {}", resp.text().await?);
+    assert!(
+        resp.status().is_success(),
+        "move failed: {}",
+        resp.text().await?
+    );
 
     // Unarchiving redeploys at the same path, with the archived version as parent.
     rename(port, HEAD_HASH, "u/test-user/follow_a").await?;
@@ -370,6 +382,46 @@ async fn test_a_poisoned_draft_follows_a_rename(db: Pool<Postgres>) -> anyhow::R
     Ok(())
 }
 
+/// A discard whose answer is lost is retried, and the retry finds nothing to delete. It
+/// still has to name where the item went: the editor asking is on the path it left, and a
+/// reload there lands on nothing.
+#[sqlx::test(fixtures("base", "drafts_save_follows_move"))]
+async fn test_a_retried_discard_still_names_the_destination(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = reqwest::Client::new();
+
+    rename(port, HEAD_HASH, "u/test-user/follow_b").await?;
+
+    let discard = || async {
+        client
+            .post(format!(
+                "http://localhost:{port}/api/w/test-workspace/drafts/update/script/u/test-user/follow_a"
+            ))
+            .header("Authorization", "Bearer SECRET_TOKEN")
+            .json(&json!({ "value": null }))
+            .send()
+            .await?
+            .json::<Value>()
+            .await
+    };
+
+    let first = discard().await?;
+    assert_eq!(first["status"], "saved", "{first}");
+    assert_eq!(first["path"], "u/test-user/follow_b", "{first}");
+
+    let retry = discard().await?;
+    assert_eq!(
+        retry["status"], "saved",
+        "the retry was not idempotent: {retry}"
+    );
+    assert_eq!(retry["path"], "u/test-user/follow_b", "{retry}");
+    Ok(())
+}
+
 /// The legacy workspace-level row is carried by a rename like any other draft, and the
 /// record that routes saves to it covers every caller — so discarding it from a page that
 /// still names the old path has to reach it where it went.
@@ -397,13 +449,20 @@ async fn test_a_legacy_discard_follows_a_rename(db: Pool<Postgres>) -> anyhow::R
         .json(&json!({ "value": null, "legacy": true }))
         .send()
         .await?;
-    assert!(resp.status().is_success(), "discard failed: {}", resp.text().await?);
+    assert!(
+        resp.status().is_success(),
+        "discard failed: {}",
+        resp.text().await?
+    );
 
     let left: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM draft WHERE workspace_id = 'test-workspace' AND email IS NULL",
     )
     .fetch_one(&db)
     .await?;
-    assert_eq!(left, 0, "the legacy draft survived a discard aimed at its old path");
+    assert_eq!(
+        left, 0,
+        "the legacy draft survived a discard aimed at its old path"
+    );
     Ok(())
 }

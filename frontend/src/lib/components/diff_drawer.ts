@@ -58,7 +58,8 @@ export interface DiffDrawerI {
 	 *  flight rather than being overwritten by it. */
 	openDrawer: (token?: number) => void
 	closeDrawer: () => void
-	setDiff: (diff: DiffDrawerDiff) => void
+	/** Takes the opening's token on the same terms as `openDrawer`. */
+	setDiff: (diff: DiffDrawerDiff, token?: number) => void
 	/** Claim the drawer for one opening. Filling it takes awaited fetches, and a path
 	 *  change remounts the editor while this drawer stays, so the token lives here: an
 	 *  editor checks `ownsOpening` before every write and drops the opening it started
