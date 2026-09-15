@@ -32,6 +32,11 @@ const COVERED_ENDPOINTS: Record<string, string> = {
 		'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
 	getSchedule:
 		'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
+	// getAppByPath returns the entire app source — every file, every runnable's
+	// script, lock and schema — where read_workspace_item returns paths and sizes.
+	getAppByPath:
+		'read_workspace_item (app metadata only; read_app_file for contents. Reads your draft when one exists; pass version: "deployed" for the deployed state)',
+	listApps: 'list_workspace_items (it includes your drafts)',
 	listScripts: 'list_workspace_items (it includes your drafts)',
 	listFlows: 'list_workspace_items (it includes your drafts)',
 	listResource: 'list_workspace_items (it includes your drafts)',

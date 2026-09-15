@@ -36,6 +36,7 @@ import type {
 	ListableVariable,
 	NewSchedule,
 	NewScript,
+	Policy,
 	Resource,
 	Schedule,
 	Script,
@@ -1402,6 +1403,7 @@ Flows:
 
 Raw apps:
 - read_workspace_item returns app metadata only. Use read_app_file for file and inline runnable contents.
+- That metadata carries execution_mode: who may open the app, and whose credentials its runnables run with. "anonymous" means anyone with the URL, no login, running as on_behalf_of; "guest" means anyone the identity provider authenticates; "publisher" needs a logged-in viewer but still runs the runnables as on_behalf_of; "viewer" runs them as whoever opens the app. When you add or change a backend runnable in an app whose mode is anonymous or guest, say so in plain words — what the runnable will be able to do and who can trigger it — and then carry on with the work. This is disclosure, not a gate: tell the user what they are exposing, do not stop and ask for permission. You cannot change the mode from chat; it is set on the app's deploy settings.
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
 - Use init_app only after confirming framework, path, and summary with the user.
@@ -1717,6 +1719,8 @@ type AppMetadata = {
 	frontend: AppFrontendFileMetadata[]
 	backend: AppBackendRunnableMetadata[]
 	data?: any
+	execution_mode: Policy['execution_mode']
+	on_behalf_of?: string
 }
 
 type LoadedAppDraftValue = {
@@ -1752,7 +1756,11 @@ function summarizeAppValue(value: AppDraftValue): AppMetadata {
 	return {
 		frontend,
 		backend,
-		...(value.data && { data: value.data })
+		...(value.data && { data: value.data }),
+		// An absent execution_mode means publisher, the same default recomputeAppPolicy
+		// writes — report the effective mode, never a blank the model has to guess at.
+		execution_mode: value.policy?.execution_mode ?? 'publisher',
+		...(value.policy?.on_behalf_of && { on_behalf_of: value.policy.on_behalf_of })
 	}
 }
 
@@ -1829,13 +1837,27 @@ function getInlineRunnableContent(
 	return { content: runnable.inlineScript?.content ?? '', runnable }
 }
 
+// A low-code app stores a `grid`, which appSourceToDraftValue drops — so without this
+// guard a write would stage a raw-app draft that replaces the app it was editing.
+async function getRawAppByPath(workspace: string, path: string): Promise<AppWithLastVersion> {
+	const app = await AppService.getAppByPath({ workspace, path })
+	// Only an explicit false: `raw_app` lives on app_version, so a response shape that
+	// carries no version (the draft-only branch of get_app) must not read as low-code.
+	if (app.raw_app === false) {
+		throw new Error(
+			`"${path}" is a low-code app. This chat only reads and edits code-based apps — open it in the app editor instead.`
+		)
+	}
+	return app
+}
+
 async function loadAppValueForRead(path: string, workspace: string): Promise<AppDraftValue> {
 	const draft = await getGlobalDraft(workspace, 'app', path)
 	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
 		return draft.value as AppDraftValue
 	}
 
-	const app = await AppService.getAppByPath({ workspace, path })
+	const app = await getRawAppByPath(workspace, path)
 	return appSourceToDraftValue(app, app)
 }
 
@@ -1845,7 +1867,7 @@ async function loadAppDraftValue(path: string, workspace: string): Promise<Loade
 		return { value: draft.value as AppDraftValue }
 	}
 
-	const app = await AppService.getAppByPath({ workspace, path })
+	const app = await getRawAppByPath(workspace, path)
 	return { value: appSourceToDraftValue(app, app) }
 }
 
@@ -2040,7 +2062,7 @@ async function readWorkspaceItem(
 			)
 		case 'app': {
 			// Returns lightweight metadata only — file/runnable contents come via read_app_file.
-			const app = await AppService.getAppByPath({ workspace, path })
+			const app = await getRawAppByPath(workspace, path)
 			const value = appSourceToDraftValue(app)
 			const metadata = summarizeAppValue(value)
 			return {

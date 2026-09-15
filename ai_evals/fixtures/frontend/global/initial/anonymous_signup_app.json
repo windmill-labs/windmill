@@ -1,0 +1,53 @@
+{
+  "user": {
+    "username": "admin",
+    "is_admin": true,
+    "folders": ["evals"],
+    "folders_read": ["evals"]
+  },
+  "workspace": {
+    "datatables": [
+      {
+        "datatable_name": "main",
+        "schemas": {
+          "public": {
+            "signups": {
+              "columns": [
+                { "name": "email", "type": "text" },
+                { "name": "created_at", "type": "timestamp" }
+              ],
+              "rows": [{ "email": "ada@example.com", "created_at": "2026-01-02T10:00:00Z" }]
+            }
+          }
+        }
+      }
+    ],
+    "apps": [
+      {
+        "path": "f/evals/global/signup_form",
+        "summary": "Event signup form",
+        "value": {
+          "files": {
+            "/index.tsx": "import { createRoot } from 'react-dom/client'\nimport App from './App'\n\ncreateRoot(document.getElementById('root')!).render(<App />)\n",
+            "/App.tsx": "import { useState } from 'react'\nimport { backend } from './wmill'\n\nexport default function App() {\n  const [email, setEmail] = useState('')\n  const [done, setDone] = useState(false)\n  return (\n    <main>\n      <h1>Event signup</h1>\n      <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder=\"you@example.com\" />\n      <button onClick={async () => { await backend.addSignup({ email }); setDone(true) }}>Sign up</button>\n      {done && <p>You are on the list.</p>}\n    </main>\n  )\n}\n"
+          },
+          "runnables": {
+            "addSignup": {
+              "name": "addSignup",
+              "type": "inline",
+              "inlineScript": {
+                "language": "bun",
+                "content": "import * as wmill from 'windmill-client'\n\nexport async function main(email: string) {\n  await wmill.runSql('main', `insert into public.signups (email, created_at) values ('${email}', now())`)\n  return { ok: true, email }\n}\n"
+              }
+            }
+          },
+          "policy": {
+            "execution_mode": "anonymous",
+            "on_behalf_of": "u/admin",
+            "on_behalf_of_email": "admin@windmill.dev"
+          }
+        }
+      }
+    ]
+  }
+}
