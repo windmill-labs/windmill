@@ -823,7 +823,8 @@ async function sweepExpiredSessions(retention: Map<string, number>, email: strin
 			for (const s of await db.getAll('sessions')) {
 				if (!isSweepable(s, retention, Date.now())) continue
 				// Exclusive against the shared hold of a tab that has the session selected: not
-				// granted while one holds it, and a tab selecting it meanwhile waits for the end.
+				// granted while one holds it. A tab selecting it once this is granted still shows
+				// it: its hold request waits, its page does not.
 				const deleted = await locks.request(
 					openSessionLockName(email, s.id),
 					{ mode: 'exclusive', ifAvailable: true },

@@ -231,8 +231,11 @@ writes to the session again (its incremental push is refused and goes whole):
   and so only where Web Locks exist, as the restore. `currentSessionId` is per tab while the
   stores are shared, so every tab holds a shared Web Lock named after the session it has
   selected, and the sweep deletes a session only while holding that lock exclusively,
-  requested if available: a tab that has it selected keeps it, and one selecting it meanwhile
-  waits for the deletion to end. Each record is deleted in the transaction that reads it still expired, so
+  requested if available, so a tab that has it selected keeps it. A tab that selects it while
+  the deletion runs is not held back (its lock request waits, its page does not): it can show a
+  session whose record and pieces are going, and a write from it re-creates the record without
+  them, the same gap the workspace-lifecycle deletion has. Each record is deleted in the
+  transaction that reads it still expired, so
   activity since the reconcile read keeps the session. The record goes before its pieces,
   and a localStorage key written before it and removed once every piece is gone makes a later
   reconcile finish a deletion that failed, whether a retention is still set or not, unless a
