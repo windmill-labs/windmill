@@ -532,6 +532,17 @@ export const UserDraftDbSyncer = {
 		}
 	},
 
+	/**
+	 * The row parked for a later attempt, when one is waiting: a payload the server refused or
+	 * never received. It was handed over after the last successful sync, so it is newer than
+	 * anything a read can report, and an editor opening the key shows it rather than the
+	 * response. `undefined` when nothing is parked; `null` is a parked delete.
+	 */
+	pendingValue(query: UserDraftLastSyncQuery): unknown | undefined {
+		const parked = pendingSaveOpts.get(draftKey(query.workspace, query.itemKind, query.path))
+		return parked ? parked.value : undefined
+	},
+
 	/** Rows handed over for `query` so far, for a reader to hand back to `recordRemoteSync`. */
 	sendsSoFar(query: UserDraftLastSyncQuery): number {
 		return sends.get(draftKey(query.workspace, query.itemKind, query.path)) ?? 0

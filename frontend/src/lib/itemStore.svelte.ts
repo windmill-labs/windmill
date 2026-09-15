@@ -91,6 +91,8 @@ export type ItemRowPort = {
 	/** Rows handed to the syncer for `key` so far, by any writer, counted before the debounce
 	 *  rather than on the response. Handed back to `seedSync` to order it. */
 	rowMark(key: ItemKey): number
+	/** A row waiting for another attempt, if any: `undefined` when none, `null` for a delete. */
+	pending(key: ItemKey): unknown | undefined
 	seedSync(key: ItemKey, draftSavedAt: string | undefined, since: number): void
 	conflicted(key: ItemKey): boolean
 	failure(key: ItemKey): string | undefined
@@ -284,14 +286,14 @@ class Entry<V> {
 	 *  `last_sync`: one fact, so taken together and against one `asOf`, the rows sent when the
 	 *  read was issued. Seeding behind a row sent since puts `last_sync` before what the syncer
 	 *  has already sent, which the server refuses from then on. */
-	private adoptRow(key: ItemKey, draft: unknown, draftSavedAt: string | undefined, asOf: number) {
+	private adoptRow(key: ItemKey, row: unknown, draftSavedAt: string | undefined, asOf: number) {
 		if (this.ports.rowMark(key) !== asOf) return
 		// A payload the server *refused* predates this read and the baseline taken below would
 		// make it acceptable, so it goes; the reconcile after the read re-queues whatever the
 		// value needs. One merely unsent — a network failure the syncer parks to retry — is the
 		// only record of an edit that never reached anyone, so it stays.
 		if (this.ports.conflicted(key)) this.ports.dropPending(key)
-		this.row = serialize(draft) ?? null
+		this.row = row === null || row === undefined ? null : (serialize(row) ?? null)
 		this.ports.seedSync(key, draftSavedAt, asOf)
 	}
 
@@ -401,13 +403,19 @@ class Entry<V> {
 			}
 			this.serverDeployed = snapshot(res.deployed)
 			this.origin = res.deployed !== undefined ? 'deployed' : 'draft'
+			// A row the syncer took but could not send is newer than this response and is the only
+			// copy of that edit, so the item opens on it. One the server *refused* is the other
+			// way round — the response is what won — and `adoptRow` drops it below.
+			const unsent = this.ports.conflicted(key) ? undefined : this.ports.pending(key)
+			const row = unsent === undefined ? res.draft : unsent
+			const draft = (row ?? undefined) as V | undefined
 			// The deployed side above always advances: the item did change, and a discard after
 			// the user keeps theirs has to land on what the server holds now.
-			if (!standOff) this.adoptRow(key, res.draft, res.draftSavedAt, rowsAtRead)
+			if (!standOff) this.adoptRow(key, row, res.draftSavedAt, rowsAtRead)
 			this.loaded = true
 			if (!keepValue) {
-				this.pristine = this.settles && this.origin === 'deployed' && res.draft === undefined
-				this.replaceValue(res.draft ?? res.deployed)
+				this.pristine = this.settles && this.origin === 'deployed' && draft === undefined
+				this.replaceValue(draft ?? res.deployed)
 			}
 			this.removed = this.value === undefined
 			this.reconcile()
@@ -1111,6 +1119,9 @@ const syncerRows: ItemRowPort = {
 	},
 	rowMark(key) {
 		return UserDraftDbSyncer.sendsSoFar(keyQuery(key))
+	},
+	pending(key) {
+		return UserDraftDbSyncer.pendingValue(keyQuery(key))
 	},
 	seedSync(key, draftSavedAt, since) {
 		UserDraftDbSyncer.recordRemoteSync(keyQuery(key), draftSavedAt, since)

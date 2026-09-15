@@ -88,6 +88,7 @@ function fakeRows() {
 			handed(key.path)
 		},
 		rowMark: (key) => sends.get(key.path) ?? 0,
+		pending: (key) => (parked.has(key.path) ? parked.get(key.path) : undefined),
 		seedSync: (key, at, since) => {
 			// The syncer refuses a baseline from a read a row handed over since has passed.
 			if (since !== (sends.get(key.path) ?? 0)) return
@@ -1234,13 +1235,19 @@ describe('item store: conflicts', () => {
 		const second = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
 		await settle()
 
-		// The parked payload is the only record of that edit. Dropping it loses it for good.
+		// The parked payload is the only record of that edit, so the reopened editor has to be
+		// showing it: anything else and the next keystroke replaces it with nobody the wiser.
 		expect(rows.dropped).not.toContain('u/me/r')
+		expect(second.handle.value?.description).toBe('never reached the server')
+		expect(second.handle.dirty).toBe(true)
+
+		// Typing now builds on what is on screen, and that is what eventually lands.
+		second.handle.value = { ...deployedRes, description: 'and then some more' }
 		rows.failing.delete('u/me/r')
 		await rows.port.flush(key)
 		expect(rows.sent.get('u/me/r')).toEqual({
 			...deployedRes,
-			description: 'never reached the server'
+			description: 'and then some more'
 		})
 	})
 
