@@ -41,7 +41,7 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { getContext, setContext, untrack } from 'svelte'
+	import { getContext, onDestroy, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -114,6 +114,11 @@
 
 	let {
 		initialPath = $bindable(''),
+		/** The draft row's own path (the URL path). Unlike `initialPath`, which the
+		 *  route re-seeds from `draft_path` so the topbar shows the pending name,
+		 *  this stays where the item actually is. */
+		userDraftPath = '',
+		onTakeLatest = undefined,
 		pathStoreInit = undefined,
 		newFlow,
 		selectedId,
@@ -183,6 +188,10 @@
 
 	// Used by multiplayer deploy collision warning
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
+	let deployedLabel: string | undefined = $state(undefined) // Names it in the diff
+	/** The flow_version the payload in `deployedValue` came from, so the picker marks that
+	 *  one as head rather than trusting the history's first row. */
+	let deployedVersionShown: number | undefined = $state(undefined)
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
@@ -336,7 +345,7 @@
 		// a draft, else the load-time head. This catches both a concurrent deploy
 		// (head moved since open) AND a stale draft reopened after a deploy (head ==
 		// load-time head, but the draft was forked from an older version).
-		const base = draftBaseVersion ?? version
+		const base = draftBaseVersion ?? (version != null ? String(version) : undefined)
 		if (base === undefined) {
 			return
 		}
@@ -347,7 +356,7 @@
 					path: initialPath
 				})
 
-				onLatest = base === flowVersion?.id
+				onLatest = flowVersion != null && base === String(flowVersion.id)
 			} else {
 				onLatest = true
 			}
@@ -463,12 +472,19 @@
 			}
 		}
 	}
-	async function syncWithDeployed() {
+	async function syncWithDeployed(opening?: number) {
 		const flow = await FlowService.getFlowByPath({
 			workspace: opWorkspace!,
-			path: initialPath,
+			// The draft row's own path, not `initialPath` — the route re-seeds that from
+			// the draft's `draft_path` so the topbar shows the pending name, which after
+			// someone renames the item still names the old location. Comparing against
+			// that fetches the row left behind there instead of the live one.
+			path: userDraftPath || initialPath,
 			withStarredInfo: true
 		})
+		// A superseded opening must not write these: the current one would then render
+		// and offer Take latest against the older head.
+		if (opening != null && !diffDrawer?.ownsOpening(opening)) return
 		deployedValue = replaceFalseWithUndefined({
 			...flow,
 			edited_at: undefined,
@@ -476,6 +492,10 @@
 			workspace_id: undefined
 		})
 		deployedBy = flow.edited_by
+		deployedVersionShown = flow.version_id
+		// Names the deployed side of the diff. Without it the reader is shown two panes
+		// and told nothing about what the left one is.
+		deployedLabel = `Deployed${flow.version_id != null ? ` ${flow.version_id}` : ''}${flow.edited_by ? ` by ${flow.edited_by}` : ''} · latest`
 	}
 
 	async function saveFlow(deploymentMsg?: string, toDeploy?: DraftChangesToDeploy): Promise<void> {
@@ -1115,21 +1135,90 @@
 		}
 	}
 
-	async function openDiffDrawer() {
+	/** Deployed versions for the diff picker, newest first. Best-effort: losing the
+	 *  list costs the picker, not the diff. */
+	async function deployedVersionOptions() {
+		const path = userDraftPath || initialPath
+		if (!opWorkspace || !path) return undefined
+		try {
+			const history = await FlowService.getFlowHistory({ workspace: opWorkspace, path })
+			const total = history.length
+			// Head is the version the payload beside this list came from, not whatever the
+			// history now leads with: a deploy landing between the two fetches would
+			// otherwise label the shown (older) value as the latest.
+			const head = deployedVersionShown ?? history[0]?.id
+			return history.map((h, i) => {
+				const detail = [
+					h.created_by,
+					h.created_at ? new Date(h.created_at).toLocaleString() : undefined,
+					h.deployment_msg
+				].filter(Boolean)
+				const isHead = h.id === head
+				return {
+					id: String(h.id),
+					label: `v${total - i} · ${h.id}${isHead ? ' · latest' : ''}`,
+					subtitle: detail.length ? detail.join(' · ') : undefined,
+					isHead
+				}
+			})
+		} catch {
+			return undefined
+		}
+	}
+
+	/** The opening this editor claimed last. A path change remounts this editor while the
+	 *  drawer stays mounted, so its teardown hands that opening back rather than leaving
+	 *  the drawer on the item the user left. */
+	let lastOpening: number | undefined = undefined
+	onDestroy(() => {
+		if (lastOpening != null) diffDrawer?.abandonOpening(lastOpening)
+	})
+
+	export async function openDiffDrawer() {
 		if (!savedFlow) return
-		await syncWithDeployed()
+		// The fetches below are awaited, so a reopen (or a path change, which remounts
+		// this editor but not the drawer) while they run must not have the older one
+		// land last. The drawer counts the openings for that reason.
+		const opening = diffDrawer?.beginOpening()
+		lastOpening = opening
+		if (opening == null) return
+		await syncWithDeployed(opening)
 		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
-		diffDrawer?.openDrawer()
+		// Blanking the drawer belongs to the opening that will fill it.
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.openDrawer(opening)
 		const currentFlow = flowStore.val
-		diffDrawer?.setDiff({
-			mode: 'normal',
-			deployed: deployedValue ?? savedFlow,
-			current: {
-				...currentFlow,
-				path: $pathStore,
-				draft_triggers: currentDraftTriggers
-			}
-		})
+		const versions = await deployedVersionOptions()
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.setDiff(
+			{
+				mode: 'normal',
+				deployed: deployedValue ?? savedFlow,
+				deployedLabel,
+				versions,
+				onTakeLatest,
+				draftBase: draftBaseVersion,
+				deployedHead: deployedVersionShown != null ? String(deployedVersionShown) : undefined,
+				loadVersion: async (id) => {
+					const v = await FlowService.getFlowVersion({
+						workspace: opWorkspace!,
+						version: Number(id)
+					})
+					return replaceFalseWithUndefined({
+						...v,
+						edited_at: undefined,
+						edited_by: undefined,
+						workspace_id: undefined
+					})
+				},
+				current: {
+					...currentFlow,
+					path: $pathStore,
+					draft_triggers: currentDraftTriggers
+				}
+			},
+			opening
+		)
 	}
 
 	let flowCopilotContext: FlowCopilotContext = $state({
@@ -1374,6 +1463,7 @@
 	{confirmCallback}
 	bind:open
 	{diffDrawer}
+	claimOpening={() => (lastOpening = diffDrawer?.beginOpening())}
 	bind:deployedValue
 	currentValue={flowStore.val}
 />

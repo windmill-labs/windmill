@@ -87,7 +87,7 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
+	import { getContext, onDestroy, onMount, setContext, tick, untrack } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
 	import ScriptSettingsBadges from './ScriptSettingsBadges.svelte'
 	import Badge from './common/badge/Badge.svelte'
@@ -119,6 +119,8 @@
 		fullyLoaded = true,
 		initialPath = $bindable(''),
 		userDraftPath = '',
+		onTakeLatest = undefined,
+		draftBaseHash = undefined,
 		autosaveWorkspace = undefined,
 		autosavePath = undefined,
 		template = $bindable('script'),
@@ -558,10 +560,13 @@
 
 		try {
 			if (initialPath && initialPath != '') {
+				// The row's path, not `initialPath`: that is the typed path, where a
+				// staged rename has nothing deployed, and a missing head would deploy
+				// on a base that already has a child.
 				actual_parent_hash = (
 					await ScriptService.getScriptLatestVersion({
 						workspace: opWorkspace!,
-						path: initialPath
+						path: userDraftPath || initialPath
 					})
 				)?.script_hash
 			}
@@ -573,9 +578,15 @@
 		// But if we specify parent_hash that is already used, than we get error
 		// In order to fix it we make sure that client's understanding of parent_hash
 		// is aligns with understanding of backend.
-		if (actual_parent_hash == undefined || script.parent_hash == actual_parent_hash) {
+		//
+		// A draft with no base (one predating `draft.base`) is compared on the head this
+		// editor loaded, as the flow and raw-app guards are: comparing `undefined` would
+		// open the confirmation on every deploy, telling the user a version landed while
+		// they were editing when none had.
+		const baseHash = script.parent_hash ?? deployedScriptHash
+		if (actual_parent_hash == undefined || baseHash == actual_parent_hash) {
 			// Handle directly
-			await editScript(stay, script.parent_hash!, deployMsg)
+			await editScript(stay, (script.parent_hash ?? actual_parent_hash)!, deployMsg)
 		} else {
 			// Fetch entire script, since we need it to show Diff
 			await syncWithDeployed()
@@ -605,13 +616,20 @@
 		}
 	}
 
-	async function syncWithDeployed() {
+	async function syncWithDeployed(opening?: number) {
 		const latestScript = await ScriptService.getScriptByPath({
 			workspace: opWorkspace!,
-			path: initialPath,
+			// The draft row's own path, not `initialPath` — that one tracks the path
+			// the user has typed, so after someone renames the item it still names
+			// the old location and this would compare against the archived row left
+			// there. Resolving by the row is what lets the diff show the rename.
+			path: userDraftPath || initialPath,
 			withStarredInfo: true
 		})
 
+		// A superseded opening must not write these: the current one would then render
+		// and offer Take latest against the older head.
+		if (opening != null && !diffDrawer?.ownsOpening(opening)) return
 		deployedValue = replaceFalseWithUndefined({
 			...latestScript,
 			workspace_id: undefined,
@@ -782,7 +800,7 @@
 	// + `tick()` first so the last keystrokes reach the bindable before the
 	// syncer flushes. No toast — the AutosaveIndicator narrates the result, and
 	// `flush` never rejects (postSave routes errors to the failures map).
-	async function saveDraft(): Promise<void> {
+	export async function saveDraft(): Promise<void> {
 		if (!opWorkspace || !userDraftPath) return
 		editor?.flushPendingChanges()
 		await tick()
@@ -811,11 +829,69 @@
 	// top-bar button (rendered independently of the session pane), not here.
 	const inSessionPane = !!getContext('aiChatManager')
 
-	async function openDiffDrawer() {
+	/** Names the version on the deployed side of the diff. Without it the reader is
+	 *  shown two panes and told nothing about what the left one is — which matters
+	 *  most in the stale-draft case, where the whole question is "whose version am I
+	 *  about to overwrite". */
+	function deployedVersionLabel(deployed: any): string | undefined {
+		if (!deployed?.hash) return undefined
+		// `deployedBy` is captured in `syncWithDeployed` before it strips `created_by`.
+		// Only used when the version list is unavailable; otherwise the picker labels it.
+		return `Deployed${deployedBy ? ` by ${deployedBy}` : ''} · latest`
+	}
+
+	/** Deployed versions to offer in the diff picker, newest first. Best-effort: a
+	 *  failure here costs the picker, not the diff, so the drawer still opens on the
+	 *  head. `deployment_msg` is all the history endpoint carries besides the hash. */
+	async function deployedVersionOptions(headHash: string | undefined) {
+		if (!opWorkspace || !userDraftPath) return undefined
+		try {
+			const history = await ScriptService.getScriptHistoryByPath({
+				workspace: opWorkspace,
+				path: userDraftPath
+			})
+			// Numbered newest-first from the history order: the version number and hash
+			// identify it, and who deployed it drops to the subtitle so the number reads
+			// first. The hash stays because it is what the API and the CLI speak.
+			const total = history.length
+			return history.map((h, i) => {
+				const isHead = h.script_hash === headHash
+				const detail = [
+					h.created_by,
+					h.created_at ? new Date(h.created_at).toLocaleString() : undefined,
+					h.deployment_msg
+				].filter(Boolean)
+				return {
+					id: h.script_hash,
+					label: `v${total - i} · ${h.script_hash.slice(0, 8)}${isHead ? ' · latest' : ''}`,
+					subtitle: detail.length ? detail.join(' · ') : undefined,
+					isHead
+				}
+			})
+		} catch {
+			return undefined
+		}
+	}
+
+	/** The opening this editor claimed last. A path change remounts this editor while the
+	 *  drawer stays mounted, so its teardown hands that opening back rather than leaving
+	 *  the drawer on the item the user left. */
+	let lastOpening: number | undefined = undefined
+	onDestroy(() => {
+		if (lastOpening != null) diffDrawer?.abandonOpening(lastOpening)
+	})
+
+	export async function openDiffDrawer() {
 		if (!savedScript) {
 			return
 		}
-		await syncWithDeployed()
+		// The fetches below are awaited, so a reopen (or a path change, which remounts
+		// this editor but not the drawer) while they run must not have the older one
+		// land last. The drawer counts the openings for that reason.
+		const opening = diffDrawer?.beginOpening()
+		lastOpening = opening
+		if (opening == null) return
+		await syncWithDeployed(opening)
 
 		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
 
@@ -832,13 +908,39 @@
 		}
 		if (current.assets && !current.assets.length) delete current.assets
 
-		diffDrawer?.openDrawer()
-		diffDrawer?.setDiff({
-			mode: 'normal',
-			deployed,
-			draft: savedScript['draft'],
-			current
-		})
+		// Blanking the drawer belongs to the opening that will fill it.
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.openDrawer(opening)
+		const headHash = (deployed as { hash?: string } | undefined)?.hash
+		const versions = await deployedVersionOptions(headHash)
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.setDiff(
+			{
+				mode: 'normal',
+				deployed,
+				deployedLabel: deployedVersionLabel(deployed),
+				versions,
+				onTakeLatest,
+				draftBase: draftBaseHash,
+				deployedHead: headHash,
+				loadVersion: async (hash) => {
+					const v = await ScriptService.getScriptByHash({ workspace: opWorkspace!, hash })
+					return replaceFalseWithUndefined({
+						...v,
+						workspace_id: undefined,
+						created_at: undefined,
+						created_by: undefined,
+						extra_perms: undefined,
+						lock: undefined,
+						lock_error_logs: undefined,
+						parent_hashes: undefined
+					})
+				},
+				draft: savedScript['draft'],
+				current
+			},
+			opening
+		)
 	}
 
 	function computeDropdownItems(
@@ -1145,6 +1247,7 @@
 	{confirmCallback}
 	bind:open
 	{diffDrawer}
+	claimOpening={() => (lastOpening = diffDrawer?.beginOpening())}
 	bind:deployedValue
 	currentValue={script}
 />
@@ -2041,7 +2144,7 @@
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
 									isDeployed={savedScript && savedScript?.no_deployed !== true}
 									schema={script.schema}
-									runnableVersion={script.parent_hash}
+									runnableVersion={deployedScriptHash}
 									onDeployTrigger={handleDeployTrigger}
 								/>
 

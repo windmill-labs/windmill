@@ -7398,14 +7398,32 @@ async fn clone_drafts(
     // filtered like `clone_scripts`: the address the draft still carries re-derives the
     // clone's own principal at deploy time, which is the more accurate answer of the two.
     sqlx::query!(
-        "INSERT INTO draft (workspace_id, path, typ, value, created_at, email)
+        // A script hash is content-addressed and copied as-is, so a script draft's base
+        // still names a version the clone has. `clone_flows` / `clone_apps` mint new ids,
+        // so those drafts arrive with no base (staleness falls back to the timestamps),
+        // lineage field included, or the next autosave would re-derive the source id.
+        //
+        // `clean` is `strip_json_nul`'s parity rule in SQL, so a pre-sanitizer U+0000
+        // escape cannot abort the clone on `to_jsonb` or arrive with its principal
+        // unstripped: escaped backslashes park on chr(1) (lossless, a `json` value's text
+        // cannot hold a raw control byte) so only a real NUL is removed, and chr(92)
+        // spells the backslash so no escape sequence reaches this source file.
+        r#"INSERT INTO draft (workspace_id, path, typ, value, created_at, email, base)
          SELECT $2, path, typ,
-                CASE WHEN typ IN ('script', 'flow')
-                     THEN to_json(to_jsonb(value) - 'on_behalf_of')
-                     ELSE value END,
-                created_at, email
-         FROM draft
-         WHERE workspace_id = $1 AND (email = $3 OR email IS NULL)",
+                to_json(
+                    CASE WHEN typ IN ('script', 'flow') THEN clean - 'on_behalf_of' ELSE clean END
+                    - CASE WHEN typ = 'flow' THEN 'version_id'
+                           WHEN typ IN ('app', 'raw_app') THEN 'parent_version'
+                           ELSE '' END
+                ),
+                created_at, email,
+                CASE WHEN typ = 'script' THEN base END
+         FROM (
+             SELECT d.path, d.typ, d.created_at, d.email, d.base,
+                    replace(replace(replace(d.value::text, chr(92) || chr(92), chr(1)), chr(92) || 'u0000', ''), chr(1), chr(92) || chr(92))::jsonb AS clean
+             FROM draft d
+             WHERE d.workspace_id = $1 AND (d.email = $3 OR d.email IS NULL)
+         ) s"#,
         source_workspace_id,
         target_workspace_id,
         authed_email,

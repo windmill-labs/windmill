@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO draft (workspace_id, email, path, typ, value, created_at, base)\n               VALUES ($1, $2, $3::text, $4,\n                       CASE WHEN $10::bool\n                            THEN to_json($5::text::jsonb || jsonb_strip_nulls(jsonb_build_object(\n                                'path', CASE WHEN $5::text::jsonb -> 'path' = to_jsonb($11::text)\n                                             THEN to_jsonb($3::text) END,\n                                'draft_path', CASE WHEN $5::text::jsonb -> 'draft_path' = to_jsonb($11::text)\n                                                   THEN to_jsonb($3::text) END)))\n                            ELSE $5::text::json\n                       END,\n                       COALESCE($8::timestamptz, now()), $9)\n               ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL\n               DO UPDATE SET value = CASE\n                                 WHEN NOT $10::bool\n                                   OR position(chr(92) || 'u0000' in replace(draft.value::text, chr(92) || chr(92), '')) > 0\n                                     THEN EXCLUDED.value\n                                 ELSE to_json((to_jsonb(EXCLUDED.value) - 'path' - 'draft_path')\n                                     || jsonb_strip_nulls(jsonb_build_object(\n                                         'path', to_jsonb(draft.value) -> 'path',\n                                         'draft_path', to_jsonb(draft.value) -> 'draft_path')))\n                             END,\n                             created_at = EXCLUDED.created_at,\n                             base = EXCLUDED.base\n               WHERE $7::bool = true\n                  OR $6::timestamptz IS NULL\n                  OR draft.created_at <= $6::timestamptz\n               RETURNING path, created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Text",
+        {
+          "Custom": {
+            "name": "draft_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "app",
+                "raw_app",
+                "resource",
+                "variable",
+                "trigger_schedule",
+                "trigger_webhook",
+                "trigger_default_email",
+                "trigger_email",
+                "trigger_http",
+                "trigger_websocket",
+                "trigger_postgres",
+                "trigger_kafka",
+                "trigger_nats",
+                "trigger_mqtt",
+                "trigger_sqs",
+                "trigger_gcp",
+                "trigger_azure",
+                "trigger_poll",
+                "trigger_cli",
+                "trigger_nextcloud",
+                "trigger_google",
+                "trigger_github",
+                "data_pipeline",
+                "trigger_amqp"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Timestamptz",
+        "Bool",
+        "Timestamptz",
+        "Text",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "7761959d05fff8c314d04c1bc9fb4e84a61008dbec0995ae192f1b3a1c261579"
+}

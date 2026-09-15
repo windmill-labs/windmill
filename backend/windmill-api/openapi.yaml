@@ -10102,7 +10102,48 @@ paths:
                   current_timestamp:
                     type: string
                     format: date-time
+                  path:
+                    type: string
+                    description: "`saved` only, upsert or delete: where the write landed. Differs from the URL path when the item had moved away from it; the editor follows it there. Absent when a delete found nothing to remove and the caller cannot read the path it moved to."
                 required: [status, current_timestamp]
+
+  /w/{workspace}/drafts/move/{kind}/{path}:
+    post:
+      summary: move the current user's draft-only item to another path
+      description: Relocates the authed user's own draft row, along with both path keys inside its value (the typed path and the mirror the editors keep beside it). Only for draft-only items — a deployed item must be moved through its own deploy endpoint, which carries every draft with it. Restricted to script, flow, app and raw_app; any other kind is rejected with 400, because only these keep their deploy target where this endpoint rewrites it.
+      operationId: moveDraft
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          description: script, flow, app or raw_app only.
+          schema:
+            type: string
+            enum: [script, flow, app, raw_app]
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_path:
+                  type: string
+                summary:
+                  type: string
+                  description: Also restate the draft's summary.
+              required: [new_path]
+      responses:
+        "200":
+          description: move result
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/drafts/migrate_legacy/{kind}/{path}:
     post:
@@ -27354,6 +27395,13 @@ components:
         draft_saved_at:
           type: string
           format: date-time
+        draft_base:
+          type: string
+          description: |
+            The deployed version the draft forked from, as text whatever the
+            kind (script hash, flow version id, app version id). Compare to the
+            deployed head to tell a draft that is behind. Absent when there is
+            no draft or it was never forked from a deploy.
         no_deployed:
           type: boolean
         draft:
@@ -29187,6 +29235,11 @@ components:
         script_hash:
           type: string
         deployment_msg:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        created_by:
           type: string
       required:
         - script_hash
@@ -35028,6 +35081,11 @@ components:
           type: integer
         deployment_msg:
           type: string
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
       required:
         - version
 
@@ -35096,6 +35154,8 @@ components:
           type: string
           format: date-time
         deployment_msg:
+          type: string
+        created_by:
           type: string
       required:
         - id

@@ -14,7 +14,7 @@
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
-	import type { RowSelection } from './rowSelection'
+	import { selectMenuItems, type RowSelection } from './rowSelection'
 	import { sendUserToast } from '$lib/toast'
 	import { copyToClipboard, isOwner } from '$lib/utils'
 	import { isDeployable } from '$lib/utils_deployable'
@@ -210,6 +210,20 @@
 				const canEdit = flow.canWrite && showEditButton
 				if (draft_only) {
 					return [
+						...selectMenuItems(rowSelection),
+						{
+							displayName: 'Move/Rename',
+							icon: FolderOpen,
+							action: () => {
+								// Addressed by the generated path its draft row sits at, but
+								// named by the path typed in the editor.
+								moveDrawer.openDrawer((flow as any).draft_path ?? path, flow.summary, 'flow', {
+									storagePath: path
+								})
+							},
+							disabled: !showEditButton,
+							hide: $userStore?.operator
+						},
 						{
 							displayName: 'Delete',
 							icon: Trash,
@@ -233,6 +247,7 @@
 					]
 				}
 				return [
+					...selectMenuItems(rowSelection),
 					{
 						displayName: 'View runs',
 						icon: List,

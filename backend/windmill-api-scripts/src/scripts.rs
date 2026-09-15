@@ -2312,6 +2312,20 @@ async fn create_script_internal<'c>(
             .await?;
         }
 
+        if p_path != &ns.path {
+            // Everything left at the old path is a draft this deploy didn't
+            // consume — teammates' rows, and the deployer's own when the caller
+            // asked us to keep it. Carry them rather than strand them.
+            windmill_common::user_drafts::move_drafts_for_path(
+                &mut tx,
+                &w_id,
+                &[UserDraftItemKind::Script],
+                p_path,
+                &ns.path,
+            )
+            .await?;
+        }
+
         sqlx::query!(
             "UPDATE capture_config SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS FALSE",
             ns.path,
@@ -2389,19 +2403,31 @@ async fn create_script_internal<'c>(
                 tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
             }
         }
-    } else if !skip_draft_deletion {
-        // See the matching branch above — only wipe the deployer's own
-        // draft (plus the legacy NULL-email row).
-        sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script' \
-             AND (email = $3 OR email IS NULL)",
-            ns.path,
-            &w_id,
-            &authed.email,
-        )
-        .execute(&mut *tx)
-        .await?;
+    } else {
+        if !skip_draft_deletion {
+            // See the matching branch above — only wipe the deployer's own
+            // draft (plus the legacy NULL-email row).
+            sqlx::query!(
+                "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script' \
+                 AND (email = $3 OR email IS NULL)",
+                ns.path,
+                &w_id,
+                &authed.email,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
     }
+    // Every deploy, not only a new script: an archived script's draft can be moved away
+    // (`move_draft` ignores archived rows), and unarchiving redeploys at the same path,
+    // where a route left behind would send the live script's saves to the moved draft.
+    windmill_common::user_drafts::clear_draft_moves_from(
+        &mut tx,
+        &w_id,
+        &[UserDraftItemKind::Script],
+        &ns.path,
+    )
+    .await?;
     if p_hashes.is_some() && !p_hashes.unwrap().is_empty() {
         audit_log(
             &mut *tx,
@@ -3066,7 +3092,7 @@ async fn get_script_history(
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
     let query_result = sqlx::query!(
-        "SELECT s.hash as hash, dm.deployment_msg as deployment_msg, s.created_at as created_at
+        "SELECT s.hash as hash, dm.deployment_msg as deployment_msg, s.created_at as created_at, s.created_by as created_by
         FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
         WHERE s.workspace_id = $1 AND s.path = $2
         ORDER by s.created_at DESC",
@@ -3083,6 +3109,7 @@ async fn get_script_history(
             script_hash: ScriptHash(row.hash),
             deployment_msg: row.deployment_msg,
             created_at: Some(row.created_at),
+            created_by: Some(row.created_by),
         })
         .collect();
     return Ok(Json(result));
@@ -3097,7 +3124,7 @@ async fn get_latest_version(
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
     let row_o = sqlx::query!(
-        "SELECT s.hash as hash, dm.deployment_msg as deployment_msg, s.created_at as created_at
+        "SELECT s.hash as hash, dm.deployment_msg as deployment_msg, s.created_at as created_at, s.created_by as created_by
         FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
         WHERE s.workspace_id = $1 AND s.path = $2
         ORDER by s.created_at DESC LIMIT 1",
@@ -3113,6 +3140,7 @@ async fn get_latest_version(
             script_hash: ScriptHash(row.hash),
             deployment_msg: row.deployment_msg,
             created_at: Some(row.created_at),
+            created_by: Some(row.created_by),
         };
         return Ok(Json(Some(result)));
     } else {

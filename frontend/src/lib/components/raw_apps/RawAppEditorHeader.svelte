@@ -28,7 +28,7 @@
 		Undo,
 		WandSparkles
 	} from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 
@@ -70,6 +70,7 @@
 	// `runtime.syncPreviewWithDeployed`, which discards the fork draft + reloads
 	// the preview to the deployed version.
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
+	import { versionThisDeployWrote } from '../apps/editor/appDeploy.svelte'
 	import { stripRawAppDiffNoise } from './utils'
 	import type { RawAppData } from './dataTableRefUtils'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
@@ -109,6 +110,12 @@
 			  }
 			| undefined
 		version?: number | undefined
+		/** Moves the draft's base to the deployed head and keeps its content;
+		 *  offered in the diff drawer while the draft is behind. */
+		onTakeLatest?: (head?: string) => void | Promise<void>
+		/** The app_version the draft forked from; the drawer offers `onTakeLatest` only
+		 *  while it differs from the head on display. */
+		draftBaseVersion?: string | undefined
 		newApp: boolean
 		newPath?: string
 		/** Initial labels for the app, threaded from the loaded app data. */
@@ -146,8 +153,17 @@
 		 *  falls back to `$workspaceStore`/`liveEditorDraftStoragePath`. */
 		autosaveWorkspace?: string
 		autosavePath?: string
-		// Fired after a successful deploy; lets the session preview reload.
-		onDeploy?: (e: { path: string }) => void
+		// Fired after a successful deploy; lets the session preview reload. `version` is
+		// what this deploy wrote, for the next draft's fork base; `head` is what is
+		// deployed now, with its author and time, and the two differ when another deploy
+		// landed beside this one.
+		onDeploy?: (e: {
+			path: string
+			version?: number
+			head?: number
+			headBy?: string
+			headAt?: string
+		}) => void
 		/** Surfaces the user-typed path (`newEditedPath`) up to the route
 		 *  when (and only when) it differs from the deployed/seeded
 		 *  `savedApp.path`. The route writes it into the autosaved raw-app
@@ -178,6 +194,8 @@
 		diffDrawer = undefined,
 		savedApp = $bindable(undefined),
 		version = $bindable(undefined),
+		onTakeLatest = undefined,
+		draftBaseVersion = undefined,
 		newApp,
 		newPath = '',
 		labels: initialLabels = undefined,
@@ -388,34 +406,107 @@
 		}
 	}
 
-	async function syncWithDeployed() {
+	async function syncWithDeployed(opening?: number) {
 		const deployedApp = await AppService.getAppByPath({
 			workspace: opWorkspace!,
 			path: appPath!,
 			withStarredInfo: true
 		})
 
+		// A superseded opening must not write these: the current one would then render
+		// and offer Take latest against the older head.
+		if (opening != null && !diffDrawer?.ownsOpening(opening)) return
 		deployedBy = deployedApp.created_by
+		const shownVersions = (deployedApp as { versions?: number[] }).versions
+		deployedVersionShown = Array.isArray(shownVersions)
+			? shownVersions[shownVersions.length - 1]
+			: undefined
 
 		// Normalize away post-deploy noise (see stripRawAppDiffNoise) so the
 		// diff/comparison only reflects what the editor actually changed.
 		deployedValue = replaceFalseWithUndefined(stripRawAppDiffNoise(deployedApp))
 	}
 
-	async function openDiffDrawer() {
+	/** The app_version the payload in `deployedValue` came from, so the picker marks that
+	 *  one as head rather than trusting the history's first row. */
+	let deployedVersionShown: number | undefined = $state(undefined)
+
+	/** Deployed versions for the diff picker, newest first. Best-effort: losing the
+	 *  list costs the picker, not the diff. */
+	async function deployedVersionOptions() {
+		if (!opWorkspace || !appPath) return undefined
+		try {
+			const history = await AppService.getAppHistoryByPath({
+				workspace: opWorkspace,
+				path: appPath
+			})
+			const total = history.length
+			// Head is the version the payload beside this list came from; see FlowBuilder.
+			const head = deployedVersionShown ?? history[0]?.version
+			return history.map((h, i) => {
+				const detail = [
+					h.created_by,
+					h.created_at ? new Date(h.created_at).toLocaleString() : undefined,
+					h.deployment_msg
+				].filter(Boolean)
+				const isHead = h.version === head
+				return {
+					id: String(h.version),
+					label: `v${total - i} · ${h.version}${isHead ? ' · latest' : ''}`,
+					subtitle: detail.length ? detail.join(' · ') : undefined,
+					isHead
+				}
+			})
+		} catch {
+			return undefined
+		}
+	}
+
+	/** The opening this editor claimed last. A path change remounts this editor while the
+	 *  drawer stays mounted, so its teardown hands that opening back rather than leaving
+	 *  the drawer on the item the user left. */
+	let lastOpening: number | undefined = undefined
+	onDestroy(() => {
+		if (lastOpening != null) diffDrawer?.abandonOpening(lastOpening)
+	})
+
+	export async function openDiffDrawer() {
 		if (!savedApp) {
 			return
 		}
+		// The fetches below are awaited, so a reopen (or a path change, which remounts
+		// this editor but not the drawer) while they run must not have the older one
+		// land last. The drawer counts the openings for that reason.
+		const opening = diffDrawer?.beginOpening()
+		lastOpening = opening
+		if (opening == null) return
 
 		// deployedValue should be syncronized when we open Diff
-		await syncWithDeployed()
+		await syncWithDeployed(opening)
 
-		diffDrawer?.openDrawer()
-		diffDrawer?.setDiff({
-			mode: 'normal',
-			deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
-			current: currentDiffValue
-		})
+		// Blanking the drawer belongs to the opening that will fill it.
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.openDrawer(opening)
+		const versions = await deployedVersionOptions()
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.setDiff(
+			{
+				mode: 'normal',
+				deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
+				versions,
+				onTakeLatest,
+				draftBase: draftBaseVersion,
+				deployedHead: deployedVersionShown != null ? String(deployedVersionShown) : undefined,
+				loadVersion: async (id) => {
+					const v = await AppService.getAppByVersion({ workspace: opWorkspace!, id: Number(id) })
+					// Same normalization as `syncWithDeployed`, so switching versions doesn't
+					// reintroduce the post-deploy noise the head side already strips.
+					return replaceFalseWithUndefined(stripRawAppDiffNoise(v as any))
+				},
+				current: currentDiffValue
+			},
+			opening
+		)
 	}
 
 	async function updateApp(npath: string) {
@@ -428,6 +519,14 @@
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
+		// Read the head this deploy is about to append to, so the entry it writes can be
+		// told from one landing beside it (see versionThisDeployWrote).
+		const anchor = (
+			await AppService.getAppLatestVersion({
+				workspace: opWorkspace!,
+				path: appPath!
+			}).catch(() => undefined)
+		)?.version
 		await AppService.updateAppRaw({
 			workspace: opWorkspace!,
 			path: appPath!,
@@ -462,7 +561,16 @@
 			workspace: opWorkspace!,
 			path: npath
 		})
+		// `claimed` is the version this deploy can prove it wrote and becomes the next
+		// draft's base; the head is what is deployed now. The route owns this `version`
+		// prop and re-pushes `parentVersion ?? head` as soon as `onDeploy` returns.
+		const claimed = versionThisDeployWrote(appHistory, $userStore?.username, anchor)
 		version = appHistory[0]?.version
+		// With no claim the head may be another deploy's, so it is not a base this editor
+		// may compare against: `compareVersions` confirms instead until a later deploy
+		// claims one or the editor is reset. A failed anchor read is indistinguishable
+		// from that here, and confirming is the side that cannot lose someone's work.
+		baseUnknown = claimed === undefined
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
@@ -477,7 +585,13 @@
 		if (appPath !== npath) {
 			onSavedNewAppPath?.(npath)
 		}
-		onDeploy?.({ path: npath })
+		onDeploy?.({
+			path: npath,
+			version: claimed,
+			head: version,
+			headBy: appHistory[0]?.created_by,
+			headAt: appHistory[0]?.created_at
+		})
 	}
 
 	async function setPublishState(message?: string) {
@@ -502,7 +616,20 @@
 	}
 
 	let onLatest = $state(true)
+	/** The last deploy from here could not name the version it wrote: either one landed
+	 *  beside it or the anchor read failed. Either way this editor has no base to compare,
+	 *  so the guard confirms. Set by `updateApp`. */
+	let baseUnknown = $state(false)
+	/** The last comparison could not read the head, so the confirmation it raises is
+	 *  caution and not an observed deploy. Cleared by the next reading comparison. */
+	let headUnknown = $state(false)
 	async function compareVersions() {
+		if (baseUnknown) {
+			// Nothing to compare against, so confirm rather than let the next deploy
+			// assume it is current and overwrite a version nobody here has seen.
+			onLatest = false
+			return
+		}
 		if (version === undefined) {
 			return
 		}
@@ -512,9 +639,14 @@
 				path: appPath
 			})
 			onLatest = appVersion?.version === undefined || version === appVersion?.version
+			headUnknown = false
 		} catch (e) {
 			console.error('Error comparing versions', e)
-			onLatest = true
+			// The head is what this compares against, so an unanswered read is not
+			// evidence of being current: confirm, as an unclaimable deploy does, and say
+			// that is why rather than claiming a version that was never seen.
+			onLatest = false
+			headUnknown = true
 		}
 	}
 
@@ -607,6 +739,8 @@
 	{confirmCallback}
 	bind:open
 	{diffDrawer}
+	claimOpening={() => (lastOpening = diffDrawer?.beginOpening())}
+	baseUnknown={baseUnknown || headUnknown}
 	bind:deployedValue
 	currentValue={currentDiffValue}
 />
@@ -622,26 +756,34 @@
 						if (!savedApp || newApp) {
 							return
 						}
+						// The other entry point into the same drawer, so it takes an opening too.
+						const opening = diffDrawer?.beginOpening()
+						lastOpening = opening
+						if (opening == null) return
 						// deployedValue should be syncronized when we open Diff
-						await syncWithDeployed()
+						await syncWithDeployed(opening)
 
+						if (!diffDrawer?.ownsOpening(opening)) return
 						saveDrawerOpen = false
-						diffDrawer?.openDrawer()
-						diffDrawer?.setDiff({
-							mode: 'normal',
-							deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
-							current: currentDiffValue,
-							button: {
-								text: 'Looks good, deploy',
-								onClick: () => {
-									if (newApp || appPath == '') {
-										createApp(newEditedPath)
-									} else {
-										handleUpdateApp(newEditedPath)
+						diffDrawer.openDrawer(opening)
+						diffDrawer.setDiff(
+							{
+								mode: 'normal',
+								deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
+								current: currentDiffValue,
+								button: {
+									text: 'Looks good, deploy',
+									onClick: () => {
+										if (newApp || appPath == '') {
+											createApp(newEditedPath)
+										} else {
+											handleUpdateApp(newEditedPath)
+										}
 									}
 								}
-							}
-						})
+							},
+							opening
+						)
 					}}
 				>
 					<div class="flex flex-row gap-2 items-center">
@@ -783,7 +925,13 @@
 				itemKind="raw_app"
 				path={indicatorPath}
 				draftOnly={newApp}
-				{onResetToDeployed}
+				onResetToDeployed={onResetToDeployed &&
+					(async () => {
+						// Back on the deployed version, so whatever the last deploy could not claim
+						// no longer describes this editor.
+						baseUnknown = false
+						await onResetToDeployed()
+					})}
 				{loadedFromDraft}
 				{othersDraftsCount}
 				{onOpenOthersDrafts}
