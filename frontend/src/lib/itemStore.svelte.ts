@@ -716,12 +716,10 @@ class Entry<V> {
 				this.serverDeployed = { ...this.serverDeployed, ...sent } as V
 			}
 			release()
-			// The value is the user's copy, so it is given back by hand, field by field, to the
-			// baseline as it stands now — the server's value or a later patch's, never this one's.
-			// Only a field still carrying what this patch put there, so an edit made meanwhile to
-			// any other field is left alone. And none of them once an outside write has landed:
-			// that wrote the value wholesale and is newer than this patch, and a field of it
-			// happening to match what this patch sent is not this patch's to take back.
+			// The value is the user's copy, given back by hand: a field still carrying what this
+			// patch put there goes to the baseline as it stands now, so an edit made meanwhile to
+			// another field stays. None of them once an outside write has landed — that wrote the
+			// value whole and is newer, and a field of it matching is not this patch's to reclaim.
 			if (failed) {
 				const base = (onTemplate ? this.template : this.deployed) as
 					| Record<string, unknown>
