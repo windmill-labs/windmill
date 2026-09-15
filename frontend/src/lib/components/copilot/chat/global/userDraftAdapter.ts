@@ -589,15 +589,17 @@ type DeleteGlobalDraftOptions = {
 	itemDeleted?: boolean
 }
 
+/** `removed` is false when a draft is deliberately left in place: an open editor diverged from
+ *  what was deployed while the deploy was running, and that divergence is still to be deployed. */
 export async function deleteGlobalDraft(
 	workspace: string,
 	type: WorkspaceItemType,
 	path: string,
 	triggerKind?: TriggerKind,
 	options: DeleteGlobalDraftOptions = {}
-): Promise<void> {
+): Promise<{ removed: boolean }> {
 	const itemKind = itemKindFor(type, triggerKind)
-	if (!itemKind) return
+	if (!itemKind) return { removed: false }
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
 	if (options.itemDeleted) {
 		// Nothing to discard against: the item is gone. The editor is told that, and the row is
@@ -612,7 +614,7 @@ export async function deleteGlobalDraft(
 			immediate: true
 		})
 		await assertDraftCleanupLanded(workspace, itemKind, path, storagePath)
-		return
+		return { removed: true }
 	}
 	if (options.deployed) {
 		// Re-reading the open editor is the whole cleanup, and discarding on top of it is wrong:
@@ -625,7 +627,9 @@ export async function deleteGlobalDraft(
 			// settled — with no draft, or with the newer edit.
 			await UserDraftDbSyncer.flush({ workspace, itemKind, path: storagePath })
 			await assertDraftCleanupLanded(workspace, itemKind, path, storagePath)
-			return
+			// The editor keeps a row when it diverged from what was deployed while the deploy was
+			// running. Saying it was removed would send the caller away from an undeployed edit.
+			return { removed: !UserDraft.has(itemKind, storagePath, { workspace }) }
 		}
 		if (refreshed === 'failed') {
 			// It has the item and a baseline from before the deploy. Discarding its row would
@@ -664,6 +668,7 @@ export async function deleteGlobalDraft(
 		})
 	}
 	await assertDraftCleanupLanded(workspace, itemKind, path, storagePath)
+	return { removed: true }
 }
 
 /**

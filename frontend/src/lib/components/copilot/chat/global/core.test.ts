@@ -2490,6 +2490,39 @@ describe('global AI tools', () => {
 		}
 	})
 
+	// A deploy carries the draft as it stood when it started. An editor changed since has a
+	// divergence from that which is still undeployed, so saying "Draft removed" sends the model
+	// and the user away from an edit that still needs deploying.
+	it('reports a draft the deploy deliberately left in place', async () => {
+		const path = 'u/admin/kept_res'
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		registerLiveItemBridge({
+			seed: () => false,
+			// The editor kept a row: it diverged from what was deployed while the deploy ran.
+			read: () => ({ value: { path, value: { a: 3 } } }),
+			refresh: () => Promise.resolve('done' as const),
+			itemDeleted: () => Promise.resolve(),
+			discard: () => Promise.resolve('done' as const),
+			list: () => []
+		})
+		try {
+			const cleanup = await deleteGlobalDraft(WORKSPACE, 'resource', path, undefined, {
+				preserveLiveDraft: true,
+				deployed: true
+			})
+			expect(cleanup).toEqual({ removed: false })
+		} finally {
+			registerLiveItemBridge({
+				seed: () => false,
+				read: () => undefined,
+				refresh: () => undefined,
+				itemDeleted: () => Promise.resolve(),
+				discard: () => undefined,
+				list: () => []
+			})
+		}
+	})
+
 	// A failed server delete must surface (throw), not silently report removed —
 	// the same guard the write path got, applied to the delete path.
 	it('deleteGlobalDraft throws when the server delete fails', async () => {

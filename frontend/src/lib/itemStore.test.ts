@@ -713,6 +713,8 @@ describe('item store: origins', () => {
 		// The chat writes after asking for the discard, so its value is the newer of the two.
 		const fromChat = { ...deployedRes, description: 'from the chat' }
 		item.applyExternal(fromChat)
+		// `persistGlobalDraft` hands the value here and writes its own row through the syncer.
+		rows.handExternally('u/me/r')
 		read.resolve({ deployed: deployedRes })
 
 		expect(await discarding).toEqual({ removed: false })
@@ -841,6 +843,34 @@ describe('item store: origins', () => {
 		expect(await item.save()).toMatchObject({ ok: false })
 		expect(await item.discard()).toEqual({ removed: false })
 		expect(item.value?.description).toBe('typed during the deploy')
+	})
+
+	it('still autosaves after the chat wrote a row during its first read', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const { handle: item } = store.acquire(
+			key,
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(() => read.promise)
+		)
+		await settle()
+		// The chat writes while the GET is out. Its row is this entry's own doing, and its value
+		// is right here — so the read is behind the server, but not in a way that loses anything.
+		const fromChat = { ...deployedRes, description: 'from the chat' }
+		item.applyExternal(fromChat)
+		// `persistGlobalDraft` hands the value here and writes its own row through the syncer.
+		rows.handExternally('u/me/r')
+		read.resolve({ deployed: deployedRes })
+		await settle()
+
+		expect(item.value).toEqual(fromChat)
+		// The editor opened on the chat's draft; typing from here has to keep reaching the row.
+		expect(item.canSave).toBe(true)
+		const typed = { ...deployedRes, description: 'typed after opening' }
+		item.value = typed
+		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: typed })
 	})
 
 	it('does not post a read back over a row another editor landed during it', async () => {

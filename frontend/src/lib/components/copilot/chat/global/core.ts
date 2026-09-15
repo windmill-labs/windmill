@@ -7994,7 +7994,7 @@ async function deployDraft(
 	// fork comparisons before the fallible draft cleanup below.
 	invalidateWorkspaceComparison(workspace)
 
-	await deleteGlobalDraft(workspace, type, path, triggerKind, {
+	const cleanup = await deleteGlobalDraft(workspace, type, path, triggerKind, {
 		preserveLiveDraft: true,
 		deployed: true
 	})
@@ -8030,9 +8030,11 @@ async function deployDraft(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed.${
-				deployNote ? ` ${deployNote}` : ''
-			}`,
+			message: `Deployed draft ${type} "${path}" to the workspace. ${
+				cleanup.removed
+					? 'Draft removed.'
+					: 'Its editor was changed while the deploy ran, so a draft of those later changes remains and is not deployed.'
+			}${deployNote ? ` ${deployNote}` : ''}`,
 			type,
 			path,
 			triggerKind
