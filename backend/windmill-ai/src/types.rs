@@ -369,6 +369,11 @@ pub struct AIAgentResult<'a> {
     pub messages: Vec<Message<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wm_stream: Option<String>,
+    /// The model's thinking across every iteration of the loop, in order, blank-line
+    /// separated. Filled whether or not the step streams, so a downstream step never
+    /// has to pick it out of `wm_stream`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<TokenUsage>,
 }

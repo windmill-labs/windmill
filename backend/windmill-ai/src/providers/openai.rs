@@ -538,6 +538,9 @@ impl QueryBuilder for OpenAIQueryBuilder {
             } else {
                 Some(parser.accumulated_content)
             },
+            // The Responses stream has no reasoning-summary event in
+            // `OpenAIResponsesSSEEvent`, so nothing thinks out loud on this path yet.
+            reasoning: None,
             tool_calls: parser.accumulated_tool_calls.into_values().collect(),
             events_str: Some(parser.events_str),
             annotations: parser.annotations,

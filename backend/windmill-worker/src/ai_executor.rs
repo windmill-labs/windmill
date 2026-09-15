@@ -1103,6 +1103,7 @@ pub async fn run_agent(
     *has_stream = user_wants_streaming && is_text_output;
 
     let mut final_events_str = String::new();
+    let mut final_reasoning = String::new();
 
     // Always create a StreamEventProcessor for text output (use silent mode if user doesn't want streaming)
     let stream_event_processor = if is_text_output {
@@ -1355,6 +1356,7 @@ pub async fn run_agent(
         match parsed {
             ParsedResponse::Text {
                 content: response_content,
+                reasoning: response_reasoning,
                 tool_calls,
                 events_str,
                 annotations,
@@ -1371,6 +1373,7 @@ pub async fn run_agent(
                 if let Some(events_str) = events_str {
                     final_events_str.push_str(&events_str);
                 }
+                append_reasoning(&mut final_reasoning, response_reasoning.as_deref());
 
                 // Add websearch tool message if websearch was used
                 if used_websearch {
@@ -1693,6 +1696,7 @@ pub async fn run_agent(
         } else {
             None
         },
+        reasoning: (!final_reasoning.is_empty()).then_some(final_reasoning),
         usage: if final_usage.as_ref().map(|u| u.is_empty()).unwrap_or(true) {
             None
         } else {
@@ -1712,6 +1716,19 @@ fn streaming_requested(streaming: Option<bool>) -> bool {
     streaming.unwrap_or(true)
 }
 
+/// Add one iteration's thinking to the step's. Every iteration thinks, and a tool-call
+/// iteration's thinking is what led to the call, so the result keeps all of them in order,
+/// blank-line separated, rather than only the answering turn's.
+fn append_reasoning(accumulated: &mut String, reasoning: Option<&str>) {
+    let Some(reasoning) = reasoning.map(str::trim).filter(|r| !r.is_empty()) else {
+        return;
+    };
+    if !accumulated.is_empty() {
+        accumulated.push_str("\n\n");
+    }
+    accumulated.push_str(reasoning);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1722,6 +1739,16 @@ mod tests {
             content: Some(OpenAIContent::Text(content.to_string())),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn reasoning_keeps_every_iteration_in_order() {
+        let mut acc = String::new();
+        append_reasoning(&mut acc, Some("I need both cities.\n\n"));
+        append_reasoning(&mut acc, None);
+        append_reasoning(&mut acc, Some("   "));
+        append_reasoning(&mut acc, Some("Paris is closer."));
+        assert_eq!(acc, "I need both cities.\n\nParis is closer.");
     }
 
     #[test]
