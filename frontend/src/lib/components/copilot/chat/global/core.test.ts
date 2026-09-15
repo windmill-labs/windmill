@@ -345,7 +345,8 @@ import {
 import {
 	UserDraft,
 	__resetUserDraftForTesting,
-	registerLiveItemBridge
+	registerLiveItemBridge,
+	type LiveItemBridge
 } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import {
@@ -2310,6 +2311,39 @@ describe('global AI tools', () => {
 		expect(res.status).toBe('conflict')
 	})
 
+	/** A bridge with nobody holding any key. Spread it and override only what the test is about, so
+	 *  a member added to the bridge later cannot quietly answer for a fixture that never meant to. */
+	function noLiveItems(): LiveItemBridge {
+		return {
+			seed: () => false,
+			rowFor: () => undefined,
+			read: () => undefined,
+			refresh: () => undefined,
+			noteRow: () => {},
+			itemDeleted: () => Promise.resolve(),
+			discard: () => undefined,
+			list: () => []
+		}
+	}
+
+	// The chat can write a value that turns out to be the deployed one. A live editor takes it and
+	// stays clean, keeping no row — so this save has to clear the row rather than persist a draft
+	// its own editor does not have: nothing would show it, and nothing short of an edit would
+	// remove it, while it still lists and goes stale once the deployed item moves on.
+	it('clears the row when the chat writes the value the live editor already deploys', async () => {
+		const path = 'f/res/noop'
+		const deployed = { path, value: { a: 1 } }
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		registerLiveItemBridge({ ...noLiveItems(), seed: () => true, rowFor: () => null })
+		try {
+			const res = await persistGlobalDraft(WORKSPACE, 'resource', path, deployed)
+			expect(res.status).toBe('saved')
+			expect(getBackendDraft('resource', path)).toBeUndefined()
+		} finally {
+			registerLiveItemBridge(noLiveItems())
+		}
+	})
+
 	// An open editor owns its own row: the chat must defer to that editor's discard rather than
 	// send a delete of its own, which would be a second unconditional request.
 	it('leaves the delete to a live editor that owns the draft', async () => {
@@ -2322,32 +2356,19 @@ describe('global AI tools', () => {
 		})
 		let discards = 0
 		registerLiveItemBridge({
-			seed: () => false,
-			read: () => undefined,
-			refresh: () => undefined,
-			noteRow: () => {},
-			itemDeleted: () => Promise.resolve(),
+			...noLiveItems(),
 			// Claims the key and removes nothing, so anything still gone was deleted by the chat.
 			discard: () => {
 				discards++
 				return Promise.resolve('done' as const)
-			},
-			list: () => []
+			}
 		})
 		try {
 			await deleteGlobalDraft(WORKSPACE, 'script', path)
 			expect(discards).toBe(1)
 			expect(getBackendDraft('script', path)).toBeDefined()
 		} finally {
-			registerLiveItemBridge({
-				seed: () => false,
-				read: () => undefined,
-				refresh: () => undefined,
-				noteRow: () => {},
-				itemDeleted: () => Promise.resolve(),
-				discard: () => undefined,
-				list: () => []
-			})
+			registerLiveItemBridge(noLiveItems())
 		}
 	})
 
@@ -2359,13 +2380,11 @@ describe('global AI tools', () => {
 		seedBackendDraft('resource', path, { path, value: { a: 2 } })
 		const calls: string[] = []
 		registerLiveItemBridge({
-			seed: () => false,
-			read: () => undefined,
+			...noLiveItems(),
 			refresh: () => {
 				calls.push('refresh')
 				return Promise.resolve('done' as const)
 			},
-			noteRow: () => {},
 			itemDeleted: () => {
 				calls.push('itemDeleted')
 				return Promise.resolve()
@@ -2373,8 +2392,7 @@ describe('global AI tools', () => {
 			discard: () => {
 				calls.push('discard')
 				return Promise.resolve({ removed: true })
-			},
-			list: () => []
+			}
 		})
 		try {
 			await deleteGlobalDraft(WORKSPACE, 'resource', path, undefined, {
@@ -2385,15 +2403,7 @@ describe('global AI tools', () => {
 			// The chat sends no delete of its own either: the row is the editor's to settle.
 			expect(getBackendDraft('resource', path)).toBeDefined()
 		} finally {
-			registerLiveItemBridge({
-				seed: () => false,
-				read: () => undefined,
-				refresh: () => undefined,
-				noteRow: () => {},
-				itemDeleted: () => Promise.resolve(),
-				discard: () => undefined,
-				list: () => []
-			})
+			registerLiveItemBridge(noLiveItems())
 		}
 	})
 
@@ -2403,14 +2413,10 @@ describe('global AI tools', () => {
 		const path = 'u/admin/notyetloaded'
 		seedBackendDraft('resource', path, { path, value: { a: 2 } })
 		registerLiveItemBridge({
-			seed: () => false,
-			read: () => undefined,
+			...noLiveItems(),
 			// Registered, but never had the item: it has not dealt with the row.
 			refresh: () => Promise.resolve('absent' as const),
-			noteRow: () => {},
-			itemDeleted: () => Promise.resolve(),
-			discard: () => Promise.resolve('absent' as const),
-			list: () => []
+			discard: () => Promise.resolve('absent' as const)
 		})
 		try {
 			await deleteGlobalDraft(WORKSPACE, 'resource', path, undefined, {
@@ -2419,15 +2425,7 @@ describe('global AI tools', () => {
 			})
 			expect(getBackendDraft('resource', path)).toBeUndefined()
 		} finally {
-			registerLiveItemBridge({
-				seed: () => false,
-				read: () => undefined,
-				refresh: () => undefined,
-				noteRow: () => {},
-				itemDeleted: () => Promise.resolve(),
-				discard: () => undefined,
-				list: () => []
-			})
+			registerLiveItemBridge(noLiveItems())
 		}
 	})
 
@@ -2438,10 +2436,8 @@ describe('global AI tools', () => {
 		seedBackendDraft('resource', path, { path, value: { a: 2 } })
 		const calls: string[] = []
 		registerLiveItemBridge({
-			seed: () => false,
-			read: () => undefined,
+			...noLiveItems(),
 			refresh: () => Promise.resolve('done' as const),
-			noteRow: () => {},
 			itemDeleted: () => {
 				calls.push('itemDeleted')
 				return Promise.resolve()
@@ -2449,23 +2445,14 @@ describe('global AI tools', () => {
 			discard: () => {
 				calls.push('discard')
 				return Promise.resolve('done' as const)
-			},
-			list: () => []
+			}
 		})
 		try {
 			await deleteGlobalDraft(WORKSPACE, 'resource', path, undefined, { itemDeleted: true })
 			expect(calls).toEqual(['itemDeleted'])
 			expect(getBackendDraft('resource', path)).toBeUndefined()
 		} finally {
-			registerLiveItemBridge({
-				seed: () => false,
-				read: () => undefined,
-				refresh: () => undefined,
-				noteRow: () => {},
-				itemDeleted: () => Promise.resolve(),
-				discard: () => undefined,
-				list: () => []
-			})
+			registerLiveItemBridge(noLiveItems())
 		}
 	})
 
@@ -2476,27 +2463,15 @@ describe('global AI tools', () => {
 		const path = 'u/admin/stale_res'
 		seedBackendDraft('resource', path, { path, value: { a: 2 } })
 		registerLiveItemBridge({
-			seed: () => false,
-			read: () => undefined,
+			...noLiveItems(),
 			refresh: () => Promise.resolve('failed' as const),
-			noteRow: () => {},
-			itemDeleted: () => Promise.resolve(),
-			discard: () => Promise.resolve('failed' as const),
-			list: () => []
+			discard: () => Promise.resolve('failed' as const)
 		})
 		try {
 			await expect(deleteGlobalDraft(WORKSPACE, 'resource', path)).rejects.toThrow()
 			expect(getBackendDraft('resource', path)).toBeDefined()
 		} finally {
-			registerLiveItemBridge({
-				seed: () => false,
-				read: () => undefined,
-				refresh: () => undefined,
-				noteRow: () => {},
-				itemDeleted: () => Promise.resolve(),
-				discard: () => undefined,
-				list: () => []
-			})
+			registerLiveItemBridge(noLiveItems())
 		}
 	})
 
@@ -2507,13 +2482,11 @@ describe('global AI tools', () => {
 		const path = 'u/admin/kept_res'
 		seedBackendDraft('resource', path, { path, value: { a: 2 } })
 		registerLiveItemBridge({
-			seed: () => false,
+			...noLiveItems(),
 			// The editor kept a row: it diverged from what was deployed while the deploy ran.
 			read: () => ({ value: { path, value: { a: 3 } } }),
 			refresh: () => Promise.resolve('done' as const),
-			itemDeleted: () => Promise.resolve(),
-			discard: () => Promise.resolve('done' as const),
-			list: () => []
+			discard: () => Promise.resolve('done' as const)
 		})
 		try {
 			const cleanup = await deleteGlobalDraft(WORKSPACE, 'resource', path, undefined, {
@@ -2522,15 +2495,7 @@ describe('global AI tools', () => {
 			})
 			expect(cleanup).toEqual({ removed: false })
 		} finally {
-			registerLiveItemBridge({
-				seed: () => false,
-				read: () => undefined,
-				refresh: () => undefined,
-				noteRow: () => {},
-				itemDeleted: () => Promise.resolve(),
-				discard: () => undefined,
-				list: () => []
-			})
+			registerLiveItemBridge(noLiveItems())
 		}
 	})
 
@@ -2540,28 +2505,16 @@ describe('global AI tools', () => {
 		const path = 'u/admin/kept_on_discard'
 		seedBackendDraft('resource', path, { path, value: { a: 2 } })
 		registerLiveItemBridge({
-			seed: () => false,
+			...noLiveItems(),
 			// Still holding a draft after the discard: the user typed after it was asked for.
 			read: () => ({ value: { path, value: { a: 3 } } }),
-			refresh: () => undefined,
-			noteRow: () => {},
-			itemDeleted: () => Promise.resolve(),
-			discard: () => Promise.resolve('done' as const),
-			list: () => []
+			discard: () => Promise.resolve('done' as const)
 		})
 		try {
 			const out = await deleteGlobalDraft(WORKSPACE, 'resource', path)
 			expect(out).toEqual({ removed: false })
 		} finally {
-			registerLiveItemBridge({
-				seed: () => false,
-				read: () => undefined,
-				refresh: () => undefined,
-				noteRow: () => {},
-				itemDeleted: () => Promise.resolve(),
-				discard: () => undefined,
-				list: () => []
-			})
+			registerLiveItemBridge(noLiveItems())
 		}
 	})
 
@@ -2573,11 +2526,8 @@ describe('global AI tools', () => {
 		seedBackendDraft('resource', path, { path, value: { a: 2 } })
 		let discards = 0
 		registerLiveItemBridge({
-			seed: () => false,
+			...noLiveItems(),
 			read: () => ({ value: { path, value: { a: 3 } } }),
-			refresh: () => undefined,
-			noteRow: () => {},
-			itemDeleted: () => Promise.resolve(),
 			discard: () => {
 				discards++
 				return Promise.resolve('done' as const)
@@ -2592,15 +2542,7 @@ describe('global AI tools', () => {
 			clearGlobalDrafts(WORKSPACE, new Set([path]))
 			expect(discards).toBe(1)
 		} finally {
-			registerLiveItemBridge({
-				seed: () => false,
-				read: () => undefined,
-				refresh: () => undefined,
-				noteRow: () => {},
-				itemDeleted: () => Promise.resolve(),
-				discard: () => undefined,
-				list: () => []
-			})
+			registerLiveItemBridge(noLiveItems())
 		}
 	})
 

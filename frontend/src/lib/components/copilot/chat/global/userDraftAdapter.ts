@@ -3,6 +3,7 @@ import { DraftService } from '$lib/gen'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import {
+	liveItemRow,
 	markLiveItemDeleted,
 	noteLiveItemRow,
 	refreshLiveItem,
@@ -428,7 +429,13 @@ export async function persistGlobalDraft(
 	const itemKind = itemKindFor(type, opts.triggerKind)
 	if (!itemKind) throw new Error(`Unsupported draft type "${type}".`)
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
-	UserDraft.seed(itemKind, storagePath, value, { workspace })
+	// A live item that took the value decides what belongs in the row, and answers `null` when the
+	// value it now holds is the deployed one. Persisting `value` regardless would leave a row for a
+	// draft that item does not have, invisible to its banner and undeletable by its Save. Asked
+	// only of an item that took this value, so the answer is about it and not what it held before.
+	const took = UserDraft.seed(itemKind, storagePath, value, { workspace })
+	const held = took ? liveItemRow(workspace, itemKind, storagePath) : undefined
+	const row = held === undefined ? value : held === null ? null : held.value
 	// An open editor took that value and may have written its own row for it; this save is a
 	// second row for the same value, so say so rather than leave it looking like someone else's.
 	noteLiveItemRow(workspace, itemKind, storagePath)
@@ -436,7 +443,7 @@ export async function persistGlobalDraft(
 		workspace,
 		itemKind,
 		path: storagePath,
-		value,
+		value: row,
 		immediate: true,
 		force: opts.force
 	})
@@ -768,10 +775,7 @@ export async function flushGlobalDraftSaves(
  * changed after that discard was asked for — would have that newer edit taken on this pass,
  * undoing exactly what the first one preserved. `keep` names the paths to leave alone.
  */
-export function clearGlobalDrafts(
-	workspace: string,
-	keep: ReadonlySet<string> = new Set()
-): void {
+export function clearGlobalDrafts(workspace: string, keep: ReadonlySet<string> = new Set()): void {
 	for (const draft of UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] })) {
 		if (keep.has(draft.path)) continue
 		UserDraft.forgetLocal(draft.itemKind, draft.path, { workspace })

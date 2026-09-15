@@ -135,6 +135,13 @@ const liveEditorDrafts = new Map<string, LiveEditorDraft>()
 export type LiveItemBridge = {
 	/** Apply `value` as an outside write. False when no live item holds the key. */
 	seed(workspace: string, itemKind: UserDraftItemKind, path: string, value: unknown): boolean
+	/** The row a live item keeps for the key: `{ value }` when its value diverges from the deployed
+	 *  one, `null` when it does not. `undefined` when no live item can answer. */
+	rowFor(
+		workspace: string,
+		itemKind: UserDraftItemKind,
+		path: string
+	): { value: unknown } | null | undefined
 	/** `undefined` when no live item holds the key; else the draft, if it has one. */
 	read(
 		workspace: string,
@@ -174,6 +181,18 @@ export function refreshLiveItem(
 	path: string
 ): Promise<'done' | 'absent' | 'failed'> | undefined {
 	return liveItems?.refresh(workspace, itemKind, path)
+}
+
+/** What a live item keeps in the key's row, for a caller about to write that row itself: the
+ *  store's rule is that a row exists exactly while the value diverges from the deployed one, so
+ *  persisting the raw value instead would leave a row behind for a value that matches it.
+ *  `undefined` when no live item can answer and the caller's own value is all there is. */
+export function liveItemRow(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): { value: unknown } | null | undefined {
+	return liveItems?.rowFor(workspace, itemKind, path)
 }
 
 /** Tell a live item that a row just written for it was written by whoever handed it that same
@@ -537,11 +556,15 @@ export const UserDraft = {
 	 * editor's `initContent` cascading into the bound value).
 	 *
 	 * No-op if the entry isn't live yet (acquire via `use`/`useMany` first).
+	 *
+	 * Returns whether a live item took the value, for a caller about to persist it: only then does
+	 * `liveItemRow` describe that value rather than whatever the item held already.
 	 */
-	seed<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
+	seed<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): boolean {
 		const ws = resolveWorkspace(opts)
-		liveItems?.seed(ws, itemKind, path, value)
+		const took = liveItems?.seed(ws, itemKind, path, value) ?? false
 		seedLocalMirror(mapKey(ws, itemKind, path), value)
+		return took
 	},
 
 	/**

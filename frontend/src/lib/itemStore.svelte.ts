@@ -1242,6 +1242,19 @@ export function createItemStore(ports: ItemRowPort) {
 			entry.applyExternal(value)
 			return true
 		},
+		/** The row this entry keeps for the key, by the same rule `reconcile` writes by: `{ value }`
+		 *  when its value diverges from the deployed one, `null` when it does not and so nothing
+		 *  belongs in the row. `undefined` when nobody can answer — no entry, one that has not read
+		 *  yet, or one whose baseline is known to be behind the server. */
+		rowFor(
+			workspace: string,
+			kind: UserDraftItemKind,
+			path: string
+		): { value: unknown } | null | undefined {
+			const entry = find(workspace, kind, path)
+			if (!entry || !entry.loaded || entry.stale) return undefined
+			return entry.dirty ? { value: snapshot(entry.value) } : null
+		},
 		/** The draft as this tab knows it: the value when it diverges, nothing otherwise. */
 		read(
 			workspace: string,
