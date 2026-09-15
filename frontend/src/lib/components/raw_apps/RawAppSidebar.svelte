@@ -42,7 +42,11 @@
 		onDefaultChange?: (datatable: string | undefined, schema: string | undefined) => void
 		/** The role the app uses each data table through, by data table name */
 		datatableRoles?: Record<string, string>
-		onDatatableRolesChange?: (roles: Record<string, string> | undefined) => void
+		/** `roleChanged` names the data tables now used through another role than before. */
+		onDatatableRolesChange?: (
+			roles: Record<string, string> | undefined,
+			roleChanged: Set<string>
+		) => void
 	}
 
 	let {
@@ -75,11 +79,14 @@
 	function handleAddDataTables(
 		refs: DataTableRef[],
 		browsedRoles: Record<string, string>,
-		replaced: Set<string>
+		roleChanged: Set<string>
 	) {
-		onDataTableRefsChange?.([...dataTableRefs.filter((r) => !replaced.has(r.datatable)), ...refs])
+		onDataTableRefsChange?.([
+			...dataTableRefs.filter((r) => !roleChanged.has(r.datatable)),
+			...refs
+		])
 		if (Object.keys(browsedRoles).length > 0) {
-			onDatatableRolesChange?.({ ...datatableRoles, ...browsedRoles })
+			onDatatableRolesChange?.({ ...datatableRoles, ...browsedRoles }, roleChanged)
 		}
 	}
 

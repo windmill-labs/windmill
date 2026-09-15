@@ -637,9 +637,9 @@
 	offset={10000}
 	existingRefs={preWhitelistedTables}
 	roles={pickerRoles}
-	onAdd={(refs, browsedRoles, replaced) => {
+	onAdd={(refs, browsedRoles, roleChanged) => {
 		preWhitelistedTables = [
-			...preWhitelistedTables.filter((t) => !replaced.has(t.datatable)),
+			...preWhitelistedTables.filter((t) => !roleChanged.has(t.datatable)),
 			...refs
 		]
 		preWhitelistedRoles = { ...preWhitelistedRoles, ...browsedRoles }

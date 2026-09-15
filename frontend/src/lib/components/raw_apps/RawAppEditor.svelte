@@ -2421,12 +2421,11 @@
 							}
 						}}
 						datatableRoles={data.roles}
-						onDatatableRolesChange={(roles) => {
+						onDatatableRolesChange={(roles, roleChanged) => {
 							// The default schema was picked among what the previous role reaches: after the
 							// user moves the app's default data table to another role, it is picked again.
 							const dt = data.datatable
-							const schemaStale =
-								dt !== undefined && appDatatableRole(roles, dt) !== appDatatableRole(data.roles, dt)
+							const schemaStale = dt !== undefined && roleChanged.has(dt)
 							data.roles = roles
 							if (schemaStale) data.schema = undefined
 							aiChatManager.datatableCreationPolicy = {
