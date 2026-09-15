@@ -1346,6 +1346,7 @@
 						if ((await shown?.discard())?.removed && shown !== item.current) onUpdate?.(target)
 					}}
 					disabled={!can_write}
+					busy={item.busy}
 				/>
 			{/snippet}
 			{@render content()}

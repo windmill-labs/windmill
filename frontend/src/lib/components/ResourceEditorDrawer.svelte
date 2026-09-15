@@ -58,6 +58,7 @@
 	let session = $state(0)
 	let hasLocalDraft = $state(false)
 	let canWriteSelected = $state(true)
+	let editorBusy = $state(false)
 
 	let path: string | undefined = $state(undefined)
 	let selected: string | undefined = $state(undefined)
@@ -169,6 +170,7 @@
 					bind:viewJsonSchema
 					onDraftStateChange={(v) => (hasLocalDraft = v)}
 					onCanWriteChange={(v) => (canWriteSelected = v)}
+					onBusyChange={(v) => (editorBusy = v)}
 				/>
 			{/key}
 		{/await}
@@ -191,6 +193,7 @@
 					else dispatch('refresh', removedPath)
 				}}
 				disabled={!canWriteSelected}
+				busy={editorBusy}
 			/>
 		{/snippet}
 		{#snippet actions()}

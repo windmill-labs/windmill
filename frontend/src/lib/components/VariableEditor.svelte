@@ -354,6 +354,7 @@
 					if ((await shown?.discard())?.removed && shown !== selectedItem) dispatch('create')
 				}}
 				disabled={!can_write}
+				busy={anyBusy}
 			/>
 		{/snippet}
 		<div class="flex flex-col gap-8 pb-2">

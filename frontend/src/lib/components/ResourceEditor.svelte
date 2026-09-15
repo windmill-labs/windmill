@@ -52,6 +52,9 @@
 		 * so it can hide the banner's Discard button in read-only mode (matches
 		 * the trigger editors' `disabled={!can_write}` wiring). */
 		onCanWriteChange?: (canWrite: boolean) => void
+		/** Notifies the parent drawer that a command is in flight on one of the resource's
+		 * items, so it can grey the banner's Discard the way Save is greyed. */
+		onBusyChange?: (busy: boolean) => void
 	}
 
 	let {
@@ -65,7 +68,8 @@
 		selected: selectedProp = $bindable(),
 		viewJsonSchema = $bindable(),
 		onDraftStateChange,
-		onCanWriteChange
+		onCanWriteChange,
+		onBusyChange
 	}: Props = $props()
 
 	type ResourceState = {
@@ -348,6 +352,9 @@
 	})
 	$effect(() => {
 		onCanWriteChange?.(can_write === true)
+	})
+	$effect(() => {
+		onBusyChange?.(Object.values(items).some((it) => it.busy))
 	})
 
 	export function localDraftDeployed(): ResourceState | undefined {

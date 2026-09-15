@@ -19,6 +19,12 @@
 		onDiscard: () => void | Promise<void>
 		/** When true (e.g. no write access), hide the Discard action. */
 		disabled?: boolean
+		/**
+		 * A command is in flight on the item. What a discard would revert to is whatever that
+		 * command leaves behind, which is not what the user is looking at, so it waits, greyed
+		 * rather than hidden, like Save.
+		 */
+		busy?: boolean
 		/** Diff drawer title. */
 		title?: string
 		/**
@@ -35,6 +41,7 @@
 		getCurrent,
 		onDiscard,
 		disabled = false,
+		busy = false,
 		title = 'Deployed <> Local changes',
 		reserveSpace
 	}: Props = $props()
@@ -85,23 +92,24 @@
 		const original = $state.snapshot(deployed) as Value
 		const current = $state.snapshot(getCurrent()) as Value
 		diffDrawer?.openDrawer()
-		// Mirror the inline Discard's `disabled` gate inside the diff drawer —
-		// otherwise a read-only user could still trigger onDiscard via the
-		// drawer button even though we hid the banner's inline action.
+		// Mirror the inline Discard's gates inside the diff drawer — otherwise a read-only user
+		// could still trigger onDiscard via the drawer button even though we hid the banner's
+		// inline action.
 		diffDrawer?.setDiff({
 			mode: 'simple',
 			original,
 			current,
 			title,
-			button: disabled
-				? undefined
-				: {
-						text: 'Discard changes',
-						onClick: async () => {
-							await onDiscard()
-							diffDrawer?.closeDrawer()
+			button:
+				disabled || busy
+					? undefined
+					: {
+							text: 'Discard changes',
+							onClick: async () => {
+								await onDiscard()
+								diffDrawer?.closeDrawer()
+							}
 						}
-					}
 		})
 	}
 </script>
@@ -142,6 +150,7 @@
 						<Button
 							unifiedSize="sm"
 							variant="subtle"
+							disabled={busy}
 							btnClasses={classes.warning.titleClass}
 							on:click={onDiscard}>Discard</Button
 						>
