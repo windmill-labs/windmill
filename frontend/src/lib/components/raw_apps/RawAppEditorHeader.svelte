@@ -552,9 +552,10 @@
 			workspace: opWorkspace!,
 			path: npath
 		})
-		// Two different things: `version` is what is deployed now, which is what the deploy
-		// guard compares against and must stay set, and `claimed` is the version this deploy
-		// can prove it wrote, which is the next draft's base.
+		// `claimed` is the version this deploy can prove it wrote and becomes the next
+		// draft's base; the head is what is deployed now. The route owns this `version`
+		// prop and re-pushes `parentVersion ?? head` as soon as `onDeploy` returns, so the
+		// guard compares the claimed base when there is one and the head otherwise.
 		const claimed = versionThisDeployWrote(appHistory, $userStore?.username, headBefore?.version)
 		version = appHistory[0]?.version
 		// Without a claim the head is someone else's as far as this editor knows, so it is
