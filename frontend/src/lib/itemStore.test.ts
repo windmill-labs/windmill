@@ -35,6 +35,8 @@ function fakeRows() {
 	/** What a write leaves queued, and what a flush sends: the syncer debounces. */
 	const queued = new Map<string, unknown>()
 	const sent = new Map<string, unknown>()
+	/** Set by a test to keep a flush in flight. */
+	let holdFlush: Promise<void> | undefined
 	const port: ItemRowPort = {
 		write: (key, value) => {
 			writes.push({ path: key.path, value })
@@ -42,9 +44,12 @@ function fakeRows() {
 			if (failing.has(key.path)) failures.set(key.path, 'unreachable')
 		},
 		flush: async (key) => {
-			if (!queued.has(key.path)) return
-			sent.set(key.path, queued.get(key.path))
+			// A POST carries what was queued when it went out; what is typed while it is in flight
+			// queues behind it.
+			const going = queued.has(key.path) ? { value: queued.get(key.path) } : undefined
 			queued.delete(key.path)
+			if (holdFlush) await holdFlush
+			if (going) sent.set(key.path, going.value)
 		},
 		overwrite: async (key, value) => {
 			conflicts.delete(key.path)
@@ -56,7 +61,16 @@ function fakeRows() {
 		dropPending: (key) => void dropped.push(key.path),
 		hint: (key, on) => void hints.set(key.path, on)
 	}
-	return { port, writes, conflicts, failing, hints, dropped, sent }
+	return {
+		port,
+		writes,
+		conflicts,
+		failing,
+		hints,
+		dropped,
+		sent,
+		hold: (until: Promise<void>) => void (holdFlush = until)
+	}
 }
 
 const deployedRes: Res = { path: 'u/me/r', description: 'deployed', args: { a: 1 } }
@@ -561,6 +575,41 @@ describe('item store: one entry per key', () => {
 		expect(open.deployed).toEqual({ ...b, args: { a: 2 } })
 		expect(open.value).toEqual(typed)
 		expect(open.dirty).toBe(true)
+	})
+
+	it('keeps an edit typed while the row it re-reads behind is still going', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const b = { ...deployedRes, path: 'u/me/b' }
+		let deployed = b
+		const { handle: open } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/b' },
+			{ workspace: 'w', path: 'u/me/b' },
+			adapter(async () => ({ deployed, draft: rows.sent.get('u/me/b') as Res | undefined }))
+		)
+		await settle()
+		open.value = { ...b, description: 'typed first' }
+
+		const flushing = deferred()
+		rows.hold(flushing.promise)
+		const temporary = newItemPath()
+		const { handle: panel } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: temporary },
+			{ workspace: 'w', path: temporary, template: b, standsFor: 'u/me/b' },
+			adapter({}, async (ctx) => void (deployed = { ...ctx.value }))
+		)
+		await settle()
+		panel.value = { ...b, args: { a: 2 } }
+		const wrote = panel.save()
+		await settle()
+		// In neither the row going out nor the read coming back, and newer than both.
+		const late = { ...b, description: 'typed while that row was going' }
+		open.value = late
+		flushing.resolve()
+
+		expect(await wrote).toMatchObject({ ok: true, path: 'u/me/b' })
+		expect(open.value).toEqual(late)
+		expect(open.deployed).toEqual({ ...b, args: { a: 2 } })
 	})
 
 	it('writes an item it moves onto after the saves queued there, and supersedes later ones', async () => {

@@ -304,9 +304,11 @@ class Entry<V> {
 		this.replaceValue(template)
 	}
 
-	load(adapter: ItemAdapter<V>): Promise<CommandOutcome> {
+	/** `changedBefore`: the value's change count as of when this read was decided on, for a caller
+	 *  that did something async first. */
+	load(adapter: ItemAdapter<V>, changedBefore?: number): Promise<CommandOutcome> {
 		this.loads++
-		const changesAtStart = this.changes
+		const changesAtStart = changedBefore ?? this.changes
 		return this.run(async () => {
 			const key = this.key
 			let res: ItemLoad<V>
@@ -349,9 +351,15 @@ class Entry<V> {
 
 	/** Read the item again after someone else wrote it. The edits on screen are in the draft row,
 	 *  so they come back over what was written; one typed since the read was asked for stays. */
-	reread(): Promise<CommandOutcome> {
-		if (!this.loaded || this.retired || !this.adapter) return Promise.resolve({ ok: true })
-		return this.load(this.adapter)
+	async reread(): Promise<CommandOutcome> {
+		if (!this.loaded || this.retired || !this.adapter) return { ok: true }
+		// Counted before the row goes, not after it lands: an edit typed while that write is in
+		// flight is in neither it nor the read that follows, and is newer than both.
+		// Counted before the row goes, not after it lands: an edit typed while that write is in
+		// flight is in neither it nor the read that follows, and is newer than both.
+		const changesAtStart = this.changes
+		await this.ports.flush(this.key)
+		return this.load(this.adapter, changesAtStart)
 	}
 
 	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
@@ -825,10 +833,8 @@ export function createItemStore(ports: ItemRowPort) {
 		async changed(key, by) {
 			const holder = entries.get(keyString(key))
 			if (holder === by) return
+			// Its row is debounced, so `reread` sends what is queued before reading it back.
 			if (holder) {
-				// Its row is debounced: unsent, an edit typed in the last moment is not what the
-				// re-read would find, and the read would put the screen back before it.
-				await ports.flush(key)
 				await holder.reread()
 				return
 			}
