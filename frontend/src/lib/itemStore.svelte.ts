@@ -145,9 +145,10 @@ let nextPatch = 1
 
 const superseded = { ok: false, error: 'Another save of this item replaced this one' } as const
 
-/** An item as it stood when a command was asked for: whether it was on screen at all, the value
- *  it showed, the count of edits and outside writes it has taken, and the rows sent for its key. */
-type AsOf = { loaded: boolean; value: string | undefined; edits: number; rows: number }
+/** An item as it stood when a command was asked for: the count of edits and outside writes it
+ *  had taken, and the rows sent for its key. Both are counts of things the command did not do,
+ *  so a command can tell what moved under it without mistaking its own effects for movement. */
+type AsOf = { edits: number; rows: number }
 
 class Entry<V> {
 	key: ItemKey = $state()!
@@ -332,12 +333,7 @@ class Entry<V> {
 	/** The registers that move on their own: what the user is editing, and the rows already sent.
 	 *  A command compares against these to tell what has happened since it was asked for. */
 	private asOf(): AsOf {
-		return {
-			loaded: this.loaded,
-			value: serialize(this.value),
-			edits: this.edits,
-			rows: this.rowWrites
-		}
+		return { edits: this.edits, rows: this.rowWrites }
 	}
 
 	/** Count a command as started now, ahead of its turn in the queue; returns its release. */
@@ -518,15 +514,13 @@ class Entry<V> {
 	}
 
 	discard(): Promise<DiscardOutcome> {
-		// A discard throws away the value as of the click, as a save sends the value as of the
-		// click: one typed while it waited its turn is newer, and reverting it would drop it with
-		// nothing left holding it. The value and not a count of writes, so that an outside write
-		// of what is already on screen, changing nothing the user sees, leaves the discard good.
 		return this.run(async (at) => {
 			if (!this.loaded || this.retired) return { removed: false }
-			// Nothing was on screen to compare against: the discard was asked of the item, not of
-			// a value, so whatever the load in front of it turned up is what it throws away.
-			if (at.loaded && serialize(this.value) !== at.value) return { removed: false }
+			// An edit typed or an outside write landed since the discard was asked for is newer
+			// than it, and reverting that would drop it with nothing left holding it. A value a
+			// read in front of it installed is not something that moved, it is the read
+			// answering, and is what the discard was asked to throw away.
+			if (this.edits !== at.edits) return { removed: false }
 			if (this.origin === 'draft') {
 				const kept = snapshot(this.value)
 				const keptRow = this.row

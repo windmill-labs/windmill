@@ -658,6 +658,27 @@ describe('item store: origins', () => {
 		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: null })
 	})
 
+	it('keeps an outside write that landed after a discard was asked for, before the first read', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		const store = createItemStore(rows.port)
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/r' },
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(() => read.promise)
+		)
+		const discarding = item.discard()
+		// The chat writes after asking for the discard, so its value is the newer of the two.
+		const fromChat = { ...deployedRes, description: 'from the chat' }
+		item.applyExternal(fromChat)
+		read.resolve({ deployed: deployedRes })
+
+		expect(await discarding).toEqual({ removed: false })
+		expect(item.value).toEqual(fromChat)
+		expect(item.dirty).toBe(true)
+		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: fromChat })
+	})
+
 	it('keeps a draft-only item an outside write put back while its delete was going', async () => {
 		const rows = fakeRows()
 		const draft = { ...deployedRes, description: 'only a draft' }
