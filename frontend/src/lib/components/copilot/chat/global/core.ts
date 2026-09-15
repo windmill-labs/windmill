@@ -6589,6 +6589,25 @@ function createOpenVariableAction(path: string): ToolDisplayAction {
 	}
 }
 
+/** Whether a deployed item exists under a draft, for the kinds whose editor a
+ * session hosts. Anything else answers true — the caller only uses this to decide
+ * whether discarding leaves nothing behind, and no other kind is hosted. */
+async function hasDeployedItem(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string
+): Promise<boolean> {
+	try {
+		if (type === 'resource') return await ResourceService.existsResource({ workspace, path })
+		if (type === 'variable') return await VariableService.existsVariable({ workspace, path })
+		if (type === 'schedule') return await ScheduleService.existsSchedule({ workspace, path })
+	} catch {
+		// The probe is an optimisation over "assume it survived"; a failed one must
+		// not fail the discard, and treating it as deployed keeps today's behavior.
+	}
+	return true
+}
+
 async function discardLocalDraft(
 	args: { type: WorkspaceItemType; path: string; trigger_kind?: TriggerKind },
 	ctx: WriteDraftCtx
@@ -6605,16 +6624,40 @@ async function discardLocalDraft(
 		throw new Error(`No draft found for ${type} "${path}".`)
 	}
 
+	// Probed before the delete, while both sides are still knowable: a draft with
+	// nothing deployed under it IS the item, so discarding it removes the item
+	// rather than reverting it — and anything showing that item has to stop.
+	const discardedKind = itemKindFor(type, triggerKind)
+	const storagePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+	const removesItem = !!discardedKind && !(await hasDeployedItem(workspace, type, path))
+
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
+
+	// Published only now, and only if nothing is queued behind the delete: the marker
+	// sends a hosted editor away from an item it says is gone, so a throw above must
+	// not leave one standing for a later action to spend, and an edit made across the
+	// delete recreates the draft — leaving the item the marker would report as gone.
+	if (removesItem && discardedKind) {
+		const query = { workspace, itemKind: discardedKind, path: storagePath }
+		// Settled AND settled on the delete: an upsert queued behind it displaces the
+		// delete, and waiting for the chain then reports idle on a draft that is back.
+		const removed =
+			UserDraftDbSyncer.getState(query).state === 'none' &&
+			UserDraftDbSyncer.lastLandedWasDelete(query)
+		if (removed) {
+			UserDraft.recordDraftOnlyDiscard(discardedKind, storagePath, { workspace })
+		}
+	} else if (discardedKind) {
+		// The item is deployed, so this discard reverted it rather than removing it —
+		// which also settles any marker still standing from an earlier one at this
+		// path, recorded when nothing deployed was there and never read.
+		UserDraft.clearDraftOnlyDiscard(discardedKind, storagePath, { workspace })
+	}
 
 	// The chat's touch on the item is undone — drop it from the mask so a
 	// pre-existing deployed item doesn't keep reading as this chat's edit.
-	const discardedKind = itemKindFor(type, triggerKind)
 	if (discardedKind) {
-		toolCallbacks.onItemDiscarded?.(
-			discardedKind,
-			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
-		)
+		toolCallbacks.onItemDiscarded?.(discardedKind, storagePath)
 	}
 
 	toolCallbacks.setToolStatus(toolId, {
@@ -7989,12 +8032,23 @@ async function deployDraft(
 		}
 	}
 
+	// Where the drawer kinds land is the draft's own path field, not the key it is
+	// stored under: a hosted editor renames a draft-only item by editing the config,
+	// which leaves the draft where it was. The script/flow/app branches resolve their
+	// own target above.
+	if (type !== 'script' && type !== 'flow' && type !== 'app') {
+		const draftPath = (draft.value as { path?: string } | undefined)?.path
+		if (draftPath) deployedPath = draftPath
+	}
+
 	// Deployed state moved for EVERY branch above (some bypass
 	// deployDraftToWorkspace, which invalidates on its own path) — evict cached
 	// fork comparisons before the fallible draft cleanup below.
 	invalidateWorkspaceComparison(workspace)
 
-	await deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
+	const draftIssue = await clearDraftAfterMutation(workspace, type, path, triggerKind, {
+		preserveLiveDraft: true
+	})
 
 	// Move the chat's mask entry to the deployed path: a draft-only item's
 	// synthetic storage key never exists deployed, so the entry would otherwise
@@ -8027,11 +8081,19 @@ async function deployDraft(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed.${
-				deployNote ? ` ${deployNote}` : ''
-			}`,
+			message: [
+				`Deployed draft ${type} "${path}" to the workspace.`,
+				draftIssue
+					? `The draft could NOT be removed (${draftIssue}), so the item may still show unsaved changes.`
+					: 'Draft removed.',
+				deployNote
+			]
+				.filter(Boolean)
+				.join(' '),
 			type,
 			path,
+			// Where it landed, which a rename staged in the draft moves off `path`.
+			deployed_path: deployedPath,
 			triggerKind
 		},
 		null,
@@ -8132,6 +8194,23 @@ async function deployedItemExists(
 	}
 }
 
+/**
+ * Clear the draft of an item whose deployed state has already changed. A failure
+ * here cannot undo that change, and throwing would report the mutation as not
+ * having happened — to the model, and to the hosts, which hear about one only
+ * from a tool that returned. Reported in the result instead.
+ */
+async function clearDraftAfterMutation(
+	...args: Parameters<typeof deleteGlobalDraft>
+): Promise<string | undefined> {
+	try {
+		await deleteGlobalDraft(...args)
+		return undefined
+	} catch (e) {
+		return e instanceof Error ? e.message : String(e)
+	}
+}
+
 async function deleteWorkspaceItem(
 	args: { type: WorkspaceItemType; path: string; trigger_kind?: TriggerKind },
 	ctx: WriteDraftCtx
@@ -8175,7 +8254,7 @@ async function deleteWorkspaceItem(
 	// are no longer trustworthy (same rule as deploy success). Before the
 	// draft cleanup: a cleanup failure must not leave stale comparisons.
 	invalidateWorkspaceComparison(workspace)
-	await deleteGlobalDraft(workspace, type, path, triggerKind)
+	const draftIssue = await clearDraftAfterMutation(workspace, type, path, triggerKind)
 
 	// Record the deletion in the chat's modified-items mask. In a fork this leaves a
 	// reviewable "removed" diff vs the parent that stays scoped to this chat. Keyed
@@ -8195,7 +8274,11 @@ async function deleteWorkspaceItem(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deleted ${type} "${path}" from the workspace. Any matching draft was also cleared.`,
+			message:
+				`Deleted ${type} "${path}" from the workspace. ` +
+				(draftIssue
+					? `Its draft could NOT be cleared (${draftIssue}), so the path may still list one.`
+					: 'Any matching draft was also cleared.'),
 			type,
 			path,
 			triggerKind

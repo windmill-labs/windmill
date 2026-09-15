@@ -11,6 +11,7 @@ import type { UserDraftItemKind } from '$lib/gen'
 // flow editors, where pulling the filter schemas that module reads views from would make
 // every trigger's save utils eager.
 import {
+	drawerHashFor,
 	pageHref,
 	stripBase,
 	TRIGGER_PAGES,
@@ -62,11 +63,6 @@ async function flushOrRefuse(query: Parameters<typeof UserDraftDbSyncer.flush>[0
 		)
 	}
 }
-
-// How each page addresses a row in its hash. Resources route theirs through an extra
-// segment; every other page names the path directly.
-const drawerHashFor = (pagePath: string, itemPath: string) =>
-	pagePath === RESOURCES_PATH ? `/resource/${itemPath}` : itemPath
 
 /**
  * Deep-link the row whose drawer just opened, so the location says what is on screen — a

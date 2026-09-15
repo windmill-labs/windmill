@@ -1,8 +1,9 @@
 import { get } from 'svelte/store'
+import { SvelteMap } from 'svelte/reactivity'
 import { onDestroy, untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
 import { workspaceStore } from './stores'
-import { readFieldsRecursively } from './utils'
+import { readFieldsRecursively, sendUserToast } from './utils'
 import { UserDraftDbSyncer } from './userDraftDbSyncer.svelte'
 import type { UserDraftItemKind } from './gen'
 
@@ -124,6 +125,87 @@ export type ClearLiveEditorDraftOptions = UserDraftOptions & {
 }
 
 const entries = new Map<string, DraftEntry>()
+// Cells whose last `seed` found no live entry (see `takeSeedMiss`). Bounded by
+// the seeds that missed and not yet been read back, and each entry is one key.
+const seedMisses = new Set<string>()
+// Cells whose last discard removed the item itself (see `takeDraftOnlyDiscard`).
+const draftOnlyDiscards = new Set<string>()
+
+// Nothing reads either set outside a session, so unread markers would accumulate.
+// Capped by dropping the oldest: a marker means something only to the action that
+// immediately follows the write that left it.
+const MAX_WRITE_MARKERS = 64
+function noteMarker(set: Set<string>, key: string): void {
+	set.add(key)
+	while (set.size > MAX_WRITE_MARKERS) {
+		const oldest = set.values().next().value
+		if (oldest === undefined || oldest === key) break
+		set.delete(oldest)
+	}
+}
+/**
+ * What a cell held when its last holder let go, recorded only while a write it
+ * could be newer than is in flight (see `beginDraftSettleWindow`). Outside one a
+ * release is an editor simply closing, and remembering its value would retain a
+ * whole resource — or a variable's decrypted secret — for the tab's lifetime.
+ */
+const releasedValues = new Map<string, unknown[]>()
+/** Keys with a write in flight, by how many are. Reactive: it is also what the
+ * editors disable their Save on. */
+const settleWindows = new SvelteMap<string, number>()
+
+/**
+ * Whether a write is in flight for this cell — in any editor holding it, not just
+ * the one asking. Duplicate tabs and warm sessions mount several editors over one
+ * (workspace, kind, path), so a flag kept per editor serializes nothing: two can
+ * be writing the same item at once, and the older request landing last wins.
+ */
+export function isDraftSaving(
+	itemKind: UserDraftItemKind,
+	path: string | undefined,
+	opts?: UserDraftOptions
+): boolean {
+	if (!path) return false
+	return settleWindows.has(mapKey(resolveWorkspace(opts), itemKind, path))
+}
+
+/**
+ * Open the window in which a release of this cell is worth remembering: the editor
+ * stays editable while its save is in flight, so a tab left then hands the settle
+ * that follows a cell nothing holds any more. Pair with the returned disposer.
+ */
+export function beginDraftSettleWindow(
+	itemKind: UserDraftItemKind,
+	path: string,
+	opts?: UserDraftOptions
+): () => void {
+	const mk = mapKey(resolveWorkspace(opts), itemKind, path)
+	settleWindows.set(mk, (settleWindows.get(mk) ?? 0) + 1)
+	return () => {
+		const left = (settleWindows.get(mk) ?? 0) - 1
+		if (left > 0) {
+			settleWindows.set(mk, left)
+			return
+		}
+		settleWindows.delete(mk)
+		// Nothing is left to read it: the settle it was recorded for is over.
+		releasedValues.delete(mk)
+	}
+}
+/**
+ * Every value the cell was let go of during the window. All of them: an item
+ * reopened and closed again releases a freshly loaded baseline, and keeping only
+ * the last would let it erase the edit before it. Only reads — the window owns
+ * their lifetime, and a second save settling the cell must see what the first saw.
+ */
+function releasedDuringWindow<V>(
+	itemKind: UserDraftItemKind,
+	path: string,
+	opts?: UserDraftOptions
+): V[] {
+	return (releasedValues.get(mapKey(resolveWorkspace(opts), itemKind, path)) ?? []) as V[]
+}
+
 const liveEditorDrafts = new Map<string, LiveEditorDraft>()
 
 /**
@@ -280,6 +362,92 @@ export function draftValuesEqual(a: unknown, b: unknown): boolean {
 	return deepEqual(normalizeDraftForCompare(a), normalizeDraftForCompare(b))
 }
 
+/**
+ * Settle a draft cell after the write of `written` — the value actually sent —
+ * landed. A form stays editable while its request is in flight, so `live` may
+ * hold a newer edit; that is a change on top of the save rather than part of it,
+ * and resetting the cell would swallow it silently. A save that also moved the
+ * item is the exception: the edit cannot follow (a freshly acquired cell reads
+ * only its own default), so the cell is reset rather than left orphaned under a
+ * path the item no longer occupies.
+ */
+export async function settleDraftAfterWrite<V>(
+	itemKind: UserDraftItemKind,
+	written: V,
+	live: V | undefined,
+	fromPath: string,
+	savedPath: string,
+	opts?: UserDraftOptions
+): Promise<void> {
+	// A create has nothing to settle: the blank form's cell is the detached handle
+	// `useMany` hands an empty path, wired to no key, so every request made for one
+	// is addressed to `/drafts/update/<kind>/` and 404s.
+	if (!fromPath) return
+	// Anything this cell held during the write counts, not just what it holds now:
+	// an editor that let go mid-write and was reopened before this ran leaves a
+	// freshly loaded entry standing over the edit it released, and reading only the
+	// live one would take that baseline for "nothing newer" and delete the edit.
+	const newer = (v: V | undefined) => v !== undefined && !draftValuesEqual(v, written)
+	const diverged =
+		newer(live) || releasedDuringWindow<V>(itemKind, fromPath, opts).some((v) => newer(v))
+	if (savedPath === fromPath && diverged) return
+	// The form stays editable across the delete's own request, so a keystroke made
+	// then queues a write behind it: under an unchanged path that write is the
+	// user's and stands, but under a path the item has left it would put the draft
+	// back where no editor is. Suspending that key is what makes one attempt final.
+	const moved = savedPath !== fromPath
+	if (moved) UserDraft.stopSync(itemKind, fromPath, opts)
+	try {
+		// Sent before this resolves, not left on the keystroke debounce: callers report
+		// the write and remount on it, and both read a cell this has to have finished
+		// resolving — including through a frame with a draft store of its own.
+		UserDraft.discard(itemKind, fromPath, written, opts)
+		if (await flushDraftDelete(itemKind, fromPath, opts)) return
+	} finally {
+		if (moved) UserDraft.restartSync(itemKind, fromPath, opts)
+	}
+	if (!moved) return
+	// A conflict or a failed request, which no retry changes: what is left is a draft
+	// at a path nothing is editing. Callers still follow the rename — the item is at
+	// `savedPath`, and leaving them behind would strand the editor too — so this is
+	// the only thing that says the leftover is there.
+	sendUserToast(`Saved, but the draft left at ${fromPath} could not be cleared`, true)
+}
+
+/**
+ * Send whatever this cell has parked on the autosave debounce, now. For a caller
+ * that has to know the cell is resolved before it acts — settling after a write,
+ * before anything reports or remounts on it.
+ */
+export async function flushDraftWrites(
+	itemKind: UserDraftItemKind,
+	path: string,
+	opts?: UserDraftOptions
+): Promise<void> {
+	await UserDraftDbSyncer.flush({ workspace: resolveWorkspace(opts), itemKind, path })
+}
+
+/**
+ * Wait for a queued draft delete to land, reporting whether the draft is gone. A
+ * caller acts on this — a host leaves an editor whose item the discard removed —
+ * so both halves have to hold: the delete is the last thing that landed, and
+ * nothing is queued behind it. The form stays editable after Discard, and a
+ * `flush` only submits the payload it read when it started, so an edit made in
+ * between rides the debouncer and would recreate the draft after the caller left.
+ */
+export async function flushDraftDelete(
+	itemKind: UserDraftItemKind,
+	path: string,
+	opts?: UserDraftOptions
+): Promise<boolean> {
+	const query = { workspace: resolveWorkspace(opts), itemKind, path }
+	await flushDraftWrites(itemKind, path, opts)
+	return (
+		UserDraftDbSyncer.lastLandedWasDelete(query) &&
+		UserDraftDbSyncer.getState(query).state === 'none'
+	)
+}
+
 export type UserDraftHandle<V> = {
 	get draft(): V | undefined
 	set draft(value: V | undefined)
@@ -290,6 +458,10 @@ export const UserDraft = {
 		const ws = resolveWorkspace(opts)
 		if (liveItems?.seed(ws, itemKind, path, value)) return
 		const mk = mapKey(ws, itemKind, path)
+		// The item has a draft again, so it exists again: a marker still standing
+		// (nothing consumed it, because nothing was listening) describes an item this
+		// write replaced, and would send the next editor to touch it away.
+		draftOnlyDiscards.delete(mk)
 		const entry = entries.get(mk)
 		if (entry) {
 			// The reactive effect in `acquireEntry` observes this write
@@ -464,16 +636,77 @@ export const UserDraft = {
 	 * is still needed when a write fans out across components (e.g. an
 	 * editor's `initContent` cascading into the bound value).
 	 *
-	 * No-op if the entry isn't live yet (acquire via `use`/`useMany` first).
+	 * No-op if the entry isn't live yet (acquire via `use`/`useMany` first) —
+	 * recorded for {@link takeSeedMiss}, since the value then reached the server
+	 * without reaching the editor that will show it.
 	 */
-	seed<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
+	seed<V>(
+		itemKind: UserDraftItemKind,
+		path: string,
+		value: V,
+		opts?: UserDraftOptions & {
+			/** This seed carries what the editor just loaded, not a new value — so it
+			 * says nothing about a write that missed the cell before the editor had it,
+			 * and may well be older than one. Such a seed leaves the miss standing. */
+			baseline?: boolean
+		}
+	): void {
 		const ws = resolveWorkspace(opts)
 		if (liveItems?.seed(ws, itemKind, path, value)) return
 		const mk = mapKey(ws, itemKind, path)
+		// A real write gives the item a draft again whether or not an editor is holding
+		// the cell, so it voids a removal recorded for it either way.
+		if (!opts?.baseline) draftOnlyDiscards.delete(mk)
 		const entry = entries.get(mk)
-		if (!entry) return
+		if (!entry) {
+			if (!opts?.baseline) noteMarker(seedMisses, mk)
+			return
+		}
+		if (!opts?.baseline) seedMisses.delete(mk)
 		entry.seedNextWrite = true
 		entry.state.val = snapshotDraftValue(value)
+	},
+
+	/**
+	 * Record that the draft just discarded for this cell was the item's only stored
+	 * form — nothing deployed underneath, so the item is now gone rather than
+	 * reverted. Read once by a consumer showing that item, which has to stop
+	 * showing it. Set at the discard, where the deployed side is known.
+	 */
+	recordDraftOnlyDiscard(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+		noteMarker(draftOnlyDiscards, mapKey(resolveWorkspace(opts), itemKind, path))
+	},
+
+	/**
+	 * The item at this path is there, whatever an earlier discard recorded. Nothing
+	 * consumes a marker outside a session, so one can outlive the item it was about
+	 * — recreated from another tab, another client — and be spent by the next action
+	 * on the item that took its place.
+	 */
+	clearDraftOnlyDiscard(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+		draftOnlyDiscards.delete(mapKey(resolveWorkspace(opts), itemKind, path))
+	},
+
+	/** Whether the last discard for this cell removed the item outright (see
+	 * {@link recordDraftOnlyDiscard}), clearing the record. */
+	takeDraftOnlyDiscard(
+		itemKind: UserDraftItemKind,
+		path: string,
+		opts?: UserDraftOptions
+	): boolean {
+		return draftOnlyDiscards.delete(mapKey(resolveWorkspace(opts), itemKind, path))
+	},
+
+	/**
+	 * Whether the last {@link seed} for this cell found no live entry, clearing the
+	 * record. An editor acquires its cell only once its first load resolves, so a
+	 * seed during that window reaches nothing and the value lands on the server
+	 * alone — a caller showing that editor has to make it re-read. Recorded at the
+	 * seed rather than asked afterwards: by then the editor may have acquired the
+	 * cell, hiding the very miss this reports.
+	 */
+	takeSeedMiss(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): boolean {
+		return seedMisses.delete(mapKey(resolveWorkspace(opts), itemKind, path))
 	},
 
 	/**
@@ -906,6 +1139,10 @@ function acquireEntry(
 					// stays armed: an undefined-seeded cell's initial run lands
 					// here, and page editors rely on it to swallow their load write.)
 					if (entry.seedNextWrite) entry.seedNextWrite = false
+					// Same for a `discard`/`remove` whose fallback equals what the cell
+					// already holds — settling a save that changed nothing does exactly
+					// that — which otherwise leaves the guard armed for the next edit.
+					if (entry.skipNextSync) entry.skipNextSync = false
 					return
 				}
 				lastSerialized = next
@@ -934,6 +1171,8 @@ function acquireEntry(
 				// copy. `untrack` so reactive reads in the predicate (the editor's
 				// post-deploy baseline) don't re-fire the mirror.
 				const atBaseline = untrack(() => val !== undefined && (discardIf?.(val) ?? false))
+				// Same as `save`: a value persisted here means the item exists again.
+				if (val !== undefined && !atBaseline) draftOnlyDiscards.delete(mk)
 				void UserDraftDbSyncer.save({
 					workspace,
 					itemKind,
@@ -963,6 +1202,12 @@ function releaseEntry(mk: string): void {
 	// only here, once, at refcount 0. This is what lets multiple holders (warm
 	// session previews + the nav editor) share the entry and drop in any order.
 	if (entry.count <= 0) {
+		if (settleWindows.has(mk)) {
+			releasedValues.set(mk, [
+				...(releasedValues.get(mk) ?? []),
+				snapshotDraftValue(entry.state.val)
+			])
+		}
 		// The live entry was authoritative while mounted; once gone, drop any
 		// cached write for this key so a later read falls back to the server
 		// rather than a value the editor may have changed in the meantime.
