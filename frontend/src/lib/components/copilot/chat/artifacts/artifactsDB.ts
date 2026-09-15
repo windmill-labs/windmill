@@ -419,36 +419,27 @@ export async function deleteArtifact(id: string): Promise<void> {
 	}
 }
 
-/** Deletes the session's artifacts not in `keepItems` (with their versions) and the
- * versions of the others not in `keepVersions`, for a restore that found artifacts an
- * earlier one had staged and the backup no longer has. */
+/** Deletes these artifacts of the session (with their versions) and these versions: what
+ * an earlier restore staged for it and the backup no longer has. */
 export async function pruneSessionArtifacts(
 	sessionId: string,
-	keepItems: Set<string>,
-	keepVersions: Set<string>,
-	email: string,
-	notAfter: number
+	itemIds: Set<string>,
+	versionKeys: Set<string>,
+	email: string
 ): Promise<void> {
+	if (itemIds.size === 0 && versionKeys.size === 0) return
 	const db = await getDB()
 	if (!db || db.name !== scopedKeyFor(ARTIFACTS_DB, email)) return
 	try {
 		const tx = db.transaction(['items', 'versions'], 'readwrite')
 		const items = tx.objectStore('items')
 		const versions = tx.objectStore('versions')
-		// Nothing newer than the backup this works from goes: without a cross-tab lock,
-		// another restore may have landed a newer backup's pieces meanwhile.
-		for (const item of await items.index('by-session').getAll(sessionId)) {
-			if (!keepItems.has(item.id) && item.updatedAt <= notAfter) {
-				await items.delete(item.id)
-				await deleteVersionsIn(versions, item.id)
-				continue
-			}
-			for (const version of await versions.index('by-artifact').getAll(item.id)) {
-				if (!keepVersions.has(version.key) && version.savedAt <= notAfter) {
-					await versions.delete(version.key)
-				}
-			}
+		for (const id of await items.index('by-session').getAllKeys(sessionId)) {
+			if (!itemIds.has(String(id))) continue
+			await items.delete(id)
+			await deleteVersionsIn(versions, String(id))
 		}
+		for (const key of versionKeys) await versions.delete(key)
 		await tx.done
 	} catch (err) {
 		console.error('Could not prune artifacts for session', err)

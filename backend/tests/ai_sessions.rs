@@ -574,6 +574,50 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         head
     );
 
+    // A push carrying no head for a session that has none in the storage (another device
+    // removed the backup) lands but lists nothing and says so, until the session is pushed
+    // whole again.
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s6", "chats": [{ "id": "c", "record": { "id": "c" } }] }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let answer: Value = resp.json().await?;
+    assert_eq!(answer["results"][0]["needs_head"], true);
+    assert!(list(&base, "SECRET_TOKEN").await?["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|s| s["id"] != "s6"));
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s6", "head": { "id": "s6", "workspace_id": "test-workspace", "createdAt": 6, "chatId": "c" } }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let answer: Value = resp.json().await?;
+    assert!(answer["results"][0]["needs_head"].is_null());
+    assert_eq!(
+        list(&base, "SECRET_TOKEN").await?["sessions"][0]["id"],
+        "s6"
+    );
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "removed": ["s6"] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+
     // Removal empties both prefixes.
     let resp = push(
         &base,

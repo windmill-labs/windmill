@@ -819,6 +819,10 @@ struct PushResult {
     id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    /// The pieces landed, but the session has no head in the storage (another device
+    /// removed the backup): it is not listed until pushed whole, head included.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    needs_head: bool,
 }
 
 #[derive(Serialize)]
@@ -901,7 +905,8 @@ fn push_payload_bytes(req: &PushRequest) -> usize {
 
 /// Objects land before the head that makes them visible, and deletes run last, so a push
 /// cut short never leaves a listed session pointing at chats that are not there.
-async fn push_session(backend: &Backend, s: &PushedSession) -> Result<usize> {
+/// Bytes written, and whether the session is left without a head (see `PushResult`).
+async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bool)> {
     let mut written = 0;
     written += backend
         .put_all(
@@ -953,15 +958,26 @@ async fn push_session(backend: &Backend, s: &PushedSession) -> Result<usize> {
                 .collect(),
         )
         .await?;
-    // Last, and by the last part only, so a session is listed once its whole entry landed.
-    if !s.partial {
-        backend
-            .store
-            .put(&backend.index_key(&s.id), PutPayload::new())
-            .await
-            .map_err(object_store_error_to_error)?;
+    if s.partial {
+        return Ok((written, false));
     }
-    Ok(written)
+    // A push carrying no head rides on the one already there; another device may have
+    // removed the backup since, and a marker over a headless session would list one that
+    // pulls as absent.
+    if s.head.is_none() {
+        match backend.store.head(&backend.head_key(&s.id)).await {
+            Ok(_) => {}
+            Err(ObjectStoreError::NotFound { .. }) => return Ok((written, true)),
+            Err(e) => return Err(object_store_error_to_error(e)),
+        }
+    }
+    // Last, and by the last part only, so a session is listed once its whole entry landed.
+    backend
+        .store
+        .put(&backend.index_key(&s.id), PutPayload::new())
+        .await
+        .map_err(object_store_error_to_error)?;
+    Ok((written, false))
 }
 
 /// The marker goes first so a removal cut short leaves nothing listed, then the head so
@@ -1014,29 +1030,32 @@ async fn push(
     // the later ones are not written, or the head would list a session missing a part.
     let mut failed: std::collections::HashSet<&str> = Default::default();
     for s in &req.sessions {
-        let error = if failed.contains(s.id.as_str()) {
-            Some("an earlier part of this session in the push failed".to_string())
+        let (error, needs_head) = if failed.contains(s.id.as_str()) {
+            (
+                Some("an earlier part of this session in the push failed".to_string()),
+                false,
+            )
         } else {
             match push_session(&backend, s).await {
-                Ok(n) => {
+                Ok((n, needs_head)) => {
                     written += n;
-                    None
+                    (None, needs_head)
                 }
                 Err(e) => {
                     tracing::warn!("AI session backup push failed for {} in {w_id}: {e}", s.id);
                     failed.insert(&s.id);
-                    Some(e.to_string())
+                    (Some(e.to_string()), false)
                 }
             }
         };
-        results.push(PushResult { id: s.id.clone(), error });
+        results.push(PushResult { id: s.id.clone(), error, needs_head });
     }
     for sid in &req.removed {
         let error = remove_session(&backend, sid).await.err().map(|e| {
             tracing::warn!("AI session backup removal failed for {sid} in {w_id}: {e}");
             e.to_string()
         });
-        results.push(PushResult { id: sid.clone(), error });
+        results.push(PushResult { id: sid.clone(), error, needs_head: false });
     }
     // Overwrites and deletes make this an over-count; the periodic recount the quota check
     // schedules once usage is stale settles it.

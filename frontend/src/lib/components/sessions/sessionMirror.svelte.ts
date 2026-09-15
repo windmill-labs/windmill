@@ -404,6 +404,7 @@ function foreignRows(
 			row.ws === ws &&
 			!row.stale &&
 			!row.removed &&
+			!row.staging &&
 			(row.storageId !== storageId || (row.generation ?? 0) !== generation)
 	)
 }
@@ -494,6 +495,9 @@ interface WorkspaceOutcome {
 	}[]
 	/** Marks with nothing behind them (an unsent draft, a session gone from the store). */
 	dropped: { id: string; v: number }[]
+	/** Sessions the server holds no head of any more (another device removed the backup):
+	 * their rows go stale, so the next flush sends them whole. */
+	needsWhole: string[]
 	/** Removal marks the server carried out. */
 	removedDone: { id: string; key?: string }[]
 	/** Some session the server could not store. */
@@ -517,6 +521,7 @@ async function pushWorkspace(
 		status: 'ok',
 		settled: [],
 		dropped: [],
+		needsWhole: [],
 		removedDone: [],
 		anyFailed: false,
 		unavailable: false
@@ -540,6 +545,7 @@ async function pushWorkspace(
 		}
 	>()
 	const failed = new Set<string>()
+	const headless = new Set<string>()
 	let current: PushBody | undefined
 	let size = 0
 	let ops = 0
@@ -578,6 +584,11 @@ async function pushWorkspace(
 			if (r.error) {
 				console.warn(`Session backup of ${r.id} failed: ${r.error}`)
 				errors.add(r.id)
+			} else if (r.needs_head) {
+				// The pieces landed but the session has no head there any more: not a
+				// failure to back off from, but nothing to settle either.
+				headless.add(r.id)
+				out.needsWhole.push(r.id)
 			}
 		}
 		for (const entry of body.sessions) {
@@ -641,7 +652,7 @@ async function pushWorkspace(
 	const finish = (status: SendStatus): WorkspaceOutcome => {
 		out.status = status
 		for (const [id, a] of attempted) {
-			if (a.complete && a.parts === 0 && !failed.has(id)) {
+			if (a.complete && a.parts === 0 && !failed.has(id) && !headless.has(id)) {
 				out.settled.push({
 					id,
 					v: a.v,
@@ -886,6 +897,15 @@ async function flush(): Promise<void> {
 				}
 			}
 			droppedDirty.push(...out.dropped.map((d) => d.id))
+			// The server holds no head of these any more (another device removed the backup):
+			// stale rows send them whole next.
+			const headless = out.needsWhole
+				.map((id) => syncRows.get(id))
+				.filter((row): row is MirrorSyncState => row !== undefined && !row.stale)
+			if (headless.length > 0) {
+				await markStale(headless, email)
+				leftForNext = true
+			}
 			for (const r of out.removedDone) {
 				// The row describes this workspace's copy only; a session that moved on keeps
 				// the row its new workspace wrote.
@@ -1025,15 +1045,47 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 	let restored = 0
 	// A session that did not fit one answer whole comes in pages, kept here until the last
 	// one: importing a page alone would leave a session the next restore takes for whole.
+	type Pieces = {
+		chats: Set<string>
+		images: Set<string>
+		items: Set<string>
+		versions: Set<string>
+	}
 	type Staged = {
 		session: Session
 		sync: MirrorSyncState
-		artifactIds: string[]
-		versionKeys: string[]
+		/** Everything the pages so far wrote for the session. */
+		pieces: Pieces
 		/** The listing fingerprint the pages so far were answered with. */
 		listing?: string
 	}
 	const staged = new Map<string, Staged>()
+	const noPieces = (): Pieces => ({
+		chats: new Set(),
+		images: new Set(),
+		items: new Set(),
+		versions: new Set()
+	})
+	const union = (a: Pieces, b: Pieces): Pieces => ({
+		chats: new Set([...a.chats, ...b.chats]),
+		images: new Set([...a.images, ...b.images]),
+		items: new Set([...a.items, ...b.items]),
+		versions: new Set([...a.versions, ...b.versions])
+	})
+	// What earlier attempts (a restore cut short, a start over) wrote for a session that has
+	// no record yet, from their staging rows: the pieces of it the backup no longer has go
+	// before the record lands, or a later flush would push them back. Ids, never clocks.
+	const earlierStaging = new Map<string, Pieces>()
+	for (const row of rows) {
+		if (row.staging) {
+			earlierStaging.set(row.id, {
+				chats: new Set(row.staging.chats),
+				images: new Set(row.staging.images),
+				items: new Set(row.staging.items),
+				versions: new Set(row.staging.versions)
+			})
+		}
+	}
 	// A session whose backup moved between two of its pages starts over, a few times.
 	const restarts = new Map<string, number>()
 	const MAX_RESTARTS = 3
@@ -1077,6 +1129,7 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 			if (earlier?.listing !== undefined && b.listing !== earlier.listing) {
 				const n = (restarts.get(b.id) ?? 0) + 1
 				restarts.set(b.id, n)
+				earlierStaging.set(b.id, union(earlierStaging.get(b.id) ?? noPieces(), earlier.pieces))
 				if (n < MAX_RESTARTS) ids.unshift(b.id)
 				else console.warn(`Session backup ${b.id} kept changing while restoring; left for later`)
 				continue
@@ -1090,18 +1143,12 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 				Object.keys(earlier?.sync.chats ?? {})
 			)
 			if (!u) continue
-			// Written over whatever is there: the session is absent locally, so its pieces
-			// can only be what an earlier restore staged before it was cut short, and the
-			// backup may have moved on since.
-			try {
-				if (!(await importArtifacts(u.artifacts.items, u.artifacts.versions, email, true))) continue
-				if (!(await importStoredChats(u.chats, u.images, email, true))) continue
-			} catch (e) {
-				console.error(`Could not restore session ${u.session.id}`, e)
-				continue
+			const written: Pieces = {
+				chats: new Set(u.chats.map((c) => c.id)),
+				images: new Set(u.images.map((i) => i.id)),
+				items: new Set(u.artifacts.items.map((i) => i.id)),
+				versions: new Set(u.artifacts.versions.map((v) => v.key))
 			}
-			const artifactIds = u.artifacts.items.map((i) => i.id)
-			const versionKeys = u.artifacts.versions.map((v) => v.key)
 			const merged: Staged = earlier
 				? {
 						session: {
@@ -1117,11 +1164,41 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 							images: { ...earlier.sync.images, ...u.sync.images },
 							artifacts: b.artifacts !== undefined ? u.sync.artifacts : earlier.sync.artifacts
 						},
-						artifactIds: b.artifacts !== undefined ? artifactIds : earlier.artifactIds,
-						versionKeys: b.artifacts !== undefined ? versionKeys : earlier.versionKeys
+						pieces: union(earlier.pieces, written)
 					}
-				: { session: u.session, sync: u.sync, artifactIds, versionKeys }
+				: { session: u.session, sync: u.sync, pieces: written }
 			merged.listing = b.listing
+			// The staging row goes before the pieces, and outlives a restore cut short: the
+			// next one reads it to know what to delete. The record replaces it.
+			const stagingPieces = union(earlierStaging.get(b.id) ?? noPieces(), merged.pieces)
+			await writeSync(
+				[
+					{
+						id: b.id,
+						ws,
+						head: '',
+						chats: {},
+						images: {},
+						staging: {
+							chats: [...stagingPieces.chats],
+							images: [...stagingPieces.images],
+							items: [...stagingPieces.items],
+							versions: [...stagingPieces.versions]
+						}
+					}
+				],
+				email
+			)
+			// Written over whatever is there: the session is absent locally, so its pieces
+			// can only be what an earlier restore staged before it was cut short, and the
+			// backup may have moved on since.
+			try {
+				if (!(await importArtifacts(u.artifacts.items, u.artifacts.versions, email, true))) continue
+				if (!(await importStoredChats(u.chats, u.images, email, true))) continue
+			} catch (e) {
+				console.error(`Could not restore session ${u.session.id}`, e)
+				continue
+			}
 			if (b.next) {
 				staged.set(b.id, merged)
 				resumes.push(b.next)
@@ -1130,25 +1207,24 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 			ready.push(merged)
 		}
 		if (ready.length === 0) continue
-		// Pieces of the session the backup no longer has (staged by a restore cut short,
-		// before the backup moved on) go before the record lands, or a later flush would
-		// push them back.
 		for (const r of ready) {
-			const notAfter = updatedAt.get(r.session.id) ?? Date.now()
+			const prior = earlierStaging.get(r.session.id)
+			if (!prior) continue
+			const gone = (was: Set<string>, now: Set<string>) =>
+				new Set([...was].filter((id) => !now.has(id)))
 			await pruneSessionChats(
 				r.session.id,
-				new Set(Object.keys(r.sync.chats)),
-				new Set(Object.keys(r.sync.images)),
-				email,
-				notAfter
+				gone(prior.chats, r.pieces.chats),
+				gone(prior.images, r.pieces.images),
+				email
 			)
 			await pruneSessionArtifacts(
 				r.session.id,
-				new Set(r.artifactIds),
-				new Set(r.versionKeys),
-				email,
-				notAfter
+				gone(prior.items, r.pieces.items),
+				gone(prior.versions, r.pieces.versions),
+				email
 			)
+			earlierStaging.delete(r.session.id)
 		}
 		const imported = new Set(
 			await importSessions(

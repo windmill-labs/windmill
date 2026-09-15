@@ -13338,6 +13338,9 @@ paths:
                           type: string
                         error:
                           type: string
+                        needs_head:
+                          type: boolean
+                          description: the pieces landed but the session has no head in the storage (its backup was removed); it is not listed until pushed whole, head included
 
   /w/{workspace}/ai/shared_artifacts/share:
     post:

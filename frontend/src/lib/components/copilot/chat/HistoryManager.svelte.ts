@@ -267,35 +267,29 @@ export async function importStoredChats(
 	return true
 }
 
-/** Deletes the session's chats not in `keepChats`, and the images not in `keepImages`, for
- * a restore that found pieces of the session an earlier one had staged and the backup no
- * longer has. */
+/** Deletes these chats of the session (with their images) and these images: what an earlier
+ * restore staged for it and the backup no longer has. */
 export async function pruneSessionChats(
 	sessionId: string,
-	keepChats: Set<string>,
-	keepImages: Set<string>,
-	email: string,
-	notAfter: number
+	chats: Set<string>,
+	images: Set<string>,
+	email: string
 ): Promise<void> {
+	if (chats.size === 0 && images.size === 0) return
 	const db = await backupDb(email)
 	if (!db) return
 	const tx = db.transaction(['chats', 'images'], 'readwrite')
 	const chatStore = tx.objectStore('chats')
 	const imageStore = tx.objectStore('images')
-	// Nothing newer than the backup this works from goes: without a cross-tab lock, another
-	// restore may have landed a newer backup's pieces meanwhile.
-	for (const chat of await chatStore.index('by-session').getAll(sessionId)) {
-		const keep = keepChats.has(chat.id) || chat.lastModified > notAfter
-		if (!keep) await chatStore.delete(chat.id)
-		const images = await imageStore
+	for (const chatId of await chatStore.index('by-session').getAllKeys(sessionId)) {
+		if (!chats.has(String(chatId))) continue
+		await chatStore.delete(chatId)
+		const keys = await imageStore
 			.index('by-chat')
-			.getAll(IDBKeyRange.bound([chat.id, -Infinity], [chat.id, Infinity]))
-		for (const image of images) {
-			if (!keep || (!keepImages.has(image.id) && image.savedAt <= notAfter)) {
-				await imageStore.delete(image.id)
-			}
-		}
+			.getAllKeys(IDBKeyRange.bound([chatId, -Infinity], [chatId, Infinity]))
+		for (const key of keys) await imageStore.delete(key)
 	}
+	for (const id of images) await imageStore.delete(id)
 	await tx.done
 }
 

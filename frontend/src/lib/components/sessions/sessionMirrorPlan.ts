@@ -39,6 +39,9 @@ export interface MirrorSyncState {
 	/** Bumps of the dirty mark that localStorage refused, recorded here instead: the mark's
 	 * counter plus this is what a push retires, and every row write keeps it. */
 	extraV?: number
+	/** A restore in progress (or cut short): the pieces it wrote for a session that has no
+	 * record yet, so a later restore deletes the ones the backup no longer has. */
+	staging?: { chats: string[]; images: string[]; items: string[]; versions: string[] }
 }
 
 /**

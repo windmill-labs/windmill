@@ -527,6 +527,47 @@ describe('sessionMirror flush', () => {
 		expect(await pendingDirty()).toEqual(['gb'])
 	})
 
+	it('sends a session whole again once the server says its head is gone', async () => {
+		const s: Session = {
+			id: 'sh',
+			name: 'session-1',
+			createdAt: 1,
+			workspace_id: 'ws',
+			chatId: 'c1'
+		}
+		sessionState.sessions = [s]
+		await putSession(s)
+		const hm = new HistoryManager()
+		await hm.init()
+		hm.setSessionId('sh')
+		hm.setCurrentChatId('c1')
+		await hm.saveChat(
+			[{ role: 'user', content: 'a' } as never],
+			[{ role: 'user', content: 'a' } as never]
+		)
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sh' }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(1)
+
+		// Another device removed the backup; the next chat-only push finds no head there.
+		hm.setCurrentChatId('c2')
+		await hm.saveChat(
+			[{ role: 'user', content: 'ab' } as never],
+			[{ role: 'user', content: 'ab' } as never]
+		)
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sh', needs_head: true }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(pushMock.mock.calls[1][0].requestBody.sessions[0].head).toBeUndefined()
+		expect(await pendingDirty()).toEqual(['sh'])
+		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sh' }] })
+		await __flushForTesting()
+		expect(pushMock).toHaveBeenCalledTimes(3)
+		expect(pushMock.mock.calls[2][0].requestBody.sessions[0].head).toBeDefined()
+		expect(await pendingDirty()).toEqual([])
+		hm.close()
+	})
+
 	it('holds the rest of a session back once the server refused a part of it', async () => {
 		await splitSession('sf')
 		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'sf', error: 'boom' }] })
@@ -775,7 +816,7 @@ describe('sessionMirror restore', () => {
 		expect((await readStoredChat('c9', EMAIL))?.title).toBe('newer')
 	})
 
-	it('never writes an older record over a newer one, nor prunes what is newer than the backup', async () => {
+	it('never writes an older record over a newer one, and prunes only what it is told', async () => {
 		const { importStoredChats, pruneSessionChats } = await import(
 			'../copilot/chat/HistoryManager.svelte'
 		)
@@ -790,8 +831,8 @@ describe('sessionMirror restore', () => {
 			EMAIL,
 			true
 		)
-		// A prune from a backup of time 25 leaves the chat written after it alone.
-		await pruneSessionChats('s9', new Set(), new Set(), EMAIL, 25)
+		// A prune names what goes; nothing else of the session is touched.
+		await pruneSessionChats('s9', new Set(['c9']), new Set(), EMAIL)
 		expect(await readStoredChat('c9', EMAIL)).toBeUndefined()
 		expect((await readStoredChat('c9b', EMAIL))?.id).toBe('c9b')
 	})

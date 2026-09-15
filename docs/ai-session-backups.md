@@ -120,7 +120,9 @@ hide chats a newer device wrote. Two devices continuing the same chat still coll
 
 Restore brings back only sessions the browser does not have (`importSessions` is write-if-absent,
 and skips ids the user deleted in this page) and never overwrites or deletes a local one from
-remote state. Only a user-initiated `deleteSession` removes the backup; the workspace-lifecycle
+remote state. Only a user-initiated `deleteSession` removes the backup; a push from another
+device that carries no head (its record did not change) then lands its pieces but is told
+`needs_head` and lists nothing, and that device's next flush sends the session whole; the workspace-lifecycle
 removals (`reconcileSessionsLifecycle`, `deleteSessionsForWorkspace`) leave it, so a session
 dropped by a wrong reconcile comes back on the next restore. Objects of deleted workspaces stay
 in the bucket. A session moved to another workspace is pushed whole into the new one, and once
@@ -180,13 +182,14 @@ progress) and names where the next picks up (`next`, a cursor the browser sends 
 `resume` with that session alone). The browser writes each page's pieces as it arrives, over whatever
 an earlier restore cut short had staged (the session is absent locally, so its pieces have no
 local edits to keep, and the backup may have moved on), and the record, which is what makes
-the session visible, only with the last page, after deleting the session's local pieces the
-backup no longer has (staged before it moved on: chats, images, artifacts and their
-versions); a restore holds the user's tab lock while it runs, so two tabs cannot each write
-the same absent session's pieces over the other's; where Web Locks do not exist a page whose
-session another tab imported meanwhile is dropped, a restore never writes an older record
-over a newer one, and it prunes nothing newer than the backup it works from, so the worst
-two lockless tabs can do to each other is leave a piece the other would have pruned; between pages it holds nothing but the sync
+the session visible, only with the last page. A restore in progress keeps a staging row for
+the session (the ids of every chat, image, artifact and version it wrote), which outlives it
+if it is cut short; the next restore deletes, before the record lands, the staged pieces the
+backup no longer has, by id and never by clock, or a later flush would push them back. A
+restore holds the user's tab lock while it runs, so two tabs cannot each write the same absent
+session's pieces over the other's; where Web Locks do not exist a page whose session another
+tab imported meanwhile is dropped, and a restore never writes an older record over a newer
+one; between pages it holds nothing but the sync
 row being assembled, whose chats also admit the images of a later page. Every page carries a
 fingerprint of the session's listing (`listing`), taken before anything of the page is
 listed or read, so an object landing after it is in the next page's; a session whose
