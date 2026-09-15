@@ -87,7 +87,8 @@ async fn rotate(base: &str, key: &str) -> anyhow::Result<()> {
 }
 
 /// The user's prefix on disk, `windmill_ai_sessions/{w_id}/g{generation}/{email hash}`,
-/// under whichever generation is current.
+/// under the newest generation: deleting an older generation's objects leaves its
+/// directories behind, and `read_dir` order differs across filesystems.
 fn user_root(storage_dir: &std::path::Path, email: &str) -> std::path::PathBuf {
     let workspace = storage_dir.join("windmill_ai_sessions/test-workspace");
     let hash = calculate_hash(email);
@@ -96,8 +97,18 @@ fn user_root(storage_dir: &std::path::Path, email: &str) -> std::path::PathBuf {
         .into_iter()
         .flatten()
         .flatten()
-        .map(|entry| entry.path().join(&hash))
-        .find(|path| path.exists())
+        .filter_map(|entry| {
+            let generation: i64 = entry
+                .file_name()
+                .to_str()?
+                .strip_prefix('g')?
+                .parse()
+                .ok()?;
+            Some((generation, entry.path().join(&hash)))
+        })
+        .filter(|(_, path)| path.exists())
+        .max_by_key(|(generation, _)| *generation)
+        .map(|(_, path)| path)
         .expect("the user has backups under the current key")
 }
 
@@ -941,6 +952,96 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         &base,
         "SECRET_TOKEN",
         json!({ "owner": "test@windmill.dev", "removed": ["s9"] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+
+    // An incremental part changing more than one object unlists the session before its
+    // writes, so one write failing after another landed leaves it absent rather than listed
+    // as a mix of old and new pieces. A directory planted at `artifacts.json` fails that write.
+    let s10_head =
+        json!({ "id": "s10", "workspace_id": "test-workspace", "createdAt": 10, "chatId": "c1" });
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s10", "whole": true, "head": s10_head, "chats": s9_chats(&["c1"]), "artifacts": { "items": ["a1"] } }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let s10_dir = user_root(storage_dir.path(), "test@windmill.dev").join("sessions/s10");
+    let artifacts_path = s10_dir.join("artifacts.json");
+    std::fs::remove_file(&artifacts_path)?;
+    std::fs::create_dir(&artifacts_path)?;
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s10", "chats": s9_chats(&["c2"]), "artifacts": { "items": ["a2"] } }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let answer: Value = resp.json().await?;
+    assert!(
+        answer["results"][0]["error"].is_string(),
+        "the artifacts write must fail: {answer}"
+    );
+    assert!(answer["results"][0]["needs_whole"].is_null());
+    assert!(
+        s10_dir.join("chats/c2.json").is_file(),
+        "the chat landed before the artifacts failed"
+    );
+    let s10_listed = |listing: Value| {
+        listing["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["id"] == "s10")
+    };
+    assert!(!s10_listed(list(&base, "SECRET_TOKEN").await?));
+    assert_eq!(
+        pull(&base, "SECRET_TOKEN", &["s10"]).await?["sessions"],
+        json!([])
+    );
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s10", "chats": s9_chats(&["c3"]) }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let answer: Value = resp.json().await?;
+    assert_eq!(answer["results"][0]["needs_whole"], true);
+    assert!(!s10_listed(list(&base, "SECRET_TOKEN").await?));
+    std::fs::remove_dir(&artifacts_path)?;
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s10", "whole": true, "head": s10_head, "chats": s9_chats(&["c1", "c2", "c3"]), "artifacts": { "items": ["a2"] } }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    assert!(s10_listed(list(&base, "SECRET_TOKEN").await?));
+    let pulled = pull(&base, "SECRET_TOKEN", &["s10"]).await?;
+    assert_eq!(
+        pulled["sessions"][0]["artifacts"],
+        json!({ "items": ["a2"] })
+    );
+    assert_eq!(pulled_chats(pulled), vec!["c1", "c2", "c3"]);
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "removed": ["s10"] }),
     )
     .await?;
     assert_eq!(resp.status(), 200);
