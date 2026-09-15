@@ -967,6 +967,77 @@ describe('sessionMirror restore', () => {
 		expect(sessionState.sessions[0].workspace_id).toBe('ws2')
 	})
 
+	it('checks a family member whose backups were off when the restore started', async () => {
+		// The other workspace comes on (and gets the moved session) between the family's
+		// listings and the pull: the listing taken again before the records land covers it.
+		let ws2Listings = 0
+		listMock.mockImplementation(async ({ workspace }: { workspace: string }) => {
+			if (workspace === 'ws') {
+				return {
+					enabled: true,
+					sessions: [{ id: 's9', updated_at: '2026-09-14T00:00:00Z', epoch: 0 }]
+				}
+			}
+			ws2Listings += 1
+			return ws2Listings === 1
+				? { enabled: false, sessions: [] }
+				: {
+						enabled: true,
+						sessions: [{ id: 's9', updated_at: '2026-09-14T00:00:00Z', epoch: 1 }]
+					}
+		})
+		pullMock.mockImplementation(async ({ workspace }: { workspace: string }) => ({
+			enabled: true,
+			sessions: [{ ...backup, head: { ...backup.head, workspace_id: workspace, moves: 1 } }],
+			deferred: []
+		}))
+		usersWorkspaceStore.set({
+			email: EMAIL,
+			workspaces: [
+				{ id: 'ws', name: 'ws', username: 'u' },
+				{ id: 'ws2', name: 'ws2', username: 'u', parent_workspace_id: 'ws' }
+			]
+		} as never)
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		expect(sessionState.sessions).toEqual([])
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s9']))
+		expect(sessionState.sessions[0].workspace_id).toBe('ws2')
+	})
+
+	it('lists a family of one once, whatever it restores', async () => {
+		listMock.mockResolvedValue({
+			enabled: true,
+			sessions: [
+				{ id: 's9', updated_at: '2026-09-14T00:00:00Z', epoch: 0 },
+				{ id: 's8', updated_at: '2026-09-13T00:00:00Z', epoch: 0 }
+			]
+		})
+		pullMock.mockImplementation(async ({ requestBody }: { requestBody: { ids: string[] } }) => ({
+			enabled: true,
+			sessions: requestBody.ids.map((id) => ({
+				...backup,
+				id,
+				head: { ...backup.head, id },
+				chats: backup.chats.map((c) => ({
+					...c,
+					id: `${c.id}-${id}`,
+					record: { ...c.record, id: `${c.id}-${id}`, sessionId: id }
+				}))
+			})),
+			deferred: []
+		}))
+		usersWorkspaceStore.set({ email: EMAIL, workspaces: [] } as never)
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		await vi.waitFor(() =>
+			expect(sessionState.sessions.map((s) => s.id).sort()).toEqual(['s8', 's9'])
+		)
+		expect(listMock).toHaveBeenCalledTimes(1)
+	})
+
 	it('restores nothing of a family one of whose workspaces could not be listed, and tries again', async () => {
 		listMock
 			.mockImplementationOnce(async () => ({

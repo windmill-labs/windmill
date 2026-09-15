@@ -1119,7 +1119,7 @@ async function listWorkspace(ws: string, email: string): Promise<BackupListing |
 		wsState.set(ws, 'off')
 		return 'off'
 	}
-	if (!wsState.has(ws)) wsState.set(ws, 'on')
+	if (wsState.get(ws) !== 'refused') wsState.set(ws, 'on')
 	const foreign =
 		listing.storage_id === undefined
 			? []
@@ -1144,13 +1144,13 @@ async function listWorkspace(ws: string, email: string): Promise<BackupListing |
  * of the same count; the other is left where it is. A family one of whose workspaces could
  * not be listed is not restored at all this time, or the copy that lists could be the stale
  * one; the next page load or workspace switch tries again. */
-async function restoreFamily(family: string[], email: string): Promise<void> {
+async function restoreFamily(family: string[], todo: string[], email: string): Promise<void> {
 	const listings = new Map<string, BackupListing>()
-	for (const ws of family) {
+	for (const ws of todo) {
 		if (getCurrentUserEmail() !== email) return
 		const listing = await listWorkspace(ws, email)
 		if (listing === 'failed') {
-			for (const w of family) restoredWorkspaces.delete(w)
+			for (const w of todo) restoredWorkspaces.delete(w)
 			return
 		}
 		if (listing !== 'off') listings.set(ws, listing)
@@ -1165,13 +1165,16 @@ async function restoreFamily(family: string[], email: string): Promise<void> {
 			}
 		}
 	}
-	// A move landing between the listings and a pull (another device pushing the session
-	// into a workspace listed before it held it) would make the copy about to be imported
-	// the stale one: the family is listed again just before a record lands, and a session
-	// a later copy of which showed up elsewhere is left, with the family, for next time.
+	// A move landing between the listings and the pulls (another device pushing the session
+	// into a workspace listed before it held it, or one whose backups were off then) would
+	// make a copy about to be imported the stale one: the whole family is listed again once
+	// a workspace's pulls are done and its records are about to land, and a session a later
+	// copy of which showed up elsewhere is left, with the family, for next time. A family of
+	// one has nowhere else for a copy to show up.
 	const verify = async (ids: string[]): Promise<Set<string>> => {
 		const superseded = new Set<string>()
-		for (const w of listings.keys()) {
+		if (family.length < 2) return superseded
+		for (const w of family) {
 			const listing = await listWorkspace(w, email)
 			if (listing === 'failed') {
 				for (const id of ids) superseded.add(id)
@@ -1185,7 +1188,7 @@ async function restoreFamily(family: string[], email: string): Promise<void> {
 				if (s.epoch > cur.epoch || (s.epoch === cur.epoch && at > cur.at)) superseded.add(s.id)
 			}
 		}
-		if (superseded.size > 0) for (const w of family) restoredWorkspaces.delete(w)
+		if (superseded.size > 0) for (const w of todo) restoredWorkspaces.delete(w)
 		return superseded
 	}
 	for (const [ws, listing] of listings) {
@@ -1215,7 +1218,7 @@ async function restoreWorkspace(
 		.slice(0, RESTORE_MAX)
 	const updatedAt = new Map<string, number>(candidates.map((s) => [s.id, Date.parse(s.updated_at)]))
 	let ids = candidates.map((s) => s.id)
-	let restored = 0
+	const toImport: Staged[] = []
 	// A session that did not fit one answer whole comes in pages, kept here until the last
 	// one: importing a page alone would leave a session the next restore takes for whole.
 	type Pieces = {
@@ -1415,23 +1418,26 @@ async function restoreWorkspace(
 			}
 			pruned.push(r)
 		}
-		if (pruned.length === 0) continue
-		const superseded = await verify(pruned.map((r) => r.session.id))
-		const current = pruned.filter((r) => !superseded.has(r.session.id))
-		if (current.length === 0) continue
-		const imported = new Set(
-			await importSessions(
-				current.map((r) => r.session),
-				email
-			)
-		)
-		await writeSync(
-			current.filter((r) => imported.has(r.session.id)).map((r) => r.sync),
+		toImport.push(...pruned)
+	}
+	// The records land together once every pull is done, so the family is listed again
+	// once per workspace rather than per answer; the pieces are in place either way, and a
+	// restore cut short before this leaves them staged for the next.
+	if (toImport.length === 0) return
+	const superseded = await verify(toImport.map((r) => r.session.id))
+	const current = toImport.filter((r) => !superseded.has(r.session.id))
+	if (current.length === 0) return
+	const imported = new Set(
+		await importSessions(
+			current.map((r) => r.session),
 			email
 		)
-		restored += imported.size
-	}
-	if (restored > 0) logFeatureUsage('ai_session', 'restored', { value: restored })
+	)
+	await writeSync(
+		current.filter((r) => imported.has(r.session.id)).map((r) => r.sync),
+		email
+	)
+	if (imported.size > 0) logFeatureUsage('ai_session', 'restored', { value: imported.size })
 }
 
 /**
@@ -1452,10 +1458,10 @@ export function restoreSessionBackups(currentWorkspace: string): void {
 	const root = workspaceRootId(currentWorkspace, all) ?? currentWorkspace
 	const family = new Set<string>([currentWorkspace])
 	for (const w of all) if ((workspaceRootId(w.id, all) ?? w.id) === root) family.add(w.id)
-	const todo = [...family].filter((ws) => !restoredWorkspaces.has(ws) && wsState.get(ws) !== 'off')
+	const todo = [...family].filter((ws) => !restoredWorkspaces.has(ws))
 	for (const ws of todo) restoredWorkspaces.add(ws)
 	if (todo.length > 0) {
-		void enqueue(() => withUserLock(email, () => restoreFamily(todo, email), true))
+		void enqueue(() => withUserLock(email, () => restoreFamily([...family], todo, email), true))
 	}
 }
 
