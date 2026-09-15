@@ -159,8 +159,8 @@ const outOfDate = {
 /** What a command did not do, so it can tell what moved under it. `edits`: what the user can see
  *  change, which a discard measures against — an outside write of the value already shown does
  *  not cancel one. `externals`: every outside write, that one included, since it made the value a
- *  row a read in flight has not got. `values`: rows accounted for by a value held here. */
-type AsOf = { edits: number; externals: number; values: number }
+ *  row a read in flight has not got. */
+type AsOf = { edits: number; externals: number }
 
 class Entry<V> {
 	key: ItemKey = $state()!
@@ -373,7 +373,7 @@ class Entry<V> {
 	/** The registers that move on their own: what the user is editing, and the rows already sent.
 	 *  A command compares against these to tell what has happened since it was asked for. */
 	private asOf(): AsOf {
-		return { edits: this.edits, externals: this.externals, values: this.values }
+		return { edits: this.edits, externals: this.externals }
 	}
 
 	/** Count a command as started now, ahead of its turn in the queue; returns its release. */
@@ -400,6 +400,7 @@ class Entry<V> {
 		return this.run(async (at) => {
 			const key = this.key
 			let rowsAtRead = 0
+			let valuesAtRead = 0
 			let res: ItemLoad<V>
 			try {
 				if (this.retired) return superseded
@@ -411,6 +412,10 @@ class Entry<V> {
 				// are in the response it is about to get. Only one handed over from now on, while
 				// the read is out, leaves that response behind.
 				rowsAtRead = this.ports.rowMark(key)
+				// Alongside the rows, not at the command's turn: a value taken during the flush
+				// above already has its row on this side of the count, and crediting it again
+				// would pay for a row that arrives later and belongs to nobody here.
+				valuesAtRead = this.values
 				res = await adapter.load(key)
 			} catch (e) {
 				this.error = errorMessage(e)
@@ -431,8 +436,7 @@ class Entry<V> {
 			// so one was written by someone this entry cannot see — and it is later than anything
 			// held here. Writing from this would post an older value over that row, on the
 			// baseline it advanced, so nothing goes out and nothing is saved until a reload.
-			this.stale =
-				this.ports.rowMark(key) - rowsAtRead > this.values - at.values
+			this.stale = this.ports.rowMark(key) - rowsAtRead > this.values - valuesAtRead
 			this.meta = res.meta
 			this.error = undefined
 			if (isTemporaryPath(key.path)) {
@@ -486,7 +490,9 @@ class Entry<V> {
 		await this.run(async () => {})
 		if (this.retired || !this.adapter) return 'absent'
 		if (!this.loaded) return 'absent'
-		if ((await this.reread()).ok) return 'done'
+		// A read that answers but leaves the item behind an unseen row has not refreshed it
+		// either: its caller must not go on believing this editor is current.
+		if ((await this.reread()).ok && !this.stale) return 'done'
 		// Same position as a failed `changed` re-read: the item moved and this did not see it.
 		this.stale = true
 		return 'failed'

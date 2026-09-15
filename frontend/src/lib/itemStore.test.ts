@@ -906,6 +906,61 @@ describe('item store: origins', () => {
 		expect(rows.writes.at(-1)).toEqual({ path: 'u/me/r', value: typed })
 	})
 
+	it('reports a re-read that answered but left the item behind as not refreshed', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		let reads = 0
+		const store = createItemStore(rows.port)
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/r' },
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(() => (reads++ === 0 ? Promise.resolve({ deployed: deployedRes }) : read.promise))
+		)
+		await settle()
+
+		const refreshing = store.bridge.refresh('w', 'resource', 'u/me/r')
+		await settle()
+		// The GET works, but another surface's row lands while it is out.
+		rows.handExternally('u/me/r')
+		read.resolve({ deployed: deployedRes })
+
+		// It answered, so `ok` is true — but the item is behind a row it never saw, and a caller
+		// told "done" would go on to report a draft removed that is still there.
+		expect(await refreshing).toBe('failed')
+		expect(item.canSave).toBe(false)
+	})
+
+	it('does not credit an edit made during a re-read\'s own flush', async () => {
+		const rows = fakeRows()
+		const flushing = deferred()
+		const read = deferred<ItemLoad<Res>>()
+		let reads = 0
+		const store = createItemStore(rows.port)
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/r' },
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(() => (reads++ === 0 ? Promise.resolve({ deployed: deployedRes }) : read.promise))
+		)
+		await settle()
+		item.value = { ...deployedRes, description: 'edited' }
+		rows.hold(flushing.promise)
+
+		const refreshing = store.bridge.refresh('w', 'resource', 'u/me/r')
+		await settle()
+		// Typed while the re-read's prerequisite flush is still going: its row goes out here,
+		// before the read starts, so it is not one of the rows the read has to account for.
+		item.value = { ...deployedRes, description: 'typed during the flush' }
+		flushing.resolve()
+		await settle()
+		// Then a row nobody here has, while the GET is out.
+		rows.handExternally('u/me/r')
+		read.resolve({ deployed: deployedRes })
+		await refreshing
+
+		// The earlier edit must not pay for that row: this editor is behind and has to reload.
+		expect(item.canSave).toBe(false)
+	})
+
 	it('is not fooled by the chat crediting a row a loading item never wrote', async () => {
 		const rows = fakeRows()
 		const read = deferred<ItemLoad<Res>>()
