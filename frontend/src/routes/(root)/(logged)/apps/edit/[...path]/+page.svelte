@@ -496,23 +496,22 @@
 				othersDraftsCount={otherDraftsUsers.length}
 				onOpenOthersDrafts={() => (othersModalOpen = true)}
 				onDeploy={({ version, head, headBy, headAt }) => {
-					// The editor stays open across a deploy, so what the out-of-date prompt reads
-					// has to move with it: the base is what the deploy could claim it wrote
-					// (unknown when another landed beside it), and the head is what is deployed,
-					// named by whoever deployed it rather than by the page load's author.
-					draftBaseVersion = version != null ? String(version) : undefined
-					// The deploy consumed the draft, so nothing here is out of date yet; the pair
-					// above describes the draft the next edit will start.
-					if (version != null && head != null && version !== head) {
-						// The prompt talks about a draft, and there is none: say what happened
-						// instead, since this deploy is already superseded.
-						sendUserToast(`Version ${head} was deployed on top of yours (${version})`)
-					}
+					// The editor stays open across a deploy and pins what it wrote onto the value
+					// itself; the prompt's own pair is what the loader knows, and this deploy
+					// consumed the draft it described, so the route holds no base until it loads
+					// again (the deploy guard covers that window).
+					draftBaseVersion = undefined
 					draftSavedAt = undefined
 					if (head != null) {
+						// Named by whoever deployed the head, not by the page load's author.
 						deployedHeadVersion = String(head)
 						deployedBy = headBy
 						deployedAt = headAt
+					}
+					// Another deploy landed on top of this one: there is no draft for the prompt
+					// to talk about, so say what happened instead.
+					if (version != null && head != null && version !== head) {
+						sendUserToast(`Version ${head} was deployed on top of yours (${version})`)
 					}
 				}}
 			/>

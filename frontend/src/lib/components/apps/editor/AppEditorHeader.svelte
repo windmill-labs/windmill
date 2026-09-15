@@ -409,11 +409,11 @@
 		// must stay set; `claimed` is the version this deploy can prove it wrote.
 		const claimed = versionThisDeployWrote(appHistory, $userStore?.username, anchor)
 		version = appHistory[0]?.version
-		// A deploy landed beside this one, so the head is someone else's as far as this
-		// editor knows and is no longer a base it may compare against: `compareVersions`
-		// confirms instead. A failed anchor read claims nothing either, but it is no
-		// evidence of that, so it does not arm this.
-		baseUnknown = claimed === undefined && anchor != null
+		// With no claim the head may be another deploy's, so it is not a base this editor
+		// may compare against: `compareVersions` confirms instead until a later deploy
+		// claims one or the editor is reset. A failed anchor read is indistinguishable
+		// from that here, and confirming is the side that cannot lose someone's work.
+		baseUnknown = claimed === undefined
 		// Re-pin the fork base to the version just written: the editor stays open, so a
 		// follow-up deploy (or a new edit) would otherwise compare against the now-
 		// superseded base and falsely warn. parent_version is in

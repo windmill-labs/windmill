@@ -656,26 +656,23 @@
 						}
 					: undefined}
 				onDeploy={({ version, head, headBy, headAt }) => {
-					// The version this deploy wrote is the base the next autosave carries; the
-					// head is what is deployed now. They differ when another deploy landed
-					// beside this one, and the next draft is then behind from the start. A
-					// deploy that could not claim a version leaves the base unknown rather
-					// than keeping the one it just superseded.
+					// The version this deploy wrote is what the next autosave forks from, so the
+					// editor carries it; the prompt's own pair is what the loader knows, and this
+					// deploy consumed the draft it described, so the route holds no base until it
+					// loads again (the deploy guard covers that window).
 					parentVersion = version
-					draftBaseVersion = version != null ? String(version) : undefined
-					// The deploy consumed the draft, so nothing here is out of date yet; the pair
-					// above describes the draft the next edit will start.
-					if (version != null && head != null && version !== head) {
-						// The prompt talks about a draft, and there is none: say what happened
-						// instead, since this deploy is already superseded.
-						sendUserToast(`Version ${head} was deployed on top of yours (${version})`)
-					}
+					draftBaseVersion = undefined
 					draftSavedAt = undefined
 					if (head != null) {
-						deployedHeadVersion = String(head)
 						// Named by whoever deployed the head, not by the page load's author.
+						deployedHeadVersion = String(head)
 						deployedBy = headBy
 						deployedAt = headAt
+					}
+					// Another deploy landed on top of this one: there is no draft for the prompt
+					// to talk about, so say what happened instead.
+					if (version != null && head != null && version !== head) {
+						sendUserToast(`Version ${head} was deployed on top of yours (${version})`)
 					}
 				}}
 				onResetToDeployed={reloadDeployed}
