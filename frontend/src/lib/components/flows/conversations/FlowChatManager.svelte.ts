@@ -1120,14 +1120,14 @@ export class FlowChatManager {
 	 * Follow a job that is already running, to completion.
 	 *
 	 * `followJob` owns the transport: the server ends every stream after
-	 * `TIMEOUT_SSE_STREAM` and it re-attaches to the same job from the last `stream_offset`
-	 * rather than starting a second run — which is what this used to do, leaving two runs
-	 * writing one conversation. It reconnects on an unclean close too, and buffers a chunk
-	 * that ends mid-line until the rest arrives.
+	 * `TIMEOUT_SSE_STREAM`, and it re-attaches to the same job from the last `stream_offset`.
+	 * Starting a second run instead leaves two of them writing one conversation. It
+	 * reconnects on an unclean close too, and buffers a chunk that ends mid-line.
 	 *
-	 * What it does not absorb is the stream request itself failing — a restarting server, a
-	 * 502. Giving up there would free the composer while the flow runs on, and the next turn
-	 * would write the same agent memory, so those are retried from the offset already read.
+	 * The stream request itself failing — a restarting server, a 502 — is this function's to
+	 * absorb, by retrying from the offset already read. A turn whose stream cannot be
+	 * recovered is handed to its job rather than ended: the flow may still be running, and
+	 * freeing the composer would let the next turn write the same agent memory.
 	 */
 	async #followJob(currentConversationId: string, jobId: string) {
 		const runtime = this.#liveRuntime(currentConversationId)
@@ -1139,20 +1139,34 @@ export class FlowChatManager {
 		const api = new WindmillChatApi({
 			baseUrl: `${window.location.origin}${base}`,
 			workspace: this.#workspace()!,
-			// Only an enterprise server honours a custom interval; elsewhere it would log a
-			// warning on every poll, so the server's own pacing stands instead.
+			// A licensed enterprise server paces the stream at this; every other build ignores
+			// the parameter and logs a warning per poll, so it is left off and the server's own
+			// pacing stands. A licence is the one signal the browser has, and the chat SDK
+			// gates on the same thing.
 			pollDelayMs: get(enterpriseLicense) ? 50 : undefined
 		})
 
-		// Kept across attempts so a reconnect resumes after what is already on screen.
+		// Kept across attempts so a reconnect resumes after what is already on screen. A
+		// retried agent step gets its own stream, which `followJob` detects and restarts from
+		// — but only within one call, so an offset carried into a *new* call can index the
+		// previous sub-job. Resuming too far in drops chunks the final row poll then repairs;
+		// not resuming at all would duplicate the answer on screen, which nothing repairs.
 		let streamOffset: number | undefined
-		for (let attempt = 0; ; attempt++) {
+		// Counted since the last attempt that delivered anything, so a long turn blipping
+		// once an hour is not the same as an endpoint that has gone.
+		let sinceProgress = 0
+		for (;;) {
+			let delivered = false
 			try {
 				for await (const update of followJob(api, jobId, {
 					signal: controller.signal,
 					streamOffset,
 					onOffset: (offset) => (streamOffset = offset)
 				})) {
+					// Frames already buffered by the SSE reader keep arriving after an abort, and
+					// `endTurn` has reset the transcript state they would be applied to.
+					if (controller.signal.aborted) return
+					delivered = true
 					if (update.type === 'stream') {
 						// Stop polling since we are receiving last step streaming
 						this.stopPolling(currentConversationId)
@@ -1195,22 +1209,29 @@ export class FlowChatManager {
 				}
 				return
 			} catch (error) {
-				// A Stop, a conversation's turn ending, or the chat going away — the turn was
-				// already settled by whoever aborted it.
+				// A Stop, a conversation's turn ending, or the chat going away: whoever aborted
+				// it has already torn the turn down.
 				if (controller.signal.aborted) return
 				console.error('Error following the flow job:', error)
-				if (attempt < FOLLOW_RETRIES) {
-					await new Promise((resolve) => setTimeout(resolve, FOLLOW_RETRY_DELAY_MS * 2 ** attempt))
+				if (delivered) sinceProgress = 0
+				if (sinceProgress < FOLLOW_RETRIES) {
+					await new Promise((resolve) =>
+						setTimeout(resolve, FOLLOW_RETRY_DELAY_MS * 2 ** sinceProgress)
+					)
+					sinceProgress++
 					if (controller.signal.aborted) return
 					continue
 				}
-				// What the server said, not a constant: a turn dying on an expired session or a
-				// job the server cannot find is only actionable if the reader is told which.
+				// Out of attempts, and the run is the only thing that knows whether it is over.
+				// Waiting on the job keeps the chat busy until it is, and settles the turn on
+				// its rows; `waitJob` cancels the run rather than waiting forever if the API
+				// stays unreachable.
+				const reason = (error instanceof Error ? error.message : String(error)).slice(0, 200)
 				sendUserToast(
-					`Stream error: ${error instanceof Error ? error.message : String(error)}`,
+					`Lost the live answer for this turn; it will land when the run finishes. ${reason}`,
 					true
 				)
-				this.endTurn(currentConversationId)
+				void this.pollJobResult(currentConversationId, jobId)
 				return
 			}
 		}
