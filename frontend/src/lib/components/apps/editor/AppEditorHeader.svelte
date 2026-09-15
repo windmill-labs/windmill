@@ -872,6 +872,7 @@
 			{setPublishState}
 			appPath={$appPath}
 			{onLatest}
+			{headUnknown}
 			{savedApp}
 			bind:summary={$summary}
 			bind:customPath

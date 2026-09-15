@@ -862,7 +862,8 @@ async fn move_draft(
                 // both, so this is the other item's path, not a teammate's copy of this one.
                 format!(
                     "'{new_path}' holds another user's {occupant} draft, and an app and a raw \
-                     app cannot share a path."
+                     app cannot share a path. Pick another path, or ask them to move or \
+                     discard theirs."
                 )
             }
         } else {

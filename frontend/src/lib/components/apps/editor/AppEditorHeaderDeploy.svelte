@@ -35,6 +35,7 @@
 		appPath,
 		customPath = $bindable(),
 		onLatest,
+		headUnknown = false,
 		savedApp,
 		summary = $bindable(),
 		deploymentMsg = $bindable(),
@@ -54,6 +55,9 @@
 		appPath: string
 		customPath: string | undefined
 		onLatest: boolean
+		/** The comparison behind `onLatest` could not read the deployed head, so the warning
+		 *  is caution rather than an observed newer version. */
+		headUnknown?: boolean
 		savedApp: any
 		summary: string
 		deploymentMsg: string | undefined
@@ -239,8 +243,15 @@
 </script>
 
 {#if !onLatest}
-	<Alert title="You're not on the latest app version. " type="warning">
-		By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff.
+	<Alert
+		title={headUnknown
+			? 'Could not check the deployed version. '
+			: "You're not on the latest app version. "}
+		type="warning"
+	>
+		{headUnknown
+			? "Deploying may overwrite changes made by other users. Press 'Deploy' to see diff."
+			: "By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff."}
 	</Alert>
 	<div class="py-2"></div>
 {/if}

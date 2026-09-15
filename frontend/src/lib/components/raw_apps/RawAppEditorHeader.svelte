@@ -791,6 +791,7 @@
 			{setPublishState}
 			{appPath}
 			{onLatest}
+			{headUnknown}
 			{savedApp}
 			rawApp
 			operatingWorkspace={opWorkspace}
