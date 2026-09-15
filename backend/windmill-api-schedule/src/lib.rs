@@ -1129,35 +1129,23 @@ pub async fn set_enabled(
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
     reject_reserved_schedule_path(path)?;
 
-    // Block enabling a schedule in a fork when the parent has the same path
-    // (regardless of parent's enabled flag), unless force=true. Two enabled
-    // crons fire in lockstep; even when the parent is currently disabled the
-    // user is likely to re-enable it later, at which point both fire — better
-    // to surface that risk at every fork-side enable. There's no namespacing
-    // fix for schedules (Phase 3 doesn't help cron); the user has to confirm
-    // or point the script at fork-only side effects.
+    // Block enabling a schedule in a fork when an ancestor has the same path
+    // (regardless of its enabled flag), unless force=true. Two enabled crons
+    // fire in lockstep; even when the ancestor is currently disabled the user
+    // is likely to re-enable it later, at which point both fire — better to
+    // surface that risk at every fork-side enable. There's no namespacing fix
+    // for schedules (Phase 3 doesn't help cron); the user has to confirm or
+    // point the script at fork-only side effects.
     if payload.enabled && !payload.force {
-        let parent_id: Option<String> = sqlx::query_scalar!(
-            "SELECT parent_workspace_id FROM workspace WHERE id = $1",
-            &w_id
+        if let Some(ancestor_id) = windmill_common::workspaces::nearest_fork_ancestor_having(
+            &mut *tx, "schedule", &w_id, path,
         )
-        .fetch_optional(&mut *tx)
         .await?
-        .flatten();
-        if let Some(parent_id) = parent_id {
-            let exists: Option<bool> = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM schedule WHERE workspace_id = $1 AND path = $2)",
-                &parent_id,
-                path,
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-            if exists == Some(true) {
-                return Err(Error::BadRequest(format!(
-                    "fork-conflict:schedule:{}",
-                    parent_id
-                )));
-            }
+        {
+            return Err(Error::BadRequest(format!(
+                "fork-conflict:schedule:{}",
+                ancestor_id
+            )));
         }
     }
     let before = trigger_history::snapshot_row(&mut *tx, "schedule", &w_id, path).await?;

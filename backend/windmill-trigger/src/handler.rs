@@ -1104,45 +1104,6 @@ struct SetTriggerModePayload {
     force: bool,
 }
 
-/// Returns the parent workspace id when this workspace is a fork *and* the
-/// parent has a row at the same trigger path. Used to gate enabling a trigger
-/// in a fork behind an explicit `force=true` confirmation: the fork's row was
-/// cloned from the parent, so its upstream identifier (Kafka group, PG slot,
-/// SQS queue URL, etc.) is shared by construction. The risk is independent of
-/// the parent's current `mode`: if the parent is enabled, the two listeners
-/// compete; if it's disabled, the fork can destructively take over shared
-/// state (e.g. advance the PG WAL, claim an MQTT client_id) before the parent
-/// re-enables. Either way, the user should be asked to confirm.
-async fn parent_has_trigger(
-    tx: &mut PgConnection,
-    table_name: &str,
-    workspace_id: &str,
-    path: &str,
-) -> Result<Option<String>> {
-    let parent: Option<String> =
-        sqlx::query_scalar("SELECT parent_workspace_id FROM workspace WHERE id = $1")
-            .bind(workspace_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .flatten();
-    let Some(parent_id) = parent else {
-        return Ok(None);
-    };
-    let exists: Option<bool> = sqlx::query_scalar(&format!(
-        "SELECT EXISTS(SELECT 1 FROM {} WHERE workspace_id = $1 AND path = $2)",
-        table_name
-    ))
-    .bind(&parent_id)
-    .bind(path)
-    .fetch_one(&mut *tx)
-    .await?;
-    Ok(if exists == Some(true) {
-        Some(parent_id)
-    } else {
-        None
-    })
-}
-
 async fn set_trigger_mode<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
@@ -1157,22 +1118,28 @@ async fn set_trigger_mode<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     // Block transitioning a trigger in a fork to any mode that attaches a
-    // listener (Enabled or Suspended) when the parent has the same path,
+    // listener (Enabled or Suspended) when an ancestor has the same path,
     // unless the caller passes force=true. Suspended still keeps the
     // listener attached — it just stops auto-running queued jobs — so a
     // suspended fork would still split Kafka events / share a PG slot
-    // with the parent. The cloned upstream identifier is shared by
-    // construction; the risk is independent of the parent's current mode.
-    // Skipped for kinds where the upstream identifier is already
-    // workspace-scoped at runtime (HTTP, Email).
+    // with the ancestor. The risk is independent of the ancestor's current
+    // mode: enabled, the two listeners compete; disabled, the fork can
+    // destructively take over shared state (advance the PG WAL, claim an
+    // MQTT client_id) before it re-enables. Skipped for kinds where the
+    // upstream identifier is already workspace-scoped at runtime (HTTP, Email).
     if T::FORK_CONFLICT_ON_ENABLE && payload.mode != TriggerMode::Disabled && !payload.force {
-        if let Some(parent_id) =
-            parent_has_trigger(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?
+        if let Some(ancestor_id) = windmill_common::workspaces::nearest_fork_ancestor_having(
+            &mut *tx,
+            T::TABLE_NAME,
+            &workspace_id,
+            path,
+        )
+        .await?
         {
             return Err(Error::BadRequest(format!(
                 "fork-conflict:{}:{}",
                 T::TRIGGER_TYPE,
-                parent_id
+                ancestor_id
             )));
         }
     }
