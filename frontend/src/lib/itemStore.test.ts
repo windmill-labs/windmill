@@ -752,6 +752,28 @@ describe('item store: origins', () => {
 		expect(item.value).toEqual(typed)
 	})
 
+	it('reports an item deleted elsewhere as gone, not as clean', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/r' },
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter({ deployed: deployedRes })
+		)
+		await settle()
+		item.value = { ...deployedRes, description: 'edited' }
+		expect(item.dirty).toBe(true)
+
+		await store.bridge.itemDeleted('w', 'resource', 'u/me/r')
+
+		// Resetting to the deployed baseline would leave the editor clean on something that no
+		// longer exists, and its next save would 404.
+		expect(item.removed).toBe(true)
+		expect(item.value).toBeUndefined()
+		expect(item.deployed).toBeUndefined()
+		expect(rows.hints.get('u/me/r')).toBe(false)
+	})
+
 	it('keeps a draft-only item an outside write put back while its delete was going', async () => {
 		const rows = fakeRows()
 		const draft = { ...deployedRes, description: 'only a draft' }

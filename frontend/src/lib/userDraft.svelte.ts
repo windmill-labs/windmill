@@ -147,7 +147,9 @@ export type LiveItemBridge = {
 		workspace: string,
 		itemKind: UserDraftItemKind,
 		path: string
-	): Promise<unknown> | undefined
+	): Promise<boolean> | undefined
+	/** The deployed item was deleted: the live item reports itself gone. */
+	itemDeleted(workspace: string, itemKind: UserDraftItemKind, path: string): Promise<void>
 	/** Discard the live item's draft, resolving once its delete has landed. `undefined` when no
 	 *  live item holds the key, so the caller issues the delete itself. */
 	discard(
@@ -166,8 +168,18 @@ export function refreshLiveItem(
 	workspace: string,
 	itemKind: UserDraftItemKind,
 	path: string
-): Promise<unknown> | undefined {
+): Promise<boolean> | undefined {
 	return liveItems?.refresh(workspace, itemKind, path)
+}
+
+/** Tell a live item that the deployed item under it has been deleted, so it stops showing a
+ *  baseline that no longer exists. Resolves once it has. */
+export function markLiveItemDeleted(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): Promise<void> {
+	return liveItems?.itemDeleted(workspace, itemKind, path) ?? Promise.resolve()
 }
 
 export function registerLiveItemBridge(bridge: LiveItemBridge): void {

@@ -3,6 +3,7 @@ import { DraftService } from '$lib/gen'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import {
+	markLiveItemDeleted,
 	refreshLiveItem,
 	UserDraft,
 	type UserDraftEntry,
@@ -583,6 +584,9 @@ type DeleteGlobalDraftOptions = {
 	 *  baseline from before that, and discarding the draft resets it to exactly that — showing
 	 *  the pre-deploy value, clean, ready to be saved back over the deployment. */
 	deployed?: boolean
+	/** The deployed item itself was deleted. An editor open on it has nothing to reset to, so it
+	 *  is told the item is gone rather than handed draft-discard semantics. */
+	itemDeleted?: boolean
 }
 
 export async function deleteGlobalDraft(
@@ -595,19 +599,36 @@ export async function deleteGlobalDraft(
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	if (options.itemDeleted) {
+		// Nothing to discard against: the item is gone. The editor is told that, and the row is
+		// deleted here rather than by an editor that no longer has a baseline to discard to.
+		await markLiveItemDeleted(workspace, itemKind, storagePath)
+		UserDraft.forgetLocal(itemKind, storagePath, { workspace })
+		await UserDraftDbSyncer.save({
+			workspace,
+			itemKind,
+			path: storagePath,
+			value: null,
+			immediate: true
+		})
+		await assertDraftCleanupLanded(workspace, itemKind, path, storagePath)
+		return
+	}
 	if (options.deployed) {
-		const refreshing = refreshLiveItem(workspace, itemKind, storagePath)
-		if (refreshing) {
-			// Re-reading the open editor is the whole cleanup, and discarding on top of it is
-			// wrong: the deploy carried the draft as it stood when it started, so anything typed
-			// since is a divergence from what was deployed and belongs in the row. The editor's
-			// own rule already drops the row when the two match and keeps it when they do not.
-			await refreshing
+		// Re-reading the open editor is the whole cleanup, and discarding on top of it is wrong:
+		// the deploy carried the draft as it stood when it started, so anything typed since is a
+		// divergence from what was deployed and belongs in the row. The editor's own rule drops
+		// the row when the two match and keeps it when they do not.
+		const refreshed = await refreshLiveItem(workspace, itemKind, storagePath)
+		if (refreshed) {
 			// Its reconcile only queued that; send it, so a caller awaiting this sees the server
 			// settled — with no draft, or with the newer edit.
 			await UserDraftDbSyncer.flush({ workspace, itemKind, path: storagePath })
+			await assertDraftCleanupLanded(workspace, itemKind, path, storagePath)
 			return
 		}
+		// It could not read after all (still loading, or the read failed), so it has not dealt
+		// with the row and this caller still has to.
 	}
 	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
 	const live =
@@ -630,9 +651,20 @@ export async function deleteGlobalDraft(
 			immediate: true
 		})
 	}
-	// A failed (network/5xx) or conflicted delete is recorded in the syncer state,
-	// not thrown — surface it so callers don't report the draft as removed while
-	// the DB-backed source of truth still has it (same guard as the write path).
+	await assertDraftCleanupLanded(workspace, itemKind, path, storagePath)
+}
+
+/**
+ * A failed (network/5xx) or conflicted delete is recorded in the syncer state, not thrown —
+ * surface it so callers don't report the draft as removed while the DB-backed source of truth
+ * still has it (same guard as the write path), and only then invalidate the draft readers.
+ */
+async function assertDraftCleanupLanded(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string,
+	storagePath: string
+): Promise<void> {
 	const state = UserDraftDbSyncer.getState({ workspace, itemKind, path: storagePath })
 	if (state.state === 'failed') {
 		throw new Error(state.failureMessage ?? `Failed to delete draft "${path}".`)

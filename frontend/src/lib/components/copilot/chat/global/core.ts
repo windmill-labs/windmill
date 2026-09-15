@@ -8178,7 +8178,7 @@ async function deleteWorkspaceItem(
 	// are no longer trustworthy (same rule as deploy success). Before the
 	// draft cleanup: a cleanup failure must not leave stale comparisons.
 	invalidateWorkspaceComparison(workspace)
-	await deleteGlobalDraft(workspace, type, path, triggerKind)
+	await deleteGlobalDraft(workspace, type, path, triggerKind, { itemDeleted: true })
 
 	// Record the deletion in the chat's modified-items mask. In a fork this leaves a
 	// reviewable "removed" diff vs the parent that stays scoped to this chat. Keyed

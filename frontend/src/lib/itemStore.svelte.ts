@@ -446,6 +446,35 @@ class Entry<V> {
 		return this.load(this.adapter, asOf, true)
 	}
 
+	/**
+	 * Re-read for a caller that has just written the deployed item, taking a turn in the queue
+	 * first: asked for during the first load, `reread` would find nothing loaded and return
+	 * without doing anything. Resolves false when it could not read after all, so the caller
+	 * knows this editor has not dealt with the row and it must.
+	 */
+	async refreshed(): Promise<boolean> {
+		await this.run(async () => {})
+		if (!this.loaded || this.retired || !this.adapter) return false
+		return (await this.reread()).ok
+	}
+
+	/**
+	 * The deployed item itself was deleted elsewhere. Not a discard: there is no baseline left to
+	 * reset to, so the editor reports it gone rather than sitting clean on something whose next
+	 * save would 404. The server removes the row with the item, so none is written.
+	 */
+	itemDeleted(): Promise<void> {
+		return this.run(async () => {
+			if (this.retired || !this.loaded) return
+			this.serverDeployed = undefined
+			this.patched = {}
+			this.replaceValue(undefined)
+			this.row = null
+			this.removed = true
+			this.ports.hint(this.key, false)
+		})
+	}
+
 	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
 	applyExternal(value: V): number {
 		if (this.loaded && serialize(value) === serialize(this.value)) return this.revision
@@ -1093,8 +1122,11 @@ export function createItemStore(ports: ItemRowPort) {
 			workspace: string,
 			kind: UserDraftItemKind,
 			path: string
-		): Promise<unknown> | undefined {
-			return find(workspace, kind, path)?.reread()
+		): Promise<boolean> | undefined {
+			return find(workspace, kind, path)?.refreshed()
+		},
+		itemDeleted(workspace: string, kind: UserDraftItemKind, path: string): Promise<void> {
+			return find(workspace, kind, path)?.itemDeleted() ?? Promise.resolve()
 		},
 		discard(
 			workspace: string,

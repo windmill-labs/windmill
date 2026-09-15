@@ -2325,6 +2325,7 @@ describe('global AI tools', () => {
 			seed: () => false,
 			read: () => undefined,
 			refresh: () => undefined,
+			itemDeleted: () => Promise.resolve(),
 			// Claims the key and removes nothing, so anything still gone was deleted by the chat.
 			discard: () => {
 				discards++
@@ -2341,6 +2342,7 @@ describe('global AI tools', () => {
 				seed: () => false,
 				read: () => undefined,
 				refresh: () => undefined,
+				itemDeleted: () => Promise.resolve(),
 				discard: () => undefined,
 				list: () => []
 			})
@@ -2359,6 +2361,10 @@ describe('global AI tools', () => {
 			read: () => undefined,
 			refresh: () => {
 				calls.push('refresh')
+				return Promise.resolve(true)
+			},
+			itemDeleted: () => {
+				calls.push('itemDeleted')
 				return Promise.resolve()
 			},
 			discard: () => {
@@ -2380,6 +2386,75 @@ describe('global AI tools', () => {
 				seed: () => false,
 				read: () => undefined,
 				refresh: () => undefined,
+				itemDeleted: () => Promise.resolve(),
+				discard: () => undefined,
+				list: () => []
+			})
+		}
+	})
+
+	// A cleanup that the editor could not do — its first read still in flight, or failed — means
+	// the row is nobody's, so the chat must still delete it rather than report success.
+	it('deletes the draft itself when the live editor could not refresh', async () => {
+		const path = 'u/admin/notyetloaded'
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		registerLiveItemBridge({
+			seed: () => false,
+			read: () => undefined,
+			// Registered, but not loaded: it has not dealt with the row.
+			refresh: () => Promise.resolve(false),
+			itemDeleted: () => Promise.resolve(),
+			discard: () => undefined,
+			list: () => []
+		})
+		try {
+			await deleteGlobalDraft(WORKSPACE, 'resource', path, undefined, {
+				preserveLiveDraft: true,
+				deployed: true
+			})
+			expect(getBackendDraft('resource', path)).toBeUndefined()
+		} finally {
+			registerLiveItemBridge({
+				seed: () => false,
+				read: () => undefined,
+				refresh: () => undefined,
+				itemDeleted: () => Promise.resolve(),
+				discard: () => undefined,
+				list: () => []
+			})
+		}
+	})
+
+	// Deleting the deployed item leaves the editor with no baseline to reset to, so it is told
+	// the item is gone rather than handed a draft discard.
+	it('tells a live editor its item was deleted rather than discarding its draft', async () => {
+		const path = 'u/admin/goneitem'
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		const calls: string[] = []
+		registerLiveItemBridge({
+			seed: () => false,
+			read: () => undefined,
+			refresh: () => Promise.resolve(true),
+			itemDeleted: () => {
+				calls.push('itemDeleted')
+				return Promise.resolve()
+			},
+			discard: () => {
+				calls.push('discard')
+				return Promise.resolve({ removed: true })
+			},
+			list: () => []
+		})
+		try {
+			await deleteGlobalDraft(WORKSPACE, 'resource', path, undefined, { itemDeleted: true })
+			expect(calls).toEqual(['itemDeleted'])
+			expect(getBackendDraft('resource', path)).toBeUndefined()
+		} finally {
+			registerLiveItemBridge({
+				seed: () => false,
+				read: () => undefined,
+				refresh: () => undefined,
+				itemDeleted: () => Promise.resolve(),
 				discard: () => undefined,
 				list: () => []
 			})
