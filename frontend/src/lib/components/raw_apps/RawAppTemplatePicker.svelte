@@ -95,6 +95,13 @@
 	const effectiveRole = $derived(
 		selectedRole !== undefined && loadedRoles.includes(selectedRole) ? selectedRole : undefined
 	)
+	// An app uses one role per data table: the one picked above is what the table drawer browses
+	// as and what the list shows, or tables would be added under a role the app is not saved with.
+	const pickerRoles = $derived(
+		selectedDatatable !== undefined && effectiveRole !== undefined
+			? withAppDatatableRole(preWhitelistedRoles, selectedDatatable, effectiveRole)
+			: preWhitelistedRoles
+	)
 
 	const availableDatatables = $derived(datatables.current)
 	// `undefined` while the list loads, so this is false until it has answered.
@@ -470,7 +477,7 @@
 								dataTableRefs={preWhitelistedTables}
 								defaultDatatable={selectedDatatable}
 								defaultSchema={effectiveSchema}
-								roles={preWhitelistedRoles}
+								roles={pickerRoles}
 								standalone
 								hideDefaultSelector
 								onAdd={() => dataTableDrawer?.openDrawer()}
@@ -589,9 +596,12 @@
 	bind:this={dataTableDrawer}
 	offset={10000}
 	existingRefs={preWhitelistedTables}
-	roles={preWhitelistedRoles}
+	roles={pickerRoles}
 	onAdd={(refs, browsedRoles) => {
 		preWhitelistedTables = [...preWhitelistedTables, ...refs]
 		preWhitelistedRoles = { ...preWhitelistedRoles, ...browsedRoles }
+		if (selectedDatatable !== undefined && browsedRoles[selectedDatatable] !== undefined) {
+			selectedRole = browsedRoles[selectedDatatable]
+		}
 	}}
 />

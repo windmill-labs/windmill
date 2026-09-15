@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { WorkspaceService, type CompletedJob } from '$lib/gen'
 import type { DataTableTables } from '$lib/gen/types.gen'
 import { runScript } from '$lib/components/jobs/utils'
+import { datatableReference } from '$lib/components/dbTypes'
 import {
 	createToolDef,
 	executeTestRun,
@@ -31,9 +32,16 @@ const memo = <T>(factory: () => T): (() => T) => {
 
 // ============= Pure workspace-scoped operations =============
 
-/** List all datatables configured in the workspace, with their schema/table names. */
-export async function listDatatables(workspace: string): Promise<DataTableTables[]> {
-	return await WorkspaceService.listDataTableTables({ workspace })
+/** List all datatables configured in the workspace, with their schema/table names. `role` is the
+ * role `roleFor` is listed as; every other datatable is listed as its default role. */
+export async function listDatatables(
+	workspace: string,
+	roleFor?: string,
+	role?: string
+): Promise<DataTableTables[]> {
+	return await WorkspaceService.listDataTableTables(
+		role === undefined ? { workspace } : { workspace, roleFor, role }
+	)
 }
 
 /** Get the columns (column_name -> compact_type) of one datatable table. */
@@ -41,13 +49,15 @@ export async function getDatatableColumns(
 	workspace: string,
 	datatableName: string,
 	schemaName: string,
-	tableName: string
+	tableName: string,
+	role?: string
 ): Promise<Record<string, string>> {
 	const schema = await WorkspaceService.getDataTableTableSchema({
 		workspace,
 		datatableName,
 		schemaName,
-		tableName
+		tableName,
+		role
 	})
 	return schema.columns
 }
@@ -81,7 +91,26 @@ const NO_DATATABLES_CONFIGURED_MESSAGE =
 
 // ============= Tool definitions =============
 
-const getListDatatablesSchema = memo(() => z.object({}))
+// The same rule the server applies to `-- role <name>`; a name it would refuse fails here instead.
+const getRoleSchema = memo(() =>
+	z
+		.string()
+		.regex(/^[A-Za-z0-9_-]{1,63}$/)
+		.optional()
+		.describe(
+			"The datatable role to connect as, when the code you are working on uses one (an app's `data.roles` entry, or the `role` it passes to wmill.datatable). Omit for the datatable's default role."
+		)
+)
+
+const getListDatatablesSchema = memo(() =>
+	z.object({
+		datatable_name: z
+			.string()
+			.optional()
+			.describe('The datatable `role` applies to. Required with `role`.'),
+		role: getRoleSchema()
+	})
+)
 const getListDatatablesToolDef = memo(() =>
 	createToolDef(
 		getListDatatablesSchema(),
@@ -94,7 +123,8 @@ const getGetDatatableTableSchemaSchema = memo(() =>
 	z.object({
 		datatable_name: z.string().describe('The datatable name to inspect, e.g. "main".'),
 		schema_name: z.string().describe('The schema name, e.g. "public".'),
-		table_name: z.string().describe('The table name to inspect.')
+		table_name: z.string().describe('The table name to inspect.'),
+		role: getRoleSchema()
 	})
 )
 const getGetDatatableTableSchemaToolDef = memo(() =>
@@ -117,6 +147,7 @@ const getExecDatatableSqlSchema = memo(() =>
 			.describe(
 				'The SQL query to execute. Supports SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE, DROP TABLE, etc. For SELECT queries, results are returned as an array of objects. A newly created table will appear in list_datatables automatically.'
 			),
+		role: getRoleSchema(),
 		background: z
 			.boolean()
 			.optional()
@@ -217,10 +248,18 @@ export function getDatatableTools(): Tool<{}>[] {
 		{
 			def: getListDatatablesToolDef(),
 			planModeSafe: true,
-			fn: async ({ workspace, toolId, toolCallbacks }) => {
+			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				toolCallbacks.setToolStatus(toolId, { content: 'Listing datatables...' })
 				try {
-					const metadata = await listDatatables(workspace)
+					const parsedArgs = getListDatatablesSchema().parse(args ?? {})
+					if (parsedArgs.role !== undefined && parsedArgs.datatable_name === undefined) {
+						throw new Error('`role` needs `datatable_name`, the datatable it is a role of')
+					}
+					const metadata = await listDatatables(
+						workspace,
+						parsedArgs.datatable_name,
+						parsedArgs.role
+					)
 					if (metadata.length === 0) {
 						toolCallbacks.setToolStatus(toolId, {
 							content: 'No datatables configured — set one up in workspace settings'
@@ -257,7 +296,8 @@ export function getDatatableTools(): Tool<{}>[] {
 						workspace,
 						parsedArgs.datatable_name,
 						parsedArgs.schema_name,
-						parsedArgs.table_name
+						parsedArgs.table_name,
+						parsedArgs.role
 					)
 					toolCallbacks.setToolStatus(toolId, {
 						content: `Retrieved schema for ${parsedArgs.schema_name}.${parsedArgs.table_name}`
@@ -300,7 +340,7 @@ export function getDatatableTools(): Tool<{}>[] {
 							requestBody: {
 								language: 'postgresql',
 								content: parsedArgs.sql,
-								args: { database: `datatable://${name}` }
+								args: { database: datatableReference(name, parsedArgs.role) }
 							}
 						}),
 					workspace,
