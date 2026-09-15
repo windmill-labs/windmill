@@ -5,6 +5,9 @@ export const zIndexes = {
 	colorInput: 1002,
 	disposables: 1100, // Modals and Drawers
 	aiChat: 1200,
+	// Above every modal and drawer, AI chat's raised base included: it is opened from inside them
+	// (the rename warning's content search) and takes no z-index from their stack.
+	globalSearch: 1500,
 	svelteSelectOptions: 5000,
 	popover: 5001,
 	contextMenu: 6000,

@@ -29,6 +29,8 @@
 		WandSparkles
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
+	import { zIndexes } from '$lib/zIndexes'
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 
 	import { twMerge } from 'tailwind-merge'
 	import ContentSearchInner from '../ContentSearchInner.svelte'
@@ -450,6 +452,20 @@
 		mouseMoved = true
 	}
 
+	// On the overlay stack while open: a modal or drawer it was opened from arbitrates Escape on that
+	// stack, and would otherwise close itself on the key meant for the search above it.
+	const stack = overlayStack()
+	const STACK_ID = 'global-search'
+	$effect(() => {
+		if (!open) return
+		untrack(() => stack.val.push(STACK_ID))
+		return () => {
+			untrack(() => {
+				stack.val = stack.val.filter((id) => id !== STACK_ID)
+			})
+		}
+	})
+
 	onMount(() => {
 		window.addEventListener('keydown', handleKeydown)
 		window.addEventListener('mousemove', handleMouseMove)
@@ -618,9 +634,9 @@
 		<div
 			class={twMerge(
 				`fixed top-0 bottom-0 left-0 right-0 transition-all duration-50 flex items-start justify-center`,
-				' bg-black bg-opacity-40',
-				'z-[1100]'
+				' bg-black bg-opacity-40'
 			)}
+			style="z-index: {zIndexes.globalSearch}"
 		>
 			<div
 				class="{maxModalWidth(tab)} w-full mt-36 bg-surface rounded-lg relative"
