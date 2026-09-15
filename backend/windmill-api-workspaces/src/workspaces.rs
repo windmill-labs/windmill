@@ -929,6 +929,27 @@ fn sanitize_client_auto_pull(
     auto_pull.enabled_by = auto_pull.enabled.then(|| saver_email.to_string());
 }
 
+#[cfg(test)]
+mod sanitize_client_auto_pull_tests {
+    use windmill_common::workspaces::AutoPullSettings;
+
+    #[test]
+    fn a_save_stamps_the_saver_over_any_client_supplied_stamp() {
+        let mut ap = AutoPullSettings {
+            enabled: true,
+            enabled_by: Some("forged@example.com".to_string()),
+            ..Default::default()
+        };
+        super::sanitize_client_auto_pull(&mut ap, "saver@example.com");
+        assert_eq!(ap.enabled_by.as_deref(), Some("saver@example.com"));
+
+        ap.enabled = false;
+        ap.enabled_by = Some("forged@example.com".to_string());
+        super::sanitize_client_auto_pull(&mut ap, "saver@example.com");
+        assert_eq!(ap.enabled_by, None, "auto pull off carries no stamp");
+    }
+}
+
 /// Whether a git-sync repository tracking `tracked` rules out `label_branch` as a dev workspace's
 /// deploy branch. Two ways it can:
 ///
@@ -1366,22 +1387,6 @@ mod git_sync_deploy_mode_tests {
     use super::{deploys_on_push_branch, has_runnable_delivery};
     use serde_json::json;
     use windmill_common::workspaces::{AutoPullMode, AutoPullSettings};
-
-    #[test]
-    fn a_save_stamps_the_saver_over_any_client_supplied_stamp() {
-        let mut ap = AutoPullSettings {
-            enabled: true,
-            enabled_by: Some("forged@example.com".to_string()),
-            ..Default::default()
-        };
-        super::sanitize_client_auto_pull(&mut ap, "saver@example.com");
-        assert_eq!(ap.enabled_by.as_deref(), Some("saver@example.com"));
-
-        ap.enabled = false;
-        ap.enabled_by = Some("forged@example.com".to_string());
-        super::sanitize_client_auto_pull(&mut ap, "saver@example.com");
-        assert_eq!(ap.enabled_by, None, "auto pull off carries no stamp");
-    }
 
     fn auto_pull(mode: AutoPullMode, webhook_id: Option<i64>) -> AutoPullSettings {
         AutoPullSettings { enabled: true, mode, webhook_id, ..Default::default() }

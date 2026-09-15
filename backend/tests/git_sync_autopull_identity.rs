@@ -123,6 +123,15 @@ async fn fork_pull_runs_as_the_parent_admin_added_to_the_fork(
         "alice must be an admin member of the fork"
     );
     assert_eq!(pull_identities(&db, FORK).await?, vec![identity("alice")]);
+
+    let grants: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_partitioned WHERE workspace_id = $1 \
+         AND operation = 'users.git_sync_fork_add' AND resource = 'alice@windmill.dev'",
+    )
+    .bind(FORK)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(grants, 1, "adding alice to the fork must be audited");
     Ok(())
 }
 
