@@ -4925,11 +4925,62 @@ describe('global AI tools', () => {
 		)
 
 		// What the form submitted, not what the model proposed: the editor runs the flow, but
-		// the arguments are the user's.
-		expect(testActiveFlow).toHaveBeenCalledWith('u/admin/live_flow_storage', { name: 'Grace' })
+		// the arguments are the user's. The third argument is the chat-mode conversation id,
+		// which only `test_run_flow`'s own `conversation_id` supplies.
+		expect(testActiveFlow).toHaveBeenCalledWith(
+			'u/admin/live_flow_storage',
+			{ name: 'Grace' },
+			undefined
+		)
 		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
 		expect(JobService.runFlowPreview).not.toHaveBeenCalled()
 		expect(result).toContain('Result (SUCCESS)')
+	})
+
+	// A chat flow only shows its memory across turns, so the model has to be able to name
+	// the conversation it is continuing rather than getting a fresh one every call.
+	it('test_run_flow passes the conversation id it was given to the live editor hook', async () => {
+		seedBackendDraft(
+			'flow',
+			'',
+			{
+				path: 'u/admin/live_chat_flow',
+				summary: 'Live chat flow',
+				value: { modules: [{ id: 'live_step', value: { type: 'identity' } }] },
+				schema: { type: 'object', properties: { user_message: { type: 'string' } } },
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {}
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: '',
+			effectivePath: 'u/admin/live_chat_flow'
+		})
+		const testActiveFlow = vi.fn(async () => 'job-live-chat')
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_flow',
+				{
+					path: 'u/admin/live_chat_flow',
+					args: { user_message: 'hi' },
+					conversation_id: '550e8400-e29b-41d4-a716-446655440000'
+				},
+				toolCallbacks,
+				{ testActiveFlow }
+			)
+		)
+
+		expect(testActiveFlow).toHaveBeenCalledWith(
+			'',
+			{ user_message: 'hi' },
+			'550e8400-e29b-41d4-a716-446655440000'
+		)
 	})
 
 	it('test_run_flow falls back to preview when the live flow editor test hook returns undefined', async () => {
@@ -4968,7 +5019,11 @@ describe('global AI tools', () => {
 			)
 		)
 
-		expect(testActiveFlow).toHaveBeenCalledWith('u/admin/live_flow_fallback', { name: 'Ada' })
+		expect(testActiveFlow).toHaveBeenCalledWith(
+			'u/admin/live_flow_fallback',
+			{ name: 'Ada' },
+			undefined
+		)
 		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
 		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
 			workspace: WORKSPACE,

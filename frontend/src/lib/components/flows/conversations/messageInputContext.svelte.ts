@@ -1,0 +1,142 @@
+/**
+ * The inputs a chat message ran with, recovered from its job.
+ *
+ * A conversation message stores only its text, so what the user attached and which
+ * settings the turn used exist nowhere but the run's arguments. The user row carries
+ * the flow job id, whose args are the raw run arguments — `user_message` plus every
+ * other flow input.
+ *
+ * Fetched lazily and kept in memory only: a purged job leaves a dangling id and the
+ * turn simply shows no inputs, which is honest — the arguments are gone.
+ */
+import { JobService } from '$lib/gen'
+import { JobBackedStore } from './jobBackedStore.svelte'
+import { base } from '$lib/base'
+import { redactFileArgs, redactSecretArgs } from '$lib/components/job_args'
+import {
+	createAttachedFileContextElement,
+	type ContextElement
+} from '$lib/components/copilot/chat/context'
+import type { AttachedImage } from '$lib/components/copilot/chat/imageUtils'
+
+type S3Ref = { s3: string; filename?: string; storage?: string }
+
+const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.avif']
+
+function isS3Ref(value: any): value is S3Ref {
+	return !!value && typeof value === 'object' && typeof value.s3 === 'string' && value.s3 !== ''
+}
+
+function s3Refs(value: any): S3Ref[] {
+	if (isS3Ref(value)) return [value]
+	if (Array.isArray(value)) return value.filter(isS3Ref)
+	return []
+}
+
+function displayName(ref: S3Ref): string {
+	return ref.filename ?? ref.s3.split('/').pop() ?? ref.s3
+}
+
+function looksLikeImage(ref: S3Ref): boolean {
+	const name = displayName(ref).toLowerCase()
+	return IMAGE_EXTENSIONS.some((ext) => name.endsWith(ext))
+}
+
+/** Same-origin, cookie-authed GET — usable directly as an <img src>, no blob fetch. */
+function downloadUrl(workspace: string, ref: S3Ref): string {
+	const params = new URLSearchParams({ file_key: ref.s3 })
+	if (ref.storage) params.set('storage', ref.storage)
+	return `${base}/api/w/${workspace}/job_helpers/download_s3_file?${params.toString()}`
+}
+
+/** A scalar input, summarised for a chip. Objects are left to the file/JSON branches. */
+function scalarSummary(value: any): string | undefined {
+	if (value === undefined || value === null || value === '') return undefined
+	if (typeof value === 'string') return value
+	if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+	return undefined
+}
+
+export type MessageInputs = { images: AttachedImage[]; contextElements: ContextElement[] }
+
+const EMPTY: MessageInputs = { images: [], contextElements: [] }
+
+/**
+ * Split a turn's run arguments into the lanes a user message renders: image
+ * thumbnails, and a chip per remaining input. `user_message` is the bubble itself.
+ */
+export function argsToMessageInputs(
+	workspace: string,
+	args: Record<string, any> | undefined,
+	schema: { properties?: Record<string, any> } | undefined,
+	shownElsewhere: ReadonlySet<string> = new Set()
+): MessageInputs {
+	if (!args) return EMPTY
+	const images: AttachedImage[] = []
+	const contextElements: ContextElement[] = []
+	// A chip is text on screen, so it goes through the same redaction the run page and the
+	// copilot apply to a job's arguments: a password input must not be readable here, and a
+	// base64 file is unreadable anyway.
+	const shown = redactFileArgs(redactSecretArgs(args, schema), schema)
+	for (const [name, value] of Object.entries(shown)) {
+		if (name === 'user_message') continue
+		// An input the composer has its own control for — the model button's provider fields —
+		// is already on screen, and repeating it under every message is noise.
+		if (shownElsewhere.has(name)) continue
+		const files = s3Refs(value)
+		if (files.length > 0) {
+			for (const ref of files) {
+				if (looksLikeImage(ref)) {
+					images.push({
+						dataUrl: downloadUrl(workspace, ref),
+						mediaType: 'image/png',
+						name: displayName(ref)
+					})
+				} else {
+					contextElements.push(
+						createAttachedFileContextElement(displayName(ref), `Attached file · ${ref.s3}`)
+					)
+				}
+			}
+			continue
+		}
+		const summary = scalarSummary(value)
+		if (summary !== undefined) {
+			contextElements.push(createAttachedFileContextElement(name, summary))
+		}
+	}
+	return images.length > 0 || contextElements.length > 0 ? { images, contextElements } : EMPTY
+}
+
+/**
+ * The same lanes, built from what the composer just sent. The turn in flight has no
+ * job yet, so its row cannot read its inputs back from one; the data URLs are still
+ * in hand, so the thumbnails need no fetch.
+ */
+export function attachmentsToMessageInputs(
+	images: AttachedImage[],
+	blobs: { name: string }[]
+): MessageInputs {
+	const contextElements = blobs.map((blob) =>
+		createAttachedFileContextElement(blob.name, `Attached file · ${blob.name}`)
+	)
+	return images.length > 0 || contextElements.length > 0 ? { images, contextElements } : EMPTY
+}
+
+/** The run arguments behind the transcript's user rows. One fetch per turn while mounted. */
+export class MessageInputsStore extends JobBackedStore<MessageInputs> {
+	constructor(
+		workspace: () => string | undefined,
+		schema: () => { properties?: Record<string, any> } | undefined,
+		shownElsewhere: () => ReadonlySet<string>
+	) {
+		super(workspace, EMPTY, async (ws, jobId) =>
+			argsToMessageInputs(
+				ws,
+				(await JobService.getJobArgs({ workspace: ws, id: jobId })) as any,
+				schema(),
+				shownElsewhere()
+			)
+		)
+	}
+}

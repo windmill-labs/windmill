@@ -1,11 +1,31 @@
-import { CancelError, WorkspaceService } from '$lib/gen'
+import { CancelError, WorkspaceService, type LargeFileStorage } from '$lib/gen'
 import { resource } from 'runed'
 
 /**
- * Whether the workspace has S3 storage configured, for the fields that warn without it. Call during
- * component initialisation and read `.current` where the answer is used.
+ * Whether the workspace has large-file storage the upload endpoints can resolve. Every
+ * kind counts, not only S3: Azure Blob, Azure Workload Identity, S3 via AWS OIDC and GCS
+ * all go through the same object-store abstraction, so reading `s3_resource_path` alone
+ * calls a perfectly good workspace unconfigured.
  */
-export function useS3StorageConfigured(ws: () => string | undefined): {
+function storageConfigured(storage: LargeFileStorage | undefined): boolean {
+	if (!storage) return false
+	return (
+		storage.type !== undefined ||
+		storage.s3_resource_path !== undefined ||
+		storage.azure_blob_resource_path !== undefined ||
+		storage.gcs_resource_path !== undefined
+	)
+}
+
+/**
+ * Whether the workspace can store uploaded files. Call during component initialisation and
+ * read `.current` where the answer is used.
+ *
+ * Assumed configured until this workspace's own answer lands, so a surface that says "no
+ * storage configured" never flashes that on navigation, nor claims it merely because the
+ * fetch failed.
+ */
+export function useWorkspaceStorageConfigured(ws: () => string | undefined): {
 	readonly current: boolean
 } {
 	const settings = resource(ws, async (ws, _previousWs, { onCleanup }) => {
@@ -24,12 +44,10 @@ export function useS3StorageConfigured(ws: () => string | undefined): {
 		}
 	})
 
-	// Assume configured until this workspace's own answer lands: the warning must not
-	// linger from the previous workspace, nor appear merely because the fetch failed.
 	const configured = $derived.by(() => {
 		const loaded = settings.current
 		return loaded && loaded.ws === ws()
-			? loaded.settings.large_file_storage?.s3_resource_path !== undefined
+			? storageConfigured(loaded.settings.large_file_storage)
 			: true
 	})
 

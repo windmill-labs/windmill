@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, conversation_id, message_type as \"message_type: MessageType\", content, job_id, created_at, created_seq, step_name, success\n             FROM flow_conversation_message\n             WHERE conversation_id = $1\n               AND created_seq > $2\n             ORDER BY created_seq ASC\n             LIMIT $3\n             ",
+  "query": "SELECT id, conversation_id, message_type as \"message_type: MessageType\", content, job_id, created_at, created_seq, step_name, success, tool_arguments, tool_result, reasoning\n             FROM flow_conversation_message\n             WHERE conversation_id = $1\n               AND created_seq > $2\n             ORDER BY created_seq ASC\n             LIMIT $3\n             ",
   "describe": {
     "columns": [
       {
@@ -58,6 +58,21 @@
         "ordinal": 8,
         "name": "success",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "tool_arguments",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "tool_result",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "reasoning",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -76,8 +91,11 @@
       false,
       false,
       true,
-      false
+      false,
+      true,
+      true,
+      true
     ]
   },
-  "hash": "e8802be9203c1e88a06e337260ccca029380139f89a01a89033e36a6ed9ac082"
+  "hash": "318ed7a45d8326e3ecbc9727ee3812adaeeead8b39b007a32badadf67ec5ca17"
 }

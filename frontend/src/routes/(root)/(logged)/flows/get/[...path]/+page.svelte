@@ -84,6 +84,7 @@
 		onEditInForkClick
 	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import { agentStreamingEnabled } from '$lib/components/flows/agentFormFields'
 
 	let flow: Flow | undefined = $state()
 	let can_write = $state(false)
@@ -522,6 +523,12 @@
 	let showEditButtons = $state(false)
 	let mainButtons = $derived(getMainButtons(flow, args))
 	let chatInputEnabled = $derived(flow?.value?.chat_input_enabled ?? false)
+	let shouldUseStreaming = $derived.by(() => {
+		const modules = flow?.value?.modules
+		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
+		if (lastModule?.value?.type !== 'aiagent') return false
+		return agentStreamingEnabled(lastModule.value)
+	})
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -630,63 +637,74 @@
 					<div
 						class={twMerge(
 							'w-full flex flex-col',
-							chatInputEnabled ? 'p-3 h-full' : 'max-w-3xl p-6 min-h-[300px] justify-center',
+							chatInputEnabled ? 'h-full min-h-0' : 'max-w-3xl p-6 min-h-[300px] justify-center',
 							'mx-auto'
 						)}
 					>
-						{#if flow?.path}
-							<CiTestResults path={flow.path} kind="flow" />
-						{/if}
+						<!-- The chat reaches the edges of the pane, so the notices above it carry their
+						     own padding. `contents` leaves the form layout exactly as it was. -->
+						<!-- Top spacing hangs off the first notice, not the wrapper: `{#if}` leaves a
+						     comment anchor behind, so an empty wrapper is not `:empty` and its own
+						     padding would show as a gap above a chat with nothing to announce. -->
+						<div
+							class={chatInputEnabled ? 'flex flex-col px-3 [&>*:first-child]:mt-3' : 'contents'}
+						>
+							{#if flow?.path}
+								<CiTestResults path={flow.path} kind="flow" />
+							{/if}
 
-						{#if flow?.archived}
-							<Alert type="error" title="Archived">This flow was archived</Alert>
-							<div class="h-4"></div>
-						{/if}
+							{#if flow?.archived}
+								<Alert type="error" title="Archived">This flow was archived</Alert>
+								<div class="h-4"></div>
+							{/if}
 
-						{#if pinnedVersion !== undefined}
-							<Alert type="info" title="Viewing pinned version {pinnedVersion}">
-								This is a historical version of the flow, not the latest.
-								<a class="underline" href="/flows/get/{path}?workspace={$workspaceStore}">
-									View latest
-								</a>
-							</Alert>
-							<div class="h-4"></div>
-						{/if}
+							{#if pinnedVersion !== undefined}
+								<Alert type="info" title="Viewing pinned version {pinnedVersion}">
+									This is a historical version of the flow, not the latest.
+									<a class="underline" href="/flows/get/{path}?workspace={$workspaceStore}">
+										View latest
+									</a>
+								</Alert>
+								<div class="h-4"></div>
+							{/if}
 
-						{#if !emptyString(flow?.description)}
-							<div class="p-4 rounded-md bg-surface-secondary">
-								<GfmMarkdown
-									md={defaultIfEmptyString(flow?.description, 'No description')}
-									noPadding
-								/>
-							</div>
-							<div class="h-4"></div>
-						{/if}
+							<!-- In chat mode the description belongs to the chat, which shows it under the
+						     empty transcript and in the sidebar once a conversation replaces that. -->
+							{#if !chatInputEnabled && !emptyString(flow?.description)}
+								<div class="p-4 rounded-md bg-surface-secondary">
+									<GfmMarkdown
+										md={defaultIfEmptyString(flow?.description, 'No description')}
+										noPadding
+									/>
+								</div>
+								<div class="h-4"></div>
+							{/if}
 
-						{#if deploymentInProgress}
-							<div class="pb-4" transition:slide={{ duration: 150 }}>
-								<HeaderBadge color="yellow">
-									<Loader2 size={12} class="inline animate-spin mr-1" />
-									Deployment in progress
-									{#if deploymentJobId}
-										<a
-											href="/run/{deploymentJobId}?workspace={$workspaceStore}"
-											class="underline"
-											target="_blank">view job</a
-										>
-									{/if}
-								</HeaderBadge>
-							</div>
-						{/if}
-						{#if flow.lock_error_logs && flow.lock_error_logs != ''}
-							<Alert type="error" title="Deployment failed">
-								<p>
-									This flow has not been deployed successfully because of the following errors:
-								</p>
-								<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
-							</Alert>
-							<div class="h-4"></div>
-						{/if}
+							{#if deploymentInProgress}
+								<div class="pb-4" transition:slide={{ duration: 150 }}>
+									<HeaderBadge color="yellow">
+										<Loader2 size={12} class="inline animate-spin mr-1" />
+										Deployment in progress
+										{#if deploymentJobId}
+											<a
+												href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+												class="underline"
+												target="_blank">view job</a
+											>
+										{/if}
+									</HeaderBadge>
+								</div>
+							{/if}
+							{#if flow.lock_error_logs && flow.lock_error_logs != ''}
+								<Alert type="error" title="Deployment failed">
+									<p>
+										This flow has not been deployed successfully because of the following errors:
+									</p>
+									<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
+								</Alert>
+								<div class="h-4"></div>
+							{/if}
+						</div>
 
 						{#if chatInputEnabled}
 							<!-- Chat Layout with Sidebar -->
@@ -694,7 +712,13 @@
 								onRunFlow={runFlowForChat}
 								{deploymentInProgress}
 								path={flow?.path ?? ''}
+								description={flow?.description}
+								useStreaming={shouldUseStreaming}
 								inputSchema={flow?.schema}
+								flowModules={flow?.value?.modules}
+								wideLayout
+								frame="none"
+								parallelTurns
 							/>
 						{:else}
 							{@const hasSchema =
