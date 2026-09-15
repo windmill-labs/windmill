@@ -1175,6 +1175,7 @@
 			deployedLabel,
 			versions: await deployedVersionOptions(),
 			onTakeLatest,
+			draftBase: draftBaseVersion,
 			loadVersion: async (id) => {
 				const v = await FlowService.getFlowVersion({
 					workspace: opWorkspace!,

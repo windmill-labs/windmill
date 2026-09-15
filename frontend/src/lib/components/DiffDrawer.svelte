@@ -51,7 +51,8 @@
 				 *  way to tell what their draft is being compared against. */
 				deployedLabel?: string
 				versions?: DiffVersionOption[]
-				onTakeLatest?: () => void | Promise<void>
+				onTakeLatest?: (head?: string) => void | Promise<void>
+				draftBase?: string
 				draft: DiffData | undefined
 				current: DiffData
 				path?: string
@@ -139,12 +140,24 @@
 		}
 	}
 
+	/** The version this drawer presents as the deployed head, when it has a list to say
+	 *  so. Both the action's gate and the base it adopts hang off it, so "take latest"
+	 *  means the version the reader is looking at. */
+	const headShown = $derived.by(() =>
+		data?.mode === 'normal' ? data.versions?.find((v) => v.isHead)?.id : undefined
+	)
+	/** Behind as the drawer can see it: a base that is not the head on display. With no
+	 *  version list there is nothing to compare, so the editor's own gate stands. */
+	const behindShown = $derived.by(
+		() => data?.mode === 'normal' && (headShown == null || data.draftBase !== headShown)
+	)
+
 	let takingLatest = $state(false)
 	async function takeLatest() {
 		if (!data || data.mode !== 'normal' || !data.onTakeLatest || takingLatest) return
 		takingLatest = true
 		try {
-			await data.onTakeLatest()
+			await data.onTakeLatest(headShown)
 			diffViewer?.closeDrawer()
 		} finally {
 			takingLatest = false
@@ -159,7 +172,8 @@
 					deployedLabel?: string
 					versions?: DiffVersionOption[]
 					loadVersion?: (id: string) => Promise<Value | undefined>
-					onTakeLatest?: () => void | Promise<void>
+					onTakeLatest?: (head?: string) => void | Promise<void>
+					draftBase?: string
 					draft?: Value | undefined
 					current: Value
 					defaultDiffType?: 'deployed' | 'draft'
@@ -180,6 +194,7 @@
 				versions,
 				loadVersion,
 				onTakeLatest,
+				draftBase,
 				draft,
 				current,
 				button
@@ -197,6 +212,7 @@
 				deployedLabel,
 				versions,
 				onTakeLatest,
+				draftBase,
 				draft: draft ? prepareDiff(draft) : undefined,
 				current: prepareDiff(current),
 				path: draft?.path || deployed?.path,
@@ -333,7 +349,7 @@
 			{/if}
 		</div>
 		{#snippet actions()}
-			{#if data?.mode === 'normal' && data.onTakeLatest}
+			{#if data?.mode === 'normal' && data.onTakeLatest && behindShown}
 				<Button unifiedSize="sm" variant="default" loading={takingLatest} onClick={takeLatest}>
 					Take latest, keep my edits
 				</Button>

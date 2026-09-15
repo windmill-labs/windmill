@@ -525,18 +525,21 @@
 		bind:this={scriptBuilder}
 		{initialPath}
 		userDraftPath={draftPath}
-		onTakeLatest={draftBaseHash && deployedHeadHash && draftBaseHash !== deployedHeadHash
-			? async () => {
-					// Re-read rather than trusting the head this page loaded with: taking a
-					// stale one would say the draft is up to date with a version that is not
-					// the latest any more.
+		{draftBaseHash}
+		onTakeLatest={draftBaseHash
+			? async (shown?: string) => {
+					// The version the drawer showed as head, else a fresh read: taking the one
+					// this page loaded with would say the draft is up to date with a version
+					// that is not the latest any more.
 					const head =
+						shown ??
 						(
 							await ScriptService.getScriptLatestVersion({
 								workspace: $workspaceStore!,
 								path: draftPath
 							}).catch(() => undefined)
-						)?.script_hash ?? deployedHeadHash
+						)?.script_hash ??
+						deployedHeadHash
 					if (!draftSync.draft || !head || !$workspaceStore) return
 					draftSync.draft = { ...draftSync.draft, parent_hash: head }
 					// The baseline mirrors the draft's base so an unedited draft still

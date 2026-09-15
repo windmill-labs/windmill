@@ -139,7 +139,9 @@
 		version?: number | undefined
 		/** Moves the draft's base to the deployed head and keeps its content;
 		 *  offered in the diff drawer while the draft is behind. */
-		onTakeLatest?: () => void | Promise<void>
+		onTakeLatest?: (head?: string) => void | Promise<void>
+		/** The app_version the draft forked from, threaded to the topbar's diff drawer. */
+		draftBaseVersion?: string | undefined
 		// See ScriptBuilderProps — same indicator semantics.
 		loadedFromDraft?: boolean
 		othersDraftsCount?: number
@@ -213,7 +215,8 @@
 		onSavedNewAppPath,
 		condensedHeader = false,
 		version = undefined,
-		onTakeLatest = undefined
+		onTakeLatest = undefined,
+		draftBaseVersion = undefined
 	}: Props = $props()
 
 	// Workspace this editor operates on: the session's acting workspace when
@@ -2309,6 +2312,7 @@
 		bind:pendingDraftPath
 		{version}
 		{onTakeLatest}
+		{draftBaseVersion}
 		{onRestore}
 		{onSavedNewAppPath}
 		{policy}

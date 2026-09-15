@@ -27,10 +27,14 @@ export type DiffDrawerDiff =
 			/** Loads one version's payload. Returning `undefined` leaves the current
 			 *  comparison in place rather than blanking the diff. */
 			loadVersion?: (id: string) => Promise<Value | undefined>
-			/** Moves the draft's base to the head and keeps its content. Passed only
-			 *  while the draft is behind; rendered as a header action so the user
-			 *  takes the latest with the diff in front of them. */
-			onTakeLatest?: () => void | Promise<void>
+			/** Moves the draft's base to the head and keeps its content, rendered as a
+			 *  header action so the user takes the latest with the diff in front of them.
+			 *  Called with the version the drawer is showing as head (from `versions`), so
+			 *  the base adopted is the one the reader just looked at. */
+			onTakeLatest?: (head?: string) => void | Promise<void>
+			/** The version the draft forked from. The drawer offers `onTakeLatest` only
+			 *  while it differs from the head on display. */
+			draftBase?: string
 			draft?: Value | undefined
 			current: Value
 			defaultDiffType?: 'deployed' | 'draft'

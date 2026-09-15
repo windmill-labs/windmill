@@ -625,19 +625,20 @@
 				newApp={isNewApp}
 				version={parentVersion ??
 					(deployedHeadVersion != null ? Number(deployedHeadVersion) : undefined)}
-				onTakeLatest={draftBaseVersion &&
-				deployedHeadVersion &&
-				draftBaseVersion !== deployedHeadVersion
-					? async () => {
-							// Re-read rather than trusting the head this page loaded with; see
+				{draftBaseVersion}
+				onTakeLatest={draftBaseVersion
+					? async (shown?: string) => {
+							// The version the drawer showed as head, else a fresh read; see
 							// /scripts/edit.
 							const head =
+								(shown != null ? Number(shown) : undefined) ??
 								(
 									await AppService.getAppLatestVersion({
 										workspace: $workspaceStore!,
 										path: page.params.path ?? ''
 									}).catch(() => undefined)
-								)?.version ?? Number(deployedHeadVersion)
+								)?.version ??
+								Number(deployedHeadVersion)
 							parentVersion = head
 							if (deployedBaseline) deployedBaseline = { ...deployedBaseline, parent_version: head }
 							draftBaseVersion = String(head)

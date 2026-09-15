@@ -111,7 +111,10 @@
 		version?: number | undefined
 		/** Moves the draft's base to the deployed head and keeps its content;
 		 *  offered in the diff drawer while the draft is behind. */
-		onTakeLatest?: () => void | Promise<void>
+		onTakeLatest?: (head?: string) => void | Promise<void>
+		/** The app_version the draft forked from; the drawer offers `onTakeLatest` only
+		 *  while it differs from the head on display. */
+		draftBaseVersion?: string | undefined
 		newApp: boolean
 		newPath?: string
 		/** Initial labels for the app, threaded from the loaded app data. */
@@ -183,6 +186,7 @@
 		savedApp = $bindable(undefined),
 		version = $bindable(undefined),
 		onTakeLatest = undefined,
+		draftBaseVersion = undefined,
 		newApp,
 		newPath = '',
 		labels: initialLabels = undefined,
@@ -460,6 +464,7 @@
 			deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
 			versions: await deployedVersionOptions(),
 			onTakeLatest,
+			draftBase: draftBaseVersion,
 			loadVersion: async (id) => {
 				const v = await AppService.getAppByVersion({ workspace: opWorkspace!, id: Number(id) })
 				// Same normalization as `syncWithDeployed`, so switching versions doesn't
