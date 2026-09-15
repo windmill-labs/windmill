@@ -804,6 +804,49 @@ async fn a_clone_takes_its_roles_from_the_data_table_it_was_cloned_from(
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn deleting_a_fork_keeps_a_cloned_database_another_workspace_uses(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    // Deleting a fork drops the databases its data tables were cloned into, but not one a second
+    // entry elsewhere was pointed at: that would take the other workspace's data with it.
+    let entry =
+        r#"{"database": {"resource_type": "instance", "resource_path": "wm_fork_dt__copy"}}"#;
+    sqlx::query(
+        "UPDATE workspace_settings SET datatable = jsonb_set(datatable, '{datatables,copy}',
+             $1::jsonb || '{\"forked_from\": {}}'::jsonb) WHERE workspace_id = 'wm-fork-dt'",
+    )
+    .bind(entry)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "UPDATE workspace_settings SET datatable = jsonb_set(datatable, '{datatables,alias}',
+             $1::jsonb) WHERE workspace_id = 'test-workspace'",
+    )
+    .bind(entry)
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let resp = authed(
+        client().delete(format!(
+            "http://localhost:{port}/api/workspaces/delete/wm-fork-dt"
+        )),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await?;
+    assert!(
+        body.contains("keeping instance database 'wm_fork_dt__copy'"),
+        "{body}"
+    );
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
 async fn a_data_table_under_roles_is_not_copied_without_its_grants(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {

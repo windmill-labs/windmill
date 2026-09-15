@@ -296,21 +296,11 @@
 		const prefixedId = `${WM_FORK_PREFIX}${id}`
 		deletingExistingFork = true
 		try {
-			// Its data table copies are named after the id, and would refuse the new fork's copies
-			const settings = await WorkspaceService.getPublicSettings({ workspace: prefixedId })
-			const clones = Object.entries(settings.datatable?.datatables ?? {})
-				.filter(([_, dt]) => dt.forked_from != null && dt.database != null)
-				.map(([name]) => name)
-			if (clones.length > 0) {
-				const errors = await WorkspaceService.dropForkedDatatableDatabases({
-					workspace: prefixedId,
-					requestBody: { datatable_names: clones }
-				})
-				for (const err of errors) {
-					sendUserToast(err, true)
-				}
+			const result = await WorkspaceService.deleteWorkspace({ workspace: prefixedId })
+			// The server lists what it could not clean up, such as a cloned database left behind
+			if (result.includes('not dropped') || result.includes('no longer resolve')) {
+				sendUserToast(result, 'warning', [], undefined, 20000)
 			}
-			await WorkspaceService.deleteWorkspace({ workspace: prefixedId })
 			// Drop local sessions bound to this id so they don't resurface (or
 			// auto-unarchive) against a new fork recreated under the same id.
 			// Fire-and-forget: neither a slow nor a failing IndexedDB op should
