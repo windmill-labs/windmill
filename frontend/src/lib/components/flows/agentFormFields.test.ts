@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { AI_AGENT_SCHEMA } from './flowInfers'
+import { AI_AGENT_SCHEMA, memoryPropertyFor } from './flowInfers'
 import {
 	AGENT_FIELD_BY_KEY,
 	AGENT_FIELDS,
+	historyInputApplies,
+	keepsManagedMemory,
 	agentFieldIsSet,
 	initialVisibleAgentFields
 } from './agentFormFields'
@@ -79,7 +81,44 @@ describe('initialVisibleAgentFields', () => {
 	})
 
 	it('covers every schema key, so no field can only be reached through the raw doc', () => {
-		const registered = new Set(AGENT_FIELDS.map((f) => f.key))
+		const registered = new Set<string>(AGENT_FIELDS.map((f) => f.key))
 		expect(Object.keys(schemaProperties).filter((k) => !registered.has(k))).toEqual([])
+	})
+})
+
+describe('historyInputApplies', () => {
+	// Mirrors the worker: offering a step input a run would ignore misleads the author.
+	it('offers a memory id only with managed memory, and previous messages only without', () => {
+		expect(keepsManagedMemory(undefined)).toBe(false)
+		expect(keepsManagedMemory({ kind: 'window', context_length: 0 })).toBe(false)
+		expect(keepsManagedMemory({ kind: 'manual', messages: [] })).toBe(false)
+		expect(keepsManagedMemory({ kind: 'auto', context_length: 4, memory_id: 'x' })).toBe(true)
+		expect(historyInputApplies('memory_id', true)).toBe(true)
+		expect(historyInputApplies('previous_messages', true)).toBe(false)
+		expect(historyInputApplies('memory_id', false)).toBe(false)
+		expect(historyInputApplies('previous_messages', false)).toBe(true)
+		expect(historyInputApplies('previous_messages', undefined)).toBe(true)
+	})
+})
+
+describe('memoryPropertyFor', () => {
+	const property = schemaProperties.memory
+	const kinds = (value: unknown) =>
+		memoryPropertyFor(property, value).oneOf.map((variant: { title: string }) => variant.title)
+
+	it('adds a legacy kind as an option only while the value holds it', () => {
+		expect(memoryPropertyFor(property, { kind: 'window', context_length: 10 })).toBe(property)
+		expect(memoryPropertyFor(property, undefined)).toBe(property)
+		expect(kinds({ kind: 'auto', context_length: 4, memory_id: 'x' })).toEqual([
+			'off',
+			'window',
+			'auto'
+		])
+		expect(kinds({ kind: 'manual', messages: [] })).toEqual(['off', 'window', 'manual'])
+		const autoVariant = (value: unknown) => memoryPropertyFor(property, value).oneOf.at(-1)
+		expect(autoVariant({ kind: 'auto', context_length: 4 }).properties.memory_id).toBeUndefined()
+		expect(
+			autoVariant({ kind: 'auto', context_length: 4, memory_id: 'x' }).properties.memory_id
+		).toBeDefined()
 	})
 })

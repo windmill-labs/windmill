@@ -40,7 +40,7 @@ use windmill_common::{
     client::AuthedClient,
     db::DB,
     error::{self, Error},
-    flow_conversations::MessageType,
+    flow_conversations::{memory_key, MessageType},
     flow_status::AgentAction,
     flows::{AgentTool, FlowModule, FlowModuleValue, InputTransform, ToolValue},
     get_latest_hash_for_path,
@@ -107,6 +107,105 @@ fn prepare_auto_memory_messages_for_persistence(
     non_system_messages[start_idx..].to_vec()
 }
 
+/// Where one agent invocation's history comes from.
+#[derive(Debug)]
+enum HistorySource<'a> {
+    /// Supplied by the flow and replayed as is: memory is neither read nor written.
+    Messages(&'a [OpenAIMessage]),
+    Window {
+        memory_id: Uuid,
+        context_length: usize,
+    },
+    Stateless,
+}
+
+/// The step's history inputs count only as the step authored them. A static empty value is a form
+/// placeholder, so it reads as unset rather than as an expression that evaluated to nothing, which
+/// runs without memory; an AI-filled value would let the model choose which memory the agent reads.
+fn keep_authored_history_args(
+    args: &mut AIAgentArgs,
+    step_input_transforms: &HashMap<String, InputTransform>,
+) {
+    match step_input_transforms.get("memory_id") {
+        Some(InputTransform::Javascript { .. }) => {}
+        Some(InputTransform::Static { .. }) if args.memory_id.as_deref() != Some("") => {}
+        _ => args.memory_id = None,
+    }
+    match step_input_transforms.get("previous_messages") {
+        Some(InputTransform::Javascript { .. }) => {}
+        Some(InputTransform::Static { .. })
+            if args
+                .previous_messages
+                .as_ref()
+                .is_some_and(|m| !m.is_empty()) => {}
+        _ => args.previous_messages = None,
+    }
+}
+
+/// Reconciles the step's history inputs, the agent's memory policy and the run's memory id, for
+/// every shape a flow or agent resource may still carry. Managed memory reads only a memory id, and
+/// memory that is off reads only previous messages. Also returns lines for the job log: a step
+/// input that went unused, or a policy that remembers ending up stateless.
+fn resolve_history_source<'a>(
+    args: &'a AIAgentArgs,
+    run_memory_id: Option<Uuid>,
+    workspace_id: &str,
+    flow_path: &str,
+) -> (HistorySource<'a>, Vec<&'static str>) {
+    let mut notes = Vec::new();
+    let (context_length, legacy_memory_id) = match &args.memory {
+        Some(Memory::Window { context_length }) => (*context_length, None),
+        // An id baked in at save time only ever applied when the run carried none.
+        Some(Memory::Auto { context_length, memory_id }) => (*context_length, *memory_id),
+        Some(Memory::Manual { .. } | Memory::Off) | None => {
+            if args.memory_id.as_deref().is_some_and(|id| !id.is_empty()) {
+                notes.push("Managed memory is off, so this step's memory id is ignored.");
+            }
+            let history = match (&args.previous_messages, &args.memory) {
+                (Some(messages), _) => HistorySource::Messages(messages),
+                // The fixed list an older editor stored in `memory`, which the step's previous messages
+                // replace.
+                (None, Some(Memory::Manual { messages })) => HistorySource::Messages(messages),
+                _ => HistorySource::Stateless,
+            };
+            return (history, notes);
+        }
+    };
+    if args
+        .previous_messages
+        .as_ref()
+        .is_some_and(|messages| !messages.is_empty())
+    {
+        notes.push("Managed memory is on, so this step's previous messages are ignored.");
+    }
+    let memory_id = match args.memory_id.as_deref() {
+        Some("") => {
+            notes.push(
+                "This step's memory id evaluated to an empty value, so the agent runs without memory.",
+            );
+            return (HistorySource::Stateless, notes);
+        }
+        Some(step_memory_id) => memory_key(workspace_id, flow_path, step_memory_id),
+        None => match run_memory_id.or(legacy_memory_id) {
+            Some(memory_id) => memory_id,
+            None => {
+                notes
+                    .push("No memory id was passed to this run, so the agent runs without memory.");
+                return (HistorySource::Stateless, notes);
+            }
+        },
+    };
+    (HistorySource::Window { memory_id, context_length }, notes)
+}
+
+/// Whether a request has something to ask the model. Only text output sends previous messages, so an
+/// image prompt comes from the user message alone. An empty list, as an expression evaluating to
+/// null gives, is no conversation.
+fn has_prompt(history: &HistorySource, has_user_message: bool, is_text_output: bool) -> bool {
+    has_user_message
+        || (is_text_output && matches!(history, HistorySource::Messages(m) if !m.is_empty()))
+}
+
 fn find_module_by_id(
     modules: &Vec<FlowModule>,
     target_id: &str,
@@ -132,14 +231,16 @@ async fn find_ai_agent_tool_module_in_parent_agent(
         return Ok(None);
     };
 
-    let FlowModuleValue::AIAgent { tools, agent, .. } = parent_agent_module.get_value()? else {
+    let FlowModuleValue::AIAgent { tools, agent, tool_inputs, .. } =
+        parent_agent_module.get_value()?
+    else {
         return Ok(None);
     };
 
     // A linked parent carries no tools on the module (they live in the resource, resolved only in
     // the main execution branch). Resolve them from the resource here too, so a nested agent tool
     // of a saved+linked agent can still be located when it runs as its own job.
-    let tools = if let Some(agent_ref) = agent.as_deref() {
+    let mut tools = if let Some(agent_ref) = agent.as_deref() {
         let agent_path = agent_ref
             .trim_start_matches("$res:")
             .trim_start_matches("res://");
@@ -166,6 +267,9 @@ async fn find_ai_agent_tool_module_in_parent_agent(
     } else {
         tools
     };
+    // The nested job reads its history inputs from the tool's transforms, which must carry the
+    // host flow's bindings as the parent evaluated them.
+    overlay_tool_inputs(&mut tools, &tool_inputs);
 
     for tool in tools {
         if tool.id == tool_module_id {
@@ -452,6 +556,7 @@ pub async fn handle_ai_agent_job(
         omit_output_from_conversation,
         agent,
         tool_inputs,
+        input_transforms: step_input_transforms,
         ..
     } = module.get_value()?
     else {
@@ -462,9 +567,11 @@ pub async fn handle_ai_agent_job(
 
     // A linked step takes its brain and tools from the resource and keeps only its own flow-local
     // inputs. The brain and the roster stay rigid; what the step binds to this flow is the message
-    // it asks, which of those tools this use may call, the conversation it is part of, and the
-    // tools' own inputs — the last overlaid from `tool_inputs` below.
-    let (args, tools): (AIAgentArgs, Vec<AgentTool>) = if let Some(agent_ref) = agent.as_deref() {
+    // it asks, which of those tools this use may call, the conversation it is part of (its memory
+    // id and previous messages), and the tools' own inputs — the last overlaid from `tool_inputs`
+    // below.
+    let (mut args, tools): (AIAgentArgs, Vec<AgentTool>) = if let Some(agent_ref) = agent.as_deref()
+    {
         let agent_path = agent_ref
             .trim_start_matches("$res:")
             .trim_start_matches("res://");
@@ -517,7 +624,13 @@ pub async fn handle_ai_agent_job(
         // Only after interpolating the resource: these are caller-controlled and already resolved by
         // build_args_map, so passing them through it again would expand contextual values —
         // `$WM_TOKEN` in a user message would reach the model provider.
-        for key in ["user_message", "user_attachments", "enabled_tools"] {
+        for key in [
+            "user_message",
+            "user_attachments",
+            "enabled_tools",
+            "memory_id",
+            "previous_messages",
+        ] {
             if let Some(v) = local_args.get(key) {
                 brain.insert(
                     key.to_string(),
@@ -541,6 +654,8 @@ pub async fn handle_ai_agent_job(
         overlay_tool_inputs(&mut tools, &tool_inputs);
         (args, tools)
     };
+
+    keep_authored_history_args(&mut args, &step_input_transforms);
 
     // Nesting is capped at flow → agent → nested agent. When this job is itself a nested tool,
     // a linked resource's tool set may still contain AIAgent tools (the editor can't constrain a
@@ -1006,8 +1121,18 @@ pub async fn run_agent(
     // Fetch flow context for input transforms context, chat and memory
     let mut flow_context = get_flow_context(db, job).await;
 
-    // Determine if we're using manual messages (which bypasses memory)
-    let use_manual_messages = matches!(args.memory, Some(Memory::Manual { .. }));
+    // The run's memory id is also the chat conversation id, which a step's own memory id never
+    // replaces.
+    let conversation_id = flow_context
+        .flow_status
+        .as_ref()
+        .and_then(|fs| fs.memory_id);
+    let (history, history_notes) = resolve_history_source(
+        args,
+        conversation_id,
+        &job.workspace_id,
+        flow_context.flow_path.as_deref().unwrap_or_default(),
+    );
 
     // Check if user_message is provided and non-empty
     let has_user_message = args
@@ -1016,63 +1141,49 @@ pub async fn run_agent(
         .map(|m| !m.is_empty())
         .unwrap_or(false);
 
-    // Validate: at least one of memory with manual messages or user_message must be provided
-    if !use_manual_messages && !has_user_message {
-        return Err(Error::internal_err(
-            "Either 'memory' with manual messages or 'user_message' must be provided".to_string(),
-        ));
-    }
-
     let is_text_output = output_type == &OutputType::Text;
 
-    // Flow-level memory_id (from chat mode) takes precedence over step-level memory_id
-    let memory_id = flow_context
-        .flow_status
-        .as_ref()
-        .and_then(|fs| fs.memory_id)
-        .or_else(|| {
-            // Extract memory_id from Memory::Auto if present
-            match &args.memory {
-                Some(Memory::Auto { memory_id, .. }) => *memory_id,
-                _ => None,
-            }
-        });
+    if is_text_output {
+        for note in &history_notes {
+            append_logs(&job.id, &job.workspace_id, format!("{note}\n"), conn).await;
+        }
+    }
 
-    // Load messages based on history mode
+    if !has_prompt(&history, has_user_message, is_text_output) {
+        let missing = if !is_text_output {
+            "'user_message' must be provided for image output"
+        } else if matches!(
+            args.memory,
+            Some(Memory::Window { .. } | Memory::Auto { .. })
+        ) {
+            "'user_message' must be provided while managed memory is on"
+        } else {
+            "Either 'previous_messages' or 'user_message' must be provided"
+        };
+        return Err(Error::internal_err(missing.to_string()));
+    }
+
     if matches!(output_type, OutputType::Text) {
-        match &args.memory {
-            Some(Memory::Manual { messages: manual_messages }) => {
-                // Use explicitly provided messages (bypass memory)
-                if !manual_messages.is_empty() {
-                    messages.extend(manual_messages.clone());
-                }
-            }
-            Some(Memory::Auto { context_length, .. }) => {
-                // Auto mode: load from memory
+        match &history {
+            HistorySource::Messages(provided) => messages.extend(provided.iter().cloned()),
+            HistorySource::Window { memory_id, context_length } => {
                 if let Some(step_id) = effective_flow_step_id {
-                    if let Some(memory_id) = memory_id {
-                        // Read messages from memory
-                        match read_from_memory(db, &job.workspace_id, memory_id, step_id).await {
-                            Ok(Some(loaded_messages)) => {
-                                let messages_to_load = prepare_auto_memory_messages_for_request(
-                                    &loaded_messages,
-                                    *context_length,
-                                );
-                                messages.extend(messages_to_load);
-                            }
-                            Ok(None) => {}
-                            Err(e) => {
-                                tracing::error!(
-                                    "Failed to read memory for step {}: {}",
-                                    step_id,
-                                    e
-                                );
-                            }
+                    match read_from_memory(db, &job.workspace_id, *memory_id, step_id).await {
+                        Ok(Some(loaded_messages)) => {
+                            let messages_to_load = prepare_auto_memory_messages_for_request(
+                                &loaded_messages,
+                                *context_length,
+                            );
+                            messages.extend(messages_to_load);
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            tracing::error!("Failed to read memory for step {}: {}", step_id, e);
                         }
                     }
                 }
             }
-            _ => {}
+            HistorySource::Stateless => {}
         }
     }
 
@@ -1500,7 +1611,7 @@ pub async fn run_agent(
                         ..Default::default()
                     });
                     if persist_output_to_conversation {
-                        if let Some(memory_id) = memory_id {
+                        if let Some(conversation_id) = conversation_id {
                             let agent_job_id = job.id;
                             let db_clone = db.clone();
                             let message_content = "Used websearch tool successfully".to_string();
@@ -1508,7 +1619,7 @@ pub async fn run_agent(
                             tokio::spawn(async move {
                                 if let Err(e) = add_message_to_conversation(
                                     &db_clone,
-                                    &memory_id,
+                                    &conversation_id,
                                     Some(agent_job_id),
                                     &message_content,
                                     MessageType::Tool,
@@ -1519,7 +1630,7 @@ pub async fn run_agent(
                                 {
                                     tracing::warn!(
                                         "Failed to add websearch tool message to conversation {}: {}",
-                                        memory_id,
+                                        conversation_id,
                                         e
                                     );
                                 }
@@ -1552,7 +1663,7 @@ pub async fn run_agent(
 
                     // Add assistant message to conversation if chat_input_enabled
                     if persist_output_to_conversation && !response_content.is_empty() {
-                        if let Some(memory_id) = memory_id {
+                        if let Some(conversation_id) = conversation_id {
                             let agent_job_id = job.id;
                             let db_clone = db.clone();
                             let message_content = response_content.clone();
@@ -1562,7 +1673,7 @@ pub async fn run_agent(
                             tokio::spawn(async move {
                                 if let Err(e) = add_message_to_conversation(
                                     &db_clone,
-                                    &memory_id,
+                                    &conversation_id,
                                     Some(agent_job_id),
                                     &message_content,
                                     MessageType::Assistant,
@@ -1573,7 +1684,7 @@ pub async fn run_agent(
                                 {
                                     tracing::warn!(
                                         "Failed to add assistant message to conversation {}: {}",
-                                        memory_id,
+                                        conversation_id,
                                         e
                                     );
                                 }
@@ -1671,7 +1782,7 @@ pub async fn run_agent(
 
                 // Add assistant message to conversation if chat_input_enabled
                 if persist_output_to_conversation {
-                    if let Some(memory_id) = memory_id {
+                    if let Some(conversation_id) = conversation_id {
                         let agent_job_id = job.id;
                         let db_clone = db.clone();
 
@@ -1689,7 +1800,7 @@ pub async fn run_agent(
                         tokio::spawn(async move {
                             if let Err(e) = add_message_to_conversation(
                                 &db_clone,
-                                &memory_id,
+                                &conversation_id,
                                 Some(agent_job_id),
                                 &message_content,
                                 MessageType::Assistant,
@@ -1700,7 +1811,7 @@ pub async fn run_agent(
                             {
                                 tracing::warn!(
                                     "Failed to add assistant message to conversation {}: {}",
-                                    memory_id,
+                                    conversation_id,
                                     e
                                 );
                             }
@@ -1757,13 +1868,10 @@ pub async fn run_agent(
         }
     }
 
-    // Persist complete conversation to memory at the end (only if in auto mode with context length)
-    // Skip memory persistence if using manual messages (bypass memory entirely)
-    // final_messages contains the complete history (old messages + new ones)
-    if matches!(output_type, OutputType::Text) && !use_manual_messages {
-        if let Some(Memory::Auto { context_length, .. }) = &args.memory {
+    // final_messages holds the complete history: what was loaded plus this run's messages
+    if matches!(output_type, OutputType::Text) {
+        if let HistorySource::Window { memory_id, context_length } = &history {
             if let Some(step_id) = effective_flow_step_id {
-                // Extract OpenAIMessages from final_messages
                 let all_messages: Vec<OpenAIMessage> =
                     final_messages.iter().map(|m| m.message.clone()).collect();
 
@@ -1773,23 +1881,21 @@ pub async fn run_agent(
                         *context_length,
                     );
 
-                    if let Some(memory_id) = memory_id {
-                        if let Err(e) = write_to_memory(
-                            db,
-                            &job.workspace_id,
-                            memory_id,
+                    if let Err(e) = write_to_memory(
+                        db,
+                        &job.workspace_id,
+                        *memory_id,
+                        step_id,
+                        &messages_to_persist,
+                    )
+                    .await
+                    {
+                        tracing::error!(
+                            "Failed to persist {} messages to memory for step {}: {}",
+                            messages_to_persist.len(),
                             step_id,
-                            &messages_to_persist,
-                        )
-                        .await
-                        {
-                            tracing::error!(
-                                "Failed to persist {} messages to memory for step {}: {}",
-                                messages_to_persist.len(),
-                                step_id,
-                                e
-                            );
-                        }
+                            e
+                        );
                     }
                 }
             }
@@ -1847,6 +1953,242 @@ mod tests {
             content: Some(OpenAIContent::Text(content.to_string())),
             ..Default::default()
         }
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum Resolved {
+        Messages(usize),
+        Window(Uuid, usize),
+        Stateless { noted: bool },
+    }
+
+    /// Every memory shape a worker may still read, resolved against a run with or without a
+    /// memory id. The hashed id is pinned: changing it detaches memories stored under string ids.
+    #[test]
+    fn history_source_resolves_every_memory_shape() {
+        use serde_json::json;
+        let run = Uuid::from_u128(1);
+        let baked = Uuid::from_u128(2);
+        let cust_1 = Uuid::parse_str("0168fcea-ffa7-5c15-bdb0-7709bb5f540d").unwrap();
+        let window = json!({ "kind": "window", "context_length": 10 });
+        let message = json!([{ "role": "user", "content": "earlier" }]);
+        let two_messages = json!([
+            { "role": "user", "content": "earlier" },
+            { "role": "assistant", "content": "reply" }
+        ]);
+        let cases = [
+            (
+                "absent memory is off",
+                json!({}),
+                Some(run),
+                Resolved::Stateless { noted: false },
+            ),
+            (
+                "legacy off",
+                json!({ "memory": { "kind": "off" } }),
+                Some(run),
+                Resolved::Stateless { noted: false },
+            ),
+            (
+                "legacy auto prefers the run's id",
+                json!({ "memory": { "kind": "auto", "context_length": 4, "memory_id": baked } }),
+                Some(run),
+                Resolved::Window(run, 4),
+            ),
+            (
+                "legacy auto falls back to its baked id",
+                json!({ "memory": { "kind": "auto", "context_length": 4, "memory_id": baked } }),
+                None,
+                Resolved::Window(baked, 4),
+            ),
+            (
+                "legacy auto with an empty baked id uses the run's",
+                json!({ "memory": { "kind": "auto", "context_length": 4, "memory_id": "" } }),
+                Some(run),
+                Resolved::Window(run, 4),
+            ),
+            (
+                "legacy auto with an empty baked id and no run id is stateless",
+                json!({ "memory": { "kind": "auto", "context_length": 4, "memory_id": " " } }),
+                None,
+                Resolved::Stateless { noted: true },
+            ),
+            (
+                "legacy auto without a length is off",
+                json!({ "memory": { "kind": "auto", "memory_id": baked } }),
+                Some(run),
+                Resolved::Stateless { noted: false },
+            ),
+            (
+                "legacy manual replays its messages",
+                json!({ "memory": { "kind": "manual", "messages": message } }),
+                Some(run),
+                Resolved::Messages(1),
+            ),
+            (
+                "window keeps the run's memory",
+                json!({ "memory": window }),
+                Some(run),
+                Resolved::Window(run, 10),
+            ),
+            (
+                "window without a memory id is stateless",
+                json!({ "memory": window }),
+                None,
+                Resolved::Stateless { noted: true },
+            ),
+            (
+                "a step memory id overrides the run's",
+                json!({ "memory": window, "memory_id": "cust_1" }),
+                Some(run),
+                Resolved::Window(cust_1, 10),
+            ),
+            (
+                "a uuid step memory id is used as is",
+                json!({ "memory": window, "memory_id": baked.to_string() }),
+                Some(run),
+                Resolved::Window(baked, 10),
+            ),
+            (
+                "a step memory id evaluating to null is stateless",
+                json!({ "memory": window, "memory_id": null }),
+                Some(run),
+                Resolved::Stateless { noted: true },
+            ),
+            (
+                "an off policy ignores the step memory id, and says so",
+                json!({ "memory": { "kind": "off" }, "memory_id": "cust_1" }),
+                Some(run),
+                Resolved::Stateless { noted: true },
+            ),
+            (
+                "managed memory ignores the step's previous messages",
+                json!({ "memory": window, "memory_id": "cust_1", "previous_messages": message }),
+                Some(run),
+                Resolved::Window(cust_1, 10),
+            ),
+            (
+                "memory that is off sends the step's previous messages",
+                json!({ "previous_messages": message }),
+                Some(run),
+                Resolved::Messages(1),
+            ),
+            (
+                "the step's previous messages replace a legacy manual list",
+                json!({ "memory": { "kind": "manual", "messages": message }, "previous_messages": two_messages }),
+                Some(run),
+                Resolved::Messages(2),
+            ),
+        ];
+        for (name, history, run_memory_id, expected) in cases {
+            let mut raw = json!({ "provider": { "kind": "openai", "resource": {}, "model": "m" } });
+            raw.as_object_mut()
+                .unwrap()
+                .extend(history.as_object().unwrap().clone());
+            let args: AIAgentArgs = serde_json::from_value(raw).unwrap();
+            let resolved = match resolve_history_source(&args, run_memory_id, "ws", "f/flow") {
+                (HistorySource::Messages(m), _) => Resolved::Messages(m.len()),
+                (HistorySource::Window { memory_id, context_length }, _) => {
+                    Resolved::Window(memory_id, context_length)
+                }
+                (HistorySource::Stateless, notes) => {
+                    Resolved::Stateless { noted: !notes.is_empty() }
+                }
+            };
+            assert_eq!(resolved, expected, "{name}");
+        }
+    }
+
+    /// A placeholder the form seeds must not read as a memory id that evaluated to nothing, which
+    /// would turn memory off for the step.
+    #[test]
+    fn only_an_expression_can_set_an_empty_step_memory_id() {
+        let transforms = |memory_id: &str| -> HashMap<String, InputTransform> {
+            HashMap::from([(
+                "memory_id".to_string(),
+                serde_json::from_str(memory_id).unwrap(),
+            )])
+        };
+        let args = || -> AIAgentArgs {
+            serde_json::from_value(serde_json::json!({
+                "provider": { "kind": "openai", "resource": {}, "model": "m" },
+                "memory_id": null,
+                "previous_messages": [],
+            }))
+            .unwrap()
+        };
+        for (transform, expected) in [
+            (r#"{ "type": "static" }"#, None),
+            (r#"{ "type": "static", "value": "" }"#, None),
+            (r#"{ "type": "ai" }"#, None),
+            (
+                r#"{ "type": "javascript", "expr": "flow_input.customer_id" }"#,
+                Some(""),
+            ),
+        ] {
+            let mut args = args();
+            keep_authored_history_args(&mut args, &transforms(transform));
+            assert_eq!(args.memory_id.as_deref(), expected, "{transform}");
+            assert!(args.previous_messages.is_none(), "{transform}");
+        }
+    }
+
+    /// Empty previous messages a form leaves on a step never replace a legacy list; an expression
+    /// does, even when it evaluates to null.
+    #[test]
+    fn only_an_expression_can_empty_a_legacy_message_list() {
+        let run = Uuid::from_u128(1);
+        for (transform, expected) in [
+            (
+                r#"{ "type": "javascript", "expr": "flow_input.history" }"#,
+                Resolved::Messages(0),
+            ),
+            (
+                r#"{ "type": "static", "value": null }"#,
+                Resolved::Messages(1),
+            ),
+            (
+                r#"{ "type": "static", "value": [] }"#,
+                Resolved::Messages(1),
+            ),
+        ] {
+            let mut args: AIAgentArgs = serde_json::from_value(serde_json::json!({
+                "provider": { "kind": "openai", "resource": {}, "model": "m" },
+                "memory": { "kind": "manual", "messages": [{ "role": "user", "content": "earlier" }] },
+                "previous_messages": if transform.contains("[]") { serde_json::json!([]) } else { serde_json::Value::Null },
+            }))
+            .unwrap();
+            let transforms = HashMap::from([(
+                "previous_messages".to_string(),
+                serde_json::from_str(transform).unwrap(),
+            )]);
+            keep_authored_history_args(&mut args, &transforms);
+            let resolved = match resolve_history_source(&args, Some(run), "ws", "f/flow") {
+                (HistorySource::Messages(m), _) => Resolved::Messages(m.len()),
+                (HistorySource::Window { memory_id, context_length }, _) => {
+                    Resolved::Window(memory_id, context_length)
+                }
+                (HistorySource::Stateless, notes) => {
+                    Resolved::Stateless { noted: !notes.is_empty() }
+                }
+            };
+            assert_eq!(resolved, expected, "{transform}");
+        }
+    }
+
+    /// Only text output sends previous messages, so they never stand in for an image prompt.
+    #[test]
+    fn previous_messages_never_stand_in_for_an_image_prompt() {
+        let args: AIAgentArgs = serde_json::from_value(serde_json::json!({
+            "provider": { "kind": "openai", "resource": {}, "model": "m" },
+            "previous_messages": [{ "role": "user", "content": "earlier" }],
+        }))
+        .unwrap();
+        let (history, _) = resolve_history_source(&args, None, "ws", "f/flow");
+        assert!(has_prompt(&history, false, true));
+        assert!(!has_prompt(&history, false, false));
+        assert!(has_prompt(&history, true, false));
+        assert!(!has_prompt(&HistorySource::Messages(&[]), false, true));
     }
 
     #[test]

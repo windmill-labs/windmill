@@ -4,6 +4,7 @@ import type { Schema } from '$lib/common'
 import { emptySchema } from '$lib/utils'
 import type { FlowModule, InputTransform } from '$lib/gen'
 import { AGENT_FLOW_LOCAL_KEYS } from './agentResourceUtils'
+import { AGENT_HISTORY_KEYS } from './agentFormFields'
 
 export const AI_AGENT_SCHEMA: Schema = {
 	$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -39,102 +40,85 @@ export const AI_AGENT_SCHEMA: Schema = {
 		},
 		memory: {
 			type: 'object',
-			description: 'History sent between the system message and the user message.',
+			description:
+				'Windmill stores the conversation and sends its last messages with each request.',
+			enumLabels: {
+				off: 'Off',
+				window: 'On',
+				auto: 'On (legacy)',
+				manual: 'Previous messages (legacy)'
+			},
 			oneOf: [
 				{
 					type: 'object',
 					title: 'off',
 					properties: {
-						kind: {
-							type: 'string',
-							enum: ['off'],
-							description: 'Disable conversation memory'
-						}
+						kind: { type: 'string', enum: ['off'] }
 					}
 				},
 				{
 					type: 'object',
-					title: 'auto',
+					title: 'window',
 					properties: {
-						kind: {
-							type: 'string',
-							enum: ['auto'],
-							default: 'auto',
-							description: 'Automatically manage conversation history'
-						},
+						kind: { type: 'string', enum: ['window'] },
 						context_length: {
 							type: 'number',
-							description:
-								'Number of most recent messages to store and load. Set to 0 to disable memory.',
-							default: 5
-						},
-						memory_id: {
-							type: 'string',
-							format: 'uuid',
-							'x-auto-generate': true,
-							description:
-								'Custom memory identifier. Each unique ID maintains separate conversation history.',
-							hideWhenChatEnabled: true
+							title: 'Messages to keep',
+							description: 'Number of most recent messages to load and store.',
+							default: 10
 						}
 					},
-					required: ['kind'],
-					'x-no-s3-storage-workspace-warning':
-						'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. If you need to store more messages, you should use S3 storage in your workspace settings.'
-				},
-				{
-					type: 'object',
-					title: 'manual',
-					properties: {
-						kind: {
-							type: 'string',
-							enum: ['manual'],
-							description:
-								'Manually provide conversation messages, bypassing automatic memory management'
-						},
-						messages: {
-							type: 'array',
-							description: 'Array of conversation messages to use as history',
-							items: {
-								type: 'object',
-								properties: {
-									role: {
-										type: 'string',
-										enum: ['user', 'assistant', 'system']
-									},
-									content: {
-										type: 'string'
-									},
-									tool_calls: {
-										type: 'array',
-										nullable: true,
-										items: {
-											type: 'object',
-											properties: {
-												id: { type: 'string' },
-												type: { type: 'string' },
-												function: {
-													type: 'object',
-													properties: {
-														name: { type: 'string' },
-														arguments: { type: 'string' }
-													}
-												}
-											}
-										}
-									},
-									tool_call_id: {
-										type: 'string',
-										nullable: true,
-										description: 'The ID of the tool call this message is responding to'
+					required: ['kind', 'context_length']
+				}
+			],
+			showExpr: "fields.output_type !== 'image'"
+		},
+		memory_id: {
+			type: 'string',
+			description:
+				'Names the memory this step reads and writes, overriding the memory id the run was started with. Read only while managed memory is on.',
+			showExpr: "fields.output_type !== 'image'"
+		},
+		previous_messages: {
+			type: 'array',
+			description:
+				'History the flow supplies, sent before the user message. Read only while managed memory is off.',
+			items: {
+				type: 'object',
+				properties: {
+					role: {
+						type: 'string',
+						enum: ['user', 'assistant', 'system']
+					},
+					content: {
+						type: 'string'
+					},
+					tool_calls: {
+						type: 'array',
+						nullable: true,
+						items: {
+							type: 'object',
+							properties: {
+								id: { type: 'string' },
+								type: { type: 'string' },
+								function: {
+									type: 'object',
+									properties: {
+										name: { type: 'string' },
+										arguments: { type: 'string' }
 									}
-								},
-								required: ['role']
+								}
 							}
 						}
 					},
-					required: ['kind', 'messages']
-				}
-			],
+					tool_call_id: {
+						type: 'string',
+						nullable: true,
+						description: 'The ID of the tool call this message is responding to'
+					}
+				},
+				required: ['role']
+			},
 			showExpr: "fields.output_type !== 'image'"
 		},
 		output_schema: {
@@ -190,6 +174,8 @@ export const AI_AGENT_SCHEMA: Schema = {
 		'system_prompt',
 		'streaming',
 		'memory',
+		'memory_id',
+		'previous_messages',
 		'output_schema',
 		'user_attachments',
 		'enabled_tools',
@@ -197,6 +183,46 @@ export const AI_AGENT_SCHEMA: Schema = {
 		'temperature',
 		'max_iterations'
 	]
+}
+
+/** Memory shapes older editors wrote. The step form offers one only to a step that still holds it,
+ *  since the one-of field rewrites a value that matches none of its options. */
+export const LEGACY_MEMORY_VARIANTS: Record<string, any> = {
+	auto: {
+		type: 'object',
+		title: 'auto',
+		properties: {
+			kind: { type: 'string', enum: ['auto'] },
+			context_length: { type: 'number', title: 'Messages to keep', default: 10 },
+			memory_id: { type: 'string', title: 'Fixed memory id' }
+		},
+		required: ['kind']
+	},
+	manual: {
+		type: 'object',
+		title: 'manual',
+		properties: {
+			kind: { type: 'string', enum: ['manual'] },
+			messages: { type: 'array', items: AI_AGENT_SCHEMA.properties?.previous_messages?.items }
+		},
+		required: ['kind', 'messages']
+	}
+}
+
+/** The memory property to render for a value: a legacy kind is added as an option only while the
+ *  value holds it. Otherwise the property itself is returned, which callers compare by identity to
+ *  avoid rebuilding the step schema. */
+export function memoryPropertyFor(property: any, value: any): any {
+	let legacy = value?.kind ? LEGACY_MEMORY_VARIANTS[value.kind] : undefined
+	if (!legacy || !property?.oneOf) return property
+	// The form fills an empty string field with `''` when it opens, so the baked id field is only
+	// offered to a value saved with the key. Keyed on presence rather than content, or clearing the
+	// id to retype it would remove the field mid-edit.
+	if (value.kind === 'auto' && !('memory_id' in value)) {
+		const { memory_id: _, ...properties } = legacy.properties
+		legacy = { ...legacy, properties }
+	}
+	return { ...property, oneOf: [...property.oneOf, legacy] }
 }
 
 function migrateAiAgentInputTransforms(
@@ -300,10 +326,13 @@ export async function loadSchemaFromModule(
 			: Object.keys(AI_AGENT_SCHEMA.properties ?? {})
 		return {
 			input_transforms: keys.reduce((accu, key) => {
-				accu[key] = input_transforms[key] ?? {
-					type: 'static',
-					value: undefined
-				}
+				const transform =
+					input_transforms[key] ??
+					// A present history input is the step's choice at runtime, so it gets no placeholder.
+					((AGENT_HISTORY_KEYS as readonly string[]).includes(key)
+						? undefined
+						: { type: 'static', value: undefined })
+				if (transform) accu[key] = transform
 				return accu
 			}, {}),
 			// A copy per step, never the shared constant: the form writes back into the property it

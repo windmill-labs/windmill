@@ -48,6 +48,7 @@
 	import { deepEqual } from 'fast-equals'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
+	import { AGENT_HISTORY_KEYS, DEFAULT_AGENT_MEMORY } from '../agentFormFields'
 	import { nextId } from '../flowModuleNextId'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import FlowChat from '../conversations/FlowChat.svelte'
@@ -557,7 +558,7 @@
 		const aiAgentModules = flowStore.val.value.modules.filter((m) => m.value.type === 'aiagent')
 
 		if (aiAgentModules.length === 0) {
-			// No AI agent exists, create one with context memory set to 10
+			// No AI agent exists, so create one reading the chat's user message
 			const aiAgentId = nextId(flowStateStore.val, flowStore.val)
 			flowStore.val.value.modules = [
 				...flowStore.val.value.modules,
@@ -571,8 +572,8 @@
 								if (key === 'user_message') {
 									accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
 								} else if (key === 'memory') {
-									accu[key] = { type: 'static', value: { kind: 'auto', context_length: 10 } }
-								} else {
+									accu[key] = { type: 'static', value: structuredClone(DEFAULT_AGENT_MEMORY) }
+								} else if (!(AGENT_HISTORY_KEYS as readonly string[]).includes(key)) {
 									accu[key] = {
 										type: 'static',
 										value: undefined
@@ -586,7 +587,7 @@
 				}
 			]
 			sendUserToast(
-				'Chat mode enabled. AI agent created with user message input and context memory set to 10.',
+				'Chat mode enabled. AI agent created with the user message as its input and managed memory on.',
 				false
 			)
 		} else if (aiAgentModules.length === 1) {
@@ -617,12 +618,20 @@
 				applied.push('user message input')
 			}
 
-			if (isUnconfigured(value.input_transforms['memory'])) {
+			// A linked step's memory belongs to the agent it links, and a step supplying its own
+			// previous messages reads them only while memory is off. An empty static list supplies none.
+			const messages = value.input_transforms['previous_messages']
+			if (
+				!value.agent &&
+				(isUnconfigured(messages) ||
+					(messages?.type === 'static' && !(messages.value as unknown[] | undefined)?.length)) &&
+				isUnconfigured(value.input_transforms['memory'])
+			) {
 				value.input_transforms['memory'] = {
 					type: 'static',
-					value: { kind: 'auto', context_length: 10 }
+					value: structuredClone(DEFAULT_AGENT_MEMORY)
 				}
-				applied.push('context memory set to 10')
+				applied.push('managed memory on')
 			}
 
 			sendUserToast(

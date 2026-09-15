@@ -1095,7 +1095,8 @@ pub enum FlowModuleValue {
         omit_output_from_conversation: bool,
         /// When set, the agent brain config (provider/model/system prompt/etc.) and tools are
         /// resolved at runtime from this `ai_agent` resource path (hybrid linking). The module's
-        /// `input_transforms` then only carry the flow-local inputs (user_message/user_attachments).
+        /// `input_transforms` then only carry the flow-local inputs: user_message,
+        /// user_attachments, enabled_tools and the history inputs memory_id and previous_messages.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent: Option<String>,
         /// Binds an agent's tools to *this* flow's context, keyed by tool id then input key, without

@@ -9540,7 +9540,7 @@ async fn run_preview_flow_job(
     .await?;
 
     // Set memory_id if provided (for agent memory)
-    if let Some(memory_id) = run_query.memory_id {
+    if let Some(memory_id) = run_query.memory_key(&w_id, &flow_path) {
         set_flow_memory_id(&mut tx, uuid, memory_id).await?;
     }
 

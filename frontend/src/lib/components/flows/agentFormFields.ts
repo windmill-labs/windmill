@@ -1,5 +1,5 @@
 import { deepEqual } from 'fast-equals'
-import type { InputTransform } from '$lib/gen'
+import type { InputTransform, MemoryConfig } from '$lib/gen'
 
 /**
  * How the AI agent form presents `AI_AGENT_SCHEMA`: which group a field belongs to, what it is
@@ -24,6 +24,41 @@ export const AGENT_FIELD_GROUPS: { id: AgentFieldGroup; label: string }[] = [
 /** The tool roster, which reads `flowModule.value.tools` rather than an `input_transforms` key.
  *  It lives in the registry so the groups keep a single ordering. */
 export const AGENT_TOOLS_ROW = 'tools'
+
+/** A step's own history inputs. Never seeded with a placeholder: a run reads a present key as the
+ *  step's choice, so only the author adds them. */
+export const AGENT_HISTORY_KEYS = ['memory_id', 'previous_messages'] as const
+export type AgentHistoryKey = (typeof AGENT_HISTORY_KEYS)[number]
+
+/** What turning managed memory on writes. */
+export const DEFAULT_AGENT_MEMORY: MemoryConfig = { kind: 'window', context_length: 10 }
+
+/** The docs section on how an agent's memory is named and kept. */
+export const AGENT_MEMORY_DOCS_URL =
+	'https://www.windmill.dev/docs/core_concepts/ai_agents#memory-auto--manual'
+
+/** Whether Windmill stores and replays the agent's conversation, mirroring the worker: `window`, or
+ *  its older spelling `auto`, with a message count above 0. A legacy `manual` list is not managed. */
+export function keepsManagedMemory(memory: any): boolean {
+	return (memory?.kind === 'window' || memory?.kind === 'auto') && Boolean(memory.context_length)
+}
+
+/** Whether a run reads this step input, mirroring the worker: managed memory reads only a memory id,
+ *  memory that is off only previous messages. A setting the form cannot read yet leaves both open. */
+export function historyInputApplies(
+	key: AgentHistoryKey,
+	managedMemory: boolean | undefined
+): boolean {
+	if (managedMemory === undefined) return true
+	return (key === 'memory_id') === managedMemory
+}
+
+/** A memory setting in words, for a linked agent's summary. */
+export function describeMemoryPolicy(memory: any): string {
+	if (keepsManagedMemory(memory)) return `Last ${memory.context_length} messages`
+	if (memory?.kind === 'manual') return 'Off, sends a fixed list of messages'
+	return 'Off'
+}
 
 export interface AgentFieldSpec {
 	key: string
@@ -77,6 +112,14 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		defaultHint: 'Default: the provider decides'
 	},
 	{
+		key: 'user_message',
+		group: 'messages',
+		label: 'User message',
+		tooltip:
+			"The user turn, sent after the system message and any history. Turn on chat input on the flow's input interface to feed it from the chat.",
+		core: true
+	},
+	{
 		key: 'system_prompt',
 		group: 'messages',
 		label: 'System message',
@@ -86,20 +129,29 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 	{
 		key: 'memory',
 		group: 'messages',
-		label: 'Memory',
-		tooltip:
-			'History sent between the system message and the user message. Windmill can keep it for you, or you can supply the messages yourself.',
+		label: 'Managed memory',
+		tooltip: 'Windmill stores the conversation and sends its last messages with each request.',
 		implicit: { kind: 'off' },
 		defaultHint: 'Default: off',
 		textOnly: true
 	},
 	{
-		key: 'user_message',
+		key: 'memory_id',
 		group: 'messages',
-		label: 'User message',
+		label: 'Memory id',
 		tooltip:
-			"The user turn, sent after the system message and any history. Turn on chat input on the flow's input interface to feed it from the chat.",
-		core: true
+			'Conversation history id: runs with the same id share their history. Inherited uses the memory_id the run was started with: the conversation id in chat mode, or the memory_id query parameter otherwise. Without either, each run starts fresh. Custom sets the id on the step: a fixed id shares one history across all runs, an expression keeps one history per value.',
+		implicit: '',
+		textOnly: true
+	},
+	{
+		key: 'previous_messages',
+		group: 'messages',
+		label: 'Previous messages',
+		tooltip: 'History the flow supplies, sent between the system message and the user message.',
+		implicit: [],
+		defaultHint: 'Default: none',
+		textOnly: true
 	},
 	{
 		key: 'user_attachments',
