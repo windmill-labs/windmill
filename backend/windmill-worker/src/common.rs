@@ -1574,43 +1574,50 @@ pub async fn cached_result_path(
             _ => {}
         }
     }
-    // A workflow-as-code task child runs its parent's code with the parent's
-    // arguments; the step it executes is what tells its result from the parent's
-    // and from its siblings'.
-    if let Some(step_key) = wac_executing_key(db, job).await? {
-        hasher.update(b"wac_step:");
-        hasher.update(step_key.as_bytes());
+    // A workflow-as-code task child carries its parent's arguments, which say
+    // nothing about the task's own inputs; its result is keyed on the task it
+    // runs and the arguments that task was called with.
+    if let Some((task, args_hash)) = wac_task_identity(db, job).await? {
+        hasher.update(b"wac_task:");
+        hasher.update(task.as_bytes());
+        hasher.update(b":");
+        hasher.update(args_hash.as_bytes());
+    } else {
+        hash_args(
+            db,
+            client,
+            &job.workspace_id,
+            &job.args,
+            &mut hasher,
+            &job.id,
+            job.cache_ignore_s3_path.unwrap_or(false),
+        )
+        .await;
     }
-    hash_args(
-        db,
-        client,
-        &job.workspace_id,
-        &job.args,
-        &mut hasher,
-        &job.id,
-        job.cache_ignore_s3_path.unwrap_or(false),
-    )
-    .await;
     Ok(format!("g/results/{:064x}", hasher.finalize()))
 }
 
-/// The checkpoint step key a workflow-as-code parent seeded for this child at push
-/// time; `None` for any job that is not such a child.
-async fn wac_executing_key(
+/// The task name and arguments hash a workflow-as-code parent seeded in this
+/// child's checkpoint at push time; `None` for any job that is not such a child.
+async fn wac_task_identity(
     db: &DB,
     job: &MiniPulledJob,
-) -> windmill_common::error::Result<Option<String>> {
+) -> windmill_common::error::Result<Option<(String, String)>> {
     if job.parent_job.is_none() || job.flow_step_id.is_some() {
         return Ok(None);
     }
-    let key: Option<Option<String>> = sqlx::query_scalar(
-        "SELECT workflow_as_code_status->'_checkpoint'->>'_executing_key' \
+    let identity: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT workflow_as_code_status->'_checkpoint'->>'_executing_task', \
+                workflow_as_code_status->'_checkpoint'->>'_executing_args_hash' \
          FROM v2_job_status WHERE id = $1",
     )
     .bind(job.id)
     .fetch_optional(db)
     .await?;
-    Ok(key.flatten())
+    Ok(match identity {
+        Some((Some(task), Some(args_hash))) => Some((task, args_hash)),
+        _ => None,
+    })
 }
 
 #[cfg(feature = "parquet")]

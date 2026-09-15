@@ -3237,6 +3237,8 @@ pub async fn handle_wac_v2_output(
                         let child_checkpoint_json = serde_json::json!({
                             "completed_steps": &checkpoint.completed_steps,
                             "_executing_key": &step.key,
+                            "_executing_task": &step.name,
+                            "_executing_args_hash": windmill_common::wac::task_args_hash(&step.args),
                         });
                         sqlx::query(
                             "INSERT INTO v2_job_status (id, workflow_as_code_status)
