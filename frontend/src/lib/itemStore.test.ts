@@ -785,6 +785,56 @@ describe('item store: origins', () => {
 		})
 	})
 
+	it('tells a caller its post-deploy re-read failed, apart from never having the item', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		let reads = 0
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/r' },
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(async () => {
+				// The first read works, so this editor has the item; the one after the deploy does not.
+				if (reads++ > 0) throw new Error('the GET failed')
+				return { deployed: deployedRes }
+			})
+		)
+		await settle()
+		item.value = { ...deployedRes, description: 'typed during the deploy' }
+
+		// `absent` would send the caller off to delete this row and discard against a baseline
+		// from before the deploy; the editor still has the item, so it says so.
+		expect(await store.bridge.refresh('w', 'resource', 'u/me/r')).toBe('failed')
+		expect(item.value?.description).toBe('typed during the deploy')
+		expect(item.dirty).toBe(true)
+	})
+
+	it('does not roll a refused toggle back over a draft written while it was out', async () => {
+		type Sched = { path: string; enabled: boolean; summary: string }
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const refusal = deferred()
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'trigger_schedule', path: 's' },
+			{ workspace: 'w', path: 's' },
+			{
+				load: async () => ({ deployed: { path: 's', enabled: false, summary: 'a' } })
+			} as ItemAdapter<Sched>
+		)
+		await settle()
+		const toggling = item.patch({ enabled: true }, () => refusal.promise)
+		// The chat writes a draft that happens to carry the same `enabled` the toggle sent.
+		item.applyExternal({ path: 's', enabled: true, summary: 'from the chat' })
+		refusal.reject(new Error('refused'))
+
+		expect(await toggling).toMatchObject({ ok: false })
+		// Equality with what the toggle sent is not proof the toggle put it there.
+		expect(item.value).toEqual({ path: 's', enabled: true, summary: 'from the chat' })
+		expect(rows.writes.at(-1)).toEqual({
+			path: 's',
+			value: { path: 's', enabled: true, summary: 'from the chat' }
+		})
+	})
+
 	it('says it did not deal with the row when its own first read never arrived', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
@@ -801,7 +851,7 @@ describe('item store: origins', () => {
 		// It is registered, so the chat would otherwise take its answer as the cleanup being done
 		// — while an entry with nothing loaded writes no delete at all and the row survives.
 		expect(await store.bridge.discard('w', 'resource', 'u/me/r')).toBe(false)
-		expect(await store.bridge.refresh('w', 'resource', 'u/me/r')).toBe(false)
+		expect(await store.bridge.refresh('w', 'resource', 'u/me/r')).toBe('absent')
 		expect(rows.writes).toEqual([])
 	})
 

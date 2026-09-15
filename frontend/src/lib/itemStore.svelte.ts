@@ -451,13 +451,16 @@ class Entry<V> {
 	/**
 	 * Re-read for a caller that has just written the deployed item, taking a turn in the queue
 	 * first: asked for during the first load, `reread` would find nothing loaded and return
-	 * without doing anything. Resolves false when it could not read after all, so the caller
-	 * knows this editor has not dealt with the row and it must.
+	 * without doing anything. The three answers are not interchangeable — `absent` means this
+	 * editor never had the item and the row is the caller's to deal with, while `failed` means it
+	 * has the item and an out-of-date baseline, so anything resetting to that baseline now would
+	 * undo what was just deployed.
 	 */
-	async refreshed(): Promise<boolean> {
+	async refreshed(): Promise<'done' | 'absent' | 'failed'> {
 		await this.run(async () => {})
-		if (!this.loaded || this.retired || !this.adapter) return false
-		return (await this.reread()).ok
+		if (this.retired || !this.adapter) return 'absent'
+		if (!this.loaded) return 'absent'
+		return (await this.reread()).ok ? 'done' : 'failed'
 	}
 
 	/**
@@ -683,6 +686,10 @@ class Entry<V> {
 		}
 		if (this.value !== undefined) Object.assign(this.value as object, fields)
 		this.touch()
+		// Taken after this patch's own touch, so it counts only what happens next. The value it
+		// put on screen is the user's copy, and a field carrying the value this patch sent is not
+		// proof this patch put it there: the chat can write a draft holding the same value.
+		const appliedAt = this.edits
 		/** Release each field this patch still owns; one a later patch has taken stays with it. */
 		const release = () => {
 			for (const k of Object.keys(sent)) {
@@ -704,12 +711,14 @@ class Entry<V> {
 			}
 			release()
 			// The value is the user's copy, so it is given back by hand — to the baseline as it
-			// stands now, which is the server's value or a later patch's, never this one's.
+			// stands now, which is the server's value or a later patch's, never this one's. Not
+			// given back at all if something has written the value since: that is newer than this
+			// patch and rolling it back would be this patch overwriting it.
 			if (failed) {
 				const base = (onTemplate ? this.template : this.deployed) as
 					| Record<string, unknown>
 					| undefined
-				if (base !== undefined && this.value !== undefined) {
+				if (base !== undefined && this.value !== undefined && this.edits === appliedAt) {
 					const out = snapshot(this.value) as Record<string, unknown>
 					let changed = false
 					for (const [k, v] of Object.entries(sent)) {
@@ -1137,7 +1146,7 @@ export function createItemStore(ports: ItemRowPort) {
 			workspace: string,
 			kind: UserDraftItemKind,
 			path: string
-		): Promise<boolean> | undefined {
+		): Promise<'done' | 'absent' | 'failed'> | undefined {
 			return find(workspace, kind, path)?.refreshed()
 		},
 		itemDeleted(workspace: string, kind: UserDraftItemKind, path: string): Promise<void> {

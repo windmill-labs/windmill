@@ -142,12 +142,13 @@ export type LiveItemBridge = {
 		path: string
 	): { value: unknown | undefined } | undefined
 	/** Re-read the live item, for a caller that has just written the deployed item under it.
-	 *  `undefined` when no live item holds the key. */
+	 *  `undefined` when no live item holds the key; `absent` when one is registered but never had
+	 *  the item; `failed` when it has the item but could not re-read, so its baseline is stale. */
 	refresh(
 		workspace: string,
 		itemKind: UserDraftItemKind,
 		path: string
-	): Promise<boolean> | undefined
+	): Promise<'done' | 'absent' | 'failed'> | undefined
 	/** The deployed item was deleted: the live item reports itself gone. */
 	itemDeleted(workspace: string, itemKind: UserDraftItemKind, path: string): Promise<void>
 	/** Discard the live item's draft, resolving to whether it dealt with the row. `undefined` when
@@ -169,7 +170,7 @@ export function refreshLiveItem(
 	workspace: string,
 	itemKind: UserDraftItemKind,
 	path: string
-): Promise<boolean> | undefined {
+): Promise<'done' | 'absent' | 'failed'> | undefined {
 	return liveItems?.refresh(workspace, itemKind, path)
 }
 

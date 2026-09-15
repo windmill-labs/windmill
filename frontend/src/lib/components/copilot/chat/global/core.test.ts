@@ -2361,7 +2361,7 @@ describe('global AI tools', () => {
 			read: () => undefined,
 			refresh: () => {
 				calls.push('refresh')
-				return Promise.resolve(true)
+				return Promise.resolve('done' as const)
 			},
 			itemDeleted: () => {
 				calls.push('itemDeleted')
@@ -2401,8 +2401,8 @@ describe('global AI tools', () => {
 		registerLiveItemBridge({
 			seed: () => false,
 			read: () => undefined,
-			// Registered, but not loaded: it answers, and says it has not dealt with the row.
-			refresh: () => Promise.resolve(false),
+			// Registered, but never had the item: it has not dealt with the row.
+			refresh: () => Promise.resolve('absent' as const),
 			itemDeleted: () => Promise.resolve(),
 			discard: () => Promise.resolve(false),
 			list: () => []
@@ -2434,7 +2434,7 @@ describe('global AI tools', () => {
 		registerLiveItemBridge({
 			seed: () => false,
 			read: () => undefined,
-			refresh: () => Promise.resolve(true),
+			refresh: () => Promise.resolve('done' as const),
 			itemDeleted: () => {
 				calls.push('itemDeleted')
 				return Promise.resolve()
