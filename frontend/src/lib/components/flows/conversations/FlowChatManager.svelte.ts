@@ -952,12 +952,23 @@ export class FlowChatManager {
 					break
 				}
 				const furthest = Math.max(...batch.map((m) => m.created_seq))
-				// A page that moved nothing would ask for the same rows forever.
-				if (afterSeq !== undefined && furthest <= afterSeq) {
-					readWhole = true
-					break
-				}
+				// A page that moved nothing would ask for the same rows forever, and is no more a
+				// finished read than the cap above.
+				if (afterSeq !== undefined && furthest <= afterSeq) break
 				afterSeq = furthest
+			}
+
+			if (!readWhole) {
+				// Reading stopped before the conversation did, so none of this is a picture of
+				// it. Appending would stand these rows beside the temp ones already showing the
+				// same answer, and sweeping would drop the only thing showing what was never
+				// read. The transcript keeps what it has: the next turn's poll resumes from it,
+				// and a reload refetches.
+				console.warn(
+					`Stopped reading conversation ${conversationId} after ${POLL_MAX_PAGES} pages ` +
+						`(${response.length} rows, up to seq ${afterSeq}); leaving the transcript as it is`
+				)
+				return
 			}
 
 			if (options?.isNewConversation) {
@@ -974,15 +985,9 @@ export class FlowChatManager {
 				}
 			}
 
-			if (!readWhole) {
-				// The cap is a guard against a cursor that stops advancing, not a reason to
-				// believe the conversation ends here. Sweeping now would drop the rows standing
-				// in for what was never read — the failure this paging exists to prevent.
-				console.warn(`Stopped reading conversation ${conversationId} after ${POLL_MAX_PAGES} pages`)
-			}
 			// Only remove temporary messages when explicitly requested (e.g., after job completion)
 			// During streaming, we keep temp messages to avoid them disappearing due to race conditions
-			if (options?.removeTempMessages && readWhole) {
+			if (options?.removeTempMessages) {
 				this.#rowsById[conversationId] = this.#rowsOf(conversationId).filter(
 					(msg) => !msg.id.startsWith('temp-') || msg.message_type === 'user'
 				)

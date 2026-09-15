@@ -205,6 +205,38 @@ describe('reading a turn longer than one page', () => {
 		const calls = vi.mocked(FlowConversationsService.listConversationMessages).mock.calls
 		expect((calls[1][0] as any).afterSeq).toBe(50)
 	})
+
+	/**
+	 * Reading can stop before the conversation does. What was read is then not a picture of
+	 * it, and applying it would both duplicate what the temp rows already show and sweep
+	 * away the only record of what was never read.
+	 */
+	it('leaves the transcript alone when it could not read to the end', async () => {
+		let seq = 0
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			.mockImplementation((async () => {
+				const batch = assistantRows(seq + 1, 50)
+				seq += 50
+				return batch
+			}) as any)
+		const manager = managerWithRows()
+		manager.selectedConversationId = 'a'
+		const streamed = {
+			id: 'temp-answer',
+			conversation_id: 'a',
+			message_type: 'assistant',
+			content: 'the answer as it streamed',
+			created_at: new Date().toISOString(),
+			created_seq: 0
+		}
+		manager.messages = [streamed as any]
+
+		await (manager as any).pollConversationMessages('a', { removeTempMessages: true })
+
+		// Untouched: neither the rows it managed to read nor the sweep were applied.
+		expect(manager.messages).toEqual([streamed])
+	})
 })
 
 /**
