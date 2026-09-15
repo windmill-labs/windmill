@@ -425,6 +425,11 @@
 			data = v.data ?? { ...DEFAULT_DATA }
 			summary = v.summary ?? ''
 			policy = v.policy ?? {}
+			// Their draft's own fork base: the bundle is rebuilt from these pieces, so
+			// leaving `parentVersion` on ours would deploy their content claiming a base
+			// it never had.
+			parentVersion = v.parent_version
+			draftBaseVersion = v.parent_version != null ? String(v.parent_version) : undefined
 			newPath = v.draft_path ?? savedApp?.path ?? path
 			if (hasOwnDraft) {
 				OtherUserDraftLoad.beginOverlay({
@@ -441,6 +446,7 @@
 						summary,
 						policy,
 						custom_path: savedApp?.custom_path,
+						parent_version: parentVersion,
 						...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
 					} as RawAppDraft,
 					onResetToOwnDraft: () => loadApp({ getDraft: true })
@@ -629,7 +635,8 @@
 				onTakeLatest={draftBaseVersion
 					? async (shown?: string) => {
 							// The version the drawer showed as head; see /scripts/edit.
-							const head = shown != null ? Number(shown) : Number(deployedHeadVersion)
+							const head = Number(shown ?? deployedHeadVersion)
+							if (!Number.isFinite(head)) return
 							parentVersion = head
 							if (deployedBaseline) deployedBaseline = { ...deployedBaseline, parent_version: head }
 							draftBaseVersion = String(head)
