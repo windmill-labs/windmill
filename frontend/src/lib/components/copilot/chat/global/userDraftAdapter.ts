@@ -762,8 +762,18 @@ export async function flushGlobalDraftSaves(
 	return { unflushedPaths }
 }
 
-export function clearGlobalDrafts(workspace: string): void {
+/**
+ * Drop the in-tab mirrors left after the rows themselves have been deleted. Only the mirrors:
+ * `clear` would route to a live editor's discard, and one that kept its draft — because it was
+ * changed after that discard was asked for — would have that newer edit taken on this pass,
+ * undoing exactly what the first one preserved. `keep` names the paths to leave alone.
+ */
+export function clearGlobalDrafts(
+	workspace: string,
+	keep: ReadonlySet<string> = new Set()
+): void {
 	for (const draft of UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] })) {
-		UserDraft.clear(draft.itemKind, draft.path, { workspace })
+		if (keep.has(draft.path)) continue
+		UserDraft.forgetLocal(draft.itemKind, draft.path, { workspace })
 	}
 }

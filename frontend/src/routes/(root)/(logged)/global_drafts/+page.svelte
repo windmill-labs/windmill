@@ -60,14 +60,24 @@
 		// Delete each listed draft from the backend (the source of truth) — the
 		// local clearGlobalDrafts only clears in-tab cells, leaving persisted rows.
 		// Continue past a per-row failure so one bad delete doesn't strand the rest.
+		// A draft an open editor kept, or one whose delete failed, is still there on purpose or
+		// still to be dealt with: its mirror stays too, or the page would stop showing it.
+		const kept = new Set<string>()
 		for (const item of [...drafts]) {
 			try {
-				await deleteGlobalDraft($workspaceStore, item.type, item.path, item.triggerKind)
+				const { removed } = await deleteGlobalDraft(
+					$workspaceStore,
+					item.type,
+					item.path,
+					item.triggerKind
+				)
+				if (!removed) kept.add(item.path)
 			} catch (e) {
 				console.error('Failed to clear draft', item.path, e)
+				kept.add(item.path)
 			}
 		}
-		clearGlobalDrafts($workspaceStore)
+		clearGlobalDrafts($workspaceStore, kept)
 		refreshDrafts()
 	}
 </script>

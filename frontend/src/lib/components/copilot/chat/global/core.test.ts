@@ -2565,6 +2565,45 @@ describe('global AI tools', () => {
 		}
 	})
 
+	// "Clear all" deletes each row, then drops the in-tab mirrors. That second pass must not go
+	// back through a live editor's discard: one that kept its draft, because it was changed after
+	// the discard was asked for, would have that newer edit taken on the way past.
+	it('does not discard again when clearing the mirrors after a clear-all', async () => {
+		const path = 'u/admin/cleared_res'
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		let discards = 0
+		registerLiveItemBridge({
+			seed: () => false,
+			read: () => ({ value: { path, value: { a: 3 } } }),
+			refresh: () => undefined,
+			noteRow: () => {},
+			itemDeleted: () => Promise.resolve(),
+			discard: () => {
+				discards++
+				return Promise.resolve('done' as const)
+			},
+			list: () => [{ workspace: WORKSPACE, itemKind: 'resource', path, value: { a: 3 } }]
+		})
+		try {
+			const { removed } = await deleteGlobalDraft(WORKSPACE, 'resource', path)
+			expect(removed).toBe(false)
+			expect(discards).toBe(1)
+			// The row is there on purpose, so the mirror pass leaves it alone entirely.
+			clearGlobalDrafts(WORKSPACE, new Set([path]))
+			expect(discards).toBe(1)
+		} finally {
+			registerLiveItemBridge({
+				seed: () => false,
+				read: () => undefined,
+				refresh: () => undefined,
+				noteRow: () => {},
+				itemDeleted: () => Promise.resolve(),
+				discard: () => undefined,
+				list: () => []
+			})
+		}
+	})
+
 	// A failed server delete must surface (throw), not silently report removed —
 	// the same guard the write path got, applied to the delete path.
 	it('deleteGlobalDraft throws when the server delete fails', async () => {
