@@ -449,14 +449,9 @@ export async function pruneSessionArtifacts(
 	}
 }
 
-/** False when the store could not be reached or the deletion failed. With `email`, only that
- * user's store is touched: a caller that captured its user must not follow an account switch. */
-export async function deleteArtifactsForSession(
-	sessionId: string,
-	email?: string
-): Promise<boolean> {
+export async function deleteArtifactsForSession(sessionId: string): Promise<void> {
 	const db = await getDB()
-	if (!db || (email !== undefined && db.name !== scopedKeyFor(ARTIFACTS_DB, email))) return false
+	if (!db) return
 	try {
 		const tx = db.transaction(['items', 'versions'], 'readwrite')
 		const items = tx.objectStore('items')
@@ -469,10 +464,8 @@ export async function deleteArtifactsForSession(
 			await deleteVersionsIn(versions, id)
 		}
 		await tx.done
-		return true
 	} catch (err) {
 		console.error('Could not delete artifacts for session', err)
-		return false
 	}
 }
 

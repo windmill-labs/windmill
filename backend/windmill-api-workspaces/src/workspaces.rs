@@ -5629,15 +5629,6 @@ struct SessionWorkspaceStatusRequest {
     workspace_ids: Vec<String>,
 }
 
-#[derive(Serialize)]
-struct SessionWorkspaceStatus {
-    status: String,
-    /// `ai_config.sessions_retention_days` of a reachable workspace: the browser deletes its
-    /// copy of a session whose last activity is older, as the server deletes the backup.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sessions_retention_days: Option<u32>,
-}
-
 /// `ai_config.sessions_retention_days` as stored, `None` when unset or not a count of days.
 pub fn sessions_retention_days(value: Option<&serde_json::Value>) -> Option<u32> {
     value
@@ -5663,7 +5654,7 @@ async fn session_workspace_status(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
     Json(req): Json<SessionWorkspaceStatusRequest>,
-) -> JsonResult<HashMap<String, SessionWorkspaceStatus>> {
+) -> JsonResult<HashMap<String, String>> {
     if req.workspace_ids.len() > 1000 {
         return Err(Error::BadRequest(
             "Too many workspace ids (max 1000)".to_string(),
@@ -5681,33 +5672,17 @@ async fn session_workspace_status(
                     WHEN usr.email IS NULL AND NOT $3 THEN 'deleted'
                     WHEN workspace.deleted THEN 'archived'
                     ELSE 'active'
-                END) AS \"status!\",
-                workspace_settings.ai_config->'sessions_retention_days' AS retention
+                END) AS \"status!\"
          FROM unnest($1::text[]) AS req(id)
          LEFT JOIN workspace ON workspace.id = req.id
-         LEFT JOIN usr ON usr.workspace_id = workspace.id AND usr.email = $2
-         LEFT JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id",
+         LEFT JOIN usr ON usr.workspace_id = workspace.id AND usr.email = $2",
         &req.workspace_ids[..],
         email,
         is_superadmin,
     )
     .fetch_all(&db)
     .await?;
-    let statuses = rows
-        .into_iter()
-        .map(|r| {
-            // A workspace this caller cannot reach tells them nothing of its settings.
-            let sessions_retention_days = if r.status == "deleted" {
-                None
-            } else {
-                sessions_retention_days(r.retention.as_ref())
-            };
-            (
-                r.id,
-                SessionWorkspaceStatus { status: r.status, sessions_retention_days },
-            )
-        })
-        .collect();
+    let statuses = rows.into_iter().map(|r| (r.id, r.status)).collect();
     Ok(Json(statuses))
 }
 

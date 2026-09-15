@@ -9,28 +9,18 @@ vi.mock('esm-env', async (importOriginal) => ({
 }))
 
 // Spy on the attached-file GC so we can assert lifecycle deletes clean it up.
-const { deleteItemsForSessionMock } = vi.hoisted(() => ({
-	deleteItemsForSessionMock: vi.fn().mockResolvedValue(true)
-}))
+const { deleteItemsForSessionMock } = vi.hoisted(() => ({ deleteItemsForSessionMock: vi.fn() }))
 vi.mock('../copilot/chat/files/attachedFilesDB', async (orig) => ({
 	...(await orig<typeof import('../copilot/chat/files/attachedFilesDB')>()),
 	deleteItemsForSession: deleteItemsForSessionMock
 }))
 
 const { deleteArtifactsForSessionMock } = vi.hoisted(() => ({
-	deleteArtifactsForSessionMock: vi.fn().mockResolvedValue(true)
+	deleteArtifactsForSessionMock: vi.fn()
 }))
 vi.mock('../copilot/chat/artifacts/artifactsDB', async (orig) => ({
 	...(await orig<typeof import('../copilot/chat/artifacts/artifactsDB')>()),
 	deleteArtifactsForSession: deleteArtifactsForSessionMock
-}))
-
-const { deleteSessionChatsMock } = vi.hoisted(() => ({
-	deleteSessionChatsMock: vi.fn().mockResolvedValue(true)
-}))
-vi.mock('../copilot/chat/HistoryManager.svelte', async (orig) => ({
-	...(await orig<typeof import('../copilot/chat/HistoryManager.svelte')>()),
-	deleteSessionChats: deleteSessionChatsMock
 }))
 
 // sessionState imports WorkspaceService; these tests don't touch the network.
@@ -83,32 +73,6 @@ const flush = () => new Promise<void>((r) => setTimeout(r, 0))
 let n = 0
 function freshUser() {
 	return asUser(`u${n++}@x.com`)
-}
-
-// The Web Locks API, which the node test environment lacks: `holders` counts the shared holds
-// on each name across tabs, against which an exclusive request made if available is not granted.
-function installLocks(holders: Map<string, number>): void {
-	if (typeof navigator === 'undefined') {
-		Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true })
-	}
-	Object.defineProperty(navigator, 'locks', {
-		value: {
-			request: async (name: string, ...rest: unknown[]) => {
-				const run = rest[rest.length - 1] as (lock: unknown) => Promise<unknown>
-				const options = (rest.length > 1 ? rest[0] : {}) as LockOptions
-				if (options.mode === 'shared') {
-					holders.set(name, (holders.get(name) ?? 0) + 1)
-					try {
-						return await run({})
-					} finally {
-						holders.set(name, (holders.get(name) ?? 1) - 1)
-					}
-				}
-				return run(options.ifAvailable && (holders.get(name) ?? 0) > 0 ? null : {})
-			}
-		},
-		configurable: true
-	})
 }
 
 // Hydration is fire-and-forget off the user store, so it can land after the test body
@@ -567,7 +531,7 @@ describe('sessionState IndexedDB persistence', () => {
 		// The workspace was hard-deleted elsewhere; reconciliation drops the record and
 		// GCs its files and artifacts.
 		vi.mocked(WorkspaceService.getSessionWorkspaceStatus).mockResolvedValueOnce({
-			'doomed-ws': { status: 'deleted' }
+			'doomed-ws': 'deleted'
 		} as never)
 		await reconcileSessionsLifecycle()
 
@@ -600,7 +564,7 @@ describe('sessionState IndexedDB persistence', () => {
 			] as never
 		})
 		vi.mocked(WorkspaceService.getSessionWorkspaceStatus).mockResolvedValueOnce({
-			'wm-fork-fork_of_fork': { status: 'active' }
+			'wm-fork-fork_of_fork': 'active'
 		} as never)
 
 		await login(user)
@@ -640,7 +604,7 @@ describe('sessionState IndexedDB persistence', () => {
 		// Reconcile keyed on pending_workspace_id: a deleted pre-send workspace deletes
 		// the draft. Read the DB directly — reconcile works off it, not in-memory state.
 		vi.mocked(WorkspaceService.getSessionWorkspaceStatus).mockResolvedValueOnce({
-			'pending-ws': { status: 'deleted' }
+			'pending-ws': 'deleted'
 		} as never)
 		await reconcileSessionsLifecycle()
 
@@ -673,7 +637,7 @@ describe('sessionState IndexedDB persistence', () => {
 		await putSession(session({ id: 'draft2', createdAt: 1, pending_workspace_id: 'pending-ws2' }))
 
 		vi.mocked(WorkspaceService.getSessionWorkspaceStatus).mockResolvedValueOnce({
-			'pending-ws2': { status: 'archived' }
+			'pending-ws2': 'archived'
 		} as never)
 		await reconcileSessionsLifecycle()
 
@@ -704,7 +668,7 @@ describe('sessionState IndexedDB persistence', () => {
 		setSessionDraftPrompt('draftRec', 'typing')
 
 		vi.mocked(WorkspaceService.getSessionWorkspaceStatus).mockResolvedValueOnce({
-			wsRec: { status: 'active' }
+			wsRec: 'active'
 		} as never)
 		await reconcileSessionsLifecycle()
 
@@ -713,140 +677,6 @@ describe('sessionState IndexedDB persistence', () => {
 
 		// Cancel the still-pending flush so it can't write to a torn-down DB later.
 		deleteSession('draftRec')
-	})
-
-	it('sweeps sessions past their workspace retention, and finishes a deletion that failed', async () => {
-		const user = freshUser()
-		usersWorkspaceStore.set({
-			email: user.email,
-			workspaces: [
-				{ id: 'kept-ws', name: 'kept', disabled: false },
-				{ id: 'other-ws', name: 'other', disabled: false }
-			] as never
-		})
-		await login(user)
-		// The sweep runs only where Web Locks exist.
-		const holders = new Map<string, number>()
-		installLocks(holders)
-		const inUse = `wm-ai-sessions-mirror::${user.email}::in-use`
-		const day = 24 * 60 * 60 * 1000
-		const old = Date.now() - 31 * day
-		const stale = (id: string, over: Partial<Session> = {}) =>
-			session({ id, createdAt: old, lastActivityAt: old, workspace_id: 'kept-ws', ...over })
-		// Archived or not, a session is judged by its own last activity; one read a day ago
-		// stays, as do one restored here a day ago whatever the backup's time, one in a
-		// workspace without retention, and the one on screen.
-		await putSession(stale('stale'))
-		await putSession(stale('stale-archived', { archived: true }))
-		await putSession(stale('read-lately', { lastActivityAt: Date.now() - day }))
-		await putSession(stale('restored-lately', { restoredAt: Date.now() - day }))
-		await putSession(stale('open'))
-		await putSession(stale('used-meanwhile'))
-		await putSession(stale('elsewhere', { workspace_id: 'other-ws' }))
-		sessionState.currentSessionId = 'open'
-
-		const statusMock = vi.mocked(WorkspaceService.getSessionWorkspaceStatus)
-		const retention = {
-			'kept-ws': { status: 'active', sessions_retention_days: 30 },
-			'other-ws': { status: 'active' }
-		}
-		const stored = async () => {
-			const db = await openDB(`windmill-sessions::${user.email}`, 1)
-			const ids = ((await db.getAll('sessions' as never)) as Session[]).map((s) => s.id)
-			db.close()
-			return ids.sort()
-		}
-		const chatDeletions = (id: string) =>
-			deleteSessionChatsMock.mock.calls.filter(([sid, email]) => sid === id && email === user.email)
-
-		// While another tab has the sessions loaded, nothing is swept.
-		holders.set(inUse, 1)
-		statusMock.mockResolvedValueOnce(retention as never)
-		await reconcileSessionsLifecycle()
-		await new Promise((resolve) => setTimeout(resolve, 200))
-		expect(await stored()).toContain('stale')
-		expect(chatDeletions('stale')).toHaveLength(0)
-		holders.set(inUse, 0)
-
-		const statusCalls = statusMock.mock.calls.length
-		let answer!: (value: unknown) => void
-		statusMock.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)) as never)
-		// The chats of the first expired session cannot be deleted this time.
-		deleteSessionChatsMock.mockResolvedValueOnce(false)
-		const reconciled = reconcileSessionsLifecycle()
-		await vi.waitFor(() => expect(statusMock.mock.calls.length).toBe(statusCalls + 1))
-		// The session is used while the status request is out.
-		await putSession(stale('used-meanwhile', { lastActivityAt: Date.now() }))
-		answer(retention)
-		await reconciled
-
-		await vi.waitFor(async () =>
-			expect(await stored()).toEqual([
-				'elsewhere',
-				'open',
-				'read-lately',
-				'restored-lately',
-				'used-meanwhile'
-			])
-		)
-		const pending = (id: string) =>
-			localStorage.getItem(`windmill_sessions_retention_pending::${user.email}::${id}`)
-		await vi.waitFor(() => expect(chatDeletions('stale-archived')).toHaveLength(1))
-		expect(pending('stale')).toBe('1')
-		expect(pending('stale-archived')).toBeNull()
-		expect(chatDeletions('open')).toHaveLength(0)
-
-		// The next reconcile finishes what the failed deletion left, though the retention was
-		// cleared since.
-		statusMock.mockResolvedValueOnce({
-			'kept-ws': { status: 'active' },
-			'other-ws': { status: 'active' }
-		} as never)
-		await reconcileSessionsLifecycle()
-		await vi.waitFor(() => expect(pending('stale')).toBeNull())
-		expect(chatDeletions('stale')).toHaveLength(2)
-		holders.clear()
-	})
-
-	it('keeps the new user hold when a sweep of the previous user ends after a switch', async () => {
-		const holders = new Map<string, number>()
-		installLocks(holders)
-		const [userA, userB] = [freshUser(), freshUser()]
-		const inUse = (u: UserExt) => `wm-ai-sessions-mirror::${u.email}::in-use`
-		usersWorkspaceStore.set({
-			email: userA.email,
-			workspaces: [{ id: 'kept-ws', name: 'kept', disabled: false }] as never
-		})
-		await login(userA)
-		expect(holders.get(inUse(userA))).toBe(1)
-		const old = Date.now() - 31 * 24 * 60 * 60 * 1000
-		await putSession(
-			session({ id: 'switch-stale', createdAt: old, lastActivityAt: old, workspace_id: 'kept-ws' })
-		)
-
-		// The sweep of user A pauses while deleting the chats, having let go of A's hold.
-		let resume: (() => void) | undefined
-		deleteSessionChatsMock.mockImplementationOnce(
-			() => new Promise<boolean>((resolve) => (resume = () => resolve(true)))
-		)
-		vi.mocked(WorkspaceService.getSessionWorkspaceStatus).mockResolvedValueOnce({
-			'kept-ws': { status: 'active', sessions_retention_days: 30 }
-		} as never)
-		await reconcileSessionsLifecycle()
-		await vi.waitFor(() => expect(resume).toBeDefined())
-
-		userStore.set(userB)
-		await vi.waitFor(() => expect(holders.get(inUse(userB))).toBe(1))
-		resume!()
-		await vi.waitFor(() =>
-			expect(
-				localStorage.getItem(`windmill_sessions_retention_pending::${userA.email}::switch-stale`)
-			).toBeNull()
-		)
-		await new Promise((r) => setTimeout(r, 200))
-		expect(holders.get(inUse(userA)) ?? 0).toBe(0)
-		expect(holders.get(inUse(userB))).toBe(1)
-		Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true })
 	})
 
 	it('clears the in-memory list on logout', async () => {

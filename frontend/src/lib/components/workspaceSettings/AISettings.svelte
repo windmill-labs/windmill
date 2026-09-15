@@ -29,7 +29,6 @@
 	import AiUsagePanel from './AiUsagePanel.svelte'
 	import { setCopilotInfo } from '$lib/aiStore'
 	import { backupSettingsChanged } from '$lib/components/sessions/sessionMirror.svelte'
-	import { reconcileSessionsLifecycle } from '$lib/components/sessions/sessionState.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
 	import { Settings } from 'lucide-svelte'
@@ -363,7 +362,6 @@
 	async function editCopilotConfig(): Promise<void> {
 		const config = buildConfig()
 		const backupsToggled = sessionsStorageDisabled !== initialSessionsStorageDisabled
-		const retentionChanged = sessionsRetentionDays !== initialSessionsRetentionDays
 		let settingsState: GetCopilotSettingsStateResponse | undefined
 
 		if (customSave) {
@@ -381,9 +379,8 @@
 			}
 			sendUserToast('AI settings updated')
 			// This page's session backups follow the switch at once, rather than at the
-			// next page load, and its local sessions the retention.
+			// next page load.
 			if (backupsToggled) backupSettingsChanged(effectiveWorkspace)
-			if (retentionChanged) void reconcileSessionsLifecycle()
 		}
 		storeInitialState()
 		// Hand the parent what was persisted: it owns `initialConfig`, and this component is
@@ -696,7 +693,7 @@
 		</SettingCard>
 		<SettingCard
 			label="AI session retention"
-			description="Deletes AI sessions whose last activity is older than this many days: their backups in the workspace's object storage, by the server, and their local copies, by each member's browser. Archived sessions count too. Leave empty to keep sessions until their owner deletes them."
+			description="Deletes the backup of an AI session from the workspace's object storage once no browser has pushed to it for this many days, archived sessions included. Sessions in members' browsers are not affected. Leave empty to keep backups until their owner deletes the session."
 		>
 			<div class="flex items-center gap-2">
 				<div class="w-28">

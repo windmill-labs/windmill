@@ -93,7 +93,7 @@ import {
 	sessionState,
 	type Session
 } from './sessionState.svelte'
-import { markSessionDirty, sessionSwept } from './sessionMirrorSignal'
+import { markSessionDirty } from './sessionMirrorSignal'
 import {
 	__flushForTesting,
 	__resetMirrorForTesting,
@@ -266,19 +266,6 @@ describe('sessionMirror flush', () => {
 		})
 		expect((await __syncRowsForTesting(EMAIL)).some((r) => r.id === 'sd')).toBe(false)
 		await __settleForTesting()
-	})
-
-	it('forgets the sync row of a session the retention swept, unless it carries a removal', async () => {
-		await __writeSyncForTesting(
-			[
-				{ id: 'swept', ws: 'admins', head: '', chats: {}, images: {} },
-				{ id: 'swept-removed', ws: 'admins', head: '', chats: {}, images: {}, removed: true }
-			],
-			EMAIL
-		)
-		await sessionSwept('swept', EMAIL)
-		await sessionSwept('swept-removed', EMAIL)
-		expect((await __syncRowsForTesting(EMAIL)).map((r) => r.id)).toEqual(['swept-removed'])
 	})
 
 	it('keeps a delete filed on the sync row while the first push is still in flight', async () => {

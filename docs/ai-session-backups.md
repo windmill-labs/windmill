@@ -240,65 +240,32 @@ the first push after it or on the next page load, whichever comes first.
 
 `ai_config.sessions_retention_days` (per workspace, in the AI settings; unset by default;
 the `sessions_storage_disabled` pattern: no migration, carried by settings export and the
-CLI; 1 to 3650) puts an age on sessions, counted from their last activity. Each side applies
-it with its own clock against its own timestamps, so no clock is compared with another
-machine's, and the two do not time the same event: the server counts the last push that
-completed, a browser its last local activity, which includes reading new messages and is not
-pushed. A backup swept while a browser still reads its copy comes back once that browser
-writes to the session again (its incremental push is refused and goes whole):
+CLI; 1 to 3650) puts an age on backups, counted from the last push of the session that
+completed. It applies to the backup only: a browser keeps its copy whatever the retention,
+and a backup swept while a browser still has the session comes back once that browser writes
+to it again (its incremental push is refused and goes whole).
 
-- The server sweeps the object store (`sweep_expired_ai_session_backups`, from the monitor
-  about every 40 minutes on each server, one pass at a time under a session-level advisory
-  lock). For every workspace with a retention it takes the store its backups live in, its
-  own storage or the instance store standing in, decided from the row it reads the
-  generation from as the routes do, names the users under the generation prefix
-  (`list_with_delimiter`) and lists each user's `index/` once: one object
-  per session, nothing of what the sessions hold. A session whose marker is older than the
-  retention is removed under its lock (`lock_session`), once its markers, listed again
-  there, are still all older: a push that renewed the session between the walk and the lock
-  keeps it, and one split over parts either holds the lock or has the session unlisted with
-  its token next to the markers (`index/{sid}/push`), which the sweep leaves alone while the
-  token is younger than the retention: an older one is a push a browser abandoned, whose
-  landed parts nothing lists, and it goes the same way. Before deleting anything the sweep
-  writes a record next to
-  the markers (`index/{sid}/sweep`, not an epoch, so neither `list` nor `pull` counts it),
-  and `remove_session` deletes it last: a removal cut short, its markers already gone, is
-  found by the next pass and finished, unless a push listed the session again first. At
-  most 1000 sessions per workspace and pass; the rest wait for the next. `list` leaves an
-  expired marker out of its answer meanwhile, so a browser never restores a session the
-  sweep has not reached. The marker's modification time is the storage's clock and the
-  cutoff the server's. The sweep reaches only the backups the routes would: a deleted
-  workspace's stay in its storage, and so do those a workspace keeps in the instance store
-  once `ai_sessions_instance_storage_fallback` is set to false.
-- The browser sweeps its own stores after every reconcile (`reconcileSessionsLifecycle`: at
-  load, after a workspace change, and when the setting is saved from this page), which
-  learns every referenced workspace's retention from the status answer. A session whose last
-  activity is older than the retention by the browser's clock is deleted locally, record,
-  chats, images, attached files and artifacts, except the one on screen. A restored session
-  carries the backup's time as its last activity, the storage's clock, so it counts from the
-  later of that and the moment it was restored here (`restoredAt`): a browser clock ahead of
-  the storage's never deletes a session it just brought back. Archived sessions count like
-  any other, and persisted unsent drafts by their pending workspace. The sweep runs under the
-  tab lock the flush and the restore take, so neither plans or stages a session half deleted,
-  and so only where Web Locks exist, as the restore. One tab holds that lock at a time, so
-  only one tab sweeps. The stores are shared by the user's tabs while each keeps copies of the
-  sessions in memory, so every tab holds a shared Web Lock while it has the sessions loaded,
-  taken before it reads them. Holding the tab lock, the sweep lets go of its own tab's hold
-  and deletes only while holding that lock exclusively, requested if available: never while
-  another tab of the user is open, and a tab loading meanwhile waits for the deletions alone,
-  never for a restore. Deletions a failed sweep left are finished under the tab lock without
-  letting go of the hold, their records being gone. With several tabs open, sessions are
-  swept once one of them is the only tab left and reconciles. Each record is deleted in the
-  transaction that reads it still expired, so
-  activity since the reconcile read keeps the session. The record goes before its pieces,
-  and a localStorage key written before it and removed once every piece is gone makes a later
-  reconcile finish a deletion that failed, whether a retention is still set or not, unless a
-  restore brought the session back since. The session's dirty mark and sync row go with it
-  (`sessionSwept`), unless the row still carries a removal or a restore's staging. Nothing is
-  sent to the storage: the
-  local copy's age says nothing about another device's, which may have pushed the session
-  since, and the server applies the rule to the backup on its own. A session swept here that
-  the storage still lists comes back on the next restore.
+The server sweeps the object store (`sweep_expired_ai_session_backups`, from the monitor about
+every 40 minutes on each server, one pass at a time under a session-level advisory lock). For
+every workspace with a retention it takes the store its backups live in, its own storage or
+the instance store standing in, decided from the row it reads the generation from as the
+routes do, names the users under the generation prefix (`list_with_delimiter`) and lists each
+user's `index/` once: one object per session, nothing of what the sessions hold. A session
+whose marker is older than the retention is removed under its lock (`lock_session`), once its
+markers, listed again there, are still all older: a push that renewed the session between the
+walk and the lock keeps it, and one split over parts either holds the lock or has the session
+unlisted with its token next to the markers (`index/{sid}/push`), which the sweep leaves
+alone while the token is younger than the retention: an older one is a push a browser
+abandoned, whose landed parts nothing lists, and it goes the same way. Before deleting
+anything the sweep writes a record next to the markers (`index/{sid}/sweep`, not an epoch, so
+neither `list` nor `pull` counts it), and `remove_session` deletes it last: a removal cut
+short, its markers already gone, is found by the next pass and finished, unless a push listed
+the session again first. At most 1000 sessions per workspace and pass; the rest wait for the
+next. `list` leaves an expired marker out of its answer meanwhile, so a browser never restores
+a session the sweep has not reached. The marker's modification time is the storage's clock and
+the cutoff the server's. The sweep reaches only the backups the routes would: a deleted
+workspace's stay in its storage, and so do those a workspace keeps in the instance store once
+`ai_sessions_instance_storage_fallback` is set to false.
 
 ## Limits
 
