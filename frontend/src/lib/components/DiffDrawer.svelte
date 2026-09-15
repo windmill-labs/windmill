@@ -198,9 +198,13 @@
 	async function takeLatest() {
 		if (!data || data.mode !== 'normal' || !data.onTakeLatest || takingLatest) return
 		takingLatest = true
+		// Persisting the base is awaited, and this drawer outlives the editor that filled
+		// it: close only the opening this action belongs to, or it takes down whichever
+		// diff was opened meanwhile.
+		const opening = openingToken
 		try {
 			await data.onTakeLatest(headShown)
-			diffViewer?.closeDrawer()
+			if (opening === openingToken) diffViewer?.closeDrawer()
 		} finally {
 			takingLatest = false
 		}

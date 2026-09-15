@@ -98,10 +98,10 @@
 	// staleness outright.
 	const useVersion = $derived(draftBaseVersion != null && deployedHeadVersion != null)
 	const isStale = $derived(
-		// Both paths need a draft to be out of date: the editors clear `draftSavedAt`
-		// when a deploy consumes theirs, and the version pair stays armed for the draft
-		// the next edit starts, which is what the prompt would otherwise offer to
-		// discard seconds after a successful deploy.
+		// Both paths need a draft to be out of date: the app editors stay open across a
+		// deploy and clear `draftSavedAt` when it consumes theirs, while the version pair
+		// stays armed for the draft the next edit starts, which is what the prompt would
+		// otherwise offer to discard seconds after a successful deploy.
 		!!onLoadLatestDeploy &&
 			!!draftSavedAt &&
 			(useVersion

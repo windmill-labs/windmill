@@ -369,10 +369,12 @@
 		policy = await updatePolicy($app, policy)
 		// Read the head this deploy is about to append to, so the entry it writes can be
 		// told from one landing beside it (see versionThisDeployWrote).
-		const headBefore = await AppService.getAppLatestVersion({
-			workspace: $workspaceStore!,
-			path: $appPath
-		}).catch(() => undefined)
+		const anchor = (
+			await AppService.getAppLatestVersion({
+				workspace: $workspaceStore!,
+				path: $appPath
+			}).catch(() => undefined)
+		)?.version
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $appPath!,
@@ -405,11 +407,13 @@
 		})
 		// `version` is what is deployed now, which is the deploy guard's fallback head and
 		// must stay set; `claimed` is the version this deploy can prove it wrote.
-		const claimed = versionThisDeployWrote(appHistory, $userStore?.username, headBefore?.version)
+		const claimed = versionThisDeployWrote(appHistory, $userStore?.username, anchor)
 		version = appHistory[0]?.version
-		// Without a claim the head is someone else's as far as this editor knows, so it is
-		// no longer a base it may compare against: `compareVersions` confirms instead.
-		baseUnknown = claimed === undefined
+		// A deploy landed beside this one, so the head is someone else's as far as this
+		// editor knows and is no longer a base it may compare against: `compareVersions`
+		// confirms instead. A failed anchor read claims nothing either, but it is no
+		// evidence of that, so it does not arm this.
+		baseUnknown = claimed === undefined && anchor != null
 		// Re-pin the fork base to the version just written: the editor stays open, so a
 		// follow-up deploy (or a new edit) would otherwise compare against the now-
 		// superseded base and falsely warn. parent_version is in

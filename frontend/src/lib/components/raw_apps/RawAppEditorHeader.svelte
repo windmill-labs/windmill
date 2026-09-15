@@ -521,10 +521,12 @@
 		}
 		// Read the head this deploy is about to append to, so the entry it writes can be
 		// told from one landing beside it (see versionThisDeployWrote).
-		const headBefore = await AppService.getAppLatestVersion({
-			workspace: opWorkspace!,
-			path: appPath!
-		}).catch(() => undefined)
+		const anchor = (
+			await AppService.getAppLatestVersion({
+				workspace: opWorkspace!,
+				path: appPath!
+			}).catch(() => undefined)
+		)?.version
 		await AppService.updateAppRaw({
 			workspace: opWorkspace!,
 			path: appPath!,
@@ -563,11 +565,13 @@
 		// draft's base; the head is what is deployed now. The route owns this `version`
 		// prop and re-pushes `parentVersion ?? head` as soon as `onDeploy` returns, so the
 		// guard compares the claimed base when there is one and the head otherwise.
-		const claimed = versionThisDeployWrote(appHistory, $userStore?.username, headBefore?.version)
+		const claimed = versionThisDeployWrote(appHistory, $userStore?.username, anchor)
 		version = appHistory[0]?.version
-		// Without a claim the head is someone else's as far as this editor knows, so it is
-		// no longer a base it may compare against: `compareVersions` confirms instead.
-		baseUnknown = claimed === undefined
+		// A deploy landed beside this one, so the head is someone else's as far as this
+		// editor knows and is no longer a base it may compare against: `compareVersions`
+		// confirms instead. A failed anchor read claims nothing either, but it is no
+		// evidence of that, so it does not arm this.
+		baseUnknown = claimed === undefined && anchor != null
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')

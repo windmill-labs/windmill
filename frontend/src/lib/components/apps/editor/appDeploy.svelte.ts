@@ -7,6 +7,9 @@ export function computeSecretUrl(secretUrl: string) {
 }
 
 /**
+ * Shared by both app editors: classic and raw apps deploy into the same `app_version`
+ * table and read the same history, so the rule for claiming a version lives here once.
+ *
  * The version a just-finished deploy wrote: this caller's newest entry, and only while it
  * sits directly on `headBefore`, the head read just before the write. That is what the
  * write appended, so anything else in between belongs to a deploy this cannot tell from
