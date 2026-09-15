@@ -885,19 +885,6 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 		: undefined
 }
 
-/** The pages of one session as one backup: every page carries the head, the pieces are
- * spread over them in listing order. */
-function mergePages(pages: AISessionBackup[]): AISessionBackup {
-	const last = pages[pages.length - 1]
-	return {
-		...last,
-		chats: pages.flatMap((p) => p.chats),
-		images: pages.flatMap((p) => p.images),
-		artifacts: pages.find((p) => p.artifacts !== undefined)?.artifacts,
-		next: undefined
-	}
-}
-
 /** Turn one pulled backup into store rows, dropping anything that does not name this
  * session: the bucket is written by the server from validated ids, but a record is
  * still data from outside this browser. */
@@ -1002,7 +989,7 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 	let restored = 0
 	// A session that did not fit one answer whole comes in pages, kept here until the last
 	// one: importing a page alone would leave a session the next restore takes for whole.
-	const pages = new Map<string, AISessionBackup[]>()
+	const staged = new Map<string, { session: Session; sync: MirrorSyncState }>()
 	const resumes: AISessionBackupCursor[] = []
 	while (ids.length > 0 || resumes.length > 0) {
 		if (getCurrentUserEmail() !== email) return
@@ -1025,42 +1012,58 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 		}
 		// Ask again for what did not fit, one at a time so each answer is as small as can be.
 		for (const id of pulled.deferred) if (!ids.includes(id)) ids.unshift(id)
-		const whole: AISessionBackup[] = []
+		// A session's pieces land before its record, page by page (the writes are absent-only,
+		// so a restore cut short leaves nothing a later one cannot finish), and the record,
+		// which is what makes the session visible, only with the last page; a session whose
+		// pieces could not be written is left for the next restore, since recording it now
+		// would let the next flush push its half-empty local state over the backup. What a
+		// page leaves for the next is the sync row being assembled, never its pieces.
+		const ready: { session: Session; sync: MirrorSyncState }[] = []
 		for (const b of pulled.sessions) {
-			const earlier = pages.get(b.id) ?? []
-			if (b.next) {
-				pages.set(b.id, [...earlier, b])
-				resumes.push(b.next)
-				continue
-			}
-			pages.delete(b.id)
-			whole.push(earlier.length === 0 ? b : mergePages([...earlier, b]))
-		}
-		const unpacked = whole
-			.map((b) => unpackBackup(ws, b, updatedAt.get(b.id) ?? Date.now(), pulled.storage_id))
-			.filter((u) => u !== undefined)
-		// A session's pieces land before its record, and a session whose pieces could not be
-		// written is left for the next restore: recording it now would let the next flush
-		// push its half-empty local state over the backup.
-		const ready: typeof unpacked = []
-		for (const u of unpacked) {
+			const u = unpackBackup(ws, b, updatedAt.get(b.id) ?? Date.now(), pulled.storage_id)
+			const earlier = staged.get(b.id)
+			staged.delete(b.id)
+			if (!u) continue
 			try {
 				if (!(await importArtifacts(u.artifacts.items, u.artifacts.versions, email))) continue
 				if (!(await importStoredChats(u.chats, u.images, email))) continue
-				ready.push(u)
 			} catch (e) {
 				console.error(`Could not restore session ${u.session.id}`, e)
+				continue
 			}
+			const merged = earlier
+				? {
+						session: {
+							...u.session,
+							lastSeenCount: Math.max(
+								earlier.session.lastSeenCount ?? 0,
+								u.session.lastSeenCount ?? 0
+							)
+						},
+						sync: {
+							...u.sync,
+							chats: { ...earlier.sync.chats, ...u.sync.chats },
+							images: { ...earlier.sync.images, ...u.sync.images },
+							artifacts: b.artifacts !== undefined ? u.sync.artifacts : earlier.sync.artifacts
+						}
+					}
+				: { session: u.session, sync: u.sync }
+			if (b.next) {
+				staged.set(b.id, merged)
+				resumes.push(b.next)
+				continue
+			}
+			ready.push(merged)
 		}
 		if (ready.length === 0) continue
 		const imported = new Set(
 			await importSessions(
-				ready.map((u) => u.session),
+				ready.map((r) => r.session),
 				email
 			)
 		)
 		await writeSync(
-			ready.filter((u) => imported.has(u.session.id)).map((u) => u.sync),
+			ready.filter((r) => imported.has(r.session.id)).map((r) => r.sync),
 			email
 		)
 		restored += imported.size

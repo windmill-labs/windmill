@@ -278,6 +278,76 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     .await?;
     assert_eq!(resp.status(), 200);
 
+    // More objects than a page keeps listing metadata for, from a store that lists in no
+    // order: the pages still carry every one of them, each once.
+    let many = 5001;
+    for start in (0..many).step_by(100) {
+        let chats: Vec<Value> = (start..(start + 100).min(many))
+            .map(|i| json!({ "id": format!("c{i:05}"), "record": { "id": format!("c{i:05}") } }))
+            .collect();
+        let resp = push(
+            &base,
+            "SECRET_TOKEN",
+            json!({
+                "owner": "test@windmill.dev",
+                "sessions": [{ "id": "s5", "chats": chats, "partial": true }]
+            }),
+        )
+        .await?;
+        assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    }
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s5", "head": { "id": "s5", "workspace_id": "test-workspace", "createdAt": 5, "chatId": "c00000" } }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let mut seen = std::collections::HashSet::new();
+    let mut resume = json!(null);
+    let mut pages = 0;
+    loop {
+        let body = if resume.is_null() {
+            json!({ "ids": ["s5"] })
+        } else {
+            json!({ "ids": ["s5"], "resume": resume })
+        };
+        let resp = authed(
+            client().post(format!("{base}/ai/sessions/pull")),
+            "SECRET_TOKEN",
+        )
+        .json(&body)
+        .send()
+        .await?;
+        assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+        let pulled: Value = resp.json().await?;
+        let page = &pulled["sessions"][0];
+        for c in page["chats"].as_array().unwrap() {
+            assert!(
+                seen.insert(c["id"].as_str().unwrap().to_string()),
+                "a chat came twice"
+            );
+        }
+        pages += 1;
+        resume = page["next"].clone();
+        if resume.is_null() {
+            break;
+        }
+        assert!(pages < 5, "a paged pull must end");
+    }
+    assert_eq!(pages, 2);
+    assert_eq!(seen.len(), many);
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "removed": ["s5"] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+
     // A head at exactly its cap round-trips: the ciphertext read back is a block larger.
     let mut big_head = json!({ "id": "s3", "workspace_id": "test-workspace", "createdAt": 3, "chatId": "c", "pad": "" });
     let pad = 1024 * 1024 - serde_json::to_string(&big_head)?.len();

@@ -185,12 +185,12 @@ impl Backend {
     }
 
     /// The entries under `prefix` past `after` in key order, as many as fit `budget` bytes;
-    /// `true` when more follow. The listing is read as at most MAX_LISTED_OBJECTS entries of
-    /// metadata and sorted, since a page is defined by key order and the filesystem store
-    /// lists in none; that cap is what bounds a pull's memory, a session growing by valid
-    /// pushes without limit. With `at_least_one`, the first entry is taken whatever its
-    /// size, so an answer owed the session makes progress on it (no object exceeds the push
-    /// body cap).
+    /// `true` when more follow. Every key past `after` is seen and the MAX_LISTED_OBJECTS
+    /// smallest kept (a max-heap dropping its largest), since a page is defined by key
+    /// order and the store promises none; that cap is what bounds a pull's memory, a
+    /// session growing by valid pushes without limit. With `at_least_one`, the first entry
+    /// is taken whatever its size, so an answer owed the session makes progress on it (no
+    /// object exceeds the push body cap).
     async fn list_within(
         &self,
         prefix: &ObjectPath,
@@ -198,31 +198,30 @@ impl Backend {
         budget: usize,
         at_least_one: bool,
     ) -> Result<(Vec<(ObjectPath, usize)>, bool)> {
-        let mut listed = vec![];
-        let mut more = false;
+        let mut kept: std::collections::BinaryHeap<(ObjectPath, usize)> = Default::default();
+        let mut dropped = false;
         let mut stream = match after {
             Some(after) => self.store.list_with_offset(Some(prefix), after),
             None => self.store.list(Some(prefix)),
         };
         while let Some(meta) = stream.next().await {
             let meta = meta.map_err(object_store_error_to_error)?;
-            if listed.len() >= MAX_LISTED_OBJECTS {
-                more = true;
-                break;
+            kept.push((meta.location, meta.size as usize));
+            if kept.len() > MAX_LISTED_OBJECTS {
+                kept.pop();
+                dropped = true;
             }
-            listed.push((meta.location, meta.size as usize));
         }
-        listed.sort_by(|a, b| a.0.cmp(&b.0));
         let mut entries = vec![];
         let mut total = 0;
-        for (key, size) in listed {
+        for (key, size) in kept.into_sorted_vec() {
             if total + size > budget && !(at_least_one && entries.is_empty()) {
                 return Ok((entries, true));
             }
             total += size;
             entries.push((key, size));
         }
-        Ok((entries, more))
+        Ok((entries, dropped))
     }
 
     /// Bytes written. Sealed up front so every stream item is owned: an item borrowing
