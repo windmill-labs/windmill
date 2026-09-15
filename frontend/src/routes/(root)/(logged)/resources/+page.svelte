@@ -1570,11 +1570,14 @@
 		<AgentEditorModal
 			enableAi={$copilotInfo.enabled}
 			owns={(t) => t.host === undefined}
-			onRenamed={(_from, to) => {
+			onRenamed={(from, to) => {
+				void loadResources()
+				// Only while the dialog still shows the agent: closed mid-request, it already cleared the
+				// anchor, and writing it back would reopen the editor on refresh.
+				if (agentEditorTarget()?.path !== from) return
 				// Claimed first, as a row click does, so the deep-link effect does not reopen it.
 				handledHash = `#/resource/${to}`
 				setPageDrawerAnchor(RESOURCES_PATH, to)
-				void loadResources()
 			}}
 		/>
 	{/await}

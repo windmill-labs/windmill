@@ -107,11 +107,10 @@
 		fromDraft: boolean
 		providerPath?: string
 		providerOk: boolean
-		/** The link cannot be read. `missing`: nothing this user can read sits at the path, because the
-		 *  agent was renamed or deleted or is in a folder they cannot see (the API answers all three
-		 *  with the same 404). `forbidden`: it exists and this user is refused it, which says nothing
-		 *  about whether a run of the flow can read it. Returned rather than thrown so it is guarded
-		 *  like any result. */
+		/** The link cannot be read. `missing` (404): nothing exists at the path, the agent having been
+		 *  renamed or deleted. `forbidden` (401/403): it exists and this user is refused it, a folder
+		 *  they cannot read included, which says nothing about whether a run of the flow can read it.
+		 *  Returned rather than thrown so it is guarded like any result. */
 		unavailable?: 'missing' | 'forbidden'
 	}
 
@@ -630,9 +629,9 @@
 		{:else if unavailable === 'missing'}
 			<div class="mt-1">
 				<Alert type="error" size="xs" title="Agent not found">
-					No saved agent you can read exists at <span class="font-medium">{agent}</span>. It may
-					have been renamed or deleted. Remove the link to configure the step here, or add the agent
-					again from Saved agents.
+					No saved agent exists at <span class="font-medium">{agent}</span>. It may have been
+					renamed or deleted. Remove the link to configure the step here, or add the agent again
+					from Saved agents.
 					<div class="flex pt-2">
 						<Button
 							unifiedSize="sm"
