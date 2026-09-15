@@ -112,6 +112,11 @@ pub enum WacPark {
 /// completes a job without a worker-measured duration — a cancel, the child-failure
 /// handler — falls back to `now() - started_at`. Left pointing at the first segment,
 /// that fallback reports the whole sleep or approval wait as execution time.
+///
+/// Call it before any write to the parent's `v2_job_status` row in the same
+/// transaction: a child's completion locks the queue row and then the status row
+/// (`record_child_completion`), and taking them the other way round here can
+/// deadlock against a stale child finishing while the parent re-dispatches.
 pub async fn suspend_wac_parent(
     tx: &mut Transaction<'_, Postgres>,
     job_id: &Uuid,

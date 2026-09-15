@@ -1087,8 +1087,8 @@
 							edited from the flow editor, which skin approval steps are given, how data tables and
 							their migrations are set up and used, how often an empty workspace home is seen, how
 							often the home page’s create menu and hub-project picker are opened and from which
-							entry point, and the name of any public hub project imported from the home page and
-							how far that import got, last 30 days)</li
+							entry point, the name of any public hub project imported from the home page and how
+							far that import got, and whether a pre-approved trial offer was opened, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table
@@ -1152,8 +1152,8 @@
 							edited from the flow editor, which skin approval steps are given, how data tables and
 							their migrations are set up and used, how often an empty workspace home is seen, how
 							often the home page’s create menu and hub-project picker are opened and from which
-							entry point, and the name of any public hub project imported from the home page and
-							how far that import got, last 30 days)</li
+							entry point, the name of any public hub project imported from the home page and how
+							far that import got, and whether a pre-approved trial offer was opened, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table
