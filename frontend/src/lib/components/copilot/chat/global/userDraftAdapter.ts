@@ -672,7 +672,9 @@ export async function deleteGlobalDraft(
 		})
 	}
 	await assertDraftCleanupLanded(workspace, itemKind, path, storagePath)
-	return { removed: true }
+	// An open editor stands its discard down when the user typed after it was asked for, so the
+	// row is still there on purpose. Saying it was removed would report the opposite.
+	return { removed: !UserDraft.has(itemKind, storagePath, { workspace }) }
 }
 
 /**

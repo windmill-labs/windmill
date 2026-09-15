@@ -517,10 +517,9 @@ class Entry<V> {
 		return 'failed'
 	}
 
-	/** Discard for an outside caller. Called now, not after a wait: `discard` snapshots when
-	 *  called, and an edit made while it queued behind a save must not look like part of what it
-	 *  was asked to throw away. `absent`: never had the item, so the row is the caller's.
-	 *  `failed`: it has the item, on a baseline it cannot refresh, and still shows the draft. */
+	/** Discard for an outside caller, called now so `discard` snapshots now: an edit made while it
+	 *  queues must not look like part of what it was asked to throw away. `absent`: never had the
+	 *  item, so the row is the caller's. `failed`: has it, on a baseline it cannot refresh. */
 	async discarded(): Promise<'done' | 'absent' | 'failed'> {
 		const asked = this.asOf()
 		await this.discard(asked)
@@ -1036,13 +1035,10 @@ export function createItemStore(ports: ItemRowPort) {
 			if (displaced && displaced !== entry) retire(displaced, entry)
 			entries.set(to, entry)
 		},
-		/**
-		 * A save about to write the item at `key` and move onto it. It goes after the command
-		 * running at that key and the move already heading there, and every other command at that
-		 * key waits for it when its turn comes (`moveSettled`), whichever entry issues it. So one
-		 * write to the item lands at a time, and whatever the move retires is idle by then. It does
-		 * not wait for an entry that waits for it in turn: each would wait for the other.
-		 */
+		/** A save about to write the item at `key`. It goes after the command running there and the
+		 *  move already heading there, and every other command there waits for it in turn
+		 *  (`moveSettled`), so one write lands at a time and what it retires is idle by then. Never
+		 *  behind an entry that is waiting for this one: each would wait for the other. */
 		claim(key, claimant) {
 			const k = keyString(key)
 			const holder = entries.get(k)

@@ -2534,6 +2534,37 @@ describe('global AI tools', () => {
 		}
 	})
 
+	// An open editor stands its discard down when the user typed after the chat asked for it. The
+	// row is then there on purpose, and reporting it discarded would say the opposite.
+	it('reports a draft an editor kept rather than discarded', async () => {
+		const path = 'u/admin/kept_on_discard'
+		seedBackendDraft('resource', path, { path, value: { a: 2 } })
+		registerLiveItemBridge({
+			seed: () => false,
+			// Still holding a draft after the discard: the user typed after it was asked for.
+			read: () => ({ value: { path, value: { a: 3 } } }),
+			refresh: () => undefined,
+			noteRow: () => {},
+			itemDeleted: () => Promise.resolve(),
+			discard: () => Promise.resolve('done' as const),
+			list: () => []
+		})
+		try {
+			const out = await deleteGlobalDraft(WORKSPACE, 'resource', path)
+			expect(out).toEqual({ removed: false })
+		} finally {
+			registerLiveItemBridge({
+				seed: () => false,
+				read: () => undefined,
+				refresh: () => undefined,
+				noteRow: () => {},
+				itemDeleted: () => Promise.resolve(),
+				discard: () => undefined,
+				list: () => []
+			})
+		}
+	})
+
 	// A failed server delete must surface (throw), not silently report removed —
 	// the same guard the write path got, applied to the delete path.
 	it('deleteGlobalDraft throws when the server delete fails', async () => {

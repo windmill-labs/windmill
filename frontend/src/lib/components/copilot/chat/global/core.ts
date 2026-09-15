@@ -6605,7 +6605,7 @@ async function discardLocalDraft(
 		throw new Error(`No draft found for ${type} "${path}".`)
 	}
 
-	await deleteGlobalDraft(workspace, type, path, triggerKind)
+	const discarded = await deleteGlobalDraft(workspace, type, path, triggerKind)
 
 	// The chat's touch on the item is undone — drop it from the mask so a
 	// pre-existing deployed item doesn't keep reading as this chat's edit.
@@ -6619,12 +6619,14 @@ async function discardLocalDraft(
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Discarded ${type} "${path}" draft`,
-		result: 'Draft discarded'
+		result: discarded.removed ? 'Draft discarded' : 'Newer draft kept'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Discarded the draft for ${type} "${path}". The deployed workspace item was not changed.`,
+			message: discarded.removed
+				? `Discarded the draft for ${type} "${path}". The deployed workspace item was not changed.`
+				: `The draft for ${type} "${path}" was changed in an open editor after the discard was asked for, so that newer draft was kept. The deployed workspace item was not changed.`,
 			type,
 			path,
 			triggerKind
