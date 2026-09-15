@@ -472,7 +472,7 @@
 			}
 		}
 	}
-	async function syncWithDeployed() {
+	async function syncWithDeployed(opening?: number) {
 		const flow = await FlowService.getFlowByPath({
 			workspace: opWorkspace!,
 			// The draft row's own path, not `initialPath` — the route re-seeds that from
@@ -482,6 +482,9 @@
 			path: userDraftPath || initialPath,
 			withStarredInfo: true
 		})
+		// A superseded opening must not write these: the current one would then render
+		// and offer Take latest against the older head.
+		if (opening != null && opening !== diffOpening) return
 		deployedValue = replaceFalseWithUndefined({
 			...flow,
 			edited_at: undefined,
@@ -1170,8 +1173,10 @@
 	export async function openDiffDrawer() {
 		const opening = ++diffOpening
 		if (!savedFlow) return
-		await syncWithDeployed()
+		await syncWithDeployed(opening)
 		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
+		// Blanking the drawer belongs to the opening that will fill it.
+		if (opening !== diffOpening) return
 		diffDrawer?.openDrawer()
 		const currentFlow = flowStore.val
 		const versions = await deployedVersionOptions()

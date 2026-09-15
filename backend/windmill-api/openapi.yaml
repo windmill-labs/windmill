@@ -9805,7 +9805,7 @@ paths:
                     format: date-time
                   path:
                     type: string
-                    description: "`saved` upserts only: where the draft is. Differs from the URL path when the item had moved away from it; the editor follows it there."
+                    description: "`saved` only, upsert or delete: where the write landed. Differs from the URL path when the item had moved away from it; the editor follows it there."
                 required: [status, current_timestamp]
 
   /w/{workspace}/drafts/move/{kind}/{path}:

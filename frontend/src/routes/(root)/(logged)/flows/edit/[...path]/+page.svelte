@@ -405,9 +405,12 @@
 			: effectiveFlow
 		flow = flowToRender
 		if (pendingLoad) {
-			// Their draft's base, not ours; see /scripts/edit.
+			// Their draft's base, not ours; see /scripts/edit. With none, the merge above
+			// would hand it the deployed one and the next save would persist that as its
+			// base, so it is dropped rather than inherited.
 			const theirs = (pendingLoad.value as { version_id?: number })?.version_id
 			draftBaseVersion = theirs != null ? String(theirs) : undefined
+			if (theirs == null) delete (flowToRender as any).version_id
 		}
 		if (pendingLoad && hasOwnDraft) {
 			OtherUserDraftLoad.beginOverlay({

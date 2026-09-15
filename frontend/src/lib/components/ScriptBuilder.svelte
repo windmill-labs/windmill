@@ -616,7 +616,7 @@
 		}
 	}
 
-	async function syncWithDeployed() {
+	async function syncWithDeployed(opening?: number) {
 		const latestScript = await ScriptService.getScriptByPath({
 			workspace: opWorkspace!,
 			// The draft row's own path, not `initialPath` — that one tracks the path
@@ -627,6 +627,9 @@
 			withStarredInfo: true
 		})
 
+		// A superseded opening must not write these: the current one would then render
+		// and offer Take latest against the older head.
+		if (opening != null && opening !== diffOpening) return
 		deployedValue = replaceFalseWithUndefined({
 			...latestScript,
 			workspace_id: undefined,
@@ -879,7 +882,7 @@
 		if (!savedScript) {
 			return
 		}
-		await syncWithDeployed()
+		await syncWithDeployed(opening)
 
 		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
 
@@ -896,6 +899,8 @@
 		}
 		if (current.assets && !current.assets.length) delete current.assets
 
+		// Blanking the drawer belongs to the opening that will fill it.
+		if (opening !== diffOpening) return
 		diffDrawer?.openDrawer()
 		const headHash = (deployed as { hash?: string } | undefined)?.hash
 		const versions = await deployedVersionOptions(headHash)

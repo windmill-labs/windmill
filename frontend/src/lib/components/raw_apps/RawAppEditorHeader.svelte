@@ -397,13 +397,16 @@
 		}
 	}
 
-	async function syncWithDeployed() {
+	async function syncWithDeployed(opening?: number) {
 		const deployedApp = await AppService.getAppByPath({
 			workspace: opWorkspace!,
 			path: appPath!,
 			withStarredInfo: true
 		})
 
+		// A superseded opening must not write these: the current one would then render
+		// and offer Take latest against the older head.
+		if (opening != null && opening !== diffOpening) return
 		deployedBy = deployedApp.created_by
 		const shownVersions = (deployedApp as { versions?: number[] }).versions
 		deployedVersionShown = Array.isArray(shownVersions)
@@ -461,8 +464,10 @@
 		}
 
 		// deployedValue should be syncronized when we open Diff
-		await syncWithDeployed()
+		await syncWithDeployed(opening)
 
+		// Blanking the drawer belongs to the opening that will fill it.
+		if (opening !== diffOpening) return
 		diffDrawer?.openDrawer()
 		const versions = await deployedVersionOptions()
 		if (opening !== diffOpening) return

@@ -739,7 +739,10 @@ async fn move_draft(
              AND ($2 = $3 OR NOT EXISTS (
                  SELECT 1 FROM draft o
                  WHERE o.workspace_id = $1 AND o.path = $3 AND o.typ::text = ANY($9::text[])
-                   AND o.email = $6
+                   -- The legacy row counts: a deploy at that path wipes it together with
+                   -- the caller's, so parking a second draft there discards edits the
+                   -- caller never saw.
+                   AND (o.email = $6 OR o.email IS NULL)
              ))
            RETURNING id"#,
         &w_id,
@@ -771,7 +774,8 @@ async fn move_draft(
         let row = sqlx::query!(
             r#"SELECT
                  (SELECT typ::text FROM draft WHERE workspace_id = $1 AND path = $3
-                  AND typ::text = ANY($6::text[]) AND email = $4 LIMIT 1) as "at_target",
+                  AND typ::text = ANY($6::text[]) AND (email = $4 OR email IS NULL)
+                  LIMIT 1) as "at_target",
                  EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5
                         AND typ = $2 AND email = $4
                         AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0
