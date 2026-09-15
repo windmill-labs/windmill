@@ -960,6 +960,14 @@ async fn test_instance_group_member_that_is_not_an_email_is_skipped(
         400,
         "adduser must refuse a value wider than the email columns"
     );
+    // A valid address whose local part is wider than the username columns: the derived
+    // username is cut to fit rather than failing the promotion.
+    let long_local_part = format!("{}@example.com", "a".repeat(60));
+    let resp = authed(client().post(format!("{global_base}/adduser/entra_grp")))
+        .json(&json!({ "email": long_local_part }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "adduser long local part");
 
     sqlx::query("INSERT INTO email_to_igroup (email, igroup) VALUES ($1, 'entra_grp')")
         .bind(ENTRA_OBJECT_ID)
@@ -1000,9 +1008,10 @@ async fn test_instance_group_member_that_is_not_an_email_is_skipped(
         members,
         vec![
             ("\"quoted\"@example.com".to_string(), false),
+            (long_local_part.clone(), false),
             ("kept@example.com".to_string(), false),
         ],
-        "valid member provisioned and existing member kept, both as developers; non-email one skipped"
+        "valid members provisioned and existing member kept, all as developers; non-email one skipped"
     );
 
     // A full import carrying the same rows: the object id is dropped, the address only
@@ -1010,7 +1019,7 @@ async fn test_instance_group_member_that_is_not_an_email_is_skipped(
     let resp = authed(client().post(format!("{global_base}/overwrite")))
         .json(&json!([{
             "name": "entra_grp",
-            "emails": ["kept@example.com", "\"quoted\"@example.com", ENTRA_OBJECT_ID]
+            "emails": ["kept@example.com", "\"quoted\"@example.com", long_local_part, ENTRA_OBJECT_ID]
         }]))
         .send()
         .await?;
@@ -1023,7 +1032,11 @@ async fn test_instance_group_member_that_is_not_an_email_is_skipped(
     stored.sort();
     assert_eq!(
         stored,
-        vec!["\"quoted\"@example.com", "kept@example.com"],
+        vec![
+            "\"quoted\"@example.com".to_string(),
+            long_local_part.clone(),
+            "kept@example.com".to_string(),
+        ],
         "import drops the object id and keeps the rest"
     );
     let mut after_import: Vec<(String, bool)> = sqlx::query_as(
