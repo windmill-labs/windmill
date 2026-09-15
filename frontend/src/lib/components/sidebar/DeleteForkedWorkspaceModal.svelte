@@ -112,10 +112,7 @@
 		const result = await WorkspaceService.deleteWorkspace({ workspace })
 		// The server names any data table in another workspace that this delete left governed by
 		// nothing, and any cloned database it could not drop. Only surfaced when there is something to say.
-		if (
-			typeof result === 'string' &&
-			(result.includes('no longer resolve') || result.includes('not dropped'))
-		) {
+		if (typeof result === 'string' && result !== `Deleted workspace ${workspace}.`) {
 			sendUserToast(result, 'warning', [], undefined, 20000)
 		}
 		await deleteSessionsForWorkspace(workspace).catch((e) =>

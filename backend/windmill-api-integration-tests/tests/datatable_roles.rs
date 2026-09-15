@@ -808,22 +808,33 @@ async fn deleting_a_fork_keeps_a_cloned_database_another_workspace_uses(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
-    // Deleting a fork drops the databases its data tables were cloned into, but not one a second
-    // entry elsewhere was pointed at: that would take the other workspace's data with it.
-    let entry =
-        r#"{"database": {"resource_type": "instance", "resource_path": "wm_fork_dt__copy"}}"#;
+    // Deleting a fork drops the databases its data tables were cloned into, but not one another
+    // workspace still uses — as a data table, a ducklake catalog, or through a pointer at the
+    // fork's entry: that would take the other workspace's data with it.
+    let database = |name: &str| json!({"resource_type": "instance", "resource_path": name});
+    let clone = |name: &str| json!({"database": database(name), "forked_from": {}});
     sqlx::query(
-        "UPDATE workspace_settings SET datatable = jsonb_set(datatable, '{datatables,copy}',
-             $1::jsonb || '{\"forked_from\": {}}'::jsonb) WHERE workspace_id = 'wm-fork-dt'",
+        "UPDATE workspace_settings SET datatable = datatable || jsonb_build_object('datatables',
+             datatable->'datatables' || $1::jsonb) WHERE workspace_id = 'wm-fork-dt'",
     )
-    .bind(entry)
+    .bind(json!({
+        "copy": clone("wm_fork_dt__copy"),
+        "lake": clone("wm_fork_dt__lake"),
+        "kept": clone("wm_fork_dt__kept"),
+    }))
     .execute(&db)
     .await?;
     sqlx::query(
-        "UPDATE workspace_settings SET datatable = jsonb_set(datatable, '{datatables,alias}',
-             $1::jsonb) WHERE workspace_id = 'test-workspace'",
+        "UPDATE workspace_settings SET
+             datatable = datatable || jsonb_build_object('datatables', datatable->'datatables' || $1::jsonb),
+             ducklake = jsonb_build_object('ducklakes', $2::jsonb)
+         WHERE workspace_id = 'test-workspace'",
     )
-    .bind(entry)
+    .bind(json!({
+        "alias": {"database": database("wm_fork_dt__copy")},
+        "pointer": {"reference": {"workspace_id": "wm-fork-dt", "datatable": "kept"}},
+    }))
+    .bind(json!({"lake": {"catalog": database("wm_fork_dt__lake")}}))
     .execute(&db)
     .await?;
     let server = ApiServer::start(db.clone()).await?;
@@ -839,10 +850,13 @@ async fn deleting_a_fork_keeps_a_cloned_database_another_workspace_uses(
     .await?;
     assert_eq!(resp.status(), 200);
     let body = resp.text().await?;
-    assert!(
-        body.contains("keeping instance database 'wm_fork_dt__copy'"),
-        "{body}"
-    );
+    for kept in [
+        "datatable://copy: kept instance database 'wm_fork_dt__copy'",
+        "datatable://lake: kept instance database 'wm_fork_dt__lake'",
+        "datatable://kept: kept its database, which data tables of test-workspace still point at",
+    ] {
+        assert!(body.contains(kept), "{kept} not in: {body}");
+    }
     Ok(())
 }
 
