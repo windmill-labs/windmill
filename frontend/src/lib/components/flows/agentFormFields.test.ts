@@ -37,6 +37,9 @@ describe('agentFieldIsSet', () => {
 
 	it('reads anything the user authored as set', () => {
 		expect(set('temperature', { type: 'static', value: 0 })).toBe(true)
+		// An empty `enabled_tools` advertises no tools, so it is a choice rather than an unset field:
+		// giving the spec an `implicit` of `[]` would hide the row while the run still carries none.
+		expect(set('enabled_tools', { type: 'static', value: [] })).toBe(true)
 		expect(set('output_type', { type: 'static', value: 'image' })).toBe(true)
 		expect(set('memory', { type: 'static', value: { kind: 'auto', context_length: 5 } })).toBe(true)
 		expect(set('max_iterations', { type: 'javascript', expr: 'flow_input.loops' })).toBe(true)
