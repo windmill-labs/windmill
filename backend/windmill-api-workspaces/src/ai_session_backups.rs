@@ -77,11 +77,12 @@ pub struct BackupStore {
 }
 
 /// The instance object store, for a workspace without storage of its own: loaded from
-/// settings that say where its objects are (never on the Pro plan, see
-/// `reload_object_store_setting`), and not turned off by
+/// settings that say where its objects are, and not turned off by
 /// `ai_sessions_instance_storage_fallback`, which is on unless set to false. Named like a
-/// workspace storage, by that location, in a namespace of its own. Never in a build without
-/// `private`, which has neither workspace storage nor the quota the fallback counts toward.
+/// workspace storage, by that location, in a namespace of its own. Never on the Pro plan,
+/// checked on every call: a store loaded before a switch to Pro stays loaded. Never in a
+/// build without `private`, which has neither workspace storage nor the quota the fallback
+/// counts toward.
 ///
 /// Authorizes nothing, and the store reaches every workspace's objects: the caller must have
 /// authorized the user for the workspace and keep what it reads and writes under that
@@ -94,6 +95,12 @@ pub async fn fallback_store(db: &DB) -> Result<Option<BackupStore>> {
     }
     #[cfg(feature = "private")]
     {
+        if matches!(
+            windmill_common::ee_oss::get_license_plan().await,
+            windmill_common::ee_oss::LicensePlan::Pro
+        ) {
+            return Ok(None);
+        }
         let Some((store, Some(location))) =
             windmill_object_store::get_object_store_with_location().await
         else {

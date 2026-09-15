@@ -1144,10 +1144,19 @@ impl Drop for ResetInstanceStore {
     }
 }
 
+/// Puts the process-wide license key id back to none, an Enterprise plan in this build,
+/// even when an assertion fails.
+struct ResetLicensePlan;
+impl Drop for ResetLicensePlan {
+    fn drop(&mut self) {
+        windmill_common::ee::LICENSE_KEY_ID.store(std::sync::Arc::new(String::new()));
+    }
+}
+
 /// A workspace without storage of its own backs up to the instance object store, every
 /// answer saying so (`fallback`); a storage of its own, once configured, answers instead,
 /// under a generation past everything the workspace left in the instance store, which the
-/// change deletes.
+/// change deletes; a plan switched to Pro stops the fallback with the store still loaded.
 #[sqlx::test(fixtures("base"))]
 async fn test_backups_fall_back_to_the_instance_storage(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -1276,6 +1285,25 @@ async fn test_backups_fall_back_to_the_instance_storage(db: Pool<Postgres>) -> a
     assert!(listing.get("fallback").is_none(), "{listing}");
     assert_eq!(listing["backup_generation"], same["backup_generation"]);
     assert_eq!(listing["sessions"][0]["id"], "s1");
+
+    // Back to no storage of its own, the fallback answers; a plan switched to Pro while the
+    // instance store stays loaded stops it at once, for the listing and the push alike.
+    let resp = authed(
+        client().post(format!("{base}/workspaces/edit_large_file_storage_config")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "large_file_storage": null }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    assert_eq!(list(&base, "SECRET_TOKEN").await?["fallback"], true);
+    let _enterprise_again = ResetLicensePlan;
+    windmill_common::ee::LICENSE_KEY_ID.store(std::sync::Arc::new("test_pro".to_string()));
+    assert_eq!(list(&base, "SECRET_TOKEN").await?["enabled"], false);
+    let resp = push_whole().await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let pushed: Value = resp.json().await?;
+    assert_eq!(pushed["enabled"], false, "{pushed}");
 
     Ok(())
 }

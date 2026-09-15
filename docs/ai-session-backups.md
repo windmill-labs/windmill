@@ -138,8 +138,10 @@ forgotten, the rows that went stale are marked again, a restore runs).
 ## The instance store standing in
 
 A workspace without storage of its own keeps its backups in the instance object store
-(`object_store_cache_config`, loaded the way every other use of it is, so never on the Pro
-plan and never with `DISABLE_S3_STORE`), under the same layout and the same per-user key,
+(`object_store_cache_config`, loaded the way every other use of it is, so never with
+`DISABLE_S3_STORE`; the plan is checked on every request and Pro never falls back, since a
+store loaded before a switch to Pro stays loaded), under the same layout and the same
+per-user key,
 while the instance setting `ai_sessions_instance_storage_fallback` allows it (on unless set
 to false; the instance settings page shows it under Object Storage). A build without
 `private` has neither workspace storage nor the quota below, and never falls back. Every
