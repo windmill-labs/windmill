@@ -22,6 +22,7 @@
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import { GitSyncService, ResourceService, VariableService } from '$lib/gen'
 
@@ -56,6 +57,10 @@
 	const validation = $derived(idx !== null ? gitSyncContext.getValidation(idx) : null)
 	const gitSyncTestJob = $derived(idx !== null ? gitSyncContext.gitSyncTestJobs?.[idx] : null)
 	let confirmingDelete = $state(false)
+
+	function pullStatusDate(status: { at: number }): string {
+		return new Date(status.at * 1000).toISOString()
+	}
 
 	// Enable/disable automatic repo → workspace pulls, managing the optional
 	// auto_pull object without binding into a possibly-undefined value.
@@ -919,10 +924,18 @@
 											{#if repo.auto_pull.last_pull_status.success}
 												Last synced{repo.auto_pull.last_pull_status.synced_sha
 													? ` to ${repo.auto_pull.last_pull_status.synced_sha.slice(0, 7)}`
-													: ''}.
+													: ''}
+												<TimeAgo
+													date={pullStatusDate(repo.auto_pull.last_pull_status)}
+													noSeconds
+												/>.
 											{:else}
 												<span class="text-red-600 dark:text-red-400">
-													Last sync failed{repo.auto_pull.last_pull_status.error
+													Last sync failed
+													<TimeAgo
+														date={pullStatusDate(repo.auto_pull.last_pull_status)}
+														noSeconds
+													/>{repo.auto_pull.last_pull_status.error
 														? `: ${repo.auto_pull.last_pull_status.error}`
 														: ''}.
 												</span>
@@ -936,7 +949,7 @@
 										options={{
 											right: 'Automatically deploy changes from Git',
 											rightTooltip:
-												'Windmill deploys new commits from the tracked branch into this workspace. Repositories Windmill holds a credential for sync instantly via webhooks with a polling fallback; other token-based repositories are checked about every minute.'
+												'Windmill deploys new commits from the tracked branch into this workspace. Repositories Windmill holds a credential for sync instantly via webhooks with a polling fallback; other token-based repositories are checked about every minute. The webhook also delivers pull request events, which is what posts the diff check on pull requests and, for GitHub repositories, the Windmill CI tests check.'
 										}}
 										on:change={(e) => setAutoPullEnabled(e.detail)}
 									>
@@ -951,7 +964,7 @@
 											options={{
 												right: 'Automatically sync forks with git branches',
 												rightTooltip: repo.auto_pull?.enabled
-													? "When a fork's wm-fork/** branch changes in the repository (for example after merging the tracked branch into it), Windmill deploys those commits into the fork workspace. Configured once here, applied to every fork of this workspace."
+													? "When a fork's wm-fork/** branch changes in the repository (for example after merging the tracked branch into it), Windmill deploys those commits into the fork workspace. On GitHub, needed for the Windmill CI tests check on a fork pull request whose commits were pushed outside Windmill. Configured once here, applied to every fork of this workspace."
 													: 'Requires automatic deploy from Git to be enabled above.'
 											}}
 											on:change={(e) => setSyncForks(e.detail)}
@@ -1000,13 +1013,21 @@
 											{#if repo.auto_pull.last_pull_status.success}
 												Last synced{repo.auto_pull.last_pull_status.synced_sha
 													? ` to ${repo.auto_pull.last_pull_status.synced_sha.slice(0, 7)}`
-													: ''}.
+													: ''}
+												<TimeAgo
+													date={pullStatusDate(repo.auto_pull.last_pull_status)}
+													noSeconds
+												/>.
 												{viaWebhook
 													? ' Syncing instantly via webhook.'
 													: ' Checking the tracked branch about every minute.'}
 											{:else}
 												<span class="text-red-600 dark:text-red-400">
-													Last sync failed{repo.auto_pull.last_pull_status.error
+													Last sync failed
+													<TimeAgo
+														date={pullStatusDate(repo.auto_pull.last_pull_status)}
+														noSeconds
+													/>{repo.auto_pull.last_pull_status.error
 														? `: ${repo.auto_pull.last_pull_status.error}`
 														: ''}.
 												</span>
@@ -1017,6 +1038,14 @@
 												: 'Checking the tracked branch about every minute. New commits deploy automatically.'}
 										{/if}
 									</div>
+									{#if repo.auto_pull?.enabled_by}
+										<div class="text-2xs text-secondary mt-1">
+											Pulls apply changes as {repo.auto_pull.enabled_by}, the admin who last saved
+											these settings{repo.auto_pull.sync_forks
+												? ', in this workspace and its forks'
+												: ''}.
+										</div>
+									{/if}
 									{#if hasManagedCredential && repo.auto_pull?.webhook_error}
 										<div class="mt-2">
 											<Alert type="warning" title="Falling back to polling" size="xs">

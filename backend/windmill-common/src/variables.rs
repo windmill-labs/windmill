@@ -252,12 +252,17 @@ pub async fn build_crypt_with_key_suffix(
     key_suffix: &str,
 ) -> crate::error::Result<MagicCrypt256> {
     let key = get_workspace_key(w_id, db).await?;
+    Ok(crypt_from_key_with_suffix(&key, key_suffix))
+}
+
+/// The cipher `build_crypt_with_key_suffix` builds, from a key string in hand.
+pub fn crypt_from_key_with_suffix(key: &str, key_suffix: &str) -> MagicCrypt256 {
     let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
         format!("{}{}{}", key, salt, key_suffix)
     } else {
         format!("{}{}", key, key_suffix)
     };
-    Ok(magic_crypt::new_magic_crypt!(crypt_key, 256))
+    magic_crypt::new_magic_crypt!(crypt_key, 256)
 }
 
 pub async fn get_workspace_key(w_id: &str, db: &DB) -> crate::error::Result<String> {

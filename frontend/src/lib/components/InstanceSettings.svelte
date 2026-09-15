@@ -134,11 +134,15 @@
 		}
 		applyFormDefaults(nvalues)
 
-		// Apply select/select_python defaults so initialValues matches what InstanceSetting's $effect does
+		// Apply declared defaults before snapshotting initialValues, so a default shows without
+		// marking the form dirty: a select's mirrors InstanceSetting's $effect, a boolean's is
+		// what its toggle shows while the key is unset.
 		for (const category of settingsKeys) {
 			for (const s of settings[category]) {
 				if (
-					(s.fieldType === 'select' || s.fieldType === 'select_python') &&
+					(s.fieldType === 'select' ||
+						s.fieldType === 'select_python' ||
+						s.fieldType === 'boolean') &&
 					nvalues[s.key] == undefined &&
 					s.defaultValue
 				) {
@@ -1080,13 +1084,16 @@
 							>feature usage (counts of which product features are used, including AI provider and
 							model identifiers, the names of public hub scripts used, the languages debug sessions
 							are started for, whether AI chat skills are turned on or off and how often one is
-							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
-							membership, the plan tier and quota shown when the execution meter is opened, whether
-							app sandbox isolation is turned on, whether a step's workspace script is edited from
-							the flow editor, how data tables and their migrations are set up and used, how often
-							an empty workspace home is seen, how often the home page’s create menu and hub-project
-							picker are opened and from which entry point, and the name of any public hub project
-							imported from the home page and how far that import got, last 30 days)</li
+							loaded, whether an AI agent run narrows the tools it may call and whether that leaves
+							it with none, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and
+							change a membership, the plan tier and quota shown when the execution meter is opened,
+							whether app sandbox isolation is turned on, whether a step's workspace script is
+							edited from the flow editor, which skin approval steps are given, how many AI sessions
+							are brought back from the workspace object storage backup, how data tables and their
+							migrations are set up and used, how often an empty workspace home is seen, how often
+							the home page’s create menu and hub-project picker are opened and from which entry
+							point, the name of any public hub project imported from the home page and how far that
+							import got, and whether a pre-approved trial offer was opened, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table
@@ -1143,13 +1150,16 @@
 							>feature usage (counts of which product features are used, including AI provider and
 							model identifiers, the names of public hub scripts used, the languages debug sessions
 							are started for, whether AI chat skills are turned on or off and how often one is
-							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
-							membership, the plan tier and quota shown when the execution meter is opened, whether
-							app sandbox isolation is turned on, whether a step's workspace script is edited from
-							the flow editor, how data tables and their migrations are set up and used, how often
-							an empty workspace home is seen, how often the home page’s create menu and hub-project
-							picker are opened and from which entry point, and the name of any public hub project
-							imported from the home page and how far that import got, last 30 days)</li
+							loaded, whether an AI agent run narrows the tools it may call and whether that leaves
+							it with none, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and
+							change a membership, the plan tier and quota shown when the execution meter is opened,
+							whether app sandbox isolation is turned on, whether a step's workspace script is
+							edited from the flow editor, which skin approval steps are given, how many AI sessions
+							are brought back from the workspace object storage backup, how data tables and their
+							migrations are set up and used, how often an empty workspace home is seen, how often
+							the home page’s create menu and hub-project picker are opened and from which entry
+							point, the name of any public hub project imported from the home page and how far that
+							import got, and whether a pre-approved trial offer was opened, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table

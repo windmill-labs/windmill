@@ -1991,6 +1991,7 @@
 					allUsers={treeInjectUsers}
 					ownerCounts={!searching && labelFilter == undefined ? ownerCounts : undefined}
 					selfUsername={$userStore?.username}
+					groupOtherUsers={treeLazyMode}
 					ownerLoad={treeLazyMode ? ownerLoad : undefined}
 					onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
 					onCollapseOwner={treeLazyMode ? collapseOwner : undefined}

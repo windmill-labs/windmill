@@ -25,6 +25,7 @@
 	import { buildResourceTypesFilterSchema } from '$lib/components/resources/resourceTypesFilter'
 	import {
 		resourceTypeSearchText,
+		setResourceTypeDisplayNames,
 		sortResourceTypesByMatch
 	} from '$lib/components/resourceTypeDisplay'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -328,14 +329,14 @@
 	}
 
 	async function loadResourceTypes(): Promise<void> {
-		resourceTypes = (await ResourceService.listResourceType({ workspace: $workspaceStore! })).map(
-			(x) => {
-				return {
-					canWrite: $workspaceStore! == x.workspace_id,
-					...x
-				}
+		const rows = await ResourceService.listResourceType({ workspace: $workspaceStore! })
+		setResourceTypeDisplayNames(rows)
+		resourceTypes = rows.map((x) => {
+			return {
+				canWrite: $workspaceStore! == x.workspace_id,
+				...x
 			}
-		)
+		})
 		loading.types = false
 	}
 
@@ -343,7 +344,9 @@
 		if (account) {
 			OauthService.disconnectAccount({ workspace: $workspaceStore!, id: account })
 		}
-		await ResourceService.deleteResource({ workspace: $workspaceStore!, path })
+		// The response names the linked variables that went with it, which nothing else on the
+		// page would show.
+		sendUserToast(await ResourceService.deleteResource({ workspace: $workspaceStore!, path }))
 		reload()
 	}
 
@@ -762,8 +765,8 @@
 		>
 		{#if deleteIsLinked}
 			<Alert type="warning" title="Linked variable">
-				This resource is linked with a variable of the same path. The linked variable will also be
-				deleted.
+				This resource is linked with a variable of the same path. That variable is deleted with it,
+				unless another resource still references it.
 			</Alert>
 		{/if}
 		<Alert type="info" title="Bypass confirmation">
@@ -1546,6 +1549,7 @@
 
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
+	workspace={$workspaceStore}
 	on:refresh={loadResources}
 	onRestored={loadResources}
 />

@@ -1,4 +1,5 @@
 import type { ButtonType } from './common/button/model'
+import { allowedOriginsSettingError } from './triggers/http/utils'
 import { z } from 'zod'
 import { instanceBannerFormError } from './instanceBanner'
 import { writable } from 'svelte/store'
@@ -282,6 +283,22 @@ export const settings: Record<string, Setting[]> = {
 			hideInQuickSetup: true
 		},
 		{
+			label: 'HTTP route default allowed origins',
+			description:
+				'Origins that HTTP routes allow to call them from a browser when the route sets none of its own. A route overrides this with its own list, and opts out entirely by setting its allowed origins to *. Leave unset for no instance-wide default, so every route is callable from any origin unless it restricts itself.',
+			key: 'http_route_default_allowed_origins',
+			fieldType: 'text',
+			placeholder: 'https://app.example.com, https://admin.example.com',
+			storage: 'setting',
+			error:
+				'Each origin must be visible ASCII with no comma, and there can be at most 100 of them. null is not allowed, since every sandboxed iframe sends it.',
+			// The same check the API applies, so a value it would refuse cannot be
+			// saved here and then silently drop to no restriction at the next boot.
+			isValid: (value: unknown) => allowedOriginsSettingError(value) === undefined,
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
 			label: 'Audit log retention (days)',
 			key: 'audit_log_retention_days',
 			description: 'How long to keep audit log entries in the database. Default: 365 days.',
@@ -545,6 +562,17 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Back AI sessions up to the instance object storage',
+			description:
+				"Browsers back their AI sessions up to their workspace's object storage, encrypted with the workspace key. When this is on and instance object storage is configured, a workspace without object storage of its own uses the instance object storage instead, under the same encryption; configuring a storage for the workspace moves its backups there and deletes what it kept in the instance storage. On by default; turn off to keep the AI sessions of such workspaces in the browser only.",
+			key: 'ai_sessions_instance_storage_fallback',
+			fieldType: 'boolean',
+			defaultValue: () => true,
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
 		},
 		{
 			label: 'Store audit logs in object storage',

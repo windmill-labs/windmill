@@ -26,7 +26,7 @@
 		AzureTriggerService,
 		EmailTriggerService
 	} from '$lib/gen'
-	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore, type UserExt } from '$lib/stores'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { Alert, Button } from './common'
@@ -85,6 +85,11 @@
 		 *  workspace when the editor operates on a workspace other than the one the
 		 *  top nav points at (see the sessions preview / dev-workspace flows). */
 		workspaceOverride?: string
+		/** The user acting in `workspaceOverride`, for the owner suggestion and the folder
+		 *  write flags. Omit it to stand in the navigation `$userStore`, who is a member of
+		 *  the navigation workspace only; pass `null` for "not known (yet)", which that user
+		 *  must not answer for either. */
+		actingUser?: UserExt | null
 		/** One path that does not count as taken, for a caller creating something that may
 		 *  already have written there itself — a setup flow correcting its own failed attempt.
 		 *  Every other existing path is still refused. */
@@ -110,11 +115,16 @@
 		size = 'md',
 		drawerOffset = 0,
 		workspaceOverride = undefined,
+		actingUser = undefined,
 		allowedExistingPath = undefined,
 		warnOnRename = true
 	}: Props = $props()
 
 	let ws = $derived(workspaceOverride ?? $workspaceStore)
+	// Sole place this component falls back to the ambient user, and only for a caller that
+	// passed none; everything below reads `user`, so a caller acting on another workspace is
+	// never mixed with the navigation user's memberships.
+	let user = $derived(actingUser === undefined ? $userStore : (actingUser ?? undefined))
 
 	$effect.pre(() => {
 		if (path == undefined) {
@@ -169,17 +179,17 @@
 
 	export async function reset() {
 		if (path == '' || path == 'u//' || path?.startsWith('tmp/') || path?.startsWith('hub/')) {
-			if ($lastMetaUsed == undefined || $lastMetaUsed.owner != $userStore?.username) {
+			if ($lastMetaUsed == undefined || $lastMetaUsed.owner != user?.username) {
 				meta = {
 					ownerKind: hideUser ? 'folder' : 'user',
 					name: fullNamePlaceholder ?? random_adj() + '_' + namePlaceholder,
 					owner: ''
 				}
 				if (!hideUser) {
-					if ($userStore?.username?.includes('@')) {
-						meta.owner = $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+					if (user?.username?.includes('@')) {
+						meta.owner = user!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
 					} else {
-						meta.owner = $userStore!.username!
+						meta.owner = user!.username!
 					}
 				}
 			} else {
@@ -229,9 +239,9 @@
 				.map((x) => ({
 					name: x,
 					write:
-						$userStore?.folders?.includes(x) == true ||
-						($userStore?.is_admin ?? false) ||
-						($userStore?.is_super_admin ?? false)
+						user?.folders?.includes(x) == true ||
+						(user?.is_admin ?? false) ||
+						(user?.is_super_admin ?? false)
 				}))
 		)
 	}
@@ -423,7 +433,7 @@
 		})
 	})
 	$effect.pre(() => {
-		if (ws && $userStore) {
+		if (ws && user) {
 			untrack(() => {
 				loadFolders()
 				initPath()
@@ -506,7 +516,7 @@
 								} else {
 									// 'group' is unreachable here (Select only offers user/folder)
 									// but validateName still accepts it for forward-compat.
-									meta.owner = $userStore?.username?.split('@')[0] ?? ''
+									meta.owner = user?.username?.split('@')[0] ?? ''
 								}
 							}
 						}
@@ -520,7 +530,7 @@
 			<div>
 				{#if meta.ownerKind === 'user'}
 					{@const userOwnerDisabled =
-						disabled || !($superadmin || ($userStore?.is_admin ?? false)) || disableEditing}
+						disabled || !($superadmin || (user?.is_admin ?? false)) || disableEditing}
 					<label class="block shrink min-w-0">
 						<TextInput
 							class={twMerge('!border-none', userOwnerDisabled && '!bg-transparent')}
@@ -528,7 +538,7 @@
 							underlyingInputEl="div"
 							bind:value={meta.owner}
 							inputProps={{
-								placeholder: $userStore?.username ?? '',
+								placeholder: user?.username ?? '',
 								onkeydown: setDirty,
 								disabled: userOwnerDisabled
 							}}

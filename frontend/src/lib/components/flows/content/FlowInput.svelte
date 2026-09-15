@@ -48,7 +48,6 @@
 	import { deepEqual } from 'fast-equals'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
-	import { agentStreamingEnabled } from '../agentFormFields'
 	import { nextId } from '../flowModuleNextId'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import FlowChat from '../conversations/FlowChat.svelte'
@@ -97,12 +96,6 @@
 	)
 
 	let chatInputEnabled = $state(Boolean(flowStore.val.value?.chat_input_enabled))
-	let shouldUseStreaming = $derived.by(() => {
-		const modules = flowStore.val.value?.modules
-		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		if (lastModule?.value?.type !== 'aiagent') return false
-		return agentStreamingEnabled(lastModule.value)
-	})
 	let showChatModeWarning = $state(false)
 	let showAdditionalInputs = $state(false)
 	let chatInputsEditTab = $state(false)
@@ -756,7 +749,6 @@
 						onRunFlow={runFlowWithMessage}
 						path={$pathStore}
 						hideSidebar={true}
-						useStreaming={shouldUseStreaming}
 						inputSchema={flowStore.val.schema}
 					/>
 				</div>

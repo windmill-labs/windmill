@@ -183,7 +183,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28949/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28969/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -191,7 +191,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28949/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28948/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28957/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -514,6 +514,11 @@ pub struct AutoPullSettings {
     pub last_synced_sha: std::collections::HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_pull_status: Option<AutoPullStatus>,
+    /// Email of the admin this repository's automatic pulls (its own and its forks')
+    /// apply changes as: whoever last saved the settings with auto pull on. Stamped
+    /// server-side, never taken from the client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled_by: Option<String>,
 }
 
 // Manual Debug so the HMAC `webhook_secret` (even encrypted) never lands in logs.
@@ -524,6 +529,7 @@ impl std::fmt::Debug for AutoPullSettings {
             .field("mode", &self.mode)
             .field("poll_interval_s", &self.poll_interval_s)
             .field("sync_forks", &self.sync_forks)
+            .field("enabled_by", &self.enabled_by)
             .field("webhook_id", &self.webhook_id)
             .field(
                 "webhook_secret",
@@ -559,9 +565,10 @@ impl AutoPullSettings {
     /// Whether a freshly observed `(git_ref, head_sha)` warrants enqueuing a pull.
     ///
     /// A trigger (poll or webhook) is only a hint: we pull when auto-pull is
-    /// enabled and the observed head differs from the last sha we synced for
-    /// that ref. Re-observing the same head (e.g. a redundant poll, or the
-    /// commit our own deploy callback just pushed back) is a no-op.
+    /// enabled and the observed head differs from the last sha we pulled for
+    /// that ref. Re-observing the same head (a redundant poll) is a no-op. A
+    /// commit our own deploy pushed is not: pushes never write here, so the pull
+    /// it triggers picks up anything pushed under it.
     pub fn should_pull(&self, git_ref: &str, head_sha: &str) -> bool {
         self.enabled && self.last_synced_sha.get(git_ref).map(String::as_str) != Some(head_sha)
     }
@@ -2708,6 +2715,7 @@ mod tests {
             webhook_secret: None,
             webhook_url: None,
             webhook_error: None,
+            enabled_by: None,
             last_synced_sha: synced
                 .iter()
                 .map(|(r, s)| (r.to_string(), s.to_string()))

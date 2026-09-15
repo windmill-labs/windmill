@@ -13,7 +13,7 @@ use itertools::Itertools;
 use serde_json::value::RawValue;
 
 use uuid::Uuid;
-use windmill_parser_ts::remove_pinned_imports;
+use windmill_parser_ts::{remove_pinned_import_specifiers, remove_pinned_imports};
 
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInfo};
 
@@ -868,7 +868,7 @@ pub async fn install_bun_lockfile(
             if quiet { Some(&mut quiet_buf) } else { None },
             None,
         )
-        .warn_after_seconds(10)
+        .warn_after_seconds_for(10, "bun install")
         .await;
         if quiet && result.is_err() {
             // On failure, flush suppressed install output so the user can diagnose
@@ -1131,9 +1131,12 @@ pub async fn generate_bun_bundle(
             None,
             None,
         )
+        .warn_after_seconds_for(60, "bun build")
         .await?;
     } else {
-        let output = Box::into_pin(child_process.wait_with_output()).await?;
+        let output = Box::into_pin(child_process.wait_with_output())
+            .warn_after_seconds_for(60, "bun build")
+            .await?;
         if !output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1144,6 +1147,81 @@ pub async fn generate_bun_bundle(
         }
     }
     Ok(())
+}
+
+/// [`generate_bun_bundle`], built once more with the version pins dropped from the import
+/// specifiers of `main.ts` if it fails. The lockfile pins those versions, but bun fails on a
+/// pinned specifier except where it tolerates a failed import (in a `try`, under a `.catch`, in
+/// dead code). Such a script builds as written and must keep that bundle, so only failures retry.
+async fn generate_bun_bundle_unpinning_imports(
+    job_dir: &str,
+    w_id: &str,
+    job_id: &Uuid,
+    worker_name: &str,
+    db: Option<&Connection>,
+    timeout: Option<i32>,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    common_bun_proc_envs: &HashMap<String, String>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+) -> Result<()> {
+    let built = generate_bun_bundle(
+        job_dir,
+        w_id,
+        job_id,
+        worker_name,
+        db,
+        timeout,
+        mem_peak,
+        canceled_by,
+        common_bun_proc_envs,
+        occupancy_metrics,
+    )
+    .await;
+    // Without a job, a failed build comes back as an `ExecutionErr`; with one, that variant is a
+    // cancellation or timeout, which must not be retried.
+    let build_failed = match &built {
+        Err(error::Error::ExitStatus(..)) => true,
+        Err(_) => db.is_none(),
+        Ok(()) => false,
+    };
+    if !build_failed {
+        return built;
+    }
+    let Some(unpinned) = read_file_content(&format!("{job_dir}/main.ts"))
+        .await
+        .ok()
+        .and_then(|main| {
+            remove_pinned_import_specifiers(&main)
+                .ok()
+                .filter(|u| *u != main)
+        })
+    else {
+        return built;
+    };
+    write_file(job_dir, "main.ts", &unpinned)?;
+    if let Some(db) = db {
+        append_logs(
+            job_id,
+            w_id,
+            "\nbundling again with the imports' versions taken from the lockfile\n",
+            db,
+        )
+        .await;
+    }
+    generate_bun_bundle(
+        job_dir,
+        w_id,
+        job_id,
+        worker_name,
+        db,
+        timeout,
+        mem_peak,
+        canceled_by,
+        common_bun_proc_envs,
+        occupancy_metrics,
+    )
+    .await
 }
 
 struct PulledCodebase {
@@ -1203,7 +1281,12 @@ async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCode
                 let dirs_splitted = bun_cache_path.split("/").collect_vec();
                 std::fs::create_dir_all(dirs_splitted[..dirs_splitted.len() - 1].join("/"))?;
 
-                let bytes = attempt_fetch_bytes(os, &path).await?;
+                let bytes = crate::global_cache::bounded_cache_io(
+                    "downloading",
+                    &path,
+                    attempt_fetch_bytes(os, &path),
+                )
+                .await?;
                 tracing::info!("loading {bun_cache_path} from object store");
 
                 windmill_common::worker::atomic_write_file_bytes(
@@ -1305,7 +1388,7 @@ pub async fn prebundle_bun_script(
 
     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
-    generate_bun_bundle(
+    generate_bun_bundle_unpinning_imports(
         job_dir,
         w_id,
         job_id,
@@ -1321,7 +1404,9 @@ pub async fn prebundle_bun_script(
 
     ensure_bundle_output_exists(&origin)?;
 
-    save_cache(&local_path, &remote_path, &origin, false).await?;
+    save_cache(&local_path, &remote_path, &origin, false)
+        .warn_after_seconds_for(60, "bundle cache save")
+        .await?;
 
     Ok(())
 }
@@ -1592,7 +1677,9 @@ pub async fn handle_bun_job(
             }
         };
 
-        let (cache, logs) = crate::global_cache::load_cache(&local_path, &remote_path, false).await;
+        let (cache, logs) = crate::global_cache::load_cache(&local_path, &remote_path, false)
+            .warn_after_seconds_for(60, "bundle cache load")
+            .await;
         (cache, logs, local_path, remote_path)
     } else {
         (false, "".to_string(), "".to_string(), "".to_string())
@@ -1784,8 +1871,19 @@ pub async fn handle_bun_job(
         if modules.as_ref().is_some_and(|m| !m.is_empty()) {
             let bundle_path = std::path::Path::new(job_dir).join("out").join("main.js");
             if bundle_path.exists() {
+                // The lock-generation build kept every `pkg@version` specifier, and bun resolves
+                // a pinned specifier outside node_modules, loading a second copy of the package.
+                // The bundle holds the user's code too, so only the specifiers are rewritten, and
+                // a bundle the parser rejects still runs as built, pins and all.
                 let bundled = std::fs::read_to_string(&bundle_path)?;
-                write_file(job_dir, "main.ts", &bundled)?;
+                let unpinned = remove_pinned_import_specifiers(&bundled).unwrap_or_else(|e| {
+                    tracing::warn!(
+                        job_id = %job.id,
+                        "could not unpin the modules bundle, running it as built: {e:#}"
+                    );
+                    bundled
+                });
+                write_file(job_dir, "main.ts", &unpinned)?;
             }
         }
         "\n\n--- BUN CODE EXECUTION ---\n".to_string()
@@ -1975,7 +2073,7 @@ async function run() {{
                 return {{ type: "inline_checkpoint", key: dispatch.key, result: dispatch.result ?? null, started_at: dispatch.started_at, duration_ms: dispatch.duration_ms }};
             }}
             if (dispatch.mode === "approval") {{
-                return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form, self_approval_disabled: dispatch.self_approval_disabled }};
+                return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form, self_approval_disabled: dispatch.self_approval_disabled, skin: dispatch.skin, description: dispatch.description }};
             }}
             if (dispatch.mode === "sleep") {{
                 return {{ type: "sleep", key: dispatch.key, seconds: dispatch.seconds }};
@@ -2191,7 +2289,7 @@ try {{
 
     if !codebase.is_some() && !has_bundle_cache {
         if build_cache {
-            generate_bun_bundle(
+            generate_bun_bundle_unpinning_imports(
                 job_dir,
                 &job.workspace_id,
                 &job.id,
@@ -2207,7 +2305,10 @@ try {{
             let bundle_path = format!("{job_dir}/main.js");
             ensure_bundle_output_exists(&bundle_path)?;
             if !local_path.is_empty() {
-                match save_cache(&local_path, &remote_path, &bundle_path, false).await {
+                match save_cache(&local_path, &remote_path, &bundle_path, false)
+                    .warn_after_seconds_for(60, "bundle cache save")
+                    .await
+                {
                     Err(e) => {
                         let em = format!("could not save {local_path} to bundle cache: {e:?}");
                         tracing::error!(em)
@@ -2832,6 +2933,26 @@ pub async fn handle_wac_v2_output(
             {
                 let mut tx = db.begin().await?;
 
+                // Park before writing the checkpoint. This locks the queue row ahead of the
+                // status row, the order `record_child_completion` takes, so a stale child
+                // finishing while the parent re-dispatches cannot deadlock this transaction.
+                // A cancel already on the row is also seen before anything is written, and
+                // every child pushed after the commit finds a parked parent to decrement.
+                match crate::wac_executor::suspend_wac_parent(
+                    &mut tx,
+                    &job.id,
+                    &job.workspace_id,
+                    num_steps as i32,
+                    14.0 * 24.0 * 3600.0,
+                )
+                .await?
+                {
+                    WacPark::Parked(ms) => segment_ms = ms,
+                    WacPark::Cancelled(cancel) => {
+                        return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                    }
+                }
+
                 // Update checkpoint with pending steps
                 update_checkpoint_for_dispatch(&mut checkpoint, &steps, &mode, &job_ids);
                 let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
@@ -2879,25 +3000,6 @@ pub async fn handle_wac_v2_output(
                             "Failed to update WAC timeline status: {e}"
                         ))
                     })?;
-                }
-
-                // Suspend parent before children become visible, so a child that
-                // completes immediately finds a parked parent to decrement.
-                match crate::wac_executor::suspend_wac_parent(
-                    &mut tx,
-                    &job.id,
-                    &job.workspace_id,
-                    num_steps as i32,
-                    14.0 * 24.0 * 3600.0,
-                )
-                .await?
-                {
-                    WacPark::Parked(ms) => segment_ms = ms,
-                    // Returning here drops `tx`, unwriting the checkpoint and the timeline
-                    // entries, so no child is ever pushed against a parent that never parked.
-                    WacPark::Cancelled(cancel) => {
-                        return Err(wac_cancelled_mid_segment(cancel, canceled_by))
-                    }
                 }
 
                 tx.commit().await?;
@@ -3206,7 +3308,7 @@ pub async fn handle_wac_v2_output(
                 job.id, num_steps
             )))
         }
-        WacOutput::Approval { key, timeout, form, self_approval_disabled } => {
+        WacOutput::Approval { key, timeout, form, self_approval_disabled, skin, description } => {
             let db = match conn {
                 Connection::Sql(db) => db,
                 _ => {
@@ -3227,6 +3329,23 @@ pub async fn handle_wac_v2_output(
             });
 
             let mut tx = db.begin().await?;
+
+            // Park first: the queue row is locked before the status row, the order every
+            // child completion takes.
+            let segment_ms = match crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
+                timeout_secs,
+            )
+            .await?
+            {
+                WacPark::Parked(ms) => ms,
+                WacPark::Cancelled(cancel) => {
+                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                }
+            };
 
             // Save checkpoint
             let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
@@ -3322,15 +3441,19 @@ pub async fn handle_wac_v2_output(
             };
 
             // Store approval form metadata for the approval page endpoint
-            let approval_meta = serde_json::json!({
+            let mut approval_meta = serde_json::json!({
                 "key": key,
                 "form": form,
                 "timeout": timeout_secs as u32,
                 "self_approval_disabled": sad,
+                "skin": skin.unwrap_or_default(),
                 "resume": resume_url,
                 "cancel": cancel_url,
                 "approvalPage": approval_page_url,
             });
+            if let Some(description) = description.filter(|d| !d.is_null()) {
+                approval_meta["description"] = description;
+            }
             sqlx::query(
                 "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
                     COALESCE(workflow_as_code_status, '{}'::jsonb),
@@ -3378,22 +3501,6 @@ pub async fn handle_wac_v2_output(
                 })?;
             }
 
-            // Suspend parent with suspend=1 (waiting for 1 approval event)
-            let segment_ms = match crate::wac_executor::suspend_wac_parent(
-                &mut tx,
-                &job.id,
-                &job.workspace_id,
-                1,
-                timeout_secs,
-            )
-            .await?
-            {
-                WacPark::Parked(ms) => ms,
-                WacPark::Cancelled(cancel) => {
-                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
-                }
-            };
-
             tx.commit().await?;
             crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
@@ -3430,6 +3537,24 @@ pub async fn handle_wac_v2_output(
             });
 
             let mut tx = db.begin().await?;
+
+            // Park first: the queue row is locked before the status row, the order every
+            // child completion takes. suspend=1 (not 0) so the suspended pull query only
+            // picks it up when `suspend_until <= now()`, not via `suspend <= 0`.
+            let segment_ms = match crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
+                sleep_secs,
+            )
+            .await?
+            {
+                WacPark::Parked(ms) => ms,
+                WacPark::Cancelled(cancel) => {
+                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                }
+            };
 
             // Save checkpoint
             let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
@@ -3479,23 +3604,6 @@ pub async fn handle_wac_v2_output(
                 })?;
             }
 
-            // Use suspend=1 (not 0) so the suspended pull query only picks it up
-            // when `suspend_until <= now()`, not via `suspend <= 0`.
-            let segment_ms = match crate::wac_executor::suspend_wac_parent(
-                &mut tx,
-                &job.id,
-                &job.workspace_id,
-                1,
-                sleep_secs,
-            )
-            .await?
-            {
-                WacPark::Parked(ms) => ms,
-                WacPark::Cancelled(cancel) => {
-                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
-                }
-            };
-
             tx.commit().await?;
             crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
@@ -3533,21 +3641,12 @@ pub async fn handle_wac_v2_output(
             let source_hash = job.runnable_id.map(|h| h.0.to_string());
             let mut tx = db.begin().await?;
 
-            crate::wac_executor::persist_inline_checkpoint_delta(
-                &mut tx,
-                &job.id,
-                source_hash.as_deref(),
-                &key,
-                value,
-                started_at.as_deref(),
-                duration_ms,
-            )
-            .await?;
-
             // Reset running=false so the job is immediately eligible for pickup.
             // Unlike dispatch (which sets suspend>0), inline checkpoints don't suspend —
             // the job should be re-run right away to continue past the cached step.
             // `prev` holds the pre-update row: RETURNING would see the cleared column.
+            // Runs before the checkpoint write so the queue row is locked ahead of the
+            // status row, the order every child completion takes.
             let segment_ms = sqlx::query_scalar!(
                 "WITH prev AS (SELECT started_at FROM v2_job_queue WHERE id = $1)
                  UPDATE v2_job_queue q SET running = false, started_at = null
@@ -3563,6 +3662,17 @@ pub async fn handle_wac_v2_output(
                 ))
             })?
             .flatten();
+
+            crate::wac_executor::persist_inline_checkpoint_delta(
+                &mut tx,
+                &job.id,
+                source_hash.as_deref(),
+                &key,
+                value,
+                started_at.as_deref(),
+                duration_ms,
+            )
+            .await?;
 
             tx.commit().await?;
             crate::wac_executor::end_wac_segment(conn, job, segment_ms);

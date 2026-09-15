@@ -451,6 +451,10 @@ pub struct AIConfig {
     /// and the AI sandbox are unaffected, so the providers stay in force.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub copilot_disabled: bool,
+    /// Stops browsers from backing their AI sessions up to the workspace's object storage
+    /// (`ai_sessions.rs`). Read from the workspace's own row like `copilot_disabled`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sessions_storage_disabled: bool,
 }
 
 /// Negotiated rates in USD per million tokens. An unset cache rate is read as the
@@ -518,10 +522,17 @@ pub fn workspaced_service() -> Router {
                 // could make the server allocate and parse an arbitrarily large one.
                 // Sized well above a full batch of the shape below.
                 .layer(DefaultBodyLimit::max(AI_USAGE_BODY_LIMIT)),
+        )
+        .nest(
+            "/shared_artifacts",
+            crate::ai_shared_artifacts::workspaced_service(),
         );
 
     #[cfg(feature = "bedrock")]
     let router = router.route("/check_bedrock_credentials", get(check_bedrock_credentials));
+
+    #[cfg(feature = "parquet")]
+    let router = router.nest("/sessions", crate::ai_sessions::workspaced_service());
 
     router
 }

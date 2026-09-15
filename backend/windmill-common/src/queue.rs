@@ -20,6 +20,8 @@ pub struct QueueStat {
     pub count: u32,
     /// How long the job that would be picked up next has already been waiting, in seconds.
     pub delay: f64,
+    /// When that job started waiting (its `scheduled_for`), in epoch seconds.
+    pub head_since: f64,
 }
 
 /// Same backlog as [`get_queue_counts`], plus the delay of the job at the head of each
@@ -36,22 +38,31 @@ pub async fn get_queue_stats(
     // count. A per-tag `ORDER BY ... LIMIT 1` walks `queue_sort_v2`, whose `tag` column comes
     // last, through every other tag's backlog queued ahead of it.
     let rows = sqlx::query!(
-        "SELECT tag AS \"tag!\", sum(n)::bigint AS \"count!\",
-            EXTRACT(EPOCH FROM now() - (array_agg(head ORDER BY priority DESC NULLS LAST))[1])
-                ::double precision AS \"delay!\"
+        "SELECT tag AS \"tag!\", count AS \"count!\",
+            EXTRACT(EPOCH FROM now() - head)::double precision AS \"delay!\",
+            EXTRACT(EPOCH FROM head)::double precision AS \"head_since!\"
         FROM (
-            SELECT tag, priority, count(*) AS n, min(scheduled_for) AS head
-            FROM v2_job_queue WHERE
-                scheduled_for <= now() - ('3 seconds')::interval AND running = false
-                GROUP BY tag, priority
-        ) g
-        GROUP BY tag",
+            SELECT tag, sum(n)::bigint AS count,
+                (array_agg(head ORDER BY priority DESC NULLS LAST))[1] AS head
+            FROM (
+                SELECT tag, priority, count(*) AS n, min(scheduled_for) AS head
+                FROM v2_job_queue WHERE
+                    scheduled_for <= now() - ('3 seconds')::interval AND running = false
+                    GROUP BY tag, priority
+            ) g
+            GROUP BY tag
+        ) t",
     )
     .fetch_all(db)
     .await?;
     Ok(rows
         .into_iter()
-        .map(|x| (x.tag, QueueStat { count: x.count as u32, delay: x.delay }))
+        .map(|x| {
+            (
+                x.tag,
+                QueueStat { count: x.count as u32, delay: x.delay, head_since: x.head_since },
+            )
+        })
         .collect())
 }
 

@@ -45,6 +45,10 @@ async fn queue_stats_report_the_delay_of_the_job_pulled_next(db: Pool<Postgres>)
     queue_job(&db, "unprioritized", None, 50.0, false).await;
 
     let stats = get_queue_stats(&db).await.unwrap();
+    let now: f64 = sqlx::query_scalar("SELECT EXTRACT(EPOCH FROM now())::double precision")
+        .fetch_one(&db)
+        .await
+        .unwrap();
 
     let mixed = &stats["mixed"];
     assert_eq!(mixed.count, 4);
@@ -53,6 +57,8 @@ async fn queue_stats_report_the_delay_of_the_job_pulled_next(db: Pool<Postgres>)
         "expected the oldest job of the highest priority, got a delay of {}",
         mixed.delay
     );
+    // The same job's wait start, which the delay is measured from.
+    assert!((mixed.head_since + mixed.delay - now).abs() < 5.0);
     let unprioritized = &stats["unprioritized"];
     assert_eq!(unprioritized.count, 2);
     assert!(

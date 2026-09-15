@@ -149,9 +149,7 @@ async fn derive_email(
     if let Some(hit) = cache.get(permissioned_as) {
         return Ok(Some(hit.clone()));
     }
-    // Uncached: the address goes into an archive a client redeploys from, and the write path
-    // validates the pair it sends back against an uncached lookup. The memo above still holds
-    // this to one query per distinct principal per export.
+    // The memo above holds this to one query per distinct principal per export.
     let email =
         windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
             .await?;
@@ -926,7 +924,7 @@ pub(crate) async fn tarball_workspace(
     if !skip_resource_types.unwrap_or(false) {
         let resource_types = sqlx::query_as!(
             ResourceType,
-            "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset FROM resource_type WHERE workspace_id = $1",
+            "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name FROM resource_type WHERE workspace_id = $1",
             &w_id
         )
         .fetch_all(&mut *tx)
@@ -1589,10 +1587,10 @@ pub(crate) async fn tarball_workspace(
 
         // Use v2 format only if explicitly requested, otherwise use v1 (legacy) for backward compatibility
         // Server-owned state (the HMAC webhook secret + hook id/error, the
-        // synced-sha / last-pull status, and what the credential check observed)
-        // must never leave the server: keep it out of export archives and synced
-        // repos, and don't let a re-imported workspace inherit another install's
-        // hook/sync state. Mirrors the GET-settings redaction.
+        // synced-sha / last-pull status, the admin automatic pulls run as, and what
+        // the credential check observed) must never leave the server: keep it out of
+        // export archives and synced repos, and don't let a re-imported workspace
+        // inherit another install's hook/sync state or pull identity.
         fn redact_git_sync_for_export(git_sync: Option<Value>) -> Option<Value> {
             let mut git_sync = git_sync?;
             if let Some(repos) = git_sync
@@ -1609,6 +1607,7 @@ pub(crate) async fn tarball_workspace(
                             "webhook_error",
                             "last_synced_sha",
                             "last_pull_status",
+                            "enabled_by",
                         ] {
                             auto_pull.remove(field);
                         }
