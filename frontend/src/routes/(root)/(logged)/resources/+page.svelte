@@ -25,6 +25,7 @@
 	import { buildResourceTypesFilterSchema } from '$lib/components/resources/resourceTypesFilter'
 	import {
 		resourceTypeSearchText,
+		setResourceTypeDisplayNames,
 		sortResourceTypesByMatch
 	} from '$lib/components/resourceTypeDisplay'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -328,14 +329,14 @@
 	}
 
 	async function loadResourceTypes(): Promise<void> {
-		resourceTypes = (await ResourceService.listResourceType({ workspace: $workspaceStore! })).map(
-			(x) => {
-				return {
-					canWrite: $workspaceStore! == x.workspace_id,
-					...x
-				}
+		const rows = await ResourceService.listResourceType({ workspace: $workspaceStore! })
+		setResourceTypeDisplayNames(rows)
+		resourceTypes = rows.map((x) => {
+			return {
+				canWrite: $workspaceStore! == x.workspace_id,
+				...x
 			}
-		)
+		})
 		loading.types = false
 	}
 

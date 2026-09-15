@@ -205,3 +205,39 @@ async function loadCatalogue(workspace: string): Promise<HubProjectPick[]> {
 		}))
 		.sort((a, b) => b.stars - a.stars || a.name.localeCompare(b.name))
 }
+
+/** How many tool-matched projects to hoist when the invite named tools but no projects. */
+const TOOL_PICKS_MAX = 3
+
+/**
+ * The catalogue with the projects an invite picked for this person moved to the front, in
+ * the invite's order, each flagged so the row can say why it is there. Named slugs win; when
+ * none are named but the person's tools are known, the most-starred projects built on one
+ * of those tools stand in. Anything the hub no longer lists is skipped, so a stale invite
+ * costs nothing. `pinned` is set on every row rather than left off the rest: the list
+ * renders from it, and a missing flag would read as "not pinned" only by accident.
+ */
+export function pinHubProjects(
+	all: HubProjectPick[],
+	picks: { hub_projects?: string[]; tools?: string[] } | null | undefined
+): (HubProjectPick & { pinned: boolean })[] {
+	let pinnedSlugs: string[] = []
+	if (picks?.hub_projects?.length) {
+		const known = new Set(all.map((p) => p.slug))
+		pinnedSlugs = picks.hub_projects.filter((s) => known.has(s))
+	} else if (picks?.tools?.length) {
+		const tools = new Set(picks.tools)
+		pinnedSlugs = all
+			.filter((p) => p.apps.some((a) => tools.has(a.toLowerCase())))
+			.slice(0, TOOL_PICKS_MAX)
+			.map((p) => p.slug)
+	}
+	if (!pinnedSlugs.length) return all.map((p) => ({ ...p, pinned: false }))
+	const bySlug = new Map(all.map((p) => [p.slug, p]))
+	const pinned = pinnedSlugs.map((s) => ({ ...bySlug.get(s)!, pinned: true }))
+	const pinnedSet = new Set(pinnedSlugs)
+	return [
+		...pinned,
+		...all.filter((p) => !pinnedSet.has(p.slug)).map((p) => ({ ...p, pinned: false }))
+	]
+}

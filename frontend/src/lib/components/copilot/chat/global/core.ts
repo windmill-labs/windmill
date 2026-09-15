@@ -125,10 +125,11 @@ import {
 	createToolDef,
 	droppedOptionKeys,
 	createSearchHubScriptsTool,
-	executeFlowStepTestRun,
 	executeTestRun,
 	findAndReplace,
 	isHubPath,
+	resolveFlowStepRun,
+	SPECIAL_MODULE_IDS,
 	type CreatedResourceTriggerKind,
 	type PreviewCardKind,
 	type RunFormDisplay,
@@ -961,7 +962,7 @@ const testRunStepSchema = z.object({
 const testRunStepToolDef = createToolDef(
 	testRunStepSchema,
 	'test_run_step',
-	'Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists.',
+	"Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists. `args` are the step's OWN inputs, not the flow's: a step is normally fed by its input transforms, so send what that step's code takes, not what the flow takes. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.",
 	{ strict: false }
 )
 
@@ -1365,7 +1366,7 @@ ${pipelineBullet}
 			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
 	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
 - For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
-- Default to test_run_script, test_run_flow, or test_run_step for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script or run_flow only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For those two, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema. test_run_script, test_run_flow, run_script and run_flow all show the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat.
+- Default to test_run_script, test_run_flow, or test_run_step for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script or run_flow only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For those two, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema. test_run_script, test_run_flow, test_run_step, run_script and run_flow all show the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat. test_run_step's form is the step's own inputs, not the flow's.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
@@ -3739,9 +3740,10 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = testRunStepSchema.parse(ctx.args)
 			return testRunFlowStepByPath(parsed, ctx)
 		},
-		requiresConfirmation: true,
-		confirmationMessage: (args) =>
-			`Run a test of step "${args?.stepId ?? ''}" in ${pathLeaf(args?.path, 'the flow')}`,
+		// No requiresConfirmation, for the reason test_run_script carries.
+		bypassedByAutoAccept: true,
+		streamingLabel: 'Preparing the test form...',
+		confirmationMessage: 'Run a test of a flow step',
 		queuedLabel: (args) => `Test step "${args?.stepId ?? ''}" of ${args?.path ?? 'the flow'}`,
 		showDetails: true,
 		autoCollapseDetails: false
@@ -5230,19 +5232,24 @@ async function loadScriptForEdit(
 }
 
 /** The fields a test form offers, for code that may never have been deployed. The stored
- * schema wins wherever it declares fields — a draft's or the deployed script's; only one
- * declaring nothing is inferred here, from the content about to run. */
+ * schema wins wherever it declares fields — a draft's or the deployed script's; one that
+ * declares nothing, or that speaks for an entrypoint other than the one about to run, is
+ * inferred here from the content instead. */
 async function schemaForTestRun(script: {
 	content: string
 	language: ScriptLang
 	schema?: Record<string, any>
+	/** A preprocessor takes the arguments of its own entrypoint, not of `main`. */
+	entrypoint?: 'preprocessor'
 }): Promise<Record<string, any>> {
 	// Emptily declared is not declared: a stored `properties: {}` means the schema predates
 	// the arguments the code now takes, so infer rather than offer a form with no fields.
-	if (Object.keys(script.schema?.properties ?? {}).length > 0) return script.schema!
+	// A stored schema speaks for one entrypoint, so it can never answer for an override.
+	if (!script.entrypoint && Object.keys(script.schema?.properties ?? {}).length > 0)
+		return script.schema!
 	const schema = emptySchema()
 	try {
-		await inferArgs(script.language, script.content, schema)
+		await inferArgs(script.language, script.content, schema, script.entrypoint)
 	} catch (e) {
 		console.error('Failed to infer script schema for the test run form', e)
 	}
@@ -5272,18 +5279,21 @@ async function editScript(
 async function loadFlowDraftValue(
 	path: string,
 	workspace: string
-): Promise<{ flow: FlowDraftValue; summary?: string }> {
+	// `isDraft` says which of the two this came from. Reported here because the draft lookup
+	// is a request of its own: a caller that needs to know would otherwise repeat it.
+): Promise<{ flow: FlowDraftValue; summary?: string; isDraft: boolean }> {
 	const draft = await getGlobalDraft(workspace, 'flow', path)
 	if (draft) {
 		if (draft.value === undefined || typeof draft.value === 'string') {
 			throw new Error(`Draft flow "${path}" has no value.`)
 		}
-		return { flow: draft.value as FlowDraftValue, summary: draft.summary }
+		return { flow: draft.value as FlowDraftValue, summary: draft.summary, isDraft: true }
 	}
 	const flow = await FlowService.getFlowByPath({ workspace, path })
 	return {
 		flow: { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null },
-		summary: flow.summary
+		summary: flow.summary,
+		isDraft: false
 	}
 }
 
@@ -5454,30 +5464,42 @@ function flowDraftValueForPreview(flowDraft: FlowDraftValue): FlowValue {
 async function loadScriptForFlowStep(
 	moduleValue: { path: string; hash?: string },
 	workspace: string
-): Promise<{ content: string; language: ScriptLang }> {
+): Promise<{ content: string; language: ScriptLang; schema?: Record<string, any> }> {
 	const draft = await getGlobalDraft(workspace, 'script', moduleValue.path)
 	if (draft) {
 		if (typeof draft.value !== 'string' || !draft.language) {
 			throw new Error(`Draft script "${moduleValue.path}" is missing content or language.`)
 		}
-		return { content: draft.value, language: draft.language }
+		return {
+			content: draft.value,
+			language: draft.language,
+			// The draft's own: no parser emits `password`, so a schema rebuilt from the content
+			// would offer a secret argument as a plain field and take the literal into the job.
+			schema: draft.schema as Record<string, any> | undefined
+		}
 	}
 
 	const script = moduleValue.hash
 		? await ScriptService.getScriptByHash({ workspace, hash: moduleValue.hash })
 		: await ScriptService.getScriptByPath({ workspace, path: moduleValue.path })
-	return { content: script.content, language: script.language }
+	return {
+		content: script.content,
+		language: script.language,
+		schema: script.schema as Record<string, any> | undefined
+	}
 }
 
-async function loadDraftFlowPreviewValue(
+async function loadSubflowForFlowStep(
 	path: string,
 	workspace: string
-): Promise<FlowValue | undefined> {
-	if (!(await getGlobalDraft(workspace, 'flow', path))) {
-		return undefined
-	}
+): Promise<{ previewValue?: FlowValue; schema?: Record<string, any> }> {
 	const nestedFlow = await loadFlowDraftValue(path, workspace)
-	return flowDraftValueForPreview(nestedFlow.flow)
+	return {
+		// Only a draft is previewed; a deployed subflow is run by path, as its parent flow
+		// would run it. The schema describes whichever of the two that leaves.
+		previewValue: nestedFlow.isDraft ? flowDraftValueForPreview(nestedFlow.flow) : undefined,
+		schema: nestedFlow.flow.schema ?? undefined
+	}
 }
 
 // Leaf of a workspace path (last segment), for human-readable confirmation
@@ -5565,7 +5587,14 @@ type FormRunSpec = {
 	toolName: string
 	proposed: Record<string, any> | null | undefined
 	startMessage: string
+	/** What runs: the jobs-tray kind, and the noun the card's own prose reads. */
 	contextName: 'script' | 'flow'
+	/** What the lines the model reads back call the thing that ran. Defaults to
+	 * `contextName`, which a flow step is not: it runs a script or a subflow but is neither. */
+	noun?: string
+	/** What names the run where its path would not: the jobs-tray row, and the two
+	 * background-job sentences the model reads. Those quote it, so it carries none. */
+	label?: string
 	/** Whether the bypass posture may answer this form with what it opened with. */
 	autoAcceptable?: boolean
 	background?: boolean
@@ -5582,8 +5611,9 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	const postureAnswers = Boolean(
 		spec.autoAcceptable && toolCallbacks.shouldAutoAcceptToolConfirmations?.(spec.toolName)
 	)
+	const noun = spec.noun ?? spec.contextName
 	if (!toolCallbacks.requestRunArgs && !postureAnswers) {
-		return `This chat cannot show a run form, so a ${spec.contextName} cannot be run from here.`
+		return `This chat cannot show a run form, so a ${noun} cannot be run from here.`
 	}
 
 	// processToolCall gates plan mode once, before the schema fetch, and this form is its own
@@ -5687,7 +5717,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 			error: 'Cancelled by user',
 			declinedByUser: true
 		})
-		return runFormCancelled(spec.toolName, spec.contextName)
+		return runFormCancelled(spec.toolName, noun)
 	}
 
 	const blockedBeforeRun = blockedByPlanMode()
@@ -5743,7 +5773,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		actionNoun: spec.kind === 'test' ? 'test' : 'run',
 		background: spec.background,
 		detachAfterMs: spec.detachAfterMs,
-		label: spec.path
+		label: spec.label ?? spec.path
 	})
 
 	const schemaNoun = `${spec.schemaNoun} schema`
@@ -5920,21 +5950,61 @@ async function testRunFlowStepByPath(
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
 	const flow = await loadFlowDraftValue(args.path, workspace)
-	const flowValue = flowDraftValueForPreview(flow.flow)
-	const testArgs = normalizeTestRunArgs(args.args)
-
-	return executeFlowStepTestRun({
-		flowValue,
+	const resolved = await resolveFlowStepRun({
+		flowValue: flowDraftValueForPreview(flow.flow),
 		stepId: args.stepId,
-		args: testArgs,
 		workspace,
 		toolCallbacks,
 		toolId,
-		background: args.background,
-		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 		loadScript: loadScriptForFlowStep,
-		loadFlowPreviewValue: loadDraftFlowPreviewValue
+		loadSubflow: loadSubflowForFlowStep
 	})
+
+	// The module resolution landed on, not the id that was asked for: the job's entrypoint
+	// override reads the same value, and a form built for the other entrypoint offers fields
+	// the run will not take.
+	const isPreprocessor = resolved.module.id === SPECIAL_MODULE_IDS.PREPROCESSOR
+	// The step's own inputs, never the flow's: a step is fed by its input transforms, so the
+	// flow's schema names arguments this job would ignore and omits the ones it takes.
+	const schema =
+		resolved.code != undefined && resolved.lang
+			? await schemaForTestRun({
+					content: resolved.code,
+					language: resolved.lang,
+					schema: resolved.schema,
+					entrypoint: isPreprocessor ? 'preprocessor' : undefined
+				})
+			: (resolved.schema ?? {})
+
+	const stepSummary = resolved.module.summary
+	return runThroughForm(
+		{
+			// The flow: a step has no path of its own, and this is what the status and cancel
+			// lines quote back, so it has to name something the reader can go and open. The
+			// step itself is named by the summary below.
+			path: args.path,
+			schema,
+			summary: stepSummary ? `step "${args.stepId}": ${stepSummary}` : `step "${args.stepId}"`,
+			kind: 'test',
+			code: resolved.code ?? schema['x-windmill-dyn-select-code'],
+			lang: resolved.lang ?? schema['x-windmill-dyn-select-lang'],
+			// Never "deployed": a step test previews the draft flow, and the step's target may
+			// itself be a draft.
+			schemaNoun: 'step',
+			toolName: 'test_run_step',
+			proposed: args.args,
+			startMessage: resolved.startMessage,
+			contextName: resolved.runnableKind,
+			noun: 'step',
+			label: `step ${args.stepId}`,
+			// The model is told to test and iterate, so the bypass posture answers the form.
+			autoAcceptable: true,
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+			startJob: resolved.startJob
+		},
+		ctx
+	)
 }
 
 async function initApp(

@@ -1125,19 +1125,35 @@ use tokio::time::{self, Duration, Sleep};
 
 use pin_project_lite::pin_project;
 
+/// What a [`WarnAfterFuture`] is timing, which decides how its warning reads.
+pub enum WarnSubject {
+    /// A database query, with the SQL when the caller has it.
+    Query(Option<String>),
+    /// Anything else (a child process, a cache transfer), named for the log line.
+    Step(String),
+}
+
 pub trait WarnAfterExt: Future + Sized {
     /// Warns if the future takes longer than the specified number of seconds to complete.
     #[track_caller]
     fn warn_after_seconds(self, seconds: u8) -> WarnAfterFuture<Self> {
         let caller = Location::caller();
-        self.build_from_caller(seconds, caller, None)
+        self.build_from_caller(seconds, caller, WarnSubject::Query(None))
+    }
+
+    /// Same, for a step that is not a database query (a child process, a cache transfer):
+    /// the warning names `step` instead of reporting a slow query.
+    #[track_caller]
+    fn warn_after_seconds_for(self, seconds: u8, step: &str) -> WarnAfterFuture<Self> {
+        let caller = Location::caller();
+        self.build_from_caller(seconds, caller, WarnSubject::Step(step.to_string()))
     }
 
     fn build_from_caller(
         self,
         seconds: u8,
         caller: &Location,
-        sql: Option<String>,
+        subject: WarnSubject,
     ) -> WarnAfterFuture<Self> {
         let location = format!("{}:{}", caller.file(), caller.line());
         WarnAfterFuture {
@@ -1147,13 +1163,13 @@ pub trait WarnAfterExt: Future + Sized {
             start_time: std::time::Instant::now(),
             location,
             seconds,
-            sql,
+            subject,
         }
     }
     #[track_caller]
     fn warn_after_seconds_with_sql(self, seconds: u8, sql: String) -> WarnAfterFuture<Self> {
         let caller = Location::caller();
-        self.build_from_caller(seconds, caller, Some(sql))
+        self.build_from_caller(seconds, caller, WarnSubject::Query(Some(sql)))
     }
 }
 
@@ -1171,7 +1187,7 @@ pin_project! {
         location: String,
         start_time: std::time::Instant,
         seconds: u8,
-        sql: Option<String>,
+        subject: WarnSubject,
     }
 }
 
@@ -1191,12 +1207,20 @@ impl<F: Future> Future for WarnAfterFuture<F> {
         // Poll the timeout future to check if it has elapsed.
         if !*this.warned {
             if this.timeout.poll(cx).is_ready() {
-                tracing::warn!(
-                    location = this.location,
-                    "SLOW_QUERY: query {} to db taking longer than expected (> {} seconds)",
-                    build_query_string(&this.location, this.sql.as_deref()),
-                    this.seconds,
-                );
+                match &*this.subject {
+                    WarnSubject::Step(step) => tracing::warn!(
+                        location = this.location,
+                        "SLOW_STEP: {step} at {} taking longer than expected (> {} seconds)",
+                        this.location,
+                        this.seconds,
+                    ),
+                    WarnSubject::Query(sql) => tracing::warn!(
+                        location = this.location,
+                        "SLOW_QUERY: query {} to db taking longer than expected (> {} seconds)",
+                        build_query_string(&this.location, sql.as_deref()),
+                        this.seconds,
+                    ),
+                }
                 *this.warned = true;
             }
         }
@@ -1206,12 +1230,20 @@ impl<F: Future> Future for WarnAfterFuture<F> {
             Poll::Ready(output) => {
                 if *this.warned {
                     let elapsed = this.start_time.elapsed();
-                    tracing::warn!(
-                        location = this.location,
-                        "SLOW_QUERY: completed query {} with total duration: {:.2?}",
-                        build_query_string(&this.location, this.sql.as_deref()),
-                        elapsed
-                    );
+                    match &*this.subject {
+                        WarnSubject::Step(step) => tracing::warn!(
+                            location = this.location,
+                            "SLOW_STEP: {step} at {} completed with total duration: {:.2?}",
+                            this.location,
+                            elapsed
+                        ),
+                        WarnSubject::Query(sql) => tracing::warn!(
+                            location = this.location,
+                            "SLOW_QUERY: completed query {} with total duration: {:.2?}",
+                            build_query_string(&this.location, sql.as_deref()),
+                            elapsed
+                        ),
+                    }
                 }
                 Poll::Ready(output)
             }
