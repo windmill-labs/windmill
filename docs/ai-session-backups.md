@@ -132,7 +132,11 @@ hide chats a newer device wrote. Two devices continuing the same chat still coll
 
 Restore brings back only sessions the browser does not have (`importSessions` is write-if-absent,
 and skips ids the user deleted in this page) and never overwrites or deletes a local one from
-remote state. Only a user-initiated `deleteSession` removes the backup; the next push from
+remote state. It covers the workspace and its forks together: a session listed by two of them
+(moved between them, the old copy not yet removed, since that mark is the moving browser's,
+which may never come back) is brought back from the one whose copy is newest, by the
+storage's own modification time, and not from the other, which would otherwise take the id
+first and keep the newer copy out for good. Only a user-initiated `deleteSession` removes the backup; the next push from
 another device that still has the session is refused with `needs_whole` (nothing of it is
 written), its row goes stale without a backoff, and that device's next flush sends the session
 whole; the workspace-lifecycle

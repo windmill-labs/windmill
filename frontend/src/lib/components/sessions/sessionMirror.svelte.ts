@@ -1097,7 +1097,10 @@ function unpackBackup(
 	return { session, chats, images, artifacts: { items, versions }, sync }
 }
 
-async function restoreWorkspace(ws: string, email: string): Promise<void> {
+type BackupListing = Awaited<ReturnType<typeof AiService.listAiSessionBackups>>
+
+/** The workspace's listing, or nothing when its backups are off or could not be listed. */
+async function listWorkspace(ws: string, email: string): Promise<BackupListing | undefined> {
 	let listing
 	try {
 		listing = await AiService.listAiSessionBackups({ workspace: ws })
@@ -1105,22 +1108,63 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 		const status = statusOf(e)
 		if (status === 404 || status === 403) wsState.set(ws, 'off')
 		else console.warn('Could not list session backups', e)
-		return
+		return undefined
 	}
 	if (!listing.enabled) {
 		wsState.set(ws, 'off')
-		return
+		return undefined
 	}
 	if (!wsState.has(ws)) wsState.set(ws, 'on')
-	const rows = await allSyncRows(email)
 	const foreign =
 		listing.storage_id === undefined
 			? []
-			: foreignRows(ws, listing.storage_id, listing.backup_generation ?? 0, rows)
+			: foreignRows(
+					ws,
+					listing.storage_id,
+					listing.backup_generation ?? 0,
+					await allSyncRows(email)
+				)
 	if (foreign.length > 0) {
 		await markStale(foreign, email)
 		scheduleFlush()
 	}
+	return listing
+}
+
+/** The workspaces of one family are restored together: a session moved between two of them
+ * is listed by both until the old copy's removal lands (that mark is the moving browser's,
+ * which may never come back), and whichever were restored first would take the id and keep
+ * the other out. The newest copy, by the storage's own modification time, is the one brought
+ * back; the other is left where it is. */
+async function restoreFamily(family: string[], email: string): Promise<void> {
+	const listings = new Map<string, BackupListing>()
+	for (const ws of family) {
+		if (getCurrentUserEmail() !== email) return
+		const listing = await listWorkspace(ws, email)
+		if (listing) listings.set(ws, listing)
+	}
+	const newest = new Map<string, { ws: string; at: number }>()
+	for (const [ws, listing] of listings) {
+		for (const s of listing.sessions) {
+			const at = Date.parse(s.updated_at)
+			const cur = newest.get(s.id)
+			if (!cur || at > cur.at) newest.set(s.id, { ws, at })
+		}
+	}
+	for (const [ws, listing] of listings) {
+		if (getCurrentUserEmail() !== email) return
+		const elsewhere = listing.sessions.filter((s) => newest.get(s.id)?.ws !== ws).map((s) => s.id)
+		await restoreWorkspace(ws, email, listing, new Set(elsewhere))
+	}
+}
+
+async function restoreWorkspace(
+	ws: string,
+	email: string,
+	listing: BackupListing,
+	elsewhere: Set<string>
+): Promise<void> {
+	const rows = await allSyncRows(email)
 	const local = new Set<string>()
 	for (const s of (await readStoredSessions(email)) ?? []) local.add(s.id)
 	for (const s of sessionState.sessions) local.add(s.id)
@@ -1129,7 +1173,7 @@ async function restoreWorkspace(ws: string, email: string): Promise<void> {
 	for (const r of readPending().removed) if (r.ws === ws) local.add(r.id)
 	for (const row of rows) if (row.removed && row.ws === ws) local.add(row.id)
 	const candidates = listing.sessions
-		.filter((s) => !local.has(s.id) && !isSessionTombstoned(s.id))
+		.filter((s) => !local.has(s.id) && !elsewhere.has(s.id) && !isSessionTombstoned(s.id))
 		.slice(0, RESTORE_MAX)
 	const updatedAt = new Map<string, number>(candidates.map((s) => [s.id, Date.parse(s.updated_at)]))
 	let ids = candidates.map((s) => s.id)
@@ -1367,10 +1411,10 @@ export function restoreSessionBackups(currentWorkspace: string): void {
 	const root = workspaceRootId(currentWorkspace, all) ?? currentWorkspace
 	const family = new Set<string>([currentWorkspace])
 	for (const w of all) if ((workspaceRootId(w.id, all) ?? w.id) === root) family.add(w.id)
-	for (const ws of family) {
-		if (restoredWorkspaces.has(ws) || wsState.get(ws) === 'off') continue
-		restoredWorkspaces.add(ws)
-		void enqueue(() => withUserLock(email, () => restoreWorkspace(ws, email), true))
+	const todo = [...family].filter((ws) => !restoredWorkspaces.has(ws) && wsState.get(ws) !== 'off')
+	for (const ws of todo) restoredWorkspaces.add(ws)
+	if (todo.length > 0) {
+		void enqueue(() => withUserLock(email, () => restoreFamily(todo, email), true))
 	}
 }
 

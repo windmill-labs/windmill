@@ -537,9 +537,9 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     assert_eq!(s1["images"], json!([]));
 
     // Rotating the workspace key moves the routes to a fresh generation's prefix and deletes
-    // the older ones off the request rather than re-key anything; the storage identity the
-    // answers carry changes with the generation, which is what makes every browser push its
-    // sessions whole again.
+    // the older ones off the request rather than re-key anything; the answers name the new
+    // generation (`backup_generation`), which is what makes every browser push its sessions
+    // whole again, while `storage_id` names the storage and stays.
     let before = list(&base, "SECRET_TOKEN").await?;
     rotate(&base, &"b".repeat(64)).await?;
     for _ in 0..100 {

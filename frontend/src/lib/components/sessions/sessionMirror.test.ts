@@ -897,6 +897,36 @@ describe('sessionMirror restore', () => {
 		expect((await readStoredChat('c9b', EMAIL))?.id).toBe('c9b')
 	})
 
+	it('brings a session two workspaces of the family list back from the newer copy only', async () => {
+		listMock.mockImplementation(async ({ workspace }: { workspace: string }) => ({
+			enabled: true,
+			sessions: [
+				{
+					id: 's9',
+					updated_at: workspace === 'ws' ? '2026-09-14T00:00:00Z' : '2026-09-14T01:00:00Z'
+				}
+			]
+		}))
+		pullMock.mockImplementation(async ({ workspace }: { workspace: string }) => ({
+			enabled: true,
+			sessions: [{ ...backup, head: { ...backup.head, workspace_id: workspace } }],
+			deferred: []
+		}))
+		usersWorkspaceStore.set({
+			email: EMAIL,
+			workspaces: [
+				{ id: 'ws', name: 'ws', username: 'u' },
+				{ id: 'ws2', name: 'ws2', username: 'u', parent_workspace_id: 'ws' }
+			]
+		} as never)
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		// The stale copy in the old workspace is left alone, and does not take the id first.
+		expect(pullMock.mock.calls.map((c) => c[0].workspace)).toEqual(['ws2'])
+		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s9']))
+		expect(sessionState.sessions[0].workspace_id).toBe('ws2')
+	})
+
 	it('starts a session over when its backup moved between two pages', async () => {
 		listMock.mockResolvedValue({
 			enabled: true,
