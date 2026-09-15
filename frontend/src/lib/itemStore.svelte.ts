@@ -152,16 +152,10 @@ let nextPatch = 1
 
 const superseded = { ok: false, error: 'Another save of this item replaced this one' } as const
 
-/**
- * An item as it stood when a command was asked for, as counts of things the command did not do,
- * so it can tell what moved under it without mistaking its own effects for movement.
- *
- * Two counts, because there are two questions. `edits` is what the user can *see* change: what
- * they typed, and an outside write that differs from what was on screen. A discard measures
- * against that, so an outside write of the value already shown does not cancel one. `externals`
- * counts every outside write, that one included, because it still made the value a row on the
- * server — a read already in flight has not got it, and must not put its own answer over it.
- */
+/** What a command did not do, so it can tell what moved under it. `edits`: what the user can see
+ *  change, which a discard measures against, so an outside write of the value already shown does
+ *  not cancel one. `externals`: every outside write, that one included — it still made the value
+ *  a row, which a read in flight has not got and must not answer over. */
 type AsOf = { edits: number; externals: number }
 
 class Entry<V> {
