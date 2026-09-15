@@ -142,6 +142,10 @@ let nextRevision = 1
 
 const superseded = { ok: false, error: 'Another save of this item replaced this one' } as const
 
+/** An item as it stood when a command was asked for: the value on screen, the count of edits
+ *  and outside writes it has taken, and the count of rows sent for its key. */
+type AsOf = { value: string | undefined; edits: number; rows: number }
+
 class Entry<V> {
 	key: ItemKey = $state()!
 	value: V | undefined = $state()
@@ -291,11 +295,18 @@ class Entry<V> {
 		this.revision = nextRevision++
 	}
 
-	private run<T>(fn: () => Promise<T>): Promise<T> {
+	/**
+	 * Run a command, handing it the state as of the moment it was asked for. Taken here rather
+	 * than by each command, because the moment that matters is this one and not the command's
+	 * turn, which is however long the queue ahead of it takes: whatever moved in between is
+	 * newer than the command and is the command's to defer to.
+	 */
+	private run<T>(fn: (at: AsOf) => Promise<T>, asOf?: AsOf): Promise<T> {
+		const at = asOf ?? this.asOf()
 		this.commands++
 		this.refs++
 		const result = this.queue
-			.then(() => this.turn(fn))
+			.then(() => this.turn(() => fn(at)))
 			.finally(() => {
 				this.commands--
 				this.store.release(this)
@@ -317,6 +328,12 @@ class Entry<V> {
 		}
 	}
 
+	/** The registers that move on their own: what the user is editing, and the rows already sent.
+	 *  A command compares against these to tell what has happened since it was asked for. */
+	private asOf(): AsOf {
+		return { value: serialize(this.value), edits: this.edits, rows: this.rowWrites }
+	}
+
 	/** Count a command as started now, ahead of its turn in the queue; returns its release. */
 	begin(): () => void {
 		this.commands++
@@ -336,12 +353,10 @@ class Entry<V> {
 
 	/** `editedBefore`: the edit count as of when this read was decided on, for a caller that did
 	 *  something async first. */
-	load(adapter: ItemAdapter<V>, editedBefore?: number): Promise<CommandOutcome> {
+	load(adapter: ItemAdapter<V>, asOf?: AsOf): Promise<CommandOutcome> {
 		this.loads++
-		const editsAtStart = editedBefore ?? this.edits
-		return this.run(async () => {
+		return this.run(async (at) => {
 			const key = this.key
-			const rowsAtStart = this.rowWrites
 			let res: ItemLoad<V>
 			try {
 				if (this.retired) return superseded
@@ -358,7 +373,7 @@ class Entry<V> {
 			}
 			// Whatever landed since the read was asked for — an external write, an edit — is
 			// newer than what it read, so the read only moves the deployed side under it.
-			const keepValue = this.edits !== editsAtStart
+			const keepValue = this.edits !== at.edits
 			this.meta = res.meta
 			this.error = undefined
 			if (isTemporaryPath(key.path)) {
@@ -370,7 +385,7 @@ class Entry<V> {
 			}
 			this.serverDeployed = snapshot(res.deployed)
 			this.origin = res.deployed !== undefined ? 'deployed' : 'draft'
-			this.adoptRow(key, res.draft, res.draftSavedAt, rowsAtStart)
+			this.adoptRow(key, res.draft, res.draftSavedAt, at.rows)
 			this.loaded = true
 			if (!keepValue) {
 				this.pristine = this.settles && this.origin === 'deployed' && res.draft === undefined
@@ -379,18 +394,18 @@ class Entry<V> {
 			this.removed = this.value === undefined
 			this.reconcile()
 			return { ok: true }
-		})
+		}, asOf)
 	}
 
 	/** Read the item again after someone else wrote it. The edits on screen are in the draft row,
 	 *  so they come back over what was written; one typed since the read was asked for stays. */
 	async reread(): Promise<CommandOutcome> {
 		if (!this.loaded || this.retired || !this.adapter) return { ok: true }
-		// Counted before the row goes, not after it lands: an edit typed while that write is in
+		// Taken before the row goes, not after it lands: an edit typed while that write is in
 		// flight is in neither it nor the read that follows, and is newer than both.
-		const editsAtStart = this.edits
+		const asOf = this.asOf()
 		await this.ports.flush(this.key)
-		return this.load(this.adapter, editsAtStart)
+		return this.load(this.adapter, asOf)
 	}
 
 	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
@@ -501,13 +516,14 @@ class Entry<V> {
 		// click: one typed while it waited its turn is newer, and reverting it would drop it with
 		// nothing left holding it. The value and not a count of writes, so that an outside write
 		// of what is already on screen, changing nothing the user sees, leaves the discard good.
-		const asked = serialize(this.value)
-		return this.run(async () => {
+		return this.run(async (at) => {
 			if (!this.loaded || this.retired) return { removed: false }
-			if (serialize(this.value) !== asked) return { removed: false }
+			if (serialize(this.value) !== at.value) return { removed: false }
 			if (this.origin === 'draft') {
 				const kept = snapshot(this.value)
 				const keptRow = this.row
+				// `at` is the other window, before this command's turn. This one is its own: taken
+				// after the discard's own replacement, which must not count as something moving.
 				const editsAtStart = this.edits
 				this.replaceValue(undefined)
 				this.reconcile()
