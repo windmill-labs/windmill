@@ -53,7 +53,10 @@ export type DiffDrawerDiff =
 	  }
 
 export interface DiffDrawerI {
-	openDrawer: () => void
+	/** Pass the token from `beginOpening` to continue that opening; called without one,
+	 *  the drawer claims a fresh opening, so any reuse invalidates a fetch still in
+	 *  flight rather than being overwritten by it. */
+	openDrawer: (token?: number) => void
 	closeDrawer: () => void
 	setDiff: (diff: DiffDrawerDiff) => void
 	/** Claim the drawer for one opening. Filling it takes awaited fetches, and a path

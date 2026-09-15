@@ -472,7 +472,7 @@
 
 		// Blanking the drawer belongs to the opening that will fill it.
 		if (!diffDrawer?.ownsOpening(opening)) return
-		diffDrawer.openDrawer()
+		diffDrawer.openDrawer(opening)
 		const versions = await deployedVersionOptions()
 		if (!diffDrawer?.ownsOpening(opening)) return
 		diffDrawer.setDiff({
@@ -704,7 +704,7 @@
 
 						if (!diffDrawer?.ownsOpening(opening)) return
 						saveDrawerOpen = false
-						diffDrawer.openDrawer()
+						diffDrawer.openDrawer(opening)
 						diffDrawer.setDiff({
 							mode: 'normal',
 							deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),

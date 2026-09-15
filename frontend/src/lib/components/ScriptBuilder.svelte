@@ -905,7 +905,7 @@
 
 		// Blanking the drawer belongs to the opening that will fill it.
 		if (!diffDrawer?.ownsOpening(opening)) return
-		diffDrawer.openDrawer()
+		diffDrawer.openDrawer(opening)
 		const headHash = (deployed as { hash?: string } | undefined)?.hash
 		const versions = await deployedVersionOptions(headHash)
 		if (!diffDrawer?.ownsOpening(opening)) return

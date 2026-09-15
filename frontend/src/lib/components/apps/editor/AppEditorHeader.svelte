@@ -32,7 +32,7 @@
 		Zap,
 		Globe
 	} from 'lucide-svelte'
-	import { getContext, untrack } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../../utils'
 	import type { App, AppEditorContext, AppViewerContext } from '../types'
 	import { toStatic } from '../utils'
@@ -329,13 +329,20 @@
 		}
 	}
 
-	async function syncWithDeployed() {
+	// An opening outlives this editor when a path change remounts it mid-fetch; without
+	// this it would still open the drawer on the app the user left.
+	onDestroy(() => diffDrawer?.abandonOpening())
+
+	async function syncWithDeployed(opening?: number) {
 		const deployedApp = await AppService.getAppByPath({
 			workspace: $workspaceStore!,
 			path: $appPath!,
 			withStarredInfo: true
 		})
 
+		// A superseded opening must not write these: the current one would then render
+		// against the older deployed value.
+		if (opening != null && !diffDrawer?.ownsOpening(opening)) return
 		deployedBy = deployedApp.created_by
 
 		// Strip off extra information
@@ -624,12 +631,18 @@
 				if (!savedApp || newApp) {
 					return
 				}
+				// The fetch below is awaited, so a reopen (or a path change, which remounts
+				// this editor but not the drawer) while it runs must not have the older one
+				// land last. The drawer counts the openings for that reason.
+				const opening = diffDrawer?.beginOpening()
+				if (opening == null) return
 
 				// deployedValue should be syncronized when we open Diff
-				await syncWithDeployed()
+				await syncWithDeployed(opening)
 
-				diffDrawer?.openDrawer()
-				diffDrawer?.setDiff({
+				if (!diffDrawer?.ownsOpening(opening)) return
+				diffDrawer.openDrawer(opening)
+				diffDrawer.setDiff({
 					mode: 'normal',
 					deployed: deployedValue ?? savedApp,
 					current: {
@@ -759,12 +772,16 @@
 						if (!savedApp || newApp) {
 							return
 						}
+						// The other entry point into the same drawer, so it takes an opening too.
+						const opening = diffDrawer?.beginOpening()
+						if (opening == null) return
 						// deployedValue should be syncronized when we open Diff
-						await syncWithDeployed()
+						await syncWithDeployed(opening)
 
+						if (!diffDrawer?.ownsOpening(opening)) return
 						saveDrawerOpen = false
-						diffDrawer?.openDrawer()
-						diffDrawer?.setDiff({
+						diffDrawer.openDrawer(opening)
+						diffDrawer.setDiff({
 							mode: 'normal',
 							deployed: deployedValue ?? savedApp,
 							current: {

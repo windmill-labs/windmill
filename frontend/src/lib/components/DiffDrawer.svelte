@@ -68,7 +68,13 @@
 		  }
 		| undefined = $state(undefined)
 
-	export function openDrawer() {
+	export function openDrawer(token?: number) {
+		// No token means the caller is taking the drawer for itself, so claim one here:
+		// every reuse (a deploy-override's "Show diff", a draft badge, a workspace
+		// comparison) then invalidates an editor opening that is still fetching, instead
+		// of being replaced by it when it lands.
+		if (token != null && token !== openingToken) return
+		if (token == null) openingToken++
 		data = undefined
 		diffType = undefined
 		diffViewer?.openDrawer()
@@ -80,9 +86,9 @@
 
 	/** Counted per opening, and counted here rather than in the editor that opens one: a
 	 *  path change remounts the editor while this drawer stays mounted, so a counter local
-	 *  to the editor is one an outlived request still matches — it would open and fill the
-	 *  drawer with the item the user just left. Every write an opening makes (the blanking
-	 *  `openDrawer` included) checks `ownsOpening` first. */
+	 *  to the editor is one an outlived request still matches, and it would open and fill
+	 *  the drawer with the item the user just left. Every write an opening makes (the
+	 *  blanking `openDrawer` included) checks `ownsOpening` first. */
 	let openingToken = 0
 
 	export function beginOpening(): number {

@@ -1181,7 +1181,7 @@
 		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
 		// Blanking the drawer belongs to the opening that will fill it.
 		if (!diffDrawer?.ownsOpening(opening)) return
-		diffDrawer.openDrawer()
+		diffDrawer.openDrawer(opening)
 		const currentFlow = flowStore.val
 		const versions = await deployedVersionOptions()
 		if (!diffDrawer?.ownsOpening(opening)) return
