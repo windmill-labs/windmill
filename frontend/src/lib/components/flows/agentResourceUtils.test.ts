@@ -143,9 +143,7 @@ describe('nonStaticBrainKeys', () => {
 })
 
 describe('flowLocalInputs', () => {
-	// Linking keeps exactly these on the step, history inputs included: dropping one would silently
-	// move a linked step onto the run's memory.
-	it('keeps the user message, attachments and history inputs, dropping brain transforms', () => {
+	it('keeps the step’s own inputs, dropping brain transforms', () => {
 		expect(
 			flowLocalInputs({
 				provider: { type: 'static', value: {} },
@@ -153,13 +151,17 @@ describe('flowLocalInputs', () => {
 				user_message: { type: 'static', value: 'hi' },
 				user_attachments: { type: 'static', value: [] },
 				memory_id: { type: 'javascript', expr: 'flow_input.customer_id' },
-				messages: { type: 'static', value: [{ role: 'user', content: 'earlier' }] }
+				messages: { type: 'static', value: [{ role: 'user', content: 'earlier' }] },
+				// The roster it narrows belongs to the agent, but which of it one flow may call does
+				// not: saving this into the resource would impose it on every flow linking the agent.
+				enabled_tools: { type: 'javascript', expr: 'flow_input.tools' }
 			} as any)
 		).toEqual({
 			user_message: { type: 'static', value: 'hi' },
 			user_attachments: { type: 'static', value: [] },
 			memory_id: { type: 'javascript', expr: 'flow_input.customer_id' },
-			messages: { type: 'static', value: [{ role: 'user', content: 'earlier' }] }
+			messages: { type: 'static', value: [{ role: 'user', content: 'earlier' }] },
+			enabled_tools: { type: 'javascript', expr: 'flow_input.tools' }
 		})
 	})
 

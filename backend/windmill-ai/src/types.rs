@@ -128,6 +128,7 @@ struct AIAgentArgsRaw {
     // no history, where an absent key keeps that list.
     #[serde(default, deserialize_with = "deserialize_present_messages")]
     messages: Option<Option<Vec<OpenAIMessage>>>,
+    enabled_tools: Option<Vec<String>>,
     // Legacy field for backward compatibility
     messages_context_length: Option<usize>,
     #[serde(default)]
@@ -152,6 +153,9 @@ pub struct AIAgentArgs {
     pub memory_id: Option<String>,
     /// History supplied by the flow, replayed without reading or writing memory.
     pub messages: Option<Vec<OpenAIMessage>>,
+    /// Which of the agent's tools this run may call; `narrow_roster` holds what the names are and
+    /// what `None` means.
+    pub enabled_tools: Option<Vec<String>>,
     pub credentials_check: bool,
 }
 
@@ -191,6 +195,7 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
             memory,
             memory_id,
             messages: raw.messages.map(Option::unwrap_or_default),
+            enabled_tools: raw.enabled_tools,
             credentials_check: raw.credentials_check.unwrap_or(false),
         }
     }
@@ -405,6 +410,13 @@ pub struct AIAgentResult<'a> {
     pub messages: Vec<Message<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wm_stream: Option<String>,
+    /// The model's thinking across every iteration of the loop, in order, blank-line
+    /// separated. Present whenever the provider's parser surfaced any, whether or not
+    /// the step streams, so a downstream step never has to pick it out of `wm_stream`.
+    /// Absent when the model thought nothing, and on the OpenAI Responses path, whose
+    /// parser does not return reasoning yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<TokenUsage>,
 }

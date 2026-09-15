@@ -16,6 +16,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { workspaceStore } from '$lib/stores'
 	import { AGENT_FIELDS, initialVisibleAgentFields } from './flows/agentFormFields'
+	import { openAgentFields } from './flows/content/AiAgentStepInputs.svelte'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
@@ -24,6 +25,12 @@
 		isValid?: boolean
 		autofocus?: boolean
 		focusArg?: string
+		/** Identifies the step whose agent form this one accompanies, so it can offer the fields that
+		 *  form has open. Same key `AiAgentStepInputs` is given. */
+		openFieldsKey?: string
+		/** Fields to offer whatever the step holds, for a surface where nothing else can set them
+		 *  (`AGENT_EDITOR_RUN_INPUTS`). */
+		runInputKeys?: readonly string[]
 	}
 
 	let {
@@ -32,7 +39,9 @@
 		pickableProperties,
 		isValid = $bindable(true),
 		autofocus = false,
-		focusArg = undefined
+		focusArg = undefined,
+		openFieldsKey = undefined,
+		runInputKeys = []
 	}: Props = $props()
 
 	const { stepsInputArgs, flowStateStore, flowStore, previewArgs, opWorkspace } =
@@ -47,10 +56,11 @@
 
 	/** An agent asks for the same fields here that its own form shows: a setting the step leaves
 	 *  unset is not something a run needs told, and listing all eleven buries the message under the
-	 *  configuration. What the step configures stays, as it does on any other step. A schema key the
-	 *  field registry doesn't know is kept, so a new one is never silently dropped. A run input is
-	 *  kept whatever the step holds: this form has no add-field control, so hiding one would leave
-	 *  no way at all to supply it. */
+	 *  configuration. What the step configures stays, as it does on any other step, along with the
+	 *  rows its form has open — a field added there and left at its default reads as unset from the
+	 *  transforms alone, and this form has no add-field control to get it back. `runInputKeys` is
+	 *  for a surface whose form cannot open a row at all. A schema key the field registry doesn't
+	 *  know is kept, so a new one is never silently dropped. */
 	let schemaKeys = $derived(Object.keys(schema?.properties ?? {}))
 	// A legacy memory kind this step still holds stays one of the options, or the one-of field would
 	// turn the test run's memory off.
@@ -62,7 +72,9 @@
 		const transforms = (mod.value as { input_transforms?: Record<string, unknown> })
 			?.input_transforms
 		const visible = initialVisibleAgentFields(transforms, schema?.properties)
-		const known = new Set<string>(AGENT_FIELDS.filter((f) => !f.runInput).map((f) => f.key))
+		for (const key of openAgentFields(openFieldsKey)) visible.add(key)
+		for (const key of runInputKeys) visible.add(key)
+		const known = new Set(AGENT_FIELDS.map((f) => f.key))
 		// Listed in the agent form's order rather than the schema's, so the two read the same.
 		const position = new Map(AGENT_FIELDS.map((f, i) => [f.key, i]))
 		return all

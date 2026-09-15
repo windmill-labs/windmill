@@ -2542,6 +2542,21 @@ export function preservePendingScriptLocks(
   }
 }
 
+// `sync push` never applies the workspace's display name from settings.yaml and
+// applies its color only when the local file carries one (see
+// pushWorkspaceSettings), so on a push the fields it would not apply must
+// compare equal, or the row is listed on every run.
+const isWorkspaceSettingsFile = (p: string) =>
+  /^settings(\.[^./\\]+)?\.(yaml|json)$/.test(p);
+function stripUnappliedSettingsFields(local: any, remote: any) {
+  delete local?.name;
+  delete remote?.name;
+  if (local?.color == null) {
+    delete local?.color;
+    delete remote?.color;
+  }
+}
+
 export async function compareDynFSElement(
   els1: DynFSElement,
   els2: DynFSElement | undefined,
@@ -2757,6 +2772,9 @@ export async function compareDynFSElement(
           delete parsedV?.enabled;
           delete parsedM2?.enabled;
         }
+        if (isEls1Remote === false && isWorkspaceSettingsFile(k)) {
+          stripUnappliedSettingsFields(parsedV, parsedM2);
+        }
         if (deepEqual(parsedV, parsedM2)) {
           continue;
         }
@@ -2770,6 +2788,9 @@ export async function compareDynFSElement(
         ) {
           delete before?.enabled;
           delete after?.enabled;
+        }
+        if (isEls1Remote === false && isWorkspaceSettingsFile(k)) {
+          stripUnappliedSettingsFields(after, before);
         }
         if (deepEqual(before, after)) {
           continue;
@@ -3152,6 +3173,57 @@ export function untrackedDatatableMigrationDeletions<
       isDatatableMigrationPath(c.path) &&
       !(recorded.kind === "known" && recorded.paths.has(c.path)),
   );
+}
+
+/**
+ * The kind of secret-bearing object whose deletion this path is, if it is one.
+ *
+ * Classified with the push's own `getTypeStrFromPath`, so this agrees with the switch
+ * that does the deleting. A fileset child is excluded ahead of it: it can be any file,
+ * `inner.resource.yaml` included, and deleting one re-pushes the parent resource
+ * rather than deleting anything.
+ */
+export function secretBearingObjectKind(
+  p: string,
+): "variable" | "resource" | undefined {
+  if (isFilesetResource(p)) return undefined;
+  // The apply loop `continue`s past a `.lock` deletion before reaching the switch,
+  // so counting one would announce a deletion the push never performs. A raw-app or
+  // dbt `.lock`, the two that loop does not skip, classifies as its bundle's own kind
+  // long before the file-resource check, so a plain suffix test is enough here.
+  if (p.endsWith(".lock")) return undefined;
+  let typ: string;
+  try {
+    typ = getTypeStrFromPath(p);
+  } catch {
+    // Not a path the push classifies, so not one it deletes.
+    return undefined;
+  }
+  return typ === "variable" || typ === "resource" ? typ : undefined;
+}
+
+/** The server-side object a secret-bearing file belongs to, so a file resource's two
+ * files are counted (and reported) as the one resource they delete. */
+function secretBearingObjectPath(p: string): string {
+  const normalized = p.replaceAll(SEP, "/");
+  return secretBearingObjectKind(p) === "resource"
+    ? removeResourceSuffix(normalized)
+    : normalized.replace(/\.variable\.(yaml|json)$/, "");
+}
+
+/** e.g. "2 variables and 1 resource", counted by object rather than by file. */
+export function describeSecretBearingChanges(
+  changes: { path: string }[],
+): string {
+  const objects = { variable: new Set<string>(), resource: new Set<string>() };
+  for (const c of changes) {
+    const kind = secretBearingObjectKind(c.path);
+    if (kind) objects[kind].add(secretBearingObjectPath(c.path));
+  }
+  return (["variable", "resource"] as const)
+    .filter((k) => objects[k].size > 0)
+    .map((k) => `${objects[k].size} ${k}${objects[k].size > 1 ? "s" : ""}`)
+    .join(" and ");
 }
 
 /**
@@ -6545,6 +6617,22 @@ export async function push(
           } named ${workspace.name} (${(performance.now() - start).toFixed(
             0,
           )}ms)`,
+        ),
+      );
+    }
+    // Both delete handlers move the item to the workspace trashbin first; without
+    // this the CLI is the only surface that never says so, and the deletion reads
+    // as final.
+    const deletedSecretBearing = changes.filter(
+      (c) =>
+        c.name === "deleted" &&
+        secretBearingObjectKind(c.path) !== undefined &&
+        !failedChanges.some((f) => f.path === c.path),
+    );
+    if (deletedSecretBearing.length > 0) {
+      log.info(
+        colors.gray(
+          `${describeSecretBearingChanges(deletedSecretBearing)} deleted. The workspace trashbin keeps a deleted item for three days; a workspace admin can restore it with \`wmill trash list\` and \`wmill trash restore <id>\`, or from Workspace settings -> Trashbin.`,
         ),
       );
     }

@@ -1440,12 +1440,14 @@ const APP_EMBED_TOKEN_VALIDITY_HOURS: i64 = 12;
 /// Scopes an app author may declare in `Policy::frontend_sdk_scopes`. No `apps:*`
 /// scope, so the token cannot reach the mint endpoints and renew itself; the
 /// `raw_app_sdk` sentinel narrows the rest (see `scopes.rs`).
-pub const FRONTEND_SDK_ALLOWED_SCOPES: [&str; 5] = [
+pub const FRONTEND_SDK_ALLOWED_SCOPES: [&str; 7] = [
     "jobs:run",
     "jobs:read",
     "users:read",
     "resources:read",
     "variables:read",
+    "flow_conversations:read",
+    "flow_conversations:write",
 ];
 
 /// Reject a policy declaring frontend SDK scopes outside the curated list.
@@ -3851,6 +3853,26 @@ fn digest(code: &str) -> String {
     format!("rawscript/{:x}", result)
 }
 
+/// Canonical `runnable_path` for a run-mode no-id inline app component:
+/// `<app_path>/<component>` — byte-for-byte what the runtime frontend sends. It is
+/// the relative-import base, so the caller must not steer it: reject a `component`
+/// that isn't a single non-empty path segment (empty, a separator, or `.`/`..`
+/// would walk the base out of the app, and a bare `rawscript/<sha>` policy key
+/// does not pin the component).
+fn inline_run_path(app_path: &str, component: &str) -> Result<String> {
+    if component.is_empty()
+        || component.contains('/')
+        || component.contains('\\')
+        || component == "."
+        || component == ".."
+    {
+        return Err(Error::BadRequest(
+            "component id must be a single non-empty path segment".to_string(),
+        ));
+    }
+    Ok(format!("{app_path}/{component}"))
+}
+
 async fn get_on_behalf_details_from_policy_and_authed(
     policy: &Policy,
     opt_authed: &Option<ApiAuthed>,
@@ -4255,6 +4277,14 @@ async fn execute_component(
     let resolved_delete_secs =
         resolve_delete_after_secs(None, policy_triggerables.delete_after_secs);
 
+    // `_MODULES` and `_TEMP_SCRIPT_REFS` are server-injected control keys (into
+    // `extra`) that the worker reads back for a `Preview` job — which an inline run
+    // is. A caller supplying them in `args` would inject module content/locks or
+    // redirect relative-import resolution, unpinned, as the app identity. Drop them;
+    // legitimate values ride in `extra`, never the request `args`.
+    payload.args.remove("_MODULES");
+    payload.args.remove("_TEMP_SCRIPT_REFS");
+
     let (mut args, job_id) = build_args(
         policy,
         policy_triggerables,
@@ -4292,6 +4322,7 @@ async fn execute_component(
         }
         .filter(|t| !t.is_empty())
     };
+    let component = payload.component.clone();
     let (job_payload, tag, _runnable_on_behalf_of) =
         match (payload.path, payload.raw_code, payload.id) {
             // flow or script:
@@ -4302,6 +4333,29 @@ async fn execute_component(
             // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
             (None, Some(raw_code), None) => {
                 let tag = resolved_inline_tag(raw_code.tag.clone());
+                let raw_code = if is_preview {
+                    // Preview (editor / `wmill app dev`): the caller runs their own
+                    // code, like `/jobs/run/preview` — honored verbatim.
+                    raw_code
+                } else {
+                    // Run mode. Legacy back-compat only: current deploys assign an
+                    // `app_script` id (reduce_app) and take the `Some(id)` arm;
+                    // drop this branch once id-less deployed apps are gone.
+                    //
+                    // Only `content` is pinned (`rawscript/<sha>`), so keep just
+                    // that plus `language`/`cache_ttl`, derive `path` server-side
+                    // (`inline_run_path`), and default the rest: a caller `hash`/
+                    // `lock`/`modules`/`path`/`dedicated_worker` would otherwise run
+                    // or install unpinned code as the app identity. Reconstructing
+                    // (vs nulling) keeps a new field defaulting safe.
+                    RawCode {
+                        content: raw_code.content,
+                        language: raw_code.language,
+                        path: Some(inline_run_path(path, &component)?),
+                        cache_ttl: raw_code.cache_ttl,
+                        ..Default::default()
+                    }
+                };
                 (JobPayload::Code(raw_code), tag, None)
             }
             // inline script: run mode (deployed app) with an entry in `app_script`.
@@ -6015,6 +6069,10 @@ mod embed_token_tests {
             // the author declared it and the viewer consented.
             ("/api/w/test/resources/get_value/u/admin/r", "GET"),
             ("/api/w/test/variables/get_value/u/admin/v", "GET"),
+            // A chat UI's history for a chat-mode flow; RLS keeps it to the viewer's own.
+            ("/api/w/test/flow_conversations/list", "GET"),
+            ("/api/w/test/flow_conversations/some-uuid/messages", "GET"),
+            ("/api/w/test/flow_conversations/delete/some-uuid", "DELETE"),
         ];
         for (path, method) in allowed {
             assert!(

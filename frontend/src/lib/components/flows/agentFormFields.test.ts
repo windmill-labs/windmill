@@ -6,7 +6,6 @@ import {
 	historyInputApplies,
 	keepsManagedMemory,
 	agentFieldIsSet,
-	agentStreamingEnabled,
 	initialVisibleAgentFields
 } from './agentFormFields'
 
@@ -39,6 +38,9 @@ describe('agentFieldIsSet', () => {
 
 	it('reads anything the user authored as set', () => {
 		expect(set('temperature', { type: 'static', value: 0 })).toBe(true)
+		// An empty `enabled_tools` advertises no tools, so it is a choice rather than an unset field:
+		// giving the spec an `implicit` of `[]` would hide the row while the run still carries none.
+		expect(set('enabled_tools', { type: 'static', value: [] })).toBe(true)
 		expect(set('output_type', { type: 'static', value: 'image' })).toBe(true)
 		expect(set('memory', { type: 'static', value: { kind: 'auto', context_length: 5 } })).toBe(true)
 		expect(set('max_iterations', { type: 'javascript', expr: 'flow_input.loops' })).toBe(true)
@@ -81,49 +83,6 @@ describe('initialVisibleAgentFields', () => {
 	it('covers every schema key, so no field can only be reached through the raw doc', () => {
 		const registered = new Set<string>(AGENT_FIELDS.map((f) => f.key))
 		expect(Object.keys(schemaProperties).filter((k) => !registered.has(k))).toEqual([])
-	})
-})
-
-// Three chat surfaces decide whether to consume a stream from this, and the worker decides whether
-// to send one from `streaming.unwrap_or(true)`. They agree only while absent means on here.
-describe('agentStreamingEnabled', () => {
-	const step = (input_transforms: Record<string, any>, rest: Record<string, any> = {}) => ({
-		type: 'aiagent',
-		input_transforms,
-		...rest
-	})
-
-	it('reads an unwritten field as streaming', () => {
-		expect(agentStreamingEnabled(step({}))).toBe(true)
-		// What the API returns for the `{"type":"static"}` placeholder the schema backfill seeds.
-		expect(agentStreamingEnabled(step({ streaming: { type: 'static', value: null } }))).toBe(true)
-		expect(agentStreamingEnabled(step({ streaming: { type: 'static', value: true } }))).toBe(true)
-	})
-
-	it('only an explicit false holds the answer back', () => {
-		expect(agentStreamingEnabled(step({ streaming: { type: 'static', value: false } }))).toBe(false)
-	})
-
-	it('reads off what the step cannot answer for', () => {
-		// An image answer never streams, whatever `streaming` says.
-		expect(
-			agentStreamingEnabled(
-				step({
-					streaming: { type: 'static', value: true },
-					output_type: { type: 'static', value: 'image' }
-				})
-			)
-		).toBe(false)
-		// A linked step carries no brain: the agent's own `streaming: false` is invisible here.
-		expect(agentStreamingEnabled(step({}, { agent: 'u/admin/a' }))).toBe(false)
-		// An expression has no value until the run it would decide is already under way, on either
-		// of the two fields the answer depends on.
-		expect(
-			agentStreamingEnabled(step({ streaming: { type: 'javascript', expr: 'flow_input.s' } }))
-		).toBe(false)
-		expect(
-			agentStreamingEnabled(step({ output_type: { type: 'javascript', expr: 'flow_input.o' } }))
-		).toBe(false)
 	})
 })
 

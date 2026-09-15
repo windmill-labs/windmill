@@ -16,9 +16,11 @@ every workspace via the standard cached-resource-type sync, like other built-in 
 - The brain config and tools are resolved at runtime from the resource
   (`windmill-worker/src/ai_executor.rs`): the brain is interpolated, so a nested provider `$res:`
   credential resolves automatically.
-- The step keeps only the flow-local inputs (`user_message`, `user_attachments`, and the history
-  inputs `memory_id` and `messages`) in its own `input_transforms`; the brain and tools stay in the
-  resource (read-only in the step).
+- The step keeps only the flow-local inputs (`user_message`, `user_attachments`, `enabled_tools`,
+  and the history inputs `memory_id` and `messages`) in its own `input_transforms`; the brain and
+  tools stay in the resource (read-only in the step). `enabled_tools` says which of the roster this
+  step may call, narrowing one use of a shared agent without touching the agent: an absent field
+  carries every tool, a list carries the ones it names, and an empty list carries none.
 - The agent carries its tools' default input bindings verbatim as authored (static, AI-filled,
   or flow expressions), so saving round-trips losslessly. Each host flow overrides what it
   needs: `tool_inputs` stores per-tool overrides (a diff from the resource tool's own
@@ -93,10 +95,9 @@ A flow does not wait for that deploy to see the draft:
 - Testing the flow, or a single linked step, runs the draft. `runFlowPreview` and `ModuleTest`
   substitute each linked step for the standalone step the draft would run as
   (`linkedAgentDrafts.ts`): `agent` cleared, the draft's brain as static input transforms, the
-  draft's tools on the step, and the step's own flow-local inputs (`user_message`,
-  `user_attachments`, `memory_id`, `messages`) kept on top — the same overlay order `ai_executor.rs`
-  applies to a linked step. `tool_inputs` is untouched, since the worker overlays it in both
-  branches.
+  draft's tools on the step, and the step's own flow-local inputs kept on top —
+  the same overlay order `ai_executor.rs` applies to a linked step. `tool_inputs` is untouched,
+  since the worker overlays it in both branches.
 - The step's linked card and the graph's tool nodes show the draft, with a *Draft* badge, so the
   editor describes what a test would run. Read-only surfaces (the deployed flow page, the run
   viewer) stay on the deployed agent: they resolve tools through `publishLinkedAgentTools` without

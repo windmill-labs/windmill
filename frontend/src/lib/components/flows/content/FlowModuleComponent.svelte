@@ -163,6 +163,9 @@
 		parentModule?.value?.type === 'aiagent' ? `${parentModule.id}/${flowModule.id}` : flowModule.id
 	)
 
+	// Which step's open agent fields to remember, and which the test form reads back.
+	let agentFieldsKey = $derived(`${$pathStore}:${linkedToolsModuleId}`)
+
 	let workspaceScriptTag: string | undefined = $state(undefined)
 	let workspaceScriptLang: ScriptLang | undefined = $state(undefined)
 	let diffMode = $state(false)
@@ -1235,9 +1238,14 @@
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														workspace={opWs}
-														visibilityKey={`${$pathStore}:${linkedToolsModuleId}`}
+														visibilityKey={agentFieldsKey}
 														linkedMemory={agentLinked ? linkedAgentMemory : undefined}
-														tools={flowModule.value.tools ?? []}
+														tools={agentLinked
+															? getLinkedAgentTools(
+																	linkedToolsScope(opWs, $pathStore),
+																	linkedToolsModuleId
+																)
+															: (flowModule.value.tools ?? [])}
 														onSelectTool={noToolNavigation
 															? undefined
 															: (toolId) => selectionManager.selectId(toolId, { openPanel: true })}
@@ -1341,6 +1349,7 @@
 											focusArg={highlightArg}
 											{onJobDone}
 											hideRunButton={debugMode && isDebuggableScript}
+											openFieldsKey={agentFieldsKey}
 										/>
 									{:else if visibleSelected === 'chat' && canShowChatTab && flowModule.value.type === 'aiagent'}
 										<div class="flex-1 overflow-auto p-4">

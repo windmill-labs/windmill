@@ -135,6 +135,20 @@ export const AI_AGENT_SCHEMA: Schema = {
 				resourceType: 's3object'
 			}
 		},
+		// The step's own roster fills `items.enum` in, so the static editor offers the tools this
+		// agent actually has (`AiAgentStepInputs`). Absence, not an empty list, is what carries every
+		// tool: a step that holds the field and names nothing has chosen to advertise none.
+		// Shown for image output as the roster it narrows is, even though neither is used there.
+		enabled_tools: {
+			type: 'array',
+			// Deliberately short. It is the only place the field's text is always on screen rather than
+			// behind the row's tooltip, and the surface it shows on is the run form, which offers the
+			// names in a picker and has no unset state to explain.
+			description: 'Which of the agent tools a run may call.',
+			items: {
+				type: 'string'
+			}
+		},
 		max_completion_tokens: {
 			type: 'number',
 			description: 'The most tokens the answer may use.'
@@ -164,6 +178,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 		'messages',
 		'output_schema',
 		'user_attachments',
+		'enabled_tools',
 		'max_completion_tokens',
 		'temperature',
 		'max_iterations'
@@ -312,7 +327,10 @@ export async function loadSchemaFromModule(
 				if (transform) accu[key] = transform
 				return accu
 			}, {}),
-			schema: AI_AGENT_SCHEMA
+			// A copy per step, never the shared constant: the form writes back into the property it
+			// renders (`InputTransformForm` binds `schema.properties[argName]`), and the tool names
+			// one step offers would otherwise become every step's.
+			schema: structuredClone(AI_AGENT_SCHEMA)
 		}
 	}
 

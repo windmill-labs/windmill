@@ -15,10 +15,20 @@
 			openFieldsByStep.delete(oldest)
 		}
 	}
+
+	/**
+	 * The rows this step's form has open, for the run form, which has no add-field control of its
+	 * own and would otherwise not offer a field that was added here and left at its default: to a
+	 * reader of the stored transforms alone, that is indistinguishable from a field nobody touched.
+	 */
+	export function openAgentFields(key: string | undefined): string[] {
+		return (key ? openFieldsByStep.get(key) : undefined) ?? []
+	}
 </script>
 
 <script lang="ts">
 	import type { Schema } from '$lib/common'
+	import { deepEqual } from 'fast-equals'
 	import { type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
@@ -36,10 +46,10 @@
 	import FieldHeader from '$lib/components/FieldHeader.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { Plus, X } from 'lucide-svelte'
+	import { AlertTriangle, Plus, X } from 'lucide-svelte'
 	import type { PickableProperties } from '../previousResults'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
-	import type { AgentTool } from '../agentToolUtils'
+	import { toolEnabledName, type AgentTool } from '../agentToolUtils'
 	import {
 		AGENT_FIELDS,
 		AGENT_FIELD_BY_KEY,
@@ -195,6 +205,26 @@
 		return (AGENT_HISTORY_KEYS as readonly string[]).includes(key)
 	}
 
+	// Offer the agent's own tools as the choices for `enabled_tools`, rather than asking for names
+	// to be typed. Written into the schema because that is where `InputTransformForm` reads a
+	// field's shape from; `flowInfers` hands every step its own copy, so this stays this step's.
+	// A linked step gets the resource's roster here, which is the one it narrows.
+	$effect(() => {
+		// By what each tool is named, not the summary alone: an MCP entry is added without one and is
+		// named by its resource path, so keying on `summary` would leave a whole server with no name
+		// to pick. `narrow_roster` matches that path for the same reason.
+		const names = tools
+			.map((tool) => toolEnabledName(tool))
+			.filter((name): name is string => !!name)
+		const properties = schemaProperties
+		untrack(() => {
+			const list = properties['enabled_tools']
+			if (list && !deepEqual(list.items?.enum, names)) {
+				list.items = { ...(list.items ?? { type: 'string' }), enum: names }
+			}
+		})
+	})
+
 	let scopedFields = $derived(
 		AGENT_FIELDS.filter(
 			(spec) =>
@@ -296,9 +326,10 @@
 
 	function addField(spec: AgentFieldSpec) {
 		// `flowInfers` re-seeds every key on load, so adding cannot mean creating the key: it means
-		// showing the row, seeded at what a run does today so the field opens on what it overrides.
+		// showing the row. Seeded at what a run does today, so the field opens on what it overrides,
+		// except where an empty value is a choice of its own rather than the absent one (`seed`).
 		if (args) {
-			args[spec.key] = { type: 'static', value: structuredClone(spec.implicit) }
+			args[spec.key] = { type: 'static', value: structuredClone(spec.seed ?? spec.implicit) }
 		}
 		visible.add(spec.key)
 	}
@@ -319,6 +350,17 @@
 		// once hiding a row is routine.
 		delete inputCheck[spec.key]
 	}
+
+	// Holding `enabled_tools` and naming nothing advertises no tools at all. That is a choice the
+	// field has to allow, and the one the row opens on, so it says so where it is made rather than
+	// leaving it to be discovered in a run. Only a static list can be read here: an expression's
+	// value exists only once the run it decides is under way.
+	let noToolsEnabled = $derived.by(() => {
+		const transform = args?.['enabled_tools']
+		return (
+			transform?.type === 'static' && Array.isArray(transform.value) && transform.value.length === 0
+		)
+	})
 
 	let emptyArgNames = $derived(
 		[...visible].filter((key) => {
@@ -532,6 +574,14 @@
 												<p class="mt-1 text-2xs text-hint">
 													Ignored while managed memory is {managedMemory ? 'on' : 'off'}.
 												</p>
+											{/if}
+											{#if spec.key === 'enabled_tools' && noToolsEnabled}
+												<div
+													class="mt-1 flex items-center gap-1 text-2xs text-yellow-600 dark:text-yellow-400"
+												>
+													<AlertTriangle size={12} />
+													Nothing selected: the agent runs with no tools.
+												</div>
 											{/if}
 										{/if}
 									</div>

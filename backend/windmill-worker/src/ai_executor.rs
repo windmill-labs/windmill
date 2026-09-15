@@ -335,6 +335,88 @@ fn overlay_tool_inputs(
     }
 }
 
+/// What every websearch entry is named by, whatever label it carries. Web search reaches the model
+/// as a provider capability rather than a tool, so it has no model-facing name of its own, and the
+/// editor's label is not one: a flow module tool could carry the same one, and enabling that tool
+/// would then silently turn web search on with it.
+///
+/// Reserved, on the `__wm_` prefix this codebase uses for names it keeps for itself, and held that
+/// way by `flow_module_tool_name` refusing to advertise a tool that takes it.
+const WEBSEARCH_ENABLED_NAME: &str = "__wm_web_search";
+
+/// The name a flow module tool is advertised to the model under.
+///
+/// Rejected rather than skipped: a tool the model is never shown is a tool the agent silently does
+/// not have, and a run that quietly drops one is harder to explain than a run that will not start.
+fn flow_module_tool_name(summary: Option<&str>) -> Result<&str, Error> {
+    match summary {
+        Some(name) if name == WEBSEARCH_ENABLED_NAME => Err(Error::internal_err(format!(
+            "Invalid tool name: {name:?} is reserved for enabling web search"
+        ))),
+        Some(name) if TOOL_NAME_REGEX.is_match(name) => Ok(name),
+        other => Err(Error::internal_err(format!("Invalid tool name: {other:?}"))),
+    }
+}
+
+/// The name a run enables a roster entry by: the name the model is shown, except for an entry the
+/// model is shown nothing of, which cannot be named by a label others may share. An MCP server is
+/// named by the resource it points at, web search by `WEBSEARCH_ENABLED_NAME`.
+///
+/// The MCP path is bare. The roster stores it as authored, `$res:` and all, but a name is an
+/// argument value and one carrying that prefix is resolved to the resource itself before the worker
+/// is handed its args, so the prefixed form is not something the list can hold.
+fn tool_enabled_name(tool: &AgentTool) -> Option<&str> {
+    match &tool.value {
+        ToolValue::Mcp(mcp) => Some(mcp.resource_path.trim_start_matches("$res:")),
+        ToolValue::Websearch(_) => Some(WEBSEARCH_ENABLED_NAME),
+        _ => tool.summary.as_deref(),
+    }
+}
+
+/// The roster a run advertises, given the names it enabled.
+///
+/// `None` advertises the whole roster, which is what every agent written before the field existed
+/// relies on; an empty list advertises nothing.
+///
+/// Whole entries, decided before any of them is resolved: an MCP server a run switched off is never
+/// contacted, and reading its resource, refreshing its token and opening a client are each things
+/// that can fail a run. Which tools a server exposes stays its entry's own `include_tools` /
+/// `exclude_tools`, the only place that choice is made.
+fn narrow_roster(tools: Vec<AgentTool>, enabled_tools: Option<&[String]>) -> Vec<AgentTool> {
+    let Some(enabled) = enabled_tools else {
+        return tools;
+    };
+    tools
+        .into_iter()
+        .filter(|t| tool_enabled_name(t).is_some_and(|name| enabled.iter().any(|n| n == name)))
+        .collect()
+}
+
+/// The log line for names in `enabled_tools` that name nothing on the agent, if any. The list can
+/// be computed per run, so a name that has since been renamed away must not fail the step — but it
+/// would otherwise silently narrow the agent, so the run says how many of its names matched nothing.
+///
+/// Counted, never quoted: a name is an argument value, and one written as `$var:path` reaches the
+/// worker already replaced by the variable's own value. Quoting it would write that value to the
+/// job log, where the masks a job registers never reach it — they are applied to a subprocess's
+/// output in `handle_child` and nowhere else, and `append_logs` stores what it is given verbatim.
+fn unmatched_enabled_tools_message(
+    enabled_tools: &[String],
+    advertised: &[&str],
+) -> Option<String> {
+    let unmatched = enabled_tools
+        .iter()
+        .filter(|name| !advertised.contains(&name.as_str()))
+        .count();
+    if unmatched == 0 {
+        return None;
+    }
+    let subject = if unmatched == 1 { "name" } else { "names" };
+    Some(format!(
+        "--- ENABLED TOOLS: {unmatched} {subject} named no tool of this agent and had no effect ---\n"
+    ))
+}
+
 pub async fn handle_ai_agent_job(
     // connection
     conn: &Connection,
@@ -471,9 +553,10 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    // A linked step takes its brain and tools from the resource and keeps only the flow-local inputs
-    // (user message, attachments, memory id and messages) of its own; both stay rigid, so the one
-    // thing it may bind to this flow is the tools' inputs, overlaid from `tool_inputs` below.
+    // A linked step takes its brain and tools from the resource and keeps only its own flow-local
+    // inputs. The brain and the roster stay rigid; what the step binds to this flow is the message
+    // it asks, which of those tools this use may call, the conversation it is part of (its memory id
+    // and messages), and the tools' own inputs — the last overlaid from `tool_inputs` below.
     let (mut args, tools): (AIAgentArgs, Vec<AgentTool>) = if let Some(agent_ref) = agent.as_deref()
     {
         let agent_path = agent_ref
@@ -528,7 +611,13 @@ pub async fn handle_ai_agent_job(
         // Only after interpolating the resource: these are caller-controlled and already resolved by
         // build_args_map, so passing them through it again would expand contextual values —
         // `$WM_TOKEN` in a user message would reach the model provider.
-        for key in ["user_message", "user_attachments", "memory_id", "messages"] {
+        for key in [
+            "user_message",
+            "user_attachments",
+            "enabled_tools",
+            "memory_id",
+            "messages",
+        ] {
             if let Some(v) = local_args.get(key) {
                 brain.insert(
                     key.to_string(),
@@ -572,6 +661,20 @@ pub async fn handle_ai_agent_job(
     } else {
         tools
     };
+
+    // Narrow the roster to the tools this run enabled, before the loop below pays a script or hub
+    // fetch per tool.
+    let enabled_tools = args.enabled_tools.as_deref();
+    // Taken before the narrowing consumes the roster, and only by a run that narrows: they are what
+    // its names are matched against, so they are also what tells it a name matched nothing.
+    let roster_names: Vec<String> = match enabled_tools {
+        Some(_) => tools
+            .iter()
+            .filter_map(|t| tool_enabled_name(t).map(str::to_string))
+            .collect(),
+        None => Vec::new(),
+    };
+    let tools = narrow_roster(tools, enabled_tools);
 
     // Separate Windmill tools from MCP tools, websearch, and extract MCP resource configs
     let mut windmill_modules: Vec<FlowModule> = Vec::new();
@@ -637,12 +740,7 @@ pub async fn handle_ai_agent_job(
         let job = job;
         let user_description = tool_descriptions.get(&t.id).cloned();
         async move {
-            let Some(summary) = t.summary.as_ref().filter(|s| TOOL_NAME_REGEX.is_match(s)) else {
-                return Err(Error::internal_err(format!(
-                    "Invalid tool name: {:?}",
-                    t.summary
-                )));
-            };
+            let summary = flow_module_tool_name(t.summary.as_deref())?;
 
             // Extract schema, input_transforms, and an auto-derived description from the module value
             let module_value = t.get_value()?;
@@ -753,7 +851,7 @@ pub async fn handle_ai_agent_job(
                 def: ToolDef {
                     r#type: "function".to_string(),
                     function: ToolDefFunction {
-                        name: summary.clone(),
+                        name: summary.to_string(),
                         description: Some(description),
                         parameters: schema.unwrap_or_else(|| {
                             to_raw_value(&serde_json::json!({
@@ -782,6 +880,22 @@ pub async fn handle_ai_agent_job(
     } else {
         HashMap::new()
     };
+
+    if let Some(enabled) = enabled_tools {
+        let matchable: Vec<&str> = roster_names.iter().map(|s| s.as_str()).collect();
+        windmill_common::feature_usage::log_feature_usage(
+            "ai_agent",
+            "dynamic_tools",
+            if tools.is_empty() && !has_websearch {
+                "no_tools"
+            } else {
+                "tools"
+            },
+        );
+        if let Some(message) = unmatched_enabled_tools_message(enabled, &matchable) {
+            append_logs(&job.id, &job.workspace_id, message, conn).await;
+        }
+    }
 
     let mut inner_occupancy_metrics = occupancy_metrics.clone();
 
@@ -1185,6 +1299,7 @@ pub async fn run_agent(
     *has_stream = user_wants_streaming && is_text_output;
 
     let mut final_events_str = String::new();
+    let mut final_reasoning = String::new();
 
     // Always create a StreamEventProcessor for text output (use silent mode if user doesn't want streaming)
     let stream_event_processor = if is_text_output {
@@ -1437,6 +1552,7 @@ pub async fn run_agent(
         match parsed {
             ParsedResponse::Text {
                 content: response_content,
+                reasoning: response_reasoning,
                 tool_calls,
                 events_str,
                 annotations,
@@ -1453,6 +1569,7 @@ pub async fn run_agent(
                 if let Some(events_str) = events_str {
                     final_events_str.push_str(&events_str);
                 }
+                append_reasoning(&mut final_reasoning, response_reasoning.as_deref());
 
                 // Add websearch tool message if websearch was used
                 if used_websearch {
@@ -1770,6 +1887,7 @@ pub async fn run_agent(
         } else {
             None
         },
+        reasoning: (!final_reasoning.is_empty()).then_some(final_reasoning),
         usage: if final_usage.as_ref().map(|u| u.is_empty()).unwrap_or(true) {
             None
         } else {
@@ -1787,6 +1905,19 @@ pub async fn run_agent(
 /// connection times out. So this default is half of a contract, not a local preference.
 fn streaming_requested(streaming: Option<bool>) -> bool {
     streaming.unwrap_or(true)
+}
+
+/// Add one iteration's thinking to the step's. Every iteration thinks, and a tool-call
+/// iteration's thinking is what led to the call, so the result keeps all of them in order,
+/// blank-line separated, rather than only the answering turn's.
+fn append_reasoning(accumulated: &mut String, reasoning: Option<&str>) {
+    let Some(reasoning) = reasoning.map(str::trim).filter(|r| !r.is_empty()) else {
+        return;
+    };
+    if !accumulated.is_empty() {
+        accumulated.push_str("\n\n");
+    }
+    accumulated.push_str(reasoning);
 }
 
 #[cfg(test)]
@@ -2011,6 +2142,16 @@ mod tests {
     }
 
     #[test]
+    fn reasoning_keeps_every_iteration_in_order() {
+        let mut acc = String::new();
+        append_reasoning(&mut acc, Some("I need both cities.\n\n"));
+        append_reasoning(&mut acc, None);
+        append_reasoning(&mut acc, Some("   "));
+        append_reasoning(&mut acc, Some("Paris is closer."));
+        assert_eq!(acc, "I need both cities.\n\nParis is closer.");
+    }
+
+    #[test]
     fn an_unwritten_streaming_field_streams() {
         assert!(streaming_requested(None));
         assert!(streaming_requested(Some(true)));
@@ -2129,6 +2270,123 @@ mod tests {
         );
         // MCP tool: not a FlowModule, left as-is.
         assert!(matches!(&tools[2].value, ToolValue::Mcp(_)));
+    }
+
+    #[test]
+    fn narrow_roster_keeps_the_entries_a_run_named() {
+        fn named(id: &str, summary: &str) -> AgentTool {
+            AgentTool {
+                id: id.to_string(),
+                summary: Some(summary.to_string()),
+                description: None,
+                value: ToolValue::FlowModule(FlowModuleValue::Script {
+                    input_transforms: HashMap::new(),
+                    path: "u/test/tool".to_string(),
+                    hash: None,
+                    tag_override: None,
+                    is_trigger: None,
+                    pass_flow_input_directly: None,
+                }),
+            }
+        }
+        fn mcp(id: &str, summary: &str, path: &str) -> AgentTool {
+            AgentTool {
+                id: id.to_string(),
+                summary: Some(summary.to_string()),
+                description: None,
+                value: ToolValue::Mcp(windmill_common::flows::McpToolValue {
+                    resource_path: path.to_string(),
+                    include_tools: vec![],
+                    exclude_tools: vec![],
+                }),
+            }
+        }
+        fn websearch(id: &str, summary: Option<&str>) -> AgentTool {
+            AgentTool {
+                id: id.to_string(),
+                summary: summary.map(str::to_string),
+                description: None,
+                value: ToolValue::Websearch(windmill_common::flows::WebsearchToolValue {}),
+            }
+        }
+        let roster = || {
+            vec![
+                named("a", "get_user"),
+                named("b", "send_email"),
+                mcp("c", "github", "$res:u/test/gh"),
+            ]
+        };
+        let names = |tools: &[AgentTool]| -> Vec<String> {
+            tools.iter().filter_map(|t| t.summary.clone()).collect()
+        };
+        let ids =
+            |tools: &[AgentTool]| -> Vec<String> { tools.iter().map(|t| t.id.clone()).collect() };
+
+        // No list at all: the whole roster, as every agent written before the field expects.
+        assert_eq!(
+            names(&narrow_roster(roster(), None)),
+            ["get_user", "send_email", "github"]
+        );
+
+        // An empty list is a list: nothing is advertised, and no server is resolved to find that
+        // out — one that is down must not fail a run that switched it off.
+        assert!(names(&narrow_roster(roster(), Some(&[]))).is_empty());
+
+        let enabled = ["get_user".to_string(), "renamed_away".to_string()];
+        assert_eq!(
+            names(&narrow_roster(roster(), Some(&enabled))),
+            ["get_user"]
+        );
+        // Counted, not quoted: a name is an argument value, and one holding `$var:` arrives as the
+        // variable's own value, which this log is not masked for.
+        assert_eq!(
+            unmatched_enabled_tools_message(&enabled, &["get_user", "send_email", "u/test/gh"])
+                .unwrap(),
+            "--- ENABLED TOOLS: 1 name named no tool of this agent and had no effect ---\n"
+        );
+
+        // A server is named by the resource it points at, bare, and never by its summary: that
+        // label is shown to nobody and two entries may carry the same one.
+        let named_server = ["u/test/gh".to_string()];
+        assert_eq!(
+            names(&narrow_roster(roster(), Some(&named_server))),
+            ["github"]
+        );
+        assert!(unmatched_enabled_tools_message(&named_server, &["u/test/gh"]).is_none());
+        // Alongside a name that does match, so the summary being rejected is what empties it.
+        let summary_and_tool = ["get_user".to_string(), "github".to_string()];
+        assert_eq!(
+            names(&narrow_roster(roster(), Some(&summary_and_tool))),
+            ["get_user"]
+        );
+        assert!(narrow_roster(roster(), Some(&["u/test/other".to_string()])).is_empty());
+
+        // Web search reaches the model as a provider capability rather than a tool, so it has no
+        // name of its own and is enabled by a reserved one, whatever label it was authored with.
+        for label in [None, Some("Web Search")] {
+            let mut with_websearch = roster();
+            with_websearch.push(websearch("w", label));
+            assert_eq!(
+                ids(&narrow_roster(
+                    with_websearch,
+                    Some(&[WEBSEARCH_ENABLED_NAME.to_string()])
+                )),
+                ["w"]
+            );
+        }
+    }
+
+    #[test]
+    fn a_tool_cannot_take_the_name_web_search_is_enabled_by() {
+        // Nothing else in a roster may answer to the reserved name, or enabling that tool would
+        // switch web search on beside it. Held here rather than by the shape of the name, which is
+        // an ordinary identifier: the run refuses to start instead.
+        assert!(TOOL_NAME_REGEX.is_match(WEBSEARCH_ENABLED_NAME));
+        assert!(flow_module_tool_name(Some(WEBSEARCH_ENABLED_NAME)).is_err());
+
+        assert_eq!(flow_module_tool_name(Some("get_user")).unwrap(), "get_user");
+        assert!(flow_module_tool_name(Some("get user")).is_err());
+        assert!(flow_module_tool_name(None).is_err());
     }
 
     #[test]
