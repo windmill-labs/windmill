@@ -244,10 +244,10 @@ pub(crate) fn spawn_delete_fallback(w_id: String, current: i64) {
 /// Authorizes nothing: for the storage usage recount, which reports a total for the
 /// workspace it was run for and hands out nothing it read.
 pub async fn fallback_bytes(db: &DB, w_id: &str) -> Result<Option<i64>> {
-    let has_storage = sqlx::query_scalar::<_, bool>(
-        "SELECT large_file_storage IS NOT NULL FROM workspace_settings WHERE workspace_id = $1",
+    let has_storage = sqlx::query_scalar!(
+        r#"SELECT large_file_storage IS NOT NULL AS "has_storage!" FROM workspace_settings WHERE workspace_id = $1"#,
+        w_id
     )
-    .bind(w_id)
     .fetch_optional(db)
     .await?
     .unwrap_or(false);

@@ -2096,12 +2096,12 @@ async fn edit_large_file_storage_config(
         // A workspace whose AI session backups fell back to the instance store leaves it
         // here: the generation moves on, so nothing it left in any instance store is read
         // again, whichever one a later return to the fallback finds (`ai_session_backups`).
-        sqlx::query(
+        sqlx::query!(
             "UPDATE workspace_settings SET ai_sessions_backup_generation = \
              ai_sessions_backup_generation + 1 \
              WHERE workspace_id = $1 AND large_file_storage IS NULL",
+            &w_id
         )
-        .bind(&w_id)
         .execute(&mut *tx)
         .await?;
         sqlx::query!(
@@ -2119,10 +2119,10 @@ async fn edit_large_file_storage_config(
         .execute(&mut *tx)
         .await?;
     }
-    let backups_generation: Option<i64> = sqlx::query_scalar(
+    let backups_generation = sqlx::query_scalar!(
         "SELECT ai_sessions_backup_generation FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
     )
-    .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
