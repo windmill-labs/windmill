@@ -283,6 +283,9 @@ class Entry<V> {
 	reconcile(): void {
 		const key = this.key
 		if (this.retired || !this.loaded || this.origin === 'new' || isTemporaryPath(key.path)) return
+		// Known to be behind the server: writing from here would put that back over whatever is
+		// actually there. A reload is what clears it.
+		if (this.stale) return
 		const desired = this.dirty ? (serialize(this.value) ?? null) : null
 		this.ports.hint(key, desired !== null)
 		if (desired === this.row) return
@@ -411,6 +414,11 @@ class Entry<V> {
 			// nothing can send it, so a read nobody asked for must not put the server's value in
 			// its place, nor answer the conflict on the user's behalf. Checked here rather than
 			// before the read, because the flush that precedes one is itself a way to find out.
+			// A row was handed over while this read was out, so its response predates it. The value
+			// is still shown, for want of a better one, but writing from it would post it back
+			// over that row on the baseline the row advanced: the newer write lost to an older
+			// read. Nothing goes out until a reload settles which is which.
+			this.stale = this.ports.rowMark(key) !== rowsAtRead
 			const standOff = unasked && this.ports.conflicted(key)
 			// Whatever landed since the read was asked for — an external write, an edit — is
 			// newer than what it read, so the read only moves the deployed side under it.
@@ -418,7 +426,6 @@ class Entry<V> {
 				standOff || this.edits !== at.edits || this.externals !== at.externals
 			this.meta = res.meta
 			this.error = undefined
-			this.stale = false
 			if (isTemporaryPath(key.path)) {
 				this.template = snapshot(res.template)
 				this.origin = 'new'

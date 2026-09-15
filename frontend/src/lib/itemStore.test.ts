@@ -843,6 +843,33 @@ describe('item store: origins', () => {
 		expect(item.value?.description).toBe('typed during the deploy')
 	})
 
+	it('does not post a read back over a row another editor landed during it', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		const store = createItemStore(rows.port)
+		const older = { ...deployedRes, description: 'draft A, as the GET found it' }
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'resource', path: 'u/me/r' },
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(() => read.promise)
+		)
+		await settle()
+		// Another editor of the same item saves draft B through the syncer directly and it lands,
+		// leaving nothing pending. Only the row mark records that it happened.
+		rows.handExternally('u/me/r')
+		const writesBefore = rows.writes.length
+		read.resolve({ deployed: deployedRes, draft: older, draftSavedAt: 'T0' })
+		await settle()
+
+		// Posting A now would overwrite B, on the baseline B itself advanced.
+		expect(rows.writes.slice(writesBefore)).toEqual([])
+		expect(rows.seeds).toEqual([])
+		// And nothing may be written from this view until it is reloaded.
+		expect(item.canSave).toBe(false)
+		item.value = { ...deployedRes, description: 'typed on a stale view' }
+		expect(rows.writes.slice(writesBefore)).toEqual([])
+	})
+
 	it('tells a caller its post-deploy re-read failed, apart from never having the item', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
