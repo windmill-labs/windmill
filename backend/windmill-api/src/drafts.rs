@@ -859,8 +859,8 @@ async fn move_draft(
                 // The other app kind, owned by someone else: one deployed path cannot hold
                 // both, so this is the other item's path, not a teammate's copy of this one.
                 format!(
-                    "Another user has a {occupant} draft at '{new_path}', and an app and a \
-                     raw app cannot share a path."
+                    "'{new_path}' holds another user's {occupant} draft, and an app and a raw \
+                     app cannot share a path."
                 )
             }
         } else {

@@ -215,7 +215,23 @@ async fn test_draft_move_refuses_another_users_other_app_kind(
         "a classic app was moved onto another user's raw app: {body}"
     );
     assert!(
-        body.contains("Another user has a raw app draft"),
+        body.contains("holds another user's raw app draft"),
+        "the refusal did not name the occupant: {body}"
+    );
+
+    // And the other direction, where the occupant reads as the classic kind.
+    let (status, body) = move_to(
+        "raw_app",
+        "u/test-user/mvtaken_raw",
+        "u/test-user/mvtaken_app_theirs",
+    )
+    .await?;
+    assert_eq!(
+        status, 400,
+        "a raw app was moved onto another user's classic app: {body}"
+    );
+    assert!(
+        body.contains("holds another user's app draft"),
         "the refusal did not name the occupant: {body}"
     );
 

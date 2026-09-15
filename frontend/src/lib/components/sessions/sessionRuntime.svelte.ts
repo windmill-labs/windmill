@@ -593,8 +593,9 @@ function createRuntime(session: Session): SessionRuntime {
 				// when the path has never been deployed.
 				const aiDraft = UserDraft.get<Flow>('flow', path, { workspace })
 
-				// getDraft=true omits version_id (the plain getFlowByPath has it) —
-				// stamp it on so the flow doesn't always diff. Best-effort.
+				// Fallback for the head: the payload fetches below carry `version_id`, and
+				// this one covers a response that does not. Best-effort, and a request of
+				// its own, so the same response wins wherever both are available.
 				let deployedVersionId: number | undefined
 				try {
 					deployedVersionId = (await FlowService.getFlowByPath({ workspace, path }))?.version_id
@@ -608,9 +609,12 @@ function createRuntime(session: Session): SessionRuntime {
 					// yet on the backend — draft-only flows are a valid state.
 					try {
 						const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-						// `getDraft` omits `version_id`; the editor's deploy guard compares
-						// against it, so put the head fetched above back on the baseline.
-						saved.val = { ...(result as SavedFlow), version_id: deployedVersionId }
+						// The editor's deploy guard compares against the head, so keep this
+						// response's own and fall back to the one fetched above.
+						saved.val = {
+							...(result as SavedFlow),
+							version_id: (result as SavedFlow).version_id ?? deployedVersionId
+						}
 					} catch {
 						saved.val = undefined
 					}
@@ -622,7 +626,10 @@ function createRuntime(session: Session): SessionRuntime {
 
 				// No local draft yet — seed from `result.draft ?? result`.
 				const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-				saved.val = { ...(result as SavedFlow), version_id: deployedVersionId }
+				saved.val = {
+					...(result as SavedFlow),
+					version_id: (result as SavedFlow).version_id ?? deployedVersionId
+				}
 				const serverDraft = (result as SavedFlow).draft as Flow | undefined
 				const flow: Flow = (serverDraft ?? (result as Flow)) as Flow
 				// Seed the per-tab last_sync from the server draft's timestamp so the

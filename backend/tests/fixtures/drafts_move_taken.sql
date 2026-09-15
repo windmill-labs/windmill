@@ -32,4 +32,6 @@ INSERT INTO draft (workspace_id, path, typ, value, email) VALUES
     ('test-workspace', 'u/test-user/mvtaken_raw', 'raw_app',
      '{"summary": "raw", "files": {}}', 'test@windmill.dev'),
     ('test-workspace', 'u/test-user/mvtaken_theirs', 'raw_app',
-     '{"summary": "theirs", "files": {}}', 'test2@windmill.dev');
+     '{"summary": "theirs", "files": {}}', 'test2@windmill.dev'),
+    ('test-workspace', 'u/test-user/mvtaken_app_theirs', 'app',
+     '{"summary": "theirs", "value": {}}', 'test2@windmill.dev');
