@@ -945,6 +945,99 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     .await?;
     assert_eq!(resp.status(), 200);
 
+    // An incremental push in one part that changes more than one object (a chat and the
+    // artifacts) unlists the session before its writes and lists it again after them, so
+    // a write failing after another landed leaves the session absent rather than listed
+    // with the new chat and the old artifacts; the browser's next push of it is refused
+    // and goes whole. The artifacts write fails on a directory planted where the object
+    // goes.
+    let s10_head =
+        json!({ "id": "s10", "workspace_id": "test-workspace", "createdAt": 10, "chatId": "c1" });
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s10", "whole": true, "head": s10_head, "chats": s9_chats(&["c1"]), "artifacts": { "items": ["a1"] } }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let s10_dir = user_root(storage_dir.path(), "test@windmill.dev").join("sessions/s10");
+    let artifacts_path = s10_dir.join("artifacts.json");
+    std::fs::remove_file(&artifacts_path)?;
+    std::fs::create_dir(&artifacts_path)?;
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s10", "chats": s9_chats(&["c2"]), "artifacts": { "items": ["a2"] } }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let answer: Value = resp.json().await?;
+    assert!(
+        answer["results"][0]["error"].is_string(),
+        "the artifacts write must fail: {answer}"
+    );
+    assert!(answer["results"][0]["needs_whole"].is_null());
+    assert!(
+        s10_dir.join("chats/c2.json").is_file(),
+        "the chat landed before the artifacts failed"
+    );
+    let s10_listed = |listing: Value| {
+        listing["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["id"] == "s10")
+    };
+    assert!(!s10_listed(list(&base, "SECRET_TOKEN").await?));
+    assert_eq!(
+        pull(&base, "SECRET_TOKEN", &["s10"]).await?["sessions"],
+        json!([])
+    );
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s10", "chats": s9_chats(&["c3"]) }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let answer: Value = resp.json().await?;
+    assert_eq!(answer["results"][0]["needs_whole"], true);
+    assert!(!s10_listed(list(&base, "SECRET_TOKEN").await?));
+    std::fs::remove_dir(&artifacts_path)?;
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s10", "whole": true, "head": s10_head, "chats": s9_chats(&["c1", "c2", "c3"]), "artifacts": { "items": ["a2"] } }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    assert!(s10_listed(list(&base, "SECRET_TOKEN").await?));
+    let pulled = pull(&base, "SECRET_TOKEN", &["s10"]).await?;
+    assert_eq!(
+        pulled["sessions"][0]["artifacts"],
+        json!({ "items": ["a2"] })
+    );
+    assert_eq!(pulled_chats(pulled), vec!["c1", "c2", "c3"]);
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "removed": ["s10"] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+
     // Removal empties both prefixes.
     let resp = push(
         &base,
