@@ -135,16 +135,40 @@ describe('a chat re-pointed at another flow', () => {
 	 * conversation and send into its transcript and its agent's memory.
 	 */
 	it('forgets the flow it was pointed at when it is re-pointed', async () => {
-		vi.mocked(FlowConversationsService.listConversationMessages).mockResolvedValue([] as any)
+		vi.mocked(FlowConversationsService.listConversationMessages).mockResolvedValue(
+			rows('a', 2) as any
+		)
 		const manager = managerWithRows()
 		await manager.selectConversation('a')
 		expect(manager.selectedConversationId).toBe('a')
+		expect(manager.liveRowIds.size).toBe(2)
 
 		manager.cleanup()
 
 		expect(manager.selectedConversationId).toBeUndefined()
-		expect(manager.messages).toEqual([])
-		expect(manager.conversations).toEqual([])
+		expect(manager.liveRowIds.size).toBe(0)
+	})
+
+	/**
+	 * Forgetting has to hold against work already in flight: a transcript fetched for the
+	 * flow just left would otherwise be written into the one that replaced it.
+	 */
+	it('does not let a load started before the re-point write its rows back', async () => {
+		let release = () => {}
+		const held = new Promise<void>((resolve) => (release = resolve))
+		vi.mocked(FlowConversationsService.listConversationMessages).mockImplementation((async () => {
+			await held
+			return rows('a', 2)
+		}) as any)
+		const manager = managerWithRows()
+		const loading = manager.selectConversation('a')
+
+		manager.cleanup()
+		release()
+		await loading
+
+		expect(manager.liveRowIds.size).toBe(0)
+		expect(manager.selectedConversationId).toBeUndefined()
 	})
 })
 

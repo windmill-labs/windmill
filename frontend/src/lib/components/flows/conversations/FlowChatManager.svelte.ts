@@ -157,6 +157,9 @@ export class FlowChatManager {
 
 	/** Each conversation's rows, live ones included, so a turn keeps writing while the
 	 * reader is in another chat. Doubles as the load cache: rows here are never re-fetched. */
+	/** Bumped when the chat is re-pointed at another flow. Work started before that must not
+	 * write what it fetched into the chat that replaced it. */
+	#generation = 0
 	#rowsById = $state<Record<string, ChatMessage[]>>({})
 	/** How far back each conversation has been paged. Held per conversation for the same
 	 * reason the rows are: a cached chat keeps its scrollback when the reader returns to it,
@@ -488,6 +491,7 @@ export class FlowChatManager {
 	 * messages into that transcript and its agent's memory.
 	 */
 	cleanup() {
+		this.#generation++
 		for (const conversationId of Object.keys(this.#status)) this.endTurn(conversationId)
 		this.selectedConversationId = undefined
 		this.#rowsById = {}
@@ -585,9 +589,11 @@ export class FlowChatManager {
 	 */
 	async selectLatestConversation() {
 		if (this.selectedConversationId || !this.#workspace() || !this.#path) return
+		const startedIn = this.#generation
 		const [latest] = await this.loadConversations(1, 1)
-		// Re-checked after the await: a message sent meanwhile has already opened its own.
-		if (!latest || this.selectedConversationId) return
+		// Re-checked after the await: a message sent meanwhile has already opened its own, or
+		// the chat has been re-pointed and this is the previous flow's latest conversation.
+		if (!latest || this.selectedConversationId || startedIn !== this.#generation) return
 		await this.selectConversation(latest.id)
 	}
 
@@ -816,12 +822,17 @@ export class FlowChatManager {
 		try {
 			const previousScrollHeight = this.messagesContainer?.scrollHeight || 0
 
+			const startedIn = this.#generation
 			const response = await FlowConversationsService.listConversationMessages({
 				workspace: this.#workspace()!,
 				conversationId: conversationIdToUse,
 				page: pageToFetch,
 				perPage: this.#perPage
 			})
+
+			// The chat was re-pointed while this was in flight; these rows belong to a flow it
+			// no longer shows, and the hold below would be released for the wrong one.
+			if (startedIn !== this.#generation) return
 
 			if (reset) {
 				this.#rowsById[conversationIdToUse] = response
@@ -1376,9 +1387,12 @@ export class FlowChatManager {
 			await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS))
 		}
 		if (signal.aborted) return
+		const startedIn = this.#generation
 		try {
 			await this.pollConversationMessages(conversationId, { removeTempMessages: true })
 		} catch {}
+		// `endTurn` would put this conversation's status back into a map the re-point emptied.
+		if (signal.aborted || startedIn !== this.#generation) return
 		this.endTurn(conversationId, { settled: true })
 	}
 
