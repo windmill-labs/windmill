@@ -1,0 +1,66 @@
+{
+  "user": {
+    "username": "admin",
+    "is_admin": true,
+    "folders": ["evals"],
+    "folders_read": ["evals"]
+  },
+  "workspace": {
+    "datatables": [
+      {
+        "datatable_name": "main",
+        "schemas": {
+          "public": {
+            "signups": {
+              "columns": { "email": "text", "created_at": "timestamptz" },
+              "rows": [{ "email": "ada@example.com", "created_at": "2026-01-02T10:00:00Z" }]
+            }
+          }
+        }
+      }
+    ],
+    "apps": [
+      {
+        "path": "f/evals/global/signup_form",
+        "summary": "Event signup form",
+        "value": {
+          "files": {
+            "/index.tsx": "import React from 'react'\n\nimport { createRoot } from 'react-dom/client'\nimport App from './App'\n\nconst root = createRoot(document.getElementById('root')!);\nroot.render(<App/>);\n",
+            "/App.tsx": "import React, { useState } from 'react'\nimport { backend } from './wmill'\nimport './index.css'\n\nconst App = () => {\n    const [email, setEmail] = useState('')\n    const [done, setDone] = useState(false)\n\n    async function signUp() {\n        await backend.addSignup({ email })\n        setDone(true)\n    }\n\n    return <div style={{ width: \"100%\" }}>\n        <h1>Event signup</h1>\n\n        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder=\"you@example.com\" />\n        <button style={{ marginTop: \"2px\" }} onClick={signUp}>Sign up</button>\n\n        {done && <div style={{ marginTop: \"20px\" }}>You are on the list.</div>}\n    </div>\n}\n\nexport default App\n",
+            "/index.css": "body {\n  font-family: sans-serif;\n}\n",
+            "/package.json": "{\n    \"dependencies\": {\n        \"react\": \"19.0.0\",\n        \"react-dom\": \"19.0.0\"\n    },\n    \"devDependencies\": {\n        \"@types/react-dom\": \"^19.0.0\",\n        \"@types/react\": \"^19.0.0\"\n    }\n}"
+          },
+          "runnables": {
+            "addSignup": {
+              "name": "addSignup",
+              "fields": {},
+              "type": "inline",
+              "inlineScript": {
+                "content": "import * as wmill from 'windmill-client'\n\nexport async function main(email: string) {\n  const sql = wmill.datatable()\n  await sql`INSERT INTO public.signups (email, created_at) VALUES (${email}, now())`.execute()\n  return { ok: true, email }\n}\n",
+                "language": "bun",
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "email": {
+                      "default": null,
+                      "description": "",
+                      "originalType": "string",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["email"],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "policy": {
+            "execution_mode": "anonymous",
+            "on_behalf_of": "u/admin",
+            "on_behalf_of_email": "admin@windmill.dev"
+          }
+        }
+      }
+    ]
+  }
+}

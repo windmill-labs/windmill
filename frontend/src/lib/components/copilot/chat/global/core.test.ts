@@ -3266,6 +3266,120 @@ describe('global AI tools', () => {
 		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
+	// The refusal below is the only other way to learn an app is low-code, so the
+	// listing has to carry the flag or every low-code app costs a wasted read.
+	it('marks code-based apps in the listing so low-code ones are visible up front', async () => {
+		vi.mocked(AppService.listApps).mockResolvedValueOnce([
+			{ path: 'f/apps/code', summary: 'code app', raw_app: true },
+			{ path: 'f/apps/legacy', summary: 'legacy app' }
+		] as any)
+
+		// A draft row replaces the deployed one, so it has to carry the flag too —
+		// otherwise the chat's own apps are the ones that read as low-code.
+		seedBackendDraft(
+			'raw_app',
+			'f/apps/code',
+			{ summary: 'code app', files: { '/App.tsx': 'x' }, runnables: {} },
+			{ workspace: WORKSPACE }
+		)
+		seedBackendDraft(
+			'raw_app',
+			'f/apps/newborn',
+			{ summary: 'never deployed', files: { '/App.tsx': 'x' }, runnables: {} },
+			{ workspace: WORKSPACE }
+		)
+
+		const rows = JSON.parse(await callGlobalTool('list_workspace_items', { types: ['app'] }))
+		const byPath = Object.fromEntries(rows.map((r: any) => [r.path, r]))
+		expect(byPath['f/apps/code']).toMatchObject({ raw_app: true, isDraft: true })
+		expect(byPath['f/apps/newborn']).toMatchObject({ raw_app: true, isDraft: true })
+		expect(byPath['f/apps/legacy']).not.toHaveProperty('raw_app')
+	})
+
+	// A low-code app has a grid, not files and runnables, so every app tool here would
+	// otherwise report it as empty rather than say it is the wrong kind of app.
+	it('refuses a low-code app instead of summarizing it as empty', async () => {
+		const lowCode = {
+			path: 'f/apps/legacy',
+			summary: 'legacy app',
+			versions: [1],
+			raw_app: false,
+			value: { grid: [{ id: 'a', data: { type: 'buttoncomponent' } }] }
+		} as any
+		const calls: [string, any][] = [
+			['read_workspace_item', { type: 'app', path: 'f/apps/legacy' }],
+			['read_app_file', { path: 'f/apps/legacy', file_path: '/index.tsx' }],
+			['write_app_file', { path: 'f/apps/legacy', file_path: '/App.tsx', content: 'x' }]
+		]
+		// ...Once per call: a persistent implementation would outlive this test and
+		// disarm the factory's "mock not configured" guard for the rest of the file.
+		for (const _ of calls) vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(lowCode)
+
+		for (const [tool, args] of calls) {
+			const raw = await callGlobalTool(tool, args).catch((e) => String(e))
+			expect(raw).toContain('low-code app')
+			expect(raw).not.toContain('buttoncomponent')
+		}
+		expect(getBackendDraft('raw_app', 'f/apps/legacy', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
+	it('reports app exposure on both the draft read and the deployed read', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'f/apps/public',
+			{
+				summary: 'public app',
+				files: { '/src/App.tsx': 'x' },
+				runnables: {},
+				policy: { execution_mode: 'anonymous', on_behalf_of: 'u/admin' }
+			},
+			{ workspace: WORKSPACE }
+		)
+		const draftRead = JSON.parse(
+			await callGlobalTool('read_workspace_item', { type: 'app', path: 'f/apps/public' })
+		)
+		expect(draftRead.value).toMatchObject({
+			execution_mode: 'anonymous',
+			on_behalf_of: 'u/admin'
+		})
+
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
+			path: 'f/apps/public',
+			summary: 'public app',
+			versions: [1],
+			policy: { execution_mode: 'anonymous', on_behalf_of: 'u/admin' },
+			value: { files: { '/src/App.tsx': 'x' }, runnables: {} }
+		} as any)
+		const deployedRead = JSON.parse(
+			await callGlobalTool('read_workspace_item', {
+				type: 'app',
+				path: 'f/apps/public',
+				version: 'deployed'
+			})
+		)
+		expect(deployedRead.value).toMatchObject({
+			execution_mode: 'anonymous',
+			on_behalf_of: 'u/admin'
+		})
+
+		// A policy with no mode is publisher, not unknown.
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
+			path: 'f/apps/plain',
+			summary: 'plain app',
+			versions: [1],
+			value: { files: {}, runnables: {} }
+		} as any)
+		const plainRead = JSON.parse(
+			await callGlobalTool('read_workspace_item', {
+				type: 'app',
+				path: 'f/apps/plain',
+				version: 'deployed'
+			})
+		)
+		expect(plainRead.value.execution_mode).toBe('publisher')
+		expect(plainRead.value).not.toHaveProperty('on_behalf_of')
+	})
+
 	it('reads raw app files without creating a draft', async () => {
 		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',

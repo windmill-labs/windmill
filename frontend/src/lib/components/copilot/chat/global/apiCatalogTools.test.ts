@@ -77,6 +77,13 @@ const CATALOG = [
 		method: 'GET'
 	},
 	{
+		name: 'getAppByPath',
+		description: 'Get app by path',
+		instructions: 'Returns the app source',
+		path: '/w/{workspace}/apps/get/p/{path}',
+		method: 'GET'
+	},
+	{
 		name: 'deleteScriptByHash',
 		description: 'Delete a script by hash',
 		instructions: '',
@@ -223,12 +230,12 @@ describe('call_api_get', () => {
 	})
 
 	it('refuses draft-blind item reads and lists, pointing at the draft-aware tools', async () => {
-		for (const name of ['getScriptByPath', 'getResource', 'getSchedule']) {
+		for (const name of ['getScriptByPath', 'getResource', 'getSchedule', 'getAppByPath']) {
 			const result = await run('call_api_get', { name })
 			expect(result.success).toBe(false)
 			expect(result.error).toContain('read_workspace_item')
 		}
-		for (const name of ['listScripts', 'listFlows', 'listResource', 'listSchedules']) {
+		for (const name of ['listScripts', 'listFlows', 'listResource', 'listSchedules', 'listApps']) {
 			const result = await run('call_api_get', { name })
 			expect(result.success).toBe(false)
 			expect(result.error).toContain('list_workspace_items')
@@ -236,6 +243,9 @@ describe('call_api_get', () => {
 
 		const search = await run('search_api_endpoints', { query: 'get script' })
 		expect(search.matches.map((m: any) => m.name)).not.toContain('getScriptByPath')
+		// getAppByPath would hand the model the whole app source, so it must not even surface.
+		const appSearch = await run('search_api_endpoints', { query: 'get app' })
+		expect(appSearch.matches.map((m: any) => m.name)).not.toContain('getAppByPath')
 	})
 
 	it('refuses variable reads so variable values never reach the model', async () => {
