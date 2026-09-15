@@ -249,17 +249,14 @@ class Entry<V> {
 	/** Counts outside writes, the ones that change nothing on screen included: those still put the
 	 *  value on the server as a row, which a read already in flight knows nothing about. */
 	private externals = 0
-	/** Counts every value this entry took from outside a command — typed or written in — once
-	 *  each, and each row a caller says it wrote for one of them. A row left over after that is a
-	 *  row nobody here has the value of. */
+	/** Counts the rows this entry can account for: the ones it wrote itself, and the ones a caller
+	 *  says it wrote for a value handed in here. A row left over after that is a row nobody here
+	 *  has the value of. */
 	private values = 0
 	/** Whether the discard that last ran had anything to say about the key's row — it had one, or
 	 *  it is deliberately keeping the one a newer edit put there. Decided inside the command, so
 	 *  after whatever load was queued in front of it, not before. */
 	private ownsRow = false
-	/** Whether the last value handed in made this entry write a row of its own. Loading, it
-	 *  cannot: the caller's own row is then the only one, and is already counted. */
-	private seedWroteRow = false
 	private queue: Promise<unknown> = Promise.resolve()
 	private ports: ItemRowPort
 	private store: StoreInternals
@@ -283,7 +280,6 @@ class Entry<V> {
 		if (s === this.seen) return
 		this.seen = s
 		this.edits++
-		this.values++
 		if (this.pristine && this.origin === 'deployed' && this.value !== undefined) {
 			const value = snapshot(this.value)
 			if (!this.absorbs || this.deployed === undefined || this.absorbs(value, this.deployed)) {
@@ -314,6 +310,7 @@ class Entry<V> {
 		}
 		if (desired === this.row) return
 		this.row = desired
+		this.values++
 		this.ports.write(key, desired === null ? null : snapshot(this.value))
 	}
 
@@ -454,8 +451,7 @@ class Entry<V> {
 			const standOff = unasked && this.ports.conflicted(key)
 			// Whatever landed since the read was asked for — an external write, an edit — is
 			// newer than what it read, so the read only moves the deployed side under it.
-			const keepValue =
-				standOff || this.edits !== at.edits || this.externals !== at.externals
+			const keepValue = standOff || this.edits !== at.edits || this.externals !== at.externals
 			// More rows appeared while the read was out than values arrived to account for them,
 			// so one was written by someone this entry cannot see — and it is later than anything
 			// held here. Writing from this would post an older value over that row, on the
@@ -577,26 +573,24 @@ class Entry<V> {
 		})
 	}
 
-	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
-	/** A caller that handed a value in through `applyExternal` and then wrote its own row for it,
-	 *  rather than leaving the row to this entry: the two are one value, and counting the second
-	 *  row as unaccounted would read as someone else having written it. */
+	/** A caller that handed a value in through `applyExternal` and wrote its own row for it,
+	 *  rather than leaving that to this entry: the row is accounted for, and counting it as
+	 *  unaccounted would read as someone else having written it. */
 	noteRow(): void {
-		if (this.seedWroteRow) this.values++
+		this.values++
 	}
 
+	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
 	applyExternal(value: V): number {
 		this.externals++
-		this.values++
-		this.seedWroteRow = false
 		if (this.loaded && serialize(value) === serialize(this.value)) return this.revision
 		this.edits++
 		this.pristine = false
 		this.removed = false
 		this.replaceValue(value)
-		const rowsBefore = this.ports.rowMark(this.key)
+		// Whatever row this produces is counted by `reconcile`; a value that produces none
+		// accounts for nothing, and must not pay for a row some other writer puts there.
 		this.reconcile()
-		this.seedWroteRow = this.ports.rowMark(this.key) !== rowsBefore
 		return this.revision
 	}
 

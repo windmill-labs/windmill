@@ -102,8 +102,7 @@ function fakeRows() {
 				: parked.has(key.path)
 					? parked.get(key.path)
 					: undefined,
-		unbased: (key) =>
-			(queued.has(key.path) || parked.has(key.path)) && !baselines.has(key.path),
+		unbased: (key) => (queued.has(key.path) || parked.has(key.path)) && !baselines.has(key.path),
 		markConflict: (key) => void conflicts.add(key.path),
 		seedSync: (key, at, since) => {
 			// The syncer refuses a baseline from a read a row handed over since has passed.
@@ -734,7 +733,8 @@ describe('item store: origins', () => {
 		// The chat writes after asking for the discard, so its value is the newer of the two.
 		const fromChat = { ...deployedRes, description: 'from the chat' }
 		item.applyExternal(fromChat)
-		// `persistGlobalDraft` hands the value here and writes its own row through the syncer.
+		// `persistGlobalDraft` hands the value here, says it is writing the row for it, and does.
+		store.bridge.noteRow('w', 'resource', 'u/me/r')
 		rows.handExternally('u/me/r')
 		read.resolve({ deployed: deployedRes })
 
@@ -882,6 +882,7 @@ describe('item store: origins', () => {
 		const fromChat = { ...deployedRes, description: 'from the chat' }
 		item.applyExternal(fromChat)
 		// `persistGlobalDraft` hands the value here and writes its own row through the syncer.
+		store.bridge.noteRow('w', 'resource', 'u/me/r')
 		rows.handExternally('u/me/r')
 		read.resolve({ deployed: deployedRes })
 		await settle()
@@ -951,7 +952,7 @@ describe('item store: origins', () => {
 		expect(item.canSave).toBe(false)
 	})
 
-	it('does not credit an edit made during a re-read\'s own flush', async () => {
+	it("does not credit an edit made during a re-read's own flush", async () => {
 		const rows = fakeRows()
 		const flushing = deferred()
 		const read = deferred<ItemLoad<Res>>()
@@ -1007,6 +1008,35 @@ describe('item store: origins', () => {
 		// Two rows, one of them unaccounted for. Crediting the chat twice would hide it and let
 		// this editor post over the agent editor's newer draft.
 		expect(item.canSave).toBe(false)
+	})
+
+	it('does not credit a row to a seed that wrote none', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const { handle: item } = store.acquire(
+			key,
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(() => read.promise)
+		)
+		await settle()
+
+		// The agent editor seeds its restored draft here while the GET is out. Loading, this
+		// writes no row, and the seeding editor writes none for it either.
+		const seeded = { ...deployedRes, description: 'restored by the agent editor' }
+		item.applyExternal(seeded)
+		// It then autosaves something newer through the `UserDraft` handle it kept: a row whose
+		// value never came through here.
+		rows.handExternally('u/me/r')
+		const writesBefore = rows.writes.length
+		read.resolve({ deployed: deployedRes })
+		await settle()
+
+		// One row, nothing accounting for it. Posting the seed now would put it on the baseline
+		// that row advanced, silently replacing it.
+		expect(item.canSave).toBe(false)
+		expect(rows.writes.length).toBe(writesBefore)
 	})
 
 	it('stays blocked when an unseen row follows the edit it kept', async () => {

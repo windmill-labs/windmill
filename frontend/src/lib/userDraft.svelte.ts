@@ -333,10 +333,25 @@ export type UserDraftHandle<V> = {
 	set draft(value: V | undefined)
 }
 
+/**
+ * Put a value into a caller's own mirror without POSTing it, for a key whose live item took the
+ * value and persists it. A mirror left untouched keeps the first-write guard it was acquired with
+ * armed, so the caller's next real edit is swallowed as initialization instead of being saved.
+ */
+function seedLocalMirror(mk: string, value: unknown): void {
+	const entry = entries.get(mk)
+	if (!entry) return
+	entry.seedNextWrite = true
+	entry.state.val = snapshotDraftValue(value)
+}
+
 export const UserDraft = {
 	save<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
-		if (liveItems?.seed(ws, itemKind, path, value)) return
+		if (liveItems?.seed(ws, itemKind, path, value)) {
+			seedLocalMirror(mapKey(ws, itemKind, path), value)
+			return
+		}
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
@@ -525,12 +540,8 @@ export const UserDraft = {
 	 */
 	seed<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
-		if (liveItems?.seed(ws, itemKind, path, value)) return
-		const mk = mapKey(ws, itemKind, path)
-		const entry = entries.get(mk)
-		if (!entry) return
-		entry.seedNextWrite = true
-		entry.state.val = snapshotDraftValue(value)
+		liveItems?.seed(ws, itemKind, path, value)
+		seedLocalMirror(mapKey(ws, itemKind, path), value)
 	},
 
 	/**
