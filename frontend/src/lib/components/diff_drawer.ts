@@ -66,5 +66,6 @@ export interface DiffDrawerI {
 	 *  when it goes away. */
 	beginOpening: () => number
 	ownsOpening: (token: number) => boolean
-	abandonOpening: () => void
+	/** Drop that opening and, when it still owns the drawer, what it put on screen. */
+	abandonOpening: (token: number) => void
 }

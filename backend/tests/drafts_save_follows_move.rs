@@ -425,13 +425,13 @@ async fn test_a_retried_discard_still_names_the_destination(
 
     // A third user has no draft on this item, so their discard deletes nothing and the
     // destination is a move record and nothing else: it is answered only to a caller who
-    // could write there.
+    // can read that path.
     let other = discard("SECRET_TOKEN_3").await?;
     assert_eq!(other["status"], "saved", "{other}");
     assert_eq!(
         other["path"],
         Value::Null,
-        "a user who cannot write the destination was told where the item went: {other}"
+        "a user who cannot read the destination was told where the item went: {other}"
     );
     Ok(())
 }

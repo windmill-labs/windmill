@@ -1166,9 +1166,13 @@
 		}
 	}
 
-	// An opening outlives this editor when a path change remounts it mid-fetch; without
-	// this it would still open the drawer on the item the user left.
-	onDestroy(() => diffDrawer?.abandonOpening())
+	/** The opening this editor claimed last. A path change remounts this editor while the
+	 *  drawer stays mounted, so its teardown hands that opening back rather than leaving
+	 *  the drawer on the item the user left. */
+	let lastOpening: number | undefined = undefined
+	onDestroy(() => {
+		if (lastOpening != null) diffDrawer?.abandonOpening(lastOpening)
+	})
 
 	export async function openDiffDrawer() {
 		if (!savedFlow) return
@@ -1176,6 +1180,7 @@
 		// this editor but not the drawer) while they run must not have the older one
 		// land last. The drawer counts the openings for that reason.
 		const opening = diffDrawer?.beginOpening()
+		lastOpening = opening
 		if (opening == null) return
 		await syncWithDeployed(opening)
 		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())

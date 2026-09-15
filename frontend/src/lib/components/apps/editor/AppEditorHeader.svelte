@@ -329,9 +329,13 @@
 		}
 	}
 
-	// An opening outlives this editor when a path change remounts it mid-fetch; without
-	// this it would still open the drawer on the app the user left.
-	onDestroy(() => diffDrawer?.abandonOpening())
+	/** The opening this editor claimed last. A path change remounts this editor while the
+	 *  drawer stays mounted, so its teardown hands that opening back rather than leaving
+	 *  the drawer on the app the user left. */
+	let lastOpening: number | undefined = undefined
+	onDestroy(() => {
+		if (lastOpening != null) diffDrawer?.abandonOpening(lastOpening)
+	})
 
 	async function syncWithDeployed(opening?: number) {
 		const deployedApp = await AppService.getAppByPath({
@@ -635,6 +639,7 @@
 				// this editor but not the drawer) while it runs must not have the older one
 				// land last. The drawer counts the openings for that reason.
 				const opening = diffDrawer?.beginOpening()
+				lastOpening = opening
 				if (opening == null) return
 
 				// deployedValue should be syncronized when we open Diff
@@ -777,6 +782,7 @@
 						}
 						// The other entry point into the same drawer, so it takes an opening too.
 						const opening = diffDrawer?.beginOpening()
+						lastOpening = opening
 						if (opening == null) return
 						// deployedValue should be syncronized when we open Diff
 						await syncWithDeployed(opening)

@@ -99,9 +99,20 @@
 		return token === openingToken
 	}
 
-	/** Drop the opening in flight: the editor that started it is going away. */
-	export function abandonOpening() {
+	/** Drop an opening and everything it put on screen: the editor that started it is going
+	 *  away (a path change remounts it), so a diff it already filled describes an item this
+	 *  drawer can no longer act on — Take latest would move the base of whatever loaded in
+	 *  its place — and one still in flight would leave the spinner behind. A no-op once
+	 *  another opening owns the drawer: what it shows is then someone else's. */
+	export function abandonOpening(token: number) {
+		if (token !== openingToken) return
 		openingToken++
+		// The version load in flight, if any, belongs to the diff being dropped.
+		versionLoadGeneration++
+		loadingVersion = false
+		data = undefined
+		diffType = undefined
+		diffViewer?.closeDrawer()
 	}
 
 	function prepareDiff(data: Value) {
