@@ -521,7 +521,9 @@ async function backfillMarks(marks: PendingMarks, email: string): Promise<boolea
 	const marked = new Set(marks.dirty.map((d) => d.id))
 	for (const s of sessions) {
 		const row = rows.get(s.id)
-		const owed = !row || row.stale || (row.flushedV ?? -1) < (row.extraV ?? 0)
+		// A restored row has neither counter: only bumps it carries make it owed.
+		const owed =
+			!row || row.stale || ((row.extraV ?? 0) > 0 && (row.flushedV ?? -1) < (row.extraV ?? 0))
 		if (s.workspace_id && owed && !marked.has(s.id)) {
 			if (!bumpDirty(s.id) && !unwritableMarks.has(s.id)) unwritableMarks.set(s.id, 0)
 			marks.dirty.push({ id: s.id, v: 1 })

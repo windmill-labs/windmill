@@ -1155,6 +1155,23 @@ describe('sessionMirror restore', () => {
 		expect(sessionState.sessions[0].workspace_id).toBe('ws2')
 	})
 
+	it('marks nothing at load for a session a restore brought back', async () => {
+		listMock.mockResolvedValue({
+			enabled: true,
+			sessions: [{ id: 's9', updated_at: '2026-09-14T00:00:00Z', epoch: 0 }]
+		})
+		pullMock.mockResolvedValue({ enabled: true, sessions: [backup], deferred: [] })
+		usersWorkspaceStore.set({ email: EMAIL, workspaces: [] } as never)
+		restoreSessionBackups('ws')
+		await __settleForTesting()
+		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s9']))
+		// The next load's backfill leaves the clean row alone: no mark, no read, no push.
+		__resetMirrorForTesting()
+		await __flushForTesting()
+		expect(pushMock).not.toHaveBeenCalled()
+		expect(pendingKeys()).toEqual([])
+	})
+
 	it('lists a family of one once, whatever it restores', async () => {
 		listMock.mockResolvedValue({
 			enabled: true,
