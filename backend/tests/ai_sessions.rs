@@ -272,7 +272,22 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         "SECRET_TOKEN",
         json!({
             "owner": "test@windmill.dev",
-            "sessions": [{ "id": "s4", "chats": [{ "id": "c0", "record": { "id": "c0" } }] }]
+            "sessions": [{ "id": "s4", "chats": [{ "id": "c0", "record": { "id": "c0", "n": 1 } }] }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let pulled = pull(&base, "SECRET_TOKEN", &["s4"]).await?;
+    assert_ne!(pulled["sessions"][0]["listing"], listing);
+    // So does a chat rewritten at the same size: the fingerprint takes in the entity tag,
+    // not only the size and a modification time the store may report coarsely.
+    let listing = pulled["sessions"][0]["listing"].clone();
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s4", "chats": [{ "id": "c0", "record": { "id": "c0", "n": 2 } }] }]
         }),
     )
     .await?;

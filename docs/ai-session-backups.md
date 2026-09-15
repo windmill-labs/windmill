@@ -87,9 +87,9 @@ object that does not decrypt for its reader is treated as absent. Rotating the w
 secrets. The objects live under a prefix named by a generation
 (`workspace_settings.ai_sessions_backup_generation`) that the rotation bumps in the
 transaction committing the new key; once committed, the routes read and write under the new
-generation's prefix, the storage identity the answers carry (`storage_id`, below) changes
-with it, so every browser marks its sync rows stale and pushes its sessions whole again
-there, and every older generation, which nothing writes to any more, is deleted off the
+generation's prefix, the answers name it (`backup_generation`, below; `storage_id` names the
+storage and does not change), so every browser marks its sync rows stale and pushes its
+sessions whole again there, and every older generation, which nothing writes to any more, is deleted off the
 request at leisure (`windmill-api-workspaces/src/ai_session_backups.rs`). Sessions no browser
 holds any more are lost. A generation is never reused, so no deletion, however late, can
 touch live objects; a rotation that fails before its commit bumps nothing and deletes
@@ -197,7 +197,9 @@ would not fit is deferred unless it is the first of the answer, in which case it
 pages: the answer carries what fits in key order (at least one object, so every page makes
 progress) and names where the next picks up (`next`, a cursor the browser sends back as
 `resume` with that session alone). Every page carries a fingerprint of the session's listing
-(marker, keys, sizes, modification times) taken before anything of it is read, and the server
+(marker, keys, sizes, modification times, entity tags and versions, since a store reports
+modification times coarsely and an object rewritten at the same size within that grain would
+otherwise fingerprint the same) taken before anything of it is read, and the server
 takes it again once the page is read: a page the backup moved under (a push landing object by
 object) is read again, a few times, then answered as `moved`, and the browser starts the
 session over on that or on two pages whose fingerprints differ. The browser writes each page's pieces as it arrives, over whatever

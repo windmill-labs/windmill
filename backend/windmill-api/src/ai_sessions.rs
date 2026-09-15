@@ -268,16 +268,27 @@ impl Backend {
     }
 
     /// A fingerprint of the session's marker and of everything listed under its two
-    /// prefixes (key, size, modification time), combined as the listing streams and in no
-    /// particular order, so a session of any size costs bounded memory. `None` for a session
+    /// prefixes (key, size, modification time, entity tag and version), combined as the
+    /// listing streams and in no particular order, so a session of any size costs bounded
+    /// memory. `None` for a session
     /// the storage does not list. Taken before and after a page is read, so a page a push
     /// changed under is read again; pages of one pull carry it, and the browser starts the
     /// session over when it moved between two of them.
     async fn listing_fingerprint(&self, sid: &str) -> Result<Option<String>> {
         use std::hash::{DefaultHasher, Hash, Hasher};
-        fn fold<S: Hash>(acc: u64, location: &str, size: S, modified: i64) -> u64 {
+        // The entity tag and version go in with the key, size and time: a store reports
+        // modification times coarsely, and an object rewritten at the same size within that
+        // grain would otherwise fingerprint the same.
+        fn fold<S: Hash>(
+            acc: u64,
+            location: &str,
+            size: S,
+            modified: i64,
+            e_tag: Option<&str>,
+            version: Option<&str>,
+        ) -> u64 {
             let mut hasher = DefaultHasher::new();
-            (location, size, modified).hash(&mut hasher);
+            (location, size, modified, e_tag, version).hash(&mut hasher);
             acc.wrapping_add(hasher.finish())
         }
         let mut acc = match self.store.head(&self.index_key(sid)).await {
@@ -286,6 +297,8 @@ impl Backend {
                 meta.location.as_ref(),
                 meta.size,
                 meta.last_modified.timestamp_millis(),
+                meta.e_tag.as_deref(),
+                meta.version.as_deref(),
             ),
             Err(ObjectStoreError::NotFound { .. }) => return Ok(None),
             Err(e) => return Err(object_store_error_to_error(e)),
@@ -299,6 +312,8 @@ impl Backend {
                     meta.location.as_ref(),
                     meta.size,
                     meta.last_modified.timestamp_millis(),
+                    meta.e_tag.as_deref(),
+                    meta.version.as_deref(),
                 );
             }
         }
