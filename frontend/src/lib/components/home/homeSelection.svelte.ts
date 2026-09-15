@@ -150,7 +150,10 @@ export class HomeSelection {
 		}
 		if (this.selected.has(item.key)) this.selected.delete(item.key)
 		else this.selected.set(item.key, item)
-		this.anchor = item.key
+		// Unticking the last row ends selection mode, so the row it was on is not an
+		// anchor any more: the next shift-click would otherwise reach back and select
+		// everything between it and the row the user just started from.
+		this.anchor = this.selected.size === 0 ? undefined : item.key
 	}
 
 	/** Visual order is read back from the DOM: the tree nests rows and pages them

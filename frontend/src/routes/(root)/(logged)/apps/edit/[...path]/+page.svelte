@@ -501,6 +501,10 @@
 					// (unknown when another landed beside it), and the head is what is deployed,
 					// named by whoever deployed it rather than by the page load's author.
 					draftBaseVersion = version != null ? String(version) : undefined
+					// The deploy consumed the draft, so the prompt has nothing to compare: without
+					// this the timestamp fallback reads a load-time draft save against a deploy
+					// that just happened and opens on a row that no longer exists.
+					draftSavedAt = undefined
 					if (head != null) {
 						deployedHeadVersion = String(head)
 						deployedBy = headBy
