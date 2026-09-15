@@ -469,10 +469,10 @@ export class FlowChatViewHost implements ChatViewHost {
 			// nothing. What the reader wrote comes back, to the chat it was written in rather
 			// than the one open by now.
 			//
-			// The uploaded objects are deliberately left in place. Deleting them is itself a
-			// request that can fail, on a path that is already failing, and a resend uploads
-			// its own under a fresh prefix — so a lost send costs one prefix, not a growing
-			// number. The workspace's own storage retention is what collects them.
+			// The uploaded objects are deliberately left in place: deleting them is itself a
+			// request that can fail, on a path that is already failing. A resend uploads its
+			// own under a fresh prefix, so each failed send leaves one behind, and the
+			// workspace's own storage retention is what collects them.
 			this.#restoreToComposer({ ...options, conversationId })
 			return false
 		}

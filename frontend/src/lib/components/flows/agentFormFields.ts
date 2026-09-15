@@ -198,10 +198,6 @@ export function agentFieldIsSet(
 }
 
 /**
- * Whether the current schema carries this field at all. A linked step's schema is reduced to the
- * flow-local inputs, which is what collapses its form to the Messages group on its own.
- */
-/**
  * Whether a run of this step would stream its answer, mirroring the worker's
  * `has_stream = user_wants_streaming && is_text_output`. Absence means on
  * (`args.streaming.unwrap_or(true)`), so an unwritten field streams.
@@ -226,6 +222,10 @@ export function agentStreamingEnabled(value: Record<string, any> | undefined): b
 	return streaming?.value !== false
 }
 
+/**
+ * Whether the current schema carries this field at all. A linked step's schema is reduced to the
+ * flow-local inputs, which is what collapses its form to the Messages group on its own.
+ */
 export function agentFieldAppliesTo(
 	spec: AgentFieldSpec,
 	schemaProperties: Record<string, any> | undefined

@@ -204,6 +204,9 @@ describe('reading a turn longer than one page', () => {
 		// re-fetch the same page and still look right from the rows alone.
 		const calls = vi.mocked(FlowConversationsService.listConversationMessages).mock.calls
 		expect((calls[1][0] as any).afterSeq).toBe(50)
+		// Nothing to resume from still reads forward from the start: with no cursor at all the
+		// endpoint answers with the newest page, which would skip everything before it.
+		expect((calls[0][0] as any).afterSeq).toBe(0)
 	})
 
 	/**
@@ -211,7 +214,7 @@ describe('reading a turn longer than one page', () => {
 	 * it, and applying it would both duplicate what the temp rows already show and sweep
 	 * away the only record of what was never read.
 	 */
-	it('leaves the transcript alone when it could not read to the end', async () => {
+	it('keeps the temp rows a capped read did not reach', async () => {
 		let seq = 0
 		vi.mocked(FlowConversationsService.listConversationMessages)
 			.mockReset()
@@ -234,8 +237,32 @@ describe('reading a turn longer than one page', () => {
 
 		await (manager as any).pollConversationMessages('a', { removeTempMessages: true })
 
-		// Untouched: neither the rows it managed to read nor the sweep were applied.
+		// Nothing after the last poll of a turn would finish the read, so the rows it did get
+		// are dropped rather than left showing the turn's start twice beside the temp row.
 		expect(manager.messages).toEqual([streamed])
+	})
+
+	it('keeps what a capped read got when a later tick can finish it', async () => {
+		let seq = 0
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			.mockImplementation((async () => {
+				const batch = assistantRows(seq + 1, 50)
+				seq += 50
+				return batch
+			}) as any)
+		const manager = managerWithRows()
+		manager.selectedConversationId = 'a'
+
+		await (manager as any).pollConversationMessages('a', {})
+
+		// 20 requests of 50 rows, and the rows are kept, so the next tick resumes from seq 1000
+		// rather than reading the conversation from the start again.
+		expect(manager.messages).toHaveLength(1000)
+		expect(manager.messages.at(-1)?.content).toBe('row 1000')
+		await (manager as any).pollConversationMessages('a', {})
+		const calls = vi.mocked(FlowConversationsService.listConversationMessages).mock.calls
+		expect((calls[20][0] as any).afterSeq).toBe(1000)
 	})
 })
 

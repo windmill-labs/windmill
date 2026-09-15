@@ -75,12 +75,14 @@ const FOLLOW_RETRY_DELAY_MS = 500
 /** How often a turn with no stream asks its job whether the run is over. */
 const SETTLE_POLL_MS = 2000
 
+/** How long a conversation is polled before the reader is assumed to have left it running. */
+const POLL_MAX_MS = 2 * 60 * 1000
 /** Rows per request when a poll reads a conversation. A batch shorter than this is how the
  * endpoint says there are no more. */
 const POLL_PAGE_SIZE = 50
-/** Requests one poll will make. Bounds a conversation with more rows past the cursor than a
- * poll should read in one go; a cursor that stops moving is caught separately. */
-const POLL_MAX_PAGES = 20
+/** Most requests one poll will make. Bounds how much of a conversation one tick reads; what it
+ * stops short of is left to the next tick, which resumes from the cursor it reached. */
+const POLL_MAX_REQUESTS = 20
 
 /**
  * The agent events the worker streams, in the shape the transcript applies. The SDK names
@@ -122,6 +124,9 @@ type TurnRuntime = {
 	/** Stops this turn's `followJob`. */
 	follow?: AbortController
 	pollingInterval?: ReturnType<typeof setInterval>
+	/** Stops the interval above at `POLL_MAX_MS`, and is cleared with it: one left armed by a
+	 *  turn that ended early would fire into the next turn on the same conversation. */
+	pollingDeadline?: ReturnType<typeof setTimeout>
 	// What the turn has written so far — which row is open, and the text in it. Held here
 	// rather than in the stream handler's locals: the typewriter reveals on animation
 	// frames, long after the chunk that delivered the text was applied.
@@ -162,11 +167,11 @@ export class FlowChatManager {
 	 */
 	allowsParallelTurns = $state(false)
 
-	/** Each conversation's rows, live ones included, so a turn keeps writing while the
-	 * reader is in another chat. Doubles as the load cache: rows here are never re-fetched. */
 	/** Bumped when the chat is re-pointed at another flow. Work started before that must not
 	 * write what it fetched into the chat that replaced it. */
 	#generation = 0
+	/** Each conversation's rows, live ones included, so a turn keeps writing while the
+	 * reader is in another chat. Doubles as the load cache: rows here are never re-fetched. */
 	#rowsById = $state<Record<string, ChatMessage[]>>({})
 	/** How far back each conversation has been paged. Held per conversation for the same
 	 * reason the rows are: a cached chat keeps its scrollback when the reader returns to it,
@@ -471,10 +476,7 @@ export class FlowChatManager {
 			runtime.turn = emptyTurnState(conversationId)
 			runtime.follow?.abort()
 			runtime.follow = undefined
-			if (runtime.pollingInterval) {
-				clearInterval(runtime.pollingInterval)
-				runtime.pollingInterval = undefined
-			}
+			this.stopPolling(conversationId)
 		}
 		const status = this.#liveStatus(conversationId)
 		status.currentReasoning = ''
@@ -935,11 +937,12 @@ export class FlowChatManager {
 			// hand back its earliest and leave its answer behind, and the sweep below drops the
 			// temp rows that were standing in for it.
 			const response: ChatMessage[] = []
-			let afterSeq = this.getLastPersistedMessageSeq(conversationId)
+			// Sequences start at 1, so a conversation with no row to resume from reads from 0
+			// rather than with no cursor at all — without one the endpoint answers with the
+			// newest page instead of the oldest, which is not a prefix of anything.
+			let afterSeq = this.getLastPersistedMessageSeq(conversationId) ?? 0
 			let readWhole = false
-			let stalled = false
-			let requests = 0
-			for (let page = 0; page < POLL_MAX_PAGES; page++) {
+			for (let request = 0; request < POLL_MAX_REQUESTS; request++) {
 				const batch = await FlowConversationsService.listConversationMessages({
 					workspace: this.#workspace()!,
 					conversationId: conversationId,
@@ -950,31 +953,34 @@ export class FlowChatManager {
 				// An interval tick already dispatched outlives `clearInterval`, and a turn's final
 				// poll outlives its abort — either would put a forgotten flow's rows back.
 				if (startedIn !== this.#generation) return
-				requests++
 				response.push(...batch)
 				if (batch.length < POLL_PAGE_SIZE) {
 					readWhole = true
 					break
 				}
 				const furthest = Math.max(...batch.map((m) => m.created_seq))
-				// A page that moved nothing would ask for the same rows forever, and is no more a
-				// finished read than the cap above.
-				if (afterSeq !== undefined && furthest <= afterSeq) {
-					stalled = true
+				if (furthest <= afterSeq) {
+					// A full page that leaves the cursor where it was would be asked for again on
+					// every tick and answered the same way, so nothing here or later can advance.
+					console.warn(
+						`Stopped reading conversation ${conversationId} at seq ${afterSeq}: a full ` +
+							`page of ${POLL_PAGE_SIZE} rows did not move the cursor`
+					)
+					this.stopPolling(conversationId)
 					break
 				}
 				afterSeq = furthest
 			}
 
-			if (!readWhole) {
-				// Neither appended nor swept: half a conversation beside the temp rows standing
-				// in for it reads worse than those rows alone, and sweeping would drop the only
-				// copy of what was never read. Held rows are never re-fetched while the chat is
-				// open (see `loadMessages`), so a reload is what recovers this.
+			if (!readWhole && options?.removeTempMessages) {
+				// The last poll of a turn, and no tick comes after it to carry on from where this
+				// one stopped. Its temp rows have to stay, being the only copy of what the read
+				// did not reach, and the prefix it did read would sit beside them showing the
+				// start of the turn twice — so that prefix is dropped rather than the rows. A
+				// reload is what recovers it: `loadMessages` leaves rows already held alone.
 				console.warn(
-					`Stopped reading conversation ${conversationId} after ${requests} request(s) ` +
-						`(${stalled ? 'the cursor stopped advancing' : `cap of ${POLL_MAX_PAGES}`}, ` +
-						`${response.length} rows, up to seq ${afterSeq}); leaving the transcript as it is`
+					`Read ${response.length} rows of conversation ${conversationId} at the end of a ` +
+						`turn without reaching its last one; leaving the transcript as it is`
 				)
 				return
 			}
@@ -1011,12 +1017,9 @@ export class FlowChatManager {
 		runtime.pollingInterval = setInterval(() => {
 			this.pollConversationMessages(conversationId, { isNewConversation })
 		}, 500) // Poll every 0.5 seconds
-		setTimeout(
-			() => {
-				this.stopPolling(conversationId)
-			},
-			2 * 60 * 1000
-		) // Stop polling after 2 minutes
+		runtime.pollingDeadline = setTimeout(() => {
+			this.stopPolling(conversationId)
+		}, POLL_MAX_MS)
 	}
 
 	private stopPolling(conversationId: string) {
@@ -1024,6 +1027,10 @@ export class FlowChatManager {
 		if (runtime?.pollingInterval) {
 			clearInterval(runtime.pollingInterval)
 			runtime.pollingInterval = undefined
+		}
+		if (runtime?.pollingDeadline) {
+			clearTimeout(runtime.pollingDeadline)
+			runtime.pollingDeadline = undefined
 		}
 	}
 
