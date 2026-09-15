@@ -11,6 +11,11 @@
 		confirmCallback: () => void
 		deployedBy?: string | undefined
 		open?: boolean
+		/** Takes a drawer opening on the host editor's behalf, so the diff below is one the
+		 *  editor can take back down. Override anyway deploys that editor's content: without
+		 *  this the drawer would outlive it (a relocation remounts the editor) and deploy it
+		 *  at a path it has left. Omit where the host cannot be remounted under the drawer. */
+		claimOpening?: () => number | undefined
 	}
 
 	let {
@@ -19,7 +24,8 @@
 		diffDrawer = undefined,
 		confirmCallback,
 		deployedBy = undefined,
-		open = $bindable(false)
+		open = $bindable(false),
+		claimOpening = undefined
 	}: Props = $props()
 </script>
 
@@ -44,17 +50,21 @@
 						return
 					}
 					open = false
-					diffDrawer?.openDrawer()
-					diffDrawer?.setDiff({
-						mode: 'simple',
-						original: deployedValue,
-						current: currentValue,
-						title: 'Deployed <> Current',
-						button: {
-							text: 'Override anyway',
-							onClick: () => confirmCallback()
-						}
-					})
+					const opening = claimOpening?.()
+					diffDrawer?.openDrawer(opening)
+					diffDrawer?.setDiff(
+						{
+							mode: 'simple',
+							original: deployedValue,
+							current: currentValue,
+							title: 'Deployed <> Current',
+							button: {
+								text: 'Override anyway',
+								onClick: () => confirmCallback()
+							}
+						},
+						opening
+					)
 				}}
 				>Show diff
 			</Button>
