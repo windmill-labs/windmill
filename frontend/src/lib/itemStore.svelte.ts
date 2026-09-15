@@ -481,13 +481,15 @@ class Entry<V> {
 	 *  was asked to throw away. `absent`: never had the item, so the row is the caller's.
 	 *  `failed`: it has the item, on a baseline it cannot refresh, and still shows the draft. */
 	async discarded(): Promise<'done' | 'absent' | 'failed'> {
-		await this.discard()
+		const asked = this.asOf()
+		await this.discard(asked)
 		if (this.retired || !this.loaded) return 'absent'
 		if (!this.stale) return 'done'
 		// Stale refused it. A reload is what clears that, and with a baseline it can trust the
-		// discard means something again — so the one thing worth trying before giving up.
+		// discard means something again — so the one thing worth trying before giving up. The
+		// retry carries the state as of the request, so an edit typed during that reload stands.
 		if (!this.adapter || !(await this.load(this.adapter)).ok) return 'failed'
-		await this.discard()
+		await this.discard(asked)
 		return this.stale ? 'failed' : 'done'
 	}
 
@@ -615,7 +617,10 @@ class Entry<V> {
 		if (changed) this.replaceValue(next as V)
 	}
 
-	discard(): Promise<DiscardOutcome> {
+	/** `asked`: for a caller retrying after recovering the item, the state as of the *first*
+	 *  attempt. Taking a fresh one would let an edit made during that recovery look like part of
+	 *  what the discard was asked to throw away. */
+	discard(asked?: AsOf): Promise<DiscardOutcome> {
 		return this.run(async (at) => {
 			if (!this.loaded || this.retired) return { removed: false }
 			// Reverting to a baseline known to be behind the server would write it back.
@@ -655,7 +660,7 @@ class Entry<V> {
 			this.reconcile()
 			await this.settleRows([this.key])
 			return { removed: false }
-		})
+		}, asked)
 	}
 
 	/**
@@ -831,7 +836,9 @@ export type ItemHandle<V> = {
 	readonly pristine: boolean
 	readonly revision: number
 	readonly meta: unknown
-	/** `dirty && valid && writable && !busy`. */
+	/** `dirty && valid && writable && !busy`, and not stale: a write landed on this item
+	 *  elsewhere and the re-read meant to pick it up failed, so saving would put a baseline known
+	 *  to be behind the server back over it. A reload clears that. */
 	readonly canSave: boolean
 	save(): Promise<SaveOutcome>
 	discard(): Promise<DiscardOutcome>

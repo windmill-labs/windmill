@@ -1386,6 +1386,43 @@ describe('item store: conflicts', () => {
 		expect(item.status).not.toBe('conflicted')
 	})
 
+	it('keeps an edit typed while a stale discard was recovering the item', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const recovery = deferred<ItemLoad<Res>>()
+		let reads = 0
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const { handle: item } = store.acquire(
+			key,
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(() => {
+				reads++
+				if (reads === 1) return Promise.resolve({ deployed: deployedRes })
+				if (reads === 2) return Promise.reject(new Error('the GET failed'))
+				return recovery.promise
+			})
+		)
+		await settle()
+		item.value = { ...deployedRes, description: 'mine' }
+		// A write landed elsewhere and the re-read for it failed, so this editor is stale.
+		expect(await store.bridge.refresh('w', 'resource', 'u/me/r')).toBe('failed')
+
+		// The chat discards. That is refused while stale, so it reloads to recover — and the
+		// user types while that GET is out.
+		const discarding = store.bridge.discard('w', 'resource', 'u/me/r')
+		await settle()
+		item.value = { ...deployedRes, description: 'typed during the recovery' }
+		recovery.resolve({ deployed: deployedRes })
+
+		// The retry is about the value the chat named, not this one, so the edit stands.
+		expect(await discarding).toBe('done')
+		expect(item.value?.description).toBe('typed during the recovery')
+		expect(rows.writes.at(-1)).toEqual({
+			path: 'u/me/r',
+			value: { ...deployedRes, description: 'typed during the recovery' }
+		})
+	})
+
 	it('stops an editor acting on a baseline its failed re-read left behind', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
