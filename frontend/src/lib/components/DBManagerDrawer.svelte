@@ -104,7 +104,13 @@
 	let datatablesRun = 0
 	const datatables = resource(
 		() =>
-			[open && uriState.isDatatableInput, ws, selectedDatatable, selectedRole, roleSettled] as const,
+			[
+				open && uriState.isDatatableInput,
+				ws,
+				selectedDatatable,
+				selectedRole,
+				roleSettled
+			] as const,
 		async ([active, workspace, roleFor, role, settled]): Promise<DataTableTables[]> => {
 			if (!active || !workspace) return []
 			if (!settled) return untrack(() => datatables.current)
@@ -302,7 +308,11 @@
 					bind:selectedSchemaKey={uriState.selectedSchema}
 					bind:selectedTableKey={uriState.selectedTable}
 					onImport={enableImportExport
-						? (mode) => ((importDrawerOpen = true), (importBehavior = mode))
+						? (mode) => (
+								(importTarget = undefined),
+								(importDrawerOpen = true),
+								(importBehavior = mode)
+							)
 						: undefined}
 				></DBManagerContent>
 			{/key}

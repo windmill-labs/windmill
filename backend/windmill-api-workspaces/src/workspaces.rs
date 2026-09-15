@@ -2227,6 +2227,8 @@ struct DataTableTables {
 
 #[derive(Deserialize)]
 struct ListDataTableTablesQuery {
+    /// List only this data table: each entry opens a connection to its database.
+    datatable_name: Option<String>,
     /// The data table `role` applies to. Every other one is listed as its default role, since a
     /// role name means nothing outside the data table it belongs to.
     role_for: Option<String>,
@@ -2413,13 +2415,19 @@ async fn list_datatable_tables(
             "`role` needs `role_for`, the data table it is a role of".to_string(),
         ));
     }
-    let datatable_names = list_datatable_names(&db, &w_id).await?;
-    if let Some(role_for) = query.role_for.as_deref() {
-        if !datatable_names.iter().any(|n| n == role_for) {
+    let mut datatable_names = list_datatable_names(&db, &w_id).await?;
+    for named in [query.role_for.as_deref(), query.datatable_name.as_deref()]
+        .into_iter()
+        .flatten()
+    {
+        if !datatable_names.iter().any(|n| n == named) {
             return Err(Error::NotFound(format!(
-                "No data table named '{role_for}' in this workspace"
+                "No data table named '{named}' in this workspace"
             )));
         }
+    }
+    if let Some(only) = query.datatable_name.as_deref() {
+        datatable_names.retain(|n| n == only);
     }
     let mut results = Vec::new();
 

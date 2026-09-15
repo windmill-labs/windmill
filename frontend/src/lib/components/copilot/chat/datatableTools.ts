@@ -32,15 +32,15 @@ const memo = <T>(factory: () => T): (() => T) => {
 
 // ============= Pure workspace-scoped operations =============
 
-/** List all datatables configured in the workspace, with their schema/table names. `role` is the
- * role `roleFor` is listed as; every other datatable is listed as its default role. */
+/** List the datatables configured in the workspace, with their schema/table names: all of them as
+ * their default role, or only `roleFor` as `role`. */
 export async function listDatatables(
 	workspace: string,
 	roleFor?: string,
 	role?: string
 ): Promise<DataTableTables[]> {
 	return await WorkspaceService.listDataTableTables(
-		role === undefined ? { workspace } : { workspace, roleFor, role }
+		role === undefined ? { workspace } : { workspace, datatableName: roleFor, roleFor, role }
 	)
 }
 
@@ -107,7 +107,7 @@ const getListDatatablesSchema = memo(() =>
 		datatable_name: z
 			.string()
 			.optional()
-			.describe('The datatable `role` applies to. Required with `role`.'),
+			.describe('Required with `role`: only this datatable is then listed, as that role.'),
 		role: getRoleSchema()
 	})
 )
@@ -275,7 +275,18 @@ export function getDatatableTools(): Tool<{}>[] {
 					toolCallbacks.setToolStatus(toolId, {
 						content: `Listed ${metadata.length} datatable(s) with ${totalTables} table(s)`
 					})
-					return JSON.stringify(metadata, null, 2)
+					// Only what the model acts on: the roles it may pass, not the creation privileges
+					// the manager's UI gates on.
+					return JSON.stringify(
+						metadata.map((d) => ({
+							datatable_name: d.datatable_name,
+							schemas: d.schemas,
+							...(d.error && { error: d.error }),
+							...(d.permissioned && { usable_roles: d.usable_roles, default_role: d.default_role })
+						})),
+						null,
+						2
+					)
 				} catch (e) {
 					const errorMsg = `Error listing datatables: ${e instanceof Error ? e.message : String(e)}`
 					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })

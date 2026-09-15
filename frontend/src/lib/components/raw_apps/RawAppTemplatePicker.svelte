@@ -257,11 +257,11 @@
 
 		const formattedTables = preWhitelistedTables.map(formatDataTableRef)
 		const keepsDatatable = tableCreationEnabled && selectedDatatable !== undefined
-		const appRoles = keepsDatatable
-			? withAppDatatableRole(preWhitelistedRoles, selectedDatatable!, effectiveRole)
-			: Object.keys(preWhitelistedRoles).length > 0
-				? { ...preWhitelistedRoles }
-				: undefined
+		// The roles shown, for the data tables the app ends up using.
+		const usedDatatables = new Set(preWhitelistedTables.map((t) => t.datatable))
+		if (keepsDatatable) usedDatatables.add(selectedDatatable!)
+		const shownRoles = Object.entries(pickerRoles ?? {}).filter(([dt]) => usedDatatables.has(dt))
+		const appRoles = shownRoles.length > 0 ? Object.fromEntries(shownRoles) : undefined
 		const data: RawAppData = keepsDatatable
 			? {
 					tables: formattedTables,

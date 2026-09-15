@@ -1099,7 +1099,12 @@
 				)
 				const roledTables = await Promise.all(
 					roled.map(([roleFor, role]) =>
-						WorkspaceService.listDataTableTables({ workspace, roleFor, role })
+						WorkspaceService.listDataTableTables({
+							workspace,
+							datatableName: roleFor,
+							roleFor,
+							role
+						})
 					)
 				)
 				const merged = tables.map((entry) => {
@@ -2173,6 +2178,14 @@
 			runnables = structuredClone($state.snapshot(entry.runnables))
 			summary = entry.summary
 			data = structuredClone($state.snapshot(entry.data))
+			// The policy sync writes the policy into `data`, so the policy has to take the restored
+			// values first or it puts the newer ones straight back.
+			aiChatManager.datatableCreationPolicy = {
+				...aiChatManager.datatableCreationPolicy,
+				datatable: data.datatable,
+				schema: data.schema,
+				roles: data.roles
+			}
 
 			// If the open document survives into the new files, use the combined message
 			if (iframeDocument && isOpenableDocument(iframeDocument)) {

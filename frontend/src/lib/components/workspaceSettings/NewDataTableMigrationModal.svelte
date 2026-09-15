@@ -166,6 +166,9 @@
 	}
 
 	export function open(prefill?: { name?: string; codeUp?: string; codeDown?: string }) {
+		// Roles and the default can have changed since the last open (the roles drawer sits next
+		// to this modal), and the default role is written from this answer.
+		usableRoles.refetch()
 		name = prefill?.name ?? ''
 		// Start from the transaction template; when prefilled from detected DDL,
 		// wrap that DDL in the same BEGIN; ... END; frame. A role the prefill declares is taken

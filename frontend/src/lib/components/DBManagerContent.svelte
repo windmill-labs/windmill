@@ -5,7 +5,10 @@
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import Button from './common/button/Button.svelte'
-	import { dbSupportsSchemas } from './apps/components/display/dbtable/utils'
+	import {
+		dbSupportsSchemas,
+		getLanguageByResourceType
+	} from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
 	import DbWorkerTagPicker from './DbWorkerTagPicker.svelte'
 	import MissingWorkerTagAlert from './jobs/MissingWorkerTagAlert.svelte'
@@ -96,6 +99,15 @@
 	// owns its slot so neither can clear the other's error on a refetch.
 	let schemaError = $state<string | undefined>(undefined)
 	let colDefsError = $state<string | undefined>(undefined)
+	function emptySchemaFor(db: DbInput): DBSchema {
+		return {
+			lang: db.type === 'ducklake' ? 'ducklake' : getLanguageByResourceType(db.resourceType),
+			schema: {},
+			publicOnly: undefined,
+			stringified: ''
+		} as DBSchema
+	}
+
 	let loadError = $derived(
 		schemaError
 			? { title: 'Could not load the database schema', message: schemaError }
@@ -231,17 +243,23 @@
 	}}
 />
 
-<!-- The error branch comes first on purpose: `dbSchema` is read from a cache that
-	survives a failed refetch, so ordering it first would hide the failure behind
-	stale content. -->
-{#if loadError}
+<!-- A load error replaces only the data pane: the tree, its role badge and menus, and the REPL
+	stay usable, so another data table or role can be picked and the connection tried by hand.
+	The tree then gets an empty schema: the cached one survives a failed refetch and would pass
+	stale content off as what this connection reaches. -->
+{#snippet errorPane()}
 	<div class="h-full w-full flex flex-col items-center justify-center gap-3 p-8">
 		<div class="max-w-2xl w-full flex flex-col gap-3">
-			<Alert type="error" title={loadError.title} size="xs">
-				{loadError.message}
+			<Alert type="error" title={loadError?.title ?? ''} size="xs">
+				{loadError?.message}
 			</Alert>
 			<div class="self-start">
-				<Button size="xs" color="light" startIcon={{ icon: RefreshCcw }} on:click={() => refresh()}>
+				<Button
+					unifiedSize="sm"
+					variant="default"
+					startIcon={{ icon: RefreshCcw }}
+					on:click={() => refresh()}
+				>
 					Retry
 				</Button>
 			</div>
@@ -255,9 +273,12 @@
 			/>
 		</div>
 	</div>
-{:else if dbSchema && ws && input}
+{/snippet}
+
+{#if (loadError || dbSchema) && ws && input}
 	{@const _input = input}
 	{@const dbType = getDbType(_input)}
+	{@const shownSchema = loadError || !dbSchema ? emptySchemaFor(_input) : dbSchema}
 	<Splitpanes horizontal>
 		<Pane class="relative">
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -282,9 +303,11 @@
 			</div>
 			<DbManager
 				dbSupportsSchemas={dbSupportsSchemas(dbType)}
-				databaseIsEmpty={!Object.values(dbSchema.schema).flatMap((s) => Object.values(s)).length}
-				{dbSchema}
-				colDefs={colDefs.current}
+				databaseIsEmpty={!loadError &&
+					!Object.values(shownSchema.schema).flatMap((s) => Object.values(s)).length}
+				dbSchema={shownSchema}
+				mainPane={loadError ? errorPane : undefined}
+				colDefs={loadError ? undefined : colDefs.current}
 				dbTableOpsFactory={({ colDefs, tableKey, whereClause }) =>
 					dbTableOpsWithPreviewScripts({
 						colDefs,
@@ -345,12 +368,12 @@
 					onSchemaChange={() => refresh()}
 					placeholderTableName={sortArray(
 						Object.keys(
-							dbSchema?.schema[
-								'public' in dbSchema?.schema
+							shownSchema.schema[
+								'public' in shownSchema.schema
 									? 'public'
-									: 'dbo' in dbSchema?.schema
+									: 'dbo' in shownSchema.schema
 										? 'dbo'
-										: Object.keys(dbSchema?.schema ?? {})?.[0]
+										: Object.keys(shownSchema.schema ?? {})?.[0]
 							] ?? {}
 						)
 					)?.[0]}

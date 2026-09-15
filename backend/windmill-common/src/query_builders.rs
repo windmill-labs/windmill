@@ -2026,7 +2026,7 @@ fn expand_rename_schema(json_str: &str, db_type: DbType) -> Result<String, Strin
         qi(&p.schema, db_type),
         qi(&p.new_schema, db_type)
     );
-    Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
+    Ok(query)
 }
 
 fn expand_create_table(json_str: &str, db_type: DbType) -> Result<String, String> {

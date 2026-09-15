@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte'
 	import { superadmin, userStore, type DBSchema } from '$lib/stores'
 	import {
 		ChevronDownIcon,
@@ -108,6 +109,8 @@
 		disabledTables?: SelectedTable[]
 		features?: DbFeatures
 		asset?: Asset
+		/** Shown in the data pane instead of the table, e.g. why the database could not be read. */
+		mainPane?: Snippet
 		onImport?: (mode: 'schema_and_data' | 'schema_only') => void
 	}
 	let {
@@ -137,7 +140,8 @@
 		disabledTables = [],
 		features,
 		asset,
-		onImport
+		onImport,
+		mainPane
 	}: Props = $props()
 
 	// The engines whose SQL has `ALTER SCHEMA .. RENAME TO`: BigQuery datasets and DuckDB schemas
@@ -1003,7 +1007,9 @@
 		</div>
 	</Pane>
 	<Pane class="p-3 pt-1">
-		{#if tableKey && colDefs?.[tableKey]?.length}
+		{#if mainPane}
+			{@render mainPane()}
+		{:else if tableKey && colDefs?.[tableKey]?.length}
 			{@const dbTableOps = dbTableOpsFactory({ colDefs: colDefs[tableKey], tableKey, whereClause })}
 			<DBTable
 				{dbTableOps}

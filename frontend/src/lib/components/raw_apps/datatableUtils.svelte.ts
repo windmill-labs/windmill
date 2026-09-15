@@ -144,6 +144,7 @@ export function createDatatableAccessResource(
 				try {
 					const tables = await WorkspaceService.listDataTableTables({
 						workspace,
+						datatableName: datatable,
 						roleFor: datatable,
 						role: role || undefined
 					})

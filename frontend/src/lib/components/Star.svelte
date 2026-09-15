@@ -30,15 +30,17 @@
 	onmouseleave={() => (buttonHover = false)}
 	class="p-1"
 >
-	<!-- Never filled: a favourite reads as yellow, not as a solid blob, which keeps
-	     the icon the same weight whether or not it is starred. -->
 	{#if starred}
 		{#if buttonHover}
-			<StarOff {size} fill="none" class="text-yellow-500" />
+			<StarOff {size} fill="currentcolor" />
 		{:else}
-			<Star {size} fill="none" class="text-yellow-500" />
+			<Star {size} fill="currentcolor" />
 		{/if}
 	{:else}
-		<Star {size} fill="none" class={buttonHover ? '' : 'opacity-60'} />
+		<Star
+			class={!buttonHover ? 'opacity-60' : ''}
+			{size}
+			fill={buttonHover ? 'currentcolor' : 'none'}
+		/>
 	{/if}
 </button>

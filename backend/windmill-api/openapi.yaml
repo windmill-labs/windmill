@@ -5328,6 +5328,11 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: query
+          description: list only this data table; each listed data table opens a connection to its database
+          schema:
+            type: string
         - name: role_for
           in: query
           description: the data table `role` applies to; every other one is listed as its default role
