@@ -68,22 +68,38 @@
 
 	// The app's role on the data table can change without the data table changing (tables added
 	// under another role): a default schema that role no longer reaches is where the AI could not
-	// create tables, so it is unset once the answer for this role is in. Only after a role change
-	// made here: opening an app must not modify it.
+	// create tables, so it is unset once the answer for this role is in. Only after a role change:
+	// opening an app must not modify it, but every later change is checked, back to the first
+	// role included.
 	// svelte-ignore state_referenced_locally
-	const roleOnOpen = role
+	let lastRole = role
+	/** The role whose answer the schema still has to be checked against, or `null` for none. */
+	let pendingCheck = $state<string | undefined | null>(null)
+	$effect(() => {
+		const current = role
+		untrack(() => {
+			if (current !== lastRole) {
+				lastRole = current
+				pendingCheck = current
+			}
+		})
+	})
 	$effect(() => {
 		const answer = access.current
 		if (
-			role !== roleOnOpen &&
-			schema !== undefined &&
-			answer.datatable === datatable &&
-			answer.role === role &&
-			!answer.failed &&
-			!answer.schemas.includes(schema)
+			pendingCheck === null ||
+			role !== pendingCheck ||
+			answer.datatable !== datatable ||
+			answer.role !== pendingCheck
 		) {
-			untrack(() => onChange?.(datatable, undefined))
+			return
 		}
+		untrack(() => {
+			pendingCheck = null
+			if (!answer.failed && schema !== undefined && !answer.schemas.includes(schema)) {
+				onChange?.(datatable, undefined)
+			}
+		})
 	})
 </script>
 

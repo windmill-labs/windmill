@@ -219,22 +219,28 @@
 		}
 	}
 
+	// Cleared before a data table is selected: a pick left unadded when the drawer last closed
+	// would otherwise decide the role it reopens as.
+	function resetSelection() {
+		selectedTables = []
+		browsedRoles = {}
+		selectedRole = undefined
+	}
+
 	export function openDrawer() {
+		resetSelection()
 		selectedSchemaKey = undefined
 		selectedTableKey = undefined
 		selectDatatable(datatables.current.includes('main') ? 'main' : datatables.current[0])
-		selectedTables = []
-		browsedRoles = {}
 		expand = false
 		open = true
 	}
 
 	export function openDrawerWithRef(ref: DataTableRef) {
+		resetSelection()
 		selectedSchemaKey = ref.schema
 		selectedTableKey = ref.table
 		selectDatatable(ref.datatable)
-		selectedTables = []
-		browsedRoles = {}
 		expand = false
 		open = true
 	}
