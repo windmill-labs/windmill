@@ -1567,6 +1567,15 @@
      this route's JavaScript and none of what the resources table needs. -->
 {#if agentEditorTarget()}
 	{#await import('$lib/components/flows/content/AgentEditorModal.svelte') then { default: AgentEditorModal }}
-		<AgentEditorModal enableAi={$copilotInfo.enabled} owns={(t) => t.host === undefined} />
+		<AgentEditorModal
+			enableAi={$copilotInfo.enabled}
+			owns={(t) => t.host === undefined}
+			onRenamed={(_from, to) => {
+				// Claimed first, as a row click does, so the deep-link effect does not reopen it.
+				handledHash = `#/resource/${to}`
+				setPageDrawerAnchor(RESOURCES_PATH, to)
+				void loadResources()
+			}}
+		/>
 	{/await}
 {/if}
