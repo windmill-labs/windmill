@@ -716,17 +716,18 @@ class Entry<V> {
 				this.serverDeployed = { ...this.serverDeployed, ...sent } as V
 			}
 			release()
-			// The value is the user's copy, so it is given back by hand — to the baseline as it
-			// stands now, which is the server's value or a later patch's, never this one's. Not
-			// given back at all if something has written the value since: that is newer than this
-			// patch and rolling it back would be this patch overwriting it.
+			// The value is the user's copy, so it is given back by hand, field by field, to the
+			// baseline as it stands now — the server's value or a later patch's, never this one's.
+			// Only a field still carrying what this patch put there, so an edit made meanwhile to
+			// any other field is left alone. And none of them once an outside write has landed:
+			// that wrote the value wholesale and is newer than this patch, and a field of it
+			// happening to match what this patch sent is not this patch's to take back.
 			if (failed) {
 				const base = (onTemplate ? this.template : this.deployed) as
 					| Record<string, unknown>
 					| undefined
-				const moved =
-					this.edits !== appliedAt.edits || this.externals !== appliedAt.externals
-				if (base !== undefined && this.value !== undefined && !moved) {
+				const written = this.externals !== appliedAt.externals
+				if (base !== undefined && this.value !== undefined && !written) {
 					const out = snapshot(this.value) as Record<string, unknown>
 					let changed = false
 					for (const [k, v] of Object.entries(sent)) {

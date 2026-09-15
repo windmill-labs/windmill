@@ -843,6 +843,34 @@ describe('item store: origins', () => {
 		expect(item.dirty).toBe(true)
 	})
 
+	it('gives a refused toggle its field back while an edit made meanwhile stays', async () => {
+		type Sched = { path: string; enabled: boolean; summary: string }
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const refusal = deferred()
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'trigger_schedule', path: 's' },
+			{ workspace: 'w', path: 's' },
+			{
+				load: async () => ({ deployed: { path: 's', enabled: true, summary: 'a' } })
+			} as ItemAdapter<Sched>
+		)
+		await settle()
+		const toggling = item.patch({ enabled: false }, () => refusal.promise)
+		// The user types in another field while the request is out.
+		item.value = { path: 's', enabled: false, summary: 'typed while disabling' }
+		refusal.reject(new Error('refused'))
+
+		expect(await toggling).toMatchObject({ ok: false })
+		// The server stayed enabled, so showing it disabled — and drafting that — would be an
+		// editor claiming a schedule is off while it is still running. The summary is untouched.
+		expect(item.value).toEqual({ path: 's', enabled: true, summary: 'typed while disabling' })
+		expect(rows.writes.at(-1)).toEqual({
+			path: 's',
+			value: { path: 's', enabled: true, summary: 'typed while disabling' }
+		})
+	})
+
 	it('does not roll a refused toggle back over a draft written while it was out', async () => {
 		type Sched = { path: string; enabled: boolean; summary: string }
 		const rows = fakeRows()
