@@ -534,7 +534,14 @@ class Entry<V> {
 		// Stale refused it. A reload is what clears that, and with a baseline it can trust the
 		// discard means something again — so the one thing worth trying before giving up. The
 		// retry carries the state as of the request, so an edit typed during that reload stands.
+		const askedAbout = serialize(this.value)
+		const editsBefore = this.edits
 		if (!this.adapter || !(await this.load(this.adapter)).ok) return 'failed'
+		// The recovery turned up a different draft — changed by the read, not by anyone typing,
+		// which is what `edits` tells apart. The retry would take that for what it was asked to
+		// throw away and delete someone else's newer row, past the conflict its own baseline
+		// would have raised. An edit made meanwhile is the other case, and `discard` handles it.
+		if (serialize(this.value) !== askedAbout && this.edits === editsBefore) return 'failed'
 		await this.discard(asked)
 		return this.stale ? 'failed' : this.ownsRow ? 'done' : 'absent'
 	}

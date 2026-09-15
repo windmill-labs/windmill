@@ -1634,6 +1634,43 @@ describe('item store: conflicts', () => {
 		expect(item.status).not.toBe('conflicted')
 	})
 
+	it('does not let a stale discard delete the draft its recovery turned up', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const recovery = deferred<ItemLoad<Res>>()
+		let reads = 0
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const mine = { ...deployedRes, description: 'draft A, mine' }
+		const { handle: item } = store.acquire(
+			key,
+			{ workspace: 'w', path: 'u/me/r' },
+			adapter(() => {
+				reads++
+				if (reads === 1) return Promise.resolve({ deployed: deployedRes, draft: mine })
+				if (reads === 2) return Promise.reject(new Error('the GET failed'))
+				return recovery.promise
+			})
+		)
+		await settle()
+		expect(item.value).toEqual(mine)
+		// A write landed elsewhere and the re-read for it failed, so this editor is stale.
+		expect(await store.bridge.refresh('w', 'resource', 'u/me/r')).toBe('failed')
+
+		// The chat discards A. Stale refuses, so it reloads to recover — and that read finds
+		// draft B, which another tab wrote and nobody asked to discard.
+		const discarding = store.bridge.discard('w', 'resource', 'u/me/r')
+		await settle()
+		const theirs = { ...deployedRes, description: 'draft B, theirs' }
+		const writesBefore = rows.writes.length
+		recovery.resolve({ deployed: deployedRes, draft: theirs, draftSavedAt: 'T-b' })
+
+		// Deleting B here would take a newer draft past the conflict A's own baseline would have
+		// raised. The discard reports it could not be done instead.
+		expect(await discarding).toBe('failed')
+		expect(item.value).toEqual(theirs)
+		expect(rows.writes.slice(writesBefore)).toEqual([])
+	})
+
 	it('keeps an edit typed while a stale discard was recovering the item', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)
