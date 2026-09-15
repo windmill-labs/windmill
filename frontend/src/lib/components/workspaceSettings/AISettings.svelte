@@ -28,6 +28,7 @@
 	import ModelPricing from './ModelPricing.svelte'
 	import AiUsagePanel from './AiUsagePanel.svelte'
 	import { setCopilotInfo } from '$lib/aiStore'
+	import { backupSettingsChanged } from '$lib/components/sessions/sessionMirror.svelte'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
 	import { Settings } from 'lucide-svelte'
 	import { untrack } from 'svelte'
@@ -79,6 +80,7 @@
 	let usingOpenaiClientCredentialsOauth = $state(false)
 	let workspaceOverrideEditorOpened = $state(false)
 	let copilotDisabled = $state(false)
+	let sessionsStorageDisabled = $state(false)
 
 	// --- Initial state for dirty tracking ---
 	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
@@ -90,6 +92,7 @@
 	let initialModelPricing: Record<string, ModelPriceOverride> = $state({})
 	let initialPrompts: Record<string, string> = $state({})
 	let initialCopilotDisabled = $state(false)
+	let initialSessionsStorageDisabled = $state(false)
 	let lastLoadedConfigKey = $state<string | undefined>(undefined)
 
 	function clone<T>(v: T): T {
@@ -118,6 +121,7 @@
 		maxTokensPerModel = clone(config?.max_tokens_per_model ?? {})
 		modelPricing = clone(config?.model_pricing ?? {})
 		copilotDisabled = config?.copilot_disabled === true
+		sessionsStorageDisabled = config?.sessions_storage_disabled === true
 		for (const mode of ['edit', 'fix', 'gen']) {
 			if (!(mode in customPrompts)) {
 				customPrompts[mode] = ''
@@ -135,6 +139,7 @@
 		initialModelPricing = clone(modelPricing)
 		initialPrompts = clone(customPrompts)
 		initialCopilotDisabled = copilotDisabled
+		initialSessionsStorageDisabled = sessionsStorageDisabled
 	}
 
 	export function loadFromConfig(config: AIConfig | undefined) {
@@ -151,6 +156,7 @@
 		maxTokensPerModel = clone(initialMaxTokensPerModel)
 		modelPricing = clone(initialModelPricing)
 		copilotDisabled = initialCopilotDisabled
+		sessionsStorageDisabled = initialSessionsStorageDisabled
 	}
 
 	$effect(() => {
@@ -186,7 +192,8 @@
 			JSON.stringify(customPrompts) !== JSON.stringify(initialCustomPrompts) ||
 			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel) ||
 			JSON.stringify(modelPricing) !== JSON.stringify(initialModelPricing) ||
-			copilotDisabled !== initialCopilotDisabled
+			copilotDisabled !== initialCopilotDisabled ||
+			sessionsStorageDisabled !== initialSessionsStorageDisabled
 	)
 
 	$effect(() => {
@@ -291,8 +298,9 @@
 			.filter(([_, prompt]) => prompt.trim().length > 0)
 			.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
 
-		// The flag is the one thing a workspace on instance defaults still stores of its own.
+		// The flags are what a workspace on instance defaults still stores of its own.
 		const copilot_disabled = copilotDisabled ? true : undefined
+		const sessions_storage_disabled = sessionsStorageDisabled ? true : undefined
 		return Object.keys(aiProviders ?? {}).length > 0
 			? {
 					providers: aiProviders,
@@ -303,9 +311,10 @@
 					max_tokens_per_model:
 						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined,
 					model_pricing: Object.keys(modelPricing).length > 0 ? modelPricing : undefined,
-					copilot_disabled
+					copilot_disabled,
+					sessions_storage_disabled
 				}
-			: { copilot_disabled }
+			: { copilot_disabled, sessions_storage_disabled }
 	}
 
 	function isSaveDisabled(): boolean {
@@ -332,6 +341,7 @@
 
 	async function editCopilotConfig(): Promise<void> {
 		const config = buildConfig()
+		const backupsToggled = sessionsStorageDisabled !== initialSessionsStorageDisabled
 		let settingsState: GetCopilotSettingsStateResponse | undefined
 
 		if (customSave) {
@@ -348,6 +358,9 @@
 				instance_ai_summary: response.instance_ai_summary
 			}
 			sendUserToast('AI settings updated')
+			// This page's session backups follow the switch at once, rather than at the
+			// next page load.
+			if (backupsToggled) backupSettingsChanged(effectiveWorkspace)
 		}
 		storeInitialState()
 		// Hand the parent what was persisted: it owns `initialConfig`, and this component is
@@ -644,6 +657,18 @@
 					copilotDisabled = e.detail
 				}}
 				options={{ right: 'Hide AI sessions in this workspace' }}
+			/>
+		</SettingCard>
+		<SettingCard
+			label="AI session backups"
+			description="Browsers back their AI sessions up to this workspace's object storage, encrypted with the workspace key, and restore them on a new device or after clearing site data. Nothing is stored while the workspace has no object storage configured. Turn it off to keep sessions in the browser only, for example to spare the storage quota."
+		>
+			<Toggle
+				checked={sessionsStorageDisabled}
+				on:change={(e) => {
+					sessionsStorageDisabled = e.detail
+				}}
+				options={{ right: 'Do not back AI sessions up to the workspace storage' }}
 			/>
 		</SettingCard>
 	{/if}

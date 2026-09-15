@@ -13195,6 +13195,153 @@ paths:
                     type: boolean
                     description: more buckets matched than were returned, so summing them under-reports
 
+  /w/{workspace}/ai/sessions/list:
+    get:
+      summary: list the calling user's AI session backups in the workspace object storage
+      operationId: listAiSessionBackups
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: backups, newest first; `enabled` is false when the workspace has no storage for them
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - enabled
+                  - sessions
+                properties:
+                  enabled:
+                    type: boolean
+                  storage_id:
+                    type: string
+                    description: names the storage answered from; sync state recorded against another one is void
+                  backup_generation:
+                    type: integer
+                    description: bumped by every workspace key rotation; sync state recorded under another one is void
+                  sessions:
+                    type: array
+                    description: the newest 500 at most
+                    items:
+                      $ref: "#/components/schemas/AISessionBackupListing"
+                  truncated:
+                    type: boolean
+                    description: the user has more sessions than the answer names
+
+  /w/{workspace}/ai/sessions/pull:
+    post:
+      summary: fetch whole AI session backups
+      operationId: pullAiSessionBackups
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ids
+              properties:
+                ids:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: string
+                resume:
+                  $ref: "#/components/schemas/AISessionBackupCursor"
+      responses:
+        "200":
+          description: the backups found; `deferred` lists ids that did not fit the response budget
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - enabled
+                  - sessions
+                  - deferred
+                properties:
+                  enabled:
+                    type: boolean
+                  storage_id:
+                    type: string
+                  backup_generation:
+                    type: integer
+                  sessions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AISessionBackup"
+                  deferred:
+                    type: array
+                    items:
+                      type: string
+
+  /w/{workspace}/ai/sessions/push:
+    post:
+      summary: write changed pieces of AI sessions to their backups, and remove deleted ones
+      operationId: pushAiSessionBackups
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - owner
+              properties:
+                owner:
+                  type: string
+                  description: the email the push was prepared for; refused with a 409 when it is not the caller's
+                sessions:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/AISessionBackupPush"
+                removed:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: one result per session written or removed, in request order
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - enabled
+                  - results
+                properties:
+                  enabled:
+                    type: boolean
+                  storage_id:
+                    type: string
+                  backup_generation:
+                    type: integer
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - id
+                      properties:
+                        id:
+                          type: string
+                        error:
+                          type: string
+                        needs_whole:
+                          type: boolean
+                          description: nothing was written and the session must be pushed whole again; an incremental part found no listed session to ride on (the backup was removed, or a push split over parts is in progress or was abandoned), or a later part of a push split over parts found another push had superseded it
+
   /w/{workspace}/ai/shared_artifacts/share:
     post:
       summary: share an AI session artifact with the workspace
@@ -28289,6 +28436,155 @@ components:
             fixes) from the workspace UI. Read from the workspace's own settings even when
             the providers served fall back to the instance config. AI agent steps and the
             AI sandbox in flows are unaffected.
+        sessions_storage_disabled:
+          type: boolean
+          description: >-
+            Stops browsers from backing their AI sessions up to the workspace's object
+            storage. Read from the workspace's own settings like `copilot_disabled`.
+
+    AISessionBackupListing:
+      type: object
+      required:
+        - id
+        - updated_at
+        - epoch
+      properties:
+        id:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+        epoch:
+          type: integer
+          description: the session's move count when this copy was pushed; of a session two workspaces list, the copy with the higher one is the later
+
+    AISessionBackupImage:
+      type: object
+      required:
+        - chat_id
+        - id
+        - data_url
+      properties:
+        chat_id:
+          type: string
+        id:
+          type: string
+        data_url:
+          type: string
+
+    AISessionBackupChat:
+      type: object
+      required:
+        - id
+        - record
+      properties:
+        id:
+          type: string
+        record:
+          type: object
+          additionalProperties: true
+
+    AISessionBackup:
+      type: object
+      required:
+        - id
+        - head
+        - chats
+        - images
+        - listing
+      properties:
+        id:
+          type: string
+        head:
+          type: object
+          additionalProperties: true
+        chats:
+          type: array
+          items:
+            $ref: "#/components/schemas/AISessionBackupChat"
+        images:
+          type: array
+          items:
+            $ref: "#/components/schemas/AISessionBackupImage"
+        artifacts:
+          type: object
+          additionalProperties: true
+        next:
+          $ref: "#/components/schemas/AISessionBackupCursor"
+        listing:
+          type: string
+          description: a fingerprint of the session's listing; pages of one session whose fingerprints differ do not belong together
+        moved:
+          type: boolean
+          description: the backup kept changing while this page was read, so it may mix two versions; the browser starts the session over
+
+    AISessionBackupCursor:
+      type: object
+      description: where a pull of a session that did not fit one answer whole picks up; the rest of the session follows a pull naming that session alone with this as `resume`
+      required:
+        - id
+        - images
+        - after
+      properties:
+        id:
+          type: string
+        images:
+          type: boolean
+        after:
+          type: string
+
+    AISessionBackupPush:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        head:
+          type: object
+          additionalProperties: true
+        chats:
+          type: array
+          items:
+            $ref: "#/components/schemas/AISessionBackupChat"
+        images:
+          type: array
+          items:
+            $ref: "#/components/schemas/AISessionBackupImage"
+        artifacts:
+          type: object
+          additionalProperties: true
+        delete_chats:
+          type: array
+          items:
+            type: string
+        delete_images:
+          type: array
+          items:
+            type: object
+            required:
+              - chat_id
+              - id
+            properties:
+              chat_id:
+                type: string
+              id:
+                type: string
+        partial:
+          type: boolean
+          description: more parts of this session follow, in this push or a later one; the session is not listed on this one. Such a part names its push (`push`), or it is refused
+        whole:
+          type: boolean
+          description: a part of a push of the session whole; the head is on the part that opens it, which replaces whatever the storage holds of the session, and every piece the browser has is on one of them. An incremental part instead rides on a session the storage lists and is refused with needs_whole when it lists none
+        push:
+          type: string
+          description: a push split over several parts names itself on each with a token the browser draws; the part that opens it unlists the session and the last part lists it again, and a later part is written only while that token is the one there (refused with needs_whole otherwise)
+        opens:
+          type: boolean
+          description: this part opens the push named by `push`
+        epoch:
+          type: integer
+          description: the session's move count (its record's `moves`), kept with the marker that lists the session; an incremental part rides on the marker of the same count
 
     FreeTierInfo:
       type: object
