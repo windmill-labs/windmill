@@ -131,7 +131,8 @@
 	const access = createDatatableAccessResource(
 		() => selectedDatatable,
 		() => effectiveRole,
-		() => opWs
+		() => opWs,
+		() => rolesSettled && (loadedRoles.length === 0 || effectiveRole !== undefined)
 	)
 	// Under roles, and this caller may use none of them: the app would be saved with queries the
 	// server refuses.

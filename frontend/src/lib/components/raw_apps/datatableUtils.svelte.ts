@@ -5,6 +5,23 @@ import { ADMIN_DATATABLE_ROLE } from '$lib/components/dbTypes'
 import { get } from 'svelte/store'
 
 /**
+ * `fetch` wrapped so that an answer for a request a newer one has replaced resolves to
+ * `stale()` instead: a resource keeps whichever answer lands last, and a slow answer for the
+ * previous data table or role would otherwise describe a selection that no longer exists.
+ */
+function latestOnly<A extends unknown[], T>(
+	fetch: (...args: A) => Promise<T>,
+	stale: () => T
+): (...args: A) => Promise<T> {
+	let run = 0
+	return async (...args) => {
+		const mine = ++run
+		const result = await fetch(...args)
+		return mine === run ? result : stale()
+	}
+}
+
+/**
  * Creates a resource that loads available datatables from the workspace.
  * Pass a getter function that returns the workspace to create a reactive dependency.
  */
@@ -49,26 +66,30 @@ export function createRolesResource(
 		roles: [],
 		defaultRole: ADMIN_DATATABLE_ROLE
 	}
-	return resource(
+	const rolesResource = resource(
 		() => [getDatatable() ?? '', getWorkspace() ?? ''] as const,
-		async ([datatableName, workspace]): Promise<DatatableRoles> => {
-			const empty = { ...initialValue, datatable: datatableName || undefined }
-			if (!datatableName || !workspace) return empty
-			try {
-				const res = await WorkspaceService.listUsableDatatableRoles({ workspace, datatableName })
-				return {
-					...empty,
-					permissioned: res.permissioned,
-					roles: res.roles,
-					defaultRole: res.default_role
+		latestOnly(
+			async ([datatableName, workspace]: readonly [string, string]): Promise<DatatableRoles> => {
+				const empty = { ...initialValue, datatable: datatableName || undefined }
+				if (!datatableName || !workspace) return empty
+				try {
+					const res = await WorkspaceService.listUsableDatatableRoles({ workspace, datatableName })
+					return {
+						...empty,
+						permissioned: res.permissioned,
+						roles: res.roles,
+						defaultRole: res.default_role
+					}
+				} catch (e) {
+					console.error('Failed to load datatable roles:', e)
+					return { ...empty, failed: true }
 				}
-			} catch (e) {
-				console.error('Failed to load datatable roles:', e)
-				return { ...empty, failed: true }
-			}
-		},
+			},
+			() => rolesResource.current
+		),
 		{ initialValue }
 	)
+	return rolesResource
 }
 
 export type DatatableAccess = {
@@ -91,7 +112,10 @@ export type DatatableAccess = {
 export function createDatatableAccessResource(
 	getDatatable: () => string | undefined,
 	getRole: () => string | undefined,
-	getWorkspace: () => string | undefined = () => get(workspaceStore)
+	getWorkspace: () => string | undefined = () => get(workspaceStore),
+	/** False while the role is still being settled: a listing sent before that is read as the
+	 * data table's default role, which is not the one about to be asked for. */
+	getReady: () => boolean = () => true
 ) {
 	const initialValue: DatatableAccess = {
 		datatable: undefined,
@@ -101,32 +125,46 @@ export function createDatatableAccessResource(
 		schemas: [],
 		canCreateSchema: false
 	}
-	return resource(
-		() => [getDatatable() ?? '', getRole() ?? '', getWorkspace() ?? ''] as const,
-		async ([datatable, role, workspace]): Promise<DatatableAccess> => {
-			const asked = { ...initialValue, datatable: datatable || undefined, role: role || undefined }
-			if (!datatable || !workspace) return asked
-			try {
-				const tables = await WorkspaceService.listDataTableTables({
-					workspace,
-					roleFor: datatable,
+	const accessResource = resource(
+		() => [getDatatable() ?? '', getRole() ?? '', getWorkspace() ?? '', getReady()] as const,
+		latestOnly(
+			async ([datatable, role, workspace, ready]: readonly [
+				string,
+				string,
+				string,
+				boolean
+			]): Promise<DatatableAccess> => {
+				const asked = {
+					...initialValue,
+					datatable: datatable || undefined,
 					role: role || undefined
-				})
-				const entry = tables.find((t) => t.datatable_name === datatable)
-				return {
-					...asked,
-					failed: entry === undefined || entry.error !== undefined,
-					error: entry?.error,
-					schemas: Object.keys(entry?.schemas ?? {}).sort(),
-					canCreateSchema: !!entry?.can_create_schema
 				}
-			} catch (e) {
-				console.error('Failed to load datatable access:', e)
-				return { ...asked, failed: true, error: (e as Error)?.message }
-			}
-		},
+				if (!ready) return accessResource.current
+				if (!datatable || !workspace) return asked
+				try {
+					const tables = await WorkspaceService.listDataTableTables({
+						workspace,
+						roleFor: datatable,
+						role: role || undefined
+					})
+					const entry = tables.find((t) => t.datatable_name === datatable)
+					return {
+						...asked,
+						failed: entry === undefined || entry.error !== undefined,
+						error: entry?.error,
+						schemas: Object.keys(entry?.schemas ?? {}).sort(),
+						canCreateSchema: !!entry?.can_create_schema
+					}
+				} catch (e) {
+					console.error('Failed to load datatable access:', e)
+					return { ...asked, failed: true, error: (e as Error)?.message }
+				}
+			},
+			() => accessResource.current
+		),
 		{ initialValue }
 	)
+	return accessResource
 }
 
 /**

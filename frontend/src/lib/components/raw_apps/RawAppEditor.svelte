@@ -1091,13 +1091,17 @@
 				// A data table the app uses through a role is listed as that role, so the AI sees
 				// what the app's own queries reach.
 				const workspace = opWorkspace
-				const roled = Object.entries(data.roles ?? {})
-				const [tables, ...roledTables] = await Promise.all([
-					WorkspaceService.listDataTableTables({ workspace }),
-					...roled.map(([roleFor, role]) =>
+				const tables = await WorkspaceService.listDataTableTables({ workspace })
+				// Only data tables that still exist: `data.roles` can outlive a removed or renamed one,
+				// and the server answers a `role_for` naming nothing with a 404.
+				const roled = Object.entries(data.roles ?? {}).filter(([dt]) =>
+					tables.some((t) => t.datatable_name === dt)
+				)
+				const roledTables = await Promise.all(
+					roled.map(([roleFor, role]) =>
 						WorkspaceService.listDataTableTables({ workspace, roleFor, role })
 					)
-				])
+				)
 				const merged = tables.map((entry) => {
 					const i = roled.findIndex(([dt]) => dt === entry.datatable_name)
 					return i === -1

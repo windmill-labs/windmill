@@ -2015,6 +2015,12 @@ fn expand_drop_schema(json_str: &str, db_type: DbType) -> Result<String, String>
 fn expand_rename_schema(json_str: &str, db_type: DbType) -> Result<String, String> {
     let p: RenameSchemaPayload = serde_json::from_str(json_str)
         .map_err(|e| format!("Invalid RENAME_SCHEMA payload: {}", e))?;
+    if !matches!(db_type, DbType::Postgresql | DbType::Snowflake) || p.ducklake.is_some() {
+        return Err(format!(
+            "Renaming a schema is not supported on {:?}",
+            db_type
+        ));
+    }
     let query = format!(
         "ALTER SCHEMA {} RENAME TO {};",
         qi(&p.schema, db_type),

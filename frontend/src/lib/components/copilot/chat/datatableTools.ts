@@ -16,9 +16,9 @@ import {
  *
  * Datatables are workspace-level managed PostgreSQL databases. The backend
  * endpoints used here (`list_datatable_tables`, `get_datatable_table_schema`)
- * and SQL execution (`datatable://<name>`) are gated only by workspace
- * membership, so these tools need no app context and operate directly on the
- * workspace. This is the unrestricted counterpart to the app-mode datatable
+ * and SQL execution (`datatable://<name>`) need no app context: the server
+ * decides what the caller reaches, as the datatable role they name or its
+ * default. This is the unrestricted counterpart to the app-mode datatable
  * tools in `app/core.ts`, which additionally filter by the app's whitelist.
  */
 

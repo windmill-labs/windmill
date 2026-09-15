@@ -39,31 +39,15 @@
 	// re-mount the switch causes.
 	let pendingAction = $state<PendingRowAction | undefined>(undefined)
 
-	// Every data table with its schemas and tables, in one call: this is what the
-	// left pane's tree navigates, so it has to cover the data tables the user is
-	// not currently on, not just the selected one.
-	const datatables = resource(
-		// The privileges it reports are the connected role's, so the role picked on
-		// the open data table is part of what is being asked. Gated on the drawer
-		// being open: this reaches every data table's database in turn, and the
-		// component is mounted on every logged-in page.
-		() => [open, ws, uriState.selectedDatatable, uriState.selectedRole] as const,
-		async ([isOpen, workspace, roleFor, role]): Promise<DataTableTables[]> => {
-			if (!isOpen || !workspace) return []
-			try {
-				return await WorkspaceService.listDataTableTables({ workspace, roleFor, role })
-			} catch (e) {
-				console.error('Failed to load datatables:', e)
-				return []
-			}
-		},
-		{ initialValue: [] }
-	)
+	// Read once through primitives: the getters return values of a freshly parsed URL, which
+	// changes on every table click, and the listings below must not refetch for that.
+	const selectedDatatable = $derived(uriState.selectedDatatable)
+	const selectedRole = $derived(uriState.selectedRole)
 
 	// Roles the caller may use, to settle the role before anything connects. Offering only
 	// these is a convenience: the server refuses any other.
 	const usableRoles = resource(
-		() => [ws, uriState.selectedDatatable] as const,
+		() => [ws, selectedDatatable] as const,
 		async ([workspace, datatable]) => {
 			if (!workspace || !datatable) return undefined
 			try {
@@ -87,18 +71,17 @@
 	// table: settling from the last one's answer would connect to the new data
 	// table as a role it may not even have.
 	const rolesOfCurrent = $derived(
-		usableRoles.current?.datatable === uriState.selectedDatatable ? usableRoles.current : undefined
+		usableRoles.current?.datatable === selectedDatatable ? usableRoles.current : undefined
 	)
 
-	// The content must not mount until the role is settled: mounting is what fires
-	// the schema and metadata queries, and a first round sent without a role would
-	// run — and cache — as whatever the server defaults to.
+	// Nothing that connects runs until the role is settled: a first round sent without a role
+	// would run — and cache — as whatever the server defaults to.
 	const roleSettled = $derived(
 		!uriState.isDatatableInput ||
 			(rolesOfCurrent !== undefined &&
 				(!rolesOfCurrent.permissioned ||
 					rolesOfCurrent.roles.length === 0 ||
-					uriState.selectedRole !== undefined))
+					selectedRole !== undefined))
 	)
 
 	// Make the role explicit before anything queries the data table, so the URL, the
@@ -106,17 +89,37 @@
 	// is kept even when it is not usable: the server refuses it, visibly.
 	$effect(() => {
 		const roles = rolesOfCurrent
-		if (!roles?.permissioned || uriState.selectedRole !== undefined) return
+		if (!roles?.permissioned || selectedRole !== undefined) return
 		const effective = roles.roles.includes(roles.default_role) ? roles.default_role : roles.roles[0]
 		if (effective) untrack(() => (uriState.selectedRole = effective))
 	})
 
-	// Refetch datatables when switching to a datatable input
-	$effect(() => {
-		if (uriState.isDatatableInput) {
-			untrack(() => datatables.refetch())
-		}
-	})
+	// Every data table with its schemas and tables, in one call: this is what the
+	// left pane's tree navigates, so it has to cover the data tables the user is
+	// not currently on, not just the selected one. The privileges it reports are
+	// the connected role's, so the role picked on the open data table is part of
+	// what is being asked. Gated on the drawer being open on a data table: this
+	// reaches every data table's database in turn, and the component is mounted on
+	// every logged-in page.
+	let datatablesRun = 0
+	const datatables = resource(
+		() =>
+			[open && uriState.isDatatableInput, ws, selectedDatatable, selectedRole, roleSettled] as const,
+		async ([active, workspace, roleFor, role, settled]): Promise<DataTableTables[]> => {
+			if (!active || !workspace) return []
+			if (!settled) return untrack(() => datatables.current)
+			const run = ++datatablesRun
+			try {
+				const result = await WorkspaceService.listDataTableTables({ workspace, roleFor, role })
+				// An answer for a selection that has since changed describes another role.
+				return run === datatablesRun ? result : untrack(() => datatables.current)
+			} catch (e) {
+				console.error('Failed to load datatables:', e)
+				return run === datatablesRun ? [] : untrack(() => datatables.current)
+			}
+		},
+		{ initialValue: [] }
+	)
 
 	function handleClose() {
 		uriState.closeDrawer()
@@ -278,7 +281,7 @@
 		id="db-manager-drawer"
 	>
 		{#if uriState.effectiveInput && ws && roleSettled}
-			{#key `${uriState.selectedDatatable}~${uriState.selectedRole ?? ''}`}
+			{#key `${selectedDatatable}~${selectedRole ?? ''}`}
 				<DBManagerContent
 					bind:this={dbManagerContent}
 					input={uriState.effectiveInput}

@@ -140,6 +140,10 @@
 		onImport
 	}: Props = $props()
 
+	// The engines whose SQL has `ALTER SCHEMA .. RENAME TO`: BigQuery datasets and DuckDB schemas
+	// cannot be renamed.
+	const SCHEMA_RENAME_DB_TYPES: DbType[] = ['postgresql', 'snowflake']
+
 	const sameTable = (a: SelectedTable, b: SelectedTable) =>
 		a.datatable === b.datatable && a.schema === b.schema && a.table === b.table
 
@@ -860,11 +864,15 @@
 															}
 														]
 													: []),
-												{
-													displayName: 'Rename schema',
-													icon: EditIcon,
-													action: () => startRenameSchema(root.datatable, sc.schemaKey)
-												},
+												...(SCHEMA_RENAME_DB_TYPES.includes(dbType)
+													? [
+															{
+																displayName: 'Rename schema',
+																icon: EditIcon,
+																action: () => startRenameSchema(root.datatable, sc.schemaKey)
+															}
+														]
+													: []),
 												{
 													displayName: 'Drop schema',
 													icon: Trash2Icon,

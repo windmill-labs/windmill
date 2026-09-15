@@ -55,6 +55,10 @@
 	// Selected schema/table from DBManager (for preview)
 	let selectedSchemaKey = $state<string | undefined>(undefined)
 	let selectedTableKey = $state<string | undefined>(undefined)
+	// What the manager opens on, set only when it (re-)mounts: the live selection above changes
+	// on every click, and feeding it to the input would reload the whole manager each time.
+	let openSchemaKey = $state<string | undefined>(undefined)
+	let openTableKey = $state<string | undefined>(undefined)
 
 	// Load available datatables from workspace
 	const datatables = resource<string[]>([], async () => {
@@ -119,19 +123,25 @@
 
 	// Every data table with its schemas and tables: the tree is the picker. The privileges it
 	// reports are the connected role's, so the role picked on the open data table is asked too.
+	// Waits for the role like the manager does, and drops an answer for a selection that has
+	// since changed: it would describe another role.
+	let datatableTreeRun = 0
 	const datatableTree = resource(
-		() => [open, opWs, selectedDatatable, selectedRole] as const,
-		async ([isOpen, workspace, roleFor, role]): Promise<DataTableTables[]> => {
+		() => [open, opWs, selectedDatatable, selectedRole, roleSettled] as const,
+		async ([isOpen, workspace, roleFor, role, settled]): Promise<DataTableTables[]> => {
 			if (!isOpen || !workspace) return []
+			if (!settled) return untrack(() => datatableTree.current)
+			const run = ++datatableTreeRun
 			try {
-				return await WorkspaceService.listDataTableTables({
+				const result = await WorkspaceService.listDataTableTables({
 					workspace,
 					roleFor: role ? roleFor : undefined,
 					role
 				})
+				return run === datatableTreeRun ? result : untrack(() => datatableTree.current)
 			} catch (e) {
 				console.error('Failed to load datatable tables:', e)
-				return []
+				return run === datatableTreeRun ? [] : untrack(() => datatableTree.current)
 			}
 		},
 		{ initialValue: [] }
@@ -148,15 +158,18 @@
 
 	function selectDatatable(datatable: string, role?: string) {
 		recordBrowsedRole()
+		// A row clicked under another data table has just set the selection it should open on.
+		openSchemaKey = selectedSchemaKey
+		openTableKey = selectedTableKey
 		selectedDatatable = datatable
 		// A data table the app already uses through a role opens as that role.
 		selectedRole = role ?? appDatatableRole(roles, datatable)
 	}
 
 	export function openDrawer() {
-		selectDatatable(datatables.current.includes('main') ? 'main' : datatables.current[0])
 		selectedSchemaKey = undefined
 		selectedTableKey = undefined
+		selectDatatable(datatables.current.includes('main') ? 'main' : datatables.current[0])
 		selectedTables = []
 		browsedRoles = {}
 		expand = false
@@ -164,9 +177,9 @@
 	}
 
 	export function openDrawerWithRef(ref: DataTableRef) {
-		selectDatatable(ref.datatable)
 		selectedSchemaKey = ref.schema
 		selectedTableKey = ref.table
+		selectDatatable(ref.datatable)
 		selectedTables = []
 		browsedRoles = {}
 		expand = false
@@ -211,8 +224,8 @@
 					resourceType: 'postgresql' as const,
 					resourcePath: `datatable://${selectedDatatable}`,
 					role: selectedRole,
-					specificSchema: selectedSchemaKey,
-					specificTable: selectedTableKey
+					specificSchema: openSchemaKey,
+					specificTable: openTableKey
 				}
 			: undefined
 	)
