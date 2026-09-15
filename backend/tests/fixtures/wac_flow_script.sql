@@ -51,23 +51,3 @@ export const main = workflow(async (n: number) => {
   return { doubled: d, tripled: t };
 });'
 );
-
--- The same flow's step with a cached task fed by a value that differs on every run.
-INSERT INTO public.flow_node(id, workspace_id, path, hash_v2, lock, code) VALUES (
-3000000000000013,
-'test-workspace',
-'f/system/wac_flow_script',
-'0000000000000000000000000000000000000000000000000000000000000013',
-NULL,
-E'import { workflow, task, step } from "windmill-client";
-
-const double = task(async (n: number) => {
-  return n * 2;
-}, { cache_ttl: 60 });
-
-export const main = workflow(async (n: number) => {
-  const r = await step("pick", async () => Math.floor(Math.random() * 1e9));
-  const d = await double(r);
-  return { fresh: d === r * 2 };
-});'
-);

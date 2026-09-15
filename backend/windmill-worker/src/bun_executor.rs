@@ -3234,14 +3234,10 @@ pub async fn handle_wac_v2_output(
                     // _executing_key to know which step to run). External
                     // scripts/flows don't need a WAC checkpoint.
                     if !is_external {
-                        let mut child_checkpoint_json = serde_json::json!({
+                        let child_checkpoint_json = serde_json::json!({
                             "completed_steps": &checkpoint.completed_steps,
                             "_executing_key": &step.key,
-                            "_executing_args": &step.args,
                         });
-                        if let Some(fn_id) = &step.fn_id {
-                            child_checkpoint_json["_executing_fn"] = serde_json::json!(fn_id);
-                        }
                         sqlx::query(
                             "INSERT INTO v2_job_status (id, workflow_as_code_status)
                              VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))

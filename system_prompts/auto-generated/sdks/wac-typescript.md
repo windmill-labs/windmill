@@ -35,9 +35,11 @@ export interface TaskOptions {
   timeout?: number;
   tag?: string;
   /** Seconds during which a previous result of this task is served instead of
-  *  running it again. The result is keyed on the task and the arguments it is
-  *  called with, so anything a cached task reads from its closure must be
-  *  passed in as an argument. */
+  *  running it again. A task written inline in the workflow is keyed on its
+  *  step key (its name and call order) and the workflow's input, not on the
+  *  arguments it is called with, so cache one only when whether it runs, and
+  *  what it receives, follow from the workflow's input alone. A `taskScript`
+  *  or `taskFlow` target is keyed on the arguments it is called with. */
   cache_ttl?: number;
   priority?: number;
   concurrency_limit?: number;

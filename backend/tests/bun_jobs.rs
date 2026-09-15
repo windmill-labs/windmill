@@ -1257,10 +1257,8 @@ async fn test_bun_wac_task_dispatch_from_flow_script(db: Pool<Postgres>) -> anyh
 }
 
 /// `task(fn, { cache_ttl })` on an inline task of a deployed flow's step: the child runs
-/// the parent's code with the parent's arguments, so its result is keyed on the task
-/// and the arguments it was called with, or the parent and every sibling would read
-/// its result back as their own, and a task fed by an earlier step would be served a
-/// result computed for another input.
+/// the parent's code with the parent's arguments, so its result-cache key carries its
+/// step key, or the parent and every sibling would read its result back as their own.
 #[sqlx::test(fixtures("base", "wac_flow_script"))]
 async fn test_bun_wac_inline_task_cache_is_per_task(db: Pool<Postgres>) -> anyhow::Result<()> {
     use windmill_common::flows::FlowNodeId;
@@ -1268,49 +1266,40 @@ async fn test_bun_wac_inline_task_cache_is_per_task(db: Pool<Postgres>) -> anyho
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    // Runs the step of node `node` with n=5; returns its result and how many of its
-    // task children were served from the result cache.
-    async fn run(
-        db: &Pool<Postgres>,
-        port: u16,
-        node: i64,
-    ) -> anyhow::Result<(serde_json::Value, i64)> {
-        let job = RunJob::from(JobPayload::FlowScript {
-            id: FlowNodeId(node),
-            path: "f/system/wac_flow_script/a".to_string(),
-            language: ScriptLang::Bun,
-            cache_ttl: None,
-            cache_ignore_s3_path: None,
-            dedicated_worker: None,
-            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
-            ),
-        })
-        .arg("n", serde_json::json!(5))
-        .run_until_complete(db, false, port)
-        .await;
+    let payload = || JobPayload::FlowScript {
+        id: FlowNodeId(3000000000000012),
+        path: "f/system/wac_flow_script/a".to_string(),
+        language: ScriptLang::Bun,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
+    };
+
+    let mut children_from_cache = Vec::new();
+    for _ in 0..2 {
+        let job = RunJob::from(payload())
+            .arg("n", serde_json::json!(5))
+            .run_until_complete(&db, false, port)
+            .await;
+        assert_eq!(
+            job.json_result().unwrap(),
+            serde_json::json!({"doubled": 10, "tripled": 15})
+        );
         let from_cache: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM job_logs l JOIN v2_job j ON j.id = l.job_id \
              WHERE j.parent_job = $1 AND l.logs LIKE '%found in cache%'",
         )
         .bind(job.id)
-        .fetch_one(db)
+        .fetch_one(&db)
         .await?;
-        Ok((job.json_result().unwrap(), from_cache))
+        children_from_cache.push(from_cache);
     }
-
-    // Two cached tasks on the same input: the second run serves each from its own entry.
-    for expected_from_cache in [0, 2] {
-        let (result, from_cache) = run(&db, port, 3000000000000012).await?;
-        assert_eq!(result, serde_json::json!({"doubled": 10, "tripled": 15}));
-        assert_eq!(from_cache, expected_from_cache);
-    }
-
-    // A cached task called with a fresh value each run is never served a stale result.
-    for _ in 0..2 {
-        let (result, from_cache) = run(&db, port, 3000000000000013).await?;
-        assert_eq!(result, serde_json::json!({"fresh": true}));
-        assert_eq!(from_cache, 0);
-    }
+    assert_eq!(
+        children_from_cache,
+        vec![0, 2],
+        "the second run serves each task from its own cache entry"
+    );
     Ok(())
 }
 
