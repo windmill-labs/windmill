@@ -16,6 +16,7 @@
 		name: string
 		resourceType: string
 		resourcePath: string
+		dropOnDelete: boolean
 	}
 
 	let open = $state(false)
@@ -50,7 +51,8 @@
 				.map(([name, dt]) => ({
 					name,
 					resourceType: dt.database?.resource_type ?? 'instance',
-					resourcePath: dt.database?.resource_path ?? ''
+					resourcePath: dt.database?.resource_path ?? '',
+					dropOnDelete: true
 				}))
 		} catch {
 			forkedDatatables = []
@@ -73,6 +75,17 @@
 		// Only valid if the parent is still in the user's workspace list.
 		const parentId = $userWorkspaces.find((w) => w.id === workspace)?.parent_workspace_id
 		const parentStillAccessible = !!(parentId && $userWorkspaces.find((w) => w.id === parentId))
+		const dbsToDrop = forkedDatatables.filter((dt) => dt.dropOnDelete).map((dt) => dt.name)
+
+		if (dbsToDrop.length > 0) {
+			const errors = await WorkspaceService.dropForkedDatatableDatabases({
+				workspace,
+				requestBody: { datatable_names: dbsToDrop }
+			})
+			for (const err of errors) {
+				sendUserToast(err, true)
+			}
+		}
 
 		// Fork-scoped ducklake namespaces (metadata schemas + data files) — driven by the
 		// backend registry, so no per-lake selection is needed. Best-effort: a failure is
@@ -111,11 +124,8 @@
 
 		const result = await WorkspaceService.deleteWorkspace({ workspace })
 		// The server names any data table in another workspace that this delete left governed by
-		// nothing, and any cloned database it could not drop. Only surfaced when there is something to say.
-		if (
-			typeof result === 'string' &&
-			(result.includes('no longer resolve') || result.includes('not dropped'))
-		) {
+		// nothing. Only surfaced when there is something to say.
+		if (typeof result === 'string' && result.includes('no longer resolve')) {
 			sendUserToast(result, 'warning', [], undefined, 20000)
 		}
 		await deleteSessionsForWorkspace(workspace).catch((e) =>
@@ -188,16 +198,23 @@
 			{/if}
 			{#if forkedDatatables.length > 0}
 				<div class="border rounded-md divide-y">
-					<div class="flex flex-col px-4 py-2">
-						<span class="text-xs font-semibold text-secondary">Cloned data tables</span>
-						<span class="text-3xs text-hint">Their databases are dropped with the fork.</span>
-					</div>
+					<div class="px-4 py-2 text-xs font-semibold text-secondary"> Forked databases </div>
 					{#each forkedDatatables as dt}
-						<div class="flex flex-col px-4 py-2">
-							<span class="text-xs font-medium text-secondary">{dt.name}</span>
-							<span class="text-3xs text-hint">
-								{dt.resourceType === 'instance' ? dt.resourcePath : `resource ${dt.resourcePath}`}
-							</span>
+						<div class="flex items-center justify-between px-4 py-2">
+							<div class="flex flex-col">
+								<span class="text-xs font-medium text-secondary">{dt.name}</span>
+								<span class="text-3xs text-hint">
+									{dt.resourceType === 'instance'
+										? dt.resourcePath
+										: `${$workspaceStore?.replace(/-/g, '_')}__${dt.name}`}
+								</span>
+							</div>
+							<Toggle
+								class="shrink-0"
+								size="xs"
+								bind:checked={dt.dropOnDelete}
+								options={{ right: 'Drop database' }}
+							/>
 						</div>
 					{/each}
 				</div>

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use windmill_api_auth::{require_super_admin, ApiAuthed};
-use windmill_common::{PgDatabase, DB};
+use windmill_common::DB;
 
 use crate::workspaces::{
     archive_workspace_impl, check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN,
@@ -21,6 +21,7 @@ use windmill_audit::ActionKind;
 use windmill_common::worker::CLOUD_HOSTED;
 
 use windmill_common::{
+    db::UserDB,
     error::{Error, Result},
     utils::require_admin,
     workspaces::{DataTable, DEV_WORKSPACE_LOCK_RULE_NAME, WM_FORK_PREFIX},
@@ -1016,11 +1017,6 @@ pub(crate) async fn delete_workspace(
     .await
     .unwrap_or_default();
 
-    // Resolved now, dropped after the commit, for the same reasons as the ducklake namespaces
-    // below. A clone's database is named after the workspace id, so one left behind would refuse a
-    // new fork of the same data table under that id.
-    let (clone_drops, clone_drop_refusals) = prepare_clone_drops(&db, &w_id).await?;
-
     let fork_ducklake_cleanups = prepare_fork_ducklake_cleanups(&db, &w_id, None)
         .await
         .unwrap_or_else(|e| {
@@ -1291,13 +1287,6 @@ pub(crate) async fn delete_workspace(
         );
     }
 
-    let mut clone_drop_errors: Vec<String> =
-        clone_drop_refusals.into_iter().map(|(_, e)| e).collect();
-    clone_drop_errors.extend(drop_clones(&db, clone_drops).await);
-    for e in &clone_drop_errors {
-        tracing::warn!("deleted workspace {w_id}: {e}");
-    }
-
     if let Some(parent) = dev_lock_parent {
         windmill_common::workspaces::invalidate_protection_rules_cache(&parent);
     }
@@ -1346,30 +1335,23 @@ pub(crate) async fn delete_workspace(
         tracing::warn!("failed to broadcast fork lineage change: {e:#}");
     }
 
-    let mut message = format!("Deleted workspace {}.", &w_id);
-    if !stranded_pointers.is_empty() {
+    if stranded_pointers.is_empty() {
+        Ok(format!("Deleted workspace {}", &w_id))
+    } else {
         let stranded = stranded_pointers
             .iter()
             .map(|(workspace_id, datatable)| format!("{workspace_id}/{datatable}"))
             .collect::<Vec<_>>()
             .join(", ");
-        message.push_str(&format!(
+        Ok(format!(
             concat!(
-                " These data tables were governed by it and no longer ",
+                "Deleted workspace {}. These data tables were governed by it and no longer ",
                 "resolve: {}. Their databases still exist; a superadmin can point them at ",
                 "another workspace's data table."
             ),
-            stranded
-        ));
+            &w_id, stranded
+        ))
     }
-    if !clone_drop_errors.is_empty() {
-        message.push_str(&format!(
-            " Some databases its data tables were cloned into were not dropped, and a superadmin \
-             can drop them from the instance settings: {}",
-            clone_drop_errors.join("; ")
-        ));
-    }
-    Ok(message)
 }
 
 #[derive(Deserialize)]
@@ -1378,10 +1360,10 @@ pub struct DropForkedDatatableDatabasesRequest {
 }
 
 /// Drop forked datatable databases. Returns errors per datatable that failed.
-/// Same permission as delete_workspace: fork owner or super admin. `delete_workspace` drops them
-/// all itself; this is for clients that predate it.
+/// Same permission as delete_workspace: fork owner or super admin.
 pub async fn drop_forked_datatable_databases(
     authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(req): Json<DropForkedDatatableDatabasesRequest>,
@@ -1399,168 +1381,139 @@ pub async fn drop_forked_datatable_databases(
     }
     tx.commit().await?;
 
-    let (mut drops, mut errors) = prepare_clone_drops(&db, &w_id).await?;
-    drops.retain(|d| req.datatable_names.contains(&d.datatable));
-    errors.retain(|(name, _)| req.datatable_names.contains(name));
-    let mut errors: Vec<String> = errors.into_iter().map(|(_, e)| e).collect();
-    errors.extend(drop_clones(&db, drops).await);
-    Ok(Json(errors))
-}
-
-/// A database a workspace's data table was cloned into, and where to drop it from.
-pub(crate) struct CloneDrop {
-    datatable: String,
-    dbname: String,
-    /// The server holding a resource-backed copy, connected to one of its other databases:
-    /// Postgres cannot drop the database a connection is on. `None` for an instance database.
-    server: Option<PgDatabase>,
-}
-
-/// The databases `w_id`'s data tables were cloned into, resolved now: a resource-backed clone is
-/// reached through the workspace's own resource, which goes with the workspace. Also returns, per
-/// data table, why a clone will not be dropped. No authorization of its own — callers gate.
-///
-/// Only a `wm_fork_` database is dropped, and on the instance only one no other workspace's data
-/// table names — a second entry a superadmin pointed at it keeps it. A resource-backed copy is
-/// dropped on the server the workspace's resource names, never through the parent's, which may
-/// since point at another server holding a database of the same name.
-pub(crate) async fn prepare_clone_drops(
-    db: &DB,
-    w_id: &str,
-) -> Result<(Vec<CloneDrop>, Vec<(String, String)>)> {
-    let datatables: HashMap<String, DataTable> = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT datatable->'datatables' FROM workspace_settings
-         WHERE workspace_id = $1 AND datatable->'datatables' IS NOT NULL",
+    let parent_w_id = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+        &w_id
     )
-    .bind(w_id)
-    .fetch_optional(db)
+    .fetch_optional(&db)
     .await?
-    .and_then(|v| serde_json::from_value(v).ok())
-    .unwrap_or_default();
-    let parent_w_id: Option<String> =
-        sqlx::query_scalar("SELECT parent_workspace_id FROM workspace WHERE id = $1")
-            .bind(w_id)
-            .fetch_optional(db)
-            .await?
-            .flatten();
+    .flatten()
+    .ok_or_else(|| Error::BadRequest("No parent workspace found".to_string()))?;
 
-    let mut drops = Vec::new();
-    let mut errors = Vec::new();
-    for (name, dt) in datatables {
-        // Only a clone is droppable: a kept data table is a pointer at the parent's database.
-        let Some(database) = dt.database.filter(|_| dt.forked_from.is_some()) else {
-            continue;
+    let datatable_config = sqlx::query_scalar!(
+        "SELECT datatable->'datatables' FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten()
+    .unwrap_or(serde_json::json!({}));
+
+    let datatables: HashMap<String, DataTable> =
+        serde_json::from_value(datatable_config).unwrap_or_default();
+
+    let mut errors: Vec<String> = Vec::new();
+
+    for dt_name in &req.datatable_names {
+        // Only a clone is droppable, and a clone is terminal by construction: a kept data table is
+        // a pointer at the parent's database, which this fork does not own.
+        let database = match datatables.get(dt_name) {
+            Some(dt) if dt.forked_from.is_some() => match dt.database.as_ref() {
+                Some(database) => database,
+                None => continue,
+            },
+            _ => continue,
         };
-        let refuse = |why: String| (name.clone(), format!("datatable://{name}: {why}"));
+
         if database.resource_type
             == windmill_common::workspaces::DataTableCatalogResourceType::Instance
         {
-            let dbname = database.resource_path;
-            if !dbname.starts_with("wm_fork_") {
-                errors.push(refuse(format!(
-                    "refusing to drop instance database '{dbname}', whose name does not start with 'wm_fork_'"
-                )));
+            let db_to_drop = &database.resource_path;
+            if !db_to_drop.starts_with("wm_fork_") {
+                errors.push(format!(
+                    "Refusing to drop instance database '{}' for datatable://{}:  name does not start with 'wm_fork_'",
+                    db_to_drop, dt_name
+                ));
                 continue;
             }
-            let named_elsewhere: Vec<String> = sqlx::query_scalar(
-                "SELECT ws.workspace_id FROM workspace_settings ws,
-                        jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
-                 WHERE ws.workspace_id <> $1
-                   AND dt.value->'database'->>'resource_type' = 'instance'
-                   AND dt.value->'database'->>'resource_path' = $2",
-            )
-            .bind(w_id)
-            .bind(&dbname)
-            .fetch_all(db)
-            .await?;
-            if !named_elsewhere.is_empty() {
-                errors.push(refuse(format!(
-                    "keeping instance database '{dbname}', which data tables of {} also use",
-                    named_elsewhere.join(", ")
-                )));
-                continue;
+            if let Err(e) = windmill_common::drop_custom_instance_database(&db, db_to_drop).await {
+                errors.push(format!(
+                    "Could not drop instance database '{}' for datatable://{}: {}",
+                    db_to_drop, dt_name, e
+                ));
             }
-            drops.push(CloneDrop { datatable: name, dbname, server: None });
         } else {
-            let resolved = async {
-                let fork: PgDatabase = serde_json::from_value(
-                    windmill_common::workspaces::get_datatable_resource_from_db_unchecked(
-                        db, w_id, &name,
-                    )
-                    .await?,
-                )
-                .map_err(|e| Error::internal_err(format!("parsing its resource: {e}")))?;
-                // Any other database of that server to connect to: the source of the copy, when
-                // the parent still resolves one, else the default maintenance database.
-                let mut maintenance = "postgres".to_string();
-                if let Some(parent) = &parent_w_id {
-                    if let Ok(value) =
-                        windmill_common::workspaces::get_datatable_resource_from_db_unchecked(
-                            db, parent, &name,
-                        )
+            let fork_pg = match crate::workspaces::resolve_pg_source_checked(
+                &db,
+                &user_db,
+                &authed,
+                &w_id,
+                &format!("datatable://{}", dt_name),
+            )
+            .await
+            {
+                Ok(pg) => pg,
+                Err(e) => {
+                    errors.push(format!(
+                        "Could not resolve fork resource for datatable://{}: {}",
+                        dt_name, e
+                    ));
+                    continue;
+                }
+            };
+            // We cannot drop the current database, so we connect to the parent's version to run DROP DATABASE on
+            // the forked version
+            let parent_pg = match crate::workspaces::resolve_pg_source_checked(
+                &db,
+                &user_db,
+                &authed,
+                &parent_w_id,
+                &format!("datatable://{}", dt_name),
+            )
+            .await
+            {
+                Ok(pg) => pg,
+                Err(e) => {
+                    errors.push(format!(
+                        "Could not resolve parent resource for datatable://{}: {}",
+                        dt_name, e
+                    ));
+                    continue;
+                }
+            };
+
+            let db_to_drop = &fork_pg.dbname;
+            if let Err(e) = windmill_common::validate_dbname(db_to_drop) {
+                errors.push(format!(
+                    "Invalid database name '{}' for datatable://{}: {}",
+                    db_to_drop, dt_name, e
+                ));
+                continue;
+            }
+            if !db_to_drop.starts_with("wm_fork_") {
+                errors.push(format!(
+                    "Refusing to drop resource database '{}' for datatable://{}: name does not start with 'wm_fork_'",
+                    db_to_drop, dt_name
+                ));
+                continue;
+            }
+
+            match parent_pg.connect(Some(&db)).await {
+                Ok((client, connection)) => {
+                    let join_handle = tokio::spawn(async move { connection.await });
+                    if let Err(e) = client
+                        .execute(&format!("DROP DATABASE \"{}\"", db_to_drop), &[])
                         .await
                     {
-                        if let Ok(parent_pg) = serde_json::from_value::<PgDatabase>(value) {
-                            maintenance = parent_pg.dbname;
-                        }
+                        errors.push(format!(
+                            "Could not drop database '{}' for datatable://{}: {}",
+                            db_to_drop, dt_name, e
+                        ));
                     }
+                    drop(client);
+                    let _ = windmill_common::shutdown_pg_connection(join_handle).await;
                 }
-                Ok::<_, Error>(fork_with_dbname(fork, maintenance))
-            }
-            .await;
-            match resolved {
-                Ok((dbname, server)) => {
-                    if let Err(e) = windmill_common::validate_dbname(&dbname) {
-                        errors.push(refuse(format!("invalid database name '{dbname}': {e}")));
-                    } else if !dbname.starts_with("wm_fork_") {
-                        errors.push(refuse(format!(
-                            "refusing to drop resource database '{dbname}', whose name does not start with 'wm_fork_'"
-                        )));
-                    } else {
-                        drops.push(CloneDrop { datatable: name, dbname, server: Some(server) });
-                    }
+                Err(e) => {
+                    errors.push(format!(
+                        "Could not connect to drop database for datatable://{}: {}",
+                        dt_name, e
+                    ));
                 }
-                Err(e) => errors.push(refuse(format!("could not resolve its resource: {e}"))),
             }
         }
     }
-    Ok((drops, errors))
-}
 
-/// The copy's database name, and its server connected to `maintenance` instead.
-fn fork_with_dbname(fork: PgDatabase, maintenance: String) -> (String, PgDatabase) {
-    let dbname = fork.dbname.clone();
-    (dbname, PgDatabase { dbname: maintenance, ..fork })
-}
-
-/// Drop every database in `drops`, returning what could not be dropped.
-pub(crate) async fn drop_clones(db: &DB, drops: Vec<CloneDrop>) -> Vec<String> {
-    let mut errors = Vec::new();
-    for CloneDrop { datatable, dbname, server } in drops {
-        let dropped = match server {
-            None => windmill_common::drop_custom_instance_database(db, &dbname).await,
-            Some(server) => drop_database_on(db, &server, &dbname).await,
-        };
-        if let Err(e) = dropped {
-            errors.push(format!(
-                "datatable://{datatable}: could not drop database '{dbname}': {e}"
-            ));
-        }
-    }
-    errors
-}
-
-async fn drop_database_on(db: &DB, server: &PgDatabase, dbname: &str) -> Result<()> {
-    windmill_common::validate_dbname(dbname)?;
-    let (client, connection) = server.connect(Some(db)).await?;
-    let join_handle = tokio::spawn(async move { connection.await });
-    let dropped = client
-        .execute(&format!("DROP DATABASE IF EXISTS \"{dbname}\""), &[])
-        .await
-        .map_err(|e| Error::internal_err(windmill_common::error::pg_error_message(&e)));
-    drop(client);
-    let _ = windmill_common::shutdown_pg_connection(join_handle).await;
-    dropped.map(|_| ())
+    Ok(Json(errors))
 }
 
 /// Drop this fork workspace's ducklake namespaces: the `wm_fork_*` metadata schema in each

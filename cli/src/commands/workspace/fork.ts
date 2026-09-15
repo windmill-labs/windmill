@@ -616,6 +616,22 @@ async function deleteWorkspaceFork(
     remote.endsWith("/") ? remote.substring(0, remote.length - 1) : remote
   );
 
+  // The fork's data table copies are named after its id and nothing else drops them: left behind,
+  // they would refuse a new fork of the same data tables under that id.
+  const settings = await wmill.getPublicSettings({ workspace: forkWorkspaceId });
+  const clones = Object.entries(settings.datatable?.datatables ?? {})
+    .filter(([_, dt]) => dt.forked_from != null && dt.database != null)
+    .map(([name]) => name);
+  if (clones.length > 0) {
+    const errors = await wmill.dropForkedDatatableDatabases({
+      workspace: forkWorkspaceId,
+      requestBody: { datatable_names: clones },
+    });
+    for (const error of errors) {
+      log.info(colors.yellow(`  ${error}`));
+    }
+  }
+
   const result = await wmill.deleteWorkspace({
     workspace: forkWorkspaceId
   });
