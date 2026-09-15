@@ -37,7 +37,7 @@
               "type": "inline",
               "inlineScript": {
                 "language": "bun",
-                "content": "import * as wmill from 'windmill-client'\n\nexport async function main(email: string) {\n  await wmill.runSql('main', `insert into public.signups (email, created_at) values ('${email}', now())`)\n  return { ok: true, email }\n}\n"
+                "content": "import * as wmill from 'windmill-client'\n\nexport async function main(email: string) {\n  const sql = wmill.datatable()\n  await sql`INSERT INTO public.signups (email, created_at) VALUES (${email}, now())`\n  return { ok: true, email }\n}\n"
               }
             }
           },
