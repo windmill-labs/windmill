@@ -75,9 +75,11 @@ const FOLLOW_RETRY_DELAY_MS = 500
 /** How often a turn with no stream asks its job whether the run is over. */
 const SETTLE_POLL_MS = 2000
 
-/** A poll reads the conversation a page at a time, and stops after this many — enough for a
- * long tool-using turn, bounded so a page that stops advancing cannot loop. */
+/** Rows per request when a poll reads a conversation. A batch shorter than this is how the
+ * endpoint says there are no more. */
 const POLL_PAGE_SIZE = 50
+/** Requests one poll will make. Bounds a conversation with more rows past the cursor than a
+ * poll should read in one go; a cursor that stops moving is caught separately. */
 const POLL_MAX_PAGES = 20
 
 /**
@@ -936,8 +938,8 @@ export class FlowChatManager {
 			let afterSeq = this.getLastPersistedMessageSeq(conversationId)
 			let readWhole = false
 			let stalled = false
-			let pages = 0
-			for (; pages < POLL_MAX_PAGES; pages++) {
+			let requests = 0
+			for (let page = 0; page < POLL_MAX_PAGES; page++) {
 				const batch = await FlowConversationsService.listConversationMessages({
 					workspace: this.#workspace()!,
 					conversationId: conversationId,
@@ -948,6 +950,7 @@ export class FlowChatManager {
 				// An interval tick already dispatched outlives `clearInterval`, and a turn's final
 				// poll outlives its abort — either would put a forgotten flow's rows back.
 				if (startedIn !== this.#generation) return
+				requests++
 				response.push(...batch)
 				if (batch.length < POLL_PAGE_SIZE) {
 					readWhole = true
@@ -964,18 +967,12 @@ export class FlowChatManager {
 			}
 
 			if (!readWhole) {
-				// Reading stopped before the conversation did, so none of this is a picture of
-				// it. Appending would stand these rows beside the temp ones already showing the
-				// same answer, and sweeping would drop the only thing showing what was never
-				// read, so the transcript keeps what it has.
-				//
-				// Nothing recovers it in this session: the cursor is taken from the last
-				// persisted row, and applying none of them is what leaves it where it was, so
-				// the next poll reads the same window against a conversation that has only
-				// grown. A reload refetches. That is the price of not showing a transcript
-				// that is part duplicate and part missing.
+				// Neither appended nor swept: half a conversation beside the temp rows standing
+				// in for it reads worse than those rows alone, and sweeping would drop the only
+				// copy of what was never read. Held rows are never re-fetched while the chat is
+				// open (see `loadMessages`), so a reload is what recovers this.
 				console.warn(
-					`Stopped reading conversation ${conversationId} after ${pages + 1} page(s) ` +
+					`Stopped reading conversation ${conversationId} after ${requests} request(s) ` +
 						`(${stalled ? 'the cursor stopped advancing' : `cap of ${POLL_MAX_PAGES}`}, ` +
 						`${response.length} rows, up to seq ${afterSeq}); leaving the transcript as it is`
 				)
