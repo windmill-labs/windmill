@@ -92,7 +92,7 @@ export interface BenchmarkWorkspaceResource {
 }
 
 export interface BenchmarkWorkspaceJob {
-	/** Stable id so a case prompt can reference a specific run (e.g. for get_job_logs). */
+	/** Stable id so a case prompt can reference a specific run (e.g. for get_run). */
 	id?: string
 	jobKind?: CompletedJob['job_kind']
 	scriptPath?: string
@@ -100,6 +100,8 @@ export interface BenchmarkWorkspaceJob {
 	label?: string
 	success?: boolean
 	logs?: string
+	args?: Record<string, unknown>
+	result?: unknown
 }
 
 export interface BenchmarkWorkspaceRunnables {
@@ -156,7 +158,7 @@ export function registerBenchmarkWorkspaceRunnables(
 		...runnables,
 		datatables: runnables.datatables ? structuredClone(runnables.datatables) : undefined
 	})
-	// Seed any fixture jobs so list_runs / get_job_logs have data to return.
+	// Seed any fixture jobs so list_runs / get_run have data to return.
 	for (const seed of runnables.jobs ?? []) {
 		createBenchmarkCompletedJob({
 			workspace,
@@ -166,7 +168,9 @@ export function registerBenchmarkWorkspaceRunnables(
 			scriptPath: seed.scriptPath,
 			createdBy: seed.createdBy,
 			label: seed.label,
-			logs: seed.logs
+			logs: seed.logs,
+			args: seed.args,
+			result: seed.result
 		})
 	}
 }
@@ -479,6 +483,33 @@ export function getBenchmarkJobLogs(workspace: string, jobId: string): string {
 		throw new Error(`Job Logs not found for "${jobId}"`)
 	}
 	return job.logs ?? ''
+}
+
+/**
+ * Mirror `JobService.getFlowAllResults`, which get_run calls for the execution
+ * tree. Fixture jobs are single runs with no steps, so only the root entry.
+ */
+export function getBenchmarkFlowAllResults(workspace: string, jobId: string) {
+	const job = getBenchmarkCompletedJob(workspace, jobId)
+	if (!job) {
+		throw new Error(`Job "${jobId}" not found in benchmark workspace`)
+	}
+	return {
+		entries: [
+			{
+				job_id: jobId,
+				label: 'Flow',
+				kind: job.job_kind ?? 'script',
+				depth: 0,
+				sibling_index: 1,
+				sibling_count: 1,
+				status: job.success ? 'success' : 'failure',
+				success: job.success
+			}
+		],
+		truncated: false,
+		scope_filtered: false
+	}
 }
 
 // ============= Drafts (per-user, DB-backed in production) =============
