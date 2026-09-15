@@ -1195,9 +1195,10 @@ pub async fn run_agent(
                 attachments: args.user_attachments.as_deref(),
                 has_websearch,
                 prompt_cache_key: include_prompt_cache_key.then_some(prompt_cache_key.as_str()),
-                // A silent stream discards the summary it would pay for.
-                reasoning_summary: user_wants_streaming
-                    && !is_reasoning_summary_unavailable(&credentials, args.provider.get_model()),
+                reasoning_summary: !is_reasoning_summary_unavailable(
+                    &credentials,
+                    args.provider.get_model(),
+                ),
             };
 
             // A worker cannot run the client credentials exchange, so an OAuth resource

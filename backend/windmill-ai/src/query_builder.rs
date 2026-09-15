@@ -28,8 +28,7 @@ pub struct BuildRequestArgs<'a> {
     /// endpoint rejected.
     pub prompt_cache_key: Option<&'a str>,
     /// Ask for a summary of the model's reasoning where the provider streams one.
-    /// `false` once the provider refused summaries to these credentials, or when the
-    /// stream is not persisted.
+    /// `false` once the provider refused summaries to these credentials.
     pub reasoning_summary: bool,
 }
 
