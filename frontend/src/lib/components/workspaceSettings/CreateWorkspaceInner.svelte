@@ -297,8 +297,8 @@
 		deletingExistingFork = true
 		try {
 			const result = await WorkspaceService.deleteWorkspace({ workspace: prefixedId })
-			// Anything beyond the plain confirmation is something left behind, such as a cloned database
-			if (result !== `Deleted workspace ${prefixedId}.`) {
+			// The server lists what it could not clean up, such as a cloned database left behind
+			if (result.includes('not dropped') || result.includes('no longer resolve')) {
 				sendUserToast(result, 'warning', [], undefined, 20000)
 			}
 			// Drop local sessions bound to this id so they don't resurface (or

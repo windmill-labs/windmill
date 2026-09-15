@@ -8500,7 +8500,7 @@ async fn create_workspace_fork(
 /// and the CLI derive it. A dev workspace's id has no `wm-fork-` prefix, and its copies are dropped
 /// by the same `wm_fork_` rule as a fork's. Dev workspace `x` and fork `wm-fork-x` share a name, as
 /// their branches do: the second to copy a data table of that name is refused at `CREATE`.
-pub(crate) fn forked_datatable_dbname(fork_id: &str, datatable: &str) -> String {
+fn forked_datatable_dbname(fork_id: &str, datatable: &str) -> String {
     let suffix = fork_id
         .strip_prefix(windmill_common::workspaces::WM_FORK_PREFIX)
         .unwrap_or(fork_id);
