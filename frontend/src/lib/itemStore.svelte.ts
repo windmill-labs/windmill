@@ -286,6 +286,10 @@ class Entry<V> {
 	 *  has already sent, which the server refuses from then on. */
 	private adoptRow(key: ItemKey, draft: unknown, draftSavedAt: string | undefined, asOf: number) {
 		if (this.ports.rowMark(key) !== asOf) return
+		// Nothing was handed over while the read was out, so anything still parked predates it:
+		// a payload the server refused, which the baseline taken below would make acceptable.
+		// The reconcile that follows the read re-queues whatever the value actually needs.
+		this.ports.dropPending(key)
 		this.row = serialize(draft) ?? null
 		this.ports.seedSync(key, draftSavedAt, asOf)
 	}

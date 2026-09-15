@@ -28,7 +28,8 @@ function fakeRows() {
 	const conflicts = new Set<string>()
 	/** Paths whose next write the server fails. */
 	const failing = new Set<string>()
-	/** Paths the server rejects when their queued row is actually sent. */
+	/** Paths the server rejects whenever a row is actually sent, until a read adopts a fresh
+	 *  baseline — which is what makes a payload it refused acceptable again. */
 	const conflictOnFlush = new Set<string>()
 	const failures = new Map<string, string>()
 	const hints = new Map<string, boolean>()
@@ -68,7 +69,6 @@ function fakeRows() {
 			// Replaying a parked payload is another POST, so another hand-over.
 			if (!fromQueue) handed(key.path)
 			if (conflictOnFlush.has(key.path)) {
-				conflictOnFlush.delete(key.path)
 				conflicts.add(key.path)
 				parked.set(key.path, going.value)
 				return
@@ -86,8 +86,10 @@ function fakeRows() {
 			// The syncer refuses a baseline from a read a row handed over since has passed.
 			if (since !== (sends.get(key.path) ?? 0)) return
 			seeds.push({ path: key.path, at })
-			// Back in sync with the server, as `recordRemoteSync` does.
+			// Back in sync with the server, as `recordRemoteSync` does. The baseline is fresh, so
+			// a payload the server was refusing would be accepted from here on.
 			conflicts.delete(key.path)
+			conflictOnFlush.delete(key.path)
 			failures.delete(key.path)
 		},
 		conflicted: (key) => conflicts.has(key.path),
@@ -1226,6 +1228,12 @@ describe('item store: conflicts', () => {
 
 		expect(second.handle.status).not.toBe('conflicted')
 		expect(second.handle.value?.description).toBe('the other tab')
+
+		// The baseline it just adopted is what would make the refused payload acceptable, so the
+		// next flush — a page close, with nothing typed — must not resend it over their draft.
+		await rows.port.flush(key)
+		expect(rows.sent.get('u/me/r')).toBeUndefined()
+
 		second.handle.value = { ...deployedRes, description: 'typed after reopening' }
 		expect(rows.writes.at(-1)).toEqual({
 			path: 'u/me/r',
