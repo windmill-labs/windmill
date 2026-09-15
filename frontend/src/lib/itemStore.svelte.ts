@@ -148,10 +148,10 @@ let nextPatch = 1
 
 const superseded = { ok: false, error: 'Another save of this item replaced this one' } as const
 
-/** An item as it stood when a command was asked for: the count of edits and outside writes it
- *  had taken, and the rows sent for its key. Both are counts of things the command did not do,
- *  so a command can tell what moved under it without mistaking its own effects for movement. */
-type AsOf = { edits: number; rows: number }
+/** An item as it stood when a command was asked for: the count of edits and outside writes it had
+ *  taken. A count of things the command did not do, so it can tell what moved under it without
+ *  mistaking its own effects for movement. */
+type AsOf = { edits: number }
 
 class Entry<V> {
 	key: ItemKey = $state()!
@@ -332,7 +332,7 @@ class Entry<V> {
 	/** The registers that move on their own: what the user is editing, and the rows already sent.
 	 *  A command compares against these to tell what has happened since it was asked for. */
 	private asOf(): AsOf {
-		return { edits: this.edits, rows: this.ports.rowMark(this.key) }
+		return { edits: this.edits }
 	}
 
 	/** Count a command as started now, ahead of its turn in the queue; returns its release. */
@@ -358,6 +358,7 @@ class Entry<V> {
 		this.loads++
 		return this.run(async (at) => {
 			const key = this.key
+			let rowsAtRead = 0
 			let res: ItemLoad<V>
 			try {
 				if (this.retired) return superseded
@@ -365,6 +366,10 @@ class Entry<V> {
 				// A row queued by whoever held this key before is debounced: send it, or this read
 				// answers with the deployed value and the draft reappears under a clean editor.
 				await this.ports.flush(key)
+				// Taken here, not when the command was asked for: rows this read's own flush sent
+				// are in the response it is about to get. Only one handed over from now on, while
+				// the read is out, leaves that response behind.
+				rowsAtRead = this.ports.rowMark(key)
 				res = await adapter.load(key)
 			} catch (e) {
 				this.error = errorMessage(e)
@@ -393,7 +398,7 @@ class Entry<V> {
 			this.origin = res.deployed !== undefined ? 'deployed' : 'draft'
 			// The deployed side above always advances: the item did change, and a discard after
 			// the user keeps theirs has to land on what the server holds now.
-			if (!standOff) this.adoptRow(key, res.draft, res.draftSavedAt, at.rows)
+			if (!standOff) this.adoptRow(key, res.draft, res.draftSavedAt, rowsAtRead)
 			this.loaded = true
 			if (!keepValue) {
 				this.pristine = this.settles && this.origin === 'deployed' && res.draft === undefined

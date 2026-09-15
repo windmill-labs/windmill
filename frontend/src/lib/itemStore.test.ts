@@ -41,6 +41,8 @@ function fakeRows() {
 	const handed = (path: string) => sends.set(path, (sends.get(path) ?? 0) + 1)
 	/** What a write leaves queued, and what a flush sends: the syncer debounces. */
 	const queued = new Map<string, unknown>()
+	/** A payload the server refused, kept for a later flush the way the syncer parks one. */
+	const parked = new Map<string, unknown>()
 	const sent = new Map<string, unknown>()
 	/** Set by a test to keep a flush in flight. */
 	let holdFlush: Promise<void> | undefined
@@ -53,16 +55,26 @@ function fakeRows() {
 		},
 		flush: async (key) => {
 			// A POST carries what was queued when it went out; what is typed while it is in flight
-			// queues behind it.
-			const going = queued.has(key.path) ? { value: queued.get(key.path) } : undefined
+			// queues behind it. With nothing queued, a refused payload is replayed instead.
+			const fromQueue = queued.has(key.path)
+			const going = fromQueue
+				? { value: queued.get(key.path) }
+				: parked.has(key.path)
+					? { value: parked.get(key.path) }
+					: undefined
 			queued.delete(key.path)
 			if (holdFlush) await holdFlush
-			if (going && conflictOnFlush.has(key.path)) {
+			if (!going) return
+			// Replaying a parked payload is another POST, so another hand-over.
+			if (!fromQueue) handed(key.path)
+			if (conflictOnFlush.has(key.path)) {
 				conflictOnFlush.delete(key.path)
 				conflicts.add(key.path)
+				parked.set(key.path, going.value)
 				return
 			}
-			if (going) sent.set(key.path, going.value)
+			parked.delete(key.path)
+			sent.set(key.path, going.value)
 		},
 		overwrite: async (key, value) => {
 			conflicts.delete(key.path)
@@ -80,7 +92,10 @@ function fakeRows() {
 		},
 		conflicted: (key) => conflicts.has(key.path),
 		failure: (key) => failures.get(key.path),
-		dropPending: (key) => void dropped.push(key.path),
+		dropPending: (key) => {
+			dropped.push(key.path)
+			parked.delete(key.path)
+		},
 		hint: (key, on) => void hints.set(key.path, on)
 	}
 	return {
@@ -1188,6 +1203,34 @@ describe('item store: conflicts', () => {
 		expect(open.status).toBe('conflicted')
 		expect(open.value?.description).toBe('mine')
 		expect(open.deployed).toEqual({ ...b, args: { a: 2 } })
+	})
+
+	it('opens a conflicted item afresh, past the payload the server refused', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const theirs = { ...deployedRes, description: 'the other tab' }
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const a = adapter(async () => ({ deployed: deployedRes, draft: theirs, draftSavedAt: 'T2' }))
+		const first = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+		first.handle.value = { ...deployedRes, description: 'mine' }
+		rows.conflictOnFlush.add('u/me/r')
+		await rows.port.flush(key)
+		expect(first.handle.status).toBe('conflicted')
+		first.release()
+
+		// Reopening reads afresh. Its own flush replays the refused payload, which must not make
+		// the response that follows look stale — that would leave the editor conflicted forever.
+		const second = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+
+		expect(second.handle.status).not.toBe('conflicted')
+		expect(second.handle.value?.description).toBe('the other tab')
+		second.handle.value = { ...deployedRes, description: 'typed after reopening' }
+		expect(rows.writes.at(-1)).toEqual({
+			path: 'u/me/r',
+			value: { ...deployedRes, description: 'typed after reopening' }
+		})
 	})
 
 	it('clears the conflict on a reload the user typed during', async () => {
