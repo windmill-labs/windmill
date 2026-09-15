@@ -403,6 +403,35 @@ describe('item store: commands', () => {
 		expect(rows.writes).toEqual([])
 	})
 
+	it('keeps a toggle whose value an earlier accepted one repeats', async () => {
+		type Sched = { path: string; enabled: boolean }
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const { handle: item } = store.acquire(
+			{ workspace: 'w', kind: 'trigger_schedule', path: 's' },
+			{ workspace: 'w', path: 's' },
+			{ load: async () => ({ deployed: { path: 's', enabled: false } }) } as ItemAdapter<Sched>
+		)
+		await settle()
+		const gates = [deferred(), deferred(), deferred()]
+		// enable, disable, enable: the first and third carry the same value, so only a token can
+		// say which of them still owns the field.
+		const first = item.patch({ enabled: true }, () => gates[0].promise)
+		const second = item.patch({ enabled: false }, () => gates[1].promise)
+		const third = item.patch({ enabled: true }, () => gates[2].promise)
+		gates[0].resolve()
+		gates[1].reject(new Error('refused'))
+		gates[2].reject(new Error('refused'))
+
+		expect(await first).toEqual({ ok: true })
+		expect(await second).toMatchObject({ ok: false })
+		expect(await third).toMatchObject({ ok: false })
+		// The server took the first and refused the rest, so it holds `true`.
+		expect(item.deployed).toEqual({ path: 's', enabled: true })
+		expect(item.value).toEqual({ path: 's', enabled: true })
+		expect(rows.writes).toEqual([])
+	})
+
 	it('saves a change the draft comparison ignores', async () => {
 		type Sched = { path: string; permissioned_as?: string }
 		const rows = fakeRows()
