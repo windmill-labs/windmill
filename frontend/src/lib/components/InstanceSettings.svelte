@@ -81,17 +81,10 @@
 	// When the user enables object storage for the first time, default
 	// `monitor_logs_on_s3` to true so S3 log files get cleaned up with their
 	// jobs. Backend still defaults to false for backwards compat with
-	// operators who never touched the setting. `ai_sessions_instance_storage_fallback`
-	// shows the backend's own default, on, until the operator turns it off.
+	// operators who never touched the setting.
 	$effect(() => {
 		if ($values['object_store_cache_config'] && $values['monitor_logs_on_s3'] === undefined) {
 			values.update((v) => ({ ...v, monitor_logs_on_s3: true }))
-		}
-		if (
-			$values['object_store_cache_config'] &&
-			$values['ai_sessions_instance_storage_fallback'] === undefined
-		) {
-			values.update((v) => ({ ...v, ai_sessions_instance_storage_fallback: true }))
 		}
 	})
 
@@ -141,11 +134,15 @@
 		}
 		applyFormDefaults(nvalues)
 
-		// Apply select/select_python defaults so initialValues matches what InstanceSetting's $effect does
+		// Apply declared defaults before snapshotting initialValues, so a default shows without
+		// marking the form dirty: a select's mirrors InstanceSetting's $effect, a boolean's is
+		// what its toggle shows while the key is unset.
 		for (const category of settingsKeys) {
 			for (const s of settings[category]) {
 				if (
-					(s.fieldType === 'select' || s.fieldType === 'select_python') &&
+					(s.fieldType === 'select' ||
+						s.fieldType === 'select_python' ||
+						s.fieldType === 'boolean') &&
 					nvalues[s.key] == undefined &&
 					s.defaultValue
 				) {

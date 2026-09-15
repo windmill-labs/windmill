@@ -566,9 +566,10 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Back AI sessions up to the instance object storage',
 			description:
-				"Browsers back their AI sessions up to their workspace's object storage, encrypted with the workspace key. When this is on and instance object storage is configured, a workspace without object storage of its own uses the instance object storage instead, under the same encryption; configuring a storage for the workspace moves its backups there and deletes what it kept in the instance storage. Defaults to on when instance object storage is configured; turn off to keep the AI sessions of such workspaces in the browser only.",
+				"Browsers back their AI sessions up to their workspace's object storage, encrypted with the workspace key. When this is on and instance object storage is configured, a workspace without object storage of its own uses the instance object storage instead, under the same encryption; configuring a storage for the workspace moves its backups there and deletes what it kept in the instance storage. On by default; turn off to keep the AI sessions of such workspaces in the browser only.",
 			key: 'ai_sessions_instance_storage_fallback',
 			fieldType: 'boolean',
+			defaultValue: () => true,
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
