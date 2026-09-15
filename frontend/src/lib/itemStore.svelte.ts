@@ -139,6 +139,9 @@ function errorMessage(e: unknown): string {
 /** Revisions are unique across entries, so a consumer switching items never mistakes one
  *  item's revision for another's. */
 let nextRevision = 1
+/** Identifies which patch owns a field it put ahead of the server: two patches of one field can
+ *  carry the same value, so ownership cannot be told from the value. */
+let nextPatch = 1
 
 const superseded = { ok: false, error: 'Another save of this item replaced this one' } as const
 
@@ -151,19 +154,21 @@ class Entry<V> {
 	value: V | undefined = $state()
 	/** What the server last told us this item holds. */
 	private serverDeployed: V | undefined = $state.raw()
-	/** Fields a `patch` has put ahead of the server, until it lands or is refused. */
-	private patched: Record<string, unknown> = $state({})
+	/** Fields a `patch` has put ahead of the server, each tagged with the patch that owns it,
+	 *  until that patch lands or is refused. */
+	private patched: Record<string, { by: number; value: unknown }> = $state({})
 	/**
 	 * The baseline the value is measured against: what the server holds, with whatever a patch
 	 * is currently ahead of it on. Derived rather than assigned, so that no writer of the server
 	 * side can forget the overlay and roll the baseline back past an optimistic toggle — which
 	 * reads as an unsaved change to a field the user never touched.
 	 */
-	deployed: V | undefined = $derived(
-		this.serverDeployed === undefined
-			? undefined
-			: ({ ...this.serverDeployed, ...this.patched } as V)
-	)
+	deployed: V | undefined = $derived.by(() => {
+		if (this.serverDeployed === undefined) return undefined
+		const out = { ...this.serverDeployed } as Record<string, unknown>
+		for (const [field, held] of Object.entries(this.patched)) out[field] = held.value
+		return out as V
+	})
 	template: V | undefined = $state.raw()
 	origin: ItemOrigin | undefined = $state()
 	meta: unknown = $state.raw()
@@ -589,6 +594,7 @@ class Entry<V> {
 	 */
 	patch(fields: Partial<V>, write: (key: ItemKey) => Promise<unknown>): Promise<CommandOutcome> {
 		this.pristine = false
+		const id = nextPatch++
 		const onTemplate = this.origin === 'new'
 		const sent = snapshot(fields) as Record<string, unknown>
 		if (onTemplate) {
@@ -596,14 +602,14 @@ class Entry<V> {
 			// racing it, so the patch lands on it directly.
 			if (this.template !== undefined) this.template = { ...this.template, ...sent } as V
 		} else {
-			Object.assign(this.patched, sent)
+			for (const [k, v] of Object.entries(sent)) this.patched[k] = { by: id, value: v }
 		}
 		if (this.value !== undefined) Object.assign(this.value as object, fields)
 		this.touch()
 		/** Release each field this patch still owns; one a later patch has taken stays with it. */
 		const release = () => {
-			for (const [k, v] of Object.entries(sent)) {
-				if (deepEqual(this.patched[k], v)) delete this.patched[k]
+			for (const k of Object.keys(sent)) {
+				if (this.patched[k]?.by === id) delete this.patched[k]
 			}
 		}
 		return this.run(async () => {
