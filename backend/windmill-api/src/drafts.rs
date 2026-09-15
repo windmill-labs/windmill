@@ -322,7 +322,8 @@ pub struct SaveDraftResponse {
     /// next `last_sync`). On `conflict`: the existing row's `created_at`.
     pub current_timestamp: chrono::DateTime<chrono::Utc>,
     /// `saved` only: where the write landed. Differs from the URL path when the item
-    /// had moved away from it; the editor follows it there.
+    /// had moved away from it; the editor follows it there. Absent when a delete found
+    /// nothing to remove and the caller cannot read the path it moved to.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
 }
@@ -583,14 +584,16 @@ async fn update_draft(
             // gone but the editor is still on the path the item left, so it needs the
             // destination as much as the first attempt did. Unlike the arm above there is
             // no deleted row proving the caller ever held that draft, and an own discard
-            // skips the write check, so name the destination only to someone who could
-            // write there. Otherwise any member could read `draft_move` by discarding at
-            // a guessed path.
+            // is not gated, so this names a path to someone who may have none of it: the
+            // read gate, which is what keeps a path from being disclosed elsewhere in this
+            // module. Without it, discarding at a guessed path reads `draft_move`.
             let disclosed = match moved_to {
                 Some(dest) => {
-                    match require_can_write_path(&authed, &db, &user_db, &w_id, kind, &dest).await {
+                    match require_can_read_path(&authed, &user_db, &w_id, kind, &dest).await {
                         Ok(()) => Some(dest),
-                        Err(Error::NotAuthorized(_)) | Err(Error::BadRequest(_)) => None,
+                        Err(Error::NotFound(_))
+                        | Err(Error::NotAuthorized(_))
+                        | Err(Error::BadRequest(_)) => None,
                         Err(e) => return Err(e),
                     }
                 }

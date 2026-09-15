@@ -64,6 +64,9 @@ export function applyDraftToRuntimeRawApp(raw: RuntimeRawApp, dv: RawAppDraft): 
 		policy: dv.policy ?? raw.policy,
 		custom_path: dv.custom_path ?? raw.custom_path,
 		draft_path: dv.draft_path ?? raw.draft_path,
-		parent_version: dv.parent_version ?? raw.parent_version
+		// The incoming draft's own fork base, absence included: this round-trips into the
+		// next save, so falling back to the runtime's version would give that content a
+		// base it never forked from and hide that it is behind.
+		parent_version: dv.parent_version
 	}
 }
