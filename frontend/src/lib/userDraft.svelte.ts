@@ -141,8 +141,13 @@ export type LiveItemBridge = {
 		itemKind: UserDraftItemKind,
 		path: string
 	): { value: unknown | undefined } | undefined
-	/** Discard the live item's draft. False when no live item holds the key. */
-	discard(workspace: string, itemKind: UserDraftItemKind, path: string): boolean
+	/** Discard the live item's draft, resolving once its delete has landed. `undefined` when no
+	 *  live item holds the key, so the caller issues the delete itself. */
+	discard(
+		workspace: string,
+		itemKind: UserDraftItemKind,
+		path: string
+	): Promise<unknown> | undefined
 	list(workspace: string, itemKinds: readonly UserDraftItemKind[]): UserDraftEntry[]
 }
 
@@ -370,15 +375,20 @@ export const UserDraft = {
 		return writtenCache.get(mk)?.val !== undefined
 	},
 
-	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+	remove(
+		itemKind: UserDraftItemKind,
+		path: string,
+		opts?: UserDraftOptions
+	): Promise<unknown> | undefined {
 		const ws = resolveWorkspace(opts)
-		if (liveItems?.discard(ws, itemKind, path)) {
+		const live = liveItems?.discard(ws, itemKind, path)
+		if (live) {
 			// The live item owns the row, and its own discard deletes it. Falling through to the
 			// POST below would race that delete with an unconditional one (see `forgetLocal`), so
 			// only this caller's mirror is dropped — otherwise its reads keep answering with a
 			// draft that is gone.
 			UserDraft.forgetLocal(itemKind, path, opts)
-			return
+			return live
 		}
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
@@ -418,8 +428,12 @@ export const UserDraft = {
 		writtenCache.delete(mk)
 	},
 
-	clear(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
-		UserDraft.discard(itemKind, path, undefined, opts)
+	clear(
+		itemKind: UserDraftItemKind,
+		path: string,
+		opts?: UserDraftOptions
+	): Promise<unknown> | undefined {
+		return UserDraft.discard(itemKind, path, undefined, opts)
 	},
 
 	/**
@@ -568,12 +582,13 @@ export const UserDraft = {
 			 * leave it unset. */
 			auto?: boolean
 		}
-	): void {
+	): Promise<unknown> | undefined {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		const safeFallback = snapshotDraftValue(fallback)
-		if (liveItems?.discard(ws, itemKind, path)) {
+		const live = liveItems?.discard(ws, itemKind, path)
+		if (live) {
 			// No POST, for the reason `remove` gives. The cell still has to reach `fallback`:
 			// a caller holding one resets it to what it just saved, and its apply-effect would
 			// otherwise copy the stale draft straight back over the form.
@@ -582,7 +597,7 @@ export const UserDraft = {
 				entry.state.val = safeFallback
 			}
 			writtenCache.delete(mk)
-			return
+			return live
 		}
 		if (entry) {
 			entry.skipNextSync = true

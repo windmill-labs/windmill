@@ -587,20 +587,26 @@ export async function deleteGlobalDraft(
 	if (!itemKind) return
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
 	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
-	if (options.preserveLiveDraft && liveDraft?.storagePath === storagePath) {
-		UserDraft.remove(itemKind, storagePath, { workspace })
+	const live =
+		options.preserveLiveDraft && liveDraft?.storagePath === storagePath
+			? UserDraft.remove(itemKind, storagePath, { workspace })
+			: UserDraft.clear(itemKind, storagePath, { workspace })
+	if (live) {
+		// An open editor owns this row and its own discard deletes it, resolving once that has
+		// landed. A delete of ours alongside it would be a second request with nothing to check
+		// against, free to remove a draft saved from elsewhere in between.
+		await live
 	} else {
-		UserDraft.clear(itemKind, storagePath, { workspace })
+		// `remove`/`clear` only debounce the delete; persist it now so a deploy/discard
+		// that the caller awaits has actually cleared the server draft on return.
+		await UserDraftDbSyncer.save({
+			workspace,
+			itemKind,
+			path: storagePath,
+			value: null,
+			immediate: true
+		})
 	}
-	// `remove`/`clear` only debounce the delete; persist it now so a deploy/discard
-	// that the caller awaits has actually cleared the server draft on return.
-	await UserDraftDbSyncer.save({
-		workspace,
-		itemKind,
-		path: storagePath,
-		value: null,
-		immediate: true
-	})
 	// A failed (network/5xx) or conflicted delete is recorded in the syncer state,
 	// not thrown — surface it so callers don't report the draft as removed while
 	// the DB-backed source of truth still has it (same guard as the write path).

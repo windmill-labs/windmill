@@ -1251,6 +1251,30 @@ describe('item store: conflicts', () => {
 		})
 	})
 
+	it('does not rebase an unsent edit onto a draft written since', async () => {
+		const rows = fakeRows()
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		// Another tab saved B while our A sat parked, so the server's row is theirs now.
+		const theirs = { ...deployedRes, description: 'saved by another tab' }
+		const a = adapter(async () => ({ deployed: deployedRes, draft: theirs, draftSavedAt: 'T9' }))
+		const first = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+		rows.failing.add('u/me/r')
+		first.handle.value = { ...deployedRes, description: 'mine, never sent' }
+		await rows.port.flush(key)
+		first.release()
+
+		const seedsBefore = rows.seeds.length
+		const second = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+
+		// Ours is shown, because it is the only copy of it. But taking their timestamp would let
+		// it be accepted over their draft with no conflict ever raised, so it is not taken.
+		expect(second.handle.value?.description).toBe('mine, never sent')
+		expect(rows.seeds.slice(seedsBefore)).toEqual([])
+	})
+
 	it('re-issues a draft delete the server never received, on reopening', async () => {
 		const rows = fakeRows()
 		const store = createItemStore(rows.port)

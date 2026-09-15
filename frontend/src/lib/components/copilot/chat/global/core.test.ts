@@ -342,7 +342,11 @@ import {
 	setListAppRunsHandler,
 	setOpenPreviewHandler
 } from './core'
-import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
+import {
+	UserDraft,
+	__resetUserDraftForTesting,
+	registerLiveItemBridge
+} from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import {
 	clearGlobalDrafts,
@@ -2304,6 +2308,41 @@ describe('global AI tools', () => {
 			runnables: {}
 		} as any)
 		expect(res.status).toBe('conflict')
+	})
+
+	// An open editor owns its own row: the chat must defer to that editor's discard rather than
+	// send a delete of its own, which would be a second unconditional request.
+	it('leaves the delete to a live editor that owns the draft', async () => {
+		const path = 'f/scripts/livedel'
+		seedBackendDraft('script', path, {
+			path,
+			summary: 's',
+			content: 'export function main() {}',
+			language: 'bun'
+		})
+		let discards = 0
+		registerLiveItemBridge({
+			seed: () => false,
+			read: () => undefined,
+			// Claims the key and removes nothing, so anything still gone was deleted by the chat.
+			discard: () => {
+				discards++
+				return Promise.resolve({ removed: true })
+			},
+			list: () => []
+		})
+		try {
+			await deleteGlobalDraft(WORKSPACE, 'script', path)
+			expect(discards).toBe(1)
+			expect(getBackendDraft('script', path)).toBeDefined()
+		} finally {
+			registerLiveItemBridge({
+				seed: () => false,
+				read: () => undefined,
+				discard: () => undefined,
+				list: () => []
+			})
+		}
 	})
 
 	// A failed server delete must surface (throw), not silently report removed —

@@ -286,7 +286,13 @@ class Entry<V> {
 	 *  `last_sync`: one fact, so taken together and against one `asOf`, the rows sent when the
 	 *  read was issued. Seeding behind a row sent since puts `last_sync` before what the syncer
 	 *  has already sent, which the server refuses from then on. */
-	private adoptRow(key: ItemKey, row: unknown, draftSavedAt: string | undefined, asOf: number) {
+	private adoptRow(
+		key: ItemKey,
+		row: unknown,
+		draftSavedAt: string | undefined,
+		asOf: number,
+		waiting: boolean
+	) {
 		if (this.ports.rowMark(key) !== asOf) return
 		// A payload the server *refused* predates this read and the baseline taken below would
 		// make it acceptable, so it goes; the reconcile after the read re-queues whatever the
@@ -294,7 +300,10 @@ class Entry<V> {
 		// only record of an edit that never reached anyone, so it stays.
 		if (this.ports.conflicted(key)) this.ports.dropPending(key)
 		this.row = row === null || row === undefined ? null : (serialize(row) ?? null)
-		this.ports.seedSync(key, draftSavedAt, asOf)
+		// A payload still waiting to be sent was written against the baseline it had then. Taking
+		// this read's would make it acceptable over whatever has been written since, so it would
+		// overwrite that without ever conflicting. Left alone, its own baseline decides.
+		if (!waiting) this.ports.seedSync(key, draftSavedAt, asOf)
 	}
 
 	private replaceValue(value: V | undefined): void {
@@ -414,7 +423,7 @@ class Entry<V> {
 			const draft = (unsent === null ? undefined : row) as V | undefined
 			// The deployed side above always advances: the item did change, and a discard after
 			// the user keeps theirs has to land on what the server holds now.
-			if (!standOff) this.adoptRow(key, row, res.draftSavedAt, rowsAtRead)
+			if (!standOff) this.adoptRow(key, row, res.draftSavedAt, rowsAtRead, unsent !== undefined)
 			this.loaded = true
 			if (!keepValue) {
 				this.pristine = this.settles && this.origin === 'deployed' && draft === undefined
@@ -1080,11 +1089,16 @@ export function createItemStore(ports: ItemRowPort) {
 			if (!entry || !entry.loaded) return undefined
 			return { value: entry.dirty && entry.origin !== 'new' ? snapshot(entry.value) : undefined }
 		},
-		discard(workspace: string, kind: UserDraftItemKind, path: string): boolean {
+		discard(
+			workspace: string,
+			kind: UserDraftItemKind,
+			path: string
+		): Promise<unknown> | undefined {
 			const entry = find(workspace, kind, path)
-			if (!entry) return false
-			void entry.discard()
-			return true
+			if (!entry) return undefined
+			// Returned rather than left running: the caller would otherwise send its own delete
+			// alongside this one, and the second goes out with no baseline to check.
+			return entry.discard()
 		},
 		list(workspace: string, kinds: readonly UserDraftItemKind[]): UserDraftEntry[] {
 			const out: UserDraftEntry[] = []
