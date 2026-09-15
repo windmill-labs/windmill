@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte'
+	import { isCloudHosted } from '$lib/cloud'
 	import { superadmin, userStore, type DBSchema } from '$lib/stores'
 	import {
 		ChevronDownIcon,
@@ -250,10 +251,13 @@
 		return entry.creatable_schemas.includes(schemaKey)
 	}
 
-	/** Roles and grants only exist on the instance database. Whether the caller may change them
-	 * is the access editor's to say: it opens read-only for everyone else. */
+	/** Roles and grants only exist on the instance database, which cloud does not offer. Whether
+	 * the caller may change them is the access editor's to say: it opens read-only for everyone
+	 * else. */
 	function isInstanceDatatable(datatable: string | undefined): boolean {
-		return !!datatableTree?.find((d) => d.datatable_name === datatable)?.instance
+		return (
+			!isCloudHosted() && !!datatableTree?.find((d) => d.datatable_name === datatable)?.instance
+		)
 	}
 
 	function canCreateSchemaIn(datatable: string | undefined): boolean {

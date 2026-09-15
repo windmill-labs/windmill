@@ -299,7 +299,9 @@
 						uriState.selectedRole = role
 					}}
 					bind:pendingAction
-					canManageDatatable={!!($superadmin || $userStore?.is_admin) && !!$enterpriseLicense}
+					canManageDatatable={!!($superadmin || $userStore?.is_admin) &&
+						!!$enterpriseLicense &&
+						!isCloudHosted()}
 					onDatatableAction={runDatatableAction}
 					bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
 					bind:hasReplResult
@@ -364,7 +366,7 @@
 			datatable={actionDatatable}
 			onSchemaChanged={refreshManager}
 		/>
-		{#if $enterpriseLicense}
+		{#if $enterpriseLicense && !isCloudHosted()}
 			<DataTablePermissionsButton
 				bind:this={permissionsDrawer}
 				hideTrigger

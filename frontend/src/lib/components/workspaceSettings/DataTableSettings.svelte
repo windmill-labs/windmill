@@ -478,7 +478,7 @@
 							workspace={$workspaceStore ?? ''}
 							datatable={dataTable.name}
 						/>
-						{#if $enterpriseLicense}
+						{#if $enterpriseLicense && !isCloudHosted()}
 							<DataTablePermissionsButton
 								bind:this={permissionsButtons[dataTable.name]}
 								hideTrigger
@@ -529,7 +529,7 @@
 								tooltip: dirtyMap[dataTable.name] ? 'Save the settings first' : undefined,
 								action: () => migrationsButtons[dataTable.name]?.open()
 							},
-							...($enterpriseLicense
+							...($enterpriseLicense && !isCloudHosted()
 								? [
 										{
 											displayName: 'Roles',
