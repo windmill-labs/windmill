@@ -1308,6 +1308,59 @@ async fn authorize_acl_change(
     Ok(governing)
 }
 
+/// A role passes on only privileges it holds with grant option, and an instance database
+/// provisioned before data table roles gave `custom_instance_user` none. Adds that option to its
+/// database and `public` privileges, and nothing else: default privileges are left alone, since a
+/// schema's change of owner is planned against them. Best-effort, as a grant it fails to enable is
+/// refused when it runs.
+async fn ensure_grant_options(client: &tokio_postgres::Client, db: &DB, dbname: &str) {
+    let held = client
+        .query_one(
+            "SELECT has_database_privilege(current_database(), 'CONNECT WITH GRANT OPTION')
+                AND has_database_privilege(current_database(), 'CREATE WITH GRANT OPTION')
+                AND (to_regnamespace('public') IS NULL
+                     OR (has_schema_privilege('public', 'USAGE WITH GRANT OPTION')
+                         AND has_schema_privilege('public', 'CREATE WITH GRANT OPTION')))",
+            &[],
+        )
+        .await
+        .is_ok_and(|row| row.get::<_, bool>(0));
+    if held {
+        return;
+    }
+    if let Err(e) = grant_options_as_server(db, dbname).await {
+        tracing::warn!("Could not enable grant options on '{dbname}': {e}");
+    }
+}
+
+/// Only the database's owner, the server's own Postgres user, can hand out an option it holds.
+async fn grant_options_as_server(db: &DB, dbname: &str) -> Result<()> {
+    let server = PgDatabase::parse_uri(&windmill_common::get_database_url().await?.as_str().await)?;
+    let creds = PgDatabase { dbname: dbname.to_string(), ..server };
+    let (client, connection) = creds.connect(Some(db)).await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+    let role = quote_ident(CUSTOM_INSTANCE_USER);
+    let result = client
+        .batch_execute(&format!(
+            "GRANT CONNECT, CREATE ON DATABASE {} TO {role} WITH GRANT OPTION;
+             DO $$ BEGIN
+               IF to_regnamespace('public') IS NOT NULL THEN
+                 GRANT USAGE, CREATE ON SCHEMA public TO {role} WITH GRANT OPTION;
+               END IF;
+             END $$;",
+            quote_ident(dbname)
+        ))
+        .await;
+    drop(client);
+    windmill_common::shutdown_pg_connection(join_handle).await?;
+    result.map_err(|e| {
+        Error::internal_err(format!(
+            "Failed to grant options on '{dbname}': {}",
+            pg_error_message(&e)
+        ))
+    })
+}
+
 /// Whether the governing entry an apply was authorized on is still the one in the settings, read
 /// under the lock: a save in between could have pointed it at another database or changed its roles.
 fn entry_unchanged(governing: &GoverningDatatable, entry_now: Option<serde_json::Value>) -> bool {
@@ -1523,6 +1576,7 @@ async fn apply_datatable_acl(
     // have exhausted.
     let governing = authorize_acl_change(&db, &authed, &w_id, &datatable_name).await?;
     let (mut client, mut notices, dbname) = connect_as_admin_unchecked(&db, &governing).await?;
+    ensure_grant_options(&client, &db, &dbname).await;
 
     // Held until the change is committed: a role renamed or dropped meanwhile would change what
     // the plan names, and a settings save could move the entry onto another database. Taken in the
@@ -1546,15 +1600,6 @@ async fn apply_datatable_acl(
              run what was confirmed. Plan it again."
                 .to_string(),
         ));
-    }
-
-    // A role passes on only privileges it holds with grant option, which a database provisioned
-    // before data table roles lacks; a grant this fails to enable is refused below. After the plan
-    // check, since the planner reads these grants and would refuse what it just accepted; it
-    // connects as the server's own Postgres user, so it takes nothing from the pool.
-    if let Err(e) = windmill_common::ensure_instance_db_grant_options_unchecked(&db, &dbname).await
-    {
-        tracing::warn!("Could not refresh grant options on '{dbname}': {e}");
     }
 
     // One transaction: a half-applied ownership transfer leaves one schema's objects owned by two
