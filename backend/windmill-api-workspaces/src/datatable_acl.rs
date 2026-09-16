@@ -1308,6 +1308,8 @@ async fn authorize_acl_change(
     Ok(governing)
 }
 
+static APPLY_SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+
 /// A role passes on only privileges it holds with grant option, and an instance database
 /// provisioned before data table roles gave `custom_instance_user` none. Adds that option to its
 /// database and `public` privileges, and nothing else: default privileges are left alone, since a
@@ -1575,6 +1577,13 @@ async fn apply_datatable_acl(
     // connection could wait forever on a pool that concurrent applies, queued on the same locks,
     // have exhausted.
     let governing = authorize_acl_change(&db, &authed, &w_id, &datatable_name).await?;
+    // Applies queue on an instance-wide lock while each holds a direct connection to the instance's
+    // Postgres; unbounded, the queue alone could exhaust its connection limit. One at a time per
+    // server, and the ones waiting hold no connection at all.
+    let _slot = APPLY_SLOT
+        .acquire()
+        .await
+        .map_err(|e| Error::internal_err(format!("ACL apply slot closed: {e}")))?;
     let (mut client, mut notices, dbname) = connect_as_admin_unchecked(&db, &governing).await?;
     ensure_grant_options(&client, &db, &dbname).await;
 
