@@ -432,17 +432,19 @@
 
 	/** Deployed versions for the diff picker, newest first. Best-effort: losing the
 	 *  list costs the picker, not the diff. */
-	async function deployedVersionOptions() {
+	async function deployedVersionOptions(page = 1) {
 		if (!opWorkspace || !appPath) return undefined
 		try {
 			const history = await AppService.getAppHistoryByPath({
 				workspace: opWorkspace,
-				path: appPath
+				path: appPath,
+				page
 			})
-			const total = history.length
 			// Head is the version the payload beside this list came from; see FlowBuilder.
 			const head = deployedVersionShown ?? history[0]?.version
-			return history.map((h, i) => {
+			// No ordinal: the list arrives a page at a time, so a number counted within one
+			// would rename versions as more load.
+			return history.map((h) => {
 				const detail = [
 					h.created_by,
 					h.created_at ? new Date(h.created_at).toLocaleString() : undefined,
@@ -451,7 +453,7 @@
 				const isHead = h.version === head
 				return {
 					id: String(h.version),
-					label: `v${total - i} · ${h.version}${isHead ? ' · latest' : ''}`,
+					label: `${h.version}${isHead ? ' · latest' : ''}`,
 					subtitle: detail.length ? detail.join(' · ') : undefined,
 					isHead
 				}
@@ -459,6 +461,13 @@
 		} catch {
 			return undefined
 		}
+	}
+
+	/** Hands the drawer the next page each time the reader asks for one. Held here rather
+	 *  than in the drawer because the page number belongs to this item's history. */
+	function moreVersionsLoader() {
+		let page = 1
+		return async () => deployedVersionOptions(++page)
 	}
 
 	/** The opening this editor claimed last. A path change remounts this editor while the
@@ -493,6 +502,7 @@
 				mode: 'normal',
 				deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
 				versions,
+				loadMoreVersions: moreVersionsLoader(),
 				onTakeLatest,
 				draftBase: draftBaseVersion,
 				deployedHead: deployedVersionShown != null ? String(deployedVersionShown) : undefined,

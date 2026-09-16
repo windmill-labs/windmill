@@ -73,7 +73,10 @@ use windmill_common::{
     },
     triggers::MovedNativeTrigger,
     users::username_to_permissioned_as,
-    utils::{not_found_if_none, query_elems_from_hub, require_admin, Pagination, StripPath},
+    utils::{
+        not_found_if_none, paginate_with_default, query_elems_from_hub, require_admin, Pagination,
+        StripPath, HISTORY_PER_PAGE,
+    },
     worker::to_raw_value,
     HUB_BASE_URL,
 };
@@ -3088,17 +3091,22 @@ async fn get_script_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<ScriptHistory>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
+    let (per_page, offset) = paginate_with_default(pagination, HISTORY_PER_PAGE);
     let mut tx = user_db.begin(&authed).await?;
     let query_result = sqlx::query!(
         "SELECT s.hash as hash, dm.deployment_msg as deployment_msg, s.created_at as created_at, s.created_by as created_by
         FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
         WHERE s.workspace_id = $1 AND s.path = $2
-        ORDER by s.created_at DESC",
+        ORDER by s.created_at DESC
+        LIMIT $3 OFFSET $4",
         w_id,
         path,
+        per_page as i64,
+        offset as i64,
     )
     .fetch_all(&mut *tx)
     .await?;

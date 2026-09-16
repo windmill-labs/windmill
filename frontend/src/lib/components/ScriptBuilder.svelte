@@ -843,18 +843,18 @@
 	/** Deployed versions to offer in the diff picker, newest first. Best-effort: a
 	 *  failure here costs the picker, not the diff, so the drawer still opens on the
 	 *  head. `deployment_msg` is all the history endpoint carries besides the hash. */
-	async function deployedVersionOptions(headHash: string | undefined) {
+	async function deployedVersionOptions(headHash: string | undefined, page = 1) {
 		if (!opWorkspace || !userDraftPath) return undefined
 		try {
 			const history = await ScriptService.getScriptHistoryByPath({
 				workspace: opWorkspace,
-				path: userDraftPath
+				path: userDraftPath,
+				page
 			})
-			// Numbered newest-first from the history order: the version number and hash
-			// identify it, and who deployed it drops to the subtitle so the number reads
-			// first. The hash stays because it is what the API and the CLI speak.
-			const total = history.length
-			return history.map((h, i) => {
+			// The hash identifies the version — it is what the API and the CLI speak — and
+			// who deployed it drops to the subtitle. No ordinal: the list arrives a page at
+			// a time, so a number counted within one would rename versions as more load.
+			return history.map((h) => {
 				const isHead = h.script_hash === headHash
 				const detail = [
 					h.created_by,
@@ -863,7 +863,7 @@
 				].filter(Boolean)
 				return {
 					id: h.script_hash,
-					label: `v${total - i} · ${h.script_hash.slice(0, 8)}${isHead ? ' · latest' : ''}`,
+					label: `${h.script_hash.slice(0, 8)}${isHead ? ' · latest' : ''}`,
 					subtitle: detail.length ? detail.join(' · ') : undefined,
 					isHead
 				}
@@ -871,6 +871,13 @@
 		} catch {
 			return undefined
 		}
+	}
+
+	/** Hands the drawer the next page each time the reader asks for one. Held here rather
+	 *  than in the drawer because the page number belongs to this item's history. */
+	function moreVersionsLoader(headHash: string | undefined) {
+		let page = 1
+		return async () => deployedVersionOptions(headHash, ++page)
 	}
 
 	/** The opening this editor claimed last. A path change remounts this editor while the
@@ -920,6 +927,7 @@
 				deployed,
 				deployedLabel: deployedVersionLabel(deployed),
 				versions,
+				loadMoreVersions: moreVersionsLoader(headHash),
 				onTakeLatest,
 				draftBase: draftBaseHash,
 				deployedHead: headHash,

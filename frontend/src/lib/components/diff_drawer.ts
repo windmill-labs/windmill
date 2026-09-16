@@ -27,6 +27,10 @@ export type DiffDrawerDiff =
 			/** Loads one version's payload. Returning `undefined` leaves the current
 			 *  comparison in place rather than blanking the diff. */
 			loadVersion?: (id: string) => Promise<Value | undefined>
+			/** Fetches the next, older page of `versions`. `versions` holds one page so the
+			 *  drawer opens without waiting on a path a pipeline has deployed thousands of
+			 *  times; the reader asks for the rest. Returning nothing ends the list. */
+			loadMoreVersions?: () => Promise<DiffVersionOption[] | undefined>
 			/** Moves the draft's base to the head and keeps its content, rendered as a
 			 *  header action so the user takes the latest with the diff in front of them.
 			 *  Called with the version the drawer is showing as head (from `versions`), so

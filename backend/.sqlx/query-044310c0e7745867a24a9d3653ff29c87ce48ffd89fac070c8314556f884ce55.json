@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.hash as hash, dm.deployment_msg as deployment_msg, s.created_at as created_at, s.created_by as created_by\n        FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash\n        WHERE s.workspace_id = $1 AND s.path = $2\n        ORDER by s.created_at DESC",
+  "query": "SELECT s.hash as hash, dm.deployment_msg as deployment_msg, s.created_at as created_at, s.created_by as created_by\n        FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash\n        WHERE s.workspace_id = $1 AND s.path = $2\n        ORDER by s.created_at DESC\n        LIMIT $3 OFFSET $4",
   "describe": {
     "columns": [
       {
@@ -27,7 +27,9 @@
     "parameters": {
       "Left": [
         "Text",
-        "Text"
+        "Text",
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -37,5 +39,5 @@
       false
     ]
   },
-  "hash": "605c575a82693bd5351cc748b31c6c44916c503837cb6d189147e184f7f41caf"
+  "hash": "044310c0e7745867a24a9d3653ff29c87ce48ffd89fac070c8314556f884ce55"
 }

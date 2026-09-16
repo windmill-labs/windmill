@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg,\n                av.created_by as created_by, av.created_at as created_at\n        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version\n        WHERE a.workspace_id = $1 AND a.path = $2\n        ORDER BY array_position(a.versions, av.id) DESC NULLS LAST, av.id DESC",
+  "query": "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg,\n                av.created_by as created_by, av.created_at as created_at\n        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version\n        WHERE a.workspace_id = $1 AND a.path = $2\n        ORDER BY array_position(a.versions, av.id) DESC NULLS LAST, av.id DESC\n        LIMIT $3 OFFSET $4",
   "describe": {
     "columns": [
       {
@@ -32,7 +32,9 @@
     "parameters": {
       "Left": [
         "Text",
-        "Text"
+        "Text",
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -43,5 +45,5 @@
       false
     ]
   },
-  "hash": "c8b369881add5574c1762431e2fb58eb04892babb4684be314f369227424e640"
+  "hash": "e7c8ccc5f1955cae39856baacafb7ce6482125e720fb8f53e3e9e749a69e08bd"
 }

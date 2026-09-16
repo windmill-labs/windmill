@@ -69,8 +69,9 @@ use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
-        http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
-        strip_json_nul, Pagination, RunnableKind, StripPath,
+        http_get_from_hub, not_found_if_none, paginate, paginate_with_default,
+        query_elems_from_hub, require_admin, strip_json_nul, Pagination, RunnableKind, StripPath,
+        HISTORY_PER_PAGE,
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
@@ -1237,9 +1238,11 @@ async fn get_app_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<AppHistory>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:read:{}", &path))?;
+    let (per_page, offset) = paginate_with_default(pagination, HISTORY_PER_PAGE);
     let mut tx = user_db.begin(&authed).await?;
     // Newest first in the order the versions were deployed, which the picker numbers
     // (`v1`, `v2`, …) and reads the head off. That is the position in `app.versions`,
@@ -1252,9 +1255,12 @@ async fn get_app_history(
                 av.created_by as created_by, av.created_at as created_at
         FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
         WHERE a.workspace_id = $1 AND a.path = $2
-        ORDER BY array_position(a.versions, av.id) DESC NULLS LAST, av.id DESC",
+        ORDER BY array_position(a.versions, av.id) DESC NULLS LAST, av.id DESC
+        LIMIT $3 OFFSET $4",
         w_id,
         path,
+        per_page as i64,
+        offset as i64,
     ).fetch_all(&mut *tx).await?;
     tx.commit().await?;
 

@@ -142,6 +142,42 @@
 	 *  generation is stale — a slower earlier pick, or one outlived by a drawer reset —
 	 *  and neither replaces the diff nor clears the spinner, which `disabled` rides on. */
 	let versionLoadGeneration = 0
+	/** Pages of `versions` fetched after the first. Kept beside `data` so a diff swapped in
+	 *  by a newer opening drops them along with the list they extended. */
+	let extraVersions: DiffVersionOption[] = $state([])
+	let moreLoader: (() => Promise<DiffVersionOption[] | undefined>) | undefined = $state(undefined)
+	let loadingMore = $state(false)
+	/** What the picker offers: the page the editor handed over plus whatever the reader has
+	 *  asked for since. Every read of the version list goes through this. */
+	const pickerVersions = $derived.by(() =>
+		data?.mode === 'normal' ? [...(data.versions ?? []), ...extraVersions] : []
+	)
+
+	/** The editors hand over one page, so a path a pipeline has deployed thousands of times
+	 *  does not hold the drawer shut while its whole history arrives. */
+	async function fetchMoreVersions() {
+		if (!moreLoader || loadingMore) return
+		loadingMore = true
+		const generation = versionLoadGeneration
+		try {
+			const more = await moreLoader()
+			// A diff swapped in while this ran owns the picker now; appending would splice
+			// one item's history onto another's.
+			if (generation !== versionLoadGeneration) return
+			if (more?.length) {
+				extraVersions = [...extraVersions, ...more]
+			} else {
+				// Nothing came back, so there is nothing further to ask for.
+				moreLoader = undefined
+			}
+		} catch (e: any) {
+			if (generation === versionLoadGeneration) {
+				sendUserToast(`Could not load older versions: ${e?.body ?? e?.message ?? e}`, true)
+			}
+		} finally {
+			loadingMore = false
+		}
+	}
 
 	async function selectVersion(id: string | undefined) {
 		if (!id || !versionLoader || !data || data.mode !== 'normal') return
@@ -159,7 +195,7 @@
 				if (!value) sendUserToast(`Could not load version ${id}`, true)
 				return
 			}
-			const opt = data.versions?.find((v) => v.id === id)
+			const opt = pickerVersions.find((v) => v.id === id)
 			data = {
 				...data,
 				deployed: prepareDiff(value),
@@ -181,7 +217,7 @@
 	 *  it, so "take latest" means the version the reader is looking at. */
 	const headShown = $derived.by(() =>
 		data?.mode === 'normal'
-			? (data.versions?.find((v) => v.isHead)?.id ?? data.deployedHead)
+			? (pickerVersions.find((v) => v.isHead)?.id ?? data.deployedHead)
 			: undefined
 	)
 	/** Behind as the drawer can see it. Unknown counts as not behind: offering to adopt a
@@ -218,6 +254,7 @@
 					deployedLabel?: string
 					versions?: DiffVersionOption[]
 					loadVersion?: (id: string) => Promise<Value | undefined>
+					loadMoreVersions?: () => Promise<DiffVersionOption[] | undefined>
 					onTakeLatest?: (head?: string) => void | Promise<void>
 					draftBase?: string
 					deployedHead?: string
@@ -245,6 +282,7 @@
 				deployedLabel,
 				versions,
 				loadVersion,
+				loadMoreVersions,
 				onTakeLatest,
 				draftBase,
 				deployedHead,
@@ -253,11 +291,14 @@
 				button
 			} = diff
 			versionLoader = loadVersion
+			moreLoader = loadMoreVersions
 			headLabel = deployedLabel
 			headDeployed = !deployed.draft_only ? prepareDiff(deployed) : undefined
 			// A load still in flight belongs to the diff being replaced.
 			versionLoadGeneration++
 			loadingVersion = false
+			extraVersions = []
+			loadingMore = false
 			selectedVersion = versions?.find((v) => v.isHead)?.id
 			data = {
 				mode: 'normal',
@@ -297,12 +338,12 @@
 				<!-- Outside the `contentType` check on purpose: with no differences against
 				     the head, picking an older version is exactly how the reader finds one,
 				     so the picker has to outlive the "no changes" state. -->
-				{#if data.mode === 'normal' && (data.deployedLabel || data.versions?.length)}
+				{#if data.mode === 'normal' && (data.deployedLabel || pickerVersions.length)}
 					<div class="flex gap-2 items-center text-xs text-secondary">
-						{#if data.versions?.length && versionLoader}
+						{#if pickerVersions.length && versionLoader}
 							<div class="w-72">
 								<Select
-									items={data.versions.map((v) => ({
+									items={pickerVersions.map((v) => ({
 										value: v.id,
 										label: v.label,
 										subtitle: v.subtitle
@@ -313,6 +354,17 @@
 								/>
 							</div>
 							{#if loadingVersion}
+								<Loader2 size={12} class="animate-spin shrink-0" />
+							{/if}
+							{#if moreLoader}
+								<Button
+									variant="subtle"
+									unifiedSize="2xs"
+									disabled={loadingMore}
+									on:click={fetchMoreVersions}>Load older</Button
+								>
+							{/if}
+							{#if loadingMore}
 								<Loader2 size={12} class="animate-spin shrink-0" />
 							{/if}
 						{:else if data.deployedLabel}

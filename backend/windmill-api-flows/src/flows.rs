@@ -51,7 +51,10 @@ use windmill_common::{
     jobs::JobPayload,
     schedule::Schedule,
     triggers::MovedNativeTrigger,
-    utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
+    utils::{
+        http_get_from_hub, not_found_if_none, paginate, paginate_with_default, Pagination,
+        RunnableKind, StripPath, HISTORY_PER_PAGE,
+    },
 };
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -900,19 +903,24 @@ async fn get_flow_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<FlowVersion>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:read:{}", path))?;
+    let (per_page, offset) = paginate_with_default(pagination, HISTORY_PER_PAGE);
     let mut tx = user_db.begin(&authed).await?;
 
     let flows = sqlx::query_as!(
         FlowVersion,
-        "SELECT flow_version.id, flow_version.created_at, flow_version.created_by, deployment_metadata.deployment_msg FROM flow_version 
+        "SELECT flow_version.id, flow_version.created_at, flow_version.created_by, deployment_metadata.deployment_msg FROM flow_version
         LEFT JOIN deployment_metadata ON flow_version.id = deployment_metadata.flow_version
-        WHERE flow_version.path = $1 AND flow_version.workspace_id = $2 
-        ORDER BY flow_version.created_at DESC",
+        WHERE flow_version.path = $1 AND flow_version.workspace_id = $2
+        ORDER BY flow_version.created_at DESC
+        LIMIT $3 OFFSET $4",
         path,
-        w_id
+        w_id,
+        per_page as i64,
+        offset as i64,
     )
     .fetch_all(&mut *tx)
     .await?;

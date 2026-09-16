@@ -1137,17 +1137,18 @@
 
 	/** Deployed versions for the diff picker, newest first. Best-effort: losing the
 	 *  list costs the picker, not the diff. */
-	async function deployedVersionOptions() {
+	async function deployedVersionOptions(page = 1) {
 		const path = userDraftPath || initialPath
 		if (!opWorkspace || !path) return undefined
 		try {
-			const history = await FlowService.getFlowHistory({ workspace: opWorkspace, path })
-			const total = history.length
+			const history = await FlowService.getFlowHistory({ workspace: opWorkspace, path, page })
 			// Head is the version the payload beside this list came from, not whatever the
 			// history now leads with: a deploy landing between the two fetches would
 			// otherwise label the shown (older) value as the latest.
 			const head = deployedVersionShown ?? history[0]?.id
-			return history.map((h, i) => {
+			// No ordinal: the list arrives a page at a time, so a number counted within one
+			// would rename versions as more load.
+			return history.map((h) => {
 				const detail = [
 					h.created_by,
 					h.created_at ? new Date(h.created_at).toLocaleString() : undefined,
@@ -1156,7 +1157,7 @@
 				const isHead = h.id === head
 				return {
 					id: String(h.id),
-					label: `v${total - i} · ${h.id}${isHead ? ' · latest' : ''}`,
+					label: `${h.id}${isHead ? ' · latest' : ''}`,
 					subtitle: detail.length ? detail.join(' · ') : undefined,
 					isHead
 				}
@@ -1164,6 +1165,13 @@
 		} catch {
 			return undefined
 		}
+	}
+
+	/** Hands the drawer the next page each time the reader asks for one. Held here rather
+	 *  than in the drawer because the page number belongs to this item's history. */
+	function moreVersionsLoader() {
+		let page = 1
+		return async () => deployedVersionOptions(++page)
 	}
 
 	/** The opening this editor claimed last. A path change remounts this editor while the
@@ -1196,6 +1204,7 @@
 				deployed: deployedValue ?? savedFlow,
 				deployedLabel,
 				versions,
+				loadMoreVersions: moreVersionsLoader(),
 				onTakeLatest,
 				draftBase: draftBaseVersion,
 				deployedHead: deployedVersionShown != null ? String(deployedVersionShown) : undefined,
