@@ -16,6 +16,11 @@ export const MEMORY_OPTION_LABELS: Record<string, string> = {
 }
 
 export function memoryOptionLabel(memory: any): string | undefined {
+	// Managed memory that keeps no messages runs as off, and a note about what that state reads
+	// must say so.
+	if ((memory?.kind === 'window' || memory?.kind === 'auto') && !memory.context_length) {
+		return MEMORY_OPTION_LABELS.off
+	}
 	return memory?.kind ? MEMORY_OPTION_LABELS[memory.kind] : undefined
 }
 
@@ -72,7 +77,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 						context_length: {
 							type: 'number',
 							title: 'Messages to keep',
-							description: 'Number of most recent messages to load and store.',
+							description: 'Number of most recent messages to load and store. 0 turns memory off.',
 							default: 10
 						}
 					},

@@ -654,7 +654,9 @@ pub async fn handle_ai_agent_job(
         };
         // Only after interpolating the resource: these are caller-controlled and already resolved by
         // build_args_map, so passing them through it again would expand contextual values —
-        // `$WM_TOKEN` in a user message would reach the model provider.
+        // `$WM_TOKEN` in a user message would reach the model provider. The resource is not
+        // validated against a schema, so a flow-local key it happens to carry is dropped rather
+        // than read as the step's.
         for key in [
             "user_message",
             "user_attachments",
@@ -662,6 +664,7 @@ pub async fn handle_ai_agent_job(
             "memory_id",
             "previous_messages",
         ] {
+            brain.remove(key);
             if let Some(v) = local_args.get(key) {
                 brain.insert(
                     key.to_string(),

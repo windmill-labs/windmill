@@ -556,7 +556,7 @@ components:
       description: |
         Deprecated, still read as it was written: the run's memory id, else the `memory_id` here.
         The step's own `memory_id` is not read while this kind is set; switch the kind to `window`
-        to use it.
+        to use it. Without a `context_length`, or with 0, it is `off` and reads `previous_messages`.
       properties:
         kind:
           type: string

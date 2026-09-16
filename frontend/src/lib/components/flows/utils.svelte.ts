@@ -154,7 +154,8 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
  * A chat flow runs with the conversation as its memory id, so an id an older editor baked into a
  * step's memory was never read there and is dropped. Anywhere else it still applies to runs that
  * pass none, and stays until the author converts it. An empty static memory id or message list
- * reads as unset at runtime, so neither is persisted.
+ * reads as unset at runtime, so neither is persisted, and managed memory that keeps no messages
+ * runs as off, so it is saved as off.
  */
 export function normalizeAgentHistory(
 	inputTransforms: Record<string, any> | undefined,
@@ -162,6 +163,13 @@ export function normalizeAgentHistory(
 ) {
 	if (!inputTransforms) return
 	const memory = inputTransforms.memory
+	if (
+		memory?.type === 'static' &&
+		memory.value?.kind === 'window' &&
+		!memory.value.context_length
+	) {
+		memory.value = { kind: 'off' }
+	}
 	if (
 		memory?.type === 'static' &&
 		memory.value?.kind === 'auto' &&

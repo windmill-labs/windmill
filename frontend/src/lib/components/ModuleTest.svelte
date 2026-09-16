@@ -175,17 +175,19 @@
 			// it carries every brain key as undefined even though the form renders only the flow-local
 			// ones (`flowLocalAgentSchema`). Overlaying those would shadow the brain the draft just
 			// supplied with nothing, so an inlined step takes only the inputs its form actually offers.
-			// A history input left blank here stays as the step authored it: turned into an expression that
-			// evaluates to nothing, it would read as a memory id set to empty, where the step's own blank
-			// static value reads as unset.
+			// A history input left blank here is unset, as a blank static value is on the step: sent as an
+			// expression that evaluates to nothing it would read as a memory id set to empty, and left to
+			// the step's own transform it would reuse a value the author just cleared.
+			const isBlank = (v: unknown) => v == undefined || v === '' || (Array.isArray(v) && !v.length)
 			const formKeys = (
 				draft ? (AGENT_FLOW_LOCAL_KEYS as readonly string[]) : Object.keys(args)
 			).filter(
-				(key) =>
-					!(AGENT_HISTORY_KEYS as readonly string[]).includes(key) ||
-					(args[key] != undefined &&
-						args[key] !== '' &&
-						!(Array.isArray(args[key]) && !args[key].length))
+				(key) => !(AGENT_HISTORY_KEYS as readonly string[]).includes(key) || !isBlank(args[key])
+			)
+			const stepTransforms = Object.fromEntries(
+				Object.entries((agentVal.input_transforms ?? {}) as Record<string, InputTransform>).filter(
+					([key]) => !(AGENT_HISTORY_KEYS as readonly string[]).includes(key) || !isBlank(args[key])
+				)
 			)
 
 			// The test form only covers the schema it was given, and for a standalone agent that may be
@@ -194,9 +196,7 @@
 			// in the form after the test panel mounted is what runs. A linked agent needs none of this:
 			// the server reads its brain from the resource.
 			const inputTransforms: { [key: string]: JavascriptTransform | InputTransform } = {
-				...(agentVal.agent
-					? {}
-					: ((agentVal.input_transforms ?? {}) as Record<string, InputTransform>)),
+				...(agentVal.agent ? {} : stepTransforms),
 				...Object.fromEntries(
 					formKeys.map((key) => [
 						key,

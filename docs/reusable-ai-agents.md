@@ -68,7 +68,7 @@ The worker reconciles them once per agent invocation, nested agent tools include
 
 1. A legacy `auto` or `manual` memory: read as the editor that wrote it ran it. `manual` replays
    its list; `auto` uses the run's memory id, else the id baked into it, else runs stateless.
-   Neither history input is read.
+   Neither history input is read. An `auto` without a count, or with 0, is off and read as such.
 2. Managed memory: the memory id is the step's, else the run's. With no memory id the agent runs
    stateless, and a step `previous_messages` is ignored.
 3. Memory off: the history is `previous_messages`, else nothing. Memory is neither read nor

@@ -78,6 +78,16 @@ describe('normalizeAgentHistory', () => {
 		expect(transforms.memory.value).toEqual({ kind: 'auto', context_length: 10 })
 	})
 
+	it('saves managed memory that keeps no messages as off, which is how it runs', () => {
+		for (const context_length of [0, null, undefined]) {
+			const transforms: Record<string, any> = {
+				memory: { type: 'static', value: { kind: 'window', context_length } }
+			}
+			normalizeAgentHistory(transforms, false)
+			expect(transforms.memory.value).toEqual({ kind: 'off' })
+		}
+	})
+
 	it('does not persist an empty static memory id or message list', () => {
 		const transforms: Record<string, any> = {
 			memory_id: { type: 'static', value: ' ' },

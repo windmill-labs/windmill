@@ -111,6 +111,9 @@ describe('memoryOptionLabel', () => {
 		expect(memoryOptionLabel({ kind: 'manual', messages: [] })).toBe('Previous messages (legacy)')
 		expect(memoryOptionLabel({ kind: 'auto', context_length: 4 })).toBe('On (legacy)')
 		expect(memoryOptionLabel({ kind: 'window', context_length: 10 })).toBe('On')
+		// Keeping no messages runs as off, whichever kind says so.
+		expect(memoryOptionLabel({ kind: 'window', context_length: 0 })).toBe('Off')
+		expect(memoryOptionLabel({ kind: 'auto' })).toBe('Off')
 		expect(memoryOptionLabel(undefined)).toBeUndefined()
 	})
 })
