@@ -1,4 +1,10 @@
-# Basic set up for three package managers
+# Weekly, grouped version updates for every shipped manifest.
+#
+# Deliberately NOT covered here:
+#   - /rust-client: Cargo.toml is generated and gitignored
+#   - /backend/parsers/windmill-parser-wasm: excluded from the workspace, needs nightly cargo
+#   - /benchmarks/pulumi: being deleted in another PR
+#   - /integration_tests: CI-only
 
 version: 2
 updates:
@@ -13,12 +19,26 @@ updates:
     directory: "/frontend"
     schedule:
       interval: "weekly"
+    groups:
+      # minor + patch bumps in one PR; majors in their own PR so they can be
+      # reviewed separately without blocking the routine bumps
+      frontend-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      frontend-majors:
+        patterns: ["*"]
+        update-types: ["major"]
 
   # Maintain dependencies for cargo
   - package-ecosystem: "cargo"
     directory: "/backend"
     schedule:
       interval: "weekly"
+    groups:
+      # majors stay as individual PRs: they usually need code changes
+      cargo-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   # Maintain dependencies for Docker
   - package-ecosystem: "docker"
@@ -31,3 +51,39 @@ updates:
     directory: "/python-client/wmill"
     schedule:
       interval: "weekly"
+
+  # Maintain dependencies for the CLI (bun.lock)
+  - package-ecosystem: "bun"
+    directory: "/cli"
+    schedule:
+      interval: "weekly"
+    groups:
+      cli-deps:
+        patterns: ["*"]
+
+  # Maintain dependencies for the YAML validator
+  - package-ecosystem: "npm"
+    directory: "/windmill-yaml-validator"
+    schedule:
+      interval: "weekly"
+    groups:
+      yaml-validator-deps:
+        patterns: ["*"]
+
+  # Maintain dependencies for the TypeScript client (devDependencies only)
+  - package-ecosystem: "npm"
+    directory: "/typescript-client"
+    schedule:
+      interval: "weekly"
+    groups:
+      typescript-client-deps:
+        patterns: ["*"]
+
+  # Maintain dependencies for multiplayer
+  - package-ecosystem: "npm"
+    directory: "/multiplayer"
+    schedule:
+      interval: "weekly"
+    groups:
+      multiplayer-deps:
+        patterns: ["*"]
