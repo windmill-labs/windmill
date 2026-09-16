@@ -296,7 +296,6 @@
 		refreshSuperadmin()
 
 		if (onLoginSuccess) {
-			// Hand back instead of navigating, as the OAuth popup path does. See the prop.
 			onLoginSuccess()
 			return
 		}
