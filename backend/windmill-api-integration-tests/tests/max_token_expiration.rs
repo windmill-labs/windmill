@@ -1,7 +1,5 @@
 //! `max_token_expiration_days`: the instance-wide ceiling on how far ahead a token minted
-//! through `POST /users/tokens/create` may expire, the routes it deliberately leaves alone,
-//! and the service-account exemption that keeps unattended automation able to hold
-//! longer-lived credentials.
+//! through `POST /users/tokens/create` may expire, and the routes it deliberately leaves alone.
 
 use serde_json::json;
 use sqlx::types::chrono::{DateTime, Utc};
@@ -29,7 +27,7 @@ async fn set_max(db: &Pool<Postgres>, value: serde_json::Value) {
     .unwrap();
 }
 
-/// Mints as `test2@windmill.dev`, a plain (non service account) member of `test-workspace`.
+/// Mints as `test2@windmill.dev`, a plain member of `test-workspace`.
 async fn create_token(port: u16, body: serde_json::Value) -> reqwest::Response {
     client()
         .post(format!("http://localhost:{port}/api/users/tokens/create"))
@@ -129,6 +127,23 @@ async fn test_max_token_expiration_days_shortens_user_tokens(
         );
     }
 
+    sqlx::query(
+        "UPDATE usr SET is_service_account = true
+         WHERE email = 'test2@windmill.dev' AND workspace_id = 'test-workspace'",
+    )
+    .execute(&db)
+    .await?;
+    let resp = create_token(
+        port,
+        json!({ "label": "service account", "workspace_id": "test-workspace" }),
+    )
+    .await;
+    assert_eq!(resp.status(), 201);
+    assert!(
+        stored_expiration(&db, "service account").await.is_some(),
+        "a service account gets the ceiling like anyone else"
+    );
+
     // The ceiling is this route's alone. Moving it down into `create_token_internal` would
     // also cap the server-side mints (webhook tokens, app embed tokens, sessions) that pick
     // a lifetime no caller asked for.
@@ -146,63 +161,6 @@ async fn test_max_token_expiration_days_shortens_user_tokens(
         None,
         "impersonation is a superadmin action and stays uncapped"
     );
-
-    Ok(())
-}
-
-#[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_service_accounts_are_exempt(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-
-    set_max(&db, json!(7)).await;
-    // The same email is a service account in one workspace and an ordinary user in another.
-    sqlx::query(
-        "UPDATE usr SET is_service_account = true
-         WHERE email = 'test2@windmill.dev' AND workspace_id = 'test-workspace'",
-    )
-    .execute(&db)
-    .await?;
-    sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ('other', 'other', 'test-user')")
-        .execute(&db)
-        .await?;
-    sqlx::query(
-        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
-         VALUES ('other', 'test2@windmill.dev', 'test-user-2', false, 'User')",
-    )
-    .execute(&db)
-    .await?;
-
-    let resp = create_token(
-        port,
-        json!({ "label": "own workspace", "workspace_id": "test-workspace" }),
-    )
-    .await;
-    assert_eq!(resp.status(), 201);
-    assert_eq!(
-        stored_expiration(&db, "own workspace").await,
-        None,
-        "a service account keeps a token with no expiration in its own workspace"
-    );
-
-    let resp = create_token(
-        port,
-        json!({ "label": "other workspace", "workspace_id": "other" }),
-    )
-    .await;
-    assert_eq!(resp.status(), 201);
-    assert!(
-        stored_expiration(&db, "other workspace").await.is_some(),
-        "the exemption must not follow the email into a workspace where it is an ordinary user"
-    );
-
-    // A workspace-less token has no workspace to match, so being a service account anywhere
-    // exempts it. Deliberate: that is the token shape unattended automation spanning
-    // workspaces uses.
-    let resp = create_token(port, json!({ "label": "global" })).await;
-    assert_eq!(resp.status(), 201);
-    assert_eq!(stored_expiration(&db, "global").await, None);
 
     Ok(())
 }

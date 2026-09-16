@@ -15,11 +15,13 @@ Symbols, not line numbers, are cited: they drift less.
 - **`max_token_expiration_days`** caps `POST /users/tokens/create` only, by shortening the stored
   expiration (`cap_token_expiration`), never by refusing: the CLI authorization page,
   `wmill user create-token` and the editor's language-server token all pick a lifetime without
-  reading the setting, and CLIs already installed never will. Server-side mints
-  (`create_token_internal` callers, `create_token_for_owner`, sessions) and `tokens/impersonate`
-  are deliberately uncapped. Exempt is a service-account `usr` row in the workspace the token
-  names — and, for a workspace-less token, one in any workspace, since there is none to match.
-  Any logged-in user can read the setting through `GET /settings/global/{key}`, which the token
+  reading the setting, and CLIs already installed never will. Service accounts are capped too.
+  Deliberately outside it: `tokens/impersonate` (so a superadmin can still mint an uncapped
+  token for anyone), server-side mints (`create_token_internal` callers such as native trigger
+  webhook tokens, which never expire for GitHub and Nextcloud), and tokens with their own fixed
+  lifetime that outlive a short ceiling: sessions (`MAX_SESSION_VALIDITY_SECONDS`, 3 days, and
+  re-mintable through `GET /users/refresh_token`) and MCP OAuth access tokens (7 days, with a
+  rotating 30-day refresh token). Any logged-in user can read the setting through `GET /settings/global/{key}`, which the token
   form uses to offer only expirations within it; `parseMaxTokenExpirationDays` must read a stored
   value exactly as `cap_token_expiration` does.
 - **Every superadmin route refuses a job token**: `require_super_admin`
