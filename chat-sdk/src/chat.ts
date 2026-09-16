@@ -622,12 +622,16 @@ class ChatImpl implements Chat {
           (m.content === row.content || (row.tool !== undefined && m.tool?.name === row.tool.name))
       )
       // A structured answer streams as thinking alone, its text arriving as a tool call
-      // the stream never turns into a message, so its row claims the pending message
-      // that holds that thinking and nothing else.
+      // the stream never turns into a message, so its row claims the message that holds
+      // that thinking and nothing else. Only past the newest user message: a turn stopped
+      // before its rows landed leaves such a message behind, and it is not this answer's.
       if (i < 0 && row.role === 'assistant' && row.reasoning !== undefined) {
-        i = messages.findIndex(
-          (m) => m.seq === undefined && m.role === 'assistant' && m.content === '' && m.reasoning !== undefined
-        )
+        let turnStart = messages.length - 1
+        while (turnStart >= 0 && messages[turnStart].role !== 'user') turnStart--
+        const j = messages
+          .slice(turnStart + 1)
+          .findIndex((m) => m.seq === undefined && m.role === 'assistant' && m.content === '' && m.reasoning !== undefined)
+        if (j >= 0) i = turnStart + 1 + j
       }
       if (i >= 0) {
         const m = messages[i]

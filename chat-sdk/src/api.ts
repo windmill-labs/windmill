@@ -40,10 +40,11 @@ export interface FlowConversationMessage {
   created_seq: number
   step_name?: string | null
   success?: boolean
-  /** The call a tool row carries itself, for a tool whose job cannot be asked for it. */
+  /** An MCP tool call's arguments; null for a web search and for a Windmill tool, whose own job holds its call. */
   tool_arguments?: string | null
+  /** An MCP tool's result, a web search's citations, and what any failed tool failed with. */
   tool_result?: string | null
-  /** The thinking behind an answer, which is streamed and stored nowhere else. */
+  /** The thinking of the iteration that produced this row; the agent job keeps the turn's thinking as one string. */
   reasoning?: string | null
 }
 

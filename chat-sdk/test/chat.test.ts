@@ -666,6 +666,49 @@ describe('createChat with server history', () => {
     ])
   })
 
+  test('a structured answer row leaves a stopped earlier turn its thinking', async () => {
+    let jobs = 0
+    const { fetch } = fetchMock(
+      (c) => (c.method === 'POST' && c.url.pathname.includes('/jobs/run/f/') ? text(`job-${++jobs}`) : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/getupdate_sse/job-1')
+          ? sse([{ type: 'update', new_result_stream: ndjson({ type: 'reasoning_token_delta', content: 'first thoughts' }), stream_offset: 1 }])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/getupdate_sse/job-2')
+          ? sse([
+              {
+                type: 'update',
+                new_result_stream: ndjson({ type: 'reasoning_token_delta', content: 'hmm' }),
+                stream_offset: 1,
+                completed: true,
+                only_result: { output: { n: 1 }, messages: [] }
+              }
+            ])
+          : undefined,
+      (c) => (c.url.pathname.includes('/queue/cancel/') ? text('ok') : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json([messageRow(41, 'user', 'first'), messageRow(42, 'user', 'again'), messageRow(43, 'assistant', '{"n":1}', { job_id: 'step-2', reasoning: 'hmm' })])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    const first = chat.sendMessage('first')
+    await new Promise((r) => setTimeout(r, 50))
+    const stopped = chat.stop()
+    await first
+    const second = chat.sendMessage('again')
+    await stopped
+    await second
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.reasoning])).toEqual([
+      ['user', 'first', undefined],
+      ['assistant', '', 'first thoughts'],
+      ['user', 'again', undefined],
+      ['assistant', '{"n":1}', 'hmm']
+    ])
+  })
+
   test('the stream asks for a server poll interval only when one is set', async () => {
     const answer: Route = (c) =>
       c.url.pathname === streamPath ? sse([{ type: 'update', completed: true, only_result: 'ok' }]) : undefined
