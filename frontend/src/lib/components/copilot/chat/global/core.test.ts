@@ -2316,29 +2316,37 @@ describe('global AI tools', () => {
 	function noLiveItems(): LiveItemBridge {
 		return {
 			seed: () => false,
-			rowFor: () => undefined,
+			persist: () => undefined,
 			read: () => undefined,
 			refresh: () => undefined,
-			noteRow: () => {},
 			itemDeleted: () => Promise.resolve(),
 			discard: () => undefined,
 			list: () => []
 		}
 	}
 
-	// The chat can write a value that turns out to be the deployed one. A live editor takes it and
-	// stays clean, keeping no row — so this save has to clear the row rather than persist a draft
-	// its own editor does not have: nothing would show it, and nothing short of an edit would
-	// remove it, while it still lists and goes stale once the deployed item moves on.
-	it('clears the row when the chat writes the value the live editor already deploys', async () => {
+	// An open editor that takes the value owns the row for it, including deciding there should not
+	// be one when the value is the deployed one. Writing the row here as well would make this the
+	// second writer of one key, which is the whole class of bug this defers to avoid.
+	it('leaves the row to a live editor that took the value', async () => {
 		const path = 'f/res/noop'
 		const deployed = { path, value: { a: 1 } }
 		seedBackendDraft('resource', path, { path, value: { a: 2 } })
-		registerLiveItemBridge({ ...noLiveItems(), seed: () => true, rowFor: () => null })
+		let persisted = 0
+		registerLiveItemBridge({
+			...noLiveItems(),
+			seed: () => true,
+			persist: () => {
+				persisted++
+				return Promise.resolve('saved' as const)
+			}
+		})
 		try {
 			const res = await persistGlobalDraft(WORKSPACE, 'resource', path, deployed)
 			expect(res.status).toBe('saved')
-			expect(getBackendDraft('resource', path)).toBeUndefined()
+			expect(persisted).toBe(1)
+			// Untouched by this caller: what the row should hold was the editor's to decide.
+			expect(getBackendDraft('resource', path)).toEqual({ path, value: { a: 2 } })
 		} finally {
 			registerLiveItemBridge(noLiveItems())
 		}

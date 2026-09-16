@@ -135,13 +135,14 @@ const liveEditorDrafts = new Map<string, LiveEditorDraft>()
 export type LiveItemBridge = {
 	/** Apply `value` as an outside write. False when no live item holds the key. */
 	seed(workspace: string, itemKind: UserDraftItemKind, path: string, value: unknown): boolean
-	/** The row a live item keeps for the key: `{ value }` when its value diverges from the deployed
-	 *  one, `null` when it does not. `undefined` when no live item can answer. */
-	rowFor(
+	/** Put the live item's own row on the server now and say how it went. `undefined` when no live
+	 *  item can answer, and the row is then the caller's to write. */
+	persist(
 		workspace: string,
 		itemKind: UserDraftItemKind,
-		path: string
-	): { value: unknown } | null | undefined
+		path: string,
+		force?: boolean
+	): Promise<'saved' | 'conflict' | 'failed'> | undefined
 	/** `undefined` when no live item holds the key; else the draft, if it has one. */
 	read(
 		workspace: string,
@@ -156,8 +157,6 @@ export type LiveItemBridge = {
 		itemKind: UserDraftItemKind,
 		path: string
 	): Promise<'done' | 'absent' | 'failed'> | undefined
-	/** A row the caller wrote itself for a value it just handed in through `seed`. */
-	noteRow(workspace: string, itemKind: UserDraftItemKind, path: string): void
 	/** The deployed item was deleted: the live item reports itself gone. */
 	itemDeleted(workspace: string, itemKind: UserDraftItemKind, path: string): Promise<void>
 	/** Discard the live item's draft. `undefined` when no live item holds the key and `absent`
@@ -183,26 +182,19 @@ export function refreshLiveItem(
 	return liveItems?.refresh(workspace, itemKind, path)
 }
 
-/** What a live item keeps in the key's row, for a caller about to write that row itself: the
- *  store's rule is that a row exists exactly while the value diverges from the deployed one, so
- *  persisting the raw value instead would leave a row behind for a value that matches it.
- *  `undefined` when no live item can answer and the caller's own value is all there is. */
-export function liveItemRow(
+/**
+ * Have the live item holding this key put its own row on the server now, for a caller that handed
+ * it a value and needs to know it landed. The row is whatever that item's own rule says belongs
+ * there, so a caller cannot leave behind a draft the item does not have. `undefined` when no live
+ * item can answer and the caller's own value is all there is.
+ */
+export function persistLiveItem(
 	workspace: string,
 	itemKind: UserDraftItemKind,
-	path: string
-): { value: unknown } | null | undefined {
-	return liveItems?.rowFor(workspace, itemKind, path)
-}
-
-/** Tell a live item that a row just written for it was written by whoever handed it that same
- *  value through `seed`, not by some other editor whose value it does not have. */
-export function noteLiveItemRow(
-	workspace: string,
-	itemKind: UserDraftItemKind,
-	path: string
-): void {
-	liveItems?.noteRow(workspace, itemKind, path)
+	path: string,
+	force?: boolean
+): Promise<'saved' | 'conflict' | 'failed'> | undefined {
+	return liveItems?.persist(workspace, itemKind, path, force)
 }
 
 /** Tell a live item that the deployed item under it has been deleted, so it stops showing a

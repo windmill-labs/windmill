@@ -592,11 +592,22 @@ class Entry<V> {
 		})
 	}
 
-	/** A caller that handed a value in through `applyExternal` and wrote its own row for it,
-	 *  rather than leaving that to this entry: the row is accounted for, and counting it as
-	 *  unaccounted would read as someone else having written it. */
-	noteRow(): void {
-		this.values++
+	/**
+	 * Put this entry's row on the server now, for a caller that handed a value in and needs to
+	 * know it landed. The row itself is whatever the rule says — the value, or nothing when it
+	 * matches the deployed one — so a caller cannot persist a draft this entry does not have.
+	 */
+	async persistRow(force = false): Promise<'saved' | 'conflict' | 'failed'> {
+		const key = this.key
+		if (this.stale) return 'failed'
+		if (force) {
+			await this.ports.overwrite(key, this.dirty ? snapshot(this.value) : null)
+		} else {
+			if (this.ports.conflicted(key)) return 'conflict'
+			await this.ports.flush(key)
+		}
+		if (this.ports.conflicted(key)) return 'conflict'
+		return this.ports.failure(key) === undefined ? 'saved' : 'failed'
 	}
 
 	/** An outside write (the AI chat, another editor): a real divergence, never settling. */
@@ -1270,18 +1281,18 @@ export function createItemStore(ports: ItemRowPort) {
 			entry.applyExternal(value)
 			return true
 		},
-		/** The row this entry keeps for the key, by the same rule `reconcile` writes by: `{ value }`
-		 *  when its value diverges from the deployed one, `null` when it does not and so nothing
-		 *  belongs in the row. `undefined` when nobody can answer — no entry, one that has not read
-		 *  yet, or one whose baseline is known to be behind the server. */
-		rowFor(
+		/** Put the live item's own row on the server now and say how it went. `undefined` when
+		 *  nobody holds the key, or holds it without having read it: then the row is the caller's
+		 *  to write, because no entry here can say what belongs in it. */
+		persist(
 			workspace: string,
 			kind: UserDraftItemKind,
-			path: string
-		): { value: unknown } | null | undefined {
+			path: string,
+			force?: boolean
+		): Promise<'saved' | 'conflict' | 'failed'> | undefined {
 			const entry = find(workspace, kind, path)
-			if (!entry || !entry.loaded || entry.stale) return undefined
-			return entry.dirty ? { value: snapshot(entry.value) } : null
+			if (!entry || !entry.loaded) return undefined
+			return entry.persistRow(force)
 		},
 		/** The draft as this tab knows it: the value when it diverges, nothing otherwise. */
 		read(
@@ -1299,9 +1310,6 @@ export function createItemStore(ports: ItemRowPort) {
 			path: string
 		): Promise<'done' | 'absent' | 'failed'> | undefined {
 			return find(workspace, kind, path)?.refreshed()
-		},
-		noteRow(workspace: string, kind: UserDraftItemKind, path: string): void {
-			find(workspace, kind, path)?.noteRow()
 		},
 		itemDeleted(workspace: string, kind: UserDraftItemKind, path: string): Promise<void> {
 			return find(workspace, kind, path)?.itemDeleted() ?? Promise.resolve()

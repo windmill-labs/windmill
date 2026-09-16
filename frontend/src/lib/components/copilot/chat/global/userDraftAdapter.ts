@@ -3,9 +3,8 @@ import { DraftService } from '$lib/gen'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import {
-	liveItemRow,
+	persistLiveItem,
 	markLiveItemDeleted,
-	noteLiveItemRow,
 	refreshLiveItem,
 	UserDraft,
 	type UserDraftEntry,
@@ -429,24 +428,22 @@ export async function persistGlobalDraft(
 	const itemKind = itemKindFor(type, opts.triggerKind)
 	if (!itemKind) throw new Error(`Unsupported draft type "${type}".`)
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
-	// A live item that took the value decides what belongs in the row, and answers `null` when the
-	// value it now holds is the deployed one. Persisting `value` regardless would leave a row for a
-	// draft that item does not have, invisible to its banner and undeletable by its Save. Asked
-	// only of an item that took this value, so the answer is about it and not what it held before.
-	const took = UserDraft.seed(itemKind, storagePath, value, { workspace })
-	const held = took ? liveItemRow(workspace, itemKind, storagePath) : undefined
-	const row = held === undefined ? value : held === null ? null : held.value
-	// An open editor took that value and may have written its own row for it; this save is a
-	// second row for the same value, so say so rather than leave it looking like someone else's.
-	noteLiveItemRow(workspace, itemKind, storagePath)
-	await UserDraftDbSyncer.save({
-		workspace,
-		itemKind,
-		path: storagePath,
-		value: row,
-		immediate: true,
-		force: opts.force
-	})
+	// An open editor that takes this value owns the row for it: it persists what its own rule says
+	// belongs there, which is nothing when the value turns out to be the deployed one. Writing the
+	// row here as well would make this the second writer of one key, and leave a draft that editor
+	// does not have. Only with nobody holding it is the row this caller's to write.
+	UserDraft.seed(itemKind, storagePath, value, { workspace })
+	const landed = await persistLiveItem(workspace, itemKind, storagePath, opts.force)
+	if (landed === undefined) {
+		await UserDraftDbSyncer.save({
+			workspace,
+			itemKind,
+			path: storagePath,
+			value,
+			immediate: true,
+			force: opts.force
+		})
+	}
 	const { displayPath, isLiveDraft } = liveDisplayPath(workspace, itemKind, storagePath)
 	const item = userDraftEntryToWorkspaceItem(
 		{ workspace, itemKind, path: storagePath, value },

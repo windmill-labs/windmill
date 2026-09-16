@@ -781,7 +781,6 @@ describe('item store: origins', () => {
 		const fromChat = { ...deployedRes, description: 'from the chat' }
 		item.applyExternal(fromChat)
 		// `persistGlobalDraft` hands the value here, says it is writing the row for it, and does.
-		store.bridge.noteRow('w', 'resource', 'u/me/r')
 		rows.handExternally('u/me/r')
 		read.resolve({ deployed: deployedRes })
 
@@ -913,7 +912,7 @@ describe('item store: origins', () => {
 		expect(item.value?.description).toBe('typed during the deploy')
 	})
 
-	it('still autosaves after the chat wrote a row during its first read', async () => {
+	it('still autosaves after the chat handed it a value during its first read', async () => {
 		const rows = fakeRows()
 		const read = deferred<ItemLoad<Res>>()
 		const store = createItemStore(rows.port)
@@ -924,13 +923,10 @@ describe('item store: origins', () => {
 			adapter(() => read.promise)
 		)
 		await settle()
-		// The chat writes while the GET is out. Its row is this entry's own doing, and its value
-		// is right here — so the read is behind the server, but not in a way that loses anything.
+		// The chat hands its value here while the GET is out and leaves the row to this entry, so
+		// the read is behind the server but not in a way that loses anything.
 		const fromChat = { ...deployedRes, description: 'from the chat' }
 		item.applyExternal(fromChat)
-		// `persistGlobalDraft` hands the value here and writes its own row through the syncer.
-		store.bridge.noteRow('w', 'resource', 'u/me/r')
-		rows.handExternally('u/me/r')
 		read.resolve({ deployed: deployedRes })
 		await settle()
 
@@ -957,17 +953,15 @@ describe('item store: origins', () => {
 
 		const reloading = item.reload()
 		await settle()
-		// `persistGlobalDraft` on a loaded item: the value goes in through the bridge, whose
-		// reconcile writes a row, and then it writes its own row for that same value.
+		// `persistGlobalDraft` on a loaded item: the value goes in through the bridge and this
+		// entry's own reconcile is what writes the row for it.
 		const fromChat = { ...deployedRes, description: 'from the chat' }
 		item.applyExternal(fromChat)
-		store.bridge.noteRow('w', 'resource', 'u/me/r')
-		rows.handExternally('u/me/r')
 		read.resolve({ deployed: deployedRes })
 		await reloading
 
-		// Two rows, but both carry the value that is right here, so nothing is unaccounted for
-		// and the editor has to stay able to persist what is typed next.
+		// The row that appeared is this entry's own, so nothing is unaccounted for and the editor
+		// has to stay able to persist what is typed next.
 		expect(item.value).toEqual(fromChat)
 		expect(item.canSave).toBe(true)
 		const typed = { ...deployedRes, description: 'typed after the chat wrote' }
@@ -1030,33 +1024,6 @@ describe('item store: origins', () => {
 		expect(item.canSave).toBe(false)
 	})
 
-	it('is not fooled by the chat crediting a row a loading item never wrote', async () => {
-		const rows = fakeRows()
-		const read = deferred<ItemLoad<Res>>()
-		const store = createItemStore(rows.port)
-		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
-		const { handle: item } = store.acquire(
-			key,
-			{ workspace: 'w', path: 'u/me/r' },
-			adapter(() => read.promise)
-		)
-		await settle()
-
-		// The chat seeds and persists while the first GET is out. Loading, this entry writes no
-		// row of its own, so the chat's save is the only row that value produced.
-		item.applyExternal({ ...deployedRes, description: 'from the chat' })
-		store.bridge.noteRow('w', 'resource', 'u/me/r')
-		rows.handExternally('u/me/r')
-		// The legacy agent editor then writes the same resource: a row nobody here has.
-		rows.handExternally('u/me/r')
-		read.resolve({ deployed: deployedRes })
-		await settle()
-
-		// Two rows, one of them unaccounted for. Crediting the chat twice would hide it and let
-		// this editor post over the agent editor's newer draft.
-		expect(item.canSave).toBe(false)
-	})
-
 	it('does not credit a row to a seed that wrote none', async () => {
 		const rows = fakeRows()
 		const read = deferred<ItemLoad<Res>>()
@@ -1069,8 +1036,8 @@ describe('item store: origins', () => {
 		)
 		await settle()
 
-		// The agent editor seeds its restored draft here while the GET is out. Loading, this
-		// writes no row, and the seeding editor writes none for it either.
+		// A value is handed in here while the GET is out. Loading, this entry writes no row for
+		// it, and whoever handed it in leaves the row to this entry.
 		const seeded = { ...deployedRes, description: 'restored by the agent editor' }
 		item.applyExternal(seeded)
 		// It then autosaves something newer through the `UserDraft` handle it kept: a row whose
