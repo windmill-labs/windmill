@@ -34,7 +34,7 @@
 		toDatatableItems,
 		toSchemaItems
 	} from './datatableUtils.svelte'
-	import { datatableNameTakesRole } from '../dbTypes'
+	import { datatableNameTakesRole, defaultMigrationRole } from '../dbTypes'
 	import RawAppDataTableList from './RawAppDataTableList.svelte'
 	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
 	import FileEditorIcon from './FileEditorIcon.svelte'
@@ -290,7 +290,12 @@
 						type: 'database',
 						resourceType: 'postgresql',
 						resourcePath: `datatable://${selectedDatatable}`,
-						role: effectiveRole
+						role: effectiveRole,
+						migrationRole: defaultMigrationRole(
+							selectedDatatable,
+							roles.current.permissioned,
+							roles.current.defaultRole
+						)
 					}
 				})
 				await dbOps.onCreateSchema({ schema: newSchemaName })

@@ -227,6 +227,6 @@
 		bind:this={ddlGuard}
 		workspace={ws}
 		datatable={datatableName}
-		role={input.type === 'database' ? input.role : undefined}
+		role={input.type === 'database' ? (input.role ?? input.migrationRole) : undefined}
 	/>
 {/if}
