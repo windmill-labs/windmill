@@ -2,7 +2,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import type { FlowChatProps } from './flowChatProps'
+	import { chatIdentity, type FlowChatProps } from './flowChatProps'
 	import FlowChatPanel from './FlowChatPanel.svelte'
 
 	let props: FlowChatProps = $props()
@@ -19,7 +19,7 @@
 	 * editor acts on a session's fork while `workspaceStore` stays where the reader left it.
 	 */
 	const chatKey = $derived(
-		`${flowEditorContext?.opWorkspace?.() ?? $workspaceStore ?? ''}:${props.path}`
+		chatIdentity(flowEditorContext?.opWorkspace?.() ?? $workspaceStore, props)
 	)
 </script>
 

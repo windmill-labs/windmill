@@ -14,6 +14,7 @@
 	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import FlowChatModelSettings from './FlowChatModelSettings.svelte'
+	import { chatFlowKey } from './flowChatProps'
 	import {
 		agentModelGap,
 		agentModelWiringInputs,
@@ -33,6 +34,8 @@
 		/** The flow's modules, used to find which inputs an AI agent step reads directly. */
 		flowModules?: FlowModule[]
 		path: string
+		/** What makes this a different chat, when that is not the path — see `FlowChatProps`. */
+		identity?: string
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
 		wideLayout?: boolean
@@ -44,6 +47,7 @@
 		additionalInputsSchema,
 		flowModules,
 		path,
+		identity = undefined,
 		description = undefined,
 		wideLayout = false
 	}: Props = $props()
@@ -113,8 +117,14 @@
 	// value, an author's default — is made safe before it reaches the provider.
 	const runInputs = $derived(withoutRejectedEffort(modelWiring, effectiveInputs))
 
+	// Filed under the flow alone, which is what these settings have always been keyed on —
+	// so the same path in two workspaces shares them, and a model or resource stored by one
+	// reaches the other. Scoping the key to the workspace is a change of its own: it orphans
+	// every entry readers already have, and the fix belongs with whatever migrates them.
+	// `wmill dev` is the one surface whose key moves: it names no flow, so every flow it
+	// opened shared a single bucket, and the path it does have is the better key.
 	function getStorageKey(): string {
-		return `${STORAGE_KEY_PREFIX}${path}`
+		return `${STORAGE_KEY_PREFIX}${chatFlowKey({ path, identity })}`
 	}
 
 	function loadInputsFromStorage(): Record<string, any> | null {

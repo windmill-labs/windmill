@@ -1,8 +1,10 @@
 <!--
 	One chat, for one flow in one workspace. Mounted only by `FlowChat`, which keys it on
-	that pair: the manager created here holds the conversations, the turn running in one of
-	them and the rows that turn is writing, so pointing an existing panel at another flow
-	would leave an upload, a launch or a poll landing in the chat that replaced it.
+	`chatIdentity` — the workspace and, where the path is still being typed, something that
+	holds still for the flow instead. The manager created here holds the conversations, the
+	turn running in one of them and the rows that turn is writing, so pointing an existing
+	panel at another flow would leave an upload, a launch or a poll landing in the chat that
+	replaced it.
 -->
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
@@ -24,6 +26,7 @@
 		deploymentInProgress = false,
 		useStreaming = false,
 		path,
+		identity = undefined,
 		description = undefined,
 		inputSchema = undefined,
 		flowModules = undefined,
@@ -35,8 +38,8 @@
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 
-	// The flow and the workspace this panel was built for. `FlowChat` keys on the same pair,
-	// so neither can change under it: what they change is which panel exists.
+	// The workspace this panel was built for. `FlowChat` keys on it, so it cannot change
+	// under the panel: what it changes is which panel exists.
 	const workspace = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
 	const manager = createFlowChatManager()
@@ -51,7 +54,13 @@
 	manager.canFilterConversationKind = conversationKind !== 'deployed'
 
 	// The manager's inputs, kept current rather than set once: `useStreaming` follows the
-	// flow's last step, which an edit can change while a turn is running.
+	// flow's last step, which an edit can change while a turn is running, and `path` follows
+	// the path field as its author types. A path that moves takes the next list request and
+	// the next run with it, so what a turn records is what the sidebar asks for — which is
+	// the point, since listing under a path runs do not record is how a chat loses the
+	// conversations it is creating. A conversation keeps the path it was created under
+	// (`get_or_create_conversation_with_id` leaves an existing row alone), so renaming a
+	// flow that already has chats leaves those behind under the old path.
 	$effect(() => {
 		manager.initialize(onRunFlow, path, useStreaming)
 	})
@@ -109,6 +118,7 @@
 			{additionalInputsSchema}
 			{flowModules}
 			{path}
+			{identity}
 			{description}
 			{wideLayout}
 		/>

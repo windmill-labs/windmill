@@ -18,7 +18,15 @@ export interface FlowChatProps {
 	) => Promise<string | undefined>
 	useStreaming?: boolean
 	deploymentInProgress?: boolean
+	/** The flow the chat runs and lists conversations for. Must be the path a run records,
+	 *  or a conversation is stored under one path and looked for under another. */
 	path: string
+	/**
+	 * What makes this a different chat, when that is not the path. An unsaved flow's path
+	 * changes as its author types, and the chat is replaced whenever this changes — so the
+	 * editor passes something that holds still for the flow it is editing.
+	 */
+	identity?: string
 	/** The flow's own description, shown where the chat has room for it: the empty
 	 * transcript, and the sidebar once a conversation has replaced it. */
 	description?: string
@@ -33,4 +41,29 @@ export interface FlowChatProps {
 	/** Whether a turn may run while another chat's is still going. Off where one run
 	 * owns the surface — the editor's panel shows it on the graph. */
 	parallelTurns?: boolean
+}
+
+/**
+ * Which flow a chat is for, as something that holds still.
+ *
+ * `identity` where a surface has one, because `path` follows the path field as its author
+ * types and anything filed under the flow has to survive that — the panel is deliberately
+ * not remounted for a path change. A surface with no identity to give has no such field
+ * either, so its path is already the stable answer.
+ */
+export function chatFlowKey(props: Pick<FlowChatProps, 'path' | 'identity'>): string {
+	// `||`, not `??`: the editor builds `identity` from values that are both empty on a
+	// surface with no flow of its own to name, and an empty identity is no identity.
+	return props.identity || props.path
+}
+
+/**
+ * What makes one chat a different chat: the flow it is for, in the workspace it runs in.
+ * `FlowChat` keys the panel on this, so nothing inside a mounted panel can see it change.
+ */
+export function chatIdentity(
+	workspace: string | undefined,
+	props: Pick<FlowChatProps, 'path' | 'identity'>
+): string {
+	return `${workspace ?? ''}:${chatFlowKey(props)}`
 }
