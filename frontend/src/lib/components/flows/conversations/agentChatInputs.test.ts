@@ -471,10 +471,7 @@ describe('agents that do not read the message', () => {
 		["'Answer politely: ' + flow_input.user_message", 'embedded in a prompt'],
 		['flow_input.user_message + flow_input.tone', 'read alongside another input']
 	])('treats %s as reading the message', (message) => {
-		const wiring = resolveAgentModelWiring([
-			answerer(wired),
-			subAgent(fixed, message as string)
-		])
+		const wiring = resolveAgentModelWiring([answerer(wired), subAgent(fixed, message as string)])
 		expect(wiring?.fields.model).toBeUndefined()
 	})
 
@@ -484,10 +481,7 @@ describe('agents that do not read the message', () => {
 		['flow_input.user_message // the message', 'a trailing comment'],
 		['flow_input.user_message\n// why', 'a comment on its own last line']
 	])('still reads the message with %s', (message) => {
-		const wiring = resolveAgentModelWiring([
-			answerer(wired),
-			subAgent(fixed, message as string)
-		])
+		const wiring = resolveAgentModelWiring([answerer(wired), subAgent(fixed, message as string)])
 		expect(wiring?.fields.model).toBeUndefined()
 	})
 
@@ -496,10 +490,7 @@ describe('agents that do not read the message', () => {
 		["'flow_input.user_message'", 'a mention in a string'],
 		['flow_input.user_message_extra', 'a different input with the same prefix']
 	])('does not treat %s as reading the message', (message) => {
-		const wiring = resolveAgentModelWiring([
-			answerer(wired),
-			subAgent(fixed, message as string)
-		])
+		const wiring = resolveAgentModelWiring([answerer(wired), subAgent(fixed, message as string)])
 		expect(wiring?.fields.model).toBe('model')
 	})
 })
@@ -526,6 +517,8 @@ describe('parseProviderTransform with comments', () => {
 	// The check exists to reject an expression with something else beside it; a second
 	// expression is still something else.
 	it('still refuses a second expression beside it', () => {
-		expect(parseProviderTransform({ type: 'javascript', expr: 'flow_input.provider, 1' })).toBeUndefined()
+		expect(
+			parseProviderTransform({ type: 'javascript', expr: 'flow_input.provider, 1' })
+		).toBeUndefined()
 	})
 })
