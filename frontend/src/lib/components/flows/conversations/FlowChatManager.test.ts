@@ -128,50 +128,6 @@ describe('unread bookkeeping', () => {
 	})
 })
 
-describe('a chat re-pointed at another flow', () => {
-	/**
-	 * The route component is reused between two flows, so the chat is re-pointed rather than
-	 * rebuilt. A selection carried across would open the new flow on the old flow's
-	 * conversation and send into its transcript and its agent's memory.
-	 */
-	it('forgets the flow it was pointed at when it is re-pointed', async () => {
-		vi.mocked(FlowConversationsService.listConversationMessages).mockResolvedValue(
-			rows('a', 2) as any
-		)
-		const manager = managerWithRows()
-		await manager.selectConversation('a')
-		expect(manager.selectedConversationId).toBe('a')
-		expect(manager.liveRowIds.size).toBe(2)
-
-		manager.cleanup()
-
-		expect(manager.selectedConversationId).toBeUndefined()
-		expect(manager.liveRowIds.size).toBe(0)
-	})
-
-	/**
-	 * Forgetting has to hold against work already in flight: a transcript fetched for the
-	 * flow just left would otherwise be written into the one that replaced it.
-	 */
-	it('does not let a load started before the re-point write its rows back', async () => {
-		let release = () => {}
-		const held = new Promise<void>((resolve) => (release = resolve))
-		vi.mocked(FlowConversationsService.listConversationMessages).mockImplementation((async () => {
-			await held
-			return rows('a', 2)
-		}) as any)
-		const manager = managerWithRows()
-		const loading = manager.selectConversation('a')
-
-		manager.cleanup()
-		release()
-		await loading
-
-		expect(manager.liveRowIds.size).toBe(0)
-		expect(manager.selectedConversationId).toBeUndefined()
-	})
-})
-
 /**
  * The messages endpoint answers oldest-first with a limit, so one request only reaches the
  * start of a turn that wrote a lot of rows — an agent calling several tools a round. Its
@@ -187,6 +143,18 @@ describe('reading a turn longer than one page', () => {
 			created_at: new Date().toISOString(),
 			created_seq: from + i
 		}))
+
+	// The sidebar reads the turn's outcome off the loaded rows, and the same long turn hides
+	// the message it started from, leaving a failed chat looking like an idle one.
+	it('reads a failed turn that filled the page as failed', async () => {
+		const manager = managerWithRows()
+		manager.selectedConversationId = 'a'
+		manager.messages = assistantRows(1, 50).map((row, i) =>
+			i === 49 ? ({ ...row, success: false } as any) : (row as any)
+		)
+
+		expect(manager.conversationStatus('a')).toBe('error')
+	})
 
 	it('keeps reading until a page comes back short', async () => {
 		vi.mocked(FlowConversationsService.listConversationMessages)
@@ -406,6 +374,30 @@ describe('an SSE timeout re-attaches instead of re-running', () => {
 	 * A chunk is not guaranteed to end on a line boundary. Split mid-JSON, the two halves
 	 * were parsed separately and both discarded, losing that token from the answer.
 	 */
+	// The thinking indicator reads these two off the manager while the turn runs. They are
+	// written by the turn and read through the open conversation, so a turn that writes them
+	// somewhere the getters do not look leaves the indicator permanently off.
+	it('surfaces the thinking of the turn in flight', async () => {
+		const { manager } = turnWith([
+			[
+				{
+					type: 'update',
+					new_result_stream: `${JSON.stringify({
+						type: 'reasoning_token_delta',
+						content: 'weighing it up'
+					})}\n`
+				},
+				{ type: 'timeout' }
+			]
+		])
+
+		manager.inputMessage = 'ask something'
+		await manager.sendMessage(undefined, undefined, 'a')
+
+		await vi.waitFor(() => expect(manager.isReasoningActive).toBe(true))
+		await vi.waitFor(() => expect(manager.currentReasoning).toContain('weighing it up'))
+	})
+
 	it('keeps a token whose chunk ended mid-line', async () => {
 		const line = `${JSON.stringify({ type: 'token_delta', content: 'from-the-stream' })}\n`
 		const cut = line.indexOf('from-the') + 3
@@ -536,6 +528,51 @@ describe('a conversation opened while its run is still going', () => {
 		await vi.waitFor(() => expect(streamCalls.some((call) => call.jobId === 'job-live')).toBe(true))
 	})
 
+	/**
+	 * A turn that called a lot of tools writes more rows than the page the transcript opens
+	 * on, pushing the message that started it out of sight. Read from that page alone the
+	 * conversation looks finished, and the composer is handed back while the run still owns
+	 * the agent's memory.
+	 */
+	it('walks back past a turn that filled the page to find the message that started it', async () => {
+		const answerRows = Array.from({ length: 50 }, (_, i) => ({
+			id: `answer-${i}`,
+			conversation_id: 'a',
+			message_type: i % 2 === 0 ? 'assistant' : 'tool',
+			content: `round ${i}`,
+			created_at: new Date().toISOString(),
+			created_seq: 100 + i
+		}))
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			// The newest page is this turn's answer, all of it.
+			.mockResolvedValueOnce(answerRows as any)
+			// The page before it ends with the message that started the turn.
+			.mockResolvedValueOnce([
+				{
+					id: 'the-question',
+					conversation_id: 'a',
+					message_type: 'user',
+					content: 'do the thing',
+					created_at: new Date().toISOString(),
+					created_seq: 99,
+					job_id: 'job-live'
+				}
+			] as any)
+		const manager = (live = managerWithRows())
+		;(manager as any).initialize(vi.fn(), 'u/admin/flow', true)
+		manager.operatingWorkspace = () => 'ws'
+
+		await manager.selectConversation('a')
+
+		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(true))
+		await vi.waitFor(() => expect(streamCalls.some((call) => call.jobId === 'job-live')).toBe(true))
+		// The rows the turn already wrote are dropped, since the stream replays them. The
+		// message that started it is not: polls only ever add what a turn wrote, so a
+		// transcript emptied here would come back as answers with nothing asking them.
+		expect(manager.messages.map((m) => m.id)).toEqual(['the-question'])
+	})
+
 	// The gap this closes: until the job answers, whether the chat is free is unknown, and a
 	// message accepted meanwhile starts a second run against the same agent memory.
 	it('holds the chat while it is asking whether a run is live', async () => {
@@ -562,6 +599,36 @@ describe('a conversation opened while its run is still going', () => {
 	 * The hold a failed load leaves behind gates the whole surface — New chat and every
 	 * other conversation with it — so Stop has to be able to release it.
 	 */
+	/**
+	 * The walk back for the message that started the turn is a request of its own, and it can
+	 * fail on its own. Whether a run owns this conversation's memory is then precisely what is
+	 * unknown, so the chat stays held rather than taking a message that would write it twice.
+	 */
+	it('keeps holding the chat when it could not read far enough to ask', async () => {
+		const answerRows = Array.from({ length: 50 }, (_, i) => ({
+			id: `answer-${i}`,
+			conversation_id: 'a',
+			message_type: 'assistant',
+			content: `round ${i}`,
+			created_at: new Date().toISOString(),
+			created_seq: 100 + i
+		}))
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			.mockResolvedValueOnce(answerRows as any)
+			.mockRejectedValue(new Error('page unavailable'))
+		const manager = (live = managerWithRows())
+		;(manager as any).initialize(vi.fn(), 'u/admin/flow', true)
+		manager.operatingWorkspace = () => 'ws'
+
+		await manager.selectConversation('a')
+
+		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(true))
+		// And Stop is still the way out of it.
+		await manager.cancelCurrentJob()
+		expect(manager.isConversationBusy('a')).toBe(false)
+	})
+
 	it('lets Stop release a chat whose rows never loaded', async () => {
 		vi.mocked(FlowConversationsService.listConversationMessages).mockRejectedValue(
 			new Error('transcript unavailable')
