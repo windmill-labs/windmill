@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: windmill
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "5440:5432"
+    shm_size: 1g
+
+  windmill:
+    image: ghcr.io/windmill-labs/windmill:main
+    pull_policy: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill
+      - WORKER_GROUP=main
+      - WORKER_TAGS=bun,flow,dependency
+      - NUM_WORKERS=10
+      - I_ACK_NUM_WORKERS_IS_UNSAFE=1
+      - SLEEP_QUEUE=50
+    ports:
+      - "8010:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/api/version"]
+      interval: 5s
+      timeout: 3s
+      retries: 20

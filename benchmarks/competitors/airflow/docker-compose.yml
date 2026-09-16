@@ -1,0 +1,57 @@
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.10.5
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+    AIRFLOW__CORE__FERNET_KEY: ""
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "5"
+    AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: "0"
+    AIRFLOW__CORE__PARALLELISM: "32"
+    AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "32"
+  volumes:
+    - ./dags:/opt/airflow/dags
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    ports:
+      - "5436:5432"
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate &&
+        airflow users create \
+          --username admin \
+          --password admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com
+    depends_on:
+      - postgres
+
+  webserver:
+    <<: *airflow-common
+    command: airflow webserver --port 8090
+    ports:
+      - "8090:8090"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  scheduler:
+    <<: *airflow-common
+    command: airflow scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
