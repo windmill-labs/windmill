@@ -1009,6 +1009,68 @@ async fn an_entry_without_roles_cannot_newly_reach_a_database_under_roles(
     Ok(())
 }
 
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn an_alias_saved_elsewhere_waits_for_roles_going_on_for_its_database(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::query(
+        r#"UPDATE workspace_settings SET datatable = jsonb_set(datatable, '{datatables,other}',
+             '{"database": {"resource_type": "instance", "resource_path": "dt_other"}}')
+           WHERE workspace_id = 'test-workspace'"#,
+    )
+    .execute(&db)
+    .await?;
+
+    // Roles going on for `dt_other`, not committed yet: it holds only its own workspace's settings
+    // row, so an alias saved from another workspace that looked for roles now would miss them.
+    let enabling = {
+        let mut tx = db.begin().await?;
+        windmill_common::datatable_roles::lock_instance_databases_governance(
+            &mut *tx,
+            ["dt_other"],
+        )
+        .await?;
+        sqlx::query(
+            r#"UPDATE workspace_settings SET datatable = jsonb_set(datatable,
+                 '{datatables,other,permissions}',
+                 '{"default_role": "admin", "roles": {"admin": {"tenants": ["*"]}}}')
+               WHERE workspace_id = 'test-workspace'"#,
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx
+    };
+
+    let server = ApiServer::start(db.clone()).await?;
+    let url = format!(
+        "http://localhost:{}/api/w/wm-fork-dt/workspaces/edit_datatable_config",
+        server.addr.port()
+    );
+    let save = tokio::spawn(
+        authed(client().post(&url), "SECRET_TOKEN")
+            .json(&json!({ "settings": { "datatables": {
+                "direct": { "database": { "resource_type": "instance", "resource_path": "dt_other" } }
+            } } }))
+            .send(),
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(
+        !save.is_finished(),
+        "an alias was saved while roles were going on for its database"
+    );
+    enabling.commit().await?;
+
+    let resp = save.await??;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert!(
+        status == 400 && body.contains("which a data table under roles uses"),
+        "the alias reached the database whose roles went on while it waited ({status}): {body}"
+    );
+    Ok(())
+}
+
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
 const ENTERPRISE_REFUSAL: &str = "Data table roles are a Windmill Enterprise Edition feature";
 
@@ -1098,22 +1160,25 @@ async fn without_the_enterprise_edition_a_data_table_under_roles_is_refused_a_co
         assert!(err.to_string().contains(ENTERPRISE_REFUSAL), "{err}");
     }
 
-    // Not under roles, it resolves as it always has; naming a role on it is refused.
+    // Not under roles, it resolves as it always has, including when `admin` is named — which every
+    // migration does; naming any other role on it is refused.
     sqlx::query(
         "UPDATE workspace_settings SET datatable = datatable #- '{datatables,main,permissions}'
          WHERE workspace_id = 'test-workspace'",
     )
     .execute(&db)
     .await?;
-    let resolved = get_datatable_resource_from_db(
-        &db,
-        "test-workspace",
-        "main",
-        None,
-        DatatableAccess::NoIdentity,
-    )
-    .await?;
-    assert_eq!(resolved["dbname"], "dt_main", "{resolved}");
+    for role in [None, Some("admin")] {
+        let resolved = get_datatable_resource_from_db(
+            &db,
+            "test-workspace",
+            "main",
+            role,
+            DatatableAccess::NoIdentity,
+        )
+        .await?;
+        assert_eq!(resolved["dbname"], "dt_main", "{resolved}");
+    }
     let err = get_datatable_resource_from_db(
         &db,
         "test-workspace",

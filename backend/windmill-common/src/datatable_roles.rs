@@ -140,6 +140,25 @@ pub async fn lock_datatable_streams(conn: &mut sqlx::PgConnection, exclusive: bo
     Ok(())
 }
 
+/// Whether an instance database is reached only through entries under roles is decided by two
+/// writes that lock different workspaces' settings rows: turning roles on for one entry, and a
+/// settings save pointing an entry without roles at the database. Each holds this for every
+/// database it decides on, so neither reads past the other's uncommitted write. Held for the
+/// transaction; the names are locked in sorted order so two holders cannot deadlock.
+pub async fn lock_instance_databases_governance<'a>(
+    conn: &mut sqlx::PgConnection,
+    dbnames: impl IntoIterator<Item = &'a str>,
+) -> Result<()> {
+    let dbnames: std::collections::BTreeSet<&str> = dbnames.into_iter().collect();
+    for dbname in dbnames {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('datatable_instance_database:' || $1))")
+            .bind(dbname)
+            .execute(&mut *conn)
+            .await?;
+    }
+    Ok(())
+}
+
 /// Disclosure: returns every role's stored Postgres password in plaintext. Any server path that
 /// has to resolve or name a role may call it — including handlers open to a workspace member, who
 /// need the names — but callers MUST NOT let `pwd` reach a response, a log line, an audit record
