@@ -393,13 +393,13 @@
 			custom_path: customPath,
 			labels: $state.snapshot(labels)
 		}
-		const appHistory = await AppService.getAppHistoryByPath({
+		const head = await AppService.getAppLatestVersion({
 			workspace: $workspaceStore!,
 			path: npath
 		})
 		// `version` is what is deployed now, which is the deploy guard's fallback head; the
 		// deploy's own answer is the base, and the two differ when another landed beside it.
-		version = appHistory[0]?.version
+		version = head?.version
 		// Re-pin the fork base to the version just written: the editor stays open, so a
 		// follow-up deploy (or a new edit) would otherwise compare against the now-
 		// superseded base and falsely warn. parent_version is in
@@ -410,8 +410,8 @@
 		onDeploy?.({
 			version: deployed.version,
 			head: version,
-			headBy: appHistory[0]?.created_by,
-			headAt: appHistory[0]?.created_at
+			headBy: head?.created_by,
+			headAt: head?.created_at
 		})
 
 		closeSaveDrawer()

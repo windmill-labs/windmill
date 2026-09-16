@@ -1273,15 +1273,21 @@ async fn get_latest_version(
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
+    // The head is the tail of `app.versions` — the version the runtime serves. Deploys
+    // append to it under the app row's lock, whereas `app_version.created_at` is the
+    // deploying transaction's start time, so two that overlap can carry it in either
+    // order and the newest timestamp is then not the one that landed last.
     let row = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg,
                 av.created_by as created_by, av.created_at as created_at
-        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
-        WHERE a.workspace_id = $1 AND a.path = $2
-        ORDER BY av.created_at DESC",
+        FROM app a JOIN app_version av ON av.id = a.versions[array_upper(a.versions, 1)]
+        LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
+        WHERE a.workspace_id = $1 AND a.path = $2",
         w_id,
         path,
-    ).fetch_optional(&mut *tx).await?;
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
     tx.commit().await?;
 
     if let Some(row) = row {

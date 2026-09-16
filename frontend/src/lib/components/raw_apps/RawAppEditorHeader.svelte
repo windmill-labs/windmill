@@ -548,14 +548,14 @@
 			custom_path: customPath,
 			labels: $state.snapshot(labels)
 		}
-		const appHistory = await AppService.getAppHistoryByPath({
+		const head = await AppService.getAppLatestVersion({
 			workspace: opWorkspace!,
 			path: npath
 		})
 		// The deploy's own answer is the next draft's base; `version` is what is deployed
 		// now, and the two differ when another deploy landed beside this one. The route
 		// owns this prop and re-pushes `parentVersion ?? head` as soon as `onDeploy` returns.
-		version = appHistory[0]?.version
+		version = head?.version
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
@@ -574,8 +574,8 @@
 			path: npath,
 			version: deployed.version,
 			head: version,
-			headBy: appHistory[0]?.created_by,
-			headAt: appHistory[0]?.created_at
+			headBy: head?.created_by,
+			headAt: head?.created_at
 		})
 	}
 
