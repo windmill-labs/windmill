@@ -123,8 +123,9 @@ pub async fn fallback_store(db: &DB) -> Result<Option<BackupStore>> {
 }
 
 /// The workspace's primary storage, resolved without a caller: a rotation runs its deletion
-/// off its own request.
-async fn primary_store(db: &DB, w_id: &str) -> Result<Option<BackupStore>> {
+/// off its own request, and the retention sweep off any. The caller must be the server
+/// itself; nothing here checks who asks.
+pub async fn primary_store(db: &DB, w_id: &str) -> Result<Option<BackupStore>> {
     let Some(lfs_json) = sqlx::query_scalar!(
         "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
         w_id

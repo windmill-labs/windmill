@@ -28448,6 +28448,14 @@ components:
           description: >-
             Stops browsers from backing their AI sessions up to the workspace's object
             storage. Read from the workspace's own settings like `copilot_disabled`.
+        sessions_retention_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
+          description: >-
+            The server deletes the backup of a session no push has reached for this many
+            days. Unset keeps backups until the user deletes the session. Read from the
+            workspace's own settings like `copilot_disabled`.
 
     AISessionBackupListing:
       type: object

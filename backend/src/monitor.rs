@@ -4380,6 +4380,23 @@ pub async fn monitor_db(
         }
     };
 
+    // Delete the AI session backups older than their workspace's retention. Every ~40 min
+    // (240 iterations at the default 10 s, the most a u8 `should_run` counts): the retention
+    // counts in days. Spawned for the same reason as the credential maintenance above, a
+    // sweep of many sessions outlasting the join's deadline; the sweep's own advisory lock
+    // keeps one server at a time at it.
+    let ai_session_retention_f = async {
+        #[cfg(feature = "parquet")]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(240) {
+            if let Some(db) = conn.as_sql() {
+                let db = db.clone();
+                tokio::spawn(
+                    async move { windmill_api::sweep_expired_ai_session_backups(&db).await },
+                );
+            }
+        }
+    };
+
     // run every 2 iterations (~20s at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
     // Enterprise feature: the active `// freshness` backstop lives in
     // windmill-queue's `freshness_watchdog` (`private`); OSS gets a no-op stub.
@@ -4434,6 +4451,7 @@ pub async fn monitor_db(
         cleanup_scheduled_job_deletions_f,
         git_auto_pull_f,
         git_credential_maintenance_f,
+        ai_session_retention_f,
         pipeline_freshness_watchdog_f,
         reconcile_unarmed_schedules_f,
     );

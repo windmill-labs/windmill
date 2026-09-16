@@ -30,8 +30,9 @@ use serde_json::value::RawValue;
 use std::sync::Arc;
 use windmill_api_auth::is_effectively_unscoped;
 use windmill_api_workspaces::ai_session_backups::{
-    fallback_store, generation_prefix, storage_id, MAX_OBJECT_BYTES,
+    fallback_store, generation_prefix, primary_store, storage_id, MAX_OBJECT_BYTES,
 };
+use windmill_api_workspaces::workspaces::sessions_retention_days;
 use windmill_common::error::{Error, JsonResult, Result};
 use windmill_common::utils::calculate_hash;
 use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key};
@@ -65,6 +66,46 @@ const MAX_LISTED_OBJECTS: usize = 5000;
 const MAX_LIST_SCAN: usize = 50_000;
 const LIST_MAX: usize = 500;
 const IO_CONCURRENCY: usize = 8;
+/// Sessions the retention sweep deletes per workspace and pass at most; the rest wait for
+/// the next pass.
+const SWEEP_MAX_PER_WORKSPACE: usize = 1000;
+/// Session-level advisory lock of the retention sweep: one server at a time runs it.
+const SWEEP_LOCK_ID: i64 = 0x5745_4550_4149;
+/// The name of the sweep's record next to a session's markers (see `Backend::sweep_key`).
+const SWEEP_RECORD: &str = "sweep";
+/// The name of a split push's token next to a session's markers (see `Backend::push_key`).
+const PUSH_TOKEN: &str = "push";
+
+/// A marker modified before this is past a retention of `days`.
+fn retention_cutoff(days: u32) -> chrono::DateTime<chrono::Utc> {
+    chrono::Utc::now() - chrono::Duration::days(i64::from(days))
+}
+
+/// What a key under the `index/` prefix is.
+enum IndexEntry {
+    /// The marker that lists the session, named by its epoch.
+    Marker(u32),
+    /// The retention sweep's record (see `Backend::sweep_key`).
+    Sweep,
+    /// The token of a push split over parts (see `Backend::push_key`).
+    Push,
+}
+
+/// The session a key under the `index/` prefix belongs to, and what the key is.
+fn index_entry<'a>(index: &ObjectPath, key: &'a ObjectPath) -> Option<(&'a str, IndexEntry)> {
+    // `Path` drops the trailing delimiter, so the remainder starts with one.
+    let rel = key.as_ref().strip_prefix(index.as_ref())?;
+    let (sid, name) = rel.trim_start_matches('/').split_once('/')?;
+    if sid.is_empty() {
+        return None;
+    }
+    let entry = match name {
+        SWEEP_RECORD => IndexEntry::Sweep,
+        PUSH_TOKEN => IndexEntry::Push,
+        epoch => IndexEntry::Marker(epoch.parse().ok()?),
+    };
+    Some((sid, entry))
+}
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -101,6 +142,9 @@ struct Backend {
     /// owed to the storage alone (a rotation deleted the older generation's copy anyway).
     storage_id: String,
     generation: i64,
+    /// `ai_config.sessions_retention_days`: a session whose marker is older is not listed,
+    /// whether or not the sweep has deleted it yet.
+    retention_days: Option<u32>,
     /// The store is the instance object store standing in for a workspace without storage
     /// of its own (`ai_session_backups::fallback_store`).
     fallback: bool,
@@ -109,6 +153,12 @@ struct Backend {
 impl Backend {
     fn index_prefix(&self) -> ObjectPath {
         ObjectPath::from(format!("{}/index/", self.prefix))
+    }
+
+    /// The moment a marker's modification time must reach to count as live, under the
+    /// workspace's retention; `None` without one.
+    fn retention_cutoff(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.retention_days.map(retention_cutoff)
     }
 
     /// The marker that lists the session, named by the session's move count so that of a
@@ -121,10 +171,18 @@ impl Backend {
         ObjectPath::from(format!("{}/index/{sid}/", self.prefix))
     }
 
-    /// The token of the push split over parts in progress, under the session so a removal
-    /// or the next whole push clears it with the rest.
+    /// Written by the retention sweep before it deletes anything of a session, and deleted
+    /// last (`remove_session`): what finds a removal the sweep started and could not finish,
+    /// the markers being gone by then. Not an epoch, so nothing lists or pulls a session by it.
+    fn sweep_key(&self, sid: &str) -> ObjectPath {
+        ObjectPath::from(format!("{}/index/{sid}/{SWEEP_RECORD}", self.prefix))
+    }
+
+    /// The token of the push split over parts in progress, next to the markers so a removal
+    /// or the next whole push clears it with them, and the retention sweep, which walks the
+    /// markers, finds one a browser abandoned.
     fn push_key(&self, sid: &str) -> ObjectPath {
-        ObjectPath::from(format!("{}/sessions/{sid}/push", self.prefix))
+        ObjectPath::from(format!("{}/index/{sid}/{PUSH_TOKEN}", self.prefix))
     }
 
     fn session_prefix(&self, sid: &str) -> ObjectPath {
@@ -310,7 +368,12 @@ impl Backend {
             let mut stream = self.store.list(Some(&prefix));
             while let Some(meta) = stream.next().await {
                 let meta = meta.map_err(object_store_error_to_error)?;
-                listed |= marker;
+                // The sweep's record is not a marker: a session it started removing is absent.
+                listed |= marker
+                    && meta
+                        .location
+                        .filename()
+                        .is_some_and(|name| name.parse::<u32>().is_ok());
                 acc = fold(
                     acc,
                     meta.location.as_ref(),
@@ -415,17 +478,21 @@ fn require_json_object(kind: &str, raw: &RawValue, max_bytes: usize) -> Result<(
 /// no instance store to stand in, or the admin switched them off. Both read as
 /// `enabled: false` so the browser stops trying.
 async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backend>> {
-    let (disabled, generation, has_storage) = sqlx::query_as::<_, (Option<bool>, i64, bool)>(
-        "SELECT (ai_config->>'sessions_storage_disabled')::bool, ai_sessions_backup_generation, \
-         large_file_storage IS NOT NULL FROM workspace_settings WHERE workspace_id = $1",
-    )
-    .bind(w_id)
-    .fetch_optional(db)
-    .await?
-    .unwrap_or((None, 0, false));
+    let (disabled, retention, generation, has_storage) =
+        sqlx::query_as::<_, (Option<bool>, Option<serde_json::Value>, i64, bool)>(
+            "SELECT (ai_config->>'sessions_storage_disabled')::bool, \
+                    ai_config->'sessions_retention_days', ai_sessions_backup_generation, \
+                    large_file_storage IS NOT NULL \
+             FROM workspace_settings WHERE workspace_id = $1",
+        )
+        .bind(w_id)
+        .fetch_optional(db)
+        .await?
+        .unwrap_or((None, None, 0, false));
     if disabled.unwrap_or(false) {
         return Ok(None);
     }
+    let retention_days = sessions_retention_days(retention.as_ref());
     // Decided from the row the generation came from: the instance store is written only
     // under a generation read while the workspace had no storage of its own, which
     // configuring one moves past (`ai_session_backups`).
@@ -459,6 +526,7 @@ async fn backend(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<Option<Backe
         prefix,
         storage_id,
         generation,
+        retention_days,
         fallback,
     }))
 }
@@ -493,7 +561,9 @@ struct ListResponse {
 }
 
 /// A session is listed once a push entry of it landed whole (its marker is written last);
-/// a push that failed before that left objects the listing does not name.
+/// a push that failed before that left objects the listing does not name. One past the
+/// workspace's retention is not listed either, whether or not the sweep has reached it, so a
+/// browser never restores it.
 async fn list(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -511,6 +581,7 @@ async fn list(
         }));
     };
     let prefix = backend.index_prefix();
+    let cutoff = backend.retention_cutoff();
     let mut stream = backend.store.list(Some(&prefix));
     // One marker per session, whatever the session holds: the newest LIST_MAX are kept as
     // the scan goes (a min-heap drops the oldest), and the scan itself is bounded.
@@ -526,19 +597,12 @@ async fn list(
             truncated = true;
             break;
         }
-        // `Path` drops the trailing delimiter, so the remainder starts with one.
-        let Some(rel) = meta.location.as_ref().strip_prefix(prefix.as_ref()) else {
-            continue;
-        };
-        let Some((sid, epoch)) = rel.trim_start_matches('/').split_once('/') else {
-            continue;
-        };
-        let Ok(epoch) = epoch.parse::<u32>() else {
-            continue;
-        };
-        if sid.is_empty() || sid.contains('/') {
+        if cutoff.is_some_and(|cutoff| meta.last_modified < cutoff) {
             continue;
         }
+        let Some((sid, IndexEntry::Marker(epoch))) = index_entry(&prefix, &meta.location) else {
+            continue;
+        };
         newest.push(std::cmp::Reverse((
             meta.last_modified,
             epoch,
@@ -1206,15 +1270,29 @@ async fn push_session(backend: &Backend, s: &PushedSession) -> Result<(usize, bo
     Ok((written, false))
 }
 
-/// The marker goes first so a removal cut short leaves nothing listed, then the head so
+/// The markers go first so a removal cut short leaves nothing listed, then the head so
 /// nothing pulls either, and no push takes it for a session still there (see `push_session`).
+/// The retention sweep's record goes last (see `Backend::sweep_key`).
 async fn remove_session(backend: &Backend, sid: &str) -> Result<()> {
+    let sweep = backend.sweep_key(sid);
     backend
-        .delete_prefix(&backend.index_session_prefix(sid))
+        .store
+        .list(Some(&backend.index_session_prefix(sid)))
+        .map_err(object_store_error_to_error)
+        .try_for_each_concurrent(IO_CONCURRENCY, |meta| {
+            let sweep = &sweep;
+            async move {
+                if meta.location == *sweep {
+                    return Ok(());
+                }
+                backend.delete(&meta.location).await
+            }
+        })
         .await?;
     backend.delete(&backend.head_key(sid)).await?;
     backend.delete_prefix(&backend.session_prefix(sid)).await?;
-    backend.delete_prefix(&backend.images_prefix(sid)).await
+    backend.delete_prefix(&backend.images_prefix(sid)).await?;
+    backend.delete(&sweep).await
 }
 
 /// One writer per session at a time, across servers: a push and a removal of the same
@@ -1257,6 +1335,205 @@ async fn push_session_locked(
 async fn remove_session_locked(db: &DB, backend: &Backend, sid: &str) -> Result<()> {
     let tx = lock_session(db, backend, sid).await?;
     let result = remove_session(backend, sid).await;
+    tx.commit().await?;
+    result
+}
+
+/// Deletes, in every workspace with `ai_config.sessions_retention_days`, the backups of the
+/// sessions whose marker is older than that: the marker is rewritten by every push that
+/// completes, so its modification time is the session's last activity as the storage clocks
+/// it. For the monitor, on every server: a session-level advisory lock keeps one pass at a
+/// time across them. The walk reads markers only, one object per session and nothing of what
+/// the sessions hold, under each user's prefix in turn (`list_with_delimiter` names the
+/// users), and deletes at most `SWEEP_MAX_PER_WORKSPACE` sessions per workspace and pass. A
+/// session goes under its lock (`lock_session`), once its markers are listed again there and
+/// still all older (see `sweep_session`). A removal cut short leaves the sweep's record next
+/// to the markers, which the walk also collects, so the next pass finishes it.
+pub async fn sweep_expired_ai_session_backups(db: &DB) {
+    let mut lock_conn = match db.acquire().await {
+        Ok(conn) => conn,
+        Err(e) => {
+            tracing::error!("AI session retention: could not acquire a connection: {e:#}");
+            return;
+        }
+    };
+    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+        .bind(SWEEP_LOCK_ID)
+        .fetch_one(&mut *lock_conn)
+        .await
+    {
+        Ok(locked) => locked,
+        Err(e) => {
+            tracing::error!("AI session retention: advisory lock failed: {e:#}");
+            return;
+        }
+    };
+    if !locked {
+        return;
+    }
+    if let Err(e) = sweep_workspaces(db).await {
+        tracing::error!("AI session retention sweep failed: {e:#}");
+    }
+    if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(SWEEP_LOCK_ID)
+        .execute(&mut *lock_conn)
+        .await
+    {
+        tracing::error!("AI session retention: advisory unlock failed: {e:#}");
+    }
+}
+
+async fn sweep_workspaces(db: &DB) -> Result<()> {
+    let workspaces = sqlx::query_as::<_, (String, Option<serde_json::Value>, i64, bool)>(
+        "SELECT workspace_id, ai_config->'sessions_retention_days', ai_sessions_backup_generation, \
+                large_file_storage IS NOT NULL \
+         FROM workspace_settings \
+         WHERE ai_config->'sessions_retention_days' IS NOT NULL",
+    )
+    .fetch_all(db)
+    .await?;
+    for (w_id, retention, generation, has_storage) in workspaces {
+        let Some(days) = sessions_retention_days(retention.as_ref()) else {
+            continue;
+        };
+        match sweep_workspace(db, &w_id, days, generation, has_storage).await {
+            Ok(0) => {}
+            Ok(deleted) => tracing::info!(
+                "AI session retention deleted {deleted} session backups of {w_id} older than {days} days"
+            ),
+            Err(e) => tracing::warn!("AI session retention sweep of {w_id}: {e:#}"),
+        }
+    }
+    Ok(())
+}
+
+/// `has_storage` comes from the row `generation` was read from, as in `backend`: the instance
+/// store is swept only under a generation read while the workspace had no storage of its own.
+async fn sweep_workspace(
+    db: &DB,
+    w_id: &str,
+    days: u32,
+    generation: i64,
+    has_storage: bool,
+) -> Result<usize> {
+    let resolved = if has_storage {
+        primary_store(db, w_id).await?
+    } else {
+        fallback_store(db).await?
+    };
+    let Some(resolved) = resolved else {
+        return Ok(0);
+    };
+    let key = get_workspace_key(w_id, db).await?;
+    let (store, storage_id) = (resolved.store, resolved.storage_id);
+    let cutoff = retention_cutoff(days);
+    let root = ObjectPath::from(generation_prefix(w_id, generation));
+    let users = store
+        .list_with_delimiter(Some(&root))
+        .await
+        .map_err(object_store_error_to_error)?
+        .common_prefixes;
+    let mut deleted = 0;
+    for user_prefix in users {
+        let Some(user) = user_prefix.filename() else {
+            continue;
+        };
+        // The sweep decrypts nothing; the cipher is only what a `Backend` is made of.
+        let backend = Backend {
+            store: store.clone(),
+            mc: crypt_from_key_with_suffix(&key, user),
+            prefix: user_prefix.to_string(),
+            storage_id: storage_id.clone(),
+            generation,
+            retention_days: Some(days),
+            fallback: resolved.fallback,
+        };
+        let index = backend.index_prefix();
+        let mut markers = backend.store.list(Some(&index));
+        let mut expired = std::collections::BTreeSet::new();
+        while let Some(meta) = markers.next().await {
+            let meta = meta.map_err(object_store_error_to_error)?;
+            let sid = match index_entry(&index, &meta.location) {
+                Some((sid, IndexEntry::Sweep)) => sid,
+                Some((sid, IndexEntry::Marker(_) | IndexEntry::Push))
+                    if meta.last_modified < cutoff =>
+                {
+                    sid
+                }
+                _ => continue,
+            };
+            expired.insert(sid.to_string());
+            if deleted + expired.len() >= SWEEP_MAX_PER_WORKSPACE {
+                break;
+            }
+        }
+        for sid in expired {
+            match sweep_session(db, &backend, &sid, cutoff).await {
+                Ok(true) => deleted += 1,
+                Ok(false) => {}
+                Err(e) => tracing::warn!(
+                    "AI session retention left the backup of {sid} in {w_id} for the next pass: {e:#}"
+                ),
+            }
+        }
+        if deleted >= SWEEP_MAX_PER_WORKSPACE {
+            break;
+        }
+    }
+    Ok(deleted)
+}
+
+/// True when the session was deleted. Under the session's lock its markers are listed again:
+/// one a push renewed since the walk keeps the session. A session with none is left alone
+/// while a push split over parts is between two of them (its token younger than the
+/// retention) or it is gone, unless the sweep's record says a removal was started; an older
+/// token is a split push a browser abandoned, whose landed parts nothing lists. The record is
+/// written before anything is deleted and removed last, so a removal cut short is found again
+/// by the next pass.
+async fn sweep_session(
+    db: &DB,
+    backend: &Backend,
+    sid: &str,
+    cutoff: chrono::DateTime<chrono::Utc>,
+) -> Result<bool> {
+    let tx = lock_session(db, backend, sid).await?;
+    let result = async {
+        let (sweep, push) = (backend.sweep_key(sid), backend.push_key(sid));
+        let mut entries = backend.store.list(Some(&backend.index_session_prefix(sid)));
+        let (mut listed, mut renewed, mut started, mut abandoned) = (false, false, false, false);
+        while let Some(meta) = entries.next().await {
+            let meta = meta.map_err(object_store_error_to_error)?;
+            if meta.location == sweep {
+                started = true;
+            } else if meta.location == push {
+                abandoned = meta.last_modified < cutoff;
+            } else {
+                listed = true;
+                renewed |= meta.last_modified >= cutoff;
+            }
+        }
+        if renewed {
+            // A push listed the session again over a removal cut short before its markers
+            // went, which had deleted nothing else.
+            if started {
+                backend.delete(&sweep).await?;
+            }
+            return Ok(false);
+        }
+        if !listed && !started && !abandoned {
+            return Ok(false);
+        }
+        if !started {
+            backend
+                .store
+                .put(&sweep, PutPayload::new())
+                .await
+                .map_err(object_store_error_to_error)?;
+        }
+        remove_session(backend, sid).await?;
+        Ok(true)
+    }
+    .await;
     tx.commit().await?;
     result
 }
