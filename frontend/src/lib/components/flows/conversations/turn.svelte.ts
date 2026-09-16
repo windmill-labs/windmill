@@ -1,3 +1,4 @@
+import { randomUUID } from '$lib/utils/uuid'
 import { emptyTurnState, type TurnState } from './turnTranscript'
 import {
 	prefersInstantReveal,
@@ -69,6 +70,28 @@ export class Turn {
 	 * once rather than on every tick.
 	 */
 	listPending = $state(false)
+
+	/**
+	 * The rows this turn opened, by the ids it gave them.
+	 *
+	 * What the last read of a turn waits on. Rows are only ever added to a conversation, so
+	 * without this a row an older turn left behind — one whose written copy never arrived —
+	 * would read as this turn's work outstanding, and every turn after it would wait out the
+	 * full read for something that is never coming.
+	 */
+	readonly #minted = new Set<string>()
+
+	/** A row id belonging to this turn. */
+	mintRowId(): string {
+		const id = 'temp-' + randomUUID()
+		this.#minted.add(id)
+		return id
+	}
+
+	/** Whether any row this turn opened is still standing in for one the server has. */
+	awaitsRowsIn(rows: { id: string }[]): boolean {
+		return rows.some((row) => this.#minted.has(row.id))
+	}
 
 	#replyReveal: TypewriterReveal
 	#reasoningReveal: TypewriterReveal

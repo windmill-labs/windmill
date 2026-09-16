@@ -3,6 +3,8 @@ import {
 	appendRevealed,
 	applyStreamEvent,
 	emptyTurnState,
+	mergePersistedRows,
+	settleTurnRows,
 	turnFailed,
 	type TurnStep
 } from './turnTranscript'
@@ -70,7 +72,8 @@ describe('turn transcript', () => {
 
 		const tool = step.rows.find((r) => r.message_type === 'tool')
 		expect(tool?.success).toBe(false)
-		expect(tool?.content).toBe('Failed to use get_time tool')
+		// The sentence the server stores for the same call, so a reload does not reword it.
+		expect(tool?.content).toBe('Error executing get_time')
 	})
 
 	it('grows one answer row as text is revealed', () => {
@@ -132,5 +135,141 @@ describe('turnFailed', () => {
 
 	it('is false for a turn that has produced nothing yet', () => {
 		expect(turnFailed([row({ message_type: 'user' })], 0)).toBe(false)
+	})
+})
+
+/**
+ * The worker writes a turn's rows in transactions it does not wait for, so they land in
+ * their own time — after the run reports itself finished, and after the read that follows
+ * it. What the reader watched stream in is the only copy of the answer until they do.
+ */
+describe('folding persisted rows into streamed ones', () => {
+	const streamed = (over: Partial<ChatMessage>): ChatMessage =>
+		({ id: `temp-${over.content}`, message_type: 'assistant', content: '', ...over }) as ChatMessage
+	const stored = (over: Partial<ChatMessage>): ChatMessage =>
+		({ id: `db-${over.content}`, message_type: 'assistant', content: '', ...over }) as ChatMessage
+	const row = (over: Partial<ChatMessage>): ChatMessage =>
+		({ id: 'x', message_type: 'assistant', content: '', ...over }) as ChatMessage
+
+	it('keeps an answer whose row has not landed', () => {
+		const rows = mergePersistedRows([streamed({ content: 'the answer' })], [])
+		expect(rows.map((r) => r.content)).toEqual(['the answer'])
+	})
+
+	it("puts the row in the answer's place rather than beside it", () => {
+		const rows = mergePersistedRows(
+			[streamed({ content: 'the answer' })],
+			[stored({ content: 'the answer', created_seq: 7 })]
+		)
+		expect(rows).toHaveLength(1)
+		// The server's id, which is what moves the poll's cursor past this row.
+		expect(rows[0].id).toBe('db-the answer')
+		expect(rows[0].created_seq).toBe(7)
+	})
+
+	it('keeps a tool call the row does not carry', () => {
+		const rows = mergePersistedRows(
+			[
+				streamed({
+					message_type: 'tool',
+					content: 'Used get_time tool',
+					tool_name: 'get_time',
+					tool_arguments: '{"tz":"UTC"}',
+					tool_result: '{"now":1}'
+				})
+			],
+			[stored({ message_type: 'tool', content: 'Used get_time tool', job_id: 'job-1' })]
+		)
+		expect(rows).toHaveLength(1)
+		expect(rows[0].job_id).toBe('job-1')
+		expect(rows[0].tool_arguments).toBe('{"tz":"UTC"}')
+		expect(rows[0].tool_result).toBe('{"now":1}')
+		expect(rows[0].tool_name).toBe('get_time')
+	})
+
+	it("leaves an older turn's rows to append rather than take an answer's place", () => {
+		const rows = mergePersistedRows(
+			[streamed({ content: 'the answer' })],
+			[stored({ content: 'something asked an hour ago', created_seq: 1 })]
+		)
+		expect(rows.map((r) => r.content)).toEqual(['the answer', 'something asked an hour ago'])
+	})
+
+	/**
+	 * A card opens on the call and closes on the result. An agent answering through an output
+	 * schema streams the call and never the result, and the worker stores no row for it — so
+	 * the card can only be closed by the turn ending.
+	 */
+	it('pairs a card still on its call with the row stored for that call', () => {
+		const rows = mergePersistedRows(
+			[
+				streamed({
+					message_type: 'tool',
+					content: 'Running get_time',
+					tool_name: 'get_time',
+					loading: true
+				})
+			],
+			[stored({ message_type: 'tool', content: 'Used get_time tool' })]
+		)
+		expect(rows).toHaveLength(1)
+		expect(rows[0].content).toBe('Used get_time tool')
+	})
+
+	it('leaves a card nothing was stored for, and settles it with the turn', () => {
+		const open = [
+			streamed({
+				message_type: 'tool',
+				content: 'Running structured_output',
+				tool_name: 'structured_output',
+				loading: true
+			}),
+			streamed({ content: 'the answer', streaming: true })
+		]
+		const merged = mergePersistedRows(open, [stored({ content: 'the answer' })])
+		expect(merged).toHaveLength(2)
+		expect(merged[0].loading).toBe(true)
+
+		const settled = settleTurnRows(merged)
+		expect(settled[0].loading).toBe(false)
+		// The answer was replaced by its stored row, which carries no such flag at all.
+		expect(settled[1].streaming).toBeFalsy()
+		// And the turn can report itself, which it cannot while a row is still going.
+		expect(turnFailed([row({ message_type: 'user' }), ...settled], 0)).toBe(false)
+	})
+
+	/**
+	 * A stream that restarts on a retried step leaves the row holding both attempts while the
+	 * worker stored only the one that answered, and no rule that pairs those reliably also
+	 * refuses a row an earlier turn left unread — which would take the live answer's place.
+	 * The round shows twice until a reload, which is the lesser of the two.
+	 */
+	it('appends rather than guessing when the text diverged', () => {
+		const rows = mergePersistedRows(
+			[streamed({ content: 'half an answerthe whole answer' })],
+			[stored({ content: 'the whole answer' })]
+		)
+		// Both, so the round reads twice. Taking the streamed row's place on anything short of
+		// its text would also let a row an earlier turn left unread take the live answer's.
+		expect(rows.map((r) => r.content)).toEqual([
+			'half an answerthe whole answer',
+			'the whole answer'
+		])
+	})
+
+	it("leaves an older turn's row alone when the text diverged", () => {
+		const rows = mergePersistedRows(
+			[streamed({ content: 'something from an hour ago' })],
+			[stored({ content: 'the whole answer' })]
+		)
+		expect(rows.map((r) => r.content)).toEqual(['something from an hour ago', 'the whole answer'])
+	})
+
+	it('reads a row it has already folded in only once', () => {
+		const once = mergePersistedRows(
+			[streamed({ content: 'the answer' })],
+			[stored({ content: 'the answer' })]
+		)
+		expect(mergePersistedRows(once, [stored({ content: 'the answer' })])).toHaveLength(1)
 	})
 })

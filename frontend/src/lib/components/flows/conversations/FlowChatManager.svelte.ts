@@ -13,7 +13,13 @@ import { base } from '$lib/base'
 import { followJob, WindmillChatApi, type AgentStreamEvent } from 'windmill-chat'
 import type { StreamEvent } from '$lib/components/chat/utils'
 import { randomUUID } from '$lib/utils/uuid'
-import { appendRevealed, applyStreamEvent, turnFailed } from './turnTranscript'
+import {
+	appendRevealed,
+	applyStreamEvent,
+	mergePersistedRows,
+	settleTurnRows,
+	turnFailed
+} from './turnTranscript'
 import { Turn, type RevealKind } from './turn.svelte'
 
 export interface ChatMessage extends FlowConversationMessage {
@@ -60,6 +66,12 @@ const FOLLOW_RETRY_DELAY_MS = 500
 
 /** How often a turn with no stream asks its job whether the run is over. */
 const SETTLE_POLL_MS = 2000
+
+/** How many times a finished turn's rows are read back while some are still missing, and the
+ * wait between. The worker writes them without waiting for them, so the read that follows the
+ * run's own completion can be too early — but only by about as long as an insert takes. */
+const RECONCILE_ATTEMPTS = 4
+const RECONCILE_DELAY_MS = 300
 
 /** Rows per request when a poll reads a conversation. A batch shorter than this is how the
  * endpoint says there are no more. */
@@ -148,9 +160,6 @@ export class FlowChatManager {
 	 */
 	#turns = $state<Record<string, Turn>>({})
 
-	/** Row ids are temp- prefixed: the sweep after a run keeps only what the server stored. */
-	#newRowId = () => 'temp-' + randomUUID()
-
 	/** Every row id the chat still holds, across conversations. What a per-row store prunes
 	 * against, so a background chat's rows are not mistaken for gone. */
 	get liveRowIds(): Set<string> {
@@ -225,7 +234,7 @@ export class FlowChatManager {
 			{ rows: this.#rowsOf(turn.conversationId), state: turn.transcript },
 			kind,
 			chunk,
-			this.#newRowId
+			() => turn.mintRowId()
 		)
 		this.#rowsById[turn.conversationId] = step.rows
 		turn.transcript = step.state
@@ -236,10 +245,10 @@ export class FlowChatManager {
 	 * Name the run a turn started, on both the status and the message that began it.
 	 *
 	 * The server writes its own user row carrying this job id, but the poller drops user rows
-	 * and the temp sweep keeps them, so the row on screen never becomes that one — it holds
-	 * the id only after a reload fetches the transcript fresh. Stamping it here is what makes
-	 * a retry replay the turn it is looking at rather than run the text again with whatever
-	 * the composer holds later.
+	 * and nothing the server sends may stand for one, so the row on screen never becomes that
+	 * one — it holds the id only after a reload fetches the transcript fresh. Stamping it here
+	 * is what makes a retry replay the turn it is looking at rather than run the text again
+	 * with whatever the composer holds later.
 	 */
 	#nameTurnJob(turn: Turn, userRowId: string, jobId: string) {
 		// The row is named whatever became of the turn: it is the row this run was started
@@ -481,6 +490,14 @@ export class FlowChatManager {
 		// whether this chat has a run in flight. Stop is the way out of those too, and it
 		// reaches them only here.
 		status.isDispatchingTurn = false
+		// Nothing writes to this conversation's rows any more, so nothing in them may still
+		// look like it is being written to — a card whose closing event never came would
+		// otherwise keep its spinner for as long as the chat is open. Here rather than where a
+		// turn is read back, because Stop, the panel going away and a conversation being
+		// deleted are ends too. Only where there are rows: a conversation with none has not
+		// been read yet, and giving it an empty list would read as one that has.
+		const rows = this.#rowsById[conversationId]
+		if (rows?.length) this.#rowsById[conversationId] = settleTurnRows(rows)
 		if (options?.settled) this.onTurnSettled?.(conversationId)
 	}
 
@@ -930,40 +947,44 @@ export class FlowChatManager {
 		}
 	}
 
+	/**
+	 * How far this conversation has been read, which is the furthest row it holds and not the
+	 * last one in the list. Rows sit in the order they were shown, and a stored row the
+	 * transcript could not pair with anything goes on the end whatever its place in the
+	 * conversation — read from the end, one of those would move the cursor backwards and keep
+	 * it there, re-reading the same tail on every tick for the life of the page.
+	 */
 	private getLastPersistedMessageSeq(conversationId: string) {
-		const rows = this.#rowsOf(conversationId)
-		for (let i = rows.length - 1; i >= 0; i--) {
-			const message = rows[i]
-			if (!message.id.startsWith('temp-')) {
-				return message.created_seq
-			}
+		let furthest: number | undefined
+		for (const row of this.#rowsOf(conversationId)) {
+			if (row.id.startsWith('temp-')) continue
+			if (furthest === undefined || row.created_seq > furthest) furthest = row.created_seq
 		}
-
-		return undefined
+		return furthest
 	}
 
-	// Polling
+	/** Read a conversation forward from where the transcript left off, and fold in what comes
+	 *  back. Answers how many rows it read, which is how a caller asking repeatedly knows to
+	 *  stop. */
 	private async pollConversationMessages(
 		conversationId: string,
-		options?: { isNewConversation?: boolean; removeTempMessages?: boolean; turn?: Turn }
-	) {
-		if (!this.#workspace()) return
+		options?: { isNewConversation?: boolean; turn?: Turn }
+	): Promise<number> {
+		if (!this.#workspace()) return 0
 
 		try {
 			// Paged, not one request: the endpoint answers oldest-first with a limit, so a turn
 			// that wrote more rows than a page — an agent calling several tools a round — would
-			// hand back its earliest and leave its answer behind, and the sweep below drops the
-			// temp rows that were standing in for it.
+			// hand back its earliest and leave its answer behind.
 			const response: ChatMessage[] = []
 			// Sequences start at 1, so a conversation with no row to resume from reads from 0
 			// rather than with no cursor at all — without one the endpoint answers with the
 			// newest page instead of the oldest, which is not a prefix of anything.
 			let afterSeq = this.getLastPersistedMessageSeq(conversationId) ?? 0
-			let readWhole = false
 			for (let request = 0; request < POLL_MAX_REQUESTS; request++) {
 				// A read for a turn stops with it: a page boundary is where a poll walking a long
 				// conversation notices the chat it was reading for has gone.
-				if (options?.turn && !this.#isCurrent(options.turn)) return
+				if (options?.turn && !this.#isCurrent(options.turn)) return 0
 				const batch = await FlowConversationsService.listConversationMessages({
 					workspace: this.#workspace()!,
 					conversationId: conversationId,
@@ -972,10 +993,7 @@ export class FlowChatManager {
 					afterSeq
 				})
 				response.push(...batch)
-				if (batch.length < POLL_PAGE_SIZE) {
-					readWhole = true
-					break
-				}
+				if (batch.length < POLL_PAGE_SIZE) break
 				const furthest = Math.max(...batch.map((m) => m.created_seq))
 				if (furthest <= afterSeq) {
 					// A full page that leaves the cursor where it was would be asked for again on
@@ -992,20 +1010,7 @@ export class FlowChatManager {
 
 			// The read is done; the turn it was for may not be. Everything below writes to the
 			// transcript, so it asks the same question every other write-back asks.
-			if (options?.turn && !this.#isCurrent(options.turn)) return
-
-			if (!readWhole && options?.removeTempMessages) {
-				// The last poll of a turn, and no tick comes after it to carry on from where this
-				// one stopped. Its temp rows have to stay, being the only copy of what the read
-				// did not reach, and the prefix it did read would sit beside them showing the
-				// start of the turn twice — so that prefix is dropped rather than the rows. A
-				// reload is what recovers it: `loadMessages` leaves rows already held alone.
-				console.warn(
-					`Read ${response.length} rows of conversation ${conversationId} at the end of a ` +
-						`turn without reaching its last one; leaving the transcript as it is`
-				)
-				return
-			}
+			if (options?.turn && !this.#isCurrent(options.turn)) return 0
 
 			if (options?.isNewConversation) {
 				await this.refreshConversations()
@@ -1014,25 +1019,18 @@ export class FlowChatManager {
 			}
 
 			// Written to this conversation's rows, not the open one's: a turn keeps landing
-			// rows while the reader is in another chat.
-			const filteredResponse = response.filter((msg) => msg.message_type !== 'user')
-			for (const msg of filteredResponse) {
-				const rows = this.#rowsOf(conversationId)
-				if (!rows.find((m) => m.id === msg.id)) {
-					this.#rowsById[conversationId] = [...rows, msg]
-				}
-			}
-
-			// Only remove temporary messages when explicitly requested (e.g., after job completion)
-			// During streaming, we keep temp messages to avoid them disappearing due to race conditions
-			if (options?.removeTempMessages) {
-				this.#rowsById[conversationId] = this.#rowsOf(conversationId).filter(
-					(msg) => !msg.id.startsWith('temp-') || msg.message_type === 'user'
-				)
-			}
+			// rows while the reader is in another chat. User rows are dropped because the row
+			// the send put on screen is the one that stays — the server's copy would arrive
+			// beside it as a second question.
+			this.#rowsById[conversationId] = mergePersistedRows(
+				this.#rowsOf(conversationId),
+				response.filter((msg) => msg.message_type !== 'user')
+			)
+			return response.length
 		} catch (error) {
 			console.error('Polling error:', error)
 		}
+		return 0
 	}
 
 	// Message sending
@@ -1224,8 +1222,8 @@ export class FlowChatManager {
 					signal,
 					// Kept on the turn so a reconnect resumes after what is already on screen. A
 					// retried agent step gets its own stream, which `followJob` detects and
-					// restarts from. Resuming too far in drops chunks the final row poll then
-					// repairs; not resuming duplicates the answer, which nothing repairs.
+					// restarts from, leaving the row holding both attempts — the rows read back
+					// take its place, so what is on screen ends up as what was stored either way.
 					streamOffset: turn.streamOffset,
 					onOffset: (offset) => (turn.streamOffset = offset)
 				})) {
@@ -1257,7 +1255,7 @@ export class FlowChatManager {
 								const step = applyStreamEvent(
 									{ rows: this.#rowsOf(currentConversationId), state: turn.transcript },
 									event,
-									this.#newRowId
+									() => turn.mintRowId()
 								)
 								this.#rowsById[currentConversationId] = step.rows
 								turn.transcript = step.state
@@ -1265,13 +1263,10 @@ export class FlowChatManager {
 						}
 						continue
 					}
-					// Anything still buffered would be dropped by the temp-row sweep below.
+					// What the pacing still holds belongs on screen before the last read, so the
+					// rows it lands can stand for it.
 					turn.flushReveals()
-					// Do a final poll to get all messages from database
-					await this.pollConversationMessages(currentConversationId, {
-						removeTempMessages: true,
-						turn
-					})
+					await this.#reconcileTurn(turn)
 					this.#endTurnIfCurrent(turn, { settled: true })
 				}
 				return
@@ -1435,7 +1430,8 @@ export class FlowChatManager {
 		status.isWaitingForResponse = true
 		// Rows written while this turn ran are replayed by the stream it is about to
 		// re-attach to — an agent persists one per round — and the transcript has no way to
-		// tell a replayed round from a second one. The final poll brings them back.
+		// tell a replayed round from a second one. The replay writes them again, and the rows
+		// the server has take their place as they are read back.
 		//
 		// The message that started the turn stays, and when the turn was long enough to push
 		// it off the page the transcript opened on it is all that is left: polls only ever
@@ -1447,7 +1443,9 @@ export class FlowChatManager {
 			const startedAt = held.findLastIndex((row) => row.id === startedBy.id)
 			this.#rowsById[conversationId] = startedAt >= 0 ? held.slice(0, startedAt + 1) : [startedBy]
 		}
-		turn.startPolling()
+		// No catch-up read alongside the re-attach. The stream replays the turn from its
+		// start, which is why the rows above were dropped, and a read landing before the
+		// first frame would put them back for the replay to write a second time.
 		if (this.#useStreaming) {
 			void this.#followJob(turn, jobId)
 		} else {
@@ -1480,7 +1478,11 @@ export class FlowChatManager {
 	 * failed request it cancels and returns, leaving its promise pending forever.
 	 */
 	async #settleFromJob(turn: Turn, jobId: string) {
-		const conversationId = turn.conversationId
+		// Waiting on the job is waiting with no stream, so the catch-up read is the only thing
+		// putting the turn's rows on screen before it ends. Started here so every way of
+		// arriving without a stream — a turn that never had one, one whose stream is gone,
+		// a conversation picked back up on the polling path — gets it once.
+		turn.startPolling()
 		const api = this.#chatApi()
 		const signal = turn.signal
 		while (this.#isCurrent(turn)) {
@@ -1494,10 +1496,41 @@ export class FlowChatManager {
 			await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS))
 		}
 		if (!this.#isCurrent(turn)) return
-		try {
-			await this.pollConversationMessages(conversationId, { removeTempMessages: true, turn })
-		} catch {}
+		await this.#reconcileTurn(turn)
 		this.#endTurnIfCurrent(turn, { settled: true })
+	}
+
+	/**
+	 * Read a finished turn's rows back, once the run says it is over.
+	 *
+	 * The worker writes them in transactions it does not wait for, so the first read can
+	 * come before the last of them lands, and the answer is routinely the one still missing.
+	 * The read is repeated while rows the stream produced are still unaccounted for, and
+	 * then stopped — what is left standing is what the reader watched arrive, which is the
+	 * only copy of it there is. Nothing here concludes anything from the rows not coming.
+	 */
+	async #reconcileTurn(turn: Turn) {
+		for (let attempt = 1; attempt <= RECONCILE_ATTEMPTS; attempt++) {
+			let read = 0
+			try {
+				read = await this.pollConversationMessages(turn.conversationId, { turn })
+			} catch (error) {
+				console.error('Could not read a finished turn back:', error)
+			}
+			if (!this.#isCurrent(turn)) return
+			// Only this turn's rows. Rows are added to a conversation and never removed, so
+			// one an older turn left standing would otherwise read as work outstanding and
+			// make every turn after it wait out the full read for nothing.
+			if (!turn.awaitsRowsIn(this.#rowsOf(turn.conversationId))) break
+			// A read that brought nothing is the answer to asking again. Some of what a turn
+			// shows is never written down — a tool call the agent abandoned mid-round — and
+			// waiting the whole budget out for one of those delays every message queued behind
+			// the turn by as long as the budget.
+			if (attempt > 1 && read === 0) break
+			if (attempt < RECONCILE_ATTEMPTS) {
+				await new Promise((resolve) => setTimeout(resolve, RECONCILE_DELAY_MS))
+			}
+		}
 	}
 
 	/** Answers whether a job was actually started. */
@@ -1524,8 +1557,6 @@ export class FlowChatManager {
 			turn.listPending = false
 		}
 
-		// Start polling for intermediate messages in non-streaming mode too
-		turn.startPolling()
 		void this.#settleFromJob(turn, jobId)
 		return true
 	}

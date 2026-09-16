@@ -162,6 +162,106 @@ export function applyStreamEvent(
 	}
 }
 
+/** A row the stream wrote, still standing in for one the server has not handed back yet. */
+function isStreamedRow(row: ChatMessage): boolean {
+	// User rows are never read back — the poll drops them — so theirs is the only temp id
+	// that is permanent, and nothing the server sends can stand for one.
+	return row.id.startsWith('temp-') && row.message_type !== 'user'
+}
+
+/**
+ * Whether a persisted tool row is the one a streamed tool card was opened for.
+ *
+ * A card opens on the call and is worded `Running X` until its result arrives; a card whose
+ * result never arrives keeps that wording and would otherwise never meet the row the worker
+ * stored for the same call. The worker words every tool row from the tool, so the two
+ * sentences it can have are known exactly and are compared as text rather than parsed.
+ */
+function namesTool(content: string, toolName: string | undefined): boolean {
+	if (!toolName) return false
+	return content === `Used ${toolName} tool` || content === `Error executing ${toolName}`
+}
+
+/**
+ * Which streamed row a persisted one stands for, or -1 when it stands for none.
+ *
+ * What the row says, and for a tool the tool it names. Nothing looser: a read walks the
+ * conversation forward from wherever the transcript left off, so it carries rows written
+ * before this turn as readily as its own — a row an earlier turn left unread among them —
+ * and any rule that pairs by position or by kind alone would let one of those take the place
+ * of the answer being streamed, which is the one thing worse than showing it twice.
+ *
+ * Showing it twice is what happens when the two texts disagree: a stream restarting on a
+ * retried step replays the round from its beginning, so the row holds both attempts while
+ * the worker stored only the one that answered. Neither text contains the other in any
+ * reliable way, so the stored row is appended and the reader sees the round twice until the
+ * page is reloaded.
+ */
+function indexOfStreamedRowFor(rows: ChatMessage[], row: ChatMessage): number {
+	const eligible = (held: ChatMessage) =>
+		isStreamedRow(held) && held.message_type === row.message_type
+	const sameText = rows.findIndex((held) => eligible(held) && held.content === row.content)
+	if (sameText >= 0) return sameText
+	return rows.findIndex((held) => eligible(held) && namesTool(row.content, held.tool_name))
+}
+
+/**
+ * Fold the rows the server has stored into the rows on screen.
+ *
+ * A turn writes its rows twice: as the stream reveals them, and again by the worker in
+ * transactions of its own — spawned, so they can trail the flow's own completion. A
+ * persisted row that stands for one already on screen takes its place and keeps what only
+ * the stream knew: a tool's call and result, the model's thinking. One that stands for
+ * nothing on screen is appended in server order.
+ *
+ * Nothing is dropped. A streamed row outlives a persisted row that never lands, which is
+ * what keeps an answer the reader watched arrive from disappearing when the write behind it
+ * is late — the chat does not wait for that write and so can never conclude it is not coming.
+ */
+export function mergePersistedRows(held: ChatMessage[], arriving: ChatMessage[]): ChatMessage[] {
+	const rows = [...held]
+	const known = new Set(rows.map((row) => row.id))
+	for (const row of arriving) {
+		if (known.has(row.id)) continue
+		known.add(row.id)
+		const index = indexOfStreamedRowFor(rows, row)
+		if (index < 0) {
+			rows.push(row)
+			continue
+		}
+		const streamed = rows[index]
+		// The persisted row wins on everything it has an answer for — its id above all, which
+		// is what moves the poll's cursor past it. The stream's details stay where it has none:
+		// a tool with a job of its own stores no call on the row, and thinking reaches the row
+		// only when the provider streamed it.
+		rows[index] = {
+			...row,
+			tool_name: row.tool_name ?? streamed.tool_name,
+			tool_arguments: row.tool_arguments ?? streamed.tool_arguments,
+			tool_result: row.tool_result ?? streamed.tool_result,
+			reasoning: row.reasoning ?? streamed.reasoning
+		}
+	}
+	return rows
+}
+
+/**
+ * Nothing is being written any more: whatever a turn left mid-flight is as finished as it
+ * is going to get.
+ *
+ * A card can be opened by an event whose closing event never comes — an agent answering
+ * through an output schema streams the call and no result, and a tool the model named but
+ * the flow does not have fails before one. The worker stores no row for either, so nothing
+ * arriving later can stand for them, and a card left spinning would spin for as long as the
+ * conversation is open. It also gates `turnFailed`, which reports nothing while a row is
+ * still going — so a turn that ends this way would never offer Retry.
+ */
+export function settleTurnRows(rows: ChatMessage[]): ChatMessage[] {
+	return rows.map((row) =>
+		row.streaming || row.loading ? { ...row, streaming: false, loading: false } : row
+	)
+}
+
 /**
  * Whether the turn a user message started ended without an answer.
  *

@@ -178,11 +178,11 @@ describe('reading a turn longer than one page', () => {
 	})
 
 	/**
-	 * Reading can stop before the conversation does. What was read is then not a picture of
-	 * it, and applying it would both duplicate what the temp rows already show and sweep
-	 * away the only record of what was never read.
+	 * Reading can stop before the conversation does, and what it did read is rows of older
+	 * turns rather than this one's. None of them stands for the answer on screen, so the
+	 * answer stays: what a read does not account for, it does not remove.
 	 */
-	it('keeps the temp rows a capped read did not reach', async () => {
+	it('keeps the streamed answer a capped read did not reach', async () => {
 		let seq = 0
 		vi.mocked(FlowConversationsService.listConversationMessages)
 			.mockReset()
@@ -203,11 +203,12 @@ describe('reading a turn longer than one page', () => {
 		}
 		manager.messages = [streamed as any]
 
-		await (manager as any).pollConversationMessages('a', { removeTempMessages: true })
+		await (manager as any).pollConversationMessages('a', {})
 
-		// Nothing after the last poll of a turn would finish the read, so the rows it did get
-		// are dropped rather than left showing the turn's start twice beside the temp row.
-		expect(manager.messages).toEqual([streamed])
+		expect(manager.messages[0]).toEqual(streamed)
+		// And what it did read is kept, so the next tick resumes past it rather than asking
+		// for the same thousand rows again.
+		expect(manager.messages).toHaveLength(1001)
 	})
 
 	it('keeps what a capped read got when a later tick can finish it', async () => {
@@ -726,6 +727,36 @@ describe('a conversation opened while its run is still going', () => {
 		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(true))
 		expect(manager.currentJobId).toBeUndefined()
 		expect(streamCalls).toEqual([])
+	})
+
+	/**
+	 * A tool card opens on the call and closes on the result, and the result need never come
+	 * — Stop is one of the ways. The worker stores no row for a call that did not finish, so
+	 * nothing arriving later can close the card: ending the turn has to.
+	 */
+	it('leaves no card spinning when Stop ends the turn', async () => {
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			.mockResolvedValue([] as any)
+		const manager = (live = managerWithRows())
+		;(manager as any).initialize(vi.fn(), 'u/admin/flow', true)
+		manager.operatingWorkspace = () => 'ws'
+		manager.selectedConversationId = 'a'
+		manager.messages = [
+			{
+				id: 'temp-card',
+				conversation_id: 'a',
+				message_type: 'tool',
+				content: 'Running get_time',
+				created_at: new Date().toISOString(),
+				created_seq: 0,
+				loading: true
+			}
+		] as any
+
+		await manager.cancelCurrentJob()
+
+		expect(manager.messages[0].loading).toBe(false)
 	})
 
 	/**
