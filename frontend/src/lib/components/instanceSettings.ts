@@ -564,6 +564,17 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'Back AI sessions up to the instance object storage',
+			description:
+				"Browsers back their AI sessions up to their workspace's object storage, encrypted with the workspace key. When this is on and instance object storage is configured, a workspace without object storage of its own uses the instance object storage instead, under the same encryption; configuring a storage for the workspace moves its backups there and deletes what it kept in the instance storage. On by default; turn off to keep the AI sessions of such workspaces in the browser only.",
+			key: 'ai_sessions_instance_storage_fallback',
+			fieldType: 'boolean',
+			defaultValue: () => true,
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
 			label: 'Store audit logs in object storage',
 			description:
 				'When enabled and instance object storage is configured, audit logs are also exported as newline-delimited JSON to the dedicated logs/audit/ folder (partitioned by day). Export is incremental and runs off the hot path. Enabling (or re-enabling) anchors the export at ~now: while it stays enabled, every audit log committed from that point on is exported (transactions in flight at the moment of enabling may include a bounded set of just-prior rows). Pre-existing history, and any window during which export was disabled, are NOT exported by this cursor — use the opt-in backfill API to export a chosen historical range, back to when audit-log partitioning was introduced (older rows in the legacy audit table are not exported, and a window overlapping them is rejected): POST /settings/audit_logs_s3_backfill {from, to} (status at GET /settings/audit_logs_s3_backfill_status).',

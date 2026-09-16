@@ -4608,6 +4608,14 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # it grows with both the width of the fan-out and \`\`attempts\`\`. Retries with
 # no \`\`delay\`\` all go out in a single round.
 # 
+# \`\`cache_ttl\`\` serves a previous result of the task for that many seconds
+# instead of running it again. A task is keyed on its step key (its name and
+# call order) and the workflow's input, not on the arguments it is called
+# with, so cache one only when whether it runs, and what it receives, follow
+# from the workflow's input alone. A \`\`task_script\`\` target is keyed on the
+# arguments it is called with. It has no effect on a \`\`task_flow\`\` target,
+# which keeps its flow's own cache policy.
+# 
 # Usage::
 # 
 #     @task
@@ -6012,8 +6020,8 @@ export async function main(user_id: string) {
   const users = await sql\`SELECT * FROM users WHERE active = \${true}\`.fetch();
 
   // Insert/Update
-  await sql\`INSERT INTO users (name, email) VALUES (\${name}, \${email})\`;
-  await sql\`UPDATE users SET name = \${newName} WHERE id = \${user_id}\`;
+  await sql\`INSERT INTO users (name, email) VALUES (\${name}, \${email})\`.execute();
+  await sql\`UPDATE users SET name = \${newName} WHERE id = \${user_id}\`.execute();
 
   return user;
 }
@@ -6032,8 +6040,8 @@ def main(user_id: str):
     users = db.query('SELECT * FROM users WHERE active = $1', True).fetch()
 
     # Insert/Update
-    db.query('INSERT INTO users (name, email) VALUES ($1, $2)', name, email)
-    db.query('UPDATE users SET name = $1 WHERE id = $2', new_name, user_id)
+    db.query('INSERT INTO users (name, email) VALUES ($1, $2)', name, email).execute()
+    db.query('UPDATE users SET name = $1 WHERE id = $2', new_name, user_id).execute()
 
     return user
 \`\`\`
@@ -6042,13 +6050,14 @@ def main(user_id: str):
 
 1. **Check existing tables** before creating new ones — reuse beats schema growth.
 2. **Use parameterized queries** — never concatenate user input into SQL.
-3. **Keep runnables focused** — one function per runnable; small surface area.
-4. **Use descriptive keys** — \`get_user\`, not \`a\`.
-5. **Always whitelist tables** — adding a runnable that queries a new table requires the table to be in \`data.tables\` first.
-6. **Mark sensitive UI with \`data-wm-no-record\`** — it is what keeps that data out of a recorded demo; passwords are handled for you.
-7. **Reach for \`backendAsync\` + \`waitJob\`** for long work — never a hand-written job-polling runnable.
-8. **Deploy what a path runnable points at** — a path runnable aimed at a draft fails at runtime; tell the user what needs deploying.
-9. **Use \`windmill-chat\` for a chat over a chat-mode flow** — never a runnable that runs the flow and polls its stream.
+3. **Terminate every datatable statement** — the tagged template and \`db.query(...)\` only build a statement. It runs when you call \`fetch\` / \`fetchOne\` / \`fetchOneScalar\` / \`execute\` (\`fetch\` / \`fetch_one\` / \`fetch_one_scalar\` / \`execute\` in Python). An INSERT or UPDATE without one writes nothing and raises nothing. Awaiting the statement itself is a no-op — it is not a promise.
+4. **Keep runnables focused** — one function per runnable; small surface area.
+5. **Use descriptive keys** — \`get_user\`, not \`a\`.
+6. **Always whitelist tables** — adding a runnable that queries a new table requires the table to be in \`data.tables\` first.
+7. **Mark sensitive UI with \`data-wm-no-record\`** — it is what keeps that data out of a recorded demo; passwords are handled for you.
+8. **Reach for \`backendAsync\` + \`waitJob\`** for long work — never a hand-written job-polling runnable.
+9. **Deploy what a path runnable points at** — a path runnable aimed at a draft fails at runtime; tell the user what needs deploying.
+10. **Use \`windmill-chat\` for a chat over a chat-mode flow** — never a runnable that runs the flow and polls its stream.
 `,
   "triggers": `---
 name: triggers
@@ -6741,6 +6750,13 @@ export interface TaskRetry {
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
+  /** Seconds during which a previous result of this task is served instead of
+  *  running it again. A task written inline in the workflow is keyed on its
+  *  step key (its name and call order) and the workflow's input, not on the
+  *  arguments it is called with, so cache one only when whether it runs, and
+  *  what it receives, follow from the workflow's input alone. A \`taskScript\`
+  *  target is keyed on the arguments it is called with. It has no effect on a
+  *  \`taskFlow\` target, which keeps its flow's own cache policy. */
   cache_ttl?: number;
   priority?: number;
   concurrency_limit?: number;
@@ -6931,6 +6947,14 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 # retries is the sum of every backoff pending in it, not the longest one, and
 # it grows with both the width of the fan-out and \`\`attempts\`\`. Retries with
 # no \`\`delay\`\` all go out in a single round.
+#
+# \`\`cache_ttl\`\` serves a previous result of the task for that many seconds
+# instead of running it again. A task is keyed on its step key (its name and
+# call order) and the workflow's input, not on the arguments it is called
+# with, so cache one only when whether it runs, and what it receives, follow
+# from the workflow's input alone. A \`\`task_script\`\` target is keyed on the
+# arguments it is called with. It has no effect on a \`\`task_flow\`\` target,
+# which keeps its flow's own cache policy.
 #
 # Usage::
 #
