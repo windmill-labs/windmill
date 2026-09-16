@@ -1621,8 +1621,15 @@ pub async fn run_agent(
 
                 // An iteration that answered with tool calls has no message row to carry its
                 // thinking, and the next iteration's row holds only its own. Stored on a row
-                // of its own so a reader sees what led to the call.
+                // of its own so a reader sees what led to the call. A call of the
+                // structured-output tool is the answer itself, and its row below carries
+                // the thinking: a bare row before it would read as the turn's last word.
+                let calls_structured_output =
+                    structured_output_tool_name.as_ref().map_or(false, |name| {
+                        tool_calls.iter().any(|tc| tc.function.name == *name)
+                    });
                 if persist_output_to_conversation
+                    && !calls_structured_output
                     && response_content.as_deref().unwrap_or("").is_empty()
                 {
                     if let (Some(memory_id), Some(reasoning)) =
@@ -1727,6 +1734,45 @@ pub async fn run_agent(
                     .await?;
 
                 messages.extend(tool_messages);
+
+                // A structured answer is the arguments of the structured-output tool call,
+                // on which the loop ends without a text iteration, so its row is written
+                // here with the thinking of the iteration that produced it.
+                if tool_used_structured_output && persist_output_to_conversation {
+                    if let (Some(memory_id), Some(OpenAIContent::Text(answer))) =
+                        (memory_id, tool_content.as_ref())
+                    {
+                        let agent_job_id = job.id;
+                        let db_clone = db.clone();
+                        let message_content = answer.clone();
+                        let step_name = step_name.clone();
+                        let extras = response_reasoning.clone().map(|reasoning| MessageExtras {
+                            reasoning: Some(reasoning),
+                            ..Default::default()
+                        });
+                        tokio::spawn(async move {
+                            if let Err(e) = add_message_to_conversation(
+                                &db_clone,
+                                &memory_id,
+                                Some(agent_job_id),
+                                &message_content,
+                                MessageType::Assistant,
+                                &step_name,
+                                true,
+                                extras.as_ref(),
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    "Failed to add structured answer to conversation {}: {}",
+                                    memory_id,
+                                    e
+                                );
+                            }
+                        });
+                    }
+                }
+
                 if let Some(tc) = tool_content {
                     content = Some(tc);
                 }

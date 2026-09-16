@@ -615,6 +615,28 @@ describe('createChat with server history', () => {
     expect(chat.getState().messages.map((m) => m.content)).toEqual(['hi', 'Let me check', 'Used search tool', 'Final answer'])
   })
 
+  test('a reasoning-only row is not the answer of a turn that streamed no text', async () => {
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { output: '{"n":1}', messages: [] } }])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json([messageRow(71, 'user', 'hi'), messageRow(72, 'assistant', '', { job_id: 'step-1', reasoning: 'hmm' })])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('hi')
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.reasoning])).toEqual([
+      ['user', 'hi', undefined],
+      ['assistant', '', 'hmm'],
+      ['assistant', '{"n":1}', undefined]
+    ])
+  })
+
   test('the stream asks for a server poll interval only when one is set', async () => {
     const answer: Route = (c) =>
       c.url.pathname === streamPath ? sse([{ type: 'update', completed: true, only_result: 'ok' }]) : undefined

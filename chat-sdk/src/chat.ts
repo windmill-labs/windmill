@@ -507,6 +507,9 @@ class ChatImpl implements Chat {
    * job is one of the turn's, which leaves out an earlier turn whose job outlived
    * `stop()` (a token without `jobs:write` cannot cancel it); a tool row without one
    * (an MCP call runs inside the agent step) belongs to whatever turn is under way.
+   * An assistant row with no text carries only the thinking before a tool call and
+   * is not an answer: a structured answer the agent never wrote a row for would
+   * otherwise be dropped instead of read from the flow result.
    */
   #answered(turn: Turn): boolean {
     const messages = this.#state.messages
@@ -519,7 +522,7 @@ class ChatImpl implements Chat {
       if (m.seq === undefined || m.role === 'user' || !ownJob(m)) continue
       if (latest === undefined || m.seq > latest.seq!) latest = m
     }
-    return latest?.role === 'assistant'
+    return latest?.role === 'assistant' && latest.content !== ''
   }
 
   /**
