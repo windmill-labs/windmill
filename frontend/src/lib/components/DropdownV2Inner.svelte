@@ -53,12 +53,17 @@
 		{#if item.icon}
 			<item.icon size={14} color={item.iconColor} class="shrink-0" {...item.iconProps ?? {}} />
 		{/if}
-		<p
-			title={item.disabled && item.tooltip ? undefined : item.displayName}
-			class="truncate grow min-w-0 whitespace-nowrap text-left"
-		>
-			{item.displayName}
-		</p>
+		<div class="grow min-w-0 text-left">
+			<p
+				title={item.disabled && item.tooltip ? undefined : item.displayName}
+				class="truncate whitespace-nowrap"
+			>
+				{item.displayName}
+			</p>
+			{#if item.description}
+				<p class="text-2xs text-secondary">{item.description}</p>
+			{/if}
+		</div>
 		{@render item.extra?.()}
 		{#if item.shortcut || item.selected || item.toggle !== undefined}
 			<!-- Single trailing group so `shortcut` and `selected` can coexist:

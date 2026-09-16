@@ -32,8 +32,8 @@ use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
     append_logs, asset_dispatch, get_mini_completed_job, is_pre_shaped_wm_failure_result,
-    CanceledBy, FlowRunners, JobCompleted, MiniCompletedJob, MiniPulledJob, ValidableJson,
-    WrappedError, INIT_SCRIPT_TAG, MANUAL_FAILURE_ERROR_NAME,
+    parse_result_object, CanceledBy, FlowRunners, JobCompleted, MiniCompletedJob, MiniPulledJob,
+    ValidableJson, WrappedError, INIT_SCRIPT_TAG, MANUAL_FAILURE_ERROR_NAME,
 };
 
 use serde_json::{json, value::RawValue, Value};
@@ -72,13 +72,11 @@ struct NestedErrorMessage {
 /// named `name`/`message`), and we want OTel to record the ManualFailure
 /// rather than the user's sibling fields.
 fn extract_error_message(raw: &str) -> Option<ErrorMessage> {
-    let nested = serde_json::from_str::<NestedErrorMessage>(raw)
-        .ok()
-        .map(|n| n.error);
+    let nested = parse_result_object::<NestedErrorMessage>(raw).map(|n| n.error);
     if matches!(&nested, Some(em) if em.name == MANUAL_FAILURE_ERROR_NAME) {
         return nested;
     }
-    if let Ok(em) = serde_json::from_str::<ErrorMessage>(raw) {
+    if let Some(em) = parse_result_object::<ErrorMessage>(raw) {
         return Some(em);
     }
     nested
@@ -1254,18 +1252,6 @@ async fn maybe_open_git_sync_deploy_pr(
         }
     };
     if row.marker.is_none() {
-        return;
-    }
-    // Runtime Enterprise gate, like the poller: the toggles may have been set
-    // while a license was active (or written directly), and this hook drives
-    // GitHub API calls with the installation token.
-    if !matches!(
-        windmill_common::ee_oss::get_license_plan().await,
-        windmill_common::ee_oss::LicensePlan::Enterprise
-    ) {
-        tracing::warn!(
-            "git sync PR: skipping PR creation for {workspace_id}: requires an Enterprise license"
-        );
         return;
     }
     let Some(repo_path) = row.repo_path else {

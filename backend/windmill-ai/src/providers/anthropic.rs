@@ -902,6 +902,7 @@ mod tests {
             attachments: None,
             has_websearch: false,
             prompt_cache_key: None,
+            reasoning_summary: false,
         };
 
         AnthropicQueryBuilder::new(AIProvider::Anthropic, platform)

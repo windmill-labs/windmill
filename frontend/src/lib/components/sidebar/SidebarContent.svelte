@@ -737,8 +737,11 @@
 	</div></nav
 >
 
+<!-- `alwaysPortal`: the sidebar's mobile slide-in panel keeps a `transform` that would
+     otherwise confine the dialog to the panel's width. -->
 <ConfirmationModal
 	open={leaveWorkspaceModal}
+	alwaysPortal
 	title="Leave workspace"
 	confirmationText="Leave workspace"
 	on:canceled={() => {

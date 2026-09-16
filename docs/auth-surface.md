@@ -27,6 +27,14 @@ Symbols, not line numbers, are cited: they drift less.
   reject any value `parse_max_token_expiration_days` cannot read, since the token routes would read
   it as no ceiling; `parseMaxTokenExpirationDays` in the frontend must accept exactly the same
   values.
+- **A token's label decides whether its expiry raises alerts.** When `delete_expired_items`
+  removes an expired `token` row, the monitor emails the owner and raises a critical alert (if
+  enabled); rows registered by `register_token_expiry_notification` also get an "expiring soon"
+  warning first. Neither happens when `is_user_token` (`windmill-common/src/auth.rs`) reserves
+  the label, so a token the system mints for itself, whether from the backend or from the frontend
+  through `tokens/create`, needs a reserved label. An `ephemeral-` prefix needs no other change
+  (keep it clear of `is_server_minted_label` if minted through `tokens/create`); a new prefix
+  also goes into the SQL and Svelte mirrors that function's doc lists.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user

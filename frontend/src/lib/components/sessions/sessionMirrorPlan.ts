@@ -31,9 +31,9 @@ export interface MirrorSyncState {
 	/** The user deleted the session and its removal mark could not be written to
 	 * localStorage (full): the row itself carries the removal, until it lands. */
 	removed?: boolean
-	/** The storage the push landed in, as the server names it, and the backup generation
-	 * (bumped by a workspace key rotation) it landed under. A row recorded against another
-	 * storage or generation describes objects the server no longer looks at. */
+	/** The storage the push landed in (`storageName`), and the backup generation (bumped by
+	 * a workspace key rotation) it landed under. A row recorded against another storage or
+	 * generation describes objects the server no longer looks at. */
 	storageId?: string
 	generation?: number
 	/** Other storages this workspace was on that still hold a copy of the backup (a switch
@@ -48,12 +48,40 @@ export interface MirrorSyncState {
 	staging?: { chats: string[]; images: string[]; items: string[]; versions: string[] }
 }
 
+const FALLBACK_STORAGE_PREFIX = 'instance:'
+
+/**
+ * How a storage the server answered from is named in the sync rows and the removal marks:
+ * by the id the server gives it, the instance object store standing in for a workspace
+ * without storage of its own (`fallback` on the answer) told apart from a workspace's own.
+ * A removal owed to an instance store is retired by any answer from the workspace's own
+ * storage (configuring one moves the backup generation past everything the workspace left
+ * in any instance store, so none of it is read again), where one owed to a workspace
+ * storage waits for that storage.
+ */
+export function storageName(id: string, fallback: boolean | undefined): string
+export function storageName(
+	id: string | undefined,
+	fallback: boolean | undefined
+): string | undefined
+export function storageName(
+	id: string | undefined,
+	fallback: boolean | undefined
+): string | undefined {
+	if (id === undefined) return undefined
+	return fallback ? FALLBACK_STORAGE_PREFIX + id : id
+}
+
+export function isFallbackStorage(name: string): boolean {
+	return name.startsWith(FALLBACK_STORAGE_PREFIX)
+}
+
 /**
  * The part of a session record the backup keeps. Left out on purpose: `name` (a
  * per-browser counter), the unsent-draft fields (`pending_*`, `draftPrompt`,
- * `autoSendDraftAt`), `workspace_root_id` (derived on import), `transient`, and the two
- * fields reading a session bumps (`lastSeenCount`, `lastActivityAt`) — so opening a
- * session and reading its new messages never costs a push.
+ * `autoSendDraftAt`), `workspace_root_id` (derived on import), `transient`, `restoredAt`
+ * (this browser's clock), and the two fields reading a session bumps (`lastSeenCount`,
+ * `lastActivityAt`) — so opening a session and reading its new messages never costs a push.
  */
 export type SessionHead = Pick<
 	Session,

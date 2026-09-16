@@ -227,6 +227,10 @@ pub fn global_service() -> Router {
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
         .route("/session_workspace_status", post(session_workspace_status))
+        .route(
+            "/session_workspace_retention",
+            post(session_workspace_retention),
+        )
         .route("/create", post(create_workspace))
         .route("/create_fork", post(deprecated_create_workspace_fork))
         .route("/exists", post(exists_workspace))
@@ -1304,26 +1308,22 @@ async fn get_git_sync_deploy_mode(
 
     let configured = !settings.repositories.is_empty();
 
-    // Auto-pull runs only on Enterprise-licensed instances (see poll_git_auto_pull);
-    // without a caller branch there is nothing to match. Either way deploy_on_push
-    // stays false and the caller falls back (git push via CI, or wmill sync push).
+    // Auto-pull runs only in builds that compile the poller (`private`); without a
+    // caller branch there is nothing to match. Either way deploy_on_push stays
+    // false and the caller falls back (git push via CI, or wmill sync push).
     let Some(branch) = q.branch.as_deref() else {
         return Ok(Json(GitSyncDeployMode {
             configured,
             deploy_on_push: false,
         }));
     };
-    let licensed = matches!(
-        windmill_common::ee_oss::get_license_plan().await,
-        windmill_common::ee_oss::LicensePlan::Enterprise
-    );
 
     // Count the auto-pull repos that would deploy this branch. We deliberately do
     // not check the caller's remote URL: with exactly one such repo the local
     // checkout is unambiguously it, and with several we can't tell which is the
     // caller's, so we report false and let the CLI ask the user.
     let mut matches = 0u32;
-    if licensed && !root_deleted {
+    if cfg!(feature = "private") && !root_deleted {
         for repo in &settings.repositories {
             let Some(auto_pull) = repo.auto_pull.as_ref() else {
                 continue;
@@ -2093,6 +2093,17 @@ async fn edit_large_file_storage_config(
             serde_json::to_value::<LargeFileStorageWithSecondary>(lfs_config)
                 .map_err(|err| Error::internal_err(err.to_string()))?;
 
+        // A workspace whose AI session backups fell back to the instance store leaves it
+        // here: the generation moves on, so nothing it left in any instance store is read
+        // again, whichever one a later return to the fallback finds (`ai_session_backups`).
+        sqlx::query!(
+            "UPDATE workspace_settings SET ai_sessions_backup_generation = \
+             ai_sessions_backup_generation + 1 \
+             WHERE workspace_id = $1 AND large_file_storage IS NULL",
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
         sqlx::query!(
             "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",
             serialized_lfs_config,
@@ -2108,7 +2119,22 @@ async fn edit_large_file_storage_config(
         .execute(&mut *tx)
         .await?;
     }
+    let backups_generation = sqlx::query_scalar!(
+        "SELECT ai_sessions_backup_generation FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
     tx.commit().await?;
+
+    // Read by nothing any more, whatever the storage is now: what the AI session backups
+    // left in the instance store under a generation older than the one just committed.
+    #[cfg(feature = "parquet")]
+    if let Some(generation) = backups_generation {
+        crate::ai_session_backups::spawn_delete_fallback(w_id.clone(), generation);
+    }
+    #[cfg(not(feature = "parquet"))]
+    let _ = backups_generation;
 
     // Trigger git sync for large file storage changes
     handle_deployment_metadata(
@@ -3732,54 +3758,6 @@ fn cleanup_legacy_git_sync_settings_in_memory(
 #[cfg(not(feature = "enterprise"))]
 const CE_GIT_SYNC_MAX_USERS: i64 = 2;
 
-/// Auto-pull is licensed per plan, not just per build: the poller only serves
-/// Enterprise plans at runtime, so the save path must reject the setting too —
-/// otherwise an EE binary without the plan could still register a webhook and
-/// receive webhook-driven pulls.
-#[cfg(feature = "enterprise")]
-async fn check_git_sync_ee_license(feature: &str) -> Result<()> {
-    if !matches!(
-        windmill_common::ee_oss::get_license_plan().await,
-        windmill_common::ee_oss::LicensePlan::Enterprise
-    ) {
-        return Err(Error::BadRequest(format!(
-            "{feature} requires an Enterprise license"
-        )));
-    }
-    Ok(())
-}
-
-#[cfg(feature = "enterprise")]
-async fn check_auto_pull_license() -> Result<()> {
-    check_git_sync_ee_license("Automatic pull from git").await
-}
-
-/// In-app PR creation (promotion/fork deploy branches) drives GitHub API calls
-/// from the deploy completion hook; runtime-gate it like auto-pull.
-#[cfg(feature = "enterprise")]
-async fn check_open_prs_license<'a>(
-    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
-) -> Result<()> {
-    if repos.any(|r| r.promotion_open_prs || r.fork_open_prs) {
-        check_git_sync_ee_license("Opening pull requests from Windmill").await?;
-    }
-    Ok(())
-}
-
-/// Promotion mode (`use_individual_branch`: per-item `wm_deploy/**` deploy
-/// branches) is an EE feature; runtime-gate it like auto-pull and PR creation
-/// so an enterprise binary without an active plan can't enable it via either
-/// git-sync edit endpoint.
-#[cfg(feature = "enterprise")]
-async fn check_promotion_license<'a>(
-    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
-) -> Result<()> {
-    if repos.any(|r| r.use_individual_branch.unwrap_or(false)) {
-        check_git_sync_ee_license("Promotion mode").await?;
-    }
-    Ok(())
-}
-
 /// Promotion on a dev workspace needs the dev-aware sync script (hub >= 28796):
 /// an older pinned script bundles a CLI that force-disables per-item branches
 /// on every fork, so enabling promotion would silently keep deploying to the
@@ -4031,18 +4009,6 @@ async fn edit_git_sync_config(
             ));
         }
         #[cfg(feature = "enterprise")]
-        if git_sync_settings
-            .repositories
-            .iter()
-            .any(|r| r.auto_pull.as_ref().is_some_and(|a| a.enabled))
-        {
-            check_auto_pull_license().await?;
-        }
-        #[cfg(feature = "enterprise")]
-        check_open_prs_license(git_sync_settings.repositories.iter()).await?;
-        #[cfg(feature = "enterprise")]
-        check_promotion_license(git_sync_settings.repositories.iter()).await?;
-        #[cfg(feature = "enterprise")]
         check_dev_promotion_script_version(&db, &w_id, git_sync_settings.repositories.iter())
             .await?;
         #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -4280,19 +4246,6 @@ async fn edit_git_sync_repository(
         ));
     }
     #[cfg(feature = "enterprise")]
-    if new_config
-        .repository
-        .auto_pull
-        .as_ref()
-        .is_some_and(|a| a.enabled)
-    {
-        check_auto_pull_license().await?;
-    }
-    #[cfg(feature = "enterprise")]
-    check_open_prs_license(std::iter::once(&new_config.repository)).await?;
-    #[cfg(feature = "enterprise")]
-    check_promotion_license(std::iter::once(&new_config.repository)).await?;
-    #[cfg(feature = "enterprise")]
     check_dev_promotion_script_version(&db, &w_id, std::iter::once(&new_config.repository)).await?;
     #[cfg(all(feature = "enterprise", feature = "private"))]
     check_dev_promotion_targets_parent_repo(&db, &w_id, std::iter::once(&new_config.repository))
@@ -4397,13 +4350,6 @@ async fn edit_git_sync_repository(
                 updated.auto_pull = existing_repo.auto_pull.clone();
             }
             _ => {}
-        }
-        // The request-side license gate above only saw the submitted config; the
-        // preservation can resurrect an enabled auto_pull (None arm), so re-check
-        // the effective state before it gets written and reconciled.
-        #[cfg(feature = "enterprise")]
-        if updated.auto_pull.as_ref().is_some_and(|a| a.enabled) {
-            check_auto_pull_license().await?;
         }
         *existing_repo = updated;
     } else {
@@ -5603,6 +5549,14 @@ struct SessionWorkspaceStatusRequest {
     workspace_ids: Vec<String>,
 }
 
+/// `ai_config.sessions_retention_days` as stored, `None` when unset or not a count of days.
+pub fn sessions_retention_days(value: Option<&serde_json::Value>) -> Option<u32> {
+    value
+        .and_then(|v| v.as_u64())
+        .filter(|days| *days >= 1)
+        .and_then(|days| u32::try_from(days).ok())
+}
+
 /// Reconciliation support for client-side AI sessions, which the backend cannot touch
 /// directly. The client posts the workspace ids its sessions reference and uses the
 /// per-id status to keep sessions in sync with workspace lifecycle: `deleted` (no row, or
@@ -5650,6 +5604,42 @@ async fn session_workspace_status(
     .await?;
     let statuses = rows.into_iter().map(|r| (r.id, r.status)).collect();
     Ok(Json(statuses))
+}
+
+/// The AI session retention a browser deletes its local copies by (docs/ai-session-backups.md).
+/// Its own route, not a field on the status above, whose shape an older tab still reads. Unlike
+/// a status, it answers only for a workspace this caller can be authed into: a setting is the
+/// workspace's to tell, so a disabled membership gets none though its sessions still reconcile.
+async fn session_workspace_retention(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(req): Json<SessionWorkspaceStatusRequest>,
+) -> JsonResult<HashMap<String, u32>> {
+    if req.workspace_ids.len() > 1000 {
+        return Err(Error::BadRequest(
+            "Too many workspace ids (max 1000)".to_string(),
+        ));
+    }
+    let email = &authed.email;
+    let is_superadmin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
+    let rows = sqlx::query!(
+        "SELECT workspace_settings.workspace_id AS \"id!\",
+                workspace_settings.ai_config->'sessions_retention_days' AS retention
+         FROM workspace_settings
+         LEFT JOIN usr ON usr.workspace_id = workspace_settings.workspace_id AND usr.email = $2
+         WHERE workspace_settings.workspace_id = ANY($1)
+           AND ($3 OR (usr.email IS NOT NULL AND NOT usr.disabled))",
+        &req.workspace_ids[..],
+        email,
+        is_superadmin,
+    )
+    .fetch_all(&db)
+    .await?;
+    let days = rows
+        .into_iter()
+        .filter_map(|r| sessions_retention_days(r.retention.as_ref()).map(|days| (r.id, days)))
+        .collect();
+    Ok(Json(days))
 }
 
 /// The instance critical alert channels belong to the instance operator, who on cloud is
@@ -7397,8 +7387,8 @@ async fn clone_workspace_runnable_dependencies(
 ) -> Result<()> {
     // Clone workspace_runnable_dependencies
     sqlx::query!(
-        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id, app_path)
-         SELECT flow_path, runnable_path, script_hash, runnable_is_flow, $1, app_path
+        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, script_hash, runnable_is_flow, runnable_is_agent, workspace_id, app_path)
+         SELECT flow_path, runnable_path, script_hash, runnable_is_flow, runnable_is_agent, $1, app_path
          FROM workspace_runnable_dependencies
          WHERE workspace_id = $2",
         target_workspace_id,

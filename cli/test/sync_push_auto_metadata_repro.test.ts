@@ -268,3 +268,78 @@ test(
     });
   },
 );
+
+// The importer and the leaf change; the barrel between them does not, so it is
+// absent from the push's change set. See `resolvePlaceholdersFromLocal`.
+test(
+  "sync push --auto-metadata succeeds when a changed leaf sits behind an unchanged barrel",
+  { timeout: 180000 },
+  async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeFile(`${tempDir}/wmill.yaml`, wmillYaml);
+
+      await createLocalScript(
+        tempDir,
+        "f/barrel",
+        "helper",
+        "bun",
+        `export function add(a: number, b: number) { return a + b; }\n`,
+      );
+      await createLocalScript(
+        tempDir,
+        "f/barrel",
+        "index",
+        "bun",
+        `export * from "./helper.ts";\n`,
+      );
+      await createLocalScript(
+        tempDir,
+        "f/app",
+        "consumer",
+        "bun",
+        `import { add } from "../barrel/index.ts";
+export async function main() { return add(1, 2); }
+`,
+      );
+
+      const deploy = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--auto-metadata"],
+        tempDir,
+      );
+      if (deploy.code !== 0) {
+        console.log("STDOUT:", deploy.stdout);
+        console.log("STDERR:", deploy.stderr);
+      }
+      expect(deploy.code).toBe(0);
+
+      // Add an export to the leaf and use it from the importer. The barrel
+      // re-exports it already, so it stays byte-identical and out of the push.
+      await writeFile(
+        `${tempDir}/f/barrel/helper.ts`,
+        `export function add(a: number, b: number) { return a + b; }
+export function subtract(a: number, b: number) { return a - b; }
+`,
+      );
+      await writeFile(
+        `${tempDir}/f/app/consumer.ts`,
+        `import { subtract } from "../barrel/index.ts";
+export async function main() { return subtract(3, 1); }
+`,
+      );
+
+      const result = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--auto-metadata"],
+        tempDir,
+      );
+      if (result.code !== 0) {
+        console.log("STDOUT:", result.stdout);
+        console.log("STDERR:", result.stderr);
+      }
+      expect(result.code).toBe(0);
+
+      const combined = result.stdout + result.stderr;
+      expect(combined).not.toContain("No matching export");
+      expect(combined).not.toContain("Failed to generate lockfile");
+    });
+  },
+);
