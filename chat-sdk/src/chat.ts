@@ -615,12 +615,20 @@ class ChatImpl implements Chat {
     for (const row of rows.map(fromRow)) {
       if (known.has(row.id)) continue
       known.add(row.id)
-      const i = messages.findIndex(
+      let i = messages.findIndex(
         (m) =>
           m.seq === undefined &&
           m.role === row.role &&
           (m.content === row.content || (row.tool !== undefined && m.tool?.name === row.tool.name))
       )
+      // A structured answer streams as thinking alone, its text arriving as a tool call
+      // the stream never turns into a message, so its row claims the pending message
+      // that holds that thinking and nothing else.
+      if (i < 0 && row.role === 'assistant' && row.reasoning !== undefined) {
+        i = messages.findIndex(
+          (m) => m.seq === undefined && m.role === 'assistant' && m.content === '' && m.reasoning !== undefined
+        )
+      }
       if (i >= 0) {
         const m = messages[i]
         messages[i] = {

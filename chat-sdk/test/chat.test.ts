@@ -637,6 +637,35 @@ describe('createChat with server history', () => {
     ])
   })
 
+  test('a structured answer row claims the thinking that streamed before it', async () => {
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([
+              {
+                type: 'update',
+                new_result_stream: ndjson({ type: 'reasoning_token_delta', content: 'hmm' }),
+                stream_offset: 1,
+                completed: true,
+                only_result: { output: { n: 1 }, messages: [] }
+              }
+            ])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json([messageRow(75, 'user', 'hi'), messageRow(76, 'assistant', '{"n":1}', { job_id: 'step-1', reasoning: 'hmm' })])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('hi')
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.reasoning])).toEqual([
+      ['user', 'hi', undefined],
+      ['assistant', '{"n":1}', 'hmm']
+    ])
+  })
+
   test('the stream asks for a server poll interval only when one is set', async () => {
     const answer: Route = (c) =>
       c.url.pathname === streamPath ? sse([{ type: 'update', completed: true, only_result: 'ok' }]) : undefined
