@@ -6,9 +6,6 @@
 //! being moved outward (a client would lose the pointer that starts OAuth discovery), and
 //! refusing a token that was never valid catches it being moved inward past authentication
 //! (the URL-borne token would be hashed and looked up before anything refused it).
-//!
-//! What it does not cover: the `global_settings` load path. The switch is read straight from
-//! the atomic here, so `monitor.rs` reaching it is not pinned by this test.
 #![cfg(feature = "mcp")]
 
 use std::sync::atomic::Ordering;
