@@ -477,16 +477,10 @@ export class FlowChatViewHost implements ChatViewHost {
 			}
 			attachedLocally = true
 		}
-		// The one place a run starts, and so the one place to refuse to start one. Every way
-		// in waits on something first — uploading the attachments, asking a failed job what
-		// it ran with — and the panel can be replaced while any of them is in flight; the
-		// manager it would hand the turn to is then one nobody is reading, pointed at
-		// whichever flow replaced this one.
-		// The one place a run starts, and so the one place to refuse to start one. Every way
-		// in waits on something first — uploading the attachments, asking a failed job what
-		// it ran with — and the panel can be replaced while any of them is in flight; the
-		// manager it would hand the turn to is then one nobody is reading, pointed at
-		// whichever flow replaced this one.
+		// The one place a run starts, and so the one place to refuse to start one: every way
+		// in waits on something first — an upload, a failed job's arguments — and the panel
+		// can be replaced while it waits, leaving the manager it would hand the turn to one
+		// nobody is reading, pointed at whichever flow replaced this one.
 		if (this.#gone) return false
 		const sentInputs = this.#describeSentInputs(args, images, blobs, attachedLocally)
 

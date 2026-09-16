@@ -112,6 +112,14 @@ function toStreamEvent(event: AgentStreamEvent): StreamEvent {
 	}
 }
 
+/** What a run that failed said, as the line a turn ends on. Windmill wraps a failure in an
+ *  error envelope; anything else is shown as it came. */
+function failedRunMessage(result: unknown): string | undefined {
+	const message = (result as { error?: { message?: unknown } })?.error?.message
+	if (typeof message === 'string' && message !== '') return message
+	return extractChatAnswer(result)
+}
+
 function emptyStatus(): TurnStatus {
 	return {
 		isLoading: false,
@@ -1486,11 +1494,13 @@ export class FlowChatManager {
 		const api = this.#chatApi()
 		const signal = turn.signal
 		let flowResult: unknown
+		let flowSucceeded = true
 		while (this.#isCurrent(turn)) {
 			try {
-				const { completed, result } = await api.getCompletedResult(jobId, signal)
+				const { completed, success, result } = await api.getCompletedResult(jobId, signal)
 				if (completed) {
 					flowResult = result
+					flowSucceeded = success !== false
 					break
 				}
 			} catch (error) {
@@ -1507,7 +1517,11 @@ export class FlowChatManager {
 		// answer the row would have carried, and showing it is what keeps a finished turn
 		// from reading as one that produced nothing. A reload replaces it with the row.
 		if (read === 0) {
-			const answer = extractChatAnswer(flowResult)
+			// A run that failed says so in an error rather than an answer, and the row has to
+			// carry that: it is what the transcript reads the turn's outcome off, which is what
+			// offers Retry and what holds a queued message back from running into the same
+			// failure.
+			const answer = flowSucceeded ? extractChatAnswer(flowResult) : failedRunMessage(flowResult)
 			if (typeof answer === 'string' && answer !== '') {
 				this.#rowsById[turn.conversationId] = [
 					...this.#rowsOf(turn.conversationId),
@@ -1519,7 +1533,7 @@ export class FlowChatManager {
 						created_at: new Date().toISOString(),
 						created_seq: 0,
 						job_id: jobId,
-						success: true
+						success: flowSucceeded
 					} as ChatMessage
 				]
 			}

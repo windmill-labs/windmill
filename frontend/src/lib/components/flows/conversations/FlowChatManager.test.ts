@@ -27,7 +27,8 @@ const { streamCalls, streamScript, jobCompleted } = vi.hoisted(() => ({
 	jobCompleted: {
 		value: true as boolean | 'throw',
 		gate: undefined as Promise<void> | undefined,
-		result: {} as unknown
+		result: {} as unknown,
+		success: true
 	}
 }))
 
@@ -45,7 +46,11 @@ vi.mock('windmill-chat', async (importOriginal) => {
 		async getCompletedResult() {
 			if (jobCompleted.gate) await jobCompleted.gate
 			if (jobCompleted.value === 'throw') throw new Error('job status unavailable')
-			return { completed: jobCompleted.value, success: true, result: jobCompleted.result }
+			return {
+				completed: jobCompleted.value,
+				success: jobCompleted.success,
+				result: jobCompleted.result
+			}
 		}
 	}
 	return { ...actual, WindmillChatApi: FakeApi }
@@ -748,6 +753,7 @@ describe('a conversation opened while its run is still going', () => {
 			.mockReset()
 			.mockResolvedValue([] as any)
 		jobCompleted.value = true
+		jobCompleted.success = true
 		jobCompleted.result = { windmill_chat_answer: 'the answer the run produced' }
 		const manager = (live = managerWithRows())
 		;(manager as any).initialize(
@@ -763,6 +769,36 @@ describe('a conversation opened while its run is still going', () => {
 		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(false))
 
 		expect(manager.messages.map((m) => m.content)).toContain('the answer the run produced')
+	})
+
+	/**
+	 * A run that fails before writing anything still has to end the turn as a failure: the
+	 * transcript reads a turn's outcome off its last row, and that is what offers Retry and
+	 * what holds a message queued behind the turn back from running into the same failure.
+	 */
+	it('ends on a failure when the run failed and wrote nothing', async () => {
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			.mockResolvedValue([] as any)
+		jobCompleted.value = true
+		jobCompleted.success = false
+		jobCompleted.result = { error: { message: 'the provider refused' } }
+		const manager = (live = managerWithRows())
+		;(manager as any).initialize(
+			vi.fn(async () => 'job-1'),
+			'u/admin/flow',
+			false
+		)
+		manager.operatingWorkspace = () => 'ws'
+		manager.selectedConversationId = 'a'
+		manager.inputMessage = 'ask'
+
+		await manager.sendMessage(undefined, undefined, 'a')
+		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(false))
+
+		const last = manager.messages.at(-1)
+		expect(last?.content).toBe('the provider refused')
+		expect(last?.success).toBe(false)
 	})
 
 	it('leaves no card spinning when Stop ends the turn', async () => {
