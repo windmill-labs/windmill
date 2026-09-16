@@ -1409,9 +1409,7 @@ pub async fn drop_forked_datatable_databases(
             _ => continue,
         };
 
-        if database.resource_type
-            == windmill_common::workspaces::DataTableCatalogResourceType::Instance
-        {
+        if database.resource_type.is_windmill_managed() {
             let db_to_drop = &database.resource_path;
             if !db_to_drop.starts_with("wm_fork_") {
                 errors.push(format!(
@@ -1420,7 +1418,17 @@ pub async fn drop_forked_datatable_databases(
                 ));
                 continue;
             }
-            if let Err(e) = windmill_common::drop_custom_instance_database(&db, db_to_drop).await {
+            let dropped = if database.resource_type
+                == windmill_common::workspaces::DataTableCatalogResourceType::ExternalInstance
+            {
+                windmill_common::external_instance_pg::drop_external_instance_database_unchecked(
+                    &db, db_to_drop,
+                )
+                .await
+            } else {
+                windmill_common::drop_custom_instance_database(&db, db_to_drop).await
+            };
+            if let Err(e) = dropped {
                 errors.push(format!(
                     "Could not drop instance database '{}' for datatable://{}: {}",
                     db_to_drop, dt_name, e

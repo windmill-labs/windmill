@@ -177,6 +177,14 @@ pub fn global_service() -> Router {
             post(setup_external_instance_pg),
         )
         .route(
+            "/external_instance_pg/databases",
+            get(list_external_instance_pg_databases),
+        )
+        .route(
+            "/external_instance_pg/databases/{name}",
+            post(create_external_instance_pg_database).delete(drop_external_instance_pg_database),
+        )
+        .route(
             "/setup_custom_instance_pg_database/{name}",
             post(setup_custom_instance_pg_database),
         )
@@ -1812,6 +1820,95 @@ async fn setup_external_instance_pg(
     )
     .await?;
     Ok(Json(report))
+}
+
+#[derive(Serialize)]
+struct ExternalInstancePgDatabase {
+    #[serde(flatten)]
+    status: windmill_common::instance_config::CustomInstanceDb,
+    used_by_workspaces: Vec<String>,
+}
+
+async fn list_external_instance_pg_databases(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<std::collections::BTreeMap<String, ExternalInstancePgDatabase>> {
+    require_super_admin(&db, &authed).await?;
+    let databases = windmill_common::external_instance_pg::external_instance_databases(&db).await?;
+    let mut usages =
+        windmill_common::external_instance_pg::external_instance_database_usages(&db).await?;
+    Ok(Json(
+        databases
+            .into_iter()
+            .map(|(name, status)| {
+                let used_by_workspaces = usages.remove(&name).unwrap_or_default();
+                (
+                    name,
+                    ExternalInstancePgDatabase {
+                        status,
+                        used_by_workspaces: used_by_workspaces.into_iter().collect(),
+                    },
+                )
+            })
+            .collect(),
+    ))
+}
+
+async fn create_external_instance_pg_database(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(dbname): Path<String>,
+    Json(body): Json<SetupCustomInstanceDbBody>,
+) -> JsonResult<()> {
+    require_super_admin(&db, &authed).await?;
+    let tag = body.tag.as_deref().unwrap_or("datatable");
+    windmill_common::external_instance_pg::create_external_instance_database_unchecked(
+        &db, &dbname, tag,
+    )
+    .await?;
+    windmill_audit::audit_oss::audit_log(
+        &db,
+        &authed,
+        "settings.create_external_instance_pg_database",
+        windmill_audit::ActionKind::Create,
+        "global",
+        Some(&authed.email),
+        Some([("dbname", dbname.as_str()), ("tag", tag)].into()),
+    )
+    .await?;
+    Ok(Json(()))
+}
+
+async fn drop_external_instance_pg_database(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(dbname): Path<String>,
+) -> JsonResult<()> {
+    require_super_admin(&db, &authed).await?;
+    // A data table naming a dropped database fails on every job, far from the drop that caused it.
+    if let Some(workspaces) =
+        windmill_common::external_instance_pg::external_instance_database_usages(&db)
+            .await?
+            .remove(dbname.trim())
+    {
+        return Err(error::Error::BadRequest(format!(
+            "Database '{dbname}' is still used by data tables in {}",
+            workspaces.into_iter().collect::<Vec<_>>().join(", ")
+        )));
+    }
+    windmill_common::external_instance_pg::drop_external_instance_database_unchecked(&db, &dbname)
+        .await?;
+    windmill_audit::audit_oss::audit_log(
+        &db,
+        &authed,
+        "settings.drop_external_instance_pg_database",
+        windmill_audit::ActionKind::Delete,
+        "global",
+        Some(&authed.email),
+        Some([("dbname", dbname.as_str())].into()),
+    )
+    .await?;
+    Ok(Json(()))
 }
 
 #[derive(Deserialize)]

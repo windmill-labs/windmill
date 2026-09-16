@@ -1086,7 +1086,13 @@ impl PgDatabase {
                 if err_str.contains("password authentication failed for user")
                     && err_str.contains("custom_instance_user")
                 {
-                    if let Some(db) = main_db {
+                    // The external instance cluster has a `custom_instance_user` of its own, whose
+                    // password setup manages. Rotating the local one would break every instance
+                    // data table and fix nothing.
+                    let local = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+                    let on_local_cluster = local.host == self.host
+                        && local.port.unwrap_or(5432) == self.port.unwrap_or(5432);
+                    if let Some(db) = main_db.filter(|_| on_local_cluster) {
                         tracing::warn!(
                             "custom_instance_user password auth failed, refreshing and retrying..."
                         );

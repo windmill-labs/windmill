@@ -17,7 +17,7 @@
 //! The cluster may hold data Windmill did not create. Two Windmill instances sharing one is not
 //! supported: each would keep resetting the passwords the other depends on.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -124,24 +124,99 @@ pub async fn external_instance_pg_status(db: &DB) -> Result<ExternalInstancePgSt
     })
 }
 
-/// Refuse to unset the cluster while Windmill still has databases on it: every data table and
-/// Ducklake catalog there would stop resolving. Allowed on every edition, so a downgraded
-/// instance can still clear a setting it no longer uses.
+/// The databases Windmill created on the external cluster, without the passwords kept beside them.
+pub async fn external_instance_databases(db: &DB) -> Result<BTreeMap<String, CustomInstanceDb>> {
+    Ok(read_external_instance_pg_state(db).await?.databases)
+}
+
+/// The workspaces whose data tables name each database on the external cluster.
+pub async fn external_instance_database_usages(
+    db: &DB,
+) -> Result<BTreeMap<String, BTreeSet<String>>> {
+    let rows = sqlx::query_as::<_, (String, String)>(
+        "SELECT ws.workspace_id, entry->'database'->>'resource_path'
+         FROM workspace_settings ws
+         CROSS JOIN LATERAL jsonb_each(
+             CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'
+                 THEN ws.datatable->'datatables'
+                 ELSE '{}'::jsonb END
+         ) AS dt(k, entry)
+         WHERE entry->'database'->>'resource_type' = 'external_instance'
+           AND entry->'database'->>'resource_path' IS NOT NULL",
+    )
+    .fetch_all(db)
+    .await?;
+    let mut usages: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (workspace_id, dbname) in rows {
+        usages.entry(dbname).or_default().insert(workspace_id);
+    }
+    Ok(usages)
+}
+
+/// Refuse to unset the cluster while Windmill still has databases on it, or a workspace still
+/// points at one: every data table there would stop resolving. Allowed on every edition, so a
+/// downgraded instance can still clear a setting it no longer uses.
 pub async fn ensure_external_instance_pg_removable(db: &DB) -> Result<()> {
     let state = read_external_instance_pg_state(db).await?;
-    if state.databases.is_empty() {
+    let usages = external_instance_database_usages(db).await?;
+    if state.databases.is_empty() && usages.is_empty() {
         return Ok(());
     }
     let names = state
         .databases
         .keys()
+        .chain(usages.keys())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .cloned()
         .collect::<Vec<_>>()
         .join(", ");
     Err(Error::BadRequest(format!(
-        "The external instance cluster still holds databases Windmill created ({names}). Drop \
-         them before removing {EXTERNAL_INSTANCE_PG_SETTING}."
+        "The external instance cluster still holds databases in use ({names}). Drop them and \
+         repoint the data tables using them before removing {EXTERNAL_INSTANCE_PG_SETTING}."
     )))
+}
+
+/// Refuse a workspace setting that newly names an `external_instance` database on an edition
+/// without them.
+pub fn ensure_external_instance_available() -> Result<()> {
+    crate::external_instance_pg_oss::ensure_external_instance_available()
+}
+
+/// The connection an `external_instance` database resolves to: `custom_instance_user`, or the
+/// replication user, on the external cluster.
+///
+/// Authorization: returns live credentials and checks nothing. Callers MUST have authorized access
+/// to the data table that names `dbname`.
+pub async fn external_instance_connection_unchecked(
+    db: &DB,
+    dbname: &str,
+    replication: bool,
+) -> Result<crate::PgDatabase> {
+    crate::external_instance_pg_oss::external_instance_connection_unchecked(db, dbname, replication)
+        .await
+}
+
+/// Create `dbname` on the external cluster and register it. Refuses a name already taken there,
+/// whoever took it.
+///
+/// Authorization: checks nothing. Callers MUST be superadmin, or be cloning a data table they may
+/// fork into a `wm_fork_` database.
+pub async fn create_external_instance_database_unchecked(
+    db: &DB,
+    dbname: &str,
+    tag: &str,
+) -> Result<()> {
+    crate::external_instance_pg_oss::create_external_instance_database_unchecked(db, dbname, tag)
+        .await
+}
+
+/// Drop `dbname` from the external cluster. Only ever a database Windmill registered creating.
+///
+/// Authorization: checks nothing. Callers MUST be superadmin, or be deleting the fork that owns
+/// this `wm_fork_` database.
+pub async fn drop_external_instance_database_unchecked(db: &DB, dbname: &str) -> Result<()> {
+    crate::external_instance_pg_oss::drop_external_instance_database_unchecked(db, dbname).await
 }
 
 /// Check a write to [`EXTERNAL_INSTANCE_PG_SETTING`] before it happens: `None`, null or an empty

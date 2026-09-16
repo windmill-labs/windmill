@@ -1397,6 +1397,18 @@ pub enum DataTableCatalogResourceType {
     #[strum(serialize = "postgres")]
     Postgresql,
     Instance,
+    /// On the external instance cluster ([`crate::external_instance_pg`]). Enterprise Edition.
+    #[serde(rename = "external_instance")]
+    #[strum(serialize = "external_instance")]
+    ExternalInstance,
+}
+
+impl DataTableCatalogResourceType {
+    /// A database Windmill created and administers, on its own cluster or the external one, as
+    /// opposed to one a user brought as a resource.
+    pub fn is_windmill_managed(self) -> bool {
+        matches!(self, Self::Instance | Self::ExternalInstance)
+    }
 }
 
 /// Build a self-teaching error for an unresolved `datatable://<name>` reference.
@@ -1523,7 +1535,8 @@ pub async fn resolve_governing_datatable(
 }
 
 /// Build the `admin` connection for a governing entry: `custom_instance_user` for an instance
-/// database, the user's own resource for a BYO-postgres one.
+/// database, on Windmill's cluster or the external one; the user's own resource for a BYO-postgres
+/// one.
 async fn resolve_datatable_connection_unchecked(
     db: &DB,
     governing: &GoverningDatatable,
@@ -1534,7 +1547,16 @@ async fn resolve_datatable_connection_unchecked(
         .database
         .as_ref()
         .expect("a governing entry owns a database");
-    if database.resource_type == DataTableCatalogResourceType::Instance {
+    if database.resource_type == DataTableCatalogResourceType::ExternalInstance {
+        let pg_creds = crate::external_instance_pg::external_instance_connection_unchecked(
+            db,
+            &database.resource_path,
+            replication,
+        )
+        .await?;
+        serde_json::to_value(&pg_creds)
+            .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))
+    } else if database.resource_type == DataTableCatalogResourceType::Instance {
         let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
         pg_creds.dbname = database.resource_path.clone();
         if replication {
