@@ -24,7 +24,11 @@ const { streamCalls, streamScript, jobCompleted } = vi.hoisted(() => ({
 	streamScript: [] as (unknown[] | 'throw')[],
 	/** What the job says when a turn that lost its stream asks whether the run is over:
 	 * `true`/`false`, or 'throw' for an API that cannot be reached. */
-	jobCompleted: { value: true as boolean | 'throw', gate: undefined as Promise<void> | undefined }
+	jobCompleted: {
+		value: true as boolean | 'throw',
+		gate: undefined as Promise<void> | undefined,
+		result: {} as unknown
+	}
 }))
 
 // Only the transport is faked. `followJob` — which owns the re-attach, the offset and the
@@ -41,7 +45,7 @@ vi.mock('windmill-chat', async (importOriginal) => {
 		async getCompletedResult() {
 			if (jobCompleted.gate) await jobCompleted.gate
 			if (jobCompleted.value === 'throw') throw new Error('job status unavailable')
-			return { completed: jobCompleted.value, success: true, result: {} }
+			return { completed: jobCompleted.value, success: true, result: jobCompleted.result }
 		}
 	}
 	return { ...actual, WindmillChatApi: FakeApi }
@@ -734,6 +738,33 @@ describe('a conversation opened while its run is still going', () => {
 	 * — Stop is one of the ways. The worker stores no row for a call that did not finish, so
 	 * nothing arriving later can close the card: ending the turn has to.
 	 */
+	/**
+	 * A turn with no stream puts nothing on screen itself, so the rows the worker writes are
+	 * the only ones it will ever have — and the worker does not wait for them. A turn that
+	 * ends before any of them land would otherwise read as one that answered nothing.
+	 */
+	it("shows the run's own answer when no row was read back", async () => {
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			.mockResolvedValue([] as any)
+		jobCompleted.value = true
+		jobCompleted.result = { windmill_chat_answer: 'the answer the run produced' }
+		const manager = (live = managerWithRows())
+		;(manager as any).initialize(
+			vi.fn(async () => 'job-1'),
+			'u/admin/flow',
+			false
+		)
+		manager.operatingWorkspace = () => 'ws'
+		manager.selectedConversationId = 'a'
+		manager.inputMessage = 'ask'
+
+		await manager.sendMessage(undefined, undefined, 'a')
+		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(false))
+
+		expect(manager.messages.map((m) => m.content)).toContain('the answer the run produced')
+	})
+
 	it('leaves no card spinning when Stop ends the turn', async () => {
 		vi.mocked(FlowConversationsService.listConversationMessages)
 			.mockReset()

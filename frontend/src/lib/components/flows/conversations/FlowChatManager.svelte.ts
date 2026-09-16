@@ -10,7 +10,7 @@ import InfiniteList from '$lib/components/InfiniteList.svelte'
 import { workspaceStore, userStore, enterpriseLicense } from '$lib/stores'
 import { get } from 'svelte/store'
 import { base } from '$lib/base'
-import { followJob, WindmillChatApi, type AgentStreamEvent } from 'windmill-chat'
+import { extractChatAnswer, followJob, WindmillChatApi, type AgentStreamEvent } from 'windmill-chat'
 import type { StreamEvent } from '$lib/components/chat/utils'
 import { randomUUID } from '$lib/utils/uuid'
 import {
@@ -1485,10 +1485,14 @@ export class FlowChatManager {
 		turn.startPolling()
 		const api = this.#chatApi()
 		const signal = turn.signal
+		let flowResult: unknown
 		while (this.#isCurrent(turn)) {
 			try {
-				const { completed } = await api.getCompletedResult(jobId, signal)
-				if (completed) break
+				const { completed, result } = await api.getCompletedResult(jobId, signal)
+				if (completed) {
+					flowResult = result
+					break
+				}
 			} catch (error) {
 				if (!this.#isCurrent(turn)) return
 				console.error('Could not read the flow job while settling a turn:', error)
@@ -1496,20 +1500,45 @@ export class FlowChatManager {
 			await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS))
 		}
 		if (!this.#isCurrent(turn)) return
-		await this.#reconcileTurn(turn)
+		const read = await this.#reconcileTurn(turn)
+		if (!this.#isCurrent(turn)) return
+		// Nothing of this turn was read back and nothing was streamed, so the transcript has
+		// no answer to show and no later read is coming. The run's own result is the same
+		// answer the row would have carried, and showing it is what keeps a finished turn
+		// from reading as one that produced nothing. A reload replaces it with the row.
+		if (read === 0) {
+			const answer = extractChatAnswer(flowResult)
+			if (typeof answer === 'string' && answer !== '') {
+				this.#rowsById[turn.conversationId] = [
+					...this.#rowsOf(turn.conversationId),
+					{
+						id: turn.mintRowId(),
+						conversation_id: turn.conversationId,
+						message_type: 'assistant',
+						content: answer,
+						created_at: new Date().toISOString(),
+						created_seq: 0,
+						job_id: jobId,
+						success: true
+					} as ChatMessage
+				]
+			}
+		}
 		this.#endTurnIfCurrent(turn, { settled: true })
 	}
 
 	/**
-	 * Read a finished turn's rows back, once the run says it is over.
+	 * Read a finished turn's rows back, once the run says it is over. Answers how many it got.
 	 *
 	 * The worker writes them in transactions it does not wait for, so the first read can
 	 * come before the last of them lands, and the answer is routinely the one still missing.
-	 * The read is repeated while rows the stream produced are still unaccounted for, and
-	 * then stopped — what is left standing is what the reader watched arrive, which is the
-	 * only copy of it there is. Nothing here concludes anything from the rows not coming.
+	 * The read is repeated while the turn has rows unaccounted for — or, for a turn that put
+	 * nothing on screen itself, while it has seen nothing at all — and then stopped. What is
+	 * left standing is what the reader watched arrive, which is the only copy of it there is.
+	 * Nothing here concludes anything from the rows not coming.
 	 */
-	async #reconcileTurn(turn: Turn) {
+	async #reconcileTurn(turn: Turn): Promise<number> {
+		let total = 0
 		for (let attempt = 1; attempt <= RECONCILE_ATTEMPTS; attempt++) {
 			let read = 0
 			try {
@@ -1517,11 +1546,14 @@ export class FlowChatManager {
 			} catch (error) {
 				console.error('Could not read a finished turn back:', error)
 			}
-			if (!this.#isCurrent(turn)) return
-			// Only this turn's rows. Rows are added to a conversation and never removed, so
-			// one an older turn left standing would otherwise read as work outstanding and
-			// make every turn after it wait out the full read for nothing.
-			if (!turn.awaitsRowsIn(this.#rowsOf(turn.conversationId))) break
+			if (!this.#isCurrent(turn)) return total
+			total += read
+			// Rows this turn opened, not the conversation's: they are only ever added, so one
+			// an older turn left standing would read as work outstanding and make every turn
+			// after it wait the whole read out for nothing. A turn with no stream opens none,
+			// and then the rows the worker writes are the only ones it will ever have.
+			const outstanding = total === 0 || turn.awaitsRowsIn(this.#rowsOf(turn.conversationId))
+			if (!outstanding) break
 			// A read that brought nothing is the answer to asking again. Some of what a turn
 			// shows is never written down — a tool call the agent abandoned mid-round — and
 			// waiting the whole budget out for one of those delays every message queued behind
@@ -1531,6 +1563,7 @@ export class FlowChatManager {
 				await new Promise((resolve) => setTimeout(resolve, RECONCILE_DELAY_MS))
 			}
 		}
+		return total
 	}
 
 	/** Answers whether a job was actually started. */
