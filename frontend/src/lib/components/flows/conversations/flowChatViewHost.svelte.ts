@@ -61,6 +61,19 @@ function parseToolPayload(raw: string | null | undefined): any {
 	}
 }
 
+/**
+ * A failed tool's result as the line the card shows for it.
+ *
+ * The worker stores what the tool failed with, which is a string for the failures it words
+ * itself and a structured error for one a job reported. Anything else is a result that says
+ * nothing about the failure, and the row's own text is the better line.
+ */
+function asErrorText(result: any): string | undefined {
+	if (typeof result === 'string') return result
+	const message = result?.error?.message ?? result?.message
+	return typeof message === 'string' ? message : undefined
+}
+
 function toDisplayMessage(
 	message: ChatMessage,
 	userIndex: number,
@@ -109,7 +122,9 @@ function toDisplayMessage(
 			const fromJob = carriesItsOwnCall ? EMPTY_TOOL_CALL : toolCalls.get(message.job_id)
 			const toolName = fromRow.toolName ?? fromJob.toolName
 			const parameters = fromRow.parameters ?? fromJob.parameters
-			const result = failed ? undefined : (fromRow.result ?? fromJob.result)
+			// A failed tool's result is what it failed with, which is the whole of what the
+			// card has to show about it.
+			const result = fromRow.result ?? fromJob.result
 			return {
 				role: 'tool',
 				tool_call_id: message.id,
@@ -123,7 +138,10 @@ function toDisplayMessage(
 				// The card's fold is opt-in (ToolExecutionDisplay reads showDetails), so it is
 				// offered only when there is a call or a result behind it to reveal.
 				showDetails: parameters !== undefined || result !== undefined,
-				error: failed ? message.content : undefined,
+				// What the tool failed with, from its result — and from the row's text for one
+				// written before the worker put the error in the result, where the text was all
+				// there was. Both keep rendering the same card.
+				error: failed ? (asErrorText(result) ?? message.content) : undefined,
 				isLoading: message.loading
 			}
 		}

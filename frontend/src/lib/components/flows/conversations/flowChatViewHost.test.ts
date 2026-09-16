@@ -412,3 +412,33 @@ describe('the inputs a row shows for the turn just sent', () => {
 		expect(JobService.getJobArgs).not.toHaveBeenCalled()
 	})
 })
+
+/**
+ * A tool that failed shows what it failed with. The worker used to word that into the row's
+ * text, and now stores it as the row's result so the text can be the same sentence every
+ * other tool row carries — so rows written either way have to keep rendering the same card.
+ */
+describe('a failed tool call', () => {
+	const toolRow = (over: Record<string, unknown>) => ({
+		id: 'row-1',
+		conversation_id: 'a',
+		message_type: 'tool',
+		success: false,
+		created_seq: 1,
+		...over
+	})
+
+	it('shows the error the row stores as its result', () => {
+		const manager = stubManager('a')
+		manager.messages = [
+			toolRow({ content: 'Error executing get_time', tool_result: 'MCP tool error: refused' })
+		]
+		expect(host(manager).displayMessages[0]?.error).toBe('MCP tool error: refused')
+	})
+
+	it('falls back to the row text for one written before the result carried it', () => {
+		const manager = stubManager('a')
+		manager.messages = [toolRow({ content: 'MCP tool error: refused' })]
+		expect(host(manager).displayMessages[0]?.error).toBe('MCP tool error: refused')
+	})
+})

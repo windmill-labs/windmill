@@ -28224,7 +28224,8 @@ components:
           nullable: true
           description: >-
             What that same call returned, including the citations of a provider-native web
-            search. Null on a call that failed, which `success` reports.
+            search, and what it failed with when it failed — the row's own text names the
+            tool rather than the reason. Null for a tool whose job holds the answer.
         reasoning:
           type: string
           nullable: true

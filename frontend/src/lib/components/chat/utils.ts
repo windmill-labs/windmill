@@ -59,9 +59,15 @@ export function parseStreamEvents(streamData: string): StreamEvent[] {
 	return events
 }
 
-/** One-line summary of a tool call, for a surface with no room for the call itself. */
+/**
+ * One-line summary of a tool call, for a surface with no room for the call itself.
+ *
+ * Worded as the server words the row it stores for the same call, so the sentence does not
+ * change under the reader when a reload replaces what the stream wrote with what was
+ * persisted — and so the two can be told to be the same call by their text alone.
+ */
 export function toolSummary(name: string, success: boolean): string {
-	return success ? `Used ${name} tool` : `Failed to use ${name} tool`
+	return success ? `Used ${name} tool` : `Error executing ${name}`
 }
 
 /**

@@ -286,15 +286,19 @@ async fn execute_mcp_tool_call(
                 update_flow_status_module_with_actions_success(ctx.db, parent_job, false).await?;
             }
 
-            // Add tool message to conversation if chat_input_enabled
+            // Add tool message to conversation if chat_input_enabled. The row is worded from
+            // the tool, like every other tool row, and the error it failed with is its result
+            // — the one field a call that produced nothing else still has something to put in.
             let agent_job_id = ctx.job.id;
+            let content = format!("Error executing {}", tool_name);
             add_tool_message_to_chat(
                 ctx,
                 Some(agent_job_id),
-                &error_msg,
+                &content,
                 false,
                 Some(MessageExtras {
                     tool_arguments: Some(tool_call.function.arguments.clone()),
+                    tool_result: Some(error_msg.clone()),
                     ..Default::default()
                 }),
             )
@@ -706,8 +710,13 @@ async fn handle_tool_execution_error(
         update_flow_status_module_with_actions_success(ctx.db, parent_job, false).await?;
     }
 
-    // Add tool message to conversation if chat_input_enabled (error case)
-    add_tool_message_to_chat(ctx, Some(job_id), &error_message, false, None).await;
+    // Add tool message to conversation if chat_input_enabled (error case). Worded from the
+    // tool like every other tool row; nothing is put on the row because the tool's own job
+    // holds it — `handle_non_flow_job_error` above completed that job with this error, and it
+    // was pushed with the arguments the step's input transforms produced rather than the raw
+    // ones the model supplied.
+    let content = format!("Error executing {}", tool_call.function.name);
+    add_tool_message_to_chat(ctx, Some(job_id), &content, false, None).await;
 
     Ok(())
 }
@@ -808,13 +817,15 @@ async fn handle_tool_execution_success(
         ..Default::default()
     });
 
-    // Stream tool result (success case)
+    // The job ran; whether it ran successfully is `success`, and the row stored below is
+    // worded from it. The stream has to carry the same value, or the card the reader watches
+    // and the row that replaces it describe the same call differently.
     if let Some(stream_event_processor) = ctx.stream_event_processor {
         let tool_result_event = StreamingEvent::ToolResult {
             call_id: tool_call.id.clone(),
             function_name: tool_call.function.name.clone(),
             result: tool_result,
-            success: true,
+            success,
         };
         stream_event_processor
             .send(tool_result_event, final_events_str)
