@@ -74,3 +74,27 @@ pub async fn generate_signature(header_and_payload: &str) -> anyhow::Result<Stri
     let result = mac.finalize().into_bytes();
     Ok(URL_SAFE_NO_PAD.encode(result))
 }
+
+/// The signing algorithm a JWK names in its `alg`, or `None` when it names none (or one
+/// that is not a signing algorithm). The only place that reads the field, so callers,
+/// including EE ones, stay agnostic of how `jsonwebtoken` models it.
+pub fn jwk_algorithm(jwk: &jsonwebtoken::jwk::Jwk) -> Option<jsonwebtoken::Algorithm> {
+    jwk.common.algorithm
+}
+
+#[cfg(test)]
+mod tests {
+    use super::jwk_algorithm;
+    use jsonwebtoken::{jwk::Jwk, Algorithm};
+
+    #[test]
+    fn jwk_algorithm_reads_alg_when_present() {
+        let with: Jwk =
+            serde_json::from_value(serde_json::json!({"kty":"RSA","alg":"RS256","n":"aa","e":"AQAB"}))
+                .unwrap();
+        assert_eq!(jwk_algorithm(&with), Some(Algorithm::RS256));
+        let without: Jwk =
+            serde_json::from_value(serde_json::json!({"kty":"RSA","n":"aa","e":"AQAB"})).unwrap();
+        assert_eq!(jwk_algorithm(&without), None);
+    }
+}

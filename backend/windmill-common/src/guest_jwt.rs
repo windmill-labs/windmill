@@ -167,7 +167,7 @@ pub fn jwk_algorithms(jwk: &Jwk) -> Option<Vec<Algorithm>> {
     {
         return None;
     }
-    match (&jwk.algorithm, jwk.common.algorithm) {
+    match (&jwk.algorithm, crate::jwt::jwk_algorithm(jwk)) {
         (AlgorithmParameters::RSA(_), Some(alg)) if RSA_ALGORITHMS.contains(&alg) => {
             Some(vec![alg])
         }
