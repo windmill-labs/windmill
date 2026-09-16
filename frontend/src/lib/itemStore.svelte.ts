@@ -21,6 +21,7 @@ import {
 	type UserDraftItemKind
 } from './userDraft.svelte'
 import { UserDraftDbSyncer } from './userDraftDbSyncer.svelte'
+import { createDebouncerByKey } from './debouncerByKey.svelte'
 import { setLocalDraftHint } from './localDraftHints.svelte'
 import { readFieldsRecursively } from './utils'
 import { randomUUID } from './utils/uuid'
@@ -89,6 +90,9 @@ export type ItemRowPort = {
 	 *  not the same as the row being there: a conflict or a network failure resolves too, and
 	 *  shows up in `conflicted` / `failure` for the caller to read. */
 	flush(key: ItemKey): Promise<void>
+	/** Call off a send `write` scheduled, keeping the value. Nothing here schedules on its own, so
+	 *  between this and the next `write` no row for `key` goes out. */
+	cancelSend(key: ItemKey): void
 	overwrite(key: ItemKey, value: unknown | null): Promise<void>
 	/** Rows handed to the syncer for `key` so far, by any writer, counted before the debounce
 	 *  rather than on the response. Handed back to `seedSync` to order it. */
@@ -97,10 +101,6 @@ export type ItemRowPort = {
 	pending(key: ItemKey): unknown | undefined
 	/** Whether a row is waiting with no baseline behind it, so sending it would be unconditional. */
 	unbased(key: ItemKey): boolean
-	/** Keep what is waiting for `key` waiting, without dropping it, until the returned release is
-	 *  called. For a reader about to find out whether a row exists that an unbased payload would
-	 *  otherwise go out over. */
-	hold(key: ItemKey): () => void
 	/** Raise a conflict the server has not reported, for the user to resolve. */
 	markConflict(key: ItemKey, serverTimestamp: string): void
 	seedSync(key: ItemKey, draftSavedAt: string | undefined, since: number): void
@@ -431,9 +431,6 @@ class Entry<V> {
 			let unbasedPending = false
 			let waitingBefore: unknown | undefined
 			let res: ItemLoad<V>
-			// Released only once this read has said whether a row exists it would have gone out
-			// over, which is the last thing below.
-			let releaseHold: (() => void) | undefined
 			try {
 				if (this.retired) return superseded
 				if (!adapter.load) throw new Error('This item cannot be loaded')
@@ -442,10 +439,11 @@ class Entry<V> {
 				// when no row existed — it has no baseline, so it would go out unconditional over a row
 				// created since; the read below gives it one, and `pending` shows it meanwhile.
 				unbasedPending = this.ports.unbased(key)
-				// Held rather than merely not flushed: the debounce that queued it is still armed,
-				// and firing while this read is out would send it unconditional over a row created
-				// since, before the response is back to say there is one. Released in the `finally`.
-				if (unbasedPending) releaseHold = this.ports.hold(key)
+				// Called off for the length of the read: sending now would go out unconditional over
+				// a row created since, before the response is back to say there is one. Nothing
+				// re-arms it here — the reconcile at the end decides that, against what the read
+				// reports the server actually has.
+				if (unbasedPending) this.ports.cancelSend(key)
 				else await this.ports.flush(key)
 				// Taken here, not when the command was asked for: rows this read's own flush sent
 				// are in the response it is about to get. Only one handed over from now on, while
@@ -466,10 +464,6 @@ class Entry<V> {
 				return { ok: false, error: this.error }
 			} finally {
 				this.loads--
-				// Everything below runs without awaiting, so nothing can fire between here and the
-				// conflict this read may raise: releasing at the last statement instead would only
-				// be the same instant, reached by more paths.
-				releaseHold?.()
 			}
 			// A conflicted key holds a value that is on screen only: the server refused it and
 			// nothing can send it, so a read nobody asked for must not put the server's value in
@@ -505,11 +499,14 @@ class Entry<V> {
 			// A parked delete is what this tab wants gone, not what is there: the row is still the
 			// server's, so the reconcile at the end re-issues the delete instead of believing it
 			// landed and leaving the draft behind with nothing to remove it.
-			const row = unsent == null ? res.draft : unsent
-			const draft = (unsent === null ? undefined : row) as V | undefined
-			// The deployed side above always advances: the item did change, and a discard after
-			// the user keeps theirs has to land on what the server holds now.
-			if (!standOff) this.adoptRow(key, row, res.draftSavedAt, rowsAtRead, unsent !== undefined)
+			const shown = unsent == null ? res.draft : unsent
+			const draft = (unsent === null ? undefined : shown) as V | undefined
+			// What the read says the server holds, never the payload waiting here: one that has
+			// not landed is not the row, and recording it as one leaves it stranded with nothing
+			// left to send it. The deployed side always advances, so a discard after the user
+			// keeps theirs lands on what the server holds now.
+			if (!standOff)
+				this.adoptRow(key, res.draft, res.draftSavedAt, rowsAtRead, unsent !== undefined)
 			this.loaded = true
 			if (!keepValue) {
 				this.pristine = this.settles && this.origin === 'deployed' && draft === undefined
@@ -1345,12 +1342,23 @@ function keyQuery(key: ItemKey) {
 	return { workspace: key.workspace, itemKind: key.kind, path: key.path }
 }
 
+/** Keystroke bursts collapse here, not in the syncer: same timings, one owner. */
+const rowSends = createDebouncerByKey({ debounceMs: 1500, maxDebounceMs: 10000 })
+
 const syncerRows: ItemRowPort = {
 	write(key, value) {
-		void UserDraftDbSyncer.save({ ...keyQuery(key), value })
+		// Parked, then scheduled here rather than handed to the syncer's own debounce: for these
+		// kinds this store decides when a row goes out, so there is one answer to when rather than
+		// two halves of one. Parking still puts it where the unload keepalive will find it.
+		UserDraftDbSyncer.park(keyQuery(key), value)
+		rowSends.schedule(keyString(key), () => UserDraftDbSyncer.sendParked(keyQuery(key)))
 	},
 	flush(key) {
-		return UserDraftDbSyncer.flush(keyQuery(key))
+		rowSends.cancel(keyString(key))
+		return UserDraftDbSyncer.sendParked(keyQuery(key))
+	},
+	cancelSend(key) {
+		rowSends.cancel(keyString(key))
 	},
 	overwrite(key, value) {
 		return UserDraftDbSyncer.overwrite({ ...keyQuery(key), value })
@@ -1363,9 +1371,6 @@ const syncerRows: ItemRowPort = {
 	},
 	unbased(key) {
 		return UserDraftDbSyncer.hasUnbasedPending(keyQuery(key))
-	},
-	hold(key) {
-		return UserDraftDbSyncer.hold(keyQuery(key))
 	},
 	markConflict(key, serverTimestamp) {
 		UserDraftDbSyncer.markConflict(keyQuery(key), serverTimestamp)

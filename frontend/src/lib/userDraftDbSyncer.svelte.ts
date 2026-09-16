@@ -222,18 +222,6 @@ const syncLocked = new Map<string, (() => void) | undefined>()
 const conflicts = new SvelteMap<string, DraftConflictInfo>()
 
 /**
- * Keys a reader is holding: it is finding out whether a row exists that what is waiting here
- * would go out over, and until it answers nothing may send. Counted, so overlapping readers of
- * one key each release only their own hold.
- */
-const holds = new Map<string, number>()
-
-/** Waiting to be sent, but not while someone is holding the key or the server refused it. */
-function sendBlocked(key: string): boolean {
-	return holds.has(key) || conflicts.has(key)
-}
-
-/**
  * Draft keys whose last save threw (network / 5xx) → extracted error
  * message. Cleared on the next success. Drives the AutosaveIndicator's
  * "Save failed" label so a silent failure can't masquerade as "Saved".
@@ -301,7 +289,7 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 	// The payload stays parked so the edit survives, but nothing sends it until that is settled,
 	// `force` being the user's own choice to. Gated here because every send but the page-hide
 	// beacon comes through, a debounce armed before any of it included.
-	if (sendBlocked(key) && !opts.force) return
+	if (conflicts.has(key) && !opts.force) return
 	const lastSync = getLastSyncEntry(key)?.lastSync
 	try {
 		const resp = await DraftService.updateDraft({
@@ -388,7 +376,7 @@ function flushOnPageHide(): void {
 		if (syncLocked.has(key)) continue
 		// Refused and not yet resolved, or held by a reader mid-flight: parked so the edit
 		// survives the page, never sent behind whoever has still to settle it.
-		if (sendBlocked(key)) continue
+		if (conflicts.has(key)) continue
 		// Auto-save off: page-editor opts are dropped with the page;
 		// drawer-kind pendings (no `canBeDisabled`) still flush.
 		if (!autosaveEnabledState && opts.auto && opts.canBeDisabled) continue
@@ -429,7 +417,7 @@ function flushOnPageHide(): void {
 	// refused payload is neither — it is the only copy of that edit, and a bfcache restore brings
 	// this same context back still expecting to have it.
 	for (const key of [...pendingSaveOpts.keys()]) {
-		if (!sendBlocked(key)) pendingSaveOpts.delete(key)
+		if (!conflicts.has(key)) pendingSaveOpts.delete(key)
 	}
 }
 
@@ -485,6 +473,47 @@ export const UserDraftDbSyncer = {
 			get flushCount(): number {
 				return flushes.get(key) ?? 0
 			}
+		}
+	},
+
+	/**
+	 * Take `value` as the latest for `query` without scheduling anything, for a caller that
+	 * decides when its own sends go out. The unload keepalive still finds it, so an edit is never
+	 * lost to a closing page merely because nobody had asked to send it yet. `sendParked` sends it.
+	 */
+	park(query: UserDraftLastSyncQuery, value: unknown | null, opts?: { auto?: boolean }): void {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		// Counted here rather than on the POST, as `save` does: from the caller's side the value
+		// has been handed over, and a read issued before this is already behind it.
+		sends.set(key, (sends.get(key) ?? 0) + 1)
+		if (syncLocked.has(key)) {
+			syncLocked.get(key)?.()
+			return
+		}
+		pendingSaveOpts.set(key, {
+			...query,
+			value: sanitizeDraftValueForSave(query.itemKind, value),
+			auto: opts?.auto
+		})
+		// Light the list-page `*` with the editor's banner rather than on the POST; `postSave`
+		// reconciles it to what the server confirms.
+		if (value !== null) setLocalDraftHint(query.workspace, query.itemKind, query.path, true)
+	},
+
+	/**
+	 * Send whatever `park` last left for `query`, now. Nothing parked, nothing sent — including
+	 * after a conflict, which leaves the payload parked for the user to resolve.
+	 */
+	async sendParked(query: UserDraftLastSyncQuery): Promise<void> {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		const parked = pendingSaveOpts.get(key)
+		if (!parked) return
+		debouncer.cancel(key)
+		try {
+			await runner.submitAndWait(key, () => postSave(parked))
+		} catch (e) {
+			if (!(e instanceof CoalescingDisplacedError)) throw e
+			await runner.settled(key)
 		}
 	},
 
@@ -578,24 +607,6 @@ export const UserDraftDbSyncer = {
 		const key = draftKey(query.workspace, query.itemKind, query.path)
 		if (conflicts.has(key)) return
 		conflicts.set(key, { serverTimestamp, localLastSync: null })
-	},
-
-	/**
-	 * Keep whatever is parked for `query` parked until the returned release is called: for a
-	 * reader about to find out whether a row exists that an unconditional payload would go out
-	 * over. Nothing is dropped, and a `force` still goes — that is the user asking.
-	 */
-	hold(query: UserDraftLastSyncQuery): () => void {
-		const key = draftKey(query.workspace, query.itemKind, query.path)
-		holds.set(key, (holds.get(key) ?? 0) + 1)
-		let released = false
-		return () => {
-			if (released) return
-			released = true
-			const left = (holds.get(key) ?? 1) - 1
-			if (left > 0) holds.set(key, left)
-			else holds.delete(key)
-		}
 	},
 
 	/**

@@ -26,8 +26,6 @@ function deferred<T = void>() {
 function fakeRows() {
 	const writes: { path: string; value: unknown }[] = []
 	const conflicts = new Set<string>()
-	/** Keys a reader is holding: nothing sends while one is out, and nothing is dropped. */
-	const holds = new Map<string, number>()
 	/** Paths whose next write the server fails. */
 	const failing = new Set<string>()
 	/** Paths the server rejects whenever a row is actually sent, until a read adopts a fresh
@@ -49,12 +47,17 @@ function fakeRows() {
 	/** A payload the server refused, kept for a later flush the way the syncer parks one. */
 	const parked = new Map<string, unknown>()
 	const sent = new Map<string, unknown>()
+	/** Paths with a send the store scheduled and has not called off. */
+	const scheduled = new Set<string>()
 	/** Set by a test to keep a flush in flight. */
 	let holdFlush: Promise<void> | undefined
 	const port: ItemRowPort = {
 		write: (key, value) => {
 			writes.push({ path: key.path, value })
 			queued.set(key.path, value)
+			// The real port debounces a send here. The store owns whether that send still happens,
+			// so the fake records it as scheduled and a test fires it with `fireScheduledSend`.
+			scheduled.add(key.path)
 			handed(key.path)
 			if (failing.has(key.path)) failures.set(key.path, 'unreachable')
 		},
@@ -74,7 +77,7 @@ function fakeRows() {
 			// Nothing goes out while the key is conflicted, whether it was queued before the
 			// refusal or parked by it: the payload is kept so the edit survives, and which
 			// version wins is the user's to say. `postSave` gates every send this way.
-			if (conflicts.has(key.path) || holds.has(key.path)) {
+			if (conflicts.has(key.path)) {
 				parked.set(key.path, going.value)
 				return
 			}
@@ -113,17 +116,9 @@ function fakeRows() {
 					? parked.get(key.path)
 					: undefined,
 		unbased: (key) => (queued.has(key.path) || parked.has(key.path)) && !baselines.has(key.path),
-		hold: (key) => {
-			holds.set(key.path, (holds.get(key.path) ?? 0) + 1)
-			let released = false
-			return () => {
-				if (released) return
-				released = true
-				const left = (holds.get(key.path) ?? 1) - 1
-				if (left > 0) holds.set(key.path, left)
-				else holds.delete(key.path)
-			}
-		},
+		// The real port schedules the send; calling it off leaves the value queued for whenever
+		// the store next asks. Nothing here sends on its own, so the fake has nothing to cancel.
+		cancelSend: (key) => void scheduled.delete(key.path),
 		markConflict: (key) => void conflicts.add(key.path),
 		seedSync: (key, at, since) => {
 			// The syncer refuses a baseline from a read a row handed over since has passed.
@@ -160,6 +155,13 @@ function fakeRows() {
 		sent,
 		/** A row handed over by someone other than the store, as the chat's own save does. */
 		handExternally: handed,
+		/** Fire the send `write` scheduled for `path`, as the port's debounce would. Does nothing
+		 *  once the store has called it off, which is the whole point of it being able to. */
+		fireScheduledSend: async (path: string) => {
+			if (!scheduled.has(path)) return
+			scheduled.delete(path)
+			await port.flush({ workspace: 'w', kind: 'resource', path })
+		},
 		hold: (until: Promise<void>) => void (holdFlush = until)
 	}
 }
@@ -1983,8 +1985,9 @@ describe('item store: conflicts', () => {
 		rows.port.write(key, mine)
 		const acq = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
 		await settle()
-		// Its debounce fires while the reopening GET is still out.
-		await rows.port.flush(key)
+		// Its scheduled send comes due while the reopening GET is still out. The read called it
+		// off, so it does nothing.
+		await rows.fireScheduledSend('u/me/r')
 		expect(rows.sent.get('u/me/r')).toBeUndefined()
 
 		// The read says there is no row, so there was never anything to take over — and nothing to
@@ -2013,11 +2016,11 @@ describe('item store: conflicts', () => {
 		await settle()
 
 		// Another tab creates the draft while this read is still unresolved, and only then does
-		// this tab's debounce fire.
+		// this tab's scheduled send come due.
 		const theirs = { ...deployedRes, description: 'tab B' }
 		rows.sent.set('u/me/r', theirs)
 		rows.handExternally('u/me/r')
-		await rows.port.flush(key)
+		await rows.fireScheduledSend('u/me/r')
 
 		// Sending here would have gone out with no `last_sync`, which the server takes
 		// unconditionally — over their draft, and before this read could say it was there.
@@ -2059,6 +2062,31 @@ describe('item store: conflicts', () => {
 		await rows.port.flush(key)
 		expect(rows.sent.get('u/me/r')).toEqual(theirs)
 		expect(second.handle.status).toBe('conflicted')
+	})
+
+	it('re-arms a send the read called off, once the read says the server has no row', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const mine = { ...deployedRes, description: 'typed before closing' }
+		const a = adapter(() => read.promise)
+		rows.port.write(key, mine)
+		const acq = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
+		await settle()
+		// Called off for the read, so coming due does nothing.
+		await rows.fireScheduledSend('u/me/r')
+		expect(rows.sent.get('u/me/r')).toBeUndefined()
+
+		read.resolve({ deployed: deployedRes })
+		await settle()
+
+		// Nobody edits again. Called off is not cancelled: the read saying the server has no row
+		// is exactly what says this edit still has to go, and leaving it stranded here would lose
+		// it on the next close.
+		await rows.fireScheduledSend('u/me/r')
+		expect(rows.sent.get('u/me/r')).toEqual(mine)
+		expect(acq.handle.value).toEqual(mine)
 	})
 
 	it('does not replay a first failed autosave over a draft created since', async () => {
