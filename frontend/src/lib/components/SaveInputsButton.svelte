@@ -7,6 +7,9 @@
 	import { sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher } from 'svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { getDetailWorkspace } from '$lib/components/details/detailWorkspace'
+
+	const detailWs = getDetailWorkspace()
 
 	const dispatch = createEventDispatcher()
 
@@ -30,7 +33,7 @@
 		workspace = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? detailWs?.() ?? $workspaceStore)
 
 	let savingInputs = $state(false)
 

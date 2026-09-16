@@ -14,6 +14,7 @@ import {
 	WORKSPACE_SETTINGS_PATH,
 	triggerLabelForPath,
 	TRIGGER_PAGES,
+	type PreviewItemMode,
 	type PreviewItemRoute,
 	type TriggerKind
 } from './previewPaths'
@@ -25,6 +26,7 @@ export {
 	parsePreviewItemRoute,
 	stripBase,
 	TRIGGER_PAGES,
+	type PreviewItemMode,
 	type PreviewItemRoute,
 	type TriggerKind
 }
@@ -65,7 +67,11 @@ export type ArtifactVersionTarget = number | 'latest'
  * an iframe URL. */
 export type PreviewTarget =
 	| { type: 'page'; href: string; label: string }
-	| { type: 'item'; item: WorkspaceItem }
+	// `mode` picks the side of the item to land on; omitted means Edit, so every
+	// caller that predates the View side keeps opening the editor. `version` pins the
+	// View side to one deployed version, in the query so the tab's identity stays the
+	// item's path rather than becoming the version's own hash.
+	| { type: 'item'; item: WorkspaceItem; mode?: PreviewItemMode; version?: string }
 	| { type: 'artifact'; id: string; name: string; version?: ArtifactVersionTarget }
 
 export type PreviewPage = { label: string; path: string; icon: DrillIcon }
@@ -459,16 +465,25 @@ export const artifactKey = (id: string) => `artifact:${id}`
 
 export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 
-// How a preview tab should render: as an in-process live editor or an iframe
-// fallback. Any editable item of a wrappable kind (script, flow, raw app) mounts
-// its per-(kind,path) cell editor; a `/pipeline/<folder>` route mounts the
-// data-pipeline graph editor (single, shared runtime.pipelineEditorState — `path`
-// is the folder); everything else (static pages, regular drag-and-drop apps, any
-// other route) stays an iframe.
+// How a preview tab should render: as an in-process live editor, the deployed
+// item's view page, or an iframe fallback. An item of a wrappable kind (script,
+// flow, raw app) mounts its per-(kind,path) cell editor on `/edit/` and its viewer
+// on `/get/`; a `/pipeline/<folder>` route mounts the data-pipeline graph editor
+// (single, shared runtime.pipelineEditorState — `path` is the folder); everything
+// else (static pages, regular drag-and-drop apps, any other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
+	| { kind: 'viewer'; viewerKind: SessionTargetKind; path: string }
 	| { kind: 'artifact'; id: string; version?: number }
 	| { kind: 'iframe' }
+
+/** The item kind a preview slot hosts, for the slots that host one — so callers can
+ * ask "which item is this tab on" without caring which side of it is showing. */
+export function slotItemKind(slot: PreviewSlot): SessionTargetKind | 'pipeline' | undefined {
+	if (slot.kind === 'editor') return slot.editorKind
+	if (slot.kind === 'viewer') return slot.viewerKind
+	return undefined
+}
 
 export function resolvePreviewTab(url: string): PreviewSlot {
 	const artifact = parseArtifactRoute(url)
@@ -479,7 +494,7 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 	}
 	const route = parsePreviewItemRoute(url)
 	if (!route) return { kind: 'iframe' }
-	const editorKind: SessionTargetKind | undefined =
+	const itemKind: SessionTargetKind | undefined =
 		route.kind === 'script'
 			? 'script'
 			: route.kind === 'flow'
@@ -487,6 +502,7 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 				: route.kind === 'app' && route.raw_app
 					? 'raw_app'
 					: undefined
-	if (!editorKind) return { kind: 'iframe' }
-	return { kind: 'editor', editorKind, path: route.itemPath }
+	if (!itemKind) return { kind: 'iframe' }
+	if (route.mode === 'view') return { kind: 'viewer', viewerKind: itemKind, path: route.itemPath }
+	return { kind: 'editor', editorKind: itemKind, path: route.itemPath }
 }

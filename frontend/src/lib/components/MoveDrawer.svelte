@@ -9,8 +9,12 @@
 	import Label from './Label.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import { FlowService, ScriptService, type TriggersCount } from '$lib/gen'
+	import { getDetailWorkspace } from '$lib/components/details/detailWorkspace'
 
 	const dispatch = createEventDispatcher()
+
+	const detailWs = getDetailWorkspace()
+	let ws = $derived(detailWs?.() ?? $workspaceStore)
 
 	type Kind = 'script' | 'resource' | 'schedule' | 'variable' | 'flow' | 'app'
 
@@ -82,7 +86,7 @@
 		loadOwner()
 		drawer.openDrawer()
 		if (kind === 'flow') {
-			onBehalfOfEmail = await checkFlowOnBehalfOf($workspaceStore!, initialPath_l)
+			onBehalfOfEmail = await checkFlowOnBehalfOf(ws!, initialPath_l)
 		}
 		if (kind === 'script' || kind === 'flow') {
 			void loadAttachedTriggers()
@@ -91,7 +95,7 @@
 
 	async function loadAttachedTriggers() {
 		try {
-			const workspace = $workspaceStore!
+			const workspace = ws!
 			attachedTriggers =
 				kind === 'flow'
 					? await FlowService.getTriggersCountOfFlow({ workspace, path: initialPath })
@@ -103,13 +107,13 @@
 	}
 
 	function loadOwner() {
-		own = isOwner(initialPath, $userStore!, $workspaceStore!)
+		own = isOwner(initialPath, $userStore!, ws!)
 	}
 
 	async function updatePath() {
 		if (kind === 'flow' || kind === 'script' || kind === 'app') {
 			await updateItemPathAndSummary({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				kind,
 				initialPath,
 				newPath: path ?? '',
@@ -142,9 +146,8 @@
 				<div class="flex flex-wrap gap-x-3 gap-y-1 mt-1">
 					{#each attachedSummary as { label, count } (label)}
 						<span class="text-xs"
-							><span class="font-mono font-semibold">{count}</span> {label}{count === 1
-								? ''
-								: 's'}</span
+							><span class="font-mono font-semibold">{count}</span>
+							{label}{count === 1 ? '' : 's'}</span
 						>
 					{/each}
 				</div>

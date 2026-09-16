@@ -193,22 +193,38 @@ describe('parsePreviewItemRoute', () => {
 		expect(parsePreviewItemRoute('/scripts/edit/f/foo/bar')).toEqual({
 			kind: 'script',
 			raw_app: false,
-			itemPath: 'f/foo/bar'
+			itemPath: 'f/foo/bar',
+			mode: 'edit'
 		})
 		expect(parsePreviewItemRoute('/flows/get/u/admin/baz')).toEqual({
 			kind: 'flow',
 			raw_app: false,
-			itemPath: 'u/admin/baz'
+			itemPath: 'u/admin/baz',
+			mode: 'view'
 		})
 		expect(parsePreviewItemRoute('/apps_raw/edit/f/a/b')).toEqual({
 			kind: 'app',
 			raw_app: true,
-			itemPath: 'f/a/b'
+			itemPath: 'f/a/b',
+			mode: 'edit'
 		})
 		expect(parsePreviewItemRoute('/apps/edit/f/a/b')).toEqual({
 			kind: 'app',
 			raw_app: false,
-			itemPath: 'f/a/b'
+			itemPath: 'f/a/b',
+			mode: 'edit'
+		})
+	})
+
+	// The two sides are one tab, keyed by the item path: a query — `?version=` pinning an
+	// old deployed version among them — must not read as part of the path, or the tab
+	// would count as a different item and stop deduping against itself.
+	it('reads the side from the segment and ignores the query', () => {
+		expect(parsePreviewItemRoute('/scripts/get/f/foo/bar?version=42')).toEqual({
+			kind: 'script',
+			raw_app: false,
+			itemPath: 'f/foo/bar',
+			mode: 'view'
 		})
 	})
 
@@ -287,8 +303,30 @@ describe('resolvePreviewTab', () => {
 		})
 	})
 
+	// `/get/` used to resolve to the editor, so a tab pointed at a deployed item mounted
+	// the thing that edits it. The side now comes from the segment, which is what lets one
+	// tab hold both.
+	it('routes the /get/ side of each wrappable kind to its viewer', () => {
+		expect(resolvePreviewTab('/scripts/get/f/foo/bar')).toEqual({
+			kind: 'viewer',
+			viewerKind: 'script',
+			path: 'f/foo/bar'
+		})
+		expect(resolvePreviewTab('/flows/get/f/foo/bar')).toEqual({
+			kind: 'viewer',
+			viewerKind: 'flow',
+			path: 'f/foo/bar'
+		})
+		expect(resolvePreviewTab('/apps_raw/get/f/a/b')).toEqual({
+			kind: 'viewer',
+			viewerKind: 'raw_app',
+			path: 'f/a/b'
+		})
+	})
+
 	it('never routes a regular drag-and-drop app to an editor (no wrapper exists)', () => {
 		expect(resolvePreviewTab('/apps/edit/f/a/b')).toEqual({ kind: 'iframe' })
+		expect(resolvePreviewTab('/apps/get/f/a/b')).toEqual({ kind: 'iframe' })
 	})
 
 	it('routes a pipeline folder to the pipeline editor kind', () => {

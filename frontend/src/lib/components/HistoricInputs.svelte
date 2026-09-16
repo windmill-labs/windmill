@@ -8,6 +8,9 @@
 	import HistoricList from './HistoricList.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { getDetailWorkspace } from '$lib/components/details/detailWorkspace'
+
+	const detailWs = getDetailWorkspace()
 
 	interface Props {
 		runnableId?: string | undefined
@@ -32,7 +35,7 @@
 		workspace = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? detailWs?.() ?? $workspaceStore)
 
 	let historicList: HistoricList | undefined = $state(undefined)
 	const dispatch = createEventDispatcher()

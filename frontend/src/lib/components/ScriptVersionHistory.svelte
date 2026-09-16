@@ -11,8 +11,12 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import VersionListItem from './VersionListItem.svelte'
+	import { getDetailWorkspace } from '$lib/components/details/detailWorkspace'
 
 	const dispatch = createEventDispatcher()
+
+	const detailWs = getDetailWorkspace()
+	let ws = $derived(detailWs?.() ?? $workspaceStore)
 
 	let { openDetails = false, scriptPath }: { openDetails?: boolean; scriptPath: string } = $props()
 
@@ -27,7 +31,7 @@
 	async function loadVersions() {
 		loading = true
 		versions = await ScriptService.getScriptHistoryByPath({
-			workspace: $workspaceStore!,
+			workspace: ws!,
 			path: scriptPath
 		})
 		loading = false
@@ -42,7 +46,7 @@
 			return
 		}
 		await ScriptService.updateScriptHistory({
-			workspace: $workspaceStore!,
+			workspace: ws!,
 			path: scriptPath,
 			hash: scriptHash,
 			requestBody: {

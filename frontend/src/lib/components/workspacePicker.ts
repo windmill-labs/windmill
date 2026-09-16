@@ -48,6 +48,13 @@ export function editPathFor(item: WorkspaceItem): string {
 	return item.raw_app ? `/apps_raw/edit/${item.path}` : `/apps/edit/${item.path}`
 }
 
+/** The deployed-version page for an item, the `/get/` counterpart of {@link editPathFor}. */
+export function viewPathFor(item: WorkspaceItem): string {
+	if (item.kind === 'flow') return `/flows/get/${item.path}`
+	if (item.kind === 'script') return `/scripts/get/${item.path}`
+	return item.raw_app ? `/apps_raw/get/${item.path}` : `/apps/get/${item.path}`
+}
+
 type WorkspaceCache = {
 	flow?: WorkspaceItem[]
 	script?: WorkspaceItem[]

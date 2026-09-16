@@ -1,6 +1,6 @@
 import { base } from '$lib/base'
 import { randomUUID } from '$lib/utils/uuid'
-import { editPathFor, type WorkspaceItem } from '$lib/components/workspacePicker'
+import { editPathFor, viewPathFor, type WorkspaceItem } from '$lib/components/workspacePicker'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import {
 	artifactUrl,
@@ -49,12 +49,13 @@ export type PreviewTabsAdapter = {
 	onTabOpened?: (url: string) => void
 }
 
-// True when a tab's URL is the live editor for a specific editable item. Every
-// editable route resolves to an editor, so this doubles as the "same item" dedupe
-// test in open()/navigate().
-function isEditorTabFor(url: string, target: SessionTarget): boolean {
+// True when a tab's URL is on a specific editable item — either side of it. Both
+// sides are one tab, so this is the "same item" dedupe test in open()/navigate():
+// re-opening an item the user left on View must focus that tab, not add a second.
+function isItemTabFor(url: string, target: SessionTarget): boolean {
 	const slot = resolvePreviewTab(url)
-	return slot.kind === 'editor' && slot.editorKind === target.kind && slot.path === target.path
+	if (slot.kind === 'editor') return slot.editorKind === target.kind && slot.path === target.path
+	return slot.kind === 'viewer' && slot.viewerKind === target.kind && slot.path === target.path
 }
 
 // The version a tab shows when it is re-pointed: the opener's, if it named one, else whatever
@@ -80,7 +81,14 @@ function targetUrl(target: PreviewTarget, onto?: SessionPreviewTab): string {
 	if (target.type === 'artifact') {
 		return artifactUrl(target.id, target.name, keptVersion(target, onto))
 	}
-	return `${base}${editPathFor(target.item)}`
+	// A re-point with no mode keeps the side the tab is already on, so an AI write to
+	// an item the user left on View does not yank them back to the editor.
+	const mode = target.mode ?? (onto ? (parsePreviewItemRoute(onto.url)?.mode ?? 'edit') : 'edit')
+	if (mode !== 'view') return `${base}${editPathFor(target.item)}`
+	// Not carried over from `onto`: a version pin is something the reader asked for
+	// once, so every other re-point of this tab lands on the current deployed version.
+	const pin = target.version ? `?version=${encodeURIComponent(target.version)}` : ''
+	return `${base}${viewPathFor(target.item)}${pin}`
 }
 
 // Point a tab at a new destination. Clears `friendlyLabel`/`friendlyPath`
@@ -390,7 +398,7 @@ export class SessionPreviewTabs {
 		this.#collapsed = false
 		if (editorTarget) {
 			// One editor tab per item: focus the tab already hosting this exact item.
-			const existing = this.#tabs.find((t) => isEditorTabFor(t.url, editorTarget))
+			const existing = this.#tabs.find((t) => isItemTabFor(t.url, editorTarget))
 			if (existing) {
 				this.#activeId = existing.id
 				this.#flush()
@@ -476,7 +484,7 @@ export class SessionPreviewTabs {
 			// Same dedupe as open(): if another tab already hosts this exact item,
 			// focus it instead of re-pointing this one — two tabs for one item would
 			// mount two editors racing the same (kind, path) cell.
-			const existing = this.#tabs.find((x) => isEditorTabFor(x.url, editorTarget))
+			const existing = this.#tabs.find((x) => isItemTabFor(x.url, editorTarget))
 			if (existing && existing.id !== t.id) {
 				this.#activeId = existing.id
 				this.#flush()
@@ -616,7 +624,7 @@ export class SessionPreviewTabs {
 		label: string | undefined,
 		friendlyPath?: string
 	): void {
-		const t = this.#tabs.find((x) => isEditorTabFor(x.url, target))
+		const t = this.#tabs.find((x) => isItemTabFor(x.url, target))
 		if (!t) return
 		// Set before the no-change early return: an item with neither a summary nor
 		// a staged path leaves both fields undefined, and the editor still owns it.
@@ -723,7 +731,9 @@ export function describePreview(
 						: // Trigger list pages land here (they're outside PREVIEW_PAGES), and
 							// their `#<path>` is the trigger the drawer has open.
 							`${stripBase(where)}${previewLocationDetail(where)}`
-		const live = resolvePreviewTab(t.url).kind === 'editor' ? ', live editor' : ''
+		const slotKind = resolvePreviewTab(t.url).kind
+		const live =
+			slotKind === 'editor' ? ', live editor' : slotKind === 'viewer' ? ', deployed view' : ''
 		const active = t.id === activeId ? ', active' : ''
 		// One list entry per tab: an artifact's name, a pipeline folder and an item path
 		// all arrive decoded from a URL, so any of them could otherwise write a line here.

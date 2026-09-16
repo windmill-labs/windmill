@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toolReloadEffect, tabsToReload } from './previewReload'
+import { toolReloadEffect, tabsToReload, viewerTabsToReload } from './previewReload'
 import type { SessionPreviewTab } from './sessionState.svelte'
 
 describe('toolReloadEffect', () => {
@@ -83,5 +83,68 @@ describe('tabsToReload', () => {
 	it('matches on the observed loc (with query/hash stripped) over the seeded url', () => {
 		const navigated: SessionPreviewTab = { id: 'n', url: '/runs', loc: '/schedules?workspace=w' }
 		expect(tabsToReload([navigated], new Set(['/schedules']))).toEqual([navigated])
+	})
+})
+
+describe('viewerTabsToReload', () => {
+	const viewTab: SessionPreviewTab = {
+		id: 'v',
+		url: '/scripts/get/f/foo/bar',
+		loc: '/scripts/get/f/foo/bar'
+	}
+	const editTab: SessionPreviewTab = {
+		id: 'e',
+		url: '/flows/edit/f/foo/baz',
+		loc: '/flows/edit/f/foo/baz'
+	}
+	const pageTab: SessionPreviewTab = { id: 'p', url: '/schedules', loc: '/schedules' }
+
+	it('returns the view-side tab whose item was deployed', () => {
+		expect(viewerTabsToReload([viewTab, editTab, pageTab], new Set(['f/foo/bar']))).toEqual([
+			viewTab
+		])
+	})
+
+	// The editor holds what the user is writing; refetching the deployed version over it
+	// would discard that, and it self-syncs from the store the chat already mutated.
+	it('never returns the edit side, even for the item that was deployed', () => {
+		expect(viewerTabsToReload([editTab], new Set(['f/foo/baz']))).toEqual([])
+	})
+
+	it('leaves a view tab on a different item alone', () => {
+		expect(viewerTabsToReload([viewTab], new Set(['f/other/item']))).toEqual([])
+	})
+
+	it('is empty when no items were deployed', () => {
+		expect(viewerTabsToReload([viewTab, editTab], new Set())).toEqual([])
+	})
+})
+
+describe('toolReloadEffect items', () => {
+	// A deploy is invisible to a View tab otherwise: it renders the deployed version over
+	// the API and shares no store with the chat.
+	it('names the item a deploy or delete changed, for the kinds a tab can view', () => {
+		for (const type of ['script', 'flow', 'app']) {
+			expect(toolReloadEffect('deploy_workspace_item', { type, path: 'u/me/x' }).items).toEqual([
+				'u/me/x'
+			])
+			expect(toolReloadEffect('delete_workspace_item', { type, path: 'u/me/x' }).items).toEqual([
+				'u/me/x'
+			])
+		}
+	})
+
+	it('names no item for a draft-only tool — nothing deployed changed', () => {
+		expect(toolReloadEffect('write_script', { path: 'u/me/x' }).items).toEqual([])
+		expect(
+			toolReloadEffect('discard_local_draft', { type: 'script', path: 'u/me/x' }).items
+		).toEqual([])
+		expect(toolReloadEffect('rebase_draft', { type: 'flow', path: 'u/me/x' }).items).toEqual([])
+	})
+
+	it('names no item for types that have a list page instead of a view side', () => {
+		expect(
+			toolReloadEffect('deploy_workspace_item', { type: 'schedule', path: 'u/me/s' }).items
+		).toEqual([])
 	})
 })

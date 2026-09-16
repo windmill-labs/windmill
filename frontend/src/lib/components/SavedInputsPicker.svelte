@@ -12,6 +12,9 @@
 	import InfiniteList from './InfiniteList.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import SavedInputsPickerViewer from './SavedInputsPickerViewer.svelte'
+	import { getDetailWorkspace } from '$lib/components/details/detailWorkspace'
+
+	const detailWs = getDetailWorkspace()
 
 	interface Props {
 		previewArgs?: any
@@ -36,7 +39,7 @@
 		workspace = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? detailWs?.() ?? $workspaceStore)
 
 	interface EditableInput extends Input {
 		isEditing?: boolean

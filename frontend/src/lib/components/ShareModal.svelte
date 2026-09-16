@@ -22,11 +22,15 @@
 	import Toggle from './Toggle.svelte'
 	import { Trash } from 'lucide-svelte'
 	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
+	import { getDetailWorkspace } from '$lib/components/details/detailWorkspace'
 
 	const dispatch = createEventDispatcher()
 
+	const detailWs = getDetailWorkspace()
+	let ws = $derived(detailWs?.() ?? $workspaceStore)
+
 	let restricted = $derived(
-		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+		isDemoWorkspaceRestricted(ws, $userStore?.is_admin, $userStore?.is_super_admin)
 	)
 
 	type Kind =
@@ -81,7 +85,7 @@
 			defaultPermsLabel = `Folder f/${folderName} permissions`
 			try {
 				const folder: Folder = await FolderService.getFolder({
-					workspace: $workspaceStore!,
+					workspace: ws!,
 					name: folderName
 				})
 				if (path !== currentPath) return
@@ -134,7 +138,7 @@
 		const currentPath = path
 		try {
 			const resource = await ResourceService.getResource({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: currentPath
 			})
 			if (path !== currentPath) return
@@ -164,27 +168,25 @@
 	}
 
 	async function loadOwner() {
-		own = isOwner(path, $userStore!, $workspaceStore!)
+		own = isOwner(path, $userStore!, ws!)
 	}
 
 	async function loadAcls() {
-		acls = Object.entries(
-			await GranularAclService.getGranularAcls({ workspace: $workspaceStore!, path, kind })
-		)
+		acls = Object.entries(await GranularAclService.getGranularAcls({ workspace: ws!, path, kind }))
 	}
 
 	async function loadGroups(): Promise<void> {
-		groups = await GroupService.listGroupNames({ workspace: $workspaceStore! })
+		groups = await GroupService.listGroupNames({ workspace: ws! })
 	}
 
 	async function loadUsernames(): Promise<void> {
-		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
+		usernames = await UserService.listUsernames({ workspace: ws! })
 	}
 
 	async function deleteAcl(owner: string) {
 		try {
 			await GranularAclService.removeGranularAcls({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path,
 				kind,
 				requestBody: { owner }
@@ -193,7 +195,7 @@
 				for (const varPath of linkedVarPaths) {
 					try {
 						await GranularAclService.removeGranularAcls({
-							workspace: $workspaceStore!,
+							workspace: ws!,
 							path: varPath,
 							kind: 'variable',
 							requestBody: { owner }
@@ -212,7 +214,7 @@
 
 	async function addAcl(owner: string, write: boolean) {
 		await GranularAclService.addGranularAcls({
-			workspace: $workspaceStore!,
+			workspace: ws!,
 			path,
 			kind,
 			requestBody: { owner, write }
@@ -221,7 +223,7 @@
 			for (const varPath of linkedVarPaths) {
 				try {
 					await GranularAclService.addGranularAcls({
-						workspace: $workspaceStore!,
+						workspace: ws!,
 						path: varPath,
 						kind: 'variable',
 						requestBody: { owner, write }
@@ -251,9 +253,7 @@
 				</div>
 			{/if}
 			<div class="flex flex-col gap-2">
-				<span class="text-sm font-semibold text-emphasis"
-					>Extra members ({acls?.length ?? 0})</span
-				>
+				<span class="text-sm font-semibold text-emphasis">Extra members ({acls?.length ?? 0})</span>
 				{#if linkedVarPaths.length > 0}
 					<div class="flex flex-col gap-1.5 p-3 border rounded bg-surface-secondary text-xs">
 						<Toggle

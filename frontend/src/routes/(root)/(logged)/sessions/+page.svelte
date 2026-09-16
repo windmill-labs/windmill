@@ -11,7 +11,9 @@
 		PanelRightOpen,
 		ChevronDown,
 		MonitorPlay,
-		Loader2
+		Loader2,
+		Pen,
+		Eye
 	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { Button } from '$lib/components/common'
@@ -63,9 +65,17 @@
 		parseArtifactRoute,
 		parsePreviewItemRoute,
 		previewLocationLabel,
+		resolvePreviewTab,
+		type PreviewItemMode,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
-	import { toolReloadEffect, tabsToReload } from '$lib/components/sessions/previewReload'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import {
+		toolReloadEffect,
+		tabsToReload,
+		viewerTabsToReload
+	} from '$lib/components/sessions/previewReload'
 	import {
 		leafKeyFor,
 		loadKind,
@@ -389,9 +399,20 @@
 		(owner?.tabs ?? []).map((t) => ({
 			id: t.id,
 			label: tabLabelFor(t, previewWorkspace ?? ''),
-			title: tabTitleFor(t, previewWorkspace ?? '')
+			title: tabTitleFor(t, previewWorkspace ?? ''),
+			icon: sideIconFor(t.url)
 		}))
 	)
+
+	// Which side of its item a tab is on, as the same pen/eye the View|Edit control uses.
+	// Only a tab with two sides gets one: a page, artifact or pipeline has nothing to
+	// distinguish, and marking it would read as a state it can't be in.
+	function sideIconFor(url: string): typeof Pen | undefined {
+		const slot = resolvePreviewTab(url)
+		if (slot.kind === 'viewer') return Eye
+		if (slot.kind === 'editor' && slot.editorKind !== 'pipeline') return Pen
+		return undefined
+	}
 	let newTabOpen = $state(false)
 	// Separate open flag for the empty-state launcher: it can be mounted at the
 	// same time as the tab-strip "+" popover, so sharing one flag would open both
@@ -544,27 +565,35 @@
 		}
 	}
 
-	// Reload mounted preview tabs affected by a mutating chat tool. Item and pipeline
-	// tabs are live editors that self-sync from the store the chat mutates, so nothing
-	// reloads them. Only list-page tabs (schedules, resources, …) are iframes, and each
-	// reloads only when a tool actually changed *its* page (toolReloadEffect) — so a
-	// schedule write leaves the Resources tab alone, and a purely local tool (saving
-	// user instructions) reloads nothing.
+	// Reload mounted preview tabs affected by a mutating chat tool. Editor and pipeline
+	// tabs self-sync from the store the chat mutates, so nothing reloads them. Two kinds
+	// do need telling, and each only when a tool actually changed what IT shows
+	// (toolReloadEffect): list-page tabs (schedules, resources, …), which are iframes, and
+	// tabs on an item's View side, which render the deployed version over the API. So a
+	// schedule write leaves the Resources tab alone, and a purely local tool (saving user
+	// instructions) reloads nothing.
 	const tabHosts: Record<string, PreviewTabHost | undefined> = {}
 
 	let reloadHandle: ReturnType<typeof setTimeout> | undefined
 	// Base-stripped list-page paths (e.g. `/schedules`) a chat round touched since
 	// the last flush — see toolReloadEffect for how tools map to pages.
 	let pendingPages = new Set<string>()
+	// Item paths whose DEPLOYED version a chat round changed. Only the View side of a tab
+	// reads that version, so these refresh those tabs and leave the editors alone.
+	let pendingItems = new Set<string>()
 
 	// Reload the mounted list-page tabs a chat round changed, across all warm
 	// sessions (a hidden preview would otherwise show pre-mutation content on
 	// return). tabsToReload picks only the tabs whose page is in `pages`.
-	function reloadTabs(pages: Set<string>) {
+	function reloadTabs(pages: Set<string>, items: Set<string>) {
 		for (const s of warmSessions) {
 			const owner = getRuntime(s.id)?.previewTabs
 			if (!owner) continue
-			for (const tab of tabsToReload(owner.tabs, pages)) {
+			const affected = [
+				...tabsToReload(owner.tabs, pages),
+				...viewerTabsToReload(owner.tabs, items)
+			]
+			for (const tab of affected) {
 				const key = tabKey(s.id, tab.id)
 				if (mountedTabKeys.has(key)) tabHosts[key]?.reload()
 			}
@@ -572,21 +601,25 @@
 	}
 	function flushReload() {
 		const pages = pendingPages
+		const items = pendingItems
 		pendingPages = new Set()
-		reloadTabs(pages)
+		pendingItems = new Set()
+		reloadTabs(pages, items)
 	}
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
 		setToolCompletionListener((name, args) => {
-			const { pages } = toolReloadEffect(name, args)
-			if (pages.length === 0) return
+			const { pages, items } = toolReloadEffect(name, args)
+			if (pages.length === 0 && items.length === 0) return
 			for (const p of pages) pendingPages.add(p)
+			for (const i of items) pendingItems.add(i)
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)
 		})
 		return () => {
 			clearTimeout(reloadHandle)
 			pendingPages = new Set()
+			pendingItems = new Set()
 			setToolCompletionListener(undefined)
 		}
 	})
@@ -610,6 +643,68 @@
 	// other page (home, runs, …) there's no item to drill into, so we fall back
 	// to the plain path.
 	const parsedRoute = $derived(parsePreviewItemRoute(displayPath))
+
+	// The View|Edit control acts on the active tab by re-pointing its URL. Only an item
+	// with two sides gets one: pages, artifacts, pipelines and legacy drag-and-drop apps
+	// have a single side. Read from the tab's `url` rather than the observed `loc` — an
+	// in-realm side reports no location of its own, so `loc` can lag a flip.
+	const activeSide = $derived.by(() => {
+		const url = owner?.activeTab?.url
+		const slot = url ? resolvePreviewTab(url) : undefined
+		if (!slot) return undefined
+		if (slot.kind === 'viewer') {
+			return { kind: slot.viewerKind, path: slot.path, mode: 'view' as PreviewItemMode }
+		}
+		if (slot.kind === 'editor' && slot.editorKind !== 'pipeline') {
+			return { kind: slot.editorKind, path: slot.path, mode: 'edit' as PreviewItemMode }
+		}
+		return undefined
+	})
+
+	// Nothing to view until the item has been deployed once. This only ever hides the
+	// switch when the editor cell has actually been told so by the backend; when it knows
+	// nothing the switch stays open and the viewer says what it found, which is the case
+	// that has to work — a tab can be opened, or restored, straight onto the View side
+	// with no editor ever mounted.
+	const viewDisabledReason = $derived.by(() => {
+		const side = activeSide
+		const rt = activeRuntime
+		if (!side || !rt) return undefined
+		// Through the cell accessor, not `loadedEditorPath`: that one peeks into a plain
+		// Map, so this would read "no cell yet" once and never re-run when the load lands.
+		// The accessor creates the cell on a miss, which costs nothing here — a tab is open
+		// on this item, so its Edit side owns a cell either way.
+		const cell =
+			side.kind === 'flow'
+				? rt.flowCell(side.path)
+				: side.kind === 'script'
+					? rt.scriptCell(side.path)
+					: rt.rawAppCell(side.path)
+		// Two ways to know, because either side can be the one that looked: the editor
+		// cell's `no_deployed`, and what the viewer's own fetch found. An absent baseline is
+		// NOT a third: the cell is created empty and `SessionEditorTarget` clears
+		// `loadedPath` on every unmount, so "this cell knows nothing" is a state a deployed
+		// item reaches too — reading that as "not deployed" offered View on drafts and
+		// withheld it from deployed items, by whether the Edit side happened to be loaded.
+		const undeployed =
+			cell.saved.val?.no_deployed === true || rt.deployedExists(side.kind, side.path) === false
+		return undeployed ? 'Not deployed yet' : undefined
+	})
+
+	function switchSide(mode: PreviewItemMode) {
+		const side = activeSide
+		if (!side || side.mode === mode) return
+		const item: WorkspaceItem = {
+			path: side.path,
+			summary: '',
+			kind: side.kind === 'raw_app' ? 'app' : side.kind,
+			raw_app: side.kind === 'raw_app'
+		}
+		owner?.navigate({ type: 'item', item, mode })
+		// Counted per switch onto the View side, under keys disjoint from the tab-open
+		// ones, so `entity_count` answers how many sessions ever used it.
+		if (mode === 'view') activeRuntime?.logTabUsage(owner?.activeTab?.url ?? '')
+	}
 
 	// Split the item path into breadcrumb dirs + leaf, mirroring EditorHeader:
 	// scope (`f/<folder>` | `u/<user>`) → subfolders → item name. Prefers the
@@ -664,6 +759,9 @@
 					: undefined
 	)
 	let activeTabPickerOpen = $state(false)
+	/** Measured width of the floating action controls, reserved as the tab strip's right
+	 * padding so tabs stop before them instead of scrolling underneath. */
+	let previewActionsWidth = $state(0)
 
 	// Breadcrumb picks steer the *active* tab; the "+" picker opens new ones. An
 	// editable item also becomes the session's live editor (owner.navigate).
@@ -909,10 +1007,16 @@
 						class="flex flex-col min-h-0"
 					>
 						<div class="flex-1 min-h-0 flex flex-col {fullscreen ? 'p-0' : 'p-2 pl-0'}">
+							<!-- The action controls float over the tab strip, so the strip has to reserve
+							     their width or tabs slide underneath them. Measured rather than guessed:
+							     the set changes with the tab (an artifact has no "Open in workspace", a
+							     page has no View|Edit toggle), so a fixed padding is either short for
+							     the widest case or wasted space for the narrowest. -->
 							<div
 								class="flex flex-col flex-1 min-h-0 overflow-hidden relative bg-surface {fullscreen
 									? ''
 									: 'rounded-md border border-light'}"
+								style="--preview-actions-w: {previewActionsWidth + 8}px"
 							>
 								{#if !fullscreen}
 									<!-- Collapse the preview panel — floats over the top-left corner so
@@ -930,7 +1034,37 @@
 
 								<!-- Open-in-full-page + full-screen toggle, floating over the top-right
 								     corner to mirror the collapse control. -->
-								<div class="absolute top-1 right-1 z-30 flex items-center gap-0.5">
+								<!-- Spans the tab strip's own height and centres within it, rather than
+							     being pinned a fixed distance from the top: the controls here are not
+							     all one height (the View|Edit toggle is taller than the icon buttons),
+							     so an offset that centres one leaves the rest — and the collapse
+							     button opposite — sitting off the strip's axis. -->
+								<div
+									bind:clientWidth={previewActionsWidth}
+									class="absolute top-0 right-1 z-30 flex h-8 items-center gap-0.5"
+								>
+									{#if activeSide}
+										<!-- Both sides of an item are one tab; this re-points it. -->
+										<div class="mr-1">
+											<ToggleButtonGroup
+												selected={activeSide.mode}
+												on:selected={({ detail }) => switchSide(detail as PreviewItemMode)}
+											>
+												{#snippet children({ item })}
+													<ToggleButton small value="edit" label="Edit" icon={Pen} {item} />
+													<ToggleButton
+														small
+														value="view"
+														label="View"
+														icon={Eye}
+														disabled={!!viewDisabledReason}
+														tooltip={viewDisabledReason}
+														{item}
+													/>
+												{/snippet}
+											</ToggleButtonGroup>
+										</div>
+									{/if}
 									{#if !activeTabIsArtifact}
 										<a
 											href={withWorkspaceParam(
@@ -972,7 +1106,7 @@
 									onReorder={reorderTabs}
 									class="session-preview-tab-strip h-8 border-b border-light bg-surface-secondary/50 {fullscreen
 										? 'pl-1.5'
-										: 'pl-9'} pr-16"
+										: 'pl-9'} pr-[var(--preview-actions-w,4rem)]"
 								>
 									{#snippet tabAccessory(_tab, isActive)}
 										{#if isActive}

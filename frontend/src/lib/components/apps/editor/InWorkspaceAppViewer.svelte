@@ -23,12 +23,21 @@
 	let {
 		workspace,
 		path,
-		editHref
+		editHref,
+		onEdit,
+		onLoadState
 	}: {
 		workspace: string
 		path: string
 		/** Where the Edit button points (low-code vs raw editor). */
 		editHref: string
+		/** Handle Edit in place instead of following `editHref`. An AI session shows
+		 * this viewer inside a preview tab, where a plain link would navigate the whole
+		 * page out of the session rather than flipping the tab to its editor. */
+		onEdit?: () => void
+		/** How the load ended, for a host that renders its own state around this viewer.
+		 * A 403 is deliberately neither: the app exists, this member just cannot open it. */
+		onLoadState?: (state: 'loaded' | 'not_found') => void
 	} = $props()
 
 	let app: any = $state(undefined)
@@ -96,10 +105,14 @@
 			app = loaded
 			noPermission = false
 			notExists = false
+			onLoadState?.('loaded')
 		} catch (e: any) {
 			if (e.status == 401) refresh?.()
 			else if (e.status == 403) noPermission = true
-			else notExists = true
+			else {
+				notExists = true
+				onLoadState?.('not_found')
+			}
 		}
 	}
 
@@ -142,6 +155,12 @@
 
 {#if canWriteApp && !hideEditBtn}
 	<div id="app-edit-btn" class="absolute bottom-4 z-50 right-4">
-		<Button size="sm" startIcon={{ icon: Pen }} variant="subtle" href={editHref}>Edit</Button>
+		<Button
+			size="sm"
+			startIcon={{ icon: Pen }}
+			variant="subtle"
+			href={onEdit ? undefined : editHref}
+			on:click={() => onEdit?.()}>Edit</Button
+		>
 	</div>
 {/if}

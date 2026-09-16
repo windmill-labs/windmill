@@ -121,6 +121,11 @@
 		args?: Record<string, any>
 		jsonView?: boolean
 		isValid?: boolean
+		/** Mirror the current args into the page URL's fragment, which is what makes a
+		 * filled-in form shareable and what `Run again` reads back. Turn off wherever this
+		 * form is embedded in a page that is not the runnable's own — an AI session preview
+		 * tab — since there the fragment would land on an unrelated URL. */
+		syncArgsToUrl?: boolean
 	}
 
 	let {
@@ -139,7 +144,8 @@
 		overrideTagNote = undefined,
 		args = $bindable(),
 		jsonView = false,
-		isValid = $bindable(true)
+		isValid = $bindable(true),
+		syncArgsToUrl = true
 	}: Props = $props()
 
 	let showPsCommonParams = $derived(
@@ -161,6 +167,7 @@
 	let debounced: number | undefined = undefined
 
 	function onArgsChange(args: any) {
+		if (!syncArgsToUrl) return
 		try {
 			debounced && clearTimeout(debounced)
 			debounced = setTimeout(() => {
