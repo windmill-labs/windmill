@@ -58,6 +58,10 @@ pub mod ee_oss;
 pub mod email_ee;
 pub mod email_oss;
 pub mod error;
+pub mod external_instance_pg;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+mod external_instance_pg_ee;
+pub mod external_instance_pg_oss;
 pub mod external_ip;
 #[cfg(feature = "private")]
 pub mod feature_usage_ee;

@@ -60,7 +60,7 @@ use windmill_common::{
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS, EXTERNAL_INSTANCE_PG_SETTING,
         GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
         INSTANCE_BANNER_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
@@ -167,6 +167,14 @@ pub fn global_service() -> Router {
         .route(
             "/refresh_custom_instance_user_pwd",
             post(refresh_custom_instance_user_pwd),
+        )
+        .route(
+            "/external_instance_pg/status",
+            get(get_external_instance_pg_status),
+        )
+        .route(
+            "/external_instance_pg/setup",
+            post(setup_external_instance_pg),
         )
         .route(
             "/setup_custom_instance_pg_database/{name}",
@@ -938,6 +946,13 @@ async fn run_setting_pre_write_hook(
     value: &serde_json::Value,
 ) -> error::Result<()> {
     match key {
+        EXTERNAL_INSTANCE_PG_SETTING => {
+            windmill_common::external_instance_pg::check_external_instance_pg_write(
+                db,
+                Some(value),
+            )
+            .await?;
+        }
         // The instance AI config is written as an untyped blob through this generic
         // endpoint, so it never passes the typed check the workspace handler applies.
         // Rates that reach a cost total unbounded would make it negative or infinite.
@@ -1288,6 +1303,14 @@ async fn set_instance_config(
 
         for (key, value) in &settings_diff.upserts {
             run_setting_pre_write_hook(&db, key, value).await?;
+        }
+        if settings_diff
+            .deletes
+            .iter()
+            .any(|k| k == EXTERNAL_INSTANCE_PG_SETTING)
+        {
+            windmill_common::external_instance_pg::check_external_instance_pg_write(&db, None)
+                .await?;
         }
 
         instance_config::apply_settings_diff(&db, &settings_diff)
@@ -1741,6 +1764,54 @@ async fn refresh_custom_instance_user_pwd(
     windmill_common::utils::refresh_custom_instance_user_pwd(&db).await?;
     windmill_common::utils::refresh_custom_instance_replication_user_pwd(&db).await?;
     Ok(Json(()))
+}
+
+async fn get_external_instance_pg_status(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<windmill_common::external_instance_pg::ExternalInstancePgStatus> {
+    require_super_admin(&db, &authed).await?;
+    Ok(Json(
+        windmill_common::external_instance_pg::external_instance_pg_status(&db).await?,
+    ))
+}
+
+#[derive(Deserialize)]
+struct SetupExternalInstancePgBody {
+    #[serde(default)]
+    rotate_passwords: bool,
+}
+
+async fn setup_external_instance_pg(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(body): Json<SetupExternalInstancePgBody>,
+) -> JsonResult<windmill_common::external_instance_pg::ExternalInstancePgSetupReport> {
+    require_super_admin(&db, &authed).await?;
+    let report = windmill_common::external_instance_pg::setup_external_instance_pg_unchecked(
+        &db,
+        body.rotate_passwords,
+    )
+    .await?;
+    let rotated = body.rotate_passwords.to_string();
+    let success = report.success.to_string();
+    windmill_audit::audit_oss::audit_log(
+        &db,
+        &authed,
+        "settings.setup_external_instance_pg",
+        windmill_audit::ActionKind::Update,
+        "global",
+        Some(&authed.email),
+        Some(
+            [
+                ("rotate_passwords", rotated.as_str()),
+                ("success", success.as_str()),
+            ]
+            .into(),
+        ),
+    )
+    .await?;
+    Ok(Json(report))
 }
 
 #[derive(Deserialize)]
