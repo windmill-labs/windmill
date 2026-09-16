@@ -1888,3 +1888,43 @@ class TestTaskFingerprint:
 
         result = _run_workflow(wf, {}, {})
         assert result["steps"][0]["fn_id"] != result["steps"][1]["fn_id"]
+
+    def test_two_lambdas_differing_inside_a_genexp_are_told_apart(self):
+        """The difference lives in a nested code object, and they share a source
+        line, so the shape has to be read recursively."""
+        first, second = task(lambda xs: sum(x + 1 for x in xs)), task(lambda xs: sum(x + 2 for x in xs))
+
+        @workflow
+        async def wf():
+            return await asyncio.gather(first(xs=[1]), second(xs=[1]))
+
+        result = _run_workflow(wf, {}, {})
+        assert result["steps"][0]["fn_id"] != result["steps"][1]["fn_id"]
+
+    def test_fingerprint_does_not_move_with_the_interpreter_hash_seed(self):
+        """A set constant renders in hash order, which the interpreter randomizes
+        per process: a fingerprint that moved with it would never hit its cache."""
+        import os
+        import pathlib
+        import subprocess
+        import sys
+
+        script = (
+            "from wmill.client import _fn_fingerprint\n"
+            "def t(x):\n"
+            "    return x in frozenset({'a', 'b', 'c', 'd', 'e'})\n"
+            "print(_fn_fingerprint(t))\n"
+        )
+        root = str(pathlib.Path(__file__).resolve().parents[1])
+        seen = set()
+        for seed in ("1", "2"):
+            env = {**os.environ, "PYTHONHASHSEED": seed, "PYTHONPATH": root}
+            out = subprocess.run(
+                [sys.executable, "-c", script],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=True,
+            )
+            seen.add(out.stdout.strip())
+        assert len(seen) == 1

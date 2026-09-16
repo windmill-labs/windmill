@@ -3285,6 +3285,36 @@ class WorkflowCtx:
         })
 
 
+def _code_shape(code) -> bytes:
+    """What a code object does, rendered the same way in every process.
+
+    A set renders in hash order, which the interpreter randomizes per process, so
+    a fingerprint built on it would change between jobs and never find its cached
+    result; sorting the members fixes that. A nested code object is where a
+    generator expression's body lives, and two of those can be the only
+    difference between two functions, so it is rendered rather than skipped.
+    """
+    import types
+
+    def const(c) -> bytes:
+        if isinstance(c, types.CodeType):
+            return b"code:" + _code_shape(c)
+        if isinstance(c, (frozenset, set)):
+            return b"set:" + b",".join(sorted(const(x) for x in c))
+        if isinstance(c, tuple):
+            return b"tuple:" + b",".join(const(x) for x in c)
+        return f"{type(c).__name__}:{c!r}".encode()
+
+    return b"|".join(
+        [
+            code.co_code,
+            repr(code.co_names).encode(),
+            repr(code.co_varnames).encode(),
+            b",".join(const(c) for c in code.co_consts),
+        ]
+    )
+
+
 def _fn_fingerprint(func) -> str:
     """A stable identity for a task's code, what its cached result is keyed on: a
     name is shared by any two tasks called the same, and a step key by any two
@@ -3303,8 +3333,7 @@ def _fn_fingerprint(func) -> str:
         pass
     code = getattr(func, "__code__", None)
     if code is not None:
-        consts = tuple(c for c in code.co_consts if not isinstance(c, type(code)))
-        parts.append(repr((code.co_code, code.co_names, code.co_varnames, consts)).encode())
+        parts.append(_code_shape(code))
     if not parts:
         parts.append(repr(func).encode())
     return hashlib.sha256(b"\x1f".join(parts)).hexdigest()
