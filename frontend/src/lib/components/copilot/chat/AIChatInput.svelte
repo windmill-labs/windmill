@@ -1303,7 +1303,9 @@
 						if (onKeyDown) {
 							onKeyDown(e)
 						}
-						if (e.key === 'Enter' && !e.shiftKey) {
+						// An Enter that confirms an IME composition (Japanese, Chinese) is not a
+						// send; it would ship the unfinished text.
+						if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
 							e.preventDefault()
 							sendRequest()
 						}

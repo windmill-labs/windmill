@@ -100,6 +100,20 @@ describe('toDisplayMessages', () => {
 		})
 	})
 
+	it('does not flag a turn whose tool failed but whose agent still answered', () => {
+		const display = toDisplayMessages([
+			message({ role: 'user', content: 'try' }),
+			message({
+				role: 'tool',
+				content: 'Error executing search',
+				success: false,
+				tool: { name: 'search', status: 'error' }
+			}),
+			message({ role: 'assistant', content: 'search is down, here is what I know' })
+		])
+		expect(display[0]).toMatchObject({ role: 'user', error: undefined })
+	})
+
 	it('flags the streaming assistant message and a failed tool', () => {
 		const display = toDisplayMessages([
 			message({ role: 'assistant', content: 'partial', pending: true }),
@@ -157,6 +171,44 @@ describe('FlowChatViewHost', () => {
 		expect(host.queuedMessage).toBe('')
 		expect(chat.sendMessage).toHaveBeenLastCalledWith('first\nsecond', { inputs: undefined })
 		host.dispose()
+	})
+
+	it('hands the queue back when a failed flow settles as idle', () => {
+		const { chat, set } = fakeChat(
+			idleState({ status: 'streaming', messages: [message({ role: 'user', content: 'go' })] })
+		)
+		const host = new FlowChatViewHost(chat)
+		const prependText = vi.fn()
+		host.setAiChatInput({ prependText } as any)
+		host.queueMessage('later')
+		// A failed flow is answered with its error and the status still returns to idle.
+		set({
+			status: 'idle',
+			messages: [
+				message({ role: 'user', content: 'go' }),
+				message({ role: 'assistant', content: 'boom', success: false })
+			]
+		})
+		expect(prependText).toHaveBeenCalledWith('later')
+		expect(chat.sendMessage).not.toHaveBeenCalled()
+		host.dispose()
+	})
+
+	it('drops a flush still waiting on the turn once disposed', async () => {
+		const { chat, set } = fakeChat()
+		let releaseTurn = () => {}
+		chat.sendMessage.mockImplementationOnce(
+			() => new Promise<void>((resolve) => (releaseTurn = resolve))
+		)
+		const host = new FlowChatViewHost(chat)
+		void host.sendRequest({ instructions: 'start' })
+		set({ status: 'streaming' })
+		host.queueMessage('never')
+		set({ status: 'idle' })
+		host.dispose()
+		releaseTurn()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
 	})
 
 	it('hands the text back when the chat refuses the turn', async () => {

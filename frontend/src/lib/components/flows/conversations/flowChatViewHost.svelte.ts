@@ -33,14 +33,24 @@ function parseToolPayload(raw: string | undefined): unknown {
 }
 
 /**
- * Whether the turn the user message at `index` started failed: something after it and
- * before the next user message reports `success: false`.
+ * Whether the turn the user message at `index` started failed: its last row before the
+ * next user message reports `success: false`. The last row, not any row: a tool call can
+ * fail and the agent still answer, and that turn completed.
  */
 export function turnFailed(messages: readonly ChatMessage[], index: number): boolean {
+	let last: ChatMessage | undefined
 	for (let i = index + 1; i < messages.length; i++) {
 		const message = messages[i]
-		if (message.role === 'user') return false
-		if (message.success === false) return true
+		if (message.role === 'user') break
+		last = message
+	}
+	return last?.success === false
+}
+
+/** Whether the latest turn failed, per `turnFailed`. False before any turn. */
+function lastTurnFailed(messages: readonly ChatMessage[]): boolean {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i].role === 'user') return turnFailed(messages, i)
 	}
 	return false
 }
@@ -115,8 +125,13 @@ export class FlowChatViewHost implements ChatViewHost {
 		this.#unsubscribe = chat.subscribe((state) => this.#onState(state))
 	}
 
-	/** Stops following the chat. The chat itself is the caller's to destroy. */
+	#disposed = false
+	/** Stops following the chat, and drops what was queued: a flush still waiting on the
+	 * turn's release would otherwise start a run from a panel that is gone. The chat itself
+	 * is the caller's to destroy. */
 	dispose() {
+		this.#disposed = true
+		this.#queued = ''
 		this.#unsubscribe()
 	}
 
@@ -141,8 +156,10 @@ export class FlowChatViewHost implements ChatViewHost {
 			// not now: the chat publishes `idle` from inside its own `sendMessage`, which still
 			// counts the turn as open until it returns, and a send made before that would be
 			// refused as a second turn. After a failure it goes back to the composer instead,
-			// where the reader would rather look at the error than pile on.
-			if (state.status === 'idle') void this.#turnDone.then(this.flushQueuedMessage)
+			// where the reader would rather look at the error than pile on. A failed flow
+			// settles as `idle` too, with its error as the answer, so the messages decide.
+			const succeeded = state.status === 'idle' && !lastTurnFailed(state.messages)
+			if (succeeded) void this.#turnDone.then(this.flushQueuedMessage)
 			else this.dequeueMessage()
 		}
 	}
@@ -238,7 +255,7 @@ export class FlowChatViewHost implements ChatViewHost {
 	}
 	flushQueuedMessage = () => {
 		const text = this.#queued
-		if (!text) return
+		if (!text || this.#disposed) return
 		this.#queued = ''
 		void this.sendRequest({ instructions: text })
 	}
@@ -271,8 +288,8 @@ export class FlowChatViewHost implements ChatViewHost {
 	supportsLinkedFolders = false
 	attachmentAccept = ''
 	tools = []
-	// The enum's value, named without importing the copilot manager (and the editor it
-	// pulls in) into a module the flow page loads.
+	// The enum's value, written out so this module never imports the copilot manager at
+	// runtime: its unit test would otherwise load the manager and the editor it pulls in.
 	autonomyMode = 'default' as AIAutonomyMode.DEFAULT
 	setAutonomyMode = () => {}
 	autoAcceptEditsActive = false
