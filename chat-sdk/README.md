@@ -226,9 +226,13 @@ set) means the turn could not run or be followed at all, such as a refused reque
 
 Methods: `sendMessage(text, { inputs? })`, `stop()`, `newConversation()`,
 `selectConversation(id)`, `loadConversations({ page?, perPage? })`,
-`deleteConversation(id)`, `loadOlderMessages()`, `destroy()`. Switching conversations
-stops following the current answer; the flow keeps running and, with server history,
-its answer is there when you come back.
+`deleteConversation(id)`, `loadOlderMessages()`, `setFlowPath(path)`, `destroy()`.
+Switching conversations stops following the current answer; the flow keeps running and,
+with server history, its answer is there when you come back.
+
+`setFlowPath` repoints later runs and conversation listings at a renamed flow. Conversations
+already started keep the path they were created under, local history stays keyed on the
+path the chat was created with, and a custom `run` ignores it.
 
 ## History
 

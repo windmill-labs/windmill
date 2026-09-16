@@ -168,11 +168,8 @@
 {/if}
 
 {#if message.content}
-	<!-- Present but invisible until the answer is hovered: kept in flow so revealing it
-	     does not nudge the message below, and with no margin of its own so it sits in the
-	     gap the transcript already leaves between messages. A row carrying only thinking
-	     has no answer to copy or date, and the run behind it is the one the next row
-	     already links. -->
+	<!-- Kept in flow while invisible, so revealing it on hover does not nudge the message
+	     below. A thinking-only row has no answer to copy, and the next row links its run. -->
 	<div
 		class="flex items-center gap-2 text-2xs text-tertiary opacity-0 transition-opacity duration-150 group-hover/answer:opacity-100 focus-within:opacity-100"
 	>

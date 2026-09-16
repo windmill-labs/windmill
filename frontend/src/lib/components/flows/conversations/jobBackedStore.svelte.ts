@@ -1,13 +1,7 @@
 /**
- * What a row can only learn from the job behind it, fetched once and kept while mounted.
- *
- * A conversation row stores the little it must; the rest — a tool call's arguments and
- * result, the attachments a message ran with — already exists on that turn's job. Reading
- * it back keeps one copy of the data instead of two, at the cost of a fetch per row, and
- * of the same three rules wherever it is done: ask once, answer empty until it lands, and
- * cache the empty answer when the job is gone so a purged run is not re-fetched forever.
- *
- * The rules live here; what to fetch and how to read it is the caller's.
+ * What a row can only learn from the job behind it, fetched once and kept while mounted:
+ * empty until it lands, and empty for good when the read fails, so a purged or unreadable
+ * job is not re-fetched on every render of a streaming transcript.
  */
 
 /**

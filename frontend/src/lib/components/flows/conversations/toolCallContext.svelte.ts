@@ -1,17 +1,7 @@
 /**
- * What a tool call ran with and returned, recovered from its job.
- *
- * A conversation row stores only a summary sentence ("Used X tool"), but a Windmill tool
- * runs as its own job, and that job already holds everything the card needs: `args` are
- * the arguments the model supplied, `result` is what came back, and `script_path` names
- * the tool. Reading them there keeps one copy of the data instead of two.
- *
- * Two kinds of tool are out of reach and keep the sentence: an MCP tool, and a
- * provider-native one (web search). Neither gets a job of its own — both run inside the
- * agent's — so both rows name the agent's job, which retention needs to collect them. Its
- * args are the agent's configuration and its result the agent's answer, so reading them
- * would show confidently wrong details: an `aiagent` job is ignored here, and an MCP row
- * stores its own call on the row instead (`tool_arguments` / `tool_result`).
+ * A tool call's arguments and result, read from the job a Windmill tool runs as. An MCP or
+ * provider-native tool has no job of its own and its row names the agent's job instead,
+ * whose args and result describe the agent, so an `aiagent` job reads as nothing.
  */
 import { JobService } from '$lib/gen'
 import { JobBackedStore } from './jobBackedStore.svelte'

@@ -36,8 +36,9 @@ export type FlowChatViewHostOptions = {
 	sendDisabled?: () => boolean
 	/** The flow's input schema, which says which of a run's arguments are secret. */
 	inputsSchema?: () => { properties?: Record<string, any> } | undefined
-	/** Flow inputs the composer renders a control of its own for: a message does not repeat
-	 * them as chips, and a retry takes their current value rather than the failed turn's. */
+	/** Flow inputs edited by a control beside the composer rather than the Inputs modal. No
+	 * surface has one yet. A message does not repeat them as chips, and a retry takes their
+	 * current value rather than the failed turn's. */
 	inputsShownInComposer?: () => string[]
 	/** Injectables for tests: the clock and scheduler behind the typewriter pacing. */
 	revealOptions?: Pick<TypewriterRevealOptions, 'instant' | 'now' | 'schedule' | 'cancel'>
@@ -139,11 +140,9 @@ export function toDisplayMessages(
 			}
 			case 'tool': {
 				const failed = message.success === false
-				// The same three details reach a row from one of two places, never both: the
-				// row itself for a tool still streaming, or one that ran inside the agent's job;
-				// the tool's own job otherwise. A row that carries its own call must not ask a
-				// job for it: an MCP tool runs inside the agent's job and names it, so the answer
-				// would be the agent's own arguments and result rather than the tool's.
+				// A row carrying its own call (one that streamed) must not ask a job for it: an
+				// MCP tool runs inside the agent's job and names it, so the job would answer
+				// with the agent's arguments and result rather than the tool's.
 				const fromRow: ToolCallDetails = {
 					toolName: message.tool?.name,
 					parameters: parseToolPayload(message.tool?.arguments),
@@ -168,8 +167,7 @@ export function toDisplayMessages(
 					parameters,
 					result,
 					showDetails: parameters !== undefined || result !== undefined,
-					// What the tool failed with, from its result; from the row's text for one
-					// written before the worker put the error in the result.
+					// What the tool failed with, from its result, else the row's own sentence.
 					error: failed ? (asErrorText(result) ?? message.content) : undefined,
 					isLoading: message.pending && message.tool?.status === 'running'
 				}
@@ -321,12 +319,9 @@ export class FlowChatViewHost implements ChatViewHost {
 		delete this.#revealed[id]
 	}
 
-	// The inputs a turn was sent with, by the id of the user row the chat appended for it.
-	// The row is named with its job once the run's row is read back, so the job could
-	// answer this too, but that is a fetch for arguments this tab just sent, and one that
-	// fails would blank the row for the rest of the session. Every send records, not only
-	// one carrying files: a row with no entry switches to the job lane the moment it is
-	// named, which renders it empty for the length of a round trip.
+	// The inputs each send went out with, by the id of the user row the chat appended for it.
+	// Every send records: a row with no entry falls to the job lane once it is named, and
+	// renders empty for a round trip spent fetching what this tab just sent.
 	#sentInputs = $state<Record<string, MessageInputs>>({})
 
 	#messageInputs = new MessageInputsStore(
@@ -506,16 +501,9 @@ export class FlowChatViewHost implements ChatViewHost {
 	 * `loading`, which renders Stop: there is no run yet to stop. */
 	#readingReplayArgs = false
 	/**
-	 * Run the turn at this transcript position again, as it ran the first time: its own
-	 * arguments, read back from its job, rather than whatever the composer holds now. The
-	 * row shows the inputs it ran with, so a retry that quietly used today's settings would
-	 * run something other than what the reader is looking at.
-	 *
-	 * The composer's own controls are the exception: what they edit is on screen beside the
-	 * transcript rather than on the row, and changing it before pressing Retry has to count.
-	 *
-	 * A job that has been purged can no longer say what it ran with; the composer is then
-	 * the only account left, and the row shows nothing either, so the two still agree.
+	 * Run the turn at this position again with the arguments its job ran with, which are the
+	 * ones its row shows, not the composer's current inputs (`inputsShownInComposer` aside).
+	 * A purged job shows nothing on the row either, so it falls back to the current inputs.
 	 */
 	retryRequest = async (messageIndex: number) => {
 		const message = this.#state.messages[messageIndex]
@@ -538,9 +526,8 @@ export class FlowChatViewHost implements ChatViewHost {
 				}
 				replayInputs = rest
 			} catch (error) {
-				// Only a job that is gone justifies running something else. Anything else, a
-				// network blip or a 500, would substitute a different turn silently, which is
-				// the whole thing this guards against.
+				// Only a job that is gone justifies running with other inputs; after a blip or
+				// a 500 that would silently run a different turn.
 				if ((error as { status?: number })?.status !== 404) {
 					sendUserToast('Could not read what that turn ran with. Try again.', true)
 					return

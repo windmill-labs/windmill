@@ -570,12 +570,8 @@
 	// The typing-dots indicator implies the AI is busy, which is misleading while
 	// the loop is parked on the user; surface a text pill instead so users know to
 	// act on the tool above.
-	/**
-	 * The transcript and composer share one column. An agent step's answer hangs its icon in
-	 * the margin (see AssistantMessage), so a transcript carrying step names asks the column
-	 * to carry enough padding for it to land in. Widened on both sides, not just the left:
-	 * the column is centred, and padding one side alone would shift the text off centre.
-	 */
+	// A step name hangs its icon in the column's left padding (see AssistantMessage), so a
+	// transcript carrying one widens the padding, on both sides to keep the column centred.
 	const agentGutter = $derived(messages.some((m) => m.role === 'assistant' && m.stepName))
 	const columnClass = $derived(
 		wideLayout

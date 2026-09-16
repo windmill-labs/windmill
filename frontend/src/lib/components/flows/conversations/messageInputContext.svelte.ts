@@ -80,8 +80,8 @@ export function argsToMessageInputs(
 	const shown = redactFileArgs(redactSecretArgs(args, schema), schema)
 	for (const [name, value] of Object.entries(shown)) {
 		if (name === 'user_message') continue
-		// An input the composer has its own control for — the model button's provider fields —
-		// is already on screen, and repeating it under every message is noise.
+		// An input with a control of its own beside the composer is already on screen, and
+		// repeating it under every message is noise.
 		if (shownElsewhere.has(name)) continue
 		const files = s3Refs(value)
 		if (files.length > 0) {
