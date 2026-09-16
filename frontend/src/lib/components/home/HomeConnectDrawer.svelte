@@ -6,7 +6,6 @@
 	import { Bot, ExternalLink, Terminal } from 'lucide-svelte'
 	import { shell } from 'svelte-highlight/languages'
 	import { mcpTokenUrlDisabled } from '$lib/mcpAuth'
-	import { onMount } from 'svelte'
 
 	type ConnectTab = 'cli' | 'mcp'
 
@@ -22,15 +21,12 @@ wmill workspace add ${workspaceId} ${workspaceId} ${origin}
 wmill init
 wmill sync pull`)
 
-	onMount(async () => {
-		tokenUrlDisabled = await mcpTokenUrlDisabled()
-	})
-
 	function noop() {}
 
 	export function openDrawer(tab: ConnectTab = 'cli') {
 		selectedTab = tab
 		openVersion += 1
+		void mcpTokenUrlDisabled().then((v) => (tokenUrlDisabled = v))
 		drawer?.openDrawer()
 	}
 

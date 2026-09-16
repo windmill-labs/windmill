@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import { userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
 	import { Alert, Button } from '../common'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
@@ -75,6 +75,7 @@
 
 	function enterMcpMode() {
 		mcpCreationMode = true
+		void mcpTokenUrlDisabled().then((v) => (tokenUrlDisabled = v))
 		newTokenExpiration = undefined
 		newTokenWorkspace = defaultNewTokenWorkspace ?? $workspaceStore
 		newToken = undefined
@@ -157,12 +158,6 @@
 	)
 	const mcpBaseUrl = $derived(`${mcpUrl}?token=`)
 
-	onMount(async () => {
-		if (showMcpMode || mcpOnly || openWithMcpMode) {
-			tokenUrlDisabled = await mcpTokenUrlDisabled()
-		}
-	})
-
 	$effect(() => {
 		const requestedMcpMode = mcpOnly || openWithMcpMode
 		if (requestedMcpMode === lastRequestedMcpMode) {
@@ -225,16 +220,11 @@
 			{#if !lockWorkspace}
 				<div class="mb-4 max-w-md">
 					<span class="block mb-1 text-emphasis text-xs font-semibold">Workspace</span>
+					<!-- No all-workspaces entry: the gateway's consent screen binds the token it issues
+					     to the one workspace picked there, so OAuth has no multi-workspace grant to offer. -->
 					<Select
 						bind:value={newTokenWorkspace}
-						items={[
-							{
-								label: 'All workspaces',
-								value: ALL_WORKSPACES,
-								subtitle: 'Multi-workspace'
-							},
-							...workspaces.map((w) => ({ label: w.name, value: w.id, subtitle: w.id }))
-						]}
+						items={workspaces.map((w) => ({ label: w.name, value: w.id, subtitle: w.id }))}
 					/>
 				</div>
 			{/if}
