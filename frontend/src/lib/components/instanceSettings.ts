@@ -299,6 +299,15 @@ export const settings: Record<string, Setting[]> = {
 			hideInQuickSetup: true
 		},
 		{
+			label: 'Disable token in MCP URLs',
+			description:
+				'Reject the ?token= query parameter on the MCP endpoints, so MCP clients authenticate with an Authorization header or through the OAuth flow. A token in a URL is a credential that ends up in browser history, proxy logs and referrers. Existing MCP URLs carrying a token stop working. Servers and workers pick this up within a minute; dedicated MCP servers (MODE=mcp) apply it when they next restart.',
+			key: 'mcp_disable_token_query_param',
+			fieldType: 'boolean',
+			storage: 'setting',
+			hideInQuickSetup: true
+		},
+		{
 			label: 'Audit log retention (days)',
 			key: 'audit_log_retention_days',
 			description: 'How long to keep audit log entries in the database. Default: 365 days.',
@@ -683,14 +692,6 @@ export const settings: Record<string, Setting[]> = {
 			description:
 				'Hide the email/password form on the login page and reject password login requests. Use when you only want OAuth/SAML logins.',
 			key: 'disable_password_login',
-			fieldType: 'boolean',
-			storage: 'setting'
-		},
-		{
-			label: 'Disable token in MCP URLs',
-			description:
-				'Reject the ?token= query parameter on the MCP endpoints, so MCP clients authenticate with an Authorization header or through the OAuth flow. A token in a URL is a credential that ends up in browser history, proxy logs and referrers. Existing MCP URLs carrying a token stop working. Servers and workers pick this up within a minute; dedicated MCP servers (MODE=mcp) apply it when they next restart.',
-			key: 'mcp_disable_token_query_param',
 			fieldType: 'boolean',
 			storage: 'setting'
 		},
