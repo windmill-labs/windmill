@@ -3,17 +3,17 @@ import { DataMetricService, WorkspaceService } from '$lib/gen'
 import { createToolDef, type Tool } from './shared'
 
 /**
- * Workspace-scoped DuckLake readiness tool, the pipeline counterpart to
- * `list_datatables` in `datatableTools.ts`.
+ * Workspace-scoped DuckLake tools, the pipeline counterpart to `list_datatables`
+ * in `datatableTools.ts`.
  *
  * A data pipeline materializes DuckLake tables and reads/writes S3 assets, which
  * only work once the workspace has object storage + a DuckLake catalog
- * configured. This tool lets the chat detect that prerequisite (and warn with
- * role-appropriate next steps) instead of silently producing a pipeline that
- * cannot run. It is a plain read gated only by workspace membership, so it needs
- * no app context and belongs in the global tool set.
- *
- * `list_data_metrics` reads the same DuckLake tables, so it lives here too.
+ * configured. `list_ducklakes` lets the chat detect that prerequisite (and warn
+ * with role-appropriate next steps) instead of silently producing a pipeline that
+ * cannot run. `list_data_metrics` reads the declarations recorded against those
+ * lake tables, not the tables themselves. Both are plain reads gated only by
+ * workspace membership, so they need no app context and belong in the global tool
+ * set.
  */
 
 /** List the names of the DuckLake catalogs configured in the workspace. */

@@ -733,8 +733,8 @@ const listRunsSchema = z.object({
 
 // `GET /workers/list` hides workers from a caller without the devops role by
 // returning an empty list, not an error, when HIDE_WORKERS_FOR_NON_ADMINS is set.
-// So an empty list means absence only for a devops or superadmin caller — the
-// answer a stuck queue waits on.
+// The flag is not visible here, so absence is only provable for a devops or
+// superadmin caller; every other caller gets the hedge even where nothing is hidden.
 const NO_WORKERS_VISIBLE_MESSAGE =
 	'No workers came back. This does NOT establish that no workers are running: an instance can hide workers from callers without the devops role, and it does so by returning an empty list rather than an error. ' +
 	'Tell the user you cannot see any workers and that worker visibility may be restricted for your account, and suggest they check the Workers page themselves. Never state that no workers are online or that the instance has none.'
@@ -4386,7 +4386,7 @@ export const globalTools: Tool<{}>[] = [
 	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools(),
-	// Workspace DuckLake readiness (storage prerequisite check for pipelines)
+	// Workspace DuckLake: pipeline storage prerequisite, and declared measures
 	...getDucklakeTools(),
 	// Read-only tools over files the user attached to the conversation
 	...fileTools,
