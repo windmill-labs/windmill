@@ -6,6 +6,7 @@
 	import FlowChatInterface from './FlowChatInterface.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
+	import type { FlowModule } from '$lib/gen'
 
 	interface Props {
 		/**
@@ -22,6 +23,8 @@
 		path: string
 		hideSidebar?: boolean
 		inputSchema?: Record<string, any>
+		/** The flow's modules, read for the provider wiring of its AI agent steps. */
+		flowModules?: FlowModule[]
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
 		wideLayout?: boolean
@@ -33,6 +36,7 @@
 		path,
 		hideSidebar = false,
 		inputSchema = undefined,
+		flowModules = undefined,
 		description = undefined,
 		wideLayout = false
 	}: Props = $props()
@@ -102,6 +106,7 @@
 				{chat}
 				{deploymentInProgress}
 				{additionalInputsSchema}
+				{flowModules}
 				{path}
 				{workspace}
 				{description}

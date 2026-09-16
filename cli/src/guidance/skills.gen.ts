@@ -5276,9 +5276,50 @@ tool, \`websearch\` for web search.
 }
 \`\`\`
 
-- \`provider\` is a static object, not a bare resource string: \`{ "kind": <provider kind>,
+- \`provider\` is an object, not a bare resource string: \`{ "kind": <provider kind>,
   "resource": "$res:<path>", "model": <model id> }\`. Required unless the module links to a saved
-  agent through \`value.agent\`
+  agent through \`value.agent\`. Static is right for a flow run from a form; a chat flow wires its
+  fields to flow inputs instead — see below
+
+### Chat-Mode Flows
+
+A flow with \`value.chat_input_enabled: true\` is run from a chat instead of a form: the composer
+sends one message per turn and renders the conversation. It needs a required \`user_message\` string
+input, read by the agent.
+
+**A static \`provider\` gives a chat that cannot change its model.** Feed it from flow inputs
+instead, either way round: one input carrying the whole object (\`"expr": "flow_input.model_config"\`)
+makes every field editable, or wire it field by field to fix some and expose others. A field the
+chat can write becomes a control in the composer — a provider picker, a model list, a thinking
+control — and a field left static is fixed, with no control drawn for it. \`kind\` is the one
+exception: the composer writes it only together with \`resource\`, since a provider is picked as a
+pair, so a \`kind\` input wired on its own stays askable under Configure inputs and nothing the run
+needs becomes unreachable.
+
+\`\`\`json
+{
+  "id": "chat_agent",
+  "value": {
+    "type": "aiagent",
+    "input_transforms": {
+      "provider": {
+        "type": "javascript",
+        "expr": "({ kind: 'anthropic', resource: '$res:f/ai/claude', model: flow_input.model, reasoning_effort: flow_input.thinking })"
+      },
+      "user_message": { "type": "javascript", "expr": "flow_input.user_message" },
+      "memory": { "type": "static", "value": { "kind": "auto", "context_length": 10 } },
+      "streaming": { "type": "static", "value": true },
+      "output_type": { "type": "static", "value": "text" }
+    },
+    "tools": []
+  }
+}
+\`\`\`
+
+- Wiring field by field means one object literal whose values are literals or bare \`flow_input.x\`
+  references. A spread, a call or a computed key leaves the composer unable to tell which input
+  feeds which field, so it offers no control at all — a bare \`flow_input.x\` for the whole object
+  is read instead as that one input carrying every field
 
 ### Tool Naming Rules
 
