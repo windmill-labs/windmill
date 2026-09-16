@@ -41,13 +41,21 @@ pub fn is_user_token(label: Option<&str>) -> bool {
                 && !l.to_lowercase().starts_with("ephemeral")
                 && l != "debugger-token"
                 && !l.starts_with("mcp-oauth-")
-                // App viewer tokens: 12h, re-minted on every app open, so an expiry
-                // warning for one is noise.
-                && !l.starts_with("embed_app:")
-                && !l.starts_with("sdk_app:")
+                // App viewer tokens are short-lived and re-minted on every app open, so
+                // an expiry warning for one is noise.
+                && !l.starts_with(APP_EMBED_TOKEN_LABEL_PREFIX)
+                && !l.starts_with(RAW_APP_SDK_TOKEN_LABEL_PREFIX)
         }
     }
 }
+
+/// Label prefix, followed by the app path, of the token an app viewer's sandboxed iframe
+/// runs with. Reserved in [`is_user_token`], whose SQL and frontend mirrors spell it out.
+pub const APP_EMBED_TOKEN_LABEL_PREFIX: &str = "embed_app:";
+
+/// Label prefix, followed by the app path, of the token a raw app's bundle uses for the
+/// frontend SDK. Reserved in [`is_user_token`], whose SQL and frontend mirrors spell it out.
+pub const RAW_APP_SDK_TOKEN_LABEL_PREFIX: &str = "sdk_app:";
 
 /// Whether `label` belongs to a namespace only the server mints, and which therefore must be
 /// rejected by `create_token`. Narrower than [`is_user_token`], which also drives label

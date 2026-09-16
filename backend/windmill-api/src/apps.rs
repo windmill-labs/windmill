@@ -57,7 +57,7 @@ use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
     apps::{AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
-    auth::TOKEN_PREFIX_LEN,
+    auth::{APP_EMBED_TOKEN_LABEL_PREFIX, RAW_APP_SDK_TOKEN_LABEL_PREFIX, TOKEN_PREFIX_LEN},
     cache::{self, future::FutureCachedExt},
     db::{DbWithOptAuthed, UserDB},
     error::{to_anyhow, Error, JsonResult, Result},
@@ -1522,7 +1522,10 @@ async fn mint_raw_app_sdk_token(
                 scopes.push(windmill_api_auth::scopes::GUEST_SENTINEL.to_string());
                 (label, exp)
             }
-            None => (format!("sdk_app:{app_path}"), requested_exp),
+            None => (
+                format!("{RAW_APP_SDK_TOKEN_LABEL_PREFIX}{app_path}"),
+                requested_exp,
+            ),
         };
     let token_config = NewToken::new(
         Some(label),
@@ -1804,7 +1807,10 @@ pub async fn mint_app_embed_token(
                     scopes.push(windmill_api_auth::scopes::GUEST_SENTINEL.to_string());
                     (label, exp)
                 }
-                None => (format!("embed_app:{app_path}"), requested_exp),
+                None => (
+                    format!("{APP_EMBED_TOKEN_LABEL_PREFIX}{app_path}"),
+                    requested_exp,
+                ),
             };
         let token_config = NewToken::new(
             Some(label),

@@ -3882,9 +3882,9 @@ async fn update_token_label(
     Path(token_prefix): Path<String>,
     Json(req): Json<UpdateTokenLabelRequest>,
 ) -> Result<String> {
-    // The new label must not collide with a system-token namespace (`session`,
-    // `ephemeral*`, `debugger-token`, `mcp-oauth-*`, `embed_app:*`, `sdk_app:*`):
-    // those labels are load-bearing, and a user-set collision would orphan the token — hidden
+    // The new label must not collide with a system-token namespace (see
+    // `windmill_common::auth::is_user_token`): those labels are
+    // load-bearing, and a user-set collision would orphan the token — hidden
     // from the UI (`isUserToken`) and rejected by the editability guard below —
     // while it still authenticates. (`is_user_token(None)` is true, so clearing
     // the label is allowed.)
