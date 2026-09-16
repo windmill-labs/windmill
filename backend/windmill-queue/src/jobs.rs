@@ -4650,8 +4650,8 @@ pub fn tag_reads_args(tag: &str) -> bool {
     RE_ARG_TAG.is_match(tag)
 }
 
-/// Whether the tag reads the flow's state (`$flow_expr[results.a.foo]`). Only the flow runtime
-/// can resolve it, right before pushing the step; `push` leaves it verbatim.
+/// Whether the tag reads the flow's state (`$flow_expr[results.a.foo]`), which only the flow
+/// runtime can resolve, right before pushing the step.
 pub fn tag_reads_flow_expr(tag: &str) -> bool {
     RE_FLOW_EXPR_TAG.is_match(tag)
 }
@@ -6545,7 +6545,10 @@ async fn push_inner<'c, 'd>(
         );
         windmill_common::worker::dedicated_worker_tag(workspace_id, &full_path)
     } else {
-        if tag == Some("".to_string()) {
+        // The flow runtime resolves a step's `$flow_expr[...]` before pushing it, so one still here
+        // was pushed with no flow state to read (a step test, a dependency job) and would name a
+        // queue no worker serves: the job runs on its default tag instead.
+        if tag == Some("".to_string()) || tag.as_deref().is_some_and(tag_reads_flow_expr) {
             tag = None;
         }
 

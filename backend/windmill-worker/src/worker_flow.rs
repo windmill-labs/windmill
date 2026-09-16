@@ -3115,11 +3115,12 @@ fn resolve_flow_step_tag(
 }
 
 /// Resolves each `$flow_expr[path]` of a step tag by evaluating `path` as a flow expression
-/// (`results.a.foo`, `flow_input.region`, `flow_env.pool`). A string renders bare, `null` (also
-/// what a missing field evaluates to) renders empty, any other value as its JSON text.
+/// (`results.a.foo`, `flow_input.region`, `flow_env.pool`, `resume.region`). A string renders
+/// bare, `null` (also what a missing field evaluates to) renders empty, any other value as its
+/// JSON text.
 async fn interpolate_flow_expr_tag(
     tag: &str,
-    last_result: Arc<Box<RawValue>>,
+    env: HashMap<String, Arc<Box<RawValue>>>,
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
     client: &AuthedClient,
@@ -3131,16 +3132,22 @@ async fn interpolate_flow_expr_tag(
         if rendered.contains_key(expr) {
             continue;
         }
-        let value = evaluate_input_transform::<Value>(
-            &InputTransform::new_javascript_expr(expr),
-            last_result.clone(),
+        let value = eval_timeout(
+            expr.to_string(),
+            env.clone(),
             Some(flow_args.clone()),
             flow_env,
             Some(client),
             Some(by_id),
+            None,
         )
         .await
-        .map_err(|e| Error::ExecutionErr(format!("Could not resolve the step tag `{tag}`: {e}")))?;
+        .map_err(|e| {
+            Error::ExecutionErr(format!(
+                "Could not resolve the step tag `{tag}`: error during evaluation of `{expr}`:\n{e:#}"
+            ))
+        })?;
+        let value = serde_json::from_str::<Value>(value.get()).map_err(to_anyhow)?;
         rendered.insert(expr, render_flow_expr_tag_value(value));
     }
     Ok(RE_FLOW_EXPR_TAG
@@ -4508,9 +4515,15 @@ async fn push_next_flow_job(
         let tag = match tag {
             Some(t) if err.is_none() && tag_reads_flow_expr(&t) => {
                 let ctx = get_transform_context(&flow_job, expr_previous_id, &status);
+                let env = HashMap::from([
+                    ("previous_result".to_string(), arc_last_job_result.clone()),
+                    ("resume".to_string(), resume.clone()),
+                    ("resumes".to_string(), resumes.clone()),
+                    ("approvers".to_string(), approvers.clone()),
+                ]);
                 match interpolate_flow_expr_tag(
                     &t,
-                    arc_last_job_result.clone(),
+                    env,
                     expr_flow_args.clone(),
                     flow_env,
                     client,
