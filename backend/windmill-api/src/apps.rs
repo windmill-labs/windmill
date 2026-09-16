@@ -1241,12 +1241,18 @@ async fn get_app_history(
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:read:{}", &path))?;
     let mut tx = user_db.begin(&authed).await?;
+    // Newest first in the order the versions were deployed, which the picker numbers
+    // (`v1`, `v2`, …) and reads the head off. That is the position in `app.versions`,
+    // not `created_at`: the latter is the deploying transaction's start time, so two
+    // that overlap can carry it in the opposite order from the one they landed in. A
+    // version absent from the array (restored from trash, copied by a fork) never sat
+    // in that sequence, so it trails the ones that did.
     let query_result = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg,
                 av.created_by as created_by, av.created_at as created_at
         FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
         WHERE a.workspace_id = $1 AND a.path = $2
-        ORDER BY av.created_at DESC",
+        ORDER BY array_position(a.versions, av.id) DESC NULLS LAST, av.id DESC",
         w_id,
         path,
     ).fetch_all(&mut *tx).await?;
