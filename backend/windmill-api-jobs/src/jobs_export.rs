@@ -710,6 +710,8 @@ pub async fn delete_jobs(
     // which says why): a conversation with no messages left goes, and its memory with it.
     conversation_ids.sort_unstable();
     conversation_ids.dedup();
+    let mut memory_deleted = 0;
+    let mut conversation_deleted = 0;
     if !conversation_ids.is_empty() {
         sqlx::query_scalar!(
             "SELECT id FROM flow_conversation WHERE id = ANY($1) AND workspace_id = $2 ORDER BY id FOR UPDATE",
@@ -718,7 +720,7 @@ pub async fn delete_jobs(
         )
         .fetch_all(&mut *tx)
         .await?;
-        sqlx::query!(
+        memory_deleted = sqlx::query!(
             "DELETE FROM ai_agent_memory a
                USING flow_conversation c
               WHERE c.id = ANY($1)
@@ -732,8 +734,9 @@ pub async fn delete_jobs(
             &w_id
         )
         .execute(&mut *tx)
-        .await?;
-        sqlx::query!(
+        .await?
+        .rows_affected();
+        conversation_deleted = sqlx::query!(
             "DELETE FROM flow_conversation c
               WHERE c.id = ANY($1)
                 AND c.workspace_id = $2
@@ -744,7 +747,8 @@ pub async fn delete_jobs(
             &w_id
         )
         .execute(&mut *tx)
-        .await?;
+        .await?
+        .rows_affected();
     }
 
     // Resolutions are not exported, so a delete-then-reimport of the same UUID would
@@ -781,6 +785,8 @@ pub async fn delete_jobs(
         + zombie_deleted
         + dispatch_event_deleted
         + conversation_message_deleted
+        + memory_deleted
+        + conversation_deleted
         + resolution_deleted
         + jobs_deleted;
 

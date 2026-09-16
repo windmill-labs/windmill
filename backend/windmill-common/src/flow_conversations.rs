@@ -36,12 +36,16 @@ pub async fn get_or_create_conversation_with_id(
     title: &str,
     conversation_id: Uuid,
 ) -> Result<FlowConversation> {
-    // Check if conversation already exists
+    // Locked, so a turn orders against retention collecting the conversation
+    // (windmill_common::jobs::delete_jobs): either the turn goes first and the collector then
+    // sees its message, or it waits and finds the row gone and creates it again. Unlocked, the
+    // message insert would wait on the parent row's lock instead and then fail its FK check.
     let existing_conversation = sqlx::query_as!(
         FlowConversation,
         "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
          FROM flow_conversation
-         WHERE id = $1 AND workspace_id = $2",
+         WHERE id = $1 AND workspace_id = $2
+         FOR UPDATE",
         conversation_id,
         w_id
     )

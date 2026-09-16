@@ -205,6 +205,92 @@ async fn test_delete_jobs_removes_a_conversation_once_its_last_message_goes(
     Ok(())
 }
 
+/// A turn that starts while retention is collecting its conversation must land, not fail:
+/// the conversation lookup locks the row, so the turn waits for the collector's commit,
+/// finds the conversation gone, and creates it again. Without the lock the turn's message
+/// insert is what waits, on the parent row's key lock, and fails its FK check afterwards.
+#[sqlx::test(fixtures("base"))]
+async fn test_new_turn_waits_for_conversation_cleanup_and_recreates(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let old_job = Uuid::new_v4();
+    let new_job = Uuid::new_v4();
+    insert_job(&db, WS, old_job).await?;
+    insert_job(&db, WS, new_job).await?;
+
+    let conv_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by)
+         VALUES ($1, $2, 'f/flow', 'test-user')",
+    )
+    .bind(conv_id)
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id)
+         VALUES ($1, 'user', 'hi', $2)",
+    )
+    .bind(conv_id)
+    .bind(old_job)
+    .execute(&db)
+    .await?;
+
+    // The collector holds the conversation row locked and deleted, uncommitted.
+    let mut cleanup = db.begin().await?;
+    windmill_common::jobs::delete_jobs(&mut *cleanup, &[old_job]).await?;
+
+    let turn = tokio::spawn({
+        let db = db.clone();
+        async move {
+            let mut tx = db.begin().await?;
+            windmill_common::flow_conversations::get_or_create_conversation_with_id(
+                &mut tx,
+                WS,
+                "f/flow",
+                "test-user",
+                "hi again",
+                conv_id,
+            )
+            .await?;
+            windmill_common::flow_conversations::add_message_to_conversation_tx(
+                &mut tx,
+                conv_id,
+                Some(new_job),
+                "hi again",
+                windmill_common::flow_conversations::MessageType::User,
+                None,
+                true,
+            )
+            .await?;
+            tx.commit().await?;
+            anyhow::Ok(())
+        }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    cleanup.commit().await?;
+    turn.await??;
+
+    assert_eq!(
+        conversation_and_memory_counts(&db, conv_id).await?.0,
+        1,
+        "the turn must have created the conversation again"
+    );
+    assert_eq!(
+        count(
+            &db,
+            "SELECT count(*) FROM flow_conversation_message WHERE conversation_id = $1",
+            conv_id,
+        )
+        .await?,
+        1,
+        "only the new turn's message should remain"
+    );
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_clear_schedule_removes_side_rows(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
