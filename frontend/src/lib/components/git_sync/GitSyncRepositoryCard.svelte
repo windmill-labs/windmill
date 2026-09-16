@@ -114,8 +114,9 @@
 		try {
 			await gitSyncContext.saveRepository(idx)
 		} catch (e) {
-			// The backend rejects promotion mode without an active EE plan; revert
-			// the optimistic toggle instead of leaving it stuck on until reload.
+			// The backend can reject promotion mode (non-EE build, outdated dev sync
+			// script, dev repo not matching its parent's); revert the optimistic
+			// toggle instead of leaving it stuck on until reload.
 			if (repo) {
 				repo.use_individual_branch = prevIndiv
 				repo.group_by_folder = prevGbf
