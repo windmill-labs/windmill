@@ -167,7 +167,13 @@ pub fn jwk_algorithms(jwk: &Jwk) -> Option<Vec<Algorithm>> {
     {
         return None;
     }
-    match (&jwk.algorithm, crate::jwt::jwk_algorithm(jwk)) {
+    let alg = crate::jwt::jwk_algorithm(jwk);
+    // A key that names an `alg` we cannot verify with (RSA-OAEP, ...) is not an alg-less
+    // key to be tried against the whole family: it is published for something else.
+    if alg.is_none() && jwk.common.key_algorithm.is_some() {
+        return None;
+    }
+    match (&jwk.algorithm, alg) {
         (AlgorithmParameters::RSA(_), Some(alg)) if RSA_ALGORITHMS.contains(&alg) => {
             Some(vec![alg])
         }
@@ -645,6 +651,12 @@ mod tests {
     #[test]
     fn symmetric_key_is_refused() {
         let k = jwk(serde_json::json!({"kty":"oct","k":"c2VjcmV0"}));
+        assert_eq!(jwk_algorithms(&k), None);
+    }
+
+    #[test]
+    fn a_key_naming_an_encryption_alg_is_refused() {
+        let k = jwk(serde_json::json!({"kty":"RSA","alg":"RSA-OAEP","n":"aa","e":"AQAB"}));
         assert_eq!(jwk_algorithms(&k), None);
     }
 

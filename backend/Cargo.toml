@@ -637,7 +637,7 @@ libxml = { version = "=0.3.3" }
 samael = { git="https://github.com/njaremko/samael", rev="f879f1942ec1b34b6d3027ce7e4724ad95d15dfa", features = ["xmlsec"] }
 gcp_auth = "0.9.0"
 rust_decimal = { version = "^1", features = ["db-postgres", "serde-float"]}
-jsonwebtoken = "8.3.0"
+jsonwebtoken = { version = "^10.3", features = ["rust_crypto"] }
 pem = "3.0.1"
 nix = { version = "0.27.1", features = ["process", "signal"] }
 fs4 = "0.13"
