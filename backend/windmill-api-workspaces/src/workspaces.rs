@@ -5690,13 +5690,10 @@ async fn session_workspace_status(
     Ok(Json(statuses))
 }
 
-/// The AI session retention of the workspaces a browser holds sessions for, which it deletes
-/// its local copies by (`sessionState.svelte.ts`), as the server deletes their backups. Its
-/// own route rather than a field on the status above, whose answer a tab loaded before this
-/// version still reads. A workspace without a retention, or one this caller cannot be authed
-/// into, is absent: a status says what to do with the caller's own sessions, a setting is the
-/// workspace's to tell, so a disabled membership is told nothing though its sessions still
-/// reconcile.
+/// The AI session retention a browser deletes its local copies by (docs/ai-session-backups.md).
+/// Its own route, not a field on the status above, whose shape an older tab still reads. Unlike
+/// a status, it answers only for a workspace this caller can be authed into: a setting is the
+/// workspace's to tell, so a disabled membership gets none though its sessions still reconcile.
 async fn session_workspace_retention(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
