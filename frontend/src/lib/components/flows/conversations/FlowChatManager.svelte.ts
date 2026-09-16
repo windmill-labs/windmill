@@ -1442,10 +1442,14 @@ export class FlowChatManager {
 			for (;;) {
 				if (!this.#isCurrent(turn)) return false
 				try {
-					const { completed } = await api.getCompletedResult(jobId, turn.signal)
-					// Nothing to take over, so the turn opened to ask the question goes with it.
+					const { completed, result } = await api.getCompletedResult(jobId, turn.signal)
+					// Over already, so there is no run to follow — but a turn reopened at the
+					// moment it finishes is a turn whose last rows may still be on their way,
+					// and it is finished here the same way the turns that were followed are.
 					if (completed) {
-						this.#endTurnIfCurrent(turn)
+						await this.#reconcileTurn(turn)
+						if (!this.#isCurrent(turn)) return false
+						await this.#finishTurn(turn, jobId, result)
 						return false
 					}
 					break
@@ -1541,17 +1545,20 @@ export class FlowChatManager {
 	 * Whether the transcript already shows this turn's answer.
 	 *
 	 * Asked of the rows after the message the turn answers, because that is where its own
-	 * work begins — a count of rows says nothing, since a turn writes tool and thinking rows
-	 * whose arrival has no bearing on whether the answer came. A turn whose question is no
-	 * longer on screen is left alone: without the boundary there is nothing to be sure of,
-	 * and showing an answer twice is the worse mistake.
+	 * work begins. An answer is any assistant row with something in it — not the last row,
+	 * which says nothing: a turn's rows are written by tasks the run does not wait for, so a
+	 * tool row can land after the answer and a thinking row before it, and neither arrival
+	 * bears on whether the answer came. A turn whose question is no longer on screen is left
+	 * alone: without the boundary there is nothing to be sure of, and showing an answer twice
+	 * is the worse mistake.
 	 */
 	#turnAnswered(turn: Turn): boolean {
 		const rows = this.#rowsOf(turn.conversationId)
 		const asked = rows.findIndex((row) => row.id === turn.userRowId)
 		if (asked < 0) return true
-		const last = rows[rows.length - 1]
-		return rows.length > asked + 1 && last?.message_type === 'assistant'
+		return rows
+			.slice(asked + 1)
+			.some((row) => row.message_type === 'assistant' && row.content !== '')
 	}
 
 	/**

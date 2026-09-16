@@ -1026,6 +1026,51 @@ describe('a conversation opened while its run is still going', () => {
 		expect(manager.isConversationBusy('a')).toBe(true)
 	})
 
+	/**
+	 * A turn's rows are written by tasks the run does not wait for, so a tool row can land
+	 * after the answer. Reading the answer off the last row would call such a turn unanswered
+	 * and show the run's result beside the answer it already has.
+	 */
+	it('finds the answer behind a tool row that landed after it', async () => {
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			.mockResolvedValue([
+				{
+					id: 'db-answer',
+					conversation_id: 'a',
+					message_type: 'assistant',
+					content: 'the answer',
+					created_at: new Date().toISOString(),
+					created_seq: 5
+				},
+				{
+					id: 'db-tool',
+					conversation_id: 'a',
+					message_type: 'tool',
+					content: 'Used get_time tool',
+					created_at: new Date().toISOString(),
+					created_seq: 6
+				}
+			] as any)
+		jobCompleted.value = true
+		jobCompleted.success = true
+		jobCompleted.result = { windmill_chat_answer: 'the answer' }
+		const manager = (live = managerWithRows())
+		;(manager as any).initialize(
+			vi.fn(async () => 'job-1'),
+			'u/admin/flow',
+			false
+		)
+		manager.operatingWorkspace = () => 'ws'
+		manager.selectedConversationId = 'a'
+		manager.inputMessage = 'ask'
+
+		await manager.sendMessage(undefined, undefined, 'a')
+		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(false))
+
+		expect(manager.messages.filter((m) => m.content === 'the answer')).toHaveLength(1)
+	})
+
 	it('leaves a conversation whose run is over alone', async () => {
 		jobCompleted.value = true
 		const manager = opened('job-done')
