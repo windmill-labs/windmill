@@ -73,6 +73,7 @@ mod ce {
     pub(crate) async fn drop_external_instance_database_unchecked(
         _db: &DB,
         _dbname: &str,
+        _refuse_if_used: bool,
     ) -> Result<()> {
         Err(unavailable())
     }

@@ -1886,18 +1886,10 @@ async fn drop_external_instance_pg_database(
 ) -> JsonResult<()> {
     require_super_admin(&db, &authed).await?;
     // A data table naming a dropped database fails on every job, far from the drop that caused it.
-    if let Some(workspaces) =
-        windmill_common::external_instance_pg::external_instance_database_usages(&db)
-            .await?
-            .remove(dbname.trim())
-    {
-        return Err(error::Error::BadRequest(format!(
-            "Database '{dbname}' is still used by data tables in {}",
-            workspaces.into_iter().collect::<Vec<_>>().join(", ")
-        )));
-    }
-    windmill_common::external_instance_pg::drop_external_instance_database_unchecked(&db, &dbname)
-        .await?;
+    windmill_common::external_instance_pg::drop_external_instance_database_unchecked(
+        &db, &dbname, true,
+    )
+    .await?;
     windmill_audit::audit_oss::audit_log(
         &db,
         &authed,

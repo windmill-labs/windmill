@@ -1422,7 +1422,7 @@ pub async fn drop_forked_datatable_databases(
                 == windmill_common::workspaces::DataTableCatalogResourceType::ExternalInstance
             {
                 windmill_common::external_instance_pg::drop_external_instance_database_unchecked(
-                    &db, db_to_drop,
+                    &db, db_to_drop, false,
                 )
                 .await
             } else {

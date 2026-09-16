@@ -130,8 +130,8 @@ pub async fn external_instance_databases(db: &DB) -> Result<BTreeMap<String, Cus
 }
 
 /// The workspaces whose data tables name each database on the external cluster.
-pub async fn external_instance_database_usages(
-    db: &DB,
+pub async fn external_instance_database_usages<'c>(
+    db: impl sqlx::PgExecutor<'c>,
 ) -> Result<BTreeMap<String, BTreeSet<String>>> {
     let rows = sqlx::query_as::<_, (String, String)>(
         "SELECT ws.workspace_id, entry->'database'->>'resource_path'
@@ -211,12 +211,55 @@ pub async fn create_external_instance_database_unchecked(
         .await
 }
 
-/// Drop `dbname` from the external cluster. Only ever a database Windmill registered creating.
+/// Drop `dbname` from the external cluster: only a database Windmill registered creating, and still
+/// carries the mark it set there. With `refuse_if_used`, refuse while a data table names it.
 ///
 /// Authorization: checks nothing. Callers MUST be superadmin, or be deleting the fork that owns
 /// this `wm_fork_` database.
-pub async fn drop_external_instance_database_unchecked(db: &DB, dbname: &str) -> Result<()> {
-    crate::external_instance_pg_oss::drop_external_instance_database_unchecked(db, dbname).await
+pub async fn drop_external_instance_database_unchecked(
+    db: &DB,
+    dbname: &str,
+    refuse_if_used: bool,
+) -> Result<()> {
+    crate::external_instance_pg_oss::drop_external_instance_database_unchecked(
+        db,
+        dbname,
+        refuse_if_used,
+    )
+    .await
+}
+
+/// Serializes everything that changes which databases exist on the external cluster, or which data
+/// tables name them: setup, creates, drops, and data table saves. Held until `tx` ends.
+pub async fn lock_external_instance_pg_state(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+        .bind(EXTERNAL_INSTANCE_PG_STATE_SETTING)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Refuse a data table naming `dbname` unless Windmill created it on the external cluster. Takes
+/// the lock drops take, so none can remove the database before `tx`, which saves the data table,
+/// commits.
+pub async fn ensure_external_instance_database_registered(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    dbname: &str,
+) -> Result<()> {
+    lock_external_instance_pg_state(tx).await?;
+    if read_external_instance_pg_state(&mut **tx)
+        .await?
+        .databases
+        .contains_key(dbname)
+    {
+        return Ok(());
+    }
+    Err(Error::BadRequest(format!(
+        "Windmill did not create a database named '{dbname}' on the external instance cluster. \
+         Create it from the instance settings first."
+    )))
 }
 
 /// Check a write to [`EXTERNAL_INSTANCE_PG_SETTING`] before it happens: `None`, null or an empty

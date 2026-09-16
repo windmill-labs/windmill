@@ -4037,6 +4037,11 @@ async fn edit_datatable_config(
         }
         if database.resource_type == DataTableCatalogResourceType::ExternalInstance {
             windmill_common::external_instance_pg::ensure_external_instance_available()?;
+            windmill_common::external_instance_pg::ensure_external_instance_database_registered(
+                &mut tx,
+                &database.resource_path,
+            )
+            .await?;
         }
         if !is_superadmin {
             return Err(Error::BadRequest(
