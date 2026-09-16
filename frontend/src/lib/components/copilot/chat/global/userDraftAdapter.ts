@@ -176,6 +176,9 @@ function appDraftToWorkspaceItem(path: string, draft: AppDraftValue): WorkspaceI
 		summary: value.summary,
 		parentVersionId: value.parent_version,
 		value,
+		// The chat only ever addresses the `raw_app` draft kind (see itemKindFor),
+		// so every app draft it can see is a code app.
+		rawApp: true,
 		isDraft: true
 	}
 }
@@ -541,6 +544,10 @@ function backendDraftRowToWorkspaceItem(
 		value: undefined,
 		isDraft: true,
 		triggerKind,
+		// Spread, so the key is absent rather than undefined: this row is laid over
+		// the deployed listing's row for the same item, where a key present here
+		// blanks what that listing knew.
+		...(row.kind === 'raw_app' ? { rawApp: true } : {}),
 		...(isLiveDraft ? { isLiveDraft: true } : {})
 	}
 }
