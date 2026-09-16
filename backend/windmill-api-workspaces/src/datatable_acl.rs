@@ -37,7 +37,8 @@ use windmill_common::datatable_roles::{
 };
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
 use windmill_common::workspaces::{
-    get_datatable_resource_from_db_unchecked, resolve_governing_datatable, GoverningDatatable,
+    get_datatable_resource_from_db_unchecked, resolve_governing_datatable, DataTable,
+    GoverningDatatable,
 };
 use windmill_common::{PgDatabase, DB};
 
@@ -1307,6 +1308,21 @@ async fn authorize_acl_change(
     Ok(governing)
 }
 
+/// Whether the governing entry an apply was authorized on is still the one in the settings, read
+/// under the lock: a save in between could have pointed it at another database or changed its roles.
+fn entry_unchanged(governing: &GoverningDatatable, entry_now: Option<serde_json::Value>) -> bool {
+    let Some(Ok(now)) = entry_now.map(serde_json::from_value::<DataTable>) else {
+        return false;
+    };
+    match (
+        serde_json::to_value(&now),
+        serde_json::to_value(&governing.datatable),
+    ) {
+        (Ok(now), Ok(authorized)) => now == authorized,
+        _ => false,
+    }
+}
+
 /// Plan one change against the catalog and the database as they are now.
 async fn build_plan(
     client: &tokio_postgres::Client,
@@ -1502,39 +1518,41 @@ async fn apply_datatable_acl(
                 .to_string(),
         )
     })?;
-    // Refuses without taking a lock; everything is checked again once they are held.
+    // Everything that needs the pool happens before the locks: once `tx` holds them, a second pool
+    // connection could wait forever on a pool that concurrent applies, queued on the same locks,
+    // have exhausted.
     let governing = authorize_acl_change(&db, &authed, &w_id, &datatable_name).await?;
-
-    // Held until the change is committed: a role renamed or dropped meanwhile would change what
-    // the plan names, and a settings save could move the entry onto another database. Taken in the
-    // same order as the permissions save, so the two cannot deadlock.
-    let mut tx = db.begin().await?;
-    lock_role_catalog(&mut tx).await?;
-    sqlx::query!(
-        "SELECT 1 AS one FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
-        &governing.workspace_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    let governing = authorize_acl_change(&db, &authed, &w_id, &datatable_name).await?;
-    let catalog = read_role_catalog_tx(&mut tx).await?;
-
     let (mut client, mut notices, dbname) = connect_as_admin_unchecked(&db, &governing).await?;
-    let plan = build_plan(&client, &dbname, &catalog, &req.target, &req.change).await?;
-    if &plan.statements != confirmed {
-        return Err(Error::BadRequest(
-            "The data table or its roles changed since this was planned, so it would no longer \
-             run what was confirmed. Plan it again."
-                .to_string(),
-        ));
-    }
-
     // Postgres only lets a role pass on a privilege it holds with grant option, and an instance
     // database provisioned before data table roles holds none. Best-effort: a grant this fails to
     // enable is refused below rather than skipped.
     if let Err(e) = windmill_common::ensure_instance_db_grant_options_unchecked(&db, &dbname).await
     {
         tracing::warn!("Could not refresh grant options on '{dbname}': {e}");
+    }
+
+    // Held until the change is committed: a role renamed or dropped meanwhile would change what
+    // the plan names, and a settings save could move the entry onto another database. Taken in the
+    // same order as the permissions save, so the two cannot deadlock.
+    let mut tx = db.begin().await?;
+    lock_role_catalog(&mut tx).await?;
+    let entry_now = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
+    )
+    .bind(&governing.workspace_id)
+    .bind(&governing.name)
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+    let catalog = read_role_catalog_tx(&mut tx).await?;
+
+    let plan = build_plan(&client, &dbname, &catalog, &req.target, &req.change).await?;
+    if !entry_unchanged(&governing, entry_now) || &plan.statements != confirmed {
+        return Err(Error::BadRequest(
+            "The data table or its roles changed since this was planned, so it would no longer \
+             run what was confirmed. Plan it again."
+                .to_string(),
+        ));
     }
 
     // One transaction: a half-applied ownership transfer leaves one schema's objects owned by two
