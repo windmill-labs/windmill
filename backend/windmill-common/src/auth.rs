@@ -20,9 +20,9 @@ use crate::{
 
 /// Whether `label` denotes a user-created token rather than a system token
 /// (`session`, `guest_session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`,
-/// `embed_app:*`, `sdk_app:*`). System-token labels are load-bearing — session
-/// cleanup, super_admin propagation, expiry notifications and username overrides all
-/// key off them — so they must not be user-editable. `None` (no label) is treated as
+/// `embed_app:*`, `sdk_app:*`, `impersonation:*`). System-token labels are load-bearing —
+/// session cleanup, super_admin propagation, expiry notifications and username overrides
+/// all key off them — so they must not be user-editable. `None` (no label) is treated as
 /// a user token.
 ///
 /// This is the canonical copy. When updating it, also update its mirrors:
@@ -41,10 +41,12 @@ pub fn is_user_token(label: Option<&str>) -> bool {
                 && !l.to_lowercase().starts_with("ephemeral")
                 && l != "debugger-token"
                 && !l.starts_with("mcp-oauth-")
-                // App viewer tokens are short-lived and re-minted on every app open, so
-                // an expiry warning for one is noise.
+                // Short-lived tokens the server mints per app open or per service-account
+                // impersonation (EE `users_ee.rs`) and nobody manages, so an expiry warning
+                // for one is noise.
                 && !l.starts_with(APP_EMBED_TOKEN_LABEL_PREFIX)
                 && !l.starts_with(RAW_APP_SDK_TOKEN_LABEL_PREFIX)
+                && !l.starts_with("impersonation:")
         }
     }
 }
@@ -59,9 +61,10 @@ pub const RAW_APP_SDK_TOKEN_LABEL_PREFIX: &str = "sdk_app:";
 
 /// Whether `label` belongs to a namespace only the server mints, and which therefore must be
 /// rejected by `create_token`. Narrower than [`is_user_token`], which also drives label
-/// editability and expiry notifications and can afford to reserve more: `Ephemeral lsp token`
-/// and `debugger-token` are minted by the editor and the debugger through that same handler,
-/// so reserving them would break those features.
+/// editability and expiry notifications and can afford to reserve more: `Ephemeral lsp token`,
+/// `debugger-token` and `ephemeral-test-connection: *` are minted by the editor, the debugger
+/// and object-storage connection tests through that same handler, so reserving them would
+/// break those features.
 ///
 /// `username_override_from_label` trusts a label to name the entity acting only if it is in
 /// here, so anything added must be unmintable by a member.
@@ -976,6 +979,7 @@ mod tests {
         assert!(!is_user_token(Some("mcp-oauth-client")));
         assert!(!is_user_token(Some("embed_app:f/team/dashboard")));
         assert!(!is_user_token(Some("sdk_app:u/admin/raw app")));
+        assert!(!is_user_token(Some("impersonation:admin@windmill.dev")));
     }
 
     #[test]

@@ -61,7 +61,8 @@
 			label !== 'debugger-token' &&
 			!label.startsWith('mcp-oauth-') &&
 			!label.startsWith('embed_app:') &&
-			!label.startsWith('sdk_app:')
+			!label.startsWith('sdk_app:') &&
+			!label.startsWith('impersonation:')
 		)
 	}
 

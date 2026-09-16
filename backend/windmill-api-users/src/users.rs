@@ -3924,6 +3924,7 @@ async fn update_token_label(
                  AND label NOT LIKE 'mcp-oauth-%'
                  AND NOT starts_with(label, 'embed_app:')
                  AND NOT starts_with(label, 'sdk_app:')
+                 AND NOT starts_with(label, 'impersonation:')
              ))
            RETURNING token_prefix",
         req.label.as_deref(),
