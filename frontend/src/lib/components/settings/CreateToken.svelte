@@ -1,12 +1,15 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 	import { userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
-	import { Button } from '../common'
+	import { Alert, Button } from '../common'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
 	import { UserService, type NewToken } from '$lib/gen'
+	import { mcpTokenUrlDisabled } from '$lib/mcpAuth'
 	import TokenDisplay from './TokenDisplay.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
+	import CopyableCodeBlock from '../details/CopyableCodeBlock.svelte'
+	import { shell } from 'svelte-highlight/languages'
 
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
@@ -52,6 +55,9 @@
 
 	let pickedScopes = $state<string[] | null>(null)
 	let readOnly = $state(false)
+	// Instance refuses `?token=` on the MCP endpoints, so a generated token would not get a
+	// client in and the URL is handed over bare for the client's OAuth flow to complete.
+	let tokenUrlDisabled = $state(false)
 
 	function ensureCurrentWorkspaceIncluded(
 		workspacesList: UserWorkspace[],
@@ -144,11 +150,18 @@
 	const scopeWorkspaceId = $derived(
 		isAllWorkspaces ? $workspaceStore || '' : newTokenWorkspace || $workspaceStore || ''
 	)
-	const mcpBaseUrl = $derived(
+	const mcpUrl = $derived(
 		isAllWorkspaces
-			? `${window.location.origin}/api/mcp/gateway?token=`
-			: `${window.location.origin}/api/mcp/w/${newTokenWorkspace}/mcp?token=`
+			? `${window.location.origin}/api/mcp/gateway`
+			: `${window.location.origin}/api/mcp/w/${newTokenWorkspace}/mcp`
 	)
+	const mcpBaseUrl = $derived(`${mcpUrl}?token=`)
+
+	onMount(async () => {
+		if (showMcpMode || mcpOnly || openWithMcpMode) {
+			tokenUrlDisabled = await mcpTokenUrlDisabled()
+		}
+	})
 
 	$effect(() => {
 		const requestedMcpMode = mcpOnly || openWithMcpMode
@@ -176,7 +189,9 @@
 	<!-- Stays bounded by the panel width: a content-driven width (min-w-min) would let a long
 	     scope chip stretch this card and push the rest of the form out of view. -->
 	<div class="p-4 rounded-md mb-6 bg-surface-tertiary">
-		<h3 class="pb-2 font-semibold text-emphasis text-sm">{title}</h3>
+		<h3 class="pb-2 font-semibold text-emphasis text-sm">
+			{mcpCreationMode && tokenUrlDisabled ? 'MCP URL' : title}
+		</h3>
 
 		{#if showMcpMode && !mcpOnly}
 			<div
@@ -206,115 +221,149 @@
 			</div>
 		{/if}
 
-		{#if scopes != undefined}
-			<div class="mb-4">
-				<span class="block mb-1 text-emphasis text-xs font-semibold">Scope</span>
-				{#each scopes as scope (scope)}
-					<TextInput inputProps={{ disabled: true }} value={scope} class="mb-2 w-full" />
-				{/each}
-				<div class="text-tertiary">
-					<Toggle
-						bind:checked={readOnly}
-						options={{
-							right: 'Read-only',
-							rightTooltip:
-								'Restricts this token to GET/HEAD endpoints. Any mutating request (POST/PUT/PATCH/DELETE) or job-run action will be rejected with 403, regardless of the scopes listed above.'
-						}}
-						size="2xs"
-					/>
-				</div>
-			</div>
-		{/if}
-
-		{#if !scopes || scopes.length === 0}
-			<ScopesPicker
-				mode={mcpCreationMode ? 'mcp' : 'standard'}
-				workspaceId={scopeWorkspaceId}
-				bind:value={pickedScopes}
-				bind:readOnly
-			/>
-		{/if}
-
-		<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-			{#if mcpCreationMode}
-				{#if !lockWorkspace}
-					<div>
-						<span class="block mb-1 text-emphasis text-xs font-semibold">Workspace</span>
-						<Select
-							bind:value={newTokenWorkspace}
-							items={[
-								{
-									label: 'All workspaces',
-									value: ALL_WORKSPACES,
-									subtitle: 'Multi-workspace'
-								},
-								...workspaces.map((w) => ({ label: w.name, value: w.id, subtitle: w.id }))
-							]}
-						/>
-						{#if isAllWorkspaces}
-							<p class="mt-1 text-xs text-tertiary">
-								This token works across every workspace you can access. Tools take a
-								<code>workspace_id</code> argument; call <code>list_workspaces</code> to discover them.
-							</p>
-						{/if}
-					</div>
-				{/if}
-			{/if}
-
-			{#if !mcpOnly}
-				<div>
-					<span class="block mb-1 text-emphasis text-xs font-semibold"
-						>Label <span class="text-xs text-primary">(optional)</span></span
-					>
-					<TextInput inputProps={{ type: 'text' }} bind:value={newTokenLabel} class="w-full" />
-				</div>
-			{/if}
-
-			{#if !mcpCreationMode}
-				<div>
-					<span class="block mb-1 text-xs text-emphasis font-semibold"
-						>Expires In <span class="text-xs text-primary">(optional)</span></span
-					>
+		{#if mcpCreationMode && tokenUrlDisabled}
+			{#if !lockWorkspace}
+				<div class="mb-4 max-w-md">
+					<span class="block mb-1 text-emphasis text-xs font-semibold">Workspace</span>
 					<Select
-						bind:value={newTokenExpiration}
-						placeholder="No expiration"
-						inputClass="w-full"
+						bind:value={newTokenWorkspace}
 						items={[
-							{ label: 'No expiration', value: undefined },
-							{ label: '15 minutes', value: 15 * 60 },
-							{ label: '30 minutes', value: 30 * 60 },
-							{ label: '1 hour', value: 1 * 60 * 60 },
-							{ label: '1 day', value: 1 * 24 * 60 * 60 },
-							{ label: '7 days', value: 7 * 24 * 60 * 60 },
-							{ label: '30 days', value: 30 * 24 * 60 * 60 },
-							{ label: '90 days', value: 90 * 24 * 60 * 60 },
-							{ label: '180 days', value: 180 * 24 * 60 * 60 },
-							{ label: '365 days', value: 365 * 24 * 60 * 60 }
+							{
+								label: 'All workspaces',
+								value: ALL_WORKSPACES,
+								subtitle: 'Multi-workspace'
+							},
+							...workspaces.map((w) => ({ label: w.name, value: w.id, subtitle: w.id }))
 						]}
 					/>
 				</div>
 			{/if}
-		</div>
 
-		<div class="mt-4 flex justify-end gap-2 flex-row">
+			<CopyableCodeBlock code={mcpUrl} language={shell} wrap />
+
+			<div class="mt-2">
+				<Alert type="info" title="This instance requires MCP clients to sign in" size="xs">
+					Paste this URL into your client. It opens a Windmill page where you approve the access it
+					asks for, and no token needs to be copied around.
+				</Alert>
+			</div>
+
 			{#if !mcpOnly}
-				<Button
-					on:click={() => {
-						exitMcpMode()
-					}}
-					variant="default"
-				>
-					Cancel
-				</Button>
+				<div class="mt-4 flex justify-end gap-2 flex-row">
+					<Button onClick={exitMcpMode} variant="default">Cancel</Button>
+				</div>
 			{/if}
-			<Button
-				on:click={() => createToken(mcpCreationMode)}
-				disabled={mcpCreationMode && (newTokenWorkspace == undefined || !pickedScopes)}
-				variant="accent"
-			>
-				{mcpCreationMode ? 'Generate MCP URL' : 'New token'}
-			</Button>
-		</div>
+		{:else}
+			{#if scopes != undefined}
+				<div class="mb-4">
+					<span class="block mb-1 text-emphasis text-xs font-semibold">Scope</span>
+					{#each scopes as scope (scope)}
+						<TextInput inputProps={{ disabled: true }} value={scope} class="mb-2 w-full" />
+					{/each}
+					<div class="text-tertiary">
+						<Toggle
+							bind:checked={readOnly}
+							options={{
+								right: 'Read-only',
+								rightTooltip:
+									'Restricts this token to GET/HEAD endpoints. Any mutating request (POST/PUT/PATCH/DELETE) or job-run action will be rejected with 403, regardless of the scopes listed above.'
+							}}
+							size="2xs"
+						/>
+					</div>
+				</div>
+			{/if}
+
+			{#if !scopes || scopes.length === 0}
+				<ScopesPicker
+					mode={mcpCreationMode ? 'mcp' : 'standard'}
+					workspaceId={scopeWorkspaceId}
+					bind:value={pickedScopes}
+					bind:readOnly
+				/>
+			{/if}
+
+			<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+				{#if mcpCreationMode}
+					{#if !lockWorkspace}
+						<div>
+							<span class="block mb-1 text-emphasis text-xs font-semibold">Workspace</span>
+							<Select
+								bind:value={newTokenWorkspace}
+								items={[
+									{
+										label: 'All workspaces',
+										value: ALL_WORKSPACES,
+										subtitle: 'Multi-workspace'
+									},
+									...workspaces.map((w) => ({ label: w.name, value: w.id, subtitle: w.id }))
+								]}
+							/>
+							{#if isAllWorkspaces}
+								<p class="mt-1 text-xs text-tertiary">
+									This token works across every workspace you can access. Tools take a
+									<code>workspace_id</code> argument; call <code>list_workspaces</code> to discover them.
+								</p>
+							{/if}
+						</div>
+					{/if}
+				{/if}
+
+				{#if !mcpOnly}
+					<div>
+						<span class="block mb-1 text-emphasis text-xs font-semibold"
+							>Label <span class="text-xs text-primary">(optional)</span></span
+						>
+						<TextInput inputProps={{ type: 'text' }} bind:value={newTokenLabel} class="w-full" />
+					</div>
+				{/if}
+
+				{#if !mcpCreationMode}
+					<div>
+						<span class="block mb-1 text-xs text-emphasis font-semibold"
+							>Expires In <span class="text-xs text-primary">(optional)</span></span
+						>
+						<Select
+							bind:value={newTokenExpiration}
+							placeholder="No expiration"
+							inputClass="w-full"
+							items={[
+								{ label: 'No expiration', value: undefined },
+								{ label: '15 minutes', value: 15 * 60 },
+								{ label: '30 minutes', value: 30 * 60 },
+								{ label: '1 hour', value: 1 * 60 * 60 },
+								{ label: '1 day', value: 1 * 24 * 60 * 60 },
+								{ label: '7 days', value: 7 * 24 * 60 * 60 },
+								{ label: '30 days', value: 30 * 24 * 60 * 60 },
+								{ label: '90 days', value: 90 * 24 * 60 * 60 },
+								{ label: '180 days', value: 180 * 24 * 60 * 60 },
+								{ label: '365 days', value: 365 * 24 * 60 * 60 }
+							]}
+						/>
+					</div>
+				{/if}
+			</div>
+
+			<div class="mt-4 flex justify-end gap-2 flex-row">
+				{#if !mcpOnly}
+					<Button
+						on:click={() => {
+							exitMcpMode()
+						}}
+						variant="default"
+					>
+						Cancel
+					</Button>
+				{/if}
+				<Button
+					on:click={() => createToken(mcpCreationMode)}
+					disabled={mcpCreationMode && (newTokenWorkspace == undefined || !pickedScopes)}
+					variant="accent"
+				>
+					{mcpCreationMode ? 'Generate MCP URL' : 'New token'}
+				</Button>
+			</div>
+		{/if}
 	</div>
 
 	{#if newToken && displayCreateToken}

@@ -52,7 +52,8 @@ use windmill_common::{
         INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
-        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
+        MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
+        NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING,
         NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING,
         OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
@@ -126,7 +127,8 @@ use windmill_worker::{
 
 use crate::monitor::{
     initial_load, load_concurrency_key_max_queued, load_disable_password_login,
-    load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir, load_metrics_debug_enabled,
+    load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir,
+    load_mcp_disable_token_query_param, load_metrics_debug_enabled,
     load_preview_tags_override, load_require_preexisting_user, load_retention_period_overrides,
     load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces,
     load_workspace_fairness_duration_secs, load_workspace_fairness_enabled,
@@ -2163,6 +2165,9 @@ async fn process_notify_event(
                 }
                 DISABLE_PASSWORD_LOGIN_SETTING => {
                     load_disable_password_login(db).await;
+                }
+                MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING => {
+                    load_mcp_disable_token_query_param(db).await;
                 }
                 EXPOSE_METRICS_SETTING => {
                     tracing::info!("Metrics setting changed, restarting");

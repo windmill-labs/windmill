@@ -687,6 +687,14 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
+			label: 'Disable token in MCP URLs',
+			description:
+				'Reject the ?token= query parameter on the MCP endpoints, so MCP clients authenticate with an Authorization header or through the OAuth flow. A token in a URL is a credential that ends up in browser history, proxy logs and referrers. Existing MCP URLs carrying a token stop working.',
+			key: 'mcp_disable_token_query_param',
+			fieldType: 'boolean',
+			storage: 'setting'
+		},
+		{
 			label: 'Auto-login SSO provider',
 			description:
 				'If set, the login page redirects automatically to this provider. Use the OAuth provider key (e.g. "okta", "google") or "saml". The provider must be configured; otherwise the setting is ignored. Visit /user/login?no_sso=1 to bypass the redirect and fall back to the normal login form.',
