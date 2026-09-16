@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { FlowConversationsService } from '$lib/gen'
+import { FlowConversationsService, JobService } from '$lib/gen'
 import { createFlowChatManager } from './FlowChatManager.svelte'
 
 vi.mock('$lib/gen', () => ({
@@ -7,7 +7,7 @@ vi.mock('$lib/gen', () => ({
 		listConversationMessages: vi.fn(),
 		deleteFlowConversation: vi.fn()
 	},
-	JobService: {},
+	JobService: { cancelQueuedJob: vi.fn() },
 	FlowService: {}
 }))
 vi.mock('$lib/toast', () => ({ sendUserToast: vi.fn() }))
@@ -426,7 +426,12 @@ describe('a sent message names the run it started', () => {
 		// These turns stream too, so they draw on the shared script the block above resets.
 		streamCalls.length = 0
 		streamScript.length = 0
-		vi.mocked(FlowConversationsService.listConversationMessages).mockResolvedValue([] as any)
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			.mockResolvedValue([] as any)
+		vi.mocked(JobService.cancelQueuedJob)
+			.mockReset()
+			.mockResolvedValue('' as any)
 		;(globalThis as any).location = { origin: 'http://localhost' }
 	})
 
@@ -472,6 +477,39 @@ describe('a sent message names the run it started', () => {
 		await manager.selectConversation('background-chat')
 		const userRow = manager.messages.find((m) => m.message_type === 'user')
 		expect(userRow?.job_id).toBe('job-8')
+	})
+
+	/**
+	 * The whole of the run request is a window in which Stop can land, and it lands on a turn
+	 * with no job to cancel. The run the request then returns is nobody's: nothing follows
+	 * it, and it would hold the conversation's agent memory against the next turn.
+	 */
+	it('cancels a run that arrives after Stop ended the turn', async () => {
+		let launch: ((jobId: string) => void) | undefined
+		const manager = (live = managerWithRows())
+		;(manager as any).initialize(
+			vi.fn(() => new Promise<string>((resolve) => (launch = resolve))),
+			'u/admin/flow',
+			true
+		)
+		manager.operatingWorkspace = () => 'ws'
+		manager.selectedConversationId = 'a'
+		manager.inputMessage = 'hello'
+
+		const sent = manager.sendMessage(undefined, undefined, 'a')
+		await vi.waitFor(() => expect(launch).toBeTruthy())
+		await manager.cancelCurrentJob()
+		launch!('job-late')
+
+		expect(await sent).toBe(false)
+		await vi.waitFor(() =>
+			expect(vi.mocked(JobService.cancelQueuedJob)).toHaveBeenCalledWith(
+				expect.objectContaining({ id: 'job-late' })
+			)
+		)
+		// Nothing followed it either: a stream opened here would write into whatever turn
+		// the chat is on by the time it answers.
+		expect(streamCalls).toEqual([])
 	})
 })
 
@@ -532,9 +570,10 @@ describe('a conversation opened while its run is still going', () => {
 	 * A turn that called a lot of tools writes more rows than the page the transcript opens
 	 * on, pushing the message that started it out of sight. Read from that page alone the
 	 * conversation looks finished, and the composer is handed back while the run still owns
-	 * the agent's memory.
+	 * the agent's memory — so the message is asked of the server by kind, which is what makes
+	 * the answer independent of how many rows the turn wrote.
 	 */
-	it('walks back past a turn that filled the page to find the message that started it', async () => {
+	it('asks the server for the message that started a turn that filled the page', async () => {
 		const answerRows = Array.from({ length: 50 }, (_, i) => ({
 			id: `answer-${i}`,
 			conversation_id: 'a',
@@ -547,7 +586,7 @@ describe('a conversation opened while its run is still going', () => {
 			.mockReset()
 			// The newest page is this turn's answer, all of it.
 			.mockResolvedValueOnce(answerRows as any)
-			// The page before it ends with the message that started the turn.
+			// The newest `user` row, which is the message that started the turn.
 			.mockResolvedValueOnce([
 				{
 					id: 'the-question',
@@ -567,6 +606,11 @@ describe('a conversation opened while its run is still going', () => {
 
 		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(true))
 		await vi.waitFor(() => expect(streamCalls.some((call) => call.jobId === 'job-live')).toBe(true))
+		// Asked for by kind. Without that the newest row of any kind comes back, which for a
+		// turn in flight is one the agent wrote — and those name the agent step's own job.
+		expect(vi.mocked(FlowConversationsService.listConversationMessages)).toHaveBeenLastCalledWith(
+			expect.objectContaining({ messageType: 'user', page: 1, perPage: 1 })
+		)
 		// The rows the turn already wrote are dropped, since the stream replays them. The
 		// message that started it is not: polls only ever add what a turn wrote, so a
 		// transcript emptied here would come back as answers with nothing asking them.
@@ -596,15 +640,13 @@ describe('a conversation opened while its run is still going', () => {
 	})
 
 	/**
-	 * The hold a failed load leaves behind gates the whole surface — New chat and every
-	 * other conversation with it — so Stop has to be able to release it.
+	 * Asking which turn is running is a request of its own, and it can fail on its own.
+	 * Whether a run owns this conversation's memory is then precisely what is unknown, so the
+	 * chat stays held rather than taking a message that would write that memory twice — and
+	 * the hold gates the whole surface, New chat and every other conversation with it, so
+	 * Stop has to be able to release it.
 	 */
-	/**
-	 * The walk back for the message that started the turn is a request of its own, and it can
-	 * fail on its own. Whether a run owns this conversation's memory is then precisely what is
-	 * unknown, so the chat stays held rather than taking a message that would write it twice.
-	 */
-	it('keeps holding the chat when it could not read far enough to ask', async () => {
+	it('keeps holding the chat when it could not ask which turn is running', async () => {
 		const answerRows = Array.from({ length: 50 }, (_, i) => ({
 			id: `answer-${i}`,
 			conversation_id: 'a',
@@ -643,6 +685,115 @@ describe('a conversation opened while its run is still going', () => {
 		await manager.cancelCurrentJob()
 
 		expect(manager.isConversationBusy('a')).toBe(false)
+	})
+
+	/**
+	 * The row the resume names the turn with becomes the run Stop cancels, so it has to be
+	 * the message that started the turn. Every other kind of row names the agent step's own
+	 * job, and cancelling that leaves the steps after the agent running.
+	 */
+	it('holds the chat rather than resuming on a row it did not ask for', async () => {
+		const answerRows = Array.from({ length: 50 }, (_, i) => ({
+			id: `answer-${i}`,
+			conversation_id: 'a',
+			message_type: 'assistant',
+			content: `round ${i}`,
+			created_at: new Date().toISOString(),
+			created_seq: 100 + i
+		}))
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			.mockResolvedValueOnce(answerRows as any)
+			// A server that ignored the filter answers with the newest row of any kind, and
+			// that row carries the agent step's job.
+			.mockResolvedValueOnce([
+				{
+					id: 'an-answer',
+					conversation_id: 'a',
+					message_type: 'assistant',
+					content: 'the agent talking',
+					created_at: new Date().toISOString(),
+					created_seq: 150,
+					job_id: 'job-of-the-agent-step'
+				}
+			] as any)
+		const manager = (live = managerWithRows())
+		;(manager as any).initialize(vi.fn(), 'u/admin/flow', true)
+		manager.operatingWorkspace = () => 'ws'
+
+		await manager.selectConversation('a')
+
+		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(true))
+		expect(manager.currentJobId).toBeUndefined()
+		expect(streamCalls).toEqual([])
+	})
+
+	/**
+	 * Stop does not reach the read that is already out, so the read fails after the composer
+	 * has been handed back. Held against the chat then, it would shut a composer the reader
+	 * was just given, over a run that Stop had already dealt with.
+	 */
+	it('stays released when the read fails after Stop', async () => {
+		let fail: ((error: Error) => void) | undefined
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			.mockImplementationOnce(() => new Promise((_, reject) => (fail = reject)) as any)
+		const manager = (live = managerWithRows())
+		;(manager as any).initialize(vi.fn(), 'u/admin/flow', true)
+		manager.operatingWorkspace = () => 'ws'
+
+		void manager.selectConversation('a')
+		await vi.waitFor(() => expect(fail).toBeTruthy())
+		await manager.cancelCurrentJob()
+		expect(manager.isConversationBusy('a')).toBe(false)
+
+		fail!(new Error('transcript unavailable'))
+		await vi.waitFor(() => expect(manager.isLoadingMessages).toBe(false))
+
+		expect(manager.isConversationBusy('a')).toBe(false)
+	})
+
+	/**
+	 * The read that opens a conversation is how the chat finds out whether a run owns it, so
+	 * it holds the chat while it is out — and Stop can release that hold and let the reader
+	 * send before the rows arrive. What comes back is then the conversation as it was before
+	 * that turn: written over the live one it would drop the message just sent, and resuming
+	 * from it would end the turn now streaming.
+	 */
+	it('leaves a live turn alone when the read it replaced answers late', async () => {
+		let deliver: ((rows: unknown[]) => void) | undefined
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			.mockImplementationOnce(() => new Promise((resolve) => (deliver = resolve)) as any)
+			.mockResolvedValue([] as any)
+		const manager = (live = managerWithRows())
+		;(manager as any).initialize(
+			vi.fn(async () => 'job-new'),
+			'u/admin/flow',
+			true
+		)
+		manager.operatingWorkspace = () => 'ws'
+
+		void manager.selectConversation('a')
+		await vi.waitFor(() => expect(deliver).toBeTruthy())
+		await manager.cancelCurrentJob()
+		manager.inputMessage = 'ask again'
+		await manager.sendMessage(undefined, undefined, 'a')
+
+		deliver!([
+			{
+				id: 'before-the-send',
+				conversation_id: 'a',
+				message_type: 'user',
+				content: 'an older question',
+				created_at: new Date().toISOString(),
+				created_seq: 1
+			}
+		])
+		await vi.waitFor(() => expect(streamCalls.some((call) => call.jobId === 'job-new')).toBe(true))
+
+		expect(manager.messages.map((m) => m.content)).toEqual(['ask again'])
+		expect(manager.isConversationBusy('a')).toBe(true)
 	})
 
 	it('leaves a conversation whose run is over alone', async () => {

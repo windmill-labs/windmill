@@ -68,10 +68,6 @@ const POLL_PAGE_SIZE = 50
  * stops short of is left to the next tick, which resumes from the cursor it reached. */
 const POLL_MAX_REQUESTS = 20
 
-/** Pages walked back looking for the message that started the newest turn. Bounds the search
- * on a turn that wrote an implausible number of rows; the conversation's own start ends it. */
-const RESUME_MAX_PAGES = 20
-
 /**
  * The agent events the worker streams, in the shape the transcript applies. The SDK names
  * the same six events after the wire protocol; this is the rest of the app's vocabulary.
@@ -472,12 +468,12 @@ export class FlowChatManager {
 	}
 
 	/** Stop following one conversation's turn and forget what it was mid-way through. */
-	endTurn(conversationId: string, options?: { settled?: boolean }) {
+	endTurn(conversationId: string, options?: { settled?: boolean; byUser?: boolean }) {
 		// Out of the record first: the turn is no longer this conversation's, so anything it
 		// started that resolves from here on fails `#isCurrent` and writes nothing.
 		const turn = this.#turns[conversationId]
 		delete this.#turns[conversationId]
-		turn?.end()
+		turn?.end({ byUser: options?.byUser })
 		const status = this.#liveStatus(conversationId)
 		status.isLoading = false
 		status.isWaitingForResponse = false
@@ -738,6 +734,34 @@ export class FlowChatManager {
 		}
 	}
 
+	/**
+	 * A run that came back to a turn that is already over, which the reader sees as a send
+	 * that did not happen.
+	 *
+	 * The run request is not tied to the turn's handle, so the whole of it is a window in
+	 * which the turn can end. Stop means the reader did not want this run, so now that it
+	 * has a name it is cancelled; every other way a turn ends — the chat closing, a flow
+	 * change — has never cancelled a run, and a reload picks that one back up.
+	 */
+	#abandonLaunchedRun(turn: Turn, jobId: string): false {
+		if (turn.endedByUser) void this.#cancelOrphanedRun(jobId)
+		return false
+	}
+
+	/** Cancel a run nothing is following, reporting only to the console: the reader has
+	 *  already been told the turn stopped, and this is the part that was still in flight. */
+	async #cancelOrphanedRun(jobId: string) {
+		try {
+			await JobService.cancelQueuedJob({
+				workspace: this.#workspace()!,
+				id: jobId,
+				requestBody: {}
+			})
+		} catch (error) {
+			console.error('Could not cancel a run left by a turn that was stopped:', error)
+		}
+	}
+
 	/** Stop the open conversation's turn. Every other chat's keeps running. */
 	async cancelCurrentJob() {
 		const conversationId = this.selectedConversationId
@@ -761,7 +785,7 @@ export class FlowChatManager {
 			}
 			// The turn that settled during the cancel request has already gone, and the one
 			// that replaced it owns a run of its own.
-			if (!turn || this.#isCurrent(turn)) this.endTurn(conversationId)
+			if (!turn || this.#isCurrent(turn)) this.endTurn(conversationId, { byUser: true })
 		} catch (error) {
 			// The run may well still be going, and freeing the chat would let the next turn
 			// write the same agent memory. It is left to the job to say when it is over.
@@ -770,7 +794,7 @@ export class FlowChatManager {
 			// The turn's own follower is still on the job and is what will settle it; another
 			// would ask the same question twice. With no turn left there is nothing following
 			// it, and the chat is released instead.
-			if (!turn || !this.#isCurrent(turn)) this.endTurn(conversationId)
+			if (!turn || !this.#isCurrent(turn)) this.endTurn(conversationId, { byUser: true })
 		}
 	}
 
@@ -803,15 +827,26 @@ export class FlowChatManager {
 		let conversationIdToUse = conversationId ?? this.selectedConversationId
 		if (!this.#workspace() || !conversationIdToUse) return
 
+		// The turn the opening read holds the chat with, for as long as it takes to find out
+		// whether a run is going. Held here so every write below can ask whether it is still
+		// the turn this conversation is on.
+		let turn: Turn | undefined
 		if (reset) {
 			// Rows already held are either what a previous load fetched or what a turn is
-			// writing right now; either way re-fetching would drop a live turn's temp rows.
-			if (this.#rowsById[conversationIdToUse]) {
+			// writing right now; either way re-fetching would drop a live turn's temp rows. A
+			// turn with no rows yet is the same chat being opened twice at once, and the
+			// second opening has nothing to add. A read that failed leaves neither, which is
+			// what lets selecting the chat again retry it.
+			if (this.#rowsById[conversationIdToUse] || this.#turnOf(conversationIdToUse)) {
 				return
 			}
 			this.isLoadingMessages = true
 			// Whether this chat has a run in flight is unknown until its rows are here and
-			// the job has answered, and a message accepted meanwhile starts a second one.
+			// the job has answered, and a message accepted meanwhile starts a second one. The
+			// hold is a turn like any other because Stop, the panel going away and a later
+			// send all have to reach the read it is waiting on: each ends the turn, and a read
+			// whose turn is over writes nowhere.
+			turn = this.#startTurn(conversationIdToUse)
 			this.#liveStatus(conversationIdToUse).isDispatchingTurn = true
 		} else {
 			this.loadingMoreMessages = true
@@ -830,10 +865,14 @@ export class FlowChatManager {
 			})
 
 			if (reset) {
+				// Stopped, or overtaken by a send that started its own turn while this was in
+				// flight. The rows it wrote are the live ones; these are what the conversation
+				// looked like before it, and writing them would drop the turn's own.
+				if (!turn || !this.#isCurrent(turn)) return
 				this.#rowsById[conversationIdToUse] = response
 				this.#pagedTo[conversationIdToUse] = 1
 				this.isLoadingMessages = false
-				void this.#resumeRunningTurn(conversationIdToUse)
+				void this.#resumeRunningTurn(turn)
 				await new Promise((resolve) => setTimeout(resolve, 100))
 				this.scrollToBottom()
 			} else {
@@ -858,9 +897,7 @@ export class FlowChatManager {
 		} catch (error) {
 			console.error('Failed to load messages:', error)
 			sendUserToast('Failed to load messages: ' + error)
-			// The hold stays: an empty transcript is not an idle conversation, and the run
-			// this could not ask about owns the agent memory a second turn would write.
-			// Selecting the chat again retries the load; Stop is the reader's way out.
+			if (turn) this.#holdUnreadableChat(turn)
 		} finally {
 			this.isLoadingMessages = false
 			this.loadingMoreMessages = false
@@ -1141,6 +1178,7 @@ export class FlowChatManager {
 			// What Stop cancels: the flow job, never the streaming step's own sub-job — which
 			// would leave the steps after the agent running.
 			this.#nameTurnJob(turn, userRowId, jobId)
+			if (!this.#isCurrent(turn)) return this.#abandonLaunchedRun(turn, jobId)
 
 			// start polling
 			turn.startPolling()
@@ -1272,17 +1310,14 @@ export class FlowChatManager {
 	 * its flow job, which is the only thing that knows whether it is over.
 	 *
 	 * The chat is held from the moment the question is asked, not from the answer: a send
-	 * accepted during that round trip is the very thing this exists to prevent.
-	 *
-	 * Which turn is running is inferred from the rows rather than asked of the server, so a
-	 * turn whose own rows fill the page the transcript opened on takes a walk back through
-	 * older pages to find the message that started it (see `#newestUserRow`).
+	 * accepted during that round trip is the very thing this exists to prevent. The turn
+	 * doing the holding is the one the opening read started, carried on rather than
+	 * replaced — starting a second here would end the first, and with it the read that
+	 * produced the rows this is about to reason over.
 	 */
-	async #resumeRunningTurn(conversationId: string) {
+	async #resumeRunningTurn(turn: Turn) {
+		const conversationId = turn.conversationId
 		const status = this.#liveStatus(conversationId)
-		// The turn starts here, before anything is awaited, so a chat torn down or stopped
-		// while this is in flight can still stop what it would start.
-		const turn = this.#startTurn(conversationId)
 		try {
 			await this.#takeOverRunningTurn(turn, status)
 			// The hold this attempt was given back, and only it: a turn that replaced this one
@@ -1292,76 +1327,74 @@ export class FlowChatManager {
 				status.isDispatchingTurn = false
 			}
 		} catch (error) {
-			// Whether a run owns this conversation's agent memory is exactly what could not be
-			// read, so the chat stays held rather than taking a message that would write it a
-			// second time. Stop is the reader's way out.
 			console.error('Could not tell whether a conversation had a run in flight:', error)
-			if (!this.#turnOf(conversationId)) status.isDispatchingTurn = true
+			this.#holdUnreadableChat(turn)
 		}
+	}
+
+	/**
+	 * Hold a chat whose state could not be read, with nothing following a run for it.
+	 *
+	 * Whether a run owns this conversation's agent memory is exactly what failed to be read,
+	 * so the chat cannot take a message that would write that memory a second time. The turn
+	 * that was asking goes with it, having answered nothing and having no run to follow, and
+	 * Stop is the reader's way out of what is left.
+	 */
+	#holdUnreadableChat(turn: Turn) {
+		// Only a turn that still holds the chat may hold it again. A read is not tied to the
+		// turn's handle, so it runs on past a Stop and fails afterwards — and taking the hold
+		// back then would shut a composer the reader has just been given, over a run that was
+		// cancelled. The chat going away and a later turn taking it are the same story.
+		if (!this.#isCurrent(turn)) return
+		this.endTurn(turn.conversationId)
+		this.#liveStatus(turn.conversationId).isDispatchingTurn = true
 	}
 
 	/**
 	 * The message that started the newest turn in a conversation, which is the only turn
 	 * that can still be running.
 	 *
-	 * The transcript opens on the newest page, and one turn can fill it on its own: an agent
-	 * writes a row per round and per tool call, so a turn that used a lot of tools pushes the
-	 * message that started it further back than a page. Pages are walked back until it turns
-	 * up, since without it a reload cannot tell a finished conversation from one still
-	 * running, and would offer a composer that writes a second turn into the same memory.
+	 * Asked of the server when the rows on screen do not hold it. The transcript opens on
+	 * the newest page and one turn can fill it on its own — an agent writes a row per round
+	 * and per tool call — so the message that started a long turn sits an unbounded number
+	 * of pages back, and reading towards it is a search with no end the browser can name.
+	 * Without it a reload cannot tell a finished conversation from one still running, and
+	 * would offer a composer that writes a second turn into the same agent memory.
 	 */
-	async #newestUserRow(
-		conversationId: string,
-		signal?: AbortSignal
-	): Promise<ChatMessage | undefined> {
+	async #newestUserRow(conversationId: string): Promise<ChatMessage | undefined> {
 		const held = this.#rowsOf(conversationId).findLast((row) => row.message_type === 'user')
 		if (held) return held
-		const from = (this.#pagedTo[conversationId] ?? 1) + 1
-		for (let page = from; page < from + RESUME_MAX_PAGES; page++) {
-			if (signal?.aborted) return undefined
-			const batch = await FlowConversationsService.listConversationMessages({
-				workspace: this.#workspace()!,
-				conversationId,
-				page,
-				perPage: this.#perPage
-			})
-			const found = batch.findLast((row) => row.message_type === 'user')
-			if (found) return found
-			// The start of the conversation, which a user row always opens — so this only runs
-			// out of rows on one written by something other than a chat.
-			if (batch.length < this.#perPage) return undefined
+		const [newest] = await FlowConversationsService.listConversationMessages({
+			workspace: this.#workspace()!,
+			conversationId,
+			messageType: 'user',
+			page: 1,
+			perPage: 1
+		})
+		// No rows at all: a conversation written by something other than a chat, and there is
+		// no turn to resume.
+		if (!newest) return undefined
+		// The kind is checked here rather than trusted to the request, because the caller
+		// takes this row's job as the turn's. Every other kind names the agent step's own
+		// job, and a turn named with that has Stop cancel the step while the rest of the
+		// flow runs on — so a server that did not honour the filter has answered a different
+		// question, and the caller is told so rather than handed the wrong run.
+		if (newest.message_type !== 'user') {
+			throw new Error(
+				`Asked conversation ${conversationId} for its newest user message and got a ` +
+					`${newest.message_type} one`
+			)
 		}
-		console.warn(
-			`Gave up looking for the message that started the newest turn of conversation ` +
-				`${conversationId} after ${RESUME_MAX_PAGES} pages`
-		)
-		return undefined
+		return newest
 	}
 
 	async #takeOverRunningTurn(turn: Turn, status: TurnStatus): Promise<boolean> {
 		const conversationId = turn.conversationId
-		// A turn already in flight here owns the chat; only the load's own hold is set.
-		if (status.isLoading || status.isWaitingForResponse) {
-			this.#endTurnIfCurrent(turn)
-			return false
-		}
-		if (!this.#workspace()) {
-			this.#endTurnIfCurrent(turn)
-			return false
-		}
-
 		// The newest turn is the only one that can still be running, and the message that
-		// started it is named with its flow job by the run that created it.
-		let startedBy: ChatMessage | undefined
-		try {
-			startedBy = await this.#newestUserRow(conversationId, turn.signal)
-		} catch (error) {
-			// The caller decides what happens to the chat's hold; what this owns is the turn
-			// it started, which answered nothing and has no run to follow.
-			this.#endTurnIfCurrent(turn)
-			throw error
-		}
-		// Torn down or stopped while the walk was in flight. The run is left alone either
+		// started it is named with its flow job by the run that created it. A read that fails
+		// leaves the caller to decide what becomes of the chat's hold.
+		const startedBy = await this.#newestUserRow(conversationId)
+		// Torn down or stopped while that read was in flight. The run is left alone either
 		// way: leaving a chat has never cancelled one, and this cannot tell the two apart.
 		// A turn that is no longer this conversation's has already been ended by whatever
 		// replaced it; ending "the conversation's turn" here would end that one.
@@ -1484,6 +1517,7 @@ export class FlowChatManager {
 
 		// Store the current job ID so it can be cancelled
 		this.#nameTurnJob(turn, userRowId, jobId)
+		if (!this.#isCurrent(turn)) return this.#abandonLaunchedRun(turn, jobId)
 
 		if (turn.listPending) {
 			await this.refreshConversations()

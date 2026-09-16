@@ -76,6 +76,7 @@ export class Turn {
 	#pollDeadline: ReturnType<typeof setTimeout> | undefined
 	#onPoll: () => void
 	#ended = false
+	#endedByUser = false
 
 	constructor(options: TurnOptions) {
 		this.conversationId = options.conversationId
@@ -91,6 +92,15 @@ export class Turn {
 			onReveal: (chunk) => options.onReveal('reasoning', chunk),
 			instant
 		})
+	}
+
+	/**
+	 * The reader pressed Stop on this turn, rather than it being replaced or the chat going
+	 * away. What separates "this run was not wanted" from "nobody is watching any more":
+	 * leaving a chat has never cancelled a run, and Stop has always meant to.
+	 */
+	get endedByUser(): boolean {
+		return this.#endedByUser
 	}
 
 	/** Stopped, or replaced by a later turn that ended this one. */
@@ -137,11 +147,13 @@ export class Turn {
 	}
 
 	/**
-	 * Stop everything this turn started. The run itself is not cancelled — leaving a chat
-	 * has never stopped a flow, and a turn cannot tell being stopped from being left.
+	 * Stop everything this turn started. The run itself is not cancelled here, whoever ends
+	 * the turn: leaving a chat has never stopped a flow, and the one caller that does mean to
+	 * cancel owns the request itself — this only records that it was them, in `endedByUser`.
 	 */
-	end() {
+	end(options?: { byUser?: boolean }) {
 		this.#ended = true
+		if (options?.byUser) this.#endedByUser = true
 		this.stopPolling()
 		this.#replyReveal.reset()
 		this.#reasoningReveal.reset()
