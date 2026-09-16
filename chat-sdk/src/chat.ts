@@ -236,6 +236,9 @@ class ChatImpl implements Chat {
     options: { page?: number; perPage?: number; kind?: ConversationKind } = {}
   ): Promise<Conversation[]> => {
     const page = options.page ?? 1
+    // A different kind is a different listing: its first rows replace the held ones, on
+    // whichever page they were asked for.
+    const kindChanged = 'kind' in options && options.kind !== this.#conversationKind
     if ('kind' in options) this.#conversationKind = options.kind
     const kind = this.#conversationKind
     let conversations: Conversation[]
@@ -260,7 +263,7 @@ class ChatImpl implements Chat {
     const known = new Set(this.#state.conversations.map((c) => c.id))
     this.#set({
       conversations:
-        page === 1
+        page === 1 || kindChanged
           ? conversations
           : [...this.#state.conversations, ...conversations.filter((c) => !known.has(c.id))]
     })

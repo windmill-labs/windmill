@@ -462,6 +462,9 @@ describe('createChat with server history', () => {
     await chat.loadConversations({ kind: 'deployed' })
     await slow
     expect(chat.getState().conversations.map((c) => c.id)).toEqual(['d1'])
+    // Another kind asked for on a later page starts its own listing rather than appending.
+    await chat.loadConversations({ page: 2, kind: 'test' })
+    expect(chat.getState().conversations.map((c) => c.id)).toEqual(['t1'])
   })
 
   test('the refresh after a new turn lists the kind last asked for', async () => {
