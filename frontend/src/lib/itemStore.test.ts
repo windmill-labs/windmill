@@ -76,9 +76,6 @@ function fakeRows() {
 				parked.set(key.path, going.value)
 				return
 			}
-			// Nothing goes out while the key is conflicted, whether it was queued before the
-			// refusal or parked by it: the payload is kept so the edit survives, and which
-			// version wins is the user's to say. `postSave` gates every send this way.
 			// Replaying a parked payload is another POST, so another hand-over.
 			if (!fromQueue) handed(key.path)
 			// A POST that never reaches the server keeps its payload for the next attempt.

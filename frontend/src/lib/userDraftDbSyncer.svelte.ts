@@ -413,7 +413,12 @@ function flushOnPageHide(): void {
 			console.error('UserDraftDbSyncer: keepalive flush threw', e)
 		}
 	}
-	pendingSaveOpts.clear()
+	// Everything else is spent: it has just gone out, or it was meant to go with the page. A
+	// refused payload is neither — it is the only copy of that edit, and a bfcache restore brings
+	// this same context back still expecting to have it.
+	for (const key of [...pendingSaveOpts.keys()]) {
+		if (!conflicts.has(key)) pendingSaveOpts.delete(key)
+	}
 }
 
 if (typeof document !== 'undefined') {
