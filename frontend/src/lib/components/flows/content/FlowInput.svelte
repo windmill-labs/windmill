@@ -52,6 +52,8 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
 	import { nextId } from '../flowModuleNextId'
+	import { fetchAgentWithDraft, normalizeAgentRef } from '../linkedAgentDrafts'
+	import type { AIAgentConfig } from '../agentResourceUtils'
 	import FlowChat from '../conversations/FlowChat.svelte'
 	import { SPECIAL_MODULE_IDS } from '$lib/components/copilot/chat/shared'
 
@@ -550,6 +552,31 @@
 		return value == null || value === '' || (Array.isArray(value) && value.length === 0)
 	}
 
+	/**
+	 * Memory and streaming of a linked agent are the resource's, so enabling chat mode cannot
+	 * set them. Read the agent, its draft first, and say what the chat will lack.
+	 */
+	async function warnIfLinkedAgentCannotChat(path: string) {
+		if (!opWs) return
+		let args: AIAgentConfig
+		try {
+			const { response, draft } = await fetchAgentWithDraft(path, opWs)
+			args = draft?.args ?? ((response.value ?? {}) as AIAgentConfig)
+		} catch {
+			// Unreadable here means unreadable at run time too; that run reports it.
+			return
+		}
+		const missing: string[] = []
+		if (!args.memory || (args.memory as { kind?: string }).kind === 'off') missing.push('memory')
+		if (args.streaming !== true) missing.push('streaming')
+		if (missing.length > 0) {
+			sendUserToast(
+				`The linked agent ${path} has ${missing.join(' and ')} off. The chat needs both; turn them on in the agent.`,
+				true
+			)
+		}
+	}
+
 	function enableChatMode() {
 		// Enable chat input - set in flow.value
 		flowStore.val.value.chat_input_enabled = true
@@ -647,33 +674,39 @@
 				applied.push('attachments input')
 			}
 
-			// `off` is the first oneOf variant of the memory field, so a step added by hand
-			// carries it without anyone choosing it — and an agent that forgets every turn
-			// makes the chat a series of unrelated questions. Overwritten rather than left
-			// alone; the toast below says it happened.
-			const memoryIsOff = (transform: InputTransform | undefined) =>
-				transform?.type === 'static' && (transform.value as any)?.kind === 'off'
+			// A linked step's brain lives in the agent resource: the worker overlays only the
+			// flow-local keys from the step, so a memory or streaming transform written here
+			// would be ignored. Those are checked on the agent itself below instead.
+			const linkedAgent = value.agent ? normalizeAgentRef(value.agent) : undefined
+			if (linkedAgent === undefined) {
+				// `off` is the first oneOf variant of the memory field, so a step added by hand
+				// carries it without anyone choosing it — and an agent that forgets every turn
+				// makes the chat a series of unrelated questions. Overwritten rather than left
+				// alone; the toast below says it happened.
+				const memoryIsOff = (transform: InputTransform | undefined) =>
+					transform?.type === 'static' && (transform.value as any)?.kind === 'off'
 
-			if (
-				isUnconfigured(value.input_transforms['memory']) ||
-				memoryIsOff(value.input_transforms['memory'])
-			) {
-				value.input_transforms['memory'] = {
-					type: 'static',
-					value: { kind: 'auto', context_length: 10 }
+				if (
+					isUnconfigured(value.input_transforms['memory']) ||
+					memoryIsOff(value.input_transforms['memory'])
+				) {
+					value.input_transforms['memory'] = {
+						type: 'static',
+						value: { kind: 'auto', context_length: 10 }
+					}
+					applied.push('context memory set to 10')
 				}
-				applied.push('context memory set to 10')
-			}
 
-			// Without streaming the chat has no SSE to read, so a turn shows nothing —
-			// no thinking, no answer — until the run ends and its rows are written.
-			if (
-				isUnconfigured(value.input_transforms['streaming']) ||
-				(value.input_transforms['streaming']?.type === 'static' &&
-					value.input_transforms['streaming'].value === false)
-			) {
-				value.input_transforms['streaming'] = { type: 'static', value: true }
-				applied.push('streaming turned on')
+				// Without streaming the chat has no SSE to read, so a turn shows nothing —
+				// no thinking, no answer — until the run ends and its rows are written.
+				if (
+					isUnconfigured(value.input_transforms['streaming']) ||
+					(value.input_transforms['streaming']?.type === 'static' &&
+						value.input_transforms['streaming'].value === false)
+				) {
+					value.input_transforms['streaming'] = { type: 'static', value: true }
+					applied.push('streaming turned on')
+				}
 			}
 
 			sendUserToast(
@@ -682,6 +715,9 @@
 					: 'Chat mode enabled. Existing AI agent configuration kept unchanged.',
 				false
 			)
+			if (linkedAgent !== undefined) {
+				warnIfLinkedAgentCannotChat(linkedAgent)
+			}
 		}
 		// If there are multiple AI agents, don't auto-configure (ambiguous which one to configure)
 	}
