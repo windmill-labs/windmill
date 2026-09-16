@@ -12103,6 +12103,25 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/flows/list_paths_linking_agent/{path}:
+    get:
+      summary: list flow paths with a step linked to a saved agent
+      operationId: listFlowPathsLinkingAgent
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: paths of the flows linking the `ai_agent` resource, as of their last deploy
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/flows/get/v/{version}:
     get:
       summary: get flow version
