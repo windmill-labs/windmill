@@ -118,8 +118,10 @@
 		<FlowGraphViewerStepHeader {stepDetail} {onBack} />
 		<p class="font-medium text-secondary text-center pt-4 pb-8"> End of the flow </p>
 	{:else if typeof stepDetail != 'string' && stepDetail.value}
+		<!-- A direct child of the scrolling root: a sticky row can only hold within its parent's
+		     box, so wrapped with the path link below it would scroll away with that wrapper. -->
+		<FlowGraphViewerStepHeader {stepDetail} {onBack} />
 		<div class="">
-			<FlowGraphViewerStepHeader {stepDetail} {onBack} />
 			{#if stepDetail.value.type == 'script'}
 				<div class="pb-2">
 					<a

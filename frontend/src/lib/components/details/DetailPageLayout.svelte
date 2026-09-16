@@ -57,11 +57,14 @@
 	// the way back is the graph.
 	const graphPage = $derived(selected === 'flow_step' ? 'step' : 'graph')
 
-	// The Trigger node asks for the triggers pane the same way a step asks for its own; on the
-	// tabbed layout that pane is a tab, and the tabs keep their own selection.
-	$effect(() => {
-		if (selected === 'triggers') mobileTab = 'triggers'
-	})
+	/** Show the triggers pane: the right pane's tab in the split layout, the Triggers tab in the
+	 * tabbed one. A method rather than a value the caller sets, because asking twice in a row is
+	 * two requests — the tab may have been left in between — and a value set to what it already
+	 * holds changes nothing. */
+	export function showTriggers() {
+		selected = 'triggers'
+		mobileTab = 'triggers'
+	}
 </script>
 
 <main class="h-screen w-full" bind:clientWidth>
@@ -82,7 +85,9 @@
 								{@render save_inputs_render?.()}
 							{/snippet}
 							{#snippet flow_step()}
-								<div class="min-h-0 grow overflow-y-auto p-2">
+								<!-- No overflow of its own: the step body is the scroll container its sticky
+								     header keys on, so it has to be the flex item that shrinks. -->
+								<div class="flex min-h-0 grow flex-col p-2">
 									{@render flow_step_render?.({})}
 								</div>
 							{/snippet}
@@ -176,8 +181,8 @@
 
 {#snippet stepPageContent()}
 	<!-- The step body brings its own inner padding; this outer band brings it level with the
-	     Inputs and Export tabs. -->
-	<div class="min-h-0 grow overflow-y-auto p-2">
+	     Inputs and Export tabs. No overflow of its own, as in the split layout above. -->
+	<div class="flex min-h-0 grow flex-col p-2">
 		{@render flow_step_render?.({ onBack: () => (selected = 'saved_inputs') })}
 	</div>
 {/snippet}

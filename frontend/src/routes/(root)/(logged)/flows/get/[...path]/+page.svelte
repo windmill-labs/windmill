@@ -491,6 +491,7 @@
 	let stepDetail: FlowModule | string | undefined = $state(undefined)
 	let rightPaneSelected = $state('saved_inputs')
 	let savedInputsV2: SavedInputsV2 | undefined = $state(undefined)
+	let detailLayout: DetailPageLayout | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
 	let path = $derived(page.params.path ?? '')
 
@@ -546,6 +547,7 @@
 {/if}
 
 <DetailPageLayout
+	bind:this={detailLayout}
 	bind:selected={rightPaneSelected}
 	isOperator={$userStore?.operator}
 	forceSmallScreen={chatInputEnabled}
@@ -560,7 +562,7 @@
 	{#snippet header()}
 		<DetailPageHeader
 			on:seeTriggers={() => {
-				rightPaneSelected = 'triggers'
+				detailLayout?.showTriggers()
 			}}
 			{mainButtons}
 			menuItems={getMenuItems(flow, deployUiSettings)}
@@ -596,7 +598,7 @@
 					isFlow
 					selected={rightPaneSelected == 'triggers'}
 					onSelect={async (triggerIndex: number) => {
-						rightPaneSelected = 'triggers'
+						detailLayout?.showTriggers()
 						await tick()
 						triggersState.selectedTriggerIndex = triggerIndex
 					}}
@@ -789,7 +791,7 @@
 								}
 							}}
 							on:triggerDetail={(e) => {
-								rightPaneSelected = 'triggers'
+								detailLayout?.showTriggers()
 							}}
 							noBorder={true}
 						/>
@@ -862,7 +864,7 @@
 						}
 					}}
 					on:triggerDetail={(e) => {
-						rightPaneSelected = 'triggers'
+						detailLayout?.showTriggers()
 					}}
 				/>
 			</div>

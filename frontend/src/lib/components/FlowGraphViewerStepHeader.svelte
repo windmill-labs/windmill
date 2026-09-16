@@ -60,7 +60,9 @@
 	})
 </script>
 
-<div class="sticky top-0 z-10 flex w-full items-center gap-2 bg-surface py-2">
+<!-- -top-2: the row pins at the scroll container's content edge, and FlowGraphViewerStep pads
+     its root by that much, so at top-0 the body would show through the padding above the row. -->
+<div class="sticky -top-2 z-10 flex w-full items-center gap-2 bg-surface py-2">
 	{#if onBack}
 		<Button
 			unifiedSize="sm"
