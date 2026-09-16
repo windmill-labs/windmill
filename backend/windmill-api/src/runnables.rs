@@ -352,9 +352,11 @@ fn draft_branch_sql(kind: &str) -> String {
                      d.value->>'auto_kind' as auto_kind, false as raw_app, \
                      NULL::bool as chat_input_enabled"
         }
+        // A text comparison rather than a `::bool` cast: draft JSON is stored
+        // unvalidated, and one malformed value would abort the whole list.
         "flow" => {
             "NULL::text as language, NULL::text as script_kind, NULL::text as auto_kind, \
-              false as raw_app, (d.value->'value'->>'chat_input_enabled')::bool as chat_input_enabled"
+              false as raw_app, (d.value->'value'->>'chat_input_enabled' = 'true') as chat_input_enabled"
         }
         _ => {
             "NULL::text as language, NULL::text as script_kind, NULL::text as auto_kind, \
