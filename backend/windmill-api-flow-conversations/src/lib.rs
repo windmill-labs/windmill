@@ -184,6 +184,12 @@ async fn update_conversation(
     Path((w_id, conversation_id)): Path<(String, Uuid)>,
     Json(update): Json<UpdateConversation>,
 ) -> Result<String> {
+    // Postgres refuses a NUL in a text column, so it must not reach the query as a 500.
+    if update.title.contains('\0') {
+        return Err(windmill_common::error::Error::BadRequest(
+            "title cannot contain a NUL character".to_string(),
+        ));
+    }
     // The column is VARCHAR(255) and the helper appends an ellipsis to what it cuts, so the
     // bound it takes is three short of the column's. A longer title would otherwise reach
     // Postgres as a 22001 and come back a 500.

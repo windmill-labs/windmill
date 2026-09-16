@@ -19,6 +19,7 @@ import type {
 } from './types'
 import {
   conversationTitle,
+  truncateTitle,
   errorResultMessage,
   extractChatAnswer,
   isAbortError,
@@ -60,6 +61,8 @@ class ChatImpl implements Chat {
   #state: ChatState
   #turn: Turn | undefined
   #page = 1
+  /** The kind the caller last listed, so the refresh after a new turn lists the same rows. */
+  #conversationKind: ConversationKind | undefined
   #persistTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(options: ChatOptions) {
@@ -233,13 +236,14 @@ class ChatImpl implements Chat {
     options: { page?: number; perPage?: number; kind?: ConversationKind } = {}
   ): Promise<Conversation[]> => {
     const page = options.page ?? 1
+    if ('kind' in options) this.#conversationKind = options.kind
     let conversations: Conversation[]
     if (this.#state.history === 'server') {
       try {
         const rows = await this.#api.listConversations(this.#config.flowPath, {
           page,
           perPage: options.perPage ?? this.#config.pageSize,
-          kind: options.kind
+          kind: this.#conversationKind
         })
         conversations = rows.map(fromConversation)
       } catch (e) {
@@ -276,7 +280,8 @@ class ChatImpl implements Chat {
   }
 
   renameConversation = async (conversationId: string, title: string): Promise<void> => {
-    const trimmed = title.trim()
+    // Cut here as the server cuts, so the title shown is the one stored.
+    const trimmed = truncateTitle(title.trim())
     if (!trimmed) return
     if (this.#state.history === 'server') {
       await this.#api.renameConversation(conversationId, trimmed)

@@ -439,6 +439,27 @@ describe('createChat with server history', () => {
     expect(chat.getState().conversations.map((c) => [c.id, c.isTest])).toEqual([['t1', true]])
   })
 
+  test('the refresh after a new turn lists the kind last asked for', async () => {
+    const { fetch, calls } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { output: 'Hello', messages: [] } }])
+          : undefined,
+      (c) =>
+        c.method === 'GET' && c.url.pathname.endsWith('/messages')
+          ? json([messageRow(11, 'user', 'hi'), messageRow(12, 'assistant', 'Hello', { job_id: 'agent-job' })])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.loadConversations({ kind: 'test' })
+    await chat.sendMessage('hi')
+    const lists = calls.filter((c) => c.url.pathname === '/api/w/ws/flow_conversations/list')
+    expect(lists.length).toBeGreaterThan(1)
+    expect(lists.every((c) => c.url.searchParams.get('kind') === 'test')).toBe(true)
+  })
+
   test('renaming a conversation keeps its place in the list', async () => {
     const row = (id: string) => ({
       id,
@@ -465,6 +486,10 @@ describe('createChat with server history', () => {
       ['c1', 'c1'],
       ['c2', 'Budget review']
     ])
+    // Cut as the server cuts, so what is shown is what is stored.
+    await chat.renameConversation('c2', 'x'.repeat(300))
+    expect(chat.getState().conversations[1].title).toBe('x'.repeat(252) + '...')
+    expect(calls[2].body).toEqual({ title: 'x'.repeat(252) + '...' })
   })
 
   test('a turn started right after stop() is not touched by the stop sync', async () => {

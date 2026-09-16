@@ -84,11 +84,28 @@
 		})
 	})
 
-	/** The container reports a started turn: a conversation's first one creates its server entry. */
+	/**
+	 * The container reports a started turn: a conversation's first one creates its server
+	 * entry. A new conversation is of this surface's own kind, so a filter that would not
+	 * list it goes back to that kind rather than hiding the chat that was just started.
+	 */
 	export async function conversationStarted(conversationId: string) {
 		if (items.some((c) => c.id === conversationId)) return
 		draft = false
-		await list?.loadData('forceRefresh')
+		if (kind !== 'all' && kind !== defaultKind) kind = defaultKind
+		await reload()
+	}
+
+	// One reload at a time: the toggle is held while rows are on their way, so a slower
+	// earlier request cannot land after a newer one and show the wrong kind.
+	let reloading = $state(false)
+	async function reload() {
+		reloading = true
+		try {
+			await list?.loadData('forceRefresh')
+		} finally {
+			reloading = false
+		}
 	}
 
 	const draftShown = $derived(draft && !items.some((c) => c.id === chatState.conversationId))
@@ -116,7 +133,7 @@
 		const open = items.find((c) => c.id === chatState.conversationId)
 		const stillListed = open === undefined || next === 'all' || (next === 'test') === open.isTest
 		if (!stillListed) chat.newConversation()
-		await list?.loadData('forceRefresh')
+		await reload()
 	}
 
 	async function startRename(conversation: Conversation) {
@@ -225,6 +242,7 @@
 								<ToggleButtonGroup
 									selected={kind}
 									onSelected={(next) => setKind(next as ConversationKind)}
+									disabled={reloading}
 									noWFull
 								>
 									{#snippet children({ item })}
