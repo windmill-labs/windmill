@@ -4651,9 +4651,10 @@ pub fn tag_reads_args(tag: &str) -> bool {
 }
 
 /// Whether the tag reads the flow's state (`$flow_expr[results.a.foo]`), which only the flow
-/// runtime can resolve, right before pushing the step.
+/// runtime can resolve, right before pushing the step. A malformed placeholder counts too, so it
+/// is rejected or dropped instead of queueing the job on its literal text.
 pub fn tag_reads_flow_expr(tag: &str) -> bool {
-    RE_FLOW_EXPR_TAG.is_match(tag)
+    tag.contains("$flow_expr[")
 }
 
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {

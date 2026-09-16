@@ -3124,6 +3124,15 @@ async fn interpolate_flow_expr_tag(
     flow_input: &HashMap<String, Box<RawValue>>,
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
 ) -> error::Result<String> {
+    if RE_FLOW_EXPR_TAG
+        .replace_all(tag, "")
+        .contains("$flow_expr[")
+    {
+        return Err(Error::ExecutionErr(format!(
+            "Could not resolve the step tag `{tag}`: each `$flow_expr[...]` must hold a dotted \
+             path such as `results.a.b.c`"
+        )));
+    }
     let mut rendered: HashMap<&str, String> = HashMap::new();
     for cap in RE_FLOW_EXPR_TAG.captures_iter(tag) {
         let path = cap.get(1).unwrap().as_str();
