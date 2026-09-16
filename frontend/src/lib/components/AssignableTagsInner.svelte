@@ -259,9 +259,16 @@
 			based on args input, use <pre class="inline text-emphasis">$args[a.b.c]</pre> where
 			<pre class="inline">a.b.c</pre> is the path to the value in the args object.
 			<br />{#if variant !== 'drawer'}<br />{/if}
-			On flow steps, use a path into earlier step results, flow inputs or flow env, e.g.
-			<pre class="inline text-emphasis">$flow_expr[results.a.region]</pre> or
-			<pre class="inline text-emphasis">$flow_expr[flow_input.region]</pre>.
+			For
+			<a
+				href="https://www.windmill.dev/docs/core_concepts/worker_groups#dynamic-tag"
+				target="_blank">dynamic tags <ExternalLink size={12} class="inline-block" /></a
+			>
+			based on flow step results, flow input or flow env, use
+			<pre class="inline text-emphasis">$flow_expr[results.a.b.c]</pre> where
+			<pre class="inline">a</pre> is the step id, or
+			<pre class="inline text-emphasis">$flow_expr[flow_input.a.b.c]</pre> and
+			<pre class="inline text-emphasis">$flow_expr[flow_env.a.b.c]</pre>.
 		</span>
 	{/if}
 </div>
