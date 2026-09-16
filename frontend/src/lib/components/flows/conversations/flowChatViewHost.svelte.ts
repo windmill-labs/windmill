@@ -329,6 +329,21 @@ export class FlowChatViewHost implements ChatViewHost {
 	 */
 	#abortedSends = new Set<string>()
 
+	/** The panel this belongs to is gone. */
+	#gone = false
+
+	/**
+	 * The panel went away, so nothing this host started may still act.
+	 *
+	 * A send waits on its uploads before it has a run, and the panel can be replaced while it
+	 * waits — the chat is keyed on its flow and workspace, and changing either builds a new
+	 * one. The upload resolves regardless, and without this the send would carry on into a
+	 * manager nobody is reading, starting a run against the flow that replaced this one.
+	 */
+	dispose() {
+		this.#gone = true
+	}
+
 	/**
 	 * Give a spent draft back after a send that did not run. The composer took it before
 	 * calling, so something has to.
@@ -455,7 +470,9 @@ export class FlowChatViewHost implements ChatViewHost {
 			}
 			// Stop pressed while the upload ran has no job to cancel yet, so it is honoured
 			// here — the run has not started, and starting it now would execute a message the
-			// reader already took back.
+			// reader already took back. The panel going away is the same: nothing is left to
+			// run the turn for, and the composer it would be handed back to is gone too.
+			if (this.#gone) return false
 			if (this.#abortedSends.delete(conversationId)) {
 				this.#restoreToComposer({ ...options, conversationId })
 				return false

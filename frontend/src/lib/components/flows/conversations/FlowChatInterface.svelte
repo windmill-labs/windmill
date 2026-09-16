@@ -184,6 +184,10 @@
 	})
 	setChatViewHost(chatHost)
 
+	// The panel is replaced rather than re-pointed when its flow or workspace changes, so a
+	// send still waiting on its uploads has to be told this one is gone before it carries on.
+	$effect(() => () => chatHost.dispose())
+
 	// What the Configure-inputs modal asks for: every flow input the composer does not
 	// edit itself. Below the host, because whether the paperclip is offered is its answer.
 	const modalSchema = $derived.by(() => {
