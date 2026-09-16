@@ -666,6 +666,62 @@ describe('createChat with server history', () => {
     ])
   })
 
+  test('reasoning rows of a turn with a tool round stay with that turn after a stopped one', async () => {
+    let jobs = 0
+    const { fetch } = fetchMock(
+      (c) => (c.method === 'POST' && c.url.pathname.includes('/jobs/run/f/') ? text(`job-${++jobs}`) : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/getupdate_sse/job-1')
+          ? sse([{ type: 'update', new_result_stream: ndjson({ type: 'reasoning_token_delta', content: 'first thoughts' }), stream_offset: 1 }])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/getupdate_sse/job-2')
+          ? sse([
+              {
+                type: 'update',
+                new_result_stream: ndjson(
+                  { type: 'reasoning_token_delta', content: 'r1' },
+                  { type: 'tool_call', call_id: 'c1', function_name: 'lookup' },
+                  { type: 'tool_result', call_id: 'c1', function_name: 'lookup', result: '1', success: true },
+                  { type: 'reasoning_token_delta', content: 'r2' }
+                ),
+                stream_offset: 4,
+                completed: true,
+                only_result: { output: { n: 1 }, messages: [] }
+              }
+            ])
+          : undefined,
+      (c) => (c.url.pathname.includes('/queue/cancel/') ? text('ok') : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json([
+              messageRow(51, 'user', 'first'),
+              messageRow(52, 'user', 'again'),
+              messageRow(53, 'assistant', '', { job_id: 'step-2', reasoning: 'r1' }),
+              messageRow(54, 'tool', 'Used lookup tool', { job_id: 'tool-2' }),
+              messageRow(55, 'assistant', '{"n":1}', { job_id: 'step-2', reasoning: 'r2' })
+            ])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    const first = chat.sendMessage('first')
+    await new Promise((r) => setTimeout(r, 50))
+    const stopped = chat.stop()
+    await first
+    const second = chat.sendMessage('again')
+    await stopped
+    await second
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.reasoning, m.seq])).toEqual([
+      ['user', 'first', undefined, 51],
+      ['assistant', '', 'first thoughts', undefined],
+      ['user', 'again', undefined, 52],
+      ['assistant', '', 'r1', 53],
+      ['tool', 'Used lookup tool', undefined, 54],
+      ['assistant', '{"n":1}', 'r2', 55]
+    ])
+  })
+
   test('a structured answer row leaves a stopped earlier turn its thinking', async () => {
     let jobs = 0
     const { fetch } = fetchMock(

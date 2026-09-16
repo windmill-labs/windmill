@@ -36,9 +36,12 @@ pub struct FlowConversationMessage {
     pub created_seq: i64,
     pub step_name: Option<String>,
     pub success: bool,
-    /// The call behind a tool row whose tool has no job of its own — an MCP tool, or a
-    /// provider-native one. Read back from the job otherwise, and null here.
+    /// An MCP tool call's arguments, which run inside the agent's job and so have none of
+    /// their own. Null for a web search, whose query the provider does not return, and for
+    /// a Windmill tool, whose own job holds its call.
     pub tool_arguments: Option<String>,
+    /// An MCP tool's result, a web search's citations, and what any failed tool failed
+    /// with. Null for a successful Windmill tool, whose own job holds the result.
     pub tool_result: Option<String>,
     /// The thinking of the iteration that produced this row. The agent job keeps the
     /// turn's thinking as one string.

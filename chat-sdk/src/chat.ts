@@ -612,26 +612,32 @@ class ChatImpl implements Chat {
     if (rows.length === 0) return
     const messages = [...this.#state.messages]
     const known = new Set(messages.map((m) => m.serverId ?? m.id))
+    // An assistant message with no text is the thinking before a tool call, or before a
+    // structured answer whose text arrives as a tool call the stream never turns into a
+    // message. Text cannot tell such messages apart, so one is only ever claimed within
+    // the newest turn: a turn stopped before its rows landed leaves one behind, and no
+    // later row is its.
+    let turnStart = messages.length - 1
+    while (turnStart >= 0 && messages[turnStart].role !== 'user') turnStart--
+    const inTurn = (test: (m: ChatMessage) => boolean): number => {
+      const j = messages.slice(turnStart + 1).findIndex(test)
+      return j < 0 ? -1 : turnStart + 1 + j
+    }
     for (const row of rows.map(fromRow)) {
       if (known.has(row.id)) continue
       known.add(row.id)
-      let i = messages.findIndex(
-        (m) =>
-          m.seq === undefined &&
-          m.role === row.role &&
-          (m.content === row.content || (row.tool !== undefined && m.tool?.name === row.tool.name))
-      )
-      // A structured answer streams as thinking alone, its text arriving as a tool call
-      // the stream never turns into a message, so its row claims the message that holds
-      // that thinking and nothing else. Only past the newest user message: a turn stopped
-      // before its rows landed leaves such a message behind, and it is not this answer's.
-      if (i < 0 && row.role === 'assistant' && row.reasoning !== undefined) {
-        let turnStart = messages.length - 1
-        while (turnStart >= 0 && messages[turnStart].role !== 'user') turnStart--
-        const j = messages
-          .slice(turnStart + 1)
-          .findIndex((m) => m.seq === undefined && m.role === 'assistant' && m.content === '' && m.reasoning !== undefined)
-        if (j >= 0) i = turnStart + 1 + j
+      const sameShape = (m: ChatMessage) =>
+        m.seq === undefined &&
+        m.role === row.role &&
+        (m.content === row.content || (row.tool !== undefined && m.tool?.name === row.tool.name))
+      let i: number
+      if (row.role === 'assistant' && row.content === '') {
+        i = inTurn(sameShape)
+      } else {
+        i = messages.findIndex(sameShape)
+        if (i < 0 && row.role === 'assistant' && row.reasoning !== undefined) {
+          i = inTurn((m) => m.seq === undefined && m.role === 'assistant' && m.content === '' && m.reasoning !== undefined)
+        }
       }
       if (i >= 0) {
         const m = messages[i]
