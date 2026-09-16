@@ -52,6 +52,12 @@ pub fn is_user_token(label: Option<&str>) -> bool {
     }
 }
 
+/// How far ahead of a user token's expiration its owner is warned (`check_expiring_tokens` in
+/// the monitor). A token whose whole lifetime fits in this window gets no warning at all: it
+/// would arrive minutes after creation, about a lifetime its creator just picked. Its
+/// "expired and deleted" notice still goes out.
+pub const TOKEN_EXPIRY_WARNING_DAYS: i32 = 7;
+
 /// Label prefix, followed by the app path, of the token an app viewer's sandboxed iframe
 /// runs with. Reserved in [`is_user_token`], whose SQL and frontend mirrors spell it out.
 pub const APP_EMBED_TOKEN_LABEL_PREFIX: &str = "embed_app:";

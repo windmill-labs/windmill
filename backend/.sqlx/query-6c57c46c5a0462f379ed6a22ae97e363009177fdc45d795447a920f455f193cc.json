@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM token_expiry_notification n\n         USING token t\n         WHERE n.token_hash = t.token_hash\n           AND n.expiration > now()\n           AND n.expiration <= now() + interval '7 days'\n         RETURNING t.token_prefix, t.label, t.email, t.workspace_id",
+  "query": "DELETE FROM token_expiry_notification n\n         USING token t\n         WHERE n.token_hash = t.token_hash\n           AND n.expiration > now()\n           AND n.expiration <= now() + make_interval(days => $1)\n         RETURNING t.token_prefix, t.label, t.email, t.workspace_id",
   "describe": {
     "columns": [
       {
@@ -25,7 +25,9 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Int4"
+      ]
     },
     "nullable": [
       false,
@@ -34,5 +36,5 @@
       true
     ]
   },
-  "hash": "94fd0a57cfc9341b2e9deae60506c6c06aa6934b87200da14231f12f65149cd3"
+  "hash": "6c57c46c5a0462f379ed6a22ae97e363009177fdc45d795447a920f455f193cc"
 }
