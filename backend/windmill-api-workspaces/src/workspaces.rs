@@ -3887,50 +3887,64 @@ async fn edit_datatable_config(
     // entry through a declared rename alone, and a settings sync never declares one, so an entry
     // without roles that newly points at such a database — a name added, or an existing one
     // repointed — would answer everyone there as `admin`. That holds whichever workspace governs it.
-    let governed_elsewhere: Vec<String> = sqlx::query_scalar(
-        "SELECT DISTINCT dt.value->'database'->>'resource_path' FROM workspace_settings ws
-         CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
-         WHERE ws.workspace_id <> $1 AND dt.value ? 'permissions'
-           AND dt.value->'database'->>'resource_type' = 'instance'",
+    let newly_pointed: Vec<(&String, &str)> = new_config
+        .settings
+        .datatables
+        .iter()
+        .filter(|(_, dt)| dt.permissions.is_none())
+        .filter_map(|(name, dt)| {
+            let db = dt
+                .database
+                .as_ref()
+                .filter(|d| d.resource_type == DataTableCatalogResourceType::Instance)?;
+            let lookup = rename_src
+                .get(name.as_str())
+                .copied()
+                .unwrap_or(name.as_str());
+            let repointed = old_datatables
+                .get(lookup)
+                .and_then(|old| old.database.as_ref())
+                .is_none_or(|old_db| {
+                    old_db.resource_type != db.resource_type
+                        || old_db.resource_path != db.resource_path
+                });
+            repointed.then_some((name, db.resource_path.as_str()))
+        })
+        .collect();
+    // Another workspace turning roles on for the same database holds only its own settings row, so
+    // without this the scan below could read past its uncommitted write.
+    windmill_common::datatable_roles::lock_instance_databases_governance(
+        &mut *tx,
+        newly_pointed.iter().map(|(_, dbname)| *dbname),
     )
-    .bind(&w_id)
-    .fetch_all(&mut *tx)
     .await?;
-    for (name, dt) in new_config.settings.datatables.iter() {
-        if dt.permissions.is_some() {
-            continue;
-        }
-        let Some(db) = dt
-            .database
-            .as_ref()
-            .filter(|d| d.resource_type == DataTableCatalogResourceType::Instance)
-        else {
-            continue;
-        };
-        let lookup = rename_src
-            .get(name.as_str())
-            .copied()
-            .unwrap_or(name.as_str());
-        let repointed = old_datatables
-            .get(lookup)
-            .and_then(|old| old.database.as_ref())
-            .is_none_or(|old_db| {
-                old_db.resource_type != db.resource_type || old_db.resource_path != db.resource_path
-            });
+    let governed_elsewhere: Vec<String> = if newly_pointed.is_empty() {
+        vec![]
+    } else {
+        sqlx::query_scalar(
+            "SELECT DISTINCT dt.value->'database'->>'resource_path' FROM workspace_settings ws
+             CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
+             WHERE ws.workspace_id <> $1 AND dt.value ? 'permissions'
+               AND dt.value->'database'->>'resource_type' = 'instance'",
+        )
+        .bind(&w_id)
+        .fetch_all(&mut *tx)
+        .await?
+    };
+    for (name, dbname) in newly_pointed {
         let governed_here = old_datatables.values().any(|old| {
             old.permissions.is_some()
                 && old.database.as_ref().is_some_and(|d| {
                     d.resource_type == DataTableCatalogResourceType::Instance
-                        && d.resource_path == db.resource_path
+                        && d.resource_path == dbname
                 })
         });
-        if repointed && (governed_here || governed_elsewhere.contains(&db.resource_path)) {
+        if governed_here || governed_elsewhere.iter().any(|g| g == dbname) {
             return Err(Error::BadRequest(format!(
-                "Data table '{name}' would point at database '{}', which a data table under roles \
-                 uses, without carrying those roles: everyone reaching '{name}' would connect there \
-                 as `admin`. Rename the data table under roles from the data table settings, which \
-                 carries its roles, or turn its roles off first.",
-                db.resource_path
+                "Data table '{name}' would point at database '{dbname}', which a data table under \
+                 roles uses, without carrying those roles: everyone reaching '{name}' would connect \
+                 there as `admin`. Rename the data table under roles from the data table settings, \
+                 which carries its roles, or turn its roles off first."
             )));
         }
     }
