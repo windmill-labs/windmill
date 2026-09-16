@@ -75,6 +75,7 @@ bitflags.workspace = true
 once_cell.workspace = true
 phf.workspace = true
 tokio-postgres.workspace = true
+postgres-protocol.workspace = true
 postgres-native-tls.workspace = true
 native-tls.workspace = true
 
