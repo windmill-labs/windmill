@@ -1575,13 +1575,18 @@ pub async fn cached_result_path(
         }
     }
     // A task child runs its parent's code with its parent's arguments. With the SDK's
-    // fingerprint it is keyed on that and its own call arguments. Without one it is keyed
-    // on its step key and the parent's arguments: a step key names a position, not a
-    // task, and only the parent's arguments tell apart tasks a branch puts at one.
+    // fingerprint it is keyed on that, the step it runs as and its own call arguments.
+    // Without one, on its step key and the parent's arguments, which is what tells apart
+    // tasks a branch puts at one step.
     let args = match wac_task_identity(db, job).await? {
-        Some(WacTaskIdentity::Fingerprint { fn_id, args }) => {
+        Some(WacTaskIdentity::Fingerprint { key, fn_id, args }) => {
+            // The step key stays in: a fingerprint cannot separate two tasks whose
+            // difference it never sees, such as two bound functions of one name or
+            // two lambdas sharing a source line, and the step key can.
             hasher.update(b"wac_fn:");
             hasher.update(fn_id.as_bytes());
+            hasher.update(b"@");
+            hasher.update(key.as_bytes());
             Some(Json(args))
         }
         Some(WacTaskIdentity::StepKey(key)) => {
@@ -1607,7 +1612,7 @@ pub async fn cached_result_path(
 /// What a workflow-as-code parent seeded in a task child's checkpoint at push time
 /// to key the child's cached result on.
 enum WacTaskIdentity {
-    Fingerprint { fn_id: String, args: HashMap<String, Box<RawValue>> },
+    Fingerprint { key: String, fn_id: String, args: HashMap<String, Box<RawValue>> },
     StepKey(String),
 }
 
@@ -1633,8 +1638,8 @@ async fn wac_task_identity(
     .fetch_optional(db)
     .await?;
     Ok(match identity {
-        Some((Some(fn_id), _, Some(Json(args)))) => {
-            Some(WacTaskIdentity::Fingerprint { fn_id, args })
+        Some((Some(fn_id), Some(key), Some(Json(args)))) => {
+            Some(WacTaskIdentity::Fingerprint { key, fn_id, args })
         }
         Some((_, Some(key), _)) => Some(WacTaskIdentity::StepKey(key)),
         _ => None,

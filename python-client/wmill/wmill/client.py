@@ -3291,14 +3291,23 @@ def _fn_fingerprint(func) -> str:
     tasks called at the same position, so neither can tell them apart."""
     import hashlib
     import inspect
-    import marshal
 
+    # Runs for every task at decoration, cached or not, so it must never raise: a
+    # builtin has neither source nor code object. Source alone cannot separate two
+    # lambdas written on one line, so the code's shape goes in as well, without the
+    # line numbers that would move whenever the file is edited above it.
+    parts = []
     try:
-        src = inspect.getsource(func).encode()
-    except (OSError, TypeError):
-        # No source on disk: the whole code object, constants and names included.
-        src = marshal.dumps(func.__code__)
-    return hashlib.sha256(src).hexdigest()
+        parts.append(inspect.getsource(func).encode())
+    except Exception:
+        pass
+    code = getattr(func, "__code__", None)
+    if code is not None:
+        consts = tuple(c for c in code.co_consts if not isinstance(c, type(code)))
+        parts.append(repr((code.co_code, code.co_names, code.co_varnames, consts)).encode())
+    if not parts:
+        parts.append(repr(func).encode())
+    return hashlib.sha256(b"\x1f".join(parts)).hexdigest()
 
 
 def task(
@@ -3344,10 +3353,11 @@ def task(
     no ``delay`` all go out in a single round.
 
     ``cache_ttl`` serves a previous result of the task for that many seconds
-    instead of running it again. The result is keyed on the task and the
-    arguments it is called with, so anything a cached task reads from its
-    closure must be passed in as an argument. It has no effect on a
-    ``task_flow`` target, which keeps its flow's own cache policy.
+    instead of running it again. The result is keyed on the task, the step it
+    runs as and the arguments it is called with, so anything a cached task reads
+    from its closure, the receiver of a bound method included, must be passed in
+    as an argument. It has no effect on a ``task_flow`` target, which keeps its
+    flow's own cache policy.
 
     Usage::
 

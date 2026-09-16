@@ -41,9 +41,9 @@ pub struct WacCheckpoint {
     #[serde(default)]
     pub _executing_key: Option<String>,
     /// With `_executing_key`: the SDK's fingerprint of the task's code and the
-    /// arguments the task was called with, what its cached result is keyed on.
-    /// A child whose SDK sent no fingerprint is keyed on its step key and its
-    /// parent's arguments instead (`cached_result_path`).
+    /// arguments it was called with. A cached result is keyed on all three, or,
+    /// for a child whose SDK sent no fingerprint, on the step key and the
+    /// parent's arguments (`cached_result_path`).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub _executing_fn: Option<String>,

@@ -1713,10 +1713,11 @@ export interface TaskOptions {
   timeout?: number;
   tag?: string;
   /** Seconds during which a previous result of this task is served instead of
-   *  running it again. The result is keyed on the task and the arguments it is
-   *  called with, so anything a cached task reads from its closure must be
-   *  passed in as an argument. It has no effect on a `taskFlow` target, which
-   *  keeps its flow's own cache policy. */
+   *  running it again. The result is keyed on the task, the step it runs as and
+   *  the arguments it is called with, so anything a cached task reads from its
+   *  closure, the receiver of a bound method included, must be passed in as an
+   *  argument. It has no effect on a `taskFlow` target, which keeps its flow's
+   *  own cache policy. */
   cache_ttl?: number;
   priority?: number;
   concurrency_limit?: number;

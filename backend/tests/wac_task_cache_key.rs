@@ -105,8 +105,14 @@ async fn a_task_child_is_cached_under_its_fingerprint_or_else_its_step_key(
     );
     assert_eq!(
         fingerprinted,
+        child_cache_path(&db, parent_args(), "step", Some("f1"), 1).await?,
+        "one task at one step with one set of arguments is one entry"
+    );
+    assert_ne!(
+        fingerprinted,
         child_cache_path(&db, parent_args(), "step_2", Some("f1"), 1).await?,
-        "one task called at two positions keeps one identity"
+        "the step key stays in the key: a fingerprint cannot separate two bound \
+         functions of one name, or two lambdas sharing a source line"
     );
     assert_eq!(
         fingerprinted,

@@ -68,7 +68,25 @@ describe("task fingerprint", () => {
     expect(a.fn_id).not.toBe(b.fn_id);
   });
 
-  test("one task keeps its fingerprint across positions", async () => {
+  test("two bound methods of one name share a fingerprint, and their step keys separate them", async () => {
+    const a = {
+      async read() {
+        return "A";
+      },
+    };
+    const b = {
+      async read() {
+        return "B";
+      },
+    };
+    const steps = await dispatched(async () => {
+      await Promise.all([task(a.read.bind(a))(), task(b.read.bind(b))()]);
+    });
+    expect(steps[0].fn_id).toBe(steps[1].fn_id);
+    expect(steps.map((s) => s.key)).toEqual(["bound read", "bound read_2"]);
+  });
+
+  test("one task carries one fingerprint at every position", async () => {
     const double = task(async (n: number) => n * 2, { cache_ttl: 60 });
     const steps = await dispatched(async () => {
       await Promise.all([double(1), double(2)]);

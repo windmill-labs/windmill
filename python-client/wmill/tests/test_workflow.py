@@ -1863,3 +1863,28 @@ class TestTaskFingerprint:
         )
         assert [s["key"] for s in second["steps"]] == ["add_one", "add_one_2"]
         assert second["steps"][0]["fn_id"] != first["steps"][0]["fn_id"]
+
+    def test_a_builtin_task_still_decorates_and_dispatches(self):
+        """The fingerprint is taken for every task, cached or not, so a callable
+        with neither source nor code object must not break the decorator."""
+        builtin_task = task(pow)
+
+        @workflow
+        async def wf():
+            return await builtin_task(2, 3)
+
+        result = _run_workflow(wf, {}, {})
+        assert result["type"] == "dispatch"
+        assert result["steps"][0]["key"] == "pow"
+
+    def test_two_lambdas_on_one_line_are_told_apart(self):
+        """``inspect.getsource`` gives each the whole line, so the code's shape is
+        what separates them, and it must not depend on where the line sits."""
+        first, second = task(lambda x: x + 1), task(lambda x: x + 2)
+
+        @workflow
+        async def wf():
+            return await asyncio.gather(first(x=1), second(x=1))
+
+        result = _run_workflow(wf, {}, {})
+        assert result["steps"][0]["fn_id"] != result["steps"][1]["fn_id"]
