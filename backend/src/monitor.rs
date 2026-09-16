@@ -286,8 +286,10 @@ pub async fn initial_load(
     );
 
     if let Some(db) = conn.as_sql() {
-        // Outside the `server_mode` block below: `MODE=mcp` serves the MCP routes with
-        // `server_mode` false, and that deployment is the one most likely to set this.
+        // Outside the `server_mode` block below: a `MODE=mcp` process serves the MCP routes
+        // with `server_mode` false and would otherwise never read this at all. That mode
+        // joins no monitor loop, so there — as for every global setting, `base_url`
+        // included — this pass is the only read, and a change lands on restart.
         pass.setting(
             MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING,
             false,

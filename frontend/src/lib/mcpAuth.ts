@@ -7,16 +7,14 @@ import { SettingService } from '$lib/gen'
  *
  * Deliberately uncached: callers read it at the moment an MCP URL is asked for, so a superadmin
  * flipping the setting does not leave open tabs handing out URLs the server now refuses.
+ *
+ * Throws rather than falling back. A caller that guessed `false` here would mint a
+ * non-expiring token and hand over a URL the server refuses for as long as it exists.
  */
 export async function mcpTokenUrlDisabled(): Promise<boolean> {
-	try {
-		return (
-			((await SettingService.getGlobal({
-				key: 'mcp_disable_token_query_param'
-			})) as boolean | null) ?? false
-		)
-	} catch (err) {
-		console.error('Failed to load the MCP token setting:', err)
-		return false
-	}
+	return (
+		((await SettingService.getGlobal({
+			key: 'mcp_disable_token_query_param'
+		})) as boolean | null) ?? false
+	)
 }

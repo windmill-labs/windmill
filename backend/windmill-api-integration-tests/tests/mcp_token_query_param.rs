@@ -1,9 +1,14 @@
 //! The `mcp_disable_token_query_param` switch closes the URL-borne credential path.
 //!
 //! The rejection is a middleware layered between the `WWW-Authenticate` decorator and
-//! everything that reads a token, on both the workspaced and the gateway router. Reordering
-//! that stack, or adding a third MCP mount without it, leaves the switch inert while every
-//! other MCP test still passes, so the two mounts are pinned here together.
+//! everything that reads a token, on both the workspaced and the gateway mount. Each half of
+//! that sandwich is pinned: the `WWW-Authenticate` header on the refusal catches the layer
+//! being moved outward (a client would lose the pointer that starts OAuth discovery), and
+//! refusing a token that was never valid catches it being moved inward past authentication
+//! (the URL-borne token would be hashed and looked up before anything refused it).
+//!
+//! What it does not cover: the `global_settings` load path. The switch is read straight from
+//! the atomic here, so `monitor.rs` reaching it is not pinned by this test.
 #![cfg(feature = "mcp")]
 
 use std::sync::atomic::Ordering;
@@ -25,6 +30,10 @@ async fn insert_mcp_token(db: &Pool<Postgres>) -> anyhow::Result<()> {
     .await?;
     Ok(())
 }
+
+/// A token that is not in `token` at all. Authentication would refuse it on its own, so a
+/// refusal carrying the middleware's own wording is evidence nothing looked it up first.
+const BOGUS_TOKEN: &str = "NOT_A_REAL_TOKEN";
 
 async fn tools_list(url: &str) -> anyhow::Result<reqwest::Response> {
     Ok(reqwest::Client::new()
@@ -68,6 +77,19 @@ async fn test_mcp_token_query_param_switch(db: Pool<Postgres>) -> anyhow::Result
             "{url} rejected without pointing at the authorization server"
         );
     }
+
+    // Refused before authentication, not after: an invalid token gets the middleware's own
+    // message rather than the generic 401 that looking it up would produce.
+    let resp = tools_list(&format!(
+        "http://localhost:{port}/api/mcp/w/test-workspace/mcp?token={BOGUS_TOKEN}"
+    ))
+    .await?;
+    assert_eq!(resp.status(), 401);
+    assert!(
+        resp.text().await?.contains("does not accept a token in the MCP URL"),
+        "an invalid URL token was answered by authentication, so the token was read before \
+         the switch refused it"
+    );
 
     // The header stays open: it is the channel the OAuth flow itself hands tokens over on.
     let resp = reqwest::Client::new()

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
 	import { userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
-	import { Alert, Button } from '../common'
+	import { Alert, Button, Skeleton } from '../common'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
 	import { UserService, type NewToken } from '$lib/gen'
@@ -55,9 +55,22 @@
 
 	let pickedScopes = $state<string[] | null>(null)
 	let readOnly = $state(false)
-	// Instance refuses `?token=` on the MCP endpoints, so a generated token would not get a
-	// client in and the URL is handed over bare for the client's OAuth flow to complete.
-	let tokenUrlDisabled = $state(false)
+	// How this instance lets an MCP client in. `oauth` means it refuses `?token=`, so a
+	// generated token would not get a client in and the URL is handed over bare instead.
+	// Never assumed while unknown: guessing `token` mints a non-expiring credential for a
+	// URL the server would refuse.
+	type McpUrlPolicy = 'loading' | 'token' | 'oauth' | 'unavailable'
+	let mcpUrlPolicy = $state<McpUrlPolicy>('loading')
+
+	async function loadMcpUrlPolicy() {
+		mcpUrlPolicy = 'loading'
+		try {
+			mcpUrlPolicy = (await mcpTokenUrlDisabled()) ? 'oauth' : 'token'
+		} catch (err) {
+			console.error('Failed to load the MCP token setting:', err)
+			mcpUrlPolicy = 'unavailable'
+		}
+	}
 
 	function ensureCurrentWorkspaceIncluded(
 		workspacesList: UserWorkspace[],
@@ -75,7 +88,7 @@
 
 	function enterMcpMode() {
 		mcpCreationMode = true
-		void mcpTokenUrlDisabled().then((v) => (tokenUrlDisabled = v))
+		void loadMcpUrlPolicy()
 		newTokenExpiration = undefined
 		newTokenWorkspace = defaultNewTokenWorkspace ?? $workspaceStore
 		newToken = undefined
@@ -185,7 +198,7 @@
 	     scope chip stretch this card and push the rest of the form out of view. -->
 	<div class="p-4 rounded-md mb-6 bg-surface-tertiary">
 		<h3 class="pb-2 font-semibold text-emphasis text-sm">
-			{mcpCreationMode && tokenUrlDisabled ? 'MCP URL' : title}
+			{mcpCreationMode && mcpUrlPolicy !== 'token' ? 'MCP URL' : title}
 		</h3>
 
 		{#if showMcpMode && !mcpOnly}
@@ -216,7 +229,19 @@
 			</div>
 		{/if}
 
-		{#if mcpCreationMode && tokenUrlDisabled}
+		{#if mcpCreationMode && mcpUrlPolicy === 'unavailable'}
+			<Alert type="error" title="Could not check how this instance accepts MCP clients" size="xs">
+				<div class="flex flex-col items-start gap-2">
+					<span>
+						Without that answer a generated token could be one this instance refuses, so nothing is
+						created here until the check succeeds.
+					</span>
+					<Button onClick={loadMcpUrlPolicy} variant="default" unifiedSize="xs">Try again</Button>
+				</div>
+			</Alert>
+		{:else if mcpCreationMode && mcpUrlPolicy === 'loading'}
+			<Skeleton layout={[[2], 0.5, [1]]} />
+		{:else if mcpCreationMode && mcpUrlPolicy === 'oauth'}
 			{#if !lockWorkspace}
 				<div class="mb-4 max-w-md">
 					<span class="block mb-1 text-emphasis text-xs font-semibold">Workspace</span>
