@@ -1523,13 +1523,6 @@ async fn apply_datatable_acl(
     // have exhausted.
     let governing = authorize_acl_change(&db, &authed, &w_id, &datatable_name).await?;
     let (mut client, mut notices, dbname) = connect_as_admin_unchecked(&db, &governing).await?;
-    // Postgres only lets a role pass on a privilege it holds with grant option, and an instance
-    // database provisioned before data table roles holds none. Best-effort: a grant this fails to
-    // enable is refused below rather than skipped.
-    if let Err(e) = windmill_common::ensure_instance_db_grant_options_unchecked(&db, &dbname).await
-    {
-        tracing::warn!("Could not refresh grant options on '{dbname}': {e}");
-    }
 
     // Held until the change is committed: a role renamed or dropped meanwhile would change what
     // the plan names, and a settings save could move the entry onto another database. Taken in the
@@ -1553,6 +1546,15 @@ async fn apply_datatable_acl(
              run what was confirmed. Plan it again."
                 .to_string(),
         ));
+    }
+
+    // A role passes on only privileges it holds with grant option, which a database provisioned
+    // before data table roles lacks; a grant this fails to enable is refused below. After the plan
+    // check, since the planner reads these grants and would refuse what it just accepted; it
+    // connects as the server's own Postgres user, so it takes nothing from the pool.
+    if let Err(e) = windmill_common::ensure_instance_db_grant_options_unchecked(&db, &dbname).await
+    {
+        tracing::warn!("Could not refresh grant options on '{dbname}': {e}");
     }
 
     // One transaction: a half-applied ownership transfer leaves one schema's objects owned by two
