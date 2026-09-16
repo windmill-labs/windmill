@@ -197,7 +197,7 @@
 	let memoryFieldSchema = $derived.by(() => {
 		const property = schemaProperties.memory
 		const value = args?.memory?.type === 'static' ? args.memory.value : undefined
-		const withLegacy = memoryPropertyFor(property, value)
+		const withLegacy = memoryPropertyFor(property, value, chatInputEnabled)
 		if (withLegacy === property) return schema
 		return { ...schema, properties: { ...schemaProperties, memory: withLegacy } }
 	})

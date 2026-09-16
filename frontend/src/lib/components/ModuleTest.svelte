@@ -176,11 +176,16 @@
 			// ones (`flowLocalAgentSchema`). Overlaying those would shadow the brain the draft just
 			// supplied with nothing, so an inlined step takes only the inputs its form actually offers.
 			// A history input left blank here stays as the step authored it: turned into an expression that
-			// evaluates to nothing, it would read as a memory id set to empty.
+			// evaluates to nothing, it would read as a memory id set to empty, where the step's own blank
+			// static value reads as unset.
 			const formKeys = (
 				draft ? (AGENT_FLOW_LOCAL_KEYS as readonly string[]) : Object.keys(args)
 			).filter(
-				(key) => !(AGENT_HISTORY_KEYS as readonly string[]).includes(key) || args[key] != undefined
+				(key) =>
+					!(AGENT_HISTORY_KEYS as readonly string[]).includes(key) ||
+					(args[key] != undefined &&
+						args[key] !== '' &&
+						!(Array.isArray(args[key]) && !args[key].length))
 			)
 
 			// The test form only covers the schema it was given, and for a standalone agent that may be

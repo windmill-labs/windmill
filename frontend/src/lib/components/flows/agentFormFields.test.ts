@@ -134,5 +134,13 @@ describe('memoryPropertyFor', () => {
 		expect(
 			autoVariant({ kind: 'auto', context_length: 4, memory_id: 'x' }).properties.memory_id
 		).toBeDefined()
+		// A chat flow drops the baked id on save, so the form does not offer it there.
+		expect(
+			memoryPropertyFor(
+				property,
+				{ kind: 'auto', context_length: 4, memory_id: 'x' },
+				true
+			).oneOf.at(-1).properties.memory_id
+		).toBeUndefined()
 	})
 })

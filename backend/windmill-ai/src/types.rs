@@ -79,11 +79,12 @@ impl Default for OutputType {
 pub enum Memory {
     Off,
     Window {
+        #[serde(default, deserialize_with = "deserialize_null_as_zero")]
         context_length: usize,
     },
     /// Written before `window`. Its `memory_id` stays a fallback behind the run's memory id.
     Auto {
-        #[serde(default)]
+        #[serde(default, deserialize_with = "deserialize_null_as_zero")]
         context_length: usize,
         #[serde(default, deserialize_with = "deserialize_blank_as_none")]
         memory_id: Option<Uuid>,
@@ -105,6 +106,14 @@ fn deserialize_blank_as_none<'de, D: serde::Deserializer<'de>>(
             .map_err(serde::de::Error::custom),
         _ => Ok(None),
     }
+}
+
+// A count the editor's number field was cleared of is stored as `null`, which `default` does not
+// cover; it reads as 0, memory off, rather than failing every run of the step.
+fn deserialize_null_as_zero<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<usize, D::Error> {
+    <Option<usize> as serde::Deserialize>::deserialize(deserializer).map(Option::unwrap_or_default)
 }
 
 fn deserialize_present<'de, D: serde::Deserializer<'de>>(

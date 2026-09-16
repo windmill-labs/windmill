@@ -194,14 +194,15 @@ export const AI_AGENT_SCHEMA: Schema = {
 }
 
 /** Memory shapes older editors wrote. The step form offers one only to a step that still holds it,
- *  since the one-of field rewrites a value that matches none of its options. */
+ *  since the one-of field rewrites a value that matches none of its options. No field carries a
+ *  default: the form writes one into a missing field on open, and a missing count runs as off. */
 export const LEGACY_MEMORY_VARIANTS: Record<string, any> = {
 	auto: {
 		type: 'object',
 		title: 'auto',
 		properties: {
 			kind: { type: 'string', enum: ['auto'] },
-			context_length: { type: 'number', title: 'Messages to keep', default: 10 },
+			context_length: { type: 'number', title: 'Messages to keep' },
 			memory_id: { type: 'string', title: 'Fixed memory id' }
 		},
 		required: ['kind']
@@ -220,13 +221,15 @@ export const LEGACY_MEMORY_VARIANTS: Record<string, any> = {
 /** The memory property to render for a value: a legacy kind is added as an option only while the
  *  value holds it. Otherwise the property itself is returned, which callers compare by identity to
  *  avoid rebuilding the step schema. */
-export function memoryPropertyFor(property: any, value: any): any {
+export function memoryPropertyFor(property: any, value: any, chatInputEnabled = false): any {
 	let legacy = value?.kind ? LEGACY_MEMORY_VARIANTS[value.kind] : undefined
 	if (!legacy || !property?.oneOf) return property
 	// The form fills an empty string field with `''` when it opens, so the baked id field is only
 	// offered to a value saved with the key. Keyed on presence rather than content, or clearing the
-	// id to retype it would remove the field mid-edit.
-	if (value.kind === 'auto' && !('memory_id' in value)) {
+	// id to retype it would remove the field mid-edit. A chat flow runs on the conversation id and
+	// drops the baked one on save, so the field is not offered there; the nested form then removes
+	// the key from the value on open, as the hidden field did before.
+	if (value.kind === 'auto' && (chatInputEnabled || !('memory_id' in value))) {
 		const { memory_id: _, ...properties } = legacy.properties
 		legacy = { ...legacy, properties }
 	}

@@ -2054,6 +2054,12 @@ mod tests {
                 Resolved::Stateless { noted: false },
             ),
             (
+                "a cleared count is off",
+                json!({ "memory": { "kind": "window", "context_length": null } }),
+                Some(run),
+                Resolved::Stateless { noted: false },
+            ),
+            (
                 "legacy manual replays its messages",
                 json!({ "memory": { "kind": "manual", "messages": message } }),
                 Some(run),
