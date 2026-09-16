@@ -1182,6 +1182,12 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
+        MAX_TOKEN_EXPIRATION_DAYS_SETTING => {
+            windmill_common::global_settings::parse_max_token_expiration_days(Some(value))
+                .map_err(|e| {
+                    error::Error::BadRequest(format!("{MAX_TOKEN_EXPIRATION_DAYS_SETTING}: {e}"))
+                })?;
+        }
         INSTANCE_BANNER_SETTING => {
             match value {
                 // Clearing (delete row) is handled by the caller; allow it through.

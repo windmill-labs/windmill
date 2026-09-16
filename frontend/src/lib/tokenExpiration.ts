@@ -5,9 +5,9 @@ export const MAX_TOKEN_EXPIRATION_DAYS_BOUND = 1_000_000
 /**
  * The ceiling a stored `max_token_expiration_days` value sets, or `undefined` for none.
  *
- * Must accept exactly what `cap_token_expiration` (windmill-api-users) accepts: a whole number
- * of days within the bound, stored as a JSON number or as a string of digits. Anything looser
- * and the token form hides "No expiration" on an instance whose server caps nothing.
+ * Must accept exactly what `parse_max_token_expiration_days` (windmill-common) accepts: a whole
+ * number of days within the bound, stored as a JSON number or as a string of digits. Anything
+ * looser and the token form hides "No expiration" on an instance whose server caps nothing.
  */
 export function parseMaxTokenExpirationDays(value: unknown): number | undefined {
 	const days =

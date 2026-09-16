@@ -23,8 +23,10 @@ Symbols, not line numbers, are cited: they drift less.
   that outlive a short ceiling: sessions (`MAX_SESSION_VALIDITY_SECONDS`, 3 days, and re-mintable
   through `GET /users/refresh_token`) and MCP OAuth access tokens (7 days, with a rotating 30-day
   refresh token). Any logged-in user can read the setting through `GET /settings/global/{key}`,
-  which the token form uses to offer only expirations within it; `parseMaxTokenExpirationDays` must
-  read a stored value exactly as `cap_token_expiration` does.
+  which the token form uses to offer only expirations within it. The settings API and config sync
+  reject any value `parse_max_token_expiration_days` cannot read, since the token routes would read
+  it as no ceiling; `parseMaxTokenExpirationDays` in the frontend must accept exactly the same
+  values.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user

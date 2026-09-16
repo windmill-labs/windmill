@@ -48,8 +48,8 @@ use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::{hash_token, safe_token_prefix, TOKEN_PREFIX_LEN};
 use windmill_common::global_settings::{
-    load_value_from_global_settings, AUTOMATE_USERNAME_CREATION_SETTING,
-    MAX_TOKEN_EXPIRATION_DAYS_BOUND, MAX_TOKEN_EXPIRATION_DAYS_SETTING,
+    load_value_from_global_settings, parse_max_token_expiration_days,
+    AUTOMATE_USERNAME_CREATION_SETTING, MAX_TOKEN_EXPIRATION_DAYS_SETTING,
 };
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::per_minute_counter::PerMinuteCounter;
@@ -3098,21 +3098,14 @@ async fn cap_token_expiration(
     requested: Option<chrono::DateTime<chrono::Utc>>,
 ) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
     let value = load_value_from_global_settings(db, MAX_TOKEN_EXPIRATION_DAYS_SETTING).await?;
-    // A whole number of days, however it was stored: an integer from the settings UI, an
-    // integral float such as `7.0` or a string of digits from the YAML instance config or
-    // config sync. `parseMaxTokenExpirationDays` in the frontend must accept exactly the same
-    // values, or the token form and this disagree on whether a ceiling exists.
-    let Some(max_days) = value
-        .and_then(|v| match v {
-            serde_json::Value::Number(n) => n
-                .as_i64()
-                .or_else(|| n.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64)),
-            serde_json::Value::String(s) => s.trim().parse::<i64>().ok(),
-            _ => None,
-        })
-        .filter(|days| (1..=MAX_TOKEN_EXPIRATION_DAYS_BOUND).contains(days))
-    else {
-        return Ok(requested);
+    let max_days = match parse_max_token_expiration_days(value.as_ref()) {
+        Ok(Some(max_days)) => max_days,
+        Ok(None) => return Ok(requested),
+        // Both write paths reject this, so only a row written around them gets here.
+        Err(e) => {
+            tracing::warn!("ignoring {MAX_TOKEN_EXPIRATION_DAYS_SETTING}: {e}");
+            return Ok(requested);
+        }
     };
     let max = chrono::Utc::now() + chrono::Duration::days(max_days);
 

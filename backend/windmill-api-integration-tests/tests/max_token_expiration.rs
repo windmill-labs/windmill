@@ -62,6 +62,18 @@ async fn test_max_token_expiration_days_shortens_user_tokens(
         "with no setting a token may still have no expiration"
     );
 
+    // Refused at write time: the token routes can only read a value they cannot parse as no
+    // ceiling at all.
+    let resp = client()
+        .post(format!(
+            "http://localhost:{port}/api/settings/global/max_token_expiration_days"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({ "value": 7.5 }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400);
+
     set_max(&db, json!(7)).await;
 
     // The token form reads the ceiling as whoever is creating the token, usually not a

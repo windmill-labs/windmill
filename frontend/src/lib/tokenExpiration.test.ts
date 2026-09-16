@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_TOKEN_EXPIRATION_DAYS_BOUND, parseMaxTokenExpirationDays } from './tokenExpiration'
 
-// Each expectation mirrors how `cap_token_expiration` (windmill-api-users) reads the same stored
-// value. A mismatch makes the token form announce a ceiling the server does not apply, or hide
-// one it does.
+// The same table as `parse_max_token_expiration_days`'s test in windmill-common. A mismatch makes
+// the token form announce a ceiling the server does not apply, or hide one it does.
 describe('parseMaxTokenExpirationDays', () => {
 	it.each([
 		[7, 7],
