@@ -12507,6 +12507,16 @@ paths:
           schema:
             type: integer
             format: int64
+        - name: message_type
+          description: Keep only the messages of that kind
+          in: query
+          required: false
+          schema:
+            type: string
+            # The labels the MESSAGE_TYPE column actually has. The response schema below
+            # carries a fourth, `system`, which nothing writes and the column cannot hold;
+            # the handler refuses a request to filter on it.
+            enum: [user, assistant, tool]
       responses:
         "200":
           description: conversation messages

@@ -67,6 +67,10 @@ pub struct ListConversationsQuery {
 #[derive(Deserialize)]
 pub struct ListMessagesQuery {
     pub after_seq: Option<i64>,
+    /// Keep only the rows of one kind. A chat reopened while a run is going asks for the
+    /// newest `user` row this way: it carries the flow job of the turn that is running, and
+    /// an agent writes enough rows per round to push it many pages back in the transcript.
+    pub message_type: Option<MessageType>,
 }
 
 async fn list_conversations(
@@ -226,6 +230,16 @@ async fn list_messages(
     Query(query): Query<ListMessagesQuery>,
 ) -> JsonResult<Vec<FlowConversationMessage>> {
     let (per_page, offset) = paginate(pagination);
+
+    // `MessageType` carries a fourth kind the column has no label for and nothing writes.
+    // Refused here rather than bound: Postgres rejects the label, and what reaches the
+    // caller then is a database error about an enum rather than a word about their request.
+    if matches!(query.message_type, Some(MessageType::System)) {
+        return Err(windmill_common::error::Error::BadRequest(
+            "message_type must be one of user, assistant, tool".to_string(),
+        ));
+    }
+
     let mut tx = user_db.clone().begin(&authed).await?;
 
     // Verify the conversation exists and belongs to the user
@@ -252,12 +266,14 @@ async fn list_messages(
              FROM flow_conversation_message
              WHERE conversation_id = $1
                AND created_seq > $2
+               AND ($4::message_type IS NULL OR message_type = $4)
              ORDER BY created_seq ASC
              LIMIT $3
              "#,
             conversation_id,
             after_seq,
-            per_page as i64
+            per_page as i64,
+            query.message_type as Option<MessageType>
         )
         .fetch_all(&mut *tx)
         .await?
@@ -270,6 +286,7 @@ async fn list_messages(
                 SELECT id, conversation_id, message_type, content, job_id, created_at, created_seq, step_name, success, tool_arguments, tool_result, reasoning
                 FROM flow_conversation_message
                 WHERE conversation_id = $1
+                  AND ($4::message_type IS NULL OR message_type = $4)
                 ORDER BY created_seq DESC
                 LIMIT $2 OFFSET $3
              ) AS messages
@@ -277,7 +294,8 @@ async fn list_messages(
              "#,
             conversation_id,
             per_page as i64,
-            offset as i64
+            offset as i64,
+            query.message_type as Option<MessageType>
         )
         .fetch_all(&mut *tx)
         .await?
