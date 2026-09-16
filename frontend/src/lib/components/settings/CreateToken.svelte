@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 	import { userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
 	import { Button } from '../common'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
-	import { UserService, type NewToken } from '$lib/gen'
+	import { SettingService, UserService, type NewToken } from '$lib/gen'
 	import TokenDisplay from './TokenDisplay.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
 
@@ -53,6 +53,70 @@
 	let pickedScopes = $state<string[] | null>(null)
 	let readOnly = $state(false)
 
+	const DAY_SECS = 24 * 60 * 60
+	const EXPIRATION_CHOICES = [
+		{ label: '15 minutes', value: 15 * 60 },
+		{ label: '30 minutes', value: 30 * 60 },
+		{ label: '1 hour', value: 60 * 60 },
+		{ label: '1 day', value: DAY_SECS },
+		{ label: '7 days', value: 7 * DAY_SECS },
+		{ label: '30 days', value: 30 * DAY_SECS },
+		{ label: '90 days', value: 90 * DAY_SECS },
+		{ label: '180 days', value: 180 * DAY_SECS },
+		{ label: '365 days', value: 365 * DAY_SECS }
+	]
+
+	// The `max_token_expiration_days` instance setting. The server shortens any token that asks
+	// for longer, or for no expiration, so with it set the form only offers what would be kept.
+	let maxExpirationDays = $state<number | undefined>(undefined)
+	const maxExpirationSecs = $derived(
+		maxExpirationDays == undefined ? undefined : maxExpirationDays * DAY_SECS
+	)
+	const maxExpirationLabel = $derived(
+		maxExpirationDays === 1 ? '1 day' : `${maxExpirationDays} days`
+	)
+	const expirationItems = $derived(
+		maxExpirationSecs == undefined
+			? [{ label: 'No expiration', value: undefined }, ...EXPIRATION_CHOICES]
+			: [
+					...EXPIRATION_CHOICES.filter((choice) => choice.value < maxExpirationSecs),
+					{ label: `${maxExpirationLabel} (maximum)`, value: maxExpirationSecs }
+				]
+	)
+
+	onMount(async () => {
+		let value: unknown
+		try {
+			value = await SettingService.getGlobal({ key: 'max_token_expiration_days' })
+		} catch {
+			// The server still shortens tokens itself; the form just offers every choice.
+			return
+		}
+		const days = typeof value === 'string' ? Number(value.trim()) : value
+		// Non-positive is no ceiling, and so is one too far out to be a date, as on the server.
+		if (
+			typeof days !== 'number' ||
+			!Number.isInteger(days) ||
+			days <= 0 ||
+			isNaN(new Date(Date.now() + days * DAY_SECS * 1000).getTime())
+		) {
+			return
+		}
+		maxExpirationDays = days
+		if (newTokenExpiration == undefined || newTokenExpiration > days * DAY_SECS) {
+			newTokenExpiration = days * DAY_SECS
+		}
+	})
+
+	// Without a ceiling the expiration field is hidden in MCP mode, so a value picked on one side
+	// of the toggle must not ride along unseen. With one, the field shows in both modes and keeps
+	// its value.
+	function resetExpirationOnModeChange() {
+		if (maxExpirationSecs == undefined) {
+			newTokenExpiration = undefined
+		}
+	}
+
 	function ensureCurrentWorkspaceIncluded(
 		workspacesList: UserWorkspace[],
 		currentWorkspace: string | undefined
@@ -69,7 +133,7 @@
 
 	function enterMcpMode() {
 		mcpCreationMode = true
-		newTokenExpiration = undefined
+		resetExpirationOnModeChange()
 		newTokenWorkspace = defaultNewTokenWorkspace ?? $workspaceStore
 		newToken = undefined
 		newMcpToken = undefined
@@ -84,7 +148,7 @@
 
 	function exitMcpMode() {
 		mcpCreationMode = false
-		newTokenExpiration = undefined
+		resetExpirationOnModeChange()
 		newTokenWorkspace = defaultNewTokenWorkspace
 		newMcpToken = undefined
 		readOnly = false
@@ -270,28 +334,25 @@
 				</div>
 			{/if}
 
-			{#if !mcpCreationMode}
+			{#if !mcpCreationMode || maxExpirationSecs != undefined}
 				<div>
-					<span class="block mb-1 text-xs text-emphasis font-semibold"
-						>Expires In <span class="text-xs text-primary">(optional)</span></span
-					>
+					<span class="block mb-1 text-xs text-emphasis font-semibold">
+						Expires In
+						{#if maxExpirationSecs == undefined}
+							<span class="text-xs text-primary">(optional)</span>
+						{/if}
+					</span>
 					<Select
 						bind:value={newTokenExpiration}
-						placeholder="No expiration"
+						placeholder={maxExpirationSecs == undefined ? 'No expiration' : 'Pick an expiration'}
 						inputClass="w-full"
-						items={[
-							{ label: 'No expiration', value: undefined },
-							{ label: '15 minutes', value: 15 * 60 },
-							{ label: '30 minutes', value: 30 * 60 },
-							{ label: '1 hour', value: 1 * 60 * 60 },
-							{ label: '1 day', value: 1 * 24 * 60 * 60 },
-							{ label: '7 days', value: 7 * 24 * 60 * 60 },
-							{ label: '30 days', value: 30 * 24 * 60 * 60 },
-							{ label: '90 days', value: 90 * 24 * 60 * 60 },
-							{ label: '180 days', value: 180 * 24 * 60 * 60 },
-							{ label: '365 days', value: 365 * 24 * 60 * 60 }
-						]}
+						items={expirationItems}
 					/>
+					{#if maxExpirationSecs != undefined}
+						<p class="mt-1 text-xs text-tertiary">
+							This instance limits tokens to {maxExpirationLabel}.
+						</p>
+					{/if}
 				</div>
 			{/if}
 		</div>

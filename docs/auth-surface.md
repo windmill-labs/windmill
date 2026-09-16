@@ -18,7 +18,8 @@ Symbols, not line numbers, are cited: they drift less.
   to read the setting. Server-side mints (`create_token_internal` callers, `create_token_for_owner`,
   sessions) and `tokens/impersonate` are deliberately uncapped. Exempt is a service-account `usr`
   row in the workspace the token names — and, for a workspace-less token, one in any workspace,
-  since there is none to match.
+  since there is none to match. Any logged-in user can read the setting through
+  `GET /settings/global/{key}`, which the token form uses to offer only expirations within it.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user

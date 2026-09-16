@@ -66,6 +66,18 @@ async fn test_max_token_expiration_days_shortens_user_tokens(
 
     set_max(&db, json!(7)).await;
 
+    // The token form reads the ceiling as whoever is creating the token, usually not a
+    // superadmin, so it can offer only expirations the server would keep.
+    let resp = client()
+        .get(format!(
+            "http://localhost:{port}/api/settings/global/max_token_expiration_days"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN_2")
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.text().await?, "7");
+
     let resp = create_token(port, json!({ "label": "none asked" })).await;
     assert_eq!(resp.status(), 201);
     let expiration = stored_expiration(&db, "none asked")
