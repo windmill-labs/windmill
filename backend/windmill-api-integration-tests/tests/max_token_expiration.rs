@@ -1,5 +1,5 @@
-//! `max_token_expiration_days`: the instance-wide ceiling on how far ahead a token minted
-//! through `POST /users/tokens/create` may expire, and the routes it deliberately leaves alone.
+//! `max_token_expiration_days`: the instance-wide ceiling on how far ahead a token a caller
+//! picks the lifetime of may expire.
 
 use serde_json::json;
 use sqlx::types::chrono::{DateTime, Utc};
@@ -144,9 +144,8 @@ async fn test_max_token_expiration_days_shortens_user_tokens(
         "a service account gets the ceiling like anyone else"
     );
 
-    // The ceiling is this route's alone. Moving it down into `create_token_internal` would
-    // also cap the server-side mints (webhook tokens, app embed tokens, sessions) that pick
-    // a lifetime no caller asked for.
+    // A superadmin impersonating a user picks the lifetime too, so the ceiling applies there;
+    // left out, it would be the one way to mint a token that never expires.
     let resp = client()
         .post(format!(
             "http://localhost:{port}/api/users/tokens/impersonate"
@@ -156,10 +155,9 @@ async fn test_max_token_expiration_days_shortens_user_tokens(
         .send()
         .await?;
     assert_eq!(resp.status(), 201);
-    assert_eq!(
-        stored_expiration(&db, "impersonated").await,
-        None,
-        "impersonation is a superadmin action and stays uncapped"
+    assert!(
+        stored_expiration(&db, "impersonated").await.is_some(),
+        "an impersonation token asking for no expiration gets the ceiling"
     );
 
     Ok(())

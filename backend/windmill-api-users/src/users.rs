@@ -3075,9 +3075,11 @@ pub async fn create_guest_session_token<'c>(
 
 // create_token_internal is re-exported from windmill-api-auth above
 
-/// Applies the instance-wide ceiling on how long a token minted through this handler may
-/// live, returning the expiration to store: the requested one while it fits, the ceiling
-/// otherwise, and the ceiling as well when none was requested.
+/// Applies the instance-wide ceiling on how long a token a caller picks the lifetime of may
+/// live (`create_token`, and `impersonate` for superadmins), returning the expiration to store:
+/// the requested one while it fits, the ceiling otherwise, and the ceiling as well when none was
+/// requested. Only the stored expiration is capped: tokens already stored when the setting is
+/// turned on or lowered keep theirs, since the auth lookup never reads the setting.
 ///
 /// It shortens rather than refuses because most callers do not comply on their own. The CLI
 /// authorization page, `wmill user create-token` and the editor's language-server token each
@@ -3204,6 +3206,7 @@ async fn impersonate(
     .fetch_optional(&db)
     .await?
     .unwrap_or(false);
+    let expiration = cap_token_expiration(&db, new_token.expiration).await?;
     let mut tx = db.begin().await?;
 
     sqlx::query!(
@@ -3215,7 +3218,7 @@ async fn impersonate(
         plaintext as Option<&str>,
         impersonated,
         new_token.label,
-        new_token.expiration,
+        expiration,
         is_super_admin
     )
     .execute(&mut *tx)
@@ -3225,7 +3228,7 @@ async fn impersonate(
         &mut *tx,
         &t_hash,
         new_token.label.as_deref(),
-        new_token.expiration,
+        expiration,
     )
     .await;
 

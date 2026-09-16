@@ -12,18 +12,19 @@ Symbols, not line numbers, are cited: they drift less.
   by `create_session_token` (`windmill-api-users/src/users.rs`). `GET /api/users/refresh_token`
   mints one for any non-job token but returns plain text, no redirect.
 - **`tokens/impersonate`** (superadmin) returns a multi-use token and sets no cookie.
-- **`max_token_expiration_days`** caps `POST /users/tokens/create` only, by shortening the stored
-  expiration (`cap_token_expiration`), never by refusing: the CLI authorization page,
-  `wmill user create-token` and the editor's language-server token all pick a lifetime without
-  reading the setting, and CLIs already installed never will. Service accounts are capped too.
-  Deliberately outside it: `tokens/impersonate` (so a superadmin can still mint an uncapped
-  token for anyone), server-side mints (`create_token_internal` callers such as native trigger
-  webhook tokens, which never expire for GitHub and Nextcloud), and tokens with their own fixed
-  lifetime that outlive a short ceiling: sessions (`MAX_SESSION_VALIDITY_SECONDS`, 3 days, and
-  re-mintable through `GET /users/refresh_token`) and MCP OAuth access tokens (7 days, with a
-  rotating 30-day refresh token). Any logged-in user can read the setting through `GET /settings/global/{key}`, which the token
-  form uses to offer only expirations within it; `parseMaxTokenExpirationDays` must read a stored
-  value exactly as `cap_token_expiration` does.
+- **`max_token_expiration_days`** caps `POST /users/tokens/create` and `tokens/impersonate`, by
+  shortening the stored expiration (`cap_token_expiration`), never by refusing: the CLI
+  authorization page, `wmill user create-token` and the editor's language-server token all pick a
+  lifetime without reading the setting, and CLIs already installed never will. Service accounts are
+  capped too. Only the stored expiration is capped: the auth lookup never reads the setting, so
+  tokens that exist when it is turned on or lowered keep theirs, including none. Deliberately
+  outside it: server-side mints (`create_token_internal` callers such as native trigger webhook
+  tokens, which never expire for GitHub and Nextcloud), and tokens with their own fixed lifetime
+  that outlive a short ceiling: sessions (`MAX_SESSION_VALIDITY_SECONDS`, 3 days, and re-mintable
+  through `GET /users/refresh_token`) and MCP OAuth access tokens (7 days, with a rotating 30-day
+  refresh token). Any logged-in user can read the setting through `GET /settings/global/{key}`,
+  which the token form uses to offer only expirations within it; `parseMaxTokenExpirationDays` must
+  read a stored value exactly as `cap_token_expiration` does.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user

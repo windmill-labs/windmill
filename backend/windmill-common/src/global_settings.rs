@@ -97,11 +97,11 @@ pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
 pub const DISABLE_WORKSPACE_INVITE_EMAILS_SETTING: &str = "disable_workspace_invite_emails";
 pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
-/// Ceiling, in days, on how far ahead a token minted through `POST /users/tokens/create`
-/// may expire; a request asking for more, or for no expiration at all, is shortened to it
-/// rather than refused. On that route only: server-side mints (webhook tokens, app embed
-/// tokens, sessions) choose a lifetime the caller never picks and go straight to
-/// `create_token_internal`. Absent, or anything but a whole number within
+/// Ceiling, in days, on how far ahead a token minted through `POST /users/tokens/create` or
+/// `POST /users/tokens/impersonate` may expire; a request asking for more, or for no
+/// expiration at all, is shortened to it rather than refused. On those routes only: server-side
+/// mints (webhook tokens, app embed tokens, sessions) choose a lifetime the caller never picks
+/// and go straight to `create_token_internal`. Absent, or anything but a whole number within
 /// `1..=MAX_TOKEN_EXPIRATION_DAYS_BOUND`, leaves tokens uncapped.
 pub const MAX_TOKEN_EXPIRATION_DAYS_SETTING: &str = "max_token_expiration_days";
 /// Largest `max_token_expiration_days` read as a ceiling, about 2,700 years. The token form
