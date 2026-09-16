@@ -1,0 +1,204 @@
+# Weekly Dependabot triage
+#
+# Every Monday at 07:00 UTC (and on demand through workflow_dispatch) this workflow
+# fetches every open Dependabot alert of the repository and runs Claude Code to triage
+# them against Windmill's vulnerability policy (.github/prompts/dependabot-triage.md).
+#
+# What a run produces:
+#   - at most ONE draft PR per ecosystem (branch security/dependabot-<ecosystem>-<date>,
+#     title "chore(security): resolve Dependabot alerts in <manifest>") containing only
+#     targeted, verified bumps, with the check results in the PR body;
+#   - one GitHub issue "Dependabot triage <date>" with the severity table, the proposed
+#     dismissals (reason + comment text, for a human to apply), unknowns, draft PR links
+#     and "needs a human" items. A P0 finding produces only an issue titled
+#     "[P0] Dependabot triage <date>" with no exploit detail.
+#
+# What a run never does: it never dismisses an alert, never merges anything, never
+# pushes to main and never edits .github/workflows/. Dismissals stay proposals.
+#
+# Tokens:
+#   - The alerts are read with the default GITHUB_TOKEN. This needs the
+#     `vulnerability-alerts: read` job permission ("permits an action to list Dependabot
+#     alerts for the repository" - GitHub Actions workflow syntax reference,
+#     "permissions"). No PAT or extra secret is required for that.
+#   - Claude authenticates with secrets.CLAUDE_CODE_OAUTH_TOKEN, like the other Claude
+#     workflows in this directory, and `id-token: write` lets the action mint its own
+#     GitHub App token for `gh pr create` / `gh issue create`.
+name: Dependabot triage
+
+on:
+  schedule:
+    # Every Monday at 07:00 UTC
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+    inputs:
+      alert_numbers:
+        description: 'Comma-separated Dependabot alert numbers to triage (empty = every open alert)'
+        required: false
+        type: string
+        default: ''
+
+# Two runs must never overlap: they would open duplicate PRs and issues. A manual run
+# queues behind a scheduled one instead of cancelling it.
+concurrency:
+  group: dependabot-triage
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      vulnerability-alerts: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # Pages through GET /repos/{owner}/{repo}/dependabot/alerts (state=open) into
+      # .dependabot-triage/alerts.json plus a compact alerts.tsv the prompt reads. The
+      # directory is git-excluded locally so the triage PRs can never pick it up.
+      - name: Fetch open Dependabot alerts
+        id: alerts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ALERT_NUMBERS: ${{ inputs.alert_numbers }}
+        run: |
+          set -euo pipefail
+          OUT=.dependabot-triage
+          mkdir -p "$OUT"
+          echo "$OUT/" >> .git/info/exclude
+
+          gh api "repos/$REPO/dependabot/alerts?state=open&per_page=100" --paginate \
+            | jq -s '[.[][]]' > "$OUT/all-open.json"
+
+          # Optional subset: keep only the requested alert numbers (digits and commas only).
+          if [ -n "$ALERT_NUMBERS" ]; then
+            NUMS=$(printf '%s' "$ALERT_NUMBERS" | tr -cd '0-9,' | tr ',' '\n' | grep -E '^[0-9]+$' | jq -s '.' || echo '[]')
+            jq --argjson nums "$NUMS" '[.[] | select(.number as $n | ($nums | index($n)) != null)]' \
+              "$OUT/all-open.json" > "$OUT/alerts.json"
+          else
+            cp "$OUT/all-open.json" "$OUT/alerts.json"
+          fi
+
+          {
+            printf 'number\tpackage\tecosystem\tmanifest\tseverity\tscope\tvulnerable_range\tfirst_patched\tghsa\tcve\tsummary\n'
+            jq -r '.[] | [
+                .number,
+                .dependency.package.name,
+                .dependency.package.ecosystem,
+                .dependency.manifest_path,
+                .security_advisory.severity,
+                (.dependency.scope // ""),
+                .security_vulnerability.vulnerable_version_range,
+                (.security_vulnerability.first_patched_version.identifier // "none"),
+                .security_advisory.ghsa_id,
+                (.security_advisory.cve_id // ""),
+                (.security_advisory.summary | gsub("[\t\r\n]+"; " "))
+              ] | @tsv' "$OUT/alerts.json"
+          } > "$OUT/alerts.tsv"
+
+          TOTAL=$(jq length "$OUT/all-open.json")
+          COUNT=$(jq length "$OUT/alerts.json")
+          DATE=$(date -u +%Y-%m-%d)
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Dependabot triage $DATE"
+            echo
+            echo "Open alerts: **$TOTAL**, selected for this run: **$COUNT**"
+            echo
+            echo "| Severity | Count |"
+            echo "|---|---|"
+            jq -r 'group_by(.security_advisory.severity) | .[] | "| \(.[0].security_advisory.severity) | \(length) |"' "$OUT/alerts.json"
+            echo
+            echo "| Manifest | Count |"
+            echo "|---|---|"
+            jq -r 'group_by(.dependency.manifest_path) | .[] | "| \(.[0].dependency.manifest_path) | \(length) |"' "$OUT/alerts.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$COUNT" = "0" ]; then
+            echo "::notice::No open Dependabot alerts selected; skipping the triage."
+          fi
+
+      # Toolchains, only as far as the prompt's check commands need them
+      # (docs/validation.md): frontend/validator/multiplayer via node, cli via bun,
+      # backend via cargo check (SQLX_OFFLINE, as backend-check.yml), python-client via uv.
+      - name: Setup node
+        if: steps.alerts.outputs.count != '0'
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: "npm"
+          cache-dependency-path: "frontend/package-lock.json"
+
+      - name: Setup bun
+        if: steps.alerts.outputs.count != '0'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # backend/.cargo/config.toml links with clang + mold; build scripts and proc-macros
+      # still link under `cargo check`, so install both as backend-check.yml does.
+      - name: Install mold and clang
+        if: steps.alerts.outputs.count != '0'
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+
+      - name: Setup rust
+        if: steps.alerts.outputs.count != '0'
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          toolchain: 1.97.0
+
+      - name: Setup uv
+        if: steps.alerts.outputs.count != '0'
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install python 3.14
+        if: steps.alerts.outputs.count != '0'
+        run: uv python install 3.14
+
+      # The policy lives in a committed file so it is reviewed like code. It is loaded
+      # through GITHUB_ENV with a random delimiter (same pattern as pr-ready-review.yml).
+      - name: Read triage prompt
+        if: steps.alerts.outputs.count != '0'
+        run: |
+          delimiter="TRIAGE_PROMPT_EOF_$(openssl rand -hex 16)"
+          {
+            echo "TRIAGE_PROMPT<<$delimiter"
+            cat .github/prompts/dependabot-triage.md
+            echo "$delimiter"
+          } >> "$GITHUB_ENV"
+
+      - name: Triage alerts with Claude
+        if: steps.alerts.outputs.count != '0'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          settings: |
+            {
+              "env": {
+                "SQLX_OFFLINE": "true"
+              }
+            }
+          prompt: |
+            REPO: ${{ github.repository }}
+            RUN DATE (YYYY-MM-DD): ${{ steps.alerts.outputs.date }}
+            BASE BRANCH: ${{ github.ref_name }}
+            ALERTS SELECTED: ${{ steps.alerts.outputs.count }}
+            ALERTS FILE: .dependabot-triage/alerts.tsv (full API payload in .dependabot-triage/alerts.json)
+            SUBSET REQUESTED: ${{ inputs.alert_numbers || 'none - every open alert' }}
+
+            ${{ env.TRIAGE_PROMPT }}
+          claude_args: |
+            --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
+            --max-turns 200
+            --model claude-opus-5
