@@ -250,9 +250,11 @@
 		</div>
 	{/if}
 	{#if modelWiring}
+		<!-- `runInputs`, not `effectiveInputs`: a stored effort the model rejects is dropped
+		     before the run, and the button must not name one the run will not send. -->
 		<FlowChatModelSettings
 			wiring={modelWiring}
-			values={effectiveInputs}
+			values={runInputs}
 			setValue={setInputValue}
 			{workspace}
 		/>
