@@ -307,6 +307,23 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Maximum token expiration (days)',
+			key: 'max_token_expiration_days',
+			description:
+				'Furthest ahead a user can set the expiration of an API token they create, in days. With a value set, every new token must carry an expiration within that window. Service accounts are exempt, so automation can keep longer-lived credentials. Leave empty to let users pick any expiration, including none.',
+			fieldType: 'number',
+			placeholder: 'no limit',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true,
+			error: 'Must be a whole number of days, 1 or more',
+			isValid: (value: unknown) =>
+				value === undefined ||
+				value === null ||
+				value === '' ||
+				(typeof value === 'number' && Number.isInteger(value) && value >= 1)
 		}
 	],
 	Jobs: [

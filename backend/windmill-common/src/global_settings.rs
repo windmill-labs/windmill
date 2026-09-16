@@ -97,6 +97,11 @@ pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
 pub const DISABLE_WORKSPACE_INVITE_EMAILS_SETTING: &str = "disable_workspace_invite_emails";
 pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
+/// Ceiling, in days, on how far ahead a token minted through `POST /users/tokens/create`
+/// may expire, and on that route only: server-side mints (webhook tokens, app embed tokens,
+/// sessions) choose a lifetime the caller never picks and go straight to
+/// `create_token_internal`. Absent or non-positive leaves tokens uncapped.
+pub const MAX_TOKEN_EXPIRATION_DAYS_SETTING: &str = "max_token_expiration_days";
 pub const AUTO_LOGIN_PROVIDER_SETTING: &str = "auto_login_provider";
 /// Name of the SAML attribute or OIDC userinfo claim carrying the user's IdP groups. Unset or
 /// empty leaves instance-group membership entirely to SCIM.

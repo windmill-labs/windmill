@@ -47,7 +47,10 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::{hash_token, safe_token_prefix, TOKEN_PREFIX_LEN};
-use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
+use windmill_common::global_settings::{
+    load_value_from_global_settings, AUTOMATE_USERNAME_CREATION_SETTING,
+    MAX_TOKEN_EXPIRATION_DAYS_SETTING,
+};
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::per_minute_counter::PerMinuteCounter;
 use windmill_common::users::truncate_token;
@@ -3072,6 +3075,61 @@ pub async fn create_guest_session_token<'c>(
 
 // create_token_internal is re-exported from windmill-api-auth above
 
+/// Instance-wide ceiling on how long a token minted through this handler may live.
+/// Read from `global_settings` on each call rather than cached: token creation is rare
+/// enough that the round trip costs nothing, and the cap is then never served stale.
+///
+/// Service accounts are exempt: their credentials back unattended automation and are
+/// rotated by an operator rather than by an interactive login.
+async fn check_token_expiration_within_instance_max(
+    db: &DB,
+    authed: &ApiAuthed,
+    token_config: &NewToken,
+) -> Result<()> {
+    let value = load_value_from_global_settings(db, MAX_TOKEN_EXPIRATION_DAYS_SETTING).await?;
+    // The settings UI writes a `number` input, which lands as a JSON number or, when the
+    // browser hands back the raw field, as a string.
+    let Some(max_days) = value
+        .and_then(|v| match v {
+            serde_json::Value::Number(n) => n.as_i64(),
+            serde_json::Value::String(s) => s.trim().parse::<i64>().ok(),
+            _ => None,
+        })
+        .filter(|days| *days > 0)
+    else {
+        return Ok(());
+    };
+    // A ceiling too far out to be a timestamp is no ceiling.
+    let Some(max) =
+        chrono::Duration::try_days(max_days).and_then(|d| chrono::Utc::now().checked_add_signed(d))
+    else {
+        return Ok(());
+    };
+
+    let is_service_account = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE email = $1 AND is_service_account IS true
+            AND ($2::varchar IS NULL OR workspace_id = $2))",
+        &authed.email,
+        token_config.workspace_id.as_deref(),
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+    if is_service_account {
+        return Ok(());
+    }
+
+    match token_config.expiration {
+        None => Err(Error::BadRequest(format!(
+            "This instance requires tokens to expire, at most {max_days} days from now"
+        ))),
+        Some(expiration) if expiration > max => Err(Error::BadRequest(format!(
+            "This instance limits token expiration to {max_days} days from now"
+        ))),
+        Some(_) => Ok(()),
+    }
+}
+
 async fn create_token(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -3097,6 +3155,8 @@ async fn create_token(
     }
 
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
+
+    check_token_expiration_within_instance_max(&db, &authed, &token_config).await?;
 
     let mut tx = db.begin().await?;
 
