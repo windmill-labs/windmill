@@ -824,6 +824,12 @@ async fn handle_tool_execution_success(
         ..Default::default()
     });
 
+    // A failed job's result is what it failed with; kept on the row, as on the error
+    // handler's row, so the reason survives a reload. A successful call's result stays on
+    // the job.
+    let extras = (!success)
+        .then(|| MessageExtras { tool_result: Some(tool_result.clone()), ..Default::default() });
+
     // The job ran; whether it ran successfully is `success`, and the row stored below is
     // worded from it. The stream has to carry the same value, or the card the reader watches
     // and the row that replaces it describe the same call differently.
@@ -850,7 +856,7 @@ async fn handle_tool_execution_success(
         format!("Error executing {}", tool_call.function.name)
     };
 
-    add_tool_message_to_chat(ctx, Some(job_id), &content, success, None).await;
+    add_tool_message_to_chat(ctx, Some(job_id), &content, success, extras).await;
 
     Ok(())
 }
@@ -866,7 +872,8 @@ async fn add_tool_message_to_chat(
     tool_job_id: Option<Uuid>,
     content: &str,
     success: bool,
-    // Only for a tool with no job of its own; a Windmill tool's call is read from its job.
+    // The call, for a tool with no job of its own, and what a failed call failed with. A
+    // Windmill tool's successful call is read from its job.
     extras: Option<MessageExtras>,
 ) {
     if ctx.omit_output_from_conversation {
