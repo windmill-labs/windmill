@@ -831,14 +831,19 @@ export class FlowChatManager {
 	private async loadConversations(page: number, perPage: number) {
 		if (!this.#workspace() || !this.#path) return []
 
+		// The filter this read is for. Switching it starts another read without waiting for
+		// this one, and the list keeps whichever answers last — so a read whose filter has
+		// been changed since answers with nothing rather than with the wrong chats.
+		const kind = this.conversationKind
 		try {
 			const response = await FlowConversationsService.listFlowConversations({
 				workspace: this.#workspace()!,
 				flowPath: this.#path,
-				kind: this.conversationKind,
+				kind,
 				page: page,
 				perPage: perPage
 			})
+			if (kind !== this.conversationKind) return []
 			return response
 		} catch (error) {
 			console.error('Failed to load conversations:', error)
@@ -1491,6 +1496,10 @@ export class FlowChatManager {
 		// arriving without a stream — a turn that never had one, one whose stream is gone,
 		// a conversation picked back up on the polling path — gets it once.
 		turn.startPolling()
+		// What the conversation showed before this turn produced anything. The catch-up read
+		// runs throughout the wait below, so whether the turn has an answer is a question
+		// about the whole settle rather than about its last read.
+		const rowsBefore = this.#rowsOf(turn.conversationId).length
 		const api = this.#chatApi()
 		const signal = turn.signal
 		let flowResult: unknown
@@ -1510,13 +1519,12 @@ export class FlowChatManager {
 			await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS))
 		}
 		if (!this.#isCurrent(turn)) return
-		const read = await this.#reconcileTurn(turn)
+		await this.#reconcileTurn(turn)
 		if (!this.#isCurrent(turn)) return
-		// Nothing of this turn was read back and nothing was streamed, so the transcript has
-		// no answer to show and no later read is coming. The run's own result is the same
-		// answer the row would have carried, and showing it is what keeps a finished turn
-		// from reading as one that produced nothing. A reload replaces it with the row.
-		if (read === 0) {
+		// The turn put nothing on screen and no later read is coming. The run's own result is
+		// the same answer a row would have carried, and showing it is what keeps a finished
+		// turn from reading as one that produced nothing. A reload replaces it with the row.
+		if (this.#rowsOf(turn.conversationId).length === rowsBefore) {
 			// A run that failed says so in an error rather than an answer, and the row has to
 			// carry that: it is what the transcript reads the turn's outcome off, which is what
 			// offers Retry and what holds a queued message back from running into the same
@@ -1538,7 +1546,10 @@ export class FlowChatManager {
 				]
 			}
 		}
-		this.#endTurnIfCurrent(turn, { settled: true })
+		// Settling arms whatever was queued behind this turn. A run that failed must not arm
+		// it: the next turn would go straight into the conversation that just failed, where
+		// the reader has not seen why yet.
+		this.#endTurnIfCurrent(turn, { settled: flowSucceeded })
 	}
 
 	/**

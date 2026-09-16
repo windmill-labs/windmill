@@ -5,6 +5,7 @@ import { createFlowChatManager } from './FlowChatManager.svelte'
 vi.mock('$lib/gen', () => ({
 	FlowConversationsService: {
 		listConversationMessages: vi.fn(),
+		listFlowConversations: vi.fn(),
 		deleteFlowConversation: vi.fn()
 	},
 	JobService: { cancelQueuedJob: vi.fn() },
@@ -142,6 +143,29 @@ describe('unread bookkeeping', () => {
  * start of a turn that wrote a lot of rows — an agent calling several tools a round. Its
  * answer is among the rows that would be left behind.
  */
+/**
+ * The sidebar's filter starts a read and does not wait for it, so switching quickly leaves
+ * several in flight and the list keeps whichever answers last. An older one answering last
+ * would leave the sidebar showing chats of a filter the reader has already moved off.
+ */
+describe('switching the conversation filter', () => {
+	it('drops a read whose filter has been changed since', async () => {
+		let answer: ((rows: unknown[]) => void) | undefined
+		vi.mocked(FlowConversationsService.listFlowConversations)
+			.mockReset()
+			.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)) as any)
+		const manager = managerWithRows()
+		manager.conversationKind = 'test'
+
+		const stale = (manager as any).loadConversations(1, 20)
+		await vi.waitFor(() => expect(answer).toBeTruthy())
+		manager.conversationKind = 'deployed'
+		answer!([{ id: 'a-test-chat', is_test: true }])
+
+		expect(await stale).toEqual([])
+	})
+})
+
 describe('reading a turn longer than one page', () => {
 	const assistantRows = (from: number, count: number) =>
 		Array.from({ length: count }, (_, i) => ({
@@ -799,6 +823,74 @@ describe('a conversation opened while its run is still going', () => {
 		const last = manager.messages.at(-1)
 		expect(last?.content).toBe('the provider refused')
 		expect(last?.success).toBe(false)
+	})
+
+	/**
+	 * The catch-up read runs for the whole of a turn with no stream, so the answer can be on
+	 * screen well before the job reports itself over. Asking only what the last read brought
+	 * back would call that turn empty and show the run's result beside the row it already has.
+	 */
+	it('does not repeat an answer the catch-up read already got', async () => {
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			.mockResolvedValue([
+				{
+					id: 'db-answer',
+					conversation_id: 'a',
+					message_type: 'assistant',
+					content: 'the answer, read back',
+					created_at: new Date().toISOString(),
+					created_seq: 5
+				}
+			] as any)
+		jobCompleted.value = true
+		jobCompleted.success = true
+		jobCompleted.result = { windmill_chat_answer: 'the answer, read back' }
+		const manager = (live = managerWithRows())
+		;(manager as any).initialize(
+			vi.fn(async () => 'job-1'),
+			'u/admin/flow',
+			false
+		)
+		manager.operatingWorkspace = () => 'ws'
+		manager.selectedConversationId = 'a'
+		manager.inputMessage = 'ask'
+
+		await manager.sendMessage(undefined, undefined, 'a')
+		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(false))
+
+		const answers = manager.messages.filter((m) => m.content === 'the answer, read back')
+		expect(answers).toHaveLength(1)
+	})
+
+	/**
+	 * A queued message goes out when a turn settles. A turn that failed must not settle: the
+	 * next one would run straight into the conversation that just failed, before the reader
+	 * has seen why.
+	 */
+	it('does not arm a queued message when the run failed', async () => {
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			.mockResolvedValue([] as any)
+		jobCompleted.value = true
+		jobCompleted.success = false
+		jobCompleted.result = { error: { message: 'the provider refused' } }
+		const manager = (live = managerWithRows())
+		;(manager as any).initialize(
+			vi.fn(async () => 'job-1'),
+			'u/admin/flow',
+			false
+		)
+		manager.operatingWorkspace = () => 'ws'
+		manager.selectedConversationId = 'a'
+		manager.inputMessage = 'ask'
+		const settled: string[] = []
+		manager.onTurnSettled = (id) => settled.push(id)
+
+		await manager.sendMessage(undefined, undefined, 'a')
+		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(false))
+
+		expect(settled).toEqual([])
 	})
 
 	it('leaves no card spinning when Stop ends the turn', async () => {
