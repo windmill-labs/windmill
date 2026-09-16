@@ -163,8 +163,8 @@ mod ce {
         Err(unavailable())
     }
 
-    /// A data table not under roles, asked for no role, is not a role decision and passes, as it
-    /// did before roles existed. Anything else is refused.
+    /// A data table not under roles, asked for no role or for `admin`, is not a role decision and
+    /// passes, as it did before roles existed. Anything else is refused.
     pub(crate) async fn ensure_can_use_datatable_role(
         db: &DB,
         w_id: &str,
@@ -174,7 +174,9 @@ mod ce {
         _context: &str,
     ) -> Result<()> {
         let governing = resolve_governing_datatable(db, w_id, name).await?;
-        if governing.datatable.permissions.is_none() && role.is_none() {
+        if governing.datatable.permissions.is_none()
+            && role.is_none_or(|r| r == crate::datatable_roles::ADMIN_DATATABLE_ROLE)
+        {
             Ok(())
         } else {
             Err(unavailable())

@@ -1664,9 +1664,10 @@ pub async fn get_datatable_resource_from_db(
 ) -> Result<serde_json::Value> {
     let governing = resolve_governing_datatable(db, w_id, name).await?;
     let db_resource = resolve_datatable_connection_unchecked(db, &governing, false).await?;
-    // Not under roles and asked for none: the `admin` connection, as before roles existed, in
-    // every edition. Anything else is a role decision.
-    if governing.datatable.permissions.is_none() && role.is_none() {
+    // Not under roles and asked for none, or for `admin` by name: the `admin` connection, as before
+    // roles existed, in every edition. Anything else is a role decision. Every migration names
+    // `admin` explicitly, so an edition without roles must not treat that as one.
+    if governing.datatable.permissions.is_none() && role.is_none_or(|r| r == ADMIN_DATATABLE_ROLE) {
         return Ok(db_resource);
     }
     crate::datatable_roles_oss::resolve_datatable_role_connection(
