@@ -112,6 +112,12 @@ function toStreamEvent(event: AgentStreamEvent): StreamEvent {
 	}
 }
 
+/** Whether a result is shaped like the envelope Windmill wraps a failure in. Only ever a
+ *  reason to go and ask the job: a flow is free to return this shape as its answer. */
+function looksLikeError(result: unknown): boolean {
+	return typeof (result as { error?: unknown })?.error === 'object'
+}
+
 /** What a run that failed said, as the line a turn ends on. Windmill wraps a failure in an
  *  error envelope; anything else is shown as it came. */
 function failedRunMessage(result: unknown): string | undefined {
@@ -238,6 +244,7 @@ export class FlowChatManager {
 
 	#reveal(turn: Turn, kind: RevealKind, chunk: string) {
 		if (!this.#isCurrent(turn)) return
+		if (kind === 'answer') turn.streamedText = true
 		const step = appendRevealed(
 			{ rows: this.#rowsOf(turn.conversationId), state: turn.transcript },
 			kind,
@@ -733,9 +740,23 @@ export class FlowChatManager {
 			: undefined
 	}
 
+	/**
+	 * Re-read the list, one read at a time.
+	 *
+	 * The list keeps whatever its loader last answered with, and the filter starts a read
+	 * without waiting for the one before it — so two in flight together leave the sidebar
+	 * showing whichever finishes last rather than whichever was asked for last. Chained
+	 * rather than cancelled because the loader belongs to `InfiniteList`: waiting for the
+	 * one in flight is what makes the order of the answers the order of the asks.
+	 */
 	async refreshConversations() {
-		await this.conversationListComponent?.loadData('forceRefresh')
+		const refreshed = this.#listRefresh
+			.catch(() => {})
+			.then(() => this.conversationListComponent?.loadData('forceRefresh'))
+		this.#listRefresh = refreshed.then(() => {})
+		await refreshed
 	}
+	#listRefresh: Promise<void> = Promise.resolve()
 
 	// Only used by InfiniteList
 	private async deleteConversation(conversationId: string) {
@@ -831,19 +852,14 @@ export class FlowChatManager {
 	private async loadConversations(page: number, perPage: number) {
 		if (!this.#workspace() || !this.#path) return []
 
-		// The filter this read is for. Switching it starts another read without waiting for
-		// this one, and the list keeps whichever answers last — so a read whose filter has
-		// been changed since answers with nothing rather than with the wrong chats.
-		const kind = this.conversationKind
 		try {
 			const response = await FlowConversationsService.listFlowConversations({
 				workspace: this.#workspace()!,
 				flowPath: this.#path,
-				kind,
+				kind: this.conversationKind,
 				page: page,
 				perPage: perPage
 			})
-			if (kind !== this.conversationKind) return []
 			return response
 		} catch (error) {
 			console.error('Failed to load conversations:', error)
@@ -1101,6 +1117,7 @@ export class FlowChatManager {
 		}
 
 		this.#rowsById[currentConversationId] = [...this.#rowsOf(currentConversationId), userMessage]
+		turn.userRowId = userMessage.id
 		onUserRow?.(userMessage.id)
 		const messageContent = this.inputMessage.trim()
 		this.inputMessage = ''
@@ -1280,7 +1297,8 @@ export class FlowChatManager {
 					// rows it lands can stand for it.
 					turn.flushReveals()
 					await this.#reconcileTurn(turn)
-					this.#endTurnIfCurrent(turn, { settled: true })
+					if (!this.#isCurrent(turn)) return
+					await this.#finishTurn(turn, jobId, update.result)
 				}
 				return
 			} catch (error) {
@@ -1412,6 +1430,7 @@ export class FlowChatManager {
 			return false
 		}
 		const jobId = startedBy.job_id
+		turn.userRowId = startedBy.id
 		const api = this.#chatApi()
 		// Named before the question, not after it: Stop with no job cancels nothing while the
 		// run carries on.
@@ -1496,20 +1515,14 @@ export class FlowChatManager {
 		// arriving without a stream — a turn that never had one, one whose stream is gone,
 		// a conversation picked back up on the polling path — gets it once.
 		turn.startPolling()
-		// What the conversation showed before this turn produced anything. The catch-up read
-		// runs throughout the wait below, so whether the turn has an answer is a question
-		// about the whole settle rather than about its last read.
-		const rowsBefore = this.#rowsOf(turn.conversationId).length
 		const api = this.#chatApi()
 		const signal = turn.signal
 		let flowResult: unknown
-		let flowSucceeded = true
 		while (this.#isCurrent(turn)) {
 			try {
-				const { completed, success, result } = await api.getCompletedResult(jobId, signal)
+				const { completed, result } = await api.getCompletedResult(jobId, signal)
 				if (completed) {
 					flowResult = result
-					flowSucceeded = success !== false
 					break
 				}
 			} catch (error) {
@@ -1521,35 +1534,76 @@ export class FlowChatManager {
 		if (!this.#isCurrent(turn)) return
 		await this.#reconcileTurn(turn)
 		if (!this.#isCurrent(turn)) return
-		// The turn put nothing on screen and no later read is coming. The run's own result is
-		// the same answer a row would have carried, and showing it is what keeps a finished
-		// turn from reading as one that produced nothing. A reload replaces it with the row.
-		if (this.#rowsOf(turn.conversationId).length === rowsBefore) {
-			// A run that failed says so in an error rather than an answer, and the row has to
-			// carry that: it is what the transcript reads the turn's outcome off, which is what
-			// offers Retry and what holds a queued message back from running into the same
-			// failure.
-			const answer = flowSucceeded ? extractChatAnswer(flowResult) : failedRunMessage(flowResult)
-			if (typeof answer === 'string' && answer !== '') {
+		await this.#finishTurn(turn, jobId, flowResult)
+	}
+
+	/**
+	 * Whether the transcript already shows this turn's answer.
+	 *
+	 * Asked of the rows after the message the turn answers, because that is where its own
+	 * work begins — a count of rows says nothing, since a turn writes tool and thinking rows
+	 * whose arrival has no bearing on whether the answer came. A turn whose question is no
+	 * longer on screen is left alone: without the boundary there is nothing to be sure of,
+	 * and showing an answer twice is the worse mistake.
+	 */
+	#turnAnswered(turn: Turn): boolean {
+		const rows = this.#rowsOf(turn.conversationId)
+		const asked = rows.findIndex((row) => row.id === turn.userRowId)
+		if (asked < 0) return true
+		const last = rows[rows.length - 1]
+		return rows.length > asked + 1 && last?.message_type === 'assistant'
+	}
+
+	/**
+	 * End a turn on what the run said of itself.
+	 *
+	 * The verdict is the job's and never the rows': a row is written in a transaction the
+	 * run does not wait for, so reading failure off the transcript makes Retry depend on a
+	 * race. The rows decide only what is shown — and only where they have not shown it
+	 * already, since the run's result and the answer row are the same answer twice.
+	 */
+	async #finishTurn(turn: Turn, jobId: string, result: unknown) {
+		const failed = await this.#runFailed(jobId, result, turn)
+		if (!this.#isCurrent(turn)) return
+		if (!this.#turnAnswered(turn)) {
+			const line = failed
+				? failedRunMessage(result)
+				: turn.streamedText
+					? undefined
+					: extractChatAnswer(result)
+			if (typeof line === 'string' && line !== '') {
 				this.#rowsById[turn.conversationId] = [
 					...this.#rowsOf(turn.conversationId),
 					{
 						id: turn.mintRowId(),
 						conversation_id: turn.conversationId,
 						message_type: 'assistant',
-						content: answer,
+						content: line,
 						created_at: new Date().toISOString(),
 						created_seq: 0,
 						job_id: jobId,
-						success: flowSucceeded
+						success: !failed
 					} as ChatMessage
 				]
 			}
 		}
-		// Settling arms whatever was queued behind this turn. A run that failed must not arm
-		// it: the next turn would go straight into the conversation that just failed, where
-		// the reader has not seen why yet.
-		this.#endTurnIfCurrent(turn, { settled: flowSucceeded })
+		// Settling arms whatever was queued behind this turn, and a run that failed must not
+		// arm it: the next turn would go into the conversation that just failed, before the
+		// reader has seen why.
+		this.#endTurnIfCurrent(turn, { settled: !failed })
+	}
+
+	/** Whether the run failed, asked of the job. The result's shape is only ever a reason to
+	 *  ask, and a job that cannot be read is taken as failed: the alternative is arming the
+	 *  next turn on a guess. */
+	async #runFailed(jobId: string, result: unknown, turn: Turn): Promise<boolean> {
+		if (!looksLikeError(result)) return false
+		try {
+			const { success } = await this.#chatApi().getCompletedResult(jobId, turn.signal)
+			return success === false
+		} catch {
+			return true
+		}
 	}
 
 	/**

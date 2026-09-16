@@ -144,25 +144,34 @@ describe('unread bookkeeping', () => {
  * answer is among the rows that would be left behind.
  */
 /**
- * The sidebar's filter starts a read and does not wait for it, so switching quickly leaves
- * several in flight and the list keeps whichever answers last. An older one answering last
- * would leave the sidebar showing chats of a filter the reader has already moved off.
+ * The sidebar keeps whatever its loader last answered with, and the filter starts a read
+ * without waiting for the one before it. Two in flight together would leave the sidebar
+ * showing whichever finished last rather than whichever was asked for last.
  */
 describe('switching the conversation filter', () => {
-	it('drops a read whose filter has been changed since', async () => {
-		let answer: ((rows: unknown[]) => void) | undefined
-		vi.mocked(FlowConversationsService.listFlowConversations)
-			.mockReset()
-			.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)) as any)
+	it('reads one filter at a time', async () => {
+		const finished: string[] = []
+		let release: (() => void) | undefined
 		const manager = managerWithRows()
 		manager.conversationKind = 'test'
+		manager.conversationListComponent = {
+			loadData: vi.fn(async () => {
+				const kind = manager.conversationKind
+				if (!release) await new Promise<void>((resolve) => (release = resolve))
+				finished.push(kind)
+			})
+		} as any
 
-		const stale = (manager as any).loadConversations(1, 20)
-		await vi.waitFor(() => expect(answer).toBeTruthy())
+		const first = manager.refreshConversations()
+		await vi.waitFor(() => expect(release).toBeTruthy())
 		manager.conversationKind = 'deployed'
-		answer!([{ id: 'a-test-chat', is_test: true }])
+		const second = manager.refreshConversations()
+		release!()
+		await Promise.all([first, second])
 
-		expect(await stale).toEqual([])
+		// The second read started only once the first was done, so the list ends on the
+		// filter that was asked for last.
+		expect(finished).toEqual(['test', 'deployed'])
 	})
 })
 
@@ -891,6 +900,37 @@ describe('a conversation opened while its run is still going', () => {
 		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(false))
 
 		expect(settled).toEqual([])
+	})
+
+	/**
+	 * The envelope a failure is wrapped in is a shape a flow is free to return as its answer,
+	 * so the job is asked rather than the result read. A turn told it failed offers Retry and
+	 * holds back whatever is queued behind it — neither belongs to a run that succeeded.
+	 */
+	it('asks the job rather than reading failure off the result shape', async () => {
+		vi.mocked(FlowConversationsService.listConversationMessages)
+			.mockReset()
+			.mockResolvedValue([] as any)
+		jobCompleted.value = true
+		jobCompleted.success = true
+		jobCompleted.result = { error: { message: 'not an error, just its shape' } }
+		const manager = (live = managerWithRows())
+		;(manager as any).initialize(
+			vi.fn(async () => 'job-1'),
+			'u/admin/flow',
+			false
+		)
+		manager.operatingWorkspace = () => 'ws'
+		manager.selectedConversationId = 'a'
+		manager.inputMessage = 'ask'
+		const settled: string[] = []
+		manager.onTurnSettled = (id) => settled.push(id)
+
+		await manager.sendMessage(undefined, undefined, 'a')
+		await vi.waitFor(() => expect(manager.isConversationBusy('a')).toBe(false))
+
+		expect(settled).toEqual(['a'])
+		expect(manager.messages.at(-1)?.success).not.toBe(false)
 	})
 
 	it('leaves no card spinning when Stop ends the turn', async () => {

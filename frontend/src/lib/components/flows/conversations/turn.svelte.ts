@@ -88,6 +88,21 @@ export class Turn {
 		return id
 	}
 
+	/**
+	 * The row carrying the question this turn answers, which is where the turn's own rows
+	 * begin. Everything after it in the transcript is this turn's work — the one boundary
+	 * that says whether the turn has an answer yet, since the rows themselves arrive late
+	 * and out of order.
+	 */
+	userRowId: string | undefined = undefined
+
+	/**
+	 * The stream put answer text on screen. Certain and local, unlike anything read back:
+	 * a turn that showed its answer as it arrived needs no answer built from the run's
+	 * result, whether or not the row behind it has landed.
+	 */
+	streamedText = false
+
 	/** Whether any row this turn opened is still standing in for one the server has. */
 	awaitsRowsIn(rows: { id: string }[]): boolean {
 		return rows.some((row) => this.#minted.has(row.id))
