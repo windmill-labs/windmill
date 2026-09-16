@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE git_sync_synced_head SET ci_test_job_ids = $5\n         WHERE workspace_id = $1 AND repo_resource_path = $2 AND branch = $3 AND sha = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6e3cd83ad7eef0dddacf9359f662193e094ca44642342778fb4281a711263385"
+}

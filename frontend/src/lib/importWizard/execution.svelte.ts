@@ -229,6 +229,29 @@ export class ImportExecution {
 	 */
 	async run(): Promise<void> {
 		if (this.running) return
+		const settled = this.#runInternal()
+		// Handled here so an abandoned or failed run does not surface as an unhandled
+		// rejection through `whenIdle()`, but still reported: `#runInternal` has no `catch` of
+		// its own, and a throw outside its inner ones leaves a stalled run with nothing on
+		// screen — the console is the only place that says why.
+		this.#idle = settled.catch((error) => console.error('import run failed:', error))
+		return settled
+	}
+
+	/**
+	 * Resolves when the run in flight at the moment of the call is no longer writing —
+	 * immediately when there is none. Callers that act on what a run left behind need this
+	 * rather than a poll on `running`: `abandon()` stops the run at the next phase boundary,
+	 * so the request already sent lands after it, and reading the workspace before then reads
+	 * it mid-write. A caller that holds the promise across the start of a *second* run is
+	 * resolved by the first, so re-read it if the surface stays open.
+	 */
+	whenIdle(): Promise<void> {
+		return this.#idle
+	}
+	#idle: Promise<void> = Promise.resolve()
+
+	async #runInternal(): Promise<void> {
 		this.#abandoned = false
 		this.running = true
 		runState.active = true

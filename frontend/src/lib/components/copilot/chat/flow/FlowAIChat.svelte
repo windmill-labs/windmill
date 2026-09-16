@@ -14,6 +14,9 @@
 	import type { ScriptLintResult } from '../shared'
 	import { applyFlowJsonUpdate, updateRawScriptModuleContent } from './helperUtils'
 	import { findModuleInFlow } from '$lib/components/flows/flowTree'
+	import { getEditorStoragePath } from '$lib/components/editorStoragePathContext'
+
+	const editorStoragePath = getEditorStoragePath()
 
 	let {
 		flowModuleSchemaMap,
@@ -161,6 +164,8 @@
 			// assistant is working on.
 			selectionManager.selectId(id, { openPanel: true })
 		},
+
+		getStoragePath: () => editorStoragePath?.(),
 
 		testFlow: async (args, conversationId) => {
 			// Set preview args if provided

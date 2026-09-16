@@ -1437,6 +1437,217 @@ class TestTaskOptions:
 
 
 # =====================================================================
+# TASK RETRY TESTS
+# =====================================================================
+
+
+# What the failed child job leaves in ``completed_steps``.
+_FAILED = {"__wmill_error": True, "message": "boom", "result": {}}
+
+
+class TestTaskRetry:
+    """Nothing carries a retry across rounds: every round re-derives which
+    attempt comes next from the checkpoint alone."""
+
+    def test_each_failure_buys_a_backoff_sleep_and_one_more_attempt(self):
+        @task(retry={"attempts": 2, "delay": 30, "multiplier": 2})
+        async def call_api(x: int):
+            return x
+
+        @workflow
+        async def wf(x: int):
+            return await call_api(x=x)
+
+        completed = {"call_api": _FAILED}
+        r = _run_workflow(wf, {"completed_steps": dict(completed)}, {"x": 1})
+        assert r == {"type": "sleep", "key": "call_api#retry2", "seconds": 30}
+
+        completed["call_api#retry2"] = None
+        r = _run_workflow(wf, {"completed_steps": dict(completed)}, {"x": 1})
+        assert [s["key"] for s in r["steps"]] == ["call_api#2"]
+
+        # the delay grows by the multiplier for the second retry
+        completed["call_api#2"] = _FAILED
+        r = _run_workflow(wf, {"completed_steps": dict(completed)}, {"x": 1})
+        assert r == {"type": "sleep", "key": "call_api#retry3", "seconds": 60}
+
+        completed["call_api#retry3"] = None
+        r = _run_workflow(wf, {"completed_steps": dict(completed)}, {"x": 1})
+        assert [s["key"] for s in r["steps"]] == ["call_api#3"]
+
+        # attempts spent: the failure reaches the body
+        completed["call_api#3"] = _FAILED
+        with pytest.raises(TaskError):
+            _run_workflow(wf, {"completed_steps": dict(completed)}, {"x": 1})
+
+    def test_a_task_the_body_never_awaits_still_sleeps_and_retries(self):
+        # The runner dispatches unawaited task calls by flushing ``_pending``, so
+        # a backoff that only fired when awaited would drop the retry silently
+        # and report the workflow complete.
+        @task(retry={"attempts": 1, "delay": 30})
+        async def fire(x: int):
+            return x
+
+        @workflow
+        async def wf():
+            fire(x=1)
+            return "done"
+
+        r = _run_workflow(wf, {"completed_steps": {"fire": _FAILED}}, {})
+        assert r == {"type": "sleep", "key": "fire#retry2", "seconds": 30}
+
+    # ``step()`` names are arbitrary strings, so a step really can be called
+    # ``t#2``. Whichever of the two allocates second is the one renamed, and it
+    # has to be the same one in every round — hence claiming the attempt keys up
+    # front.
+    def test_an_inline_step_named_like_an_attempt_key_before_the_task_keeps_it(self):
+        @task(retry={"attempts": 1})
+        async def t(x: int):
+            return x
+
+        @workflow
+        async def wf():
+            decoy = await step("t#2", lambda: "not an attempt")
+            return [decoy, await t(x=1)]
+
+        r = _run_workflow(
+            wf, {"completed_steps": {"t#2": "not an attempt", "t": _FAILED}}, {}
+        )
+        assert [s["key"] for s in r["steps"]] == ["t#2_2"]
+
+    def test_an_inline_step_named_like_an_attempt_key_after_the_task_is_not_it(self):
+        @task(retry={"attempts": 1})
+        async def t(x: int):
+            return x
+
+        @workflow
+        async def wf():
+            pending = t(x=1)
+            decoy = await step("t#2", lambda: "not an attempt")
+            return [decoy, await pending]
+
+        # The first round records the step under the key left over after the
+        # task claimed ``t#2``, so the retry re-dispatches instead of reading
+        # the step's value.
+        r = _run_workflow(wf, {}, {})
+        assert r["key"] == "t#2_2"
+
+        r = _run_workflow(
+            wf, {"completed_steps": {"t": _FAILED, "t#2_2": "not an attempt"}}, {}
+        )
+        assert [s["key"] for s in r["steps"]] == ["t#2"]
+
+    def test_the_child_dispatched_for_an_attempt_walks_past_failure_and_backoff(self):
+        # The non-matching branch awaits a future that never resolves, so a child
+        # that walks the loop wrong parks the run until its timeout.
+        @task(retry={"attempts": 1, "delay": 30})
+        async def t(x: int):
+            return x * 10
+
+        @workflow
+        async def wf(x: int):
+            return await t(x=x)
+
+        r = _run_workflow(
+            wf,
+            {
+                "completed_steps": {"t": _FAILED, "t#retry2": None},
+                "_executing_key": "t#2",
+            },
+            {"x": 4},
+        )
+        assert r == {"type": "complete", "result": 40}
+
+    def test_a_misspelled_retry_option_raises_instead_of_being_ignored(self):
+        # The policy is a plain dict here, unlike the TS `TaskRetry` type, so
+        # nothing else would tell the author the option never took effect.
+        with pytest.raises(ValueError, match="max_delay_s"):
+
+            @task(retry={"attempts": 2, "max_delay_s": 300})
+            async def t(x: int):
+                return x
+
+    def test_an_out_of_range_attempt_count_is_rejected_where_it_is_written(self):
+        # Each attempt claims its keys before the first one is dispatched, so an
+        # unbounded count would hang the workflow allocating them.
+        for attempts in (10_000, -1, 2.5, float("inf")):
+            with pytest.raises(ValueError, match="whole number"):
+
+                @task(retry={"attempts": attempts})
+                async def t(x: int):
+                    return x
+
+    def test_a_zero_multiplier_is_honoured_not_read_as_the_default_of_one(self):
+        @task(retry={"attempts": 2, "delay": 30, "multiplier": 0})
+        async def t(x: int):
+            return x
+
+        @workflow
+        async def wf(x: int):
+            return await t(x=x)
+
+        r = _run_workflow(wf, {"completed_steps": {"t": _FAILED}}, {"x": 1})
+        assert r == {"type": "sleep", "key": "t#retry2", "seconds": 30}
+
+        # 30 * 0 — the second retry goes out with no wait at all
+        r = _run_workflow(
+            wf,
+            {"completed_steps": {"t": _FAILED, "t#retry2": None, "t#2": _FAILED}},
+            {"x": 1},
+        )
+        assert [s["key"] for s in r["steps"]] == ["t#3"]
+
+    def test_max_delay_caps_the_backoff_a_multiplier_grows(self):
+        @task(retry={"attempts": 2, "delay": 60, "multiplier": 100, "max_delay": 300})
+        async def t(x: int):
+            return x
+
+        @workflow
+        async def wf(x: int):
+            return await t(x=x)
+
+        r = _run_workflow(
+            wf,
+            {"completed_steps": {"t": _FAILED, "t#retry2": None, "t#2": _FAILED}},
+            {"x": 1},
+        )
+        assert r == {"type": "sleep", "key": "t#retry3", "seconds": 300}
+
+    def test_retry_that_succeeds_resolves_and_later_steps_keep_their_keys(self):
+        # No delay, so the retry is dispatched without a sleep round in between.
+        @task(retry={"attempts": 1})
+        async def flaky(x: int):
+            return x
+
+        @workflow
+        async def wf(x: int):
+            return await double(x=await flaky(x=x))
+
+        r = _run_workflow(
+            wf, {"completed_steps": {"flaky": _FAILED, "flaky#2": 7}}, {"x": 1}
+        )
+        assert r["steps"][0]["key"] == "double"
+        assert r["steps"][0]["args"] == {"x": 7}
+
+    def test_retrying_one_call_does_not_move_the_keys_of_the_calls_beside_it(self):
+        @task(retry={"attempts": 1})
+        async def t(x: int):
+            return x
+
+        @workflow
+        async def wf():
+            return await asyncio.gather(t(x=1), t(x=2))
+
+        r = _run_workflow(wf, {}, {})
+        assert [s["key"] for s in r["steps"]] == ["t", "t_2"]
+
+        # the first call retries as ``t#2``; the second keeps the ``t_2`` it was
+        # dispatched under, rather than being read as the first call's retry
+        r = _run_workflow(wf, {"completed_steps": {"t": _FAILED, "t_2": 20}}, {})
+        assert [s["key"] for s in r["steps"]] == ["t#2"]
+
+
+# =====================================================================
 # SLEEP TESTS
 # =====================================================================
 

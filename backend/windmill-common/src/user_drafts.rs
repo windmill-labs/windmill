@@ -401,6 +401,45 @@ pub async fn fetch_draft_only_list_rows(
     Ok(rows)
 }
 
+/// Delete the caller's OWN draft at a path with no deployed row, for the DELETE
+/// route of a kind whose list synthesizes such rows via
+/// `fetch_draft_only_list_rows`. The `NOT EXISTS` leaves a deployed row's draft
+/// alone, so a route may call this on its not-found branch whatever the reason
+/// for the miss. `Ok(false)` means nothing matched: the caller reports its own error.
+///
+/// Takes no permission check and callers must not add one: an email-scoped row
+/// belongs to the caller, who can always discard it, as `update_draft`'s
+/// own-discard does. Legacy (`email IS NULL`) rows are owned by nobody and keep
+/// their write gate, so discarding one stays on the `update_draft` route.
+pub async fn delete_draft_only_for_path(
+    db: &DB,
+    w_id: &str,
+    kind: UserDraftItemKind,
+    path: &str,
+    email: &str,
+) -> Result<bool> {
+    let Some(table) = kind.deployed_table() else {
+        return Ok(false);
+    };
+    // `table` is from the closed `deployed_table()` enum, never user input.
+    let sql = format!(
+        "DELETE FROM draft \
+         WHERE workspace_id = $1 AND typ = $2::text::DRAFT_KIND AND path = $3 \
+           AND email = $4 \
+           AND NOT EXISTS (SELECT 1 FROM {table} t \
+             WHERE t.workspace_id = draft.workspace_id AND t.path = draft.path)"
+    );
+    let deleted = sqlx::query(&sql)
+        .bind(w_id)
+        .bind(kind.as_str())
+        .bind(path)
+        .bind(email)
+        .execute(db)
+        .await?
+        .rows_affected();
+    Ok(deleted > 0)
+}
+
 /// The get-by-path draft choreography, shared by every entity's "get by path"
 /// route. Given the deployed entity as an `Option` (caller maps its own "not
 /// found" to `None`):

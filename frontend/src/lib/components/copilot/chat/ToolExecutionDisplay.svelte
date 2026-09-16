@@ -37,14 +37,22 @@
 	import ToolMessageActions from './ToolMessageActions.svelte'
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
+	import RunScriptCard from './RunScriptCard.svelte'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
+	import McpServerIcon from '$lib/components/mcp/McpServerIcon.svelte'
+	import { resolveMcpServerMark } from '$lib/components/mcp/serverMark'
 
 	interface Props {
 		message: ToolDisplayMessage
 	}
 
 	let { message }: Props = $props()
+
+	// Recorded by the call itself, from the connected-server list rather than from the
+	// model's arguments — which is what lets a reloaded transcript still resolve it, and
+	// what keeps a path the model made up from being read as a workspace resource.
+	const mcpServer = $derived(message.mcpServer)
 
 	const isPlanReview = $derived(message.toolName === EXIT_PLAN_MODE_TOOL)
 	const isPlanCard = $derived(isPlanCardTool(message.toolName))
@@ -117,6 +125,10 @@
 		isActiveUserQuestion(message) ? message.userQuestion : undefined
 	)
 
+	// The run card owns this call from the form to whatever settled it, cancelling included:
+	// the card is the call, and a run the user stopped is not a different kind of thing.
+	const isRunCard = $derived(Boolean(message.runForm))
+
 	// The preview chip sits on the header row (to the right of the tool-call text);
 	// shown once the tool settled, never while loading/erroring/awaiting confirmation.
 	const showPreviewChip = $derived(
@@ -140,6 +152,8 @@
 			<span class="text-2xs text-tertiary truncate">{message.toolName}</span>
 		{/if}
 	</div>
+{:else if isRunCard}
+	<RunScriptCard {message} />
 {:else if planState}
 	<!-- Same lean shape as a tool call below: a header row that collapses into the
 	     transcript, with everything else in one box under it. -->
@@ -235,6 +249,17 @@
 		{/if}
 	{/snippet}
 
+	<!-- Which system a call reaches is the first thing to know about it, so an MCP call
+	     is marked before its label. Awaited rather than drawn immediately: the MCP logo
+	     appearing first and being replaced would flicker on every row. -->
+	{#snippet serverMark()}
+		{#if mcpServer?.workspace && mcpServer.path}
+			{#await resolveMcpServerMark(mcpServer.workspace, mcpServer.path) then mark}
+				<McpServerIcon icon={mark.icon} size={14} />
+			{/await}
+		{/if}
+	{/snippet}
+
 	<!-- The shimmer is the only running indicator, so the states have to read off
 	     weight alone: queued calls (waiting their turn behind the executing tool)
 	     are faded, the running one sweeps, a settled one is plain. -->
@@ -251,6 +276,7 @@
 		labelClass={showPreviewChip ? 'truncate' : ''}
 		contentClass="space-y-3"
 		headerRight={showPreviewChip ? previewChip : undefined}
+		headerLeft={mcpServer?.workspace ? serverMark : undefined}
 	>
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
 		{#snippet belowHeader()}

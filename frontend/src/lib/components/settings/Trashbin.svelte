@@ -7,7 +7,7 @@
 	import Row from '$lib/components/table/Row.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { type TrashItem, TrashService } from '$lib/services/trashService'
+	import { type TrashItem, TrashService } from '$lib/gen'
 	import {
 		Trash2,
 		RotateCcw,

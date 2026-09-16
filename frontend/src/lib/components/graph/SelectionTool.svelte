@@ -4,15 +4,17 @@
 	import type { SelectionManager } from './selectionUtils.svelte'
 	interface Props {
 		selectionManager: SelectionManager
-		clearGraphSelection: () => void
 	}
 
-	let { selectionManager, clearGraphSelection }: Props = $props()
+	let { selectionManager }: Props = $props()
 
-	untrack(() => selectionManager).setClearGraphSelection(untrack(() => clearGraphSelection))
-
-	// Get store to access selectionRect
 	const store = useStore()
+
+	// Clear through xyflow's store, never by handing it fresh node objects: replacing them
+	// re-creates every node's DOM, and a click whose node is rebuilt between pointerdown and
+	// release retargets to the pane, which clears the selection that same gesture just made.
+	// While xyflow holds a selection, useOnSelectionChange below re-broadcasts it over ours.
+	untrack(() => selectionManager).setClearGraphSelection(() => store.unselectNodesAndEdges())
 
 	// Handle selection changes from SvelteFlow
 	useOnSelectionChange(({ nodes: selectedNodes, edges: _selectedEdges }) => {

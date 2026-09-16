@@ -141,6 +141,7 @@ function scriptDraftToWorkspaceItem(path: string, draft: NewScript): WorkspaceIt
 		summary: draft.summary,
 		language: draft.language,
 		value: draft.content,
+		schema: draft.schema,
 		parentHash: draft.parent_hash,
 		isDraft: true
 	}

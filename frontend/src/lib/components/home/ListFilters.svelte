@@ -3,6 +3,7 @@
 	import { Badge } from '../common'
 	import type { BadgeColor, BadgeIconProps } from '../common/badge/model'
 	import { appIconComponent } from '../icons'
+	import { integrationDisplayName } from '../resourceTypeDisplay'
 	import { onDestroy, onMount } from 'svelte'
 
 	interface Props {
@@ -131,7 +132,7 @@
 							<Folder class="mr-0.5" size={14} />
 						{/if}
 					</span>
-					{filter}
+					{resourceType ? integrationDisplayName(filter) : filter}
 					{#if filter === selectedFilter}&cross;{/if}
 				</Badge>
 			</div>

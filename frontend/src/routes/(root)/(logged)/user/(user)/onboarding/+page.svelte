@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { ArrowLeft } from 'lucide-svelte'
-	import { UserService } from '$lib/gen/services.gen'
+	import { UserService, WorkspaceService } from '$lib/gen/services.gen'
 	import { goto } from '$lib/navigation'
+	import { usersWorkspaceStore } from '$lib/stores'
+	import { switchWorkspace } from '$lib/storeUtils'
 	import { page } from '$app/state'
 	import { toSameOriginRelativePath } from '$lib/logoutRedirect'
+	import SimpleCreateWorkspace from '$lib/components/workspaceSettings/SimpleCreateWorkspace.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -22,12 +25,14 @@
 		MessageCircleCode
 	} from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { onboardingProfile } from '$lib/onboardingProfile'
 
 	// Define step names as constants for better maintainability
 	const STEP_SOURCE = 'source'
 	const STEP_USE_CASE = 'use_case'
+	const STEP_WORKSPACE = 'workspace'
 
-	type OnboardingStep = typeof STEP_SOURCE | typeof STEP_USE_CASE
+	type OnboardingStep = typeof STEP_SOURCE | typeof STEP_USE_CASE | typeof STEP_WORKSPACE
 
 	let currentStep = $state<OnboardingStep>(STEP_SOURCE)
 	let useCaseText = $state('')
@@ -36,6 +41,53 @@
 	let otherSourceText = $state('')
 	let otherPopoverOpen = $state(false)
 	let otherInputRef: HTMLInputElement | undefined = $state()
+
+	// Whether this user has somewhere to go already, in which case there is nothing to create.
+	// A pending invite counts: it is a `workspace_invite` row until `accept_invite` runs, so an
+	// invited teammate reaches onboarding owning nothing, and creating them a personal
+	// workspace is not what they came for — the picker is where the invite is. Loaded up front
+	// so the last step is settled by the time the survey is answered, and true when the load
+	// fails, since the picker can work the decision out and the create step has no way back.
+	let alreadyPlaced = $state(false)
+	// The survey was skipped, so the last step has nothing to go back to.
+	let skippedSurvey = $state(false)
+
+	// An invited account arrives with the survey already answered: the invite that brought
+	// them here is how they heard about us, and their use case was researched before it was
+	// sent. Neither question is asked; the known source is recorded and they go straight to
+	// naming their workspace. Resolved before first paint: rendering a survey step and
+	// yanking it away a frame later reads as a glitch.
+	let invitedTouchPoint = $state<string | null>(null)
+	let profileReady = $state(false)
+	async function loadInviteProfile() {
+		const profile = await onboardingProfile()
+		if (profile?.touch_point) {
+			invitedTouchPoint = profile.touch_point
+			// An account that already has somewhere to go leaves from here; painting the
+			// survey behind that navigation would show a step this account never takes.
+			if (await skip()) return
+		}
+		profileReady = true
+	}
+	loadInviteProfile()
+
+	async function loadWorkspaceStep() {
+		try {
+			const [workspaces, invites] = await Promise.all([
+				WorkspaceService.listUserWorkspaces(),
+				UserService.listWorkspaceInvites()
+			])
+			usersWorkspaceStore.set(workspaces)
+			alreadyPlaced = workspaces.workspaces.some((w) => w.id !== 'admins') || invites.length > 0
+		} catch (error) {
+			console.error('Could not prepare the workspace step:', error)
+			alreadyPlaced = true
+		}
+	}
+	// Held, not dropped: Skip awaits one POST that can finish before these GETs do, and
+	// branching on `alreadyPlaced` before they land would skip the step this flow exists for.
+	// Both exits await it; `isSubmitting` already covers the wait.
+	const workspaceStepReady = loadWorkspaceStep()
 
 	const sources = [
 		{ id: 'ai_search', label: 'AI search', icon: Bot },
@@ -77,7 +129,39 @@
 	}
 
 	function goToPreviousStep() {
-		currentStep = STEP_SOURCE
+		currentStep = currentStep === STEP_WORKSPACE ? STEP_USE_CASE : STEP_SOURCE
+	}
+
+	/**
+	 * Where to go once onboarding is done. A destination carried by the sign-in — a hub project
+	 * import, say — is what the user came for, so it wins. Otherwise the one workspace this
+	 * flow just made, or the one an invite already gave them, is where they belong and the
+	 * picker would be a page with a single choice on it. It is reached only when there is an
+	 * actual choice to make: several workspaces, or an invite still to accept.
+	 */
+	async function leaveOnboarding() {
+		// `toSameOriginRelativePath` rather than a local check: it already rejects `//host`,
+		// `/\\host` (which WHATWG URL parsing resolves to a different origin), control
+		// characters and oversized values. A second, weaker copy of this is how one of those
+		// gets missed.
+		const requested = toSameOriginRelativePath(page.url.searchParams.get('rd'))
+		if (requested) {
+			await goto(requested)
+			return
+		}
+		try {
+			const workspaces = await WorkspaceService.listUserWorkspaces()
+			usersWorkspaceStore.set(workspaces)
+			const owned = workspaces.workspaces.filter((w) => w.id !== 'admins')
+			if (owned.length === 1) {
+				switchWorkspace(owned[0].id)
+				await goto('/')
+				return
+			}
+		} catch (error) {
+			console.error('Could not list workspaces after onboarding:', error)
+		}
+		await goto('/user/workspaces')
 	}
 
 	async function continueToWorkspaces() {
@@ -97,40 +181,47 @@
 			console.error('Error submitting onboarding data:', error)
 			sendUserToast('Failed to save information: ' + (error?.body || error?.message || error), true)
 		} finally {
+			await workspaceStepReady
+			isSubmitting = false
 			// do not block users from accessing windmill even if there is an error
-			goto(onboardingDestination())
+			if (alreadyPlaced) {
+				leaveOnboarding()
+			} else {
+				currentStep = STEP_WORKSPACE
+			}
 		}
 	}
 
-	/**
-	 * Where to go once onboarding is done. `/user/workspaces` unless the sign-in carried a
-	 * destination — a hub project import, say — in which case that is what the user came for.
-	 * Same-origin relative paths only, so a crafted `?rd=` cannot bounce them off-site.
-	 */
-	function onboardingDestination(): string {
-		// `toSameOriginRelativePath` rather than a local check: it already rejects `//host`,
-		// `/\\host` (which WHATWG URL parsing resolves to a different origin), control
-		// characters and oversized values. A second, weaker copy of this is how one of those
-		// gets missed.
-		return toSameOriginRelativePath(page.url.searchParams.get('rd')) ?? '/user/workspaces'
-	}
-
-	async function skip() {
+	/** Declines the survey; true when that left onboarding altogether. */
+	async function skip(): Promise<boolean> {
 		isSubmitting = true
 		try {
+			// The known source still counts when the rest of the survey is declined.
 			await UserService.submitOnboardingData({
-				requestBody: {}
+				requestBody: invitedTouchPoint ? { touch_point: invitedTouchPoint } : {}
 			})
 		} catch (error) {
 			console.error('Error skipping onboarding:', error)
-		} finally {
-			// do not block users from accessing windmill even if there is an error
-			goto(onboardingDestination())
 		}
+		await workspaceStepReady
+		isSubmitting = false
+		// Skipping the survey is not skipping naming the workspace: the questions are ours,
+		// the workspace is theirs.
+		skippedSurvey = true
+		if (alreadyPlaced) {
+			await leaveOnboarding()
+			return true
+		}
+		currentStep = STEP_WORKSPACE
+		return false
 	}
 </script>
 
-{#if currentStep === STEP_SOURCE}
+{#if !profileReady}
+	<!-- While the invite profile, and for an invited account its placement, resolve which
+	     step comes first, or whether there is one at all. -->
+	<CenteredModal title="Setting things up" loading={true}></CenteredModal>
+{:else if currentStep === STEP_SOURCE}
 	<CenteredModal title="How did you hear about Windmill?">
 		<div class="w-full max-w-lg mx-auto">
 			<div class="grid grid-cols-1 gap-2 mt-6 mb-6">
@@ -231,8 +322,48 @@
 				<div class="flex items-center gap-2">
 					<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
 					<div class="w-2 h-2 rounded-full bg-blue-500"></div>
+					{#if !alreadyPlaced}
+						<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
+					{/if}
 				</div>
 			</div>
+		</div>
+	</CenteredModal>
+{:else if currentStep === STEP_WORKSPACE}
+	<CenteredModal title="Create your workspace" centerVertically={false}>
+		<div class="w-full max-w-lg mx-auto">
+			<p class="mb-6 text-sm text-secondary">
+				Your scripts, flows and apps live here. You can rename it later in the workspace settings.
+			</p>
+
+			<!-- The same one-field form the workspace picker falls back to, so a user who leaves
+			     onboarding early meets it again rather than something new. It owns the name, the
+			     id, the advanced form and the hand-over into the workspace. -->
+			<SimpleCreateWorkspace onCreated={leaveOnboarding}>
+				{#snippet leading()}
+					{#if !skippedSurvey}
+						<Button
+							variant="default"
+							unifiedSize="xs"
+							startIcon={{ icon: ArrowLeft }}
+							on:click={goToPreviousStep}
+						>
+							Previous
+						</Button>
+					{/if}
+				{/snippet}
+			</SimpleCreateWorkspace>
+
+			{#if !invitedTouchPoint}
+				<!-- The only step an invited account sees: no progress to show. -->
+				<div class="flex justify-center mt-4">
+					<div class="flex items-center gap-2">
+						<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
+						<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
+						<div class="w-2 h-2 rounded-full bg-blue-500"></div>
+					</div>
+				</div>
+			{/if}
 		</div>
 	</CenteredModal>
 {/if}

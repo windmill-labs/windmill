@@ -12,6 +12,9 @@
 	import { ClipboardCopy, Code2, FileCode2, Loader2, TableProperties, X } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import type { DbtAssetProvenance } from '$lib/components/assets/AssetGraph/types'
+	import ColumnTraceSection from '$lib/components/assets/AssetGraph/ColumnTraceSection.svelte'
+	import DbtColumnList from '$lib/components/assets/AssetGraph/DbtColumnList.svelte'
+	import type { ColumnLineageGraph } from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { previewDbtRows, type DbtPreview, type DbtPreviewBuffer } from './previewRows'
 	import { nodeSelector } from './parseDbtRun'
 
@@ -34,6 +37,13 @@
 		args,
 		/** Whether this model's file is in the bundle being edited. */
 		fileInBundle = false,
+		/** The project's column-level lineage, when the descriptor asked for it.
+		 *  Fetched for this relation against the same graph the canvas draws, so
+		 *  the trace and the nodes above it describe one parse. */
+		columnGraph,
+		columnLoading = false,
+		columnTruncated = false,
+		columnFailed = false,
 		onOpenFile,
 		onClose
 	}: {
@@ -45,6 +55,10 @@
 		buffer?: DbtPreviewBuffer
 		args?: Record<string, unknown>
 		fileInBundle?: boolean
+		columnGraph?: ColumnLineageGraph
+		columnLoading?: boolean
+		columnTruncated?: boolean
+		columnFailed?: boolean
 		onOpenFile?: (path: string) => void
 		onClose?: () => void
 	} = $props()
@@ -111,7 +125,9 @@
 		return typeof v === 'object' ? JSON.stringify(v) : String(v)
 	}
 
-	let columns = $derived(Object.entries(dbt.columns ?? {}))
+	let hasColumns = $derived(
+		!!dbt.column_schema?.length || Object.keys(dbt.columns ?? {}).length > 0
+	)
 	// `dbt show` SELECTs from the node's own relation and the worker intersects
 	// the selector with `resource_type:model`, so offering it on a seed, snapshot
 	// or source only ever produces a failed job.
@@ -202,15 +218,15 @@
 
 	{#if stalePlaceholders}
 		<div class="shrink-0 px-2 py-1 border-b text-2xs text-secondary bg-surface-secondary">
-			The run arguments have changed since this graph was parsed, so these rows need not
-			describe the models on screen — arguments reach schemas, aliases and which models exist
-			at all. Refresh the models to draw and preview them under the current ones.
+			The run arguments have changed since this graph was parsed, so these rows need not describe
+			the models on screen — arguments reach schemas, aliases and which models exist at all. Refresh
+			the models to draw and preview them under the current ones.
 		</div>
 	{:else if staleVars}
 		<div class="shrink-0 px-2 py-1 border-b text-2xs text-secondary bg-surface-secondary">
-			The run form's vars have changed since this graph was parsed. Rows are previewed under
-			the vars it was parsed with, so they still describe the models on screen — refresh the
-			models to draw and preview them under the current ones.
+			The run form's vars have changed since this graph was parsed. Rows are previewed under the
+			vars it was parsed with, so they still describe the models on screen — refresh the models to
+			draw and preview them under the current ones.
 		</div>
 	{/if}
 
@@ -234,26 +250,9 @@
 			{/if}
 		</div>
 
-		{#if columns.length > 0 || (dbt.data_tests?.length ?? 0) > 0}
+		{#if hasColumns || (dbt.data_tests?.length ?? 0) > 0}
 			<div class="px-2 py-1.5 border-b flex flex-col gap-1.5">
-				{#if columns.length > 0}
-					<div class="text-2xs">
-						<div class="text-tertiary mb-0.5">columns declared</div>
-						<div class="flex flex-col gap-0.5">
-							{#each columns as [name, desc] (name)}
-								<div class="flex gap-2">
-									<span class="font-mono text-primary shrink-0">{name}</span>
-									<span class="text-secondary truncate">{desc}</span>
-								</div>
-							{/each}
-						</div>
-						<!-- dbt's manifest carries no column-to-column edges, so this is a
-						     declared column SET rather than lineage. -->
-						<div class="text-tertiary mt-0.5">
-							Declared metadata — dbt reports no column-level lineage.
-						</div>
-					</div>
-				{/if}
+				<DbtColumnList {dbt} />
 				{#if (dbt.data_tests?.length ?? 0) > 0}
 					<div class="text-2xs">
 						<div class="text-tertiary mb-0.5">tests</div>
@@ -268,6 +267,16 @@
 				{/if}
 			</div>
 		{/if}
+
+		<ColumnTraceSection
+			graph={columnGraph}
+			assetKind="dbt"
+			{assetPath}
+			targetLabel={dbt.unique_id}
+			loading={columnLoading}
+			truncated={columnTruncated}
+			failed={columnFailed}
+		/>
 
 		{#if showRows && preview}
 			{#if 'error' in preview}

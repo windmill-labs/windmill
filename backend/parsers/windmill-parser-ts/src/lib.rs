@@ -694,6 +694,107 @@ pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
     Ok(content)
 }
 
+/// Spans of the string literals naming a loaded module: `import`/`export … from` sources and the
+/// argument of a dynamic `import()`. A `require()` call is left out: `require` is an ordinary
+/// binding a script can shadow, so its argument is not known to be a module.
+struct ImportSpecifierSpans(Vec<Span>);
+
+impl Visit for ImportSpecifierSpans {
+    noop_visit_type!();
+
+    fn visit_import_decl(&mut self, n: &swc_ecma_ast::ImportDecl) {
+        self.0.push(n.src.span);
+    }
+
+    fn visit_export_all(&mut self, n: &swc_ecma_ast::ExportAll) {
+        self.0.push(n.src.span);
+    }
+
+    fn visit_named_export(&mut self, n: &swc_ecma_ast::NamedExport) {
+        if let Some(src) = &n.src {
+            self.0.push(src.span);
+        }
+    }
+
+    fn visit_call_expr(&mut self, n: &swc_ecma_ast::CallExpr) {
+        if let (swc_ecma_ast::Callee::Import(_), Some(arg)) = (&n.callee, n.args.first()) {
+            if let (None, Expr::Lit(Lit::Str(s))) = (arg.spread, &*arg.expr) {
+                self.0.push(s.span);
+            }
+        }
+        n.visit_children_with(self);
+    }
+}
+
+/// Drops the `@version` from each pinned module specifier (`pkg@1.2.3/sub` -> `pkg/sub`),
+/// rewriting only the specifier literals. Unlike [`remove_pinned_imports`], the same text
+/// elsewhere, such as a string the script returns, stays as written.
+pub fn remove_pinned_import_specifiers(code: &str) -> anyhow::Result<String> {
+    let cm: Lrc<SourceMap> = Default::default();
+    let fm = cm.new_source_file(
+        FileName::Custom("main.d.ts".into()).into(),
+        code.to_string(),
+    );
+    let mut tss = TsSyntax::default();
+    tss.tsx = true;
+    tss.no_early_errors = true;
+    let lexer = Lexer::new(
+        Syntax::Typescript(tss),
+        Default::default(),
+        StringInput::from(&*fm),
+        None,
+    );
+    let module = Parser::new_from(lexer).parse_module().map_err(|e| {
+        anyhow::anyhow!("Error while parsing code, it is invalid TypeScript: {e:?}")
+    })?;
+    let mut specifiers = ImportSpecifierSpans(vec![]);
+    specifiers.visit_module(&module);
+    specifiers.0.sort_by_key(|s| s.lo);
+
+    // Spans index the parsed source, which the source map stripped of any UTF-8 BOM.
+    let bom = if code.starts_with('\u{feff}') {
+        '\u{feff}'.len_utf8()
+    } else {
+        0
+    };
+    let offset =
+        |pos: swc_common::BytePos| pos.0.checked_sub(fm.start_pos.0).map(|o| bom + o as usize);
+    let mut content = String::with_capacity(code.len());
+    let mut copied = 0;
+    for span in specifiers.0 {
+        // A span covers the literal's quotes. One that does not land on a matching pair is left
+        // as written rather than risk rewriting the wrong bytes.
+        let (Some(open), Some(close)) = (
+            offset(span.lo),
+            offset(span.hi).and_then(|e| e.checked_sub(1)),
+        ) else {
+            continue;
+        };
+        let quote = code.as_bytes().get(open);
+        if open >= close
+            || open < copied
+            || !matches!(quote, Some(b'"' | b'\''))
+            || code.as_bytes().get(close) != quote
+        {
+            continue;
+        }
+        let Some(specifier) = code.get(open + 1..close) else {
+            continue;
+        };
+        let unpinned = IMPORTS_VERSION.captures(specifier).and_then(|x| {
+            x.get(1)
+                .map(|y| format!("{}{}", y.as_str(), x.get(2).map_or("", |z| z.as_str())))
+        });
+        if let Some(unpinned) = unpinned.filter(|u| u != specifier) {
+            content.push_str(&code[copied..open + 1]);
+            content.push_str(&unpinned);
+            copied = close;
+        }
+    }
+    content.push_str(&code[copied..]);
+    Ok(content)
+}
+
 fn resolve_type_ref(type_resolver: &HashMap<String, (Typ, bool)>, typ: &mut Typ) {
     let mut visited = std::collections::HashSet::new();
     resolve_type_ref_with_visited(type_resolver, typ, &mut visited);

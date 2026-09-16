@@ -391,7 +391,8 @@ async fn test_create_resource_upsert_clears_ws_specific(db: Pool<Postgres>) -> a
 
 /// Regression for GHSA-xmr2-98m6-cjf7: a token scoped only to `resources:write:<r>`
 /// must NOT use the resource-delete cascade to delete a linked secret variable it has
-/// no `variables:write` scope for.
+/// no `variables:write` scope for. The victim sits at a path the resource owns, which is
+/// the only kind the cascade reaches at all.
 #[sqlx::test(fixtures("ws_specific"))]
 async fn test_scoped_token_cannot_cascade_delete_linked_variable(
     db: Pool<Postgres>,
@@ -406,7 +407,7 @@ async fn test_scoped_token_cannot_cascade_delete_linked_variable(
         "SECRET_TOKEN",
     )
     .json(&json!({
-        "path": "u/test-user/victim_secret",
+        "path": "u/test-user/db_victim_secret",
         "value": "hunter2",
         "is_secret": true,
         "description": ""
@@ -421,7 +422,7 @@ async fn test_scoped_token_cannot_cascade_delete_linked_variable(
     )
     .json(&json!({
         "path": "u/test-user/db",
-        "value": { "password": "$var:u/test-user/victim_secret" },
+        "value": { "password": "$var:u/test-user/db_victim_secret" },
         "resource_type": "object"
     }))
     .send()
@@ -443,8 +444,205 @@ async fn test_scoped_token_cannot_cascade_delete_linked_variable(
         resp.text().await?
     );
     assert!(
-        variable_exists(&db, "test-workspace", "u/test-user/victim_secret").await?,
+        variable_exists(&db, "test-workspace", "u/test-user/db_victim_secret").await?,
         "victim variable must survive the denied cascade"
+    );
+    // The scope check runs after the resource DELETE, so only the rollback keeps the resource
+    // alive — moving the check out of the transaction would silently delete it on a 403.
+    let resource_left: Option<i64> =
+        sqlx::query_scalar("SELECT COUNT(*) FROM resource WHERE workspace_id = $1 AND path = $2")
+            .bind("test-workspace")
+            .bind("u/test-user/db")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(
+        resource_left.unwrap_or(0),
+        1,
+        "the denied delete must roll the resource back too"
+    );
+
+    Ok(())
+}
+
+/// Deleting a resource must not take a variable other things still need. Two gates, each
+/// with a way past the other: a variable outside the resource's own path is never its to
+/// delete, and even one it owns stays if another resource points at it.
+#[sqlx::test(fixtures("ws_specific"))]
+async fn test_resource_delete_spares_variables_it_does_not_own(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let create_var = |path: &'static str| {
+        authed(
+            client().post(format!("{base}/variables/create")),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({ "path": path, "value": "hunter2", "is_secret": true, "description": "" }))
+        .send()
+    };
+    let create_res = |path: &'static str, var: &'static str| {
+        authed(
+            client().post(format!("{base}/resources/create")),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({
+            "path": path,
+            "value": { "password": format!("$var:{var}") },
+            "resource_type": "object"
+        }))
+        .send()
+    };
+
+    // A shared secret at a path of its own, and two resources reading it.
+    assert_eq!(create_var("u/test-user/shared_canary").await?.status(), 201);
+    assert_eq!(
+        create_res("u/test-user/probe_a", "u/test-user/shared_canary")
+            .await?
+            .status(),
+        201
+    );
+    assert_eq!(
+        create_res("u/test-user/probe_b", "u/test-user/shared_canary")
+            .await?
+            .status(),
+        201
+    );
+
+    // A secret the resource at the same path owns, which a second resource also reads.
+    assert_eq!(create_var("u/test-user/owned").await?.status(), 201);
+    assert_eq!(
+        create_res("u/test-user/owned", "u/test-user/owned")
+            .await?
+            .status(),
+        201
+    );
+    assert_eq!(
+        create_res("u/test-user/borrower", "u/test-user/owned")
+            .await?
+            .status(),
+        201
+    );
+
+    for resource in ["u/test-user/probe_a", "u/test-user/owned"] {
+        let resp = authed(
+            client().delete(format!("{base}/resources/delete/{resource}")),
+            "SECRET_TOKEN",
+        )
+        .send()
+        .await?;
+        assert_eq!(
+            resp.status(),
+            200,
+            "delete {resource}: {}",
+            resp.text().await?
+        );
+    }
+
+    assert!(
+        variable_exists(&db, "test-workspace", "u/test-user/shared_canary").await?,
+        "a variable the deleted resource only referenced must survive"
+    );
+    assert!(
+        variable_exists(&db, "test-workspace", "u/test-user/owned").await?,
+        "an owned variable another resource still references must survive"
+    );
+
+    Ok(())
+}
+
+/// The bulk cascade follows what RLS actually deleted, not what the caller asked for: a
+/// resource the request names but leaves standing neither cascades nor stops counting as a
+/// referrer. Both halves matter, and neither covers the other.
+#[sqlx::test(fixtures("ws_specific"))]
+async fn test_bulk_delete_follows_what_rls_deleted(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let create_var = |path: &'static str| {
+        authed(
+            client().post(format!("{base}/variables/create")),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({ "path": path, "value": "hunter2", "is_secret": true, "description": "" }))
+        .send()
+    };
+    // ws_specific so the flag assertion at the end has something to check.
+    let create_res = |path: &'static str, var: &'static str| {
+        authed(
+            client().post(format!("{base}/resources/create")),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({
+            "path": path,
+            "value": { "password": format!("$var:{var}") },
+            "resource_type": "object",
+            "ws_specific": true
+        }))
+        .send()
+    };
+
+    // Private to test-user: a resource and the secret it owns.
+    assert_eq!(create_var("u/test-user/hidden_pwd").await?.status(), 201);
+    assert_eq!(
+        create_res("u/test-user/hidden", "u/test-user/hidden_pwd")
+            .await?
+            .status(),
+        201
+    );
+    // test-user-2's own resource and secret, which the private resource above also reads.
+    assert_eq!(create_var("u/test-user-2/own_pwd").await?.status(), 201);
+    assert_eq!(
+        create_res("u/test-user-2/own", "u/test-user-2/own_pwd")
+            .await?
+            .status(),
+        201
+    );
+    assert_eq!(
+        create_res("u/test-user/reader", "u/test-user-2/own_pwd")
+            .await?
+            .status(),
+        201
+    );
+
+    // test-user-2 may write the private secret but has no access to its resource at all.
+    sqlx::query(
+        "UPDATE variable SET extra_perms = '{\"u/test-user-2\": true}'::jsonb
+         WHERE workspace_id = 'test-workspace' AND path = 'u/test-user/hidden_pwd'",
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(
+        client().delete(format!("{base}/resources/delete_bulk")),
+        "SECRET_TOKEN_2",
+    )
+    .json(&json!({
+        "paths": ["u/test-user/hidden", "u/test-user-2/own", "u/test-user/reader"]
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "bulk delete: {}", resp.text().await?);
+
+    assert!(
+        variable_exists(&db, "test-workspace", "u/test-user/hidden_pwd").await?,
+        "the variable of a resource RLS refused to delete must survive"
+    );
+    assert!(
+        variable_exists(&db, "test-workspace", "u/test-user-2/own_pwd").await?,
+        "a requested resource RLS left standing still counts as a referrer"
+    );
+    // ws_specific has no RLS policy of its own, so clearing it by requested path rather than
+    // by deleted path would quietly turn a surviving resource workspace-generic.
+    assert_eq!(
+        ws_specific_row_count(&db, "test-workspace", "resource", "u/test-user/hidden").await?,
+        1,
+        "a resource RLS refused to delete must keep its ws_specific flag"
     );
 
     Ok(())

@@ -13,6 +13,7 @@ sed -i -e "/version: /s/: .*/: $VERSION/" ${root_dirpath}/backend/windmill-api/o
 sed -i -e "/version: /s/: .*/: $VERSION/" ${root_dirpath}/openflow.openapi.yaml
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/typescript-client/package.json
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/typescript-client/jsr.json
+sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/chat-sdk/package.json
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/frontend/package.json
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/windmill-yaml-validator/package.json
 sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" ${root_dirpath}/python-client/wmill/pyproject.toml
@@ -33,3 +34,5 @@ cd ${root_dirpath}/frontend && npm i --package-lock-only --ignore-scripts
 # The CLI installs this package on every `bun install`, which would otherwise rewrite the
 # lockfile's version and leave a dirty tree.
 cd ${root_dirpath}/windmill-yaml-validator && npm i --package-lock-only --ignore-scripts
+
+cd ${root_dirpath}/chat-sdk && npm i --package-lock-only --ignore-scripts

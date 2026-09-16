@@ -28,6 +28,16 @@ export const FRONTEND_SDK_SCOPES: { value: string; label: string; description: s
 		value: 'variables:read',
 		label: 'Read variables',
 		description: 'Read variable values the viewer can access'
+	},
+	{
+		value: 'flow_conversations:read',
+		label: 'Read your flow chats',
+		description: 'List your chat conversations with flows and read their messages'
+	},
+	{
+		value: 'flow_conversations:write',
+		label: 'Manage your flow chats',
+		description: 'Read and delete your chat conversations with flows'
 	}
 ]
 
@@ -72,5 +82,5 @@ export function storeSdkConsent(
 ): void {
 	try {
 		localStorage.setItem(sdkConsentKey(viewer, workspace, path), JSON.stringify(scopes))
-	} catch (_) { }
+	} catch (_) {}
 }

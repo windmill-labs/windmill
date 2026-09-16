@@ -823,7 +823,7 @@
 				</Cell>
 				<Cell head>Role</Cell>
 				<Cell head>Enabled</Cell>
-				<Cell head last>
+				<Cell head last actions>
 					<span class="sr-only">Actions</span>
 				</Cell>
 			</tr>
@@ -963,7 +963,7 @@
 								size="xs"
 							/>
 						</Cell>
-						<Cell>
+						<Cell last actions class={index % 2 === 0 ? 'bg-surface-tertiary' : ''}>
 							<div class="flex gap-1">
 								{#if user.is_service_account && $userStore?.is_admin}
 									<Button
@@ -1085,7 +1085,7 @@
 				<tr>
 					<Cell head first>Email</Cell>
 					<Cell head>Role</Cell>
-					<Cell head last><span class="sr-only">Actions</span></Cell>
+					<Cell head last actions><span class="sr-only">Actions</span></Cell>
 				</tr>
 			</Head>
 			<tbody class="divide-y bg-surface">
@@ -1142,7 +1142,7 @@
 									</ToggleButtonGroup>
 								</div>
 							</Cell>
-							<Cell last>
+							<Cell last actions>
 								<Button
 									variant="default"
 									destructive

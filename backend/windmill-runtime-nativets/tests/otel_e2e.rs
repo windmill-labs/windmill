@@ -136,7 +136,7 @@ export async function main(): Promise<number> {{
 "#
     );
     let js = transpile_ts(ts).expect("transpile failed");
-    let ann = NativeAnnotation { useragent: None, proxy: None };
+    let ann = NativeAnnotation::default();
 
     let mut iso = PrewarmedIsolate::spawn(String::new(), js, ann, vec![], None);
     iso.wait_ready().await.expect("isolate failed to pre-warm");

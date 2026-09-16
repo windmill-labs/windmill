@@ -46,6 +46,10 @@ pub enum WacOutput {
         form: Option<Value>,
         #[serde(default)]
         self_approval_disabled: Option<bool>,
+        #[serde(default)]
+        skin: Option<windmill_common::flows::ApprovalSkin>,
+        #[serde(default)]
+        description: Option<Value>,
     },
     /// Server-side sleep — suspend the workflow for a duration without holding a worker.
     #[serde(rename = "sleep")]
@@ -108,6 +112,11 @@ pub enum WacPark {
 /// completes a job without a worker-measured duration — a cancel, the child-failure
 /// handler — falls back to `now() - started_at`. Left pointing at the first segment,
 /// that fallback reports the whole sleep or approval wait as execution time.
+///
+/// Call it before any write to the parent's `v2_job_status` row in the same
+/// transaction: a child's completion locks the queue row and then the status row
+/// (`record_child_completion`), and taking them the other way round here can
+/// deadlock against a stale child finishing while the parent re-dispatches.
 pub async fn suspend_wac_parent(
     tx: &mut Transaction<'_, Postgres>,
     job_id: &Uuid,

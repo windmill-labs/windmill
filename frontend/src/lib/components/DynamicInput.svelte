@@ -35,6 +35,9 @@
 		name: string
 		/** Workspace the helper script runs in; defaults to the nav workspace. */
 		workspace?: string
+		/** Reaches the fallback editor too, which is what renders when there is no
+		 * `helperScript` — a caller disabling this argument means all of it. */
+		disabled?: boolean
 	}
 
 	let {
@@ -42,7 +45,8 @@
 		helperScript,
 		format,
 		otherArgs: otherArgs,
-		workspace = undefined
+		workspace = undefined,
+		disabled = false
 	}: Props = $props()
 
 	let [inputType, entrypoint] = $derived(format.includes('-') ? format.split('-', 2) : [format, ''])
@@ -190,7 +194,7 @@
 				items={safeSelectItems(items || [])}
 				placeholder="Select items"
 				noItemsMsg={_items.status === 'loading' ? 'Loading...' : 'No items found'}
-				disabled={_items.status === 'loading'}
+				disabled={disabled || _items.status === 'loading'}
 			/>
 		{:else if inputType === 'dynselect'}
 			<Select
@@ -199,6 +203,7 @@
 				{items}
 				bind:filterText
 				loading={!open && _items.status === 'loading'}
+				{disabled}
 				clearable
 				noItemsMsg={_items.status === 'loading' ? 'Loading...' : 'No items found'}
 			/>
@@ -222,7 +227,7 @@
 		{#await import('$lib/components/JsonEditor.svelte')}
 			<Loader2 class="animate-spin" />
 		{:then Module}
-			<Module.default code={JSON.stringify(value, null, 2)} bind:value />
+			<Module.default code={JSON.stringify(value, null, 2)} {disabled} bind:value />
 		{/await}
 	</div>
 {/if}

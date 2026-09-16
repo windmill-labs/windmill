@@ -14,12 +14,18 @@ switch that decides whether this chat carries its tools.
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { isMcpEnabled, setMcpEnabled } from '$lib/components/mcp/enabledServers'
+	import {
+		isOwnOrSharedMcpPath,
+		MCP_LIST_PER_PAGE,
+		mcpViewer
+	} from '$lib/components/mcp/ownServers'
 	import { loadProviderIcon } from '$lib/components/mcp/providerIcon'
 	import {
 		cachedProviderKey,
 		forgetProviderKey,
 		rememberProviderKey
 	} from '$lib/components/mcp/iconCache'
+	import McpServerIcon from '$lib/components/mcp/McpServerIcon.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import type { Component } from 'svelte'
 	import { ResourceService } from '$lib/gen'
@@ -29,6 +35,7 @@ switch that decides whether this chat carries its tools.
 	import { untrack } from 'svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { clearMcpToolsCache } from './global/mcpTools'
+	import { forgetMcpServerMarks } from '$lib/components/mcp/serverMark'
 
 	let {
 		ws,
@@ -273,11 +280,15 @@ switch that decides whether this chat carries its tools.
 		loading = true
 		loadError = undefined
 		try {
-			const resources = await ResourceService.listResource({
-				workspace: target,
-				resourceType: 'mcp',
-				perPage: 100
-			})
+			const [listed, viewer] = await Promise.all([
+				ResourceService.listResource({
+					workspace: target,
+					resourceType: 'mcp',
+					perPage: MCP_LIST_PER_PAGE
+				}),
+				mcpViewer(target)
+			])
+			const resources = listed.filter((r) => isOwnOrSharedMcpPath(r.path, r.extra_perms, viewer))
 			if (seq !== loadSeq) return
 			servers = resources.map((r) => ({
 				path: r.path,
@@ -389,8 +400,10 @@ switch that decides whether this chat carries its tools.
 
 	async function refresh(target = ws) {
 		// A path can be reconnected to a different server, so the cached tool list
-		// (and the readOnlyHint the confirmation gate reads) must not survive.
+		// (and the readOnlyHint the confirmation gate reads) must not survive — nor the
+		// provider mark the transcript's call rows show.
 		clearMcpToolsCache()
+		forgetMcpServerMarks()
 		await loadServers(target)
 		// `refreshMcpServers` blanks the list when the workspace it is handed is not
 		// the one the chat is on, so a refresh landing after a switch would take B's
@@ -469,12 +482,7 @@ switch that decides whether this chat carries its tools.
 				<div class="flex flex-col gap-0.5">
 					{#each servers as server (server.path)}
 						{#snippet icon()}
-							{#if server.icon}
-								{@const Icon = server.icon}
-								<Icon width="16px" height="16px" />
-							{:else}
-								<Plug size={16} class="text-tertiary" />
-							{/if}
+							<McpServerIcon icon={server.icon} size={16} />
 						{/snippet}
 						{#snippet title()}
 							<span class="truncate leading-5">{server.path}</span>
@@ -482,7 +490,7 @@ switch that decides whether this chat carries its tools.
 						{#snippet subtitle()}{server.description}{/snippet}
 						{#snippet trailing()}
 							<Toggle
-								size="sm"
+								size="xs"
 								disabled={forkPending}
 								checked={server.enabled}
 								on:change={async (e) => await toggle(server.path, e.detail)}

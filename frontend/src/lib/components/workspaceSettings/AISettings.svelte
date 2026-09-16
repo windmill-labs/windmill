@@ -28,6 +28,8 @@
 	import ModelPricing from './ModelPricing.svelte'
 	import AiUsagePanel from './AiUsagePanel.svelte'
 	import { setCopilotInfo } from '$lib/aiStore'
+	import { backupSettingsChanged } from '$lib/components/sessions/sessionMirror.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
 	import { Settings } from 'lucide-svelte'
 	import { untrack } from 'svelte'
@@ -79,6 +81,8 @@
 	let usingOpenaiClientCredentialsOauth = $state(false)
 	let workspaceOverrideEditorOpened = $state(false)
 	let copilotDisabled = $state(false)
+	let sessionsStorageDisabled = $state(false)
+	let sessionsRetentionDays: number | undefined = $state(undefined)
 
 	// --- Initial state for dirty tracking ---
 	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
@@ -90,6 +94,8 @@
 	let initialModelPricing: Record<string, ModelPriceOverride> = $state({})
 	let initialPrompts: Record<string, string> = $state({})
 	let initialCopilotDisabled = $state(false)
+	let initialSessionsStorageDisabled = $state(false)
+	let initialSessionsRetentionDays: number | undefined = $state(undefined)
 	let lastLoadedConfigKey = $state<string | undefined>(undefined)
 
 	function clone<T>(v: T): T {
@@ -118,6 +124,8 @@
 		maxTokensPerModel = clone(config?.max_tokens_per_model ?? {})
 		modelPricing = clone(config?.model_pricing ?? {})
 		copilotDisabled = config?.copilot_disabled === true
+		sessionsStorageDisabled = config?.sessions_storage_disabled === true
+		sessionsRetentionDays = config?.sessions_retention_days
 		for (const mode of ['edit', 'fix', 'gen']) {
 			if (!(mode in customPrompts)) {
 				customPrompts[mode] = ''
@@ -135,6 +143,8 @@
 		initialModelPricing = clone(modelPricing)
 		initialPrompts = clone(customPrompts)
 		initialCopilotDisabled = copilotDisabled
+		initialSessionsStorageDisabled = sessionsStorageDisabled
+		initialSessionsRetentionDays = sessionsRetentionDays
 	}
 
 	export function loadFromConfig(config: AIConfig | undefined) {
@@ -151,6 +161,8 @@
 		maxTokensPerModel = clone(initialMaxTokensPerModel)
 		modelPricing = clone(initialModelPricing)
 		copilotDisabled = initialCopilotDisabled
+		sessionsStorageDisabled = initialSessionsStorageDisabled
+		sessionsRetentionDays = initialSessionsRetentionDays
 	}
 
 	$effect(() => {
@@ -186,7 +198,9 @@
 			JSON.stringify(customPrompts) !== JSON.stringify(initialCustomPrompts) ||
 			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel) ||
 			JSON.stringify(modelPricing) !== JSON.stringify(initialModelPricing) ||
-			copilotDisabled !== initialCopilotDisabled
+			copilotDisabled !== initialCopilotDisabled ||
+			sessionsStorageDisabled !== initialSessionsStorageDisabled ||
+			sessionsRetentionDays !== initialSessionsRetentionDays
 	)
 
 	$effect(() => {
@@ -291,8 +305,11 @@
 			.filter(([_, prompt]) => prompt.trim().length > 0)
 			.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
 
-		// The flag is the one thing a workspace on instance defaults still stores of its own.
+		// The flags and the retention are what a workspace on instance defaults still stores
+		// of its own.
 		const copilot_disabled = copilotDisabled ? true : undefined
+		const sessions_storage_disabled = sessionsStorageDisabled ? true : undefined
+		const sessions_retention_days = sessionsRetentionDays
 		return Object.keys(aiProviders ?? {}).length > 0
 			? {
 					providers: aiProviders,
@@ -303,16 +320,28 @@
 					max_tokens_per_model:
 						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined,
 					model_pricing: Object.keys(modelPricing).length > 0 ? modelPricing : undefined,
-					copilot_disabled
+					copilot_disabled,
+					sessions_storage_disabled,
+					sessions_retention_days
 				}
-			: { copilot_disabled }
+			: { copilot_disabled, sessions_storage_disabled, sessions_retention_days }
 	}
+
+	// The server refuses anything outside this range; the input holds the same bounds.
+	const MAX_SESSIONS_RETENTION_DAYS = 3650
+	let retentionInvalid = $derived(
+		sessionsRetentionDays !== undefined &&
+			(!Number.isInteger(sessionsRetentionDays) ||
+				sessionsRetentionDays < 1 ||
+				sessionsRetentionDays > MAX_SESSIONS_RETENTION_DAYS)
+	)
 
 	function isSaveDisabled(): boolean {
 		return (
 			!Object.values(aiProviders).every((p) => p.resource_path) ||
 			(metadataModel != undefined && metadataModel.length === 0) ||
-			(codeCompletionModel != undefined && codeCompletionModel.length === 0)
+			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
+			retentionInvalid
 		)
 	}
 
@@ -332,6 +361,7 @@
 
 	async function editCopilotConfig(): Promise<void> {
 		const config = buildConfig()
+		const backupsToggled = sessionsStorageDisabled !== initialSessionsStorageDisabled
 		let settingsState: GetCopilotSettingsStateResponse | undefined
 
 		if (customSave) {
@@ -348,6 +378,9 @@
 				instance_ai_summary: response.instance_ai_summary
 			}
 			sendUserToast('AI settings updated')
+			// This page's session backups follow the switch at once, rather than at the
+			// next page load.
+			if (backupsToggled) backupSettingsChanged(effectiveWorkspace)
 		}
 		storeInitialState()
 		// Hand the parent what was persisted: it owns `initialConfig`, and this component is
@@ -614,6 +647,78 @@
 			</div>
 		</SettingCard>
 	{/if}
+
+	{#if promptScope === 'workspace'}
+		<!-- Recorded usage must be priced with the rates the chats actually ran under.
+		     A workspace on instance defaults has no rates of its own, so the effective
+		     ones come from copilotInfo rather than from this form's (empty) workspace
+		     config. -->
+		<AiUsagePanel
+			workspace={effectiveWorkspace}
+			modelPricing={usesInstanceAiConfig ? ($copilotInfo.modelPricing ?? {}) : modelPricing}
+		/>
+	{/if}
+
+	<!-- Below the usage it explains: the rates are read as a correction to what the
+	     table above already shows. Kept on its own `showWorkspaceOverrideEditor` gate so
+	     the instance scope, which has no usage panel, still edits rates. -->
+	{#if showWorkspaceOverrideEditor}
+		<ModelPricing {aiProviders} bind:modelPricing />
+	{/if}
+
+	{#if promptScope === 'workspace'}
+		<SettingCard
+			label="Hide AI sessions"
+			description="Hides AI sessions and every other AI assistant button (chat, code generation and completion, AI fix) from all members of this workspace. AI agent steps and the AI sandbox in flows are not affected and keep using the providers configured above. This hides the assistant in the UI only; it does not restrict API access to the configured providers."
+		>
+			<Toggle
+				checked={copilotDisabled}
+				on:change={(e) => {
+					copilotDisabled = e.detail
+				}}
+				options={{ right: 'Hide AI sessions in this workspace' }}
+			/>
+		</SettingCard>
+		<SettingCard
+			label="AI session backups"
+			description="Browsers back their AI sessions up to this workspace's object storage, encrypted with the workspace key, and restore them on a new device or after clearing site data. While the workspace has no object storage configured, the instance object storage stands in if the instance has one and allows it; otherwise nothing is stored. Turn it off to keep sessions in the browser only, for example to spare the storage quota."
+		>
+			<Toggle
+				checked={sessionsStorageDisabled}
+				on:change={(e) => {
+					sessionsStorageDisabled = e.detail
+				}}
+				options={{ right: 'Do not back AI sessions up to the workspace storage' }}
+			/>
+		</SettingCard>
+		<SettingCard
+			label="AI session retention"
+			description="Deletes an AI session left untouched for this many days: its backup in the workspace's object storage, counted from the last push that reached it, and the copies a member's browser keeps, counted from the last time it was used there, the next time that browser loads Windmill in a single tab over https. Archived sessions count too. Leave empty to keep sessions until their owner deletes them."
+		>
+			<div class="flex items-center gap-2">
+				<div class="w-28">
+					<TextInput
+						inputProps={{
+							type: 'number',
+							min: 1,
+							max: MAX_SESSIONS_RETENTION_DAYS,
+							step: 1,
+							placeholder: 'Forever'
+						}}
+						error={retentionInvalid ? `1 to ${MAX_SESSIONS_RETENTION_DAYS}` : undefined}
+						bind:value={
+							() => sessionsRetentionDays ?? '',
+							(v) => {
+								const n = typeof v === 'number' ? v : parseInt(v ?? '')
+								sessionsRetentionDays = Number.isNaN(n) ? undefined : n
+							}
+						}
+					/>
+				</div>
+				<span class="text-xs text-secondary">days</span>
+			</div>
+		</SettingCard>
+	{/if}
 </div>
 
 <AIPromptsModal
@@ -623,39 +728,6 @@
 	hasChanges={hasPromptsChanges}
 	scope={promptScope}
 />
-
-{#if promptScope === 'workspace'}
-	<!-- Recorded usage must be priced with the rates the chats actually ran under.
-	     A workspace on instance defaults has no rates of its own, so the effective
-	     ones come from copilotInfo rather than from this form's (empty) workspace
-	     config. -->
-	<AiUsagePanel
-		workspace={effectiveWorkspace}
-		modelPricing={usesInstanceAiConfig ? ($copilotInfo.modelPricing ?? {}) : modelPricing}
-	/>
-{/if}
-
-<!-- Below the usage it explains: the rates are read as a correction to what the
-     table above already shows. Kept on its own `showWorkspaceOverrideEditor` gate so
-     the instance scope, which has no usage panel, still edits rates. -->
-{#if showWorkspaceOverrideEditor}
-	<ModelPricing {aiProviders} bind:modelPricing />
-{/if}
-
-{#if promptScope === 'workspace'}
-	<SettingCard
-		label="Hide AI sessions"
-		description="Hides AI sessions and every other AI assistant button (chat, code generation and completion, AI fix) from all members of this workspace. AI agent steps and the AI sandbox in flows are not affected and keep using the providers configured above. This hides the assistant in the UI only; it does not restrict API access to the configured providers."
-	>
-		<Toggle
-			checked={copilotDisabled}
-			on:change={(e) => {
-				copilotDisabled = e.detail
-			}}
-			options={{ right: 'Hide AI sessions in this workspace' }}
-		/>
-	</SettingCard>
-{/if}
 
 <!-- Not gated on `showWorkspaceOverrideEditor`: a workspace on instance defaults still has
      the hide toggle above to save. -->

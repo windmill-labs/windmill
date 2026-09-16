@@ -68,7 +68,7 @@
 	function handleAddStickyNote() {
 		if (noteEditorContext?.noteEditor && pendingFlowPosition) {
 			noteEditorContext.noteEditor.addNote({
-				text: '### Free note\nDouble click to edit me',
+				text: '## Note\nDouble click to edit me',
 				position: {
 					x: pendingFlowPosition.x,
 					y: pendingFlowPosition.y - (graphContext?.yOffset || 0)

@@ -4,6 +4,7 @@
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
 	import { agentEditorTarget, type AgentEditorTarget } from './agentEditorStore.svelte'
 	import AgentEditorModal from './content/AgentEditorModal.svelte'
+	import { repointLinkedAgent } from './linkedAgentDrafts'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
@@ -55,7 +56,6 @@
 	interface Props {
 		loading: boolean
 		disableStaticInputs?: boolean
-		disableTutorials?: boolean
 		disableAi?: boolean
 		disableSettings?: boolean
 		disabledFlowInputs?: boolean
@@ -99,7 +99,6 @@
 	let {
 		loading,
 		disableStaticInputs = false,
-		disableTutorials = false,
 		disableAi = false,
 		disableSettings = false,
 		disabledFlowInputs = false,
@@ -391,7 +390,6 @@
 						bind:this={flowModuleSchemaMap}
 						controlsPosition={compactGraphOverlay ? 'bottom' : 'top'}
 						{disableStaticInputs}
-						{disableTutorials}
 						{disableAi}
 						{disableSettings}
 						{smallErrorHandler}
@@ -554,4 +552,5 @@
 <AgentEditorModal
 	enableAi={!disableAi}
 	owns={(t) => t.host?.flowPath === $pathStore && targetWorkspace(t) === editorWorkspace}
+	onRenamed={(from, to) => repointLinkedAgent(flowStore.val.value, from, to)}
 />

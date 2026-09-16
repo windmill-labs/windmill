@@ -15,7 +15,7 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
 	import { importStore } from '$lib/components/apps/store'
-	import { onDestroy, tick, untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
@@ -23,7 +23,6 @@
 	import { runResetToDeployed } from '$lib/userDraftToast'
 
 	let app = $state(undefined as (AppWithLastVersion & { value: any }) | undefined)
-	let appEditor: AppEditor | undefined = $state(undefined)
 	/** Seeded from a hub app this load; AppEditor relaxes a few authoring affordances. */
 	let fromHub = $state(false)
 	let savedApp:
@@ -192,20 +191,6 @@
 				value: seedValue,
 				path: pathParam ?? '',
 				policy: seedPolicy
-			}
-			// Tutorial links ("/apps/add?tutorial=...") land here via the
-			// redirect; fire once AppEditor has mounted and the runnable
-			// panel the tour points at exists.
-			const tutorialParam = page.url.searchParams.get('tutorial')
-			if (tutorialParam) {
-				await tick()
-				let attempts = 0
-				while (attempts < 20 && !document.querySelector('#app-editor-runnable-panel')) {
-					await new Promise((resolve) => setTimeout(resolve, 100))
-					attempts++
-				}
-				if (tok !== loadAppToken) return
-				appEditor?.triggerTutorial()
 			}
 			return
 		}
@@ -474,7 +459,6 @@
 	{#if app}
 		<div class="h-screen">
 			<AppEditor
-				bind:this={appEditor}
 				{fromHub}
 				onSavedNewAppPath={(url) => {
 					goto(`/apps/edit/${url}`)

@@ -23,7 +23,7 @@ import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
-import { sep as SEP } from "node:path";
+import { sep as SEP, resolve as pathResolve } from "node:path";
 import {
   GlobalOptions,
   isSuperset,
@@ -41,6 +41,8 @@ import { getCurrentGitBranch } from "../../utils/git.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { validatePath, resolveWorkspace } from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
+import { readEffectiveSyncBehavior } from "../../core/conf.ts";
 
 type Trigger = {
   http: HttpTrigger;
@@ -222,9 +224,12 @@ export async function pushTrigger<K extends TriggerType>(
   }
 }
 
+// `enabled` is operational state a sync deliberately does not carry: the server strips it from
+// the workspace export and the push below never sends it, so a created trigger comes up enabled
+// and pausing one stays a local decision.
 type NativeTriggerFile = Omit<
   NativeTrigger,
-  "external_id" | "workspace_id" | "error"
+  "external_id" | "workspace_id" | "error" | "enabled"
 >;
 
 export async function pushNativeTrigger(
@@ -262,6 +267,7 @@ export async function pushNativeTrigger(
       service_config: result.service_config,
       error: result.error,
       summary: result.summary,
+      enabled: result.enabled,
     };
     log.debug(`Native trigger ${serviceName}/${externalId} exists on remote`);
   } catch {
@@ -620,8 +626,12 @@ async function extractTriggerKindFromPath(filePath: string): Promise<string | un
 }
 
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
+  // Reading the config moves the cwd to the wmill.yaml root when it sits in a
+  // parent directory, so pin the file against the invocation cwd first.
+  filePath = pathResolve(filePath);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  const syncBehavior = await readEffectiveSyncBehavior(opts, workspace);
 
   if (!validatePath(remotePath)) {
     return;
@@ -643,7 +653,8 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
     workspace.workspaceId,
     remotePath,
     undefined,
-    parseFromFile(filePath)
+    parseFromFile(filePath),
+    await buildPermissionedAsContext(workspace.workspaceId, syncBehavior)
   );
   console.log(colors.bold.underline.green("Trigger pushed"));
 }

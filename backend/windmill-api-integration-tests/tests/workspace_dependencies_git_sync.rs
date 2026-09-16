@@ -923,6 +923,7 @@ async fn test_pull_stays_on_the_workspace_lane(db: Pool<Postgres>) -> anyhow::Re
         &db,
         "test-workspace",
         &repo,
+        ("test-user", "test@windmill.dev"),
         None,
         false,
         None,

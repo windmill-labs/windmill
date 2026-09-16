@@ -13,8 +13,10 @@ import {
 	previewLocationContext,
 	promptSafe,
 	parsePreviewItemRoute,
+	parseRunFormRoute,
 	previewLocationLabel,
 	resolvePreviewTab,
+	runFormUrl,
 	stripBase,
 	type ArtifactVersionTarget,
 	type PreviewTarget
@@ -81,6 +83,7 @@ function targetUrl(target: PreviewTarget, onto?: SessionPreviewTab): string {
 	if (target.type === 'artifact') {
 		return artifactUrl(target.id, target.name, keptVersion(target, onto))
 	}
+	if (target.type === 'runform') return runFormUrl(target.toolCallId, target.label)
 	// A re-point with no mode keeps the side the tab is already on, so an AI write to
 	// an item the user left on View does not yank them back to the editor.
 	const mode = target.mode ?? (onto ? (parsePreviewItemRoute(onto.url)?.mode ?? 'edit') : 'edit')
@@ -582,6 +585,26 @@ export class SessionPreviewTabs {
 	closeArtifact(artifactId: string): void {
 		const tab = this.#tabs.find((t) => parseArtifactRoute(t.url)?.id === artifactId)
 		if (tab) this.close(tab.id)
+	}
+
+	/** The tab holding a tool call's run form, for the runtime to retarget once the run
+	 * has a job, or to close when the call is settled without one. */
+	runFormTabId(toolCallId: string): string | undefined {
+		return this.#tabs.find((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)?.id
+	}
+
+	closeRunForm(toolCallId: string): void {
+		const id = this.runFormTabId(toolCallId)
+		if (id) this.close(id)
+	}
+
+	/** Point the tab holding a run form at something else, in place. Close-then-open would
+	 * send the tab to the end of the strip, which is not what following a call looks like. */
+	retargetRunForm(toolCallId: string, url: string): void {
+		const tab = this.#tabs.find((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)
+		if (!tab) return
+		retargetTab(tab, url)
+		this.#flush()
 	}
 
 	setCollapsed(collapsed: boolean): void {

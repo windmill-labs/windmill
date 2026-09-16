@@ -1078,6 +1078,7 @@
 				{otherArgs}
 				{helperScript}
 				{workspace}
+				{disabled}
 				bind:value
 				format={format ?? ''}
 			/>

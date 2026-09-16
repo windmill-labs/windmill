@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT repo_resource_path, head_sha FROM git_sync_ci_test_check\n         WHERE workspace_id = $1 AND NOT concluded",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repo_resource_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "head_sha",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a970bbf4d3d064614bc47d438a0447eff928c4518fd2f6800145bf1211086352"
+}

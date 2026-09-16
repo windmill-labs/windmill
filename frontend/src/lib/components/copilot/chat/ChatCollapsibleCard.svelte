@@ -6,6 +6,11 @@
 
 	interface Props {
 		label: string
+		/** Set before the label and left unemphasised, so `labelClass` lifts the subject alone:
+		 * the part of the heading that is grammar stays quiet. A step lighter than the row's own
+		 * label weight, because a caller emphasising the label is also setting a proportional
+		 * typeface, whose medium reads heavier than the mono one at this size. */
+		labelPrefix?: string
 		expanded: boolean
 		onToggle: () => void
 		// A card with nothing to reveal keeps the header inert (no chevron, no
@@ -13,6 +18,9 @@
 		toggleable?: boolean
 		// Sweeps a highlight across the label while the row is in progress.
 		shimmer?: boolean
+		// Ahead of the label, inside the toggle button: a status that reads as part of the
+		// row rather than as another control, leaving the chevron next to the label it opens.
+		headerLeft?: Snippet
 		// Pinned to the right of the header row, outside the toggle button.
 		headerRight?: Snippet
 		// Always-visible content between the header and the expandable body.
@@ -26,10 +34,12 @@
 
 	let {
 		label,
+		labelPrefix,
 		expanded,
 		onToggle,
 		toggleable = true,
 		shimmer = false,
+		headerLeft,
 		headerRight,
 		belowHeader,
 		children,
@@ -49,7 +59,8 @@
 				highlight && 'text-emphasis'
 			)}
 		>
-			{label}
+			{#if labelPrefix}<span class="font-normal text-secondary">{labelPrefix}</span
+				>&nbsp;{/if}{label}
 		</span>
 	{/snippet}
 
@@ -63,6 +74,7 @@
 			disabled={!toggleable}
 			aria-expanded={toggleable ? expanded : undefined}
 		>
+			{@render headerLeft?.()}
 			{#if shimmer}
 				<span class="shimmer inline-flex items-center min-w-0">
 					{@render labelText(false)}

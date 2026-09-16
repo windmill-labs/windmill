@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT elem->'credential'\n        FROM workspace_settings, jsonb_array_elements(git_sync->'repositories') AS elem\n        WHERE workspace_id = $1 AND elem->>'git_repo_resource_path' IN ($2, $3)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "48055203c97499ab4fc4dcbe9271d3f9e80375b52748c458854a4883a6ecc8f6"
+}

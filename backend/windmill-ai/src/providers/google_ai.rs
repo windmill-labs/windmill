@@ -666,6 +666,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
 
         let GeminiSSEParser {
             accumulated_content,
+            accumulated_reasoning,
             accumulated_tool_calls,
             mut events_str,
             stream_event_processor,
@@ -698,6 +699,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             } else {
                 Some(accumulated_content)
             },
+            reasoning: (!accumulated_reasoning.is_empty()).then_some(accumulated_reasoning),
             tool_calls: accumulated_tool_calls.into_values().collect(),
             events_str: Some(events_str),
             annotations,

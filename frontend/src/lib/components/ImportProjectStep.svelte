@@ -27,6 +27,27 @@
 		/** From the hub, for the counts — the export is only fetched during the run. */
 		project?: ImportProjectSummary
 		onFolderChange: (folder: string) => void
+		/**
+		 * Whether to ask which folder the project lands in. Off where the destination was
+		 * not chosen either — importing into the workspace you are already in is one
+		 * decision, and `f/<slug>` is the answer nobody needs to be asked for.
+		 */
+		chooseFolder?: boolean
+		/**
+		 * Whether to spell out what import does to resources and triggers. It is about landing
+		 * on top of what a workspace already holds — a resource it will not overwrite, a
+		 * trigger it re-creates disabled — so a destination with nothing in it has nothing to
+		 * warn about, and the setup step that follows is where the values get filled in.
+		 */
+		showNotes?: boolean
+		/**
+		 * Fill the height given rather than hugging the content, with the actions pinned to the
+		 * bottom. For a surface of a fixed size — a paged dialog, whose height is the taller
+		 * page — where content-height buttons would float mid-panel. `sticky` as well as
+		 * `mt-auto`: a page taller than the box scrolls, and a row that only sat at the end of
+		 * the content would scroll out of reach with it.
+		 */
+		fillHeight?: boolean
 		onFinish: () => void
 		/** True once the run reveals data tables the destination has yet to configure. */
 		setupPending?: boolean
@@ -51,6 +72,9 @@
 		onFolderChange,
 		onFinish,
 		onBack,
+		chooseFolder = true,
+		showNotes = true,
+		fillHeight = false,
 		setupPending = false,
 		setupUndecided = false,
 		onExecution,
@@ -312,12 +336,12 @@
 	}
 </script>
 
-<div class="flex flex-col gap-4">
+<div class="flex flex-col gap-4 {fillHeight ? 'flex-1' : ''}">
 	<!-- Only when the destination already exists. A workspace created by this run is
 	     empty, so there is nothing for the project to sit next to and nothing to
 	     choose between — asking would be a question with one answer. It lands in
 	     f/<slug>/ either way; `installProject` creates the folder as it imports. -->
-	{#if existingWorkspace}
+	{#if existingWorkspace && chooseFolder}
 		<div class="max-w-sm">
 			<!-- The workspace rides on the field label rather than getting a line of its own:
 			     the folder is the only thing being chosen, and naming its container is what
@@ -364,26 +388,32 @@
 		</Alert>
 	{/if}
 
-	<!-- `info`, not `warning`: nothing here has gone wrong, it is what import does. Borderless
-	     so the collapsed row sits under the checklist as a note rather than competing with it
-	     — `bgClass` is the only lever, the border is baked into each type's classes. -->
-	<Alert
-		type="info"
-		title="What import does to resources and triggers"
-		size="xs"
-		bgClass="border-0"
-		collapsible
-	>
-		Resources are imported as empty stubs — set their values after import; one whose path is
-		already in the workspace is left exactly as it is and reported as already there, so a value
-		you have since filled in is never overwritten. Trigger kinds are
-		recreated disabled, except GCP and Azure triggers, which manage cloud subscriptions at creation
-		and must be re-created manually after filling their resource. Kafka, NATS, SQS, GCP and Azure
-		triggers all require Enterprise. Triggers that reference a resource depend on stubs imported
-		empty, so fill in the resource value before re-enabling the trigger.
-	</Alert>
+	{#if showNotes}
+		<!-- `info`, not `warning`: nothing here has gone wrong, it is what import does. Borderless
+		     so the collapsed row sits under the checklist as a note rather than competing with it
+		     — `bgClass` is the only lever, the border is baked into each type's classes. -->
+		<Alert
+			type="info"
+			title="What import does to resources and triggers"
+			size="xs"
+			bgClass="border-0"
+			collapsible
+		>
+			Resources are imported as empty stubs — set their values after import; one whose path is
+			already in the workspace is left exactly as it is and reported as already there, so a value
+			you have since filled in is never overwritten. Trigger kinds are recreated disabled, except
+			GCP and Azure triggers, which manage cloud subscriptions at creation and must be re-created
+			manually after filling their resource. Kafka, NATS, SQS, GCP and Azure triggers all require
+			Enterprise. Triggers that reference a resource depend on stubs imported empty, so fill in the
+			resource value before re-enabling the trigger.
+		</Alert>
+	{/if}
 
-	<div class="mt-2 flex items-center justify-between gap-2">
+	<div
+		class="mt-2 flex items-center justify-between gap-2 {fillHeight
+			? 'sticky bottom-0 mt-auto bg-surface pb-1 pt-3'
+			: ''}"
+	>
 		<!-- Back is disabled mid-run, and gone once the import has landed: at that point
 		     the plan has already happened and re-answering it would say nothing. -->
 		{#if !execution?.done}

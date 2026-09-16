@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO cloud_trial_offer (email, created_by) VALUES ($1, $2)\n             ON CONFLICT (email) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b2855a7bf20ec5a405d8c059e7b3b635507f545a514ff0d9142c663b779dd961"
+}

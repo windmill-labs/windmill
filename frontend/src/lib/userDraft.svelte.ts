@@ -219,7 +219,10 @@ const DRAFT_COMPARE_IGNORED_FIELDS = [
 	'version_id',
 	'parent_version',
 	'is_draft',
-	'assets'
+	'assets',
+	// Fixed at creation and absent from the resource editor's draft shape, so
+	// it only ever shows up on the deployed side of a comparison.
+	'resource_type'
 ] as const
 
 /**
@@ -347,6 +350,32 @@ export const UserDraft = {
 		}
 		writtenCache.delete(mk)
 		void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value: null })
+	},
+
+	/**
+	 * Drop this key's in-memory cell and cached write WITHOUT touching the
+	 * server. For callers that have already deleted the row by another route
+	 * (a deploy) and only need the local mirror to stop answering `get`/`has`
+	 * with a value that is gone.
+	 *
+	 * MUST be used instead of `remove` there. `remove` POSTs its own
+	 * `value: null`, and that POST is debounced and carries whatever
+	 * `last_sync` is left — which a preceding successful delete has already
+	 * cleared. The backend treats a delete with no `last_sync` as
+	 * unconditional, so the second POST lands ~1.5s later with nothing to
+	 * compare against and removes a draft saved in the meantime.
+	 */
+	forgetLocal(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+		const ws = resolveWorkspace(opts)
+		const mk = mapKey(ws, itemKind, path)
+		const entry = entries.get(mk)
+		if (entry) {
+			// Same as `remove`: clear the cell so live observers see the delete, and arm
+			// `skipNextSync` so the mirror does not turn that write into a POST of its own.
+			entry.skipNextSync = true
+			entry.state.val = undefined
+		}
+		writtenCache.delete(mk)
 	},
 
 	clear(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {

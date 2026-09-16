@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id,\n                                      parent_unique_id, parent_column, child_unique_id,\n                                      child_column, lineage_kind)\n         VALUES ($1, $2, NULL, $3, 'model.p.draft_src', 'raw', 'model.p.draft', 'clean', 'mod')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "895a4feb0b3cc01ad711ce0eff8eef4f68cc3ecaf680c55a94175f6dfc2e2912"
+}

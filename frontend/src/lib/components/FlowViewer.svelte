@@ -5,7 +5,8 @@
 	import SchemaViewer from './SchemaViewer.svelte'
 	import FlowGraphViewer from './FlowGraphViewer.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { orderedYamlStringify, cleanValueProperties, replaceFalseWithUndefined } from '$lib/utils'
+	import { cleanValueProperties, replaceFalseWithUndefined } from '$lib/utils'
+	import { orderedYamlStringify } from '$lib/utils/orderedYaml'
 	import { workspaceStore } from '$lib/stores'
 	import { watch } from 'runed'
 

@@ -413,7 +413,13 @@ export function parseMuteAnnotations(content: string): {
 // Comment prefix for `volume:` annotations. Deliberately NOT `commentPrefix`
 // above (which returns `--` for SQL): volume annotations are only recognized for
 // the languages the backend/frontend recognize them for — mirrors
-// `asset_inference.rs:comment_prefix` and `infer.ts:getCommentPrefix` (SQL → none).
+// `asset_inference.rs:comment_prefix` and `infer.ts:getCommentPrefix` (SQL → none),
+// minus `php`. Those two recognize PHP, but a PHP script cannot reach this map: it
+// has no wasm asset parser, so `fallbackParse` handles it and that scan breaks on
+// the mandatory `<?php` opener, leaving `in_pipeline` false and the script dropped
+// as a non-member. Add `php` here together with PHP support in the pipeline
+// annotation scanners (backend `parse_pipeline_annotations` + its frontend mirror
+// + the header scans in this file), or the local graph desyncs from the deployed one.
 function volumeCommentPrefix(language: string): string | undefined {
   switch (language) {
     case "python3":

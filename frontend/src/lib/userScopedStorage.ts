@@ -52,7 +52,19 @@ export function getCurrentUserEmail(): string | undefined {
 // treat that as "do not read/write" so we never touch a browser-global key.
 export function scopedKey(base: string): string | undefined {
 	if (!currentEmail) return undefined
-	return `${base}::${currentEmail}`
+	return scopedKeyFor(base, currentEmail)
+}
+
+// The key a base name has for a given user, for work that captured its user up front and
+// must not follow an in-place account switch (the session backup flush).
+export function scopedKeyFor(base: string, email: string): string {
+	return `${base}::${email}`
+}
+
+// The email a scoped key or database name was built for, so a write that landed in a
+// store can name the user it belongs to even after the current user changed.
+export function emailOfScopedKey(base: string, key: string): string | undefined {
+	return key.startsWith(`${base}::`) ? key.slice(base.length + 2) : undefined
 }
 
 // Register a callback invoked whenever the scoping email changes. Fired once

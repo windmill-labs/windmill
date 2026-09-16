@@ -5,7 +5,6 @@
 	 * apps get the identical sandbox behavior. PublicAppFrame renders raw apps
 	 * inline with the bundle isolated in RawAppPreview's own opaque iframe.
 	 */
-	import { base } from '$lib/base'
 	import InWorkspaceAppViewer from '$lib/components/apps/editor/InWorkspaceAppViewer.svelte'
 	import { Skeleton } from '$lib/components/common'
 	import { workspaceStore } from '$lib/stores'
@@ -19,7 +18,7 @@
 	<!-- Key by target: SvelteKit reuses this page component on in-route
 	     navigation, so the viewer must fully remount (see /apps/get). -->
 	{#key `${workspace}/${path}`}
-		<InWorkspaceAppViewer {workspace} {path} editHref="{base}/apps_raw/edit/{path}?nodraft=true" />
+		<InWorkspaceAppViewer {workspace} {path} />
 	{/key}
 {:else}
 	<Skeleton layout={[10]} />

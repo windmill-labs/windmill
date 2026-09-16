@@ -354,6 +354,23 @@ export function formatTimestamp(ts: string): string {
 }
 
 /**
+ * "<status text>: <body>" for an error thrown by the generated API client,
+ * undefined for anything else. Backend source references such as
+ * `(flows.rs:1400)` are stripped from the body.
+ */
+export function apiErrorMessage(e: unknown): string | undefined {
+  if (!(e && typeof e === "object" && "name" in e && e.name === "ApiError")) {
+    return undefined;
+  }
+  const { body, statusText } = e as { body?: unknown; statusText?: string };
+  const bodyStr =
+    typeof body === "object" && body !== null
+      ? JSON.stringify(body)
+      : String(body ?? "");
+  return statusText + ": " + bodyStr.replace(/\s*[@(]\w+\.rs:\d+[:\d]*\)?/g, "");
+}
+
+/**
  * Validate that required arguments are present when no -d data was provided.
  * Fetches the schema from the API and checks required fields.
  * @param schema - The JSON schema object from the script/flow definition

@@ -2,12 +2,8 @@
 	import { Button } from '$lib/components/common'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { classes } from '$lib/components/common/alert/model'
-	import {
-		cleanValueProperties,
-		orderedYamlStringify,
-		replaceFalseWithUndefined,
-		type Value
-	} from '$lib/utils'
+	import { cleanValueProperties, replaceFalseWithUndefined, type Value } from '$lib/utils'
+	import { orderedYamlStringify } from '$lib/utils/orderedYaml'
 	import { AlertCircle, Diff } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { fade } from 'svelte/transition'

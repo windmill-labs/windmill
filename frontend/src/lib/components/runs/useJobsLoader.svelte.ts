@@ -18,6 +18,9 @@ import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
 import type { Timeframe } from './timeframes'
 import { allowWildcards as _allowWildcards, type RunsFilterInstance } from './runsFilter'
 
+// windmill_common::utils::MAX_PER_PAGE: the server silently caps per_page at this value
+const MAX_PER_PAGE = 10000
+
 export function computeJobKinds(jobKindsCat: string | null): string {
 	if (jobKindsCat == 'all') {
 		return ''
@@ -75,6 +78,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let label = $derived(filters?.label ?? null)
 	let worker = $derived(filters?.worker ?? null)
 	let success = $derived(filters?.status ?? null)
+	let isQueueOnly = $derived(success == 'running' || success == 'suspended' || success == 'waiting')
 	let showSkipped = $derived(filters?.show_skipped ?? false)
 	let resolutionFilter = $derived(filters?.resolved ?? 'all')
 	let showSchedules = $derived(!filters?.job_trigger_kind?.includes('!schedule'))
@@ -126,9 +130,14 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		let promise = loadJobsIntern(true)
 		if (perPage > 25) {
 			promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
-				sendUserToast('Loading jobs is taking longer than expected...', 'warning', [
-					{ label: 'Stream by batches of 25', callback: () => restreamWithSmallBatches() }
-				])
+				const noStartDate = timeframe?.computeMinMax().minTs == null
+				sendUserToast(
+					(success == 'failure' || success == 'canceled') && noStartDate
+						? `Loading ${success == 'failure' ? 'failed' : 'canceled'} jobs with no start date scans the full job history. Set a time range to speed it up.`
+						: 'Loading jobs is taking longer than expected...',
+					'warning',
+					[{ label: 'Stream by batches of 25', callback: () => restreamWithSmallBatches() }]
+				)
 			})
 		}
 		promise = CancelablePromiseUtils.finallyDo(promise, () => {
@@ -191,21 +200,40 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		loadingExtra = false
 	}
 
+	// Mirrors when list_completed_jobs_query sorts by completed_at. A created_at cursor does not
+	// bound that index scan, so each batch would rescan from the newest job, and skip jobs created
+	// after the cursor but completed before it.
+	function sortsByCompletedAt(minTs: string | null, maxTs: string | null): boolean {
+		return minTs != null || maxTs != null || success == 'failure' || success == 'canceled'
+	}
+
 	function loadExtraJobsBatch(batchSize: number): CancelablePromise<void> {
 		if (!jobs || jobs.length === 0) {
 			lastFetchWentToEnd = true
 			return CancelablePromiseUtils.pure<void>(undefined as void)
 		}
-		const lastJob = jobs[jobs.length - 1]
-		const ts = lastJob.created_at
-		if (!ts) {
+		const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
+		const byCompletedAt =
+			jobs[jobs.length - 1].type === 'CompletedJob' && sortsByCompletedAt(minTs, maxTs)
+		const sortKey = (j: Job) =>
+			byCompletedAt ? (j.type === 'CompletedJob' ? j.completed_at : undefined) : j.created_at
+		const cursorTs = sortKey(jobs[jobs.length - 1])
+		if (!cursorTs) {
 			lastFetchWentToEnd = true
 			return CancelablePromiseUtils.pure<void>(undefined as void)
 		}
-		const cursorTs = new Date(new Date(ts).getTime() - 1).toISOString()
-		const minTs = timeframe?.computeMinMax().minTs ?? null
+		// Inclusive cursor at the API's microsecond precision: jobs sharing the boundary timestamp (e.g.
+		// a bulk cancel) are refetched rather than skipped, and the page grows by those already listed,
+		// up to the server's MAX_PER_PAGE. Once the listed part of the group fills that cap, the cursor
+		// steps just below the group, dropping its remainder instead of ending the list early.
+		const tied = jobs.filter((j) => sortKey(j) === cursorTs).length
+		const stepOver = tied >= MAX_PER_PAGE
+		const cursor = stepOver ? new Date(new Date(cursorTs).getTime() - 1).toISOString() : cursorTs
+		const pageSize = stepOver ? batchSize : Math.min(batchSize + tied, MAX_PER_PAGE)
 		return CancelablePromiseUtils.map(
-			fetchJobs(null, minTs, undefined, cursorTs, batchSize),
+			byCompletedAt
+				? fetchJobs(cursor, minTs, undefined, undefined, pageSize)
+				: fetchJobs(null, minTs, undefined, cursor, pageSize),
 			(olderJobs) => {
 				jobs = updateWithNewJobs(olderJobs ?? [], jobs ?? [])
 				if (extendedJobs) {
@@ -213,7 +241,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					extendedJobs = extendedJobs
 				}
 				computeCompletedJobs()
-				lastFetchWentToEnd = (olderJobs?.length ?? 0) < batchSize
+				lastFetchWentToEnd = (olderJobs?.length ?? 0) < pageSize
 				loading = false
 			}
 		)
@@ -230,7 +258,6 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		loadingFetch = true
 		let scriptPathStart = folder == null || folder === '' ? undefined : `f/${folder}/`
 		let scriptPathExact = path == null || path === '' ? undefined : path
-		let isQueueOnly = success == 'running' || success == 'suspended' || success == 'waiting'
 		let isCompletedOnly = success == 'success' || success == 'failure' || success == 'canceled'
 		let promise = JobService.listJobs({
 			workspace: currentWorkspace,
@@ -289,7 +316,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		})
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)
-			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
+			sendUserToast(`Could not load jobs: ${e.body ?? e.message}`, true)
 			console.error(e)
 			return CancelablePromiseUtils.pure<Job[]>([])
 		})
@@ -394,6 +421,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		overrideBatchSize?: number
 	): CancelablePromise<void> {
 		const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
+		listLoadedAt = new Date(Date.now() - 5 * 60_000).toISOString()
 		if (shouldGetCount) {
 			getCount()
 		}
@@ -529,6 +557,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	}
 
 	let lastQueueTs: string | undefined = undefined
+	let listLoadedAt: string | null = null
 
 	async function syncer() {
 		if (loadingFetch) {
@@ -575,7 +604,15 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					loading = true
 					let newJobs: Job[]
 					if (concurrencyKey == null || concurrencyKey === '') {
-						newJobs = await fetchJobs(maxTs, minTs ?? completedTs, queueTs)
+						// With no completed job to anchor on, each refresh would repeat the initial
+						// unbounded scan of completed jobs, possibly the one that just timed out. Not for
+						// queue-only views: fetchJobs turns this into the queue's created_at bound, hiding
+						// older jobs that suspend or come due. The margin absorbs browser/database skew.
+						newJobs = await fetchJobs(
+							maxTs,
+							minTs ?? completedTs ?? (isQueueOnly ? null : listLoadedAt),
+							queueTs
+						)
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
 						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, minTs ?? completedTs)

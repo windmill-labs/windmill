@@ -183,7 +183,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28931/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28969/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -191,7 +191,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28931/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28930/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28957/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -345,13 +345,14 @@ pub struct GitRepositorySettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_pull: Option<AutoPullSettings>,
     /// Open a PR when a deploy pushes a `wm_deploy/**` branch of this promotion
-    /// repo (app-backed only; runs from the deploy callback so it works without
+    /// repo (needs a credential the server holds — a GitHub App installation or
+    /// a checked GitLab token; runs from the deploy callback so it works without
     /// inbound webhooks). Off by default so upgrades don't change behavior.
     #[serde(default, skip_serializing_if = "is_false")]
     pub promotion_open_prs: bool,
     /// Parent-level: open a PR when a fork of this workspace deploys to its
-    /// `wm-fork/**` branch (app-backed only; the fork's deploy callback reads
-    /// this from the parent). Off by default.
+    /// `wm-fork/**` branch (needs a credential the server holds; the fork's
+    /// deploy callback reads this from the parent). Off by default.
     #[serde(default, skip_serializing_if = "is_false")]
     pub fork_open_prs: bool,
     /// Server-owned: the last failure opening a PR for a deploy branch of this
@@ -360,6 +361,10 @@ pub struct GitRepositorySettings {
     /// successful PR; never accepted from clients.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_pr_error: Option<String>,
+    /// Server-owned: what the repo's credential says about its own expiry and
+    /// scopes. Written by the credential check, never accepted from clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<GitCredentialStatus>,
 }
 
 impl GitRepositorySettings {
@@ -403,6 +408,44 @@ pub enum AutoPullMode {
     Webhook,
     /// Polling only (`git ls-remote` on an interval).
     Polling,
+}
+
+/// Host whose credential lifecycle Windmill can manage from the repo URL.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum GitCredentialProvider {
+    Gitlab,
+}
+
+/// What the repo's own credential says about itself, refreshed by asking the
+/// host. Server-owned: written by the credential check, never accepted from a
+/// client.
+///
+/// Absent means the check has not run or the repo carries no credential we can
+/// introspect (a GitHub App repo mints tokens per call and has nothing to expire).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GitCredentialStatus {
+    pub provider: GitCredentialProvider,
+    /// Changes on every rotation, so it identifies the current token, not the
+    /// credential's whole history.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_id: Option<i64>,
+    /// `None` is a non-expiring token, which only self-managed GitLab can issue
+    /// (and only for a service account). It means no warning and no rotation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<chrono::NaiveDate>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
+    /// Whether *this workspace* renews the credential. That needs a scope which
+    /// permits it (`api` or `self_rotate`) and a credential this workspace holds:
+    /// a token carried in the repository URL is the operator's to manage, and one
+    /// resolved from an ancestor is the ancestor's, so neither is renewed here.
+    pub rotatable: bool,
+    /// Unix timestamp (seconds) of the last check.
+    pub checked_at: i64,
+    /// Why the last check or rotation failed, cleared by the next success.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Outcome of the most recent auto-pull attempt, surfaced in the UI.
@@ -471,6 +514,11 @@ pub struct AutoPullSettings {
     pub last_synced_sha: std::collections::HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_pull_status: Option<AutoPullStatus>,
+    /// Email of the admin this repository's automatic pulls (its own and its forks')
+    /// apply changes as: whoever last saved the settings with auto pull on. Stamped
+    /// server-side, never taken from the client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled_by: Option<String>,
 }
 
 // Manual Debug so the HMAC `webhook_secret` (even encrypted) never lands in logs.
@@ -481,6 +529,7 @@ impl std::fmt::Debug for AutoPullSettings {
             .field("mode", &self.mode)
             .field("poll_interval_s", &self.poll_interval_s)
             .field("sync_forks", &self.sync_forks)
+            .field("enabled_by", &self.enabled_by)
             .field("webhook_id", &self.webhook_id)
             .field(
                 "webhook_secret",
@@ -516,9 +565,10 @@ impl AutoPullSettings {
     /// Whether a freshly observed `(git_ref, head_sha)` warrants enqueuing a pull.
     ///
     /// A trigger (poll or webhook) is only a hint: we pull when auto-pull is
-    /// enabled and the observed head differs from the last sha we synced for
-    /// that ref. Re-observing the same head (e.g. a redundant poll, or the
-    /// commit our own deploy callback just pushed back) is a no-op.
+    /// enabled and the observed head differs from the last sha we pulled for
+    /// that ref. Re-observing the same head (a redundant poll) is a no-op. A
+    /// commit our own deploy pushed is not: pushes never write here, so the pull
+    /// it triggers picks up anything pushed under it.
     pub fn should_pull(&self, git_ref: &str, head_sha: &str) -> bool {
         self.enabled && self.last_synced_sha.get(git_ref).map(String::as_str) != Some(head_sha)
     }
@@ -820,8 +870,12 @@ pub async fn guest_count_in_window<'c, E: sqlx::Executor<'c, Database = sqlx::Po
 /// The instance's standing against the guest allowance, as every surface reports it.
 #[derive(Clone, Debug, Serialize)]
 pub struct GuestUsage {
+    /// Whether this deployment can admit guests at all ([`instance_supports_guests`]).
+    /// Off, every other field is moot and no switch below can turn guests on.
+    pub available: bool,
     /// The superadmin switch (`GUEST_ACCESS_DISABLED_SETTING`), which every workspace
-    /// switch sits under.
+    /// switch sits under. Reported as stored, so a superadmin sees what they set even
+    /// where `available` overrules it.
     pub instance_enabled: bool,
     /// Distinct guest emails over the trailing `window_days`.
     pub guest_count: i64,
@@ -834,9 +888,33 @@ pub struct GuestUsage {
     pub guest_seats: i64,
 }
 
-/// SQL for "the instance admits guests": the superadmin switch, absent meaning on. The
-/// setting is read as text before the cast so `true` and `"true"` both count.
-fn instance_admits_guests_sql() -> String {
+/// What a caller is told when it asks for guests on a deployment that cannot have them.
+pub const GUESTS_UNAVAILABLE_MESSAGE: &str =
+    "Guest access is not available on Windmill Cloud. It requires a self-hosted instance \
+     or a dedicated Windmill Cloud deployment.";
+
+/// Whether guests can exist on this deployment at all. They cannot on the shared cloud:
+/// a guest is an identity Windmill itself never vouched for, admitted on the say-so of
+/// whoever runs the instance, which is not a call a multi-tenant deployment can make for
+/// its tenants. Folded into every guest gate below, so a workspace switch or an app
+/// policy left saying `guest` is inert rather than honored.
+pub fn instance_supports_guests() -> bool {
+    !*crate::worker::CLOUD_HOSTED
+}
+
+/// [`instance_supports_guests`] as an error, for the writes that would otherwise store a
+/// setting that can never take effect.
+pub fn require_guest_support() -> Result<()> {
+    if instance_supports_guests() {
+        Ok(())
+    } else {
+        Err(Error::BadRequest(GUESTS_UNAVAILABLE_MESSAGE.to_string()))
+    }
+}
+
+/// SQL for the superadmin switch alone, absent meaning on. The setting is read as text
+/// before the cast so `true` and `"true"` both count.
+fn instance_switch_sql() -> String {
     format!(
         "NOT COALESCE((SELECT (value #>> '{{}}')::boolean FROM global_settings \
          WHERE name = '{}'), false)",
@@ -844,9 +922,18 @@ fn instance_admits_guests_sql() -> String {
     )
 }
 
+/// SQL for "the instance admits guests": the superadmin switch, under
+/// [`instance_supports_guests`].
+fn instance_admits_guests_sql() -> String {
+    if !instance_supports_guests() {
+        return "false".to_string();
+    }
+    instance_switch_sql()
+}
+
 pub async fn guest_usage(db: &crate::DB) -> Result<GuestUsage> {
-    let instance_admits = instance_admits_guests_sql();
-    let instance_enabled: bool = sqlx::query_scalar(&format!("SELECT {instance_admits}"))
+    let instance_switch = instance_switch_sql();
+    let instance_enabled: bool = sqlx::query_scalar(&format!("SELECT {instance_switch}"))
         .fetch_one(db)
         .await
         .map_err(|e| Error::internal_err(format!("reading the instance guest switch: {e:#}")))?;
@@ -858,6 +945,7 @@ pub async fn guest_usage(db: &crate::DB) -> Result<GuestUsage> {
         0
     };
     Ok(GuestUsage {
+        available: instance_supports_guests(),
         instance_enabled,
         guest_count,
         window_days: GUEST_WINDOW_DAYS,
@@ -1698,6 +1786,48 @@ pub async fn workspace_with_fork_ancestors(db: &crate::DB, w_id: &str) -> Result
     chain.push(w_id.to_string());
     chain.extend(fork_ancestor_chain(db, w_id).await?);
     Ok(chain)
+}
+
+/// The nearest fork ancestor of `w_id` holding a row at `path` in `table`, or `None` when no
+/// ancestor does (or `w_id` is not a fork). Fork creation clones trigger and schedule rows down
+/// the whole chain, so a row shares its upstream identifier (Kafka group, PG slot, cron) with
+/// every ancestor that still has one, not just the direct parent, which may have deleted its
+/// copy since.
+///
+/// Runs on the caller's connection so it sees the caller's transaction, and uncached: the
+/// answer depends on the target table, not only on lineage.
+///
+/// `table` is interpolated into SQL, hence `'static`: a trigger's `TABLE_NAME` or a literal,
+/// never caller input. Reads lineage for any `w_id` with no authorization check, like
+/// [`fork_ancestor_chain`], so the caller must already be authorized for `w_id`.
+pub async fn nearest_fork_ancestor_having(
+    conn: &mut sqlx::PgConnection,
+    table: &'static str,
+    w_id: &str,
+    path: &str,
+) -> Result<Option<String>> {
+    sqlx::query_scalar(&format!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT chain.id FROM chain
+            JOIN {table} t ON t.workspace_id = chain.id AND t.path = $2
+            WHERE chain.depth > 0
+            ORDER BY chain.depth LIMIT 1
+        "#
+    ))
+    .bind(w_id)
+    .bind(path)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(|e| Error::internal_err(format!("resolving fork ancestors of {w_id}: {e:#}")))
 }
 
 lazy_static::lazy_static! {
@@ -2627,6 +2757,7 @@ mod tests {
             webhook_secret: None,
             webhook_url: None,
             webhook_error: None,
+            enabled_by: None,
             last_synced_sha: synced
                 .iter()
                 .map(|(r, s)| (r.to_string(), s.to_string()))

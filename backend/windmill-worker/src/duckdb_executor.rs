@@ -112,7 +112,9 @@ async fn fetch_custom_test_body(conn: &Connection, w_id: &str, path: &str) -> Re
 // the user's own ATTACH. `// data_test` lines append verifier probes that run
 // against the freshly-materialized target and raise (failing the run) on
 // violation. Returns `None` when there is no materialize annotation or the
-// target isn't a ducklake (only ducklake is materialized in v1).
+// target isn't a ducklake: only ducklake has a write engine, and a `dbt://`
+// target is recorded by the generic job path instead (worker.rs,
+// `record_declared_warehouse_write`).
 fn build_materialized_query(
     query: &str,
     partition_value: Option<&str>,

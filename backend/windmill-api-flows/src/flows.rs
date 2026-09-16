@@ -77,6 +77,10 @@ pub fn workspaced_service() -> Router {
             "/list_paths_from_workspace_runnable/{runnable_kind}/{*path}",
             get(list_paths_from_workspace_runnable),
         )
+        .route(
+            "/list_paths_linking_agent/{*path}",
+            get(list_paths_linking_agent),
+        )
         .route("/history_update/v/{version}", post(update_flow_history))
         .route("/get/v/{version}", get(get_flow_version_by_id))
         .route("/get/v/{version}/p/{*path}", get(get_flow_version))
@@ -508,7 +512,7 @@ async fn list_paths_from_workspace_runnable(
                 FROM workspace_runnable_dependencies wru 
                 JOIN flow f
                     ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id
-                WHERE wru.runnable_path LIKE $1 || '%' AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
+                WHERE wru.runnable_path LIKE $1 || '%' AND wru.runnable_is_flow = $2 AND NOT wru.runnable_is_agent AND wru.workspace_id = $3"#,
             path,
             matches!(runnable_kind, RunnableKind::Flow),
             w_id
@@ -521,7 +525,7 @@ async fn list_paths_from_workspace_runnable(
                 FROM workspace_runnable_dependencies wru 
                 JOIN flow f
                     ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id
-                WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
+                WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND NOT wru.runnable_is_agent AND wru.workspace_id = $3"#,
             path,
             matches!(runnable_kind, RunnableKind::Flow),
             w_id
@@ -532,6 +536,30 @@ async fn list_paths_from_workspace_runnable(
 
     tx.commit().await?;
     Ok(Json(runnables))
+}
+
+/// Flows with a step linked to the `ai_agent` resource at `path`, as of their last deploy.
+async fn list_paths_linking_agent(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<String>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("flows:read:agent/{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
+    let flows = sqlx::query_scalar!(
+        r#"SELECT DISTINCT f.path
+            FROM workspace_runnable_dependencies wru
+            JOIN flow f
+                ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id
+            WHERE wru.runnable_path = $1 AND wru.runnable_is_agent AND wru.workspace_id = $2"#,
+        path,
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(flows))
 }
 
 async fn validate_flow(new_flow: &NewFlow) -> error::Result<()> {
@@ -827,6 +855,29 @@ async fn create_flow(
         WebhookMessage::CreateFlow { workspace: w_id.clone(), path: nf.path.clone() },
     );
 
+    // Trigger CI tests for items that reference this flow
+    {
+        let db2 = db.clone();
+        let w_id2 = w_id.clone();
+        let flow_path2 = nf.path.clone();
+        let email2 = authed.email.clone();
+        let username2 = authed.username.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db2,
+                &w_id2,
+                &flow_path2,
+                "flow",
+                &email2,
+                &username2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after flow creation");
+            }
+        });
+    }
+
     Ok((StatusCode::CREATED, nf.path.to_string()))
 }
 
@@ -922,7 +973,7 @@ async fn derived_on_behalf_of_email(
     let Some(permissioned_as) = flow.on_behalf_of.as_deref() else {
         return Ok(None);
     };
-    // Uncached, for the reason given on `prefetch_cached_script`: this pair is round-tripped.
+    // Uncached: this pair is round-tripped by the client and stored again on redeploy.
     Ok(Some(
         windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
             .await?,

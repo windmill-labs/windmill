@@ -9,10 +9,10 @@
 		cleanValueProperties,
 		displayDate,
 		emptyString,
-		orderedYamlStringify,
 		replaceFalseWithUndefined,
 		type Value
 	} from '$lib/utils'
+	import { orderedYamlStringify } from '$lib/utils/orderedYaml'
 	import { AppService, type AppWithLastVersion, type AppHistory } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'

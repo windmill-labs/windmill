@@ -6,6 +6,8 @@
  * resources page. Module-level rather than a context value because what opens it — a step's card,
  * a list row — unmounts the moment the selection moves.
  */
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+
 export interface AgentEditorTarget {
 	path: string
 	/** The workspace the opener operates on; the nav workspace when absent. */
@@ -60,4 +62,26 @@ export function markAgentWritten(workspace: string | undefined, path: string) {
 
 export function agentWriteCount(workspace: string | undefined, path: string | undefined): number {
 	return agentWrites[writeKey(workspace, path)] ?? 0
+}
+
+/** How many times each agent's DRAFT has been saved, for the surfaces that display an agent by
+ *  fetching it. A draft write moves no deployed version, so `agentWriteCount` never sees it, and a
+ *  card keyed on that alone would keep describing the config a test no longer runs. */
+let agentDraftSaves = $state<Record<string, number>>({})
+
+/** Every writer in this document goes through the draft syncer — this editor, the generic resource
+ *  editor — so one subscription answers for them all, firing when the write lands rather than on
+ *  each keystroke. `resource` is the item kind agent draft rows use. In-memory: a save in another
+ *  tab never arrives here, so a card lags it until reload, while what a test runs is read live. */
+UserDraftDbSyncer.onAnySaved(({ workspace, itemKind, path }) => {
+	if (itemKind !== 'resource') return
+	const key = writeKey(workspace, path)
+	agentDraftSaves[key] = (agentDraftSaves[key] ?? 0) + 1
+})
+
+export function agentDraftSaveCount(
+	workspace: string | undefined,
+	path: string | undefined
+): number {
+	return agentDraftSaves[writeKey(workspace, path)] ?? 0
 }

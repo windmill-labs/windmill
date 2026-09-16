@@ -151,8 +151,11 @@
 </script>
 
 {#if currentWsIsFork}
+	<!-- `alwaysPortal`: this sits in the sidebar, whose mobile slide-in panel keeps a `transform`
+	     that would otherwise confine the dialog to the panel's width. -->
 	<ConfirmationModal
 		{open}
+		alwaysPortal
 		title="Delete forked workspace"
 		confirmationText="Remove"
 		on:canceled={() => {

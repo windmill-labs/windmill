@@ -107,6 +107,14 @@ fn serve_path(path: &str, original_path: &str, query: Option<&str>) -> Response<
                     .header("Cross-Origin-Resource-Policy", "cross-origin");
             }
 
+            // Login and its siblings carry a different `rd` on every page that links
+            // to them, so a crawler meets thousands of URLs for one form. The app is
+            // client-rendered, so a meta tag only exists after a render pass; the
+            // header is seen on the first fetch.
+            if original_path.starts_with("/user/") {
+                res = res.header("X-Robots-Tag", "noindex, nofollow");
+            }
+
             // Add Content-Security-Policy header for static assets when policy is set
             if !CSP_POLICY.is_empty() {
                 if let Ok(header_value) = HeaderValue::try_from(CSP_POLICY.as_str()) {

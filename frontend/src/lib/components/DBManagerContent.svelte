@@ -277,10 +277,11 @@
 				databaseIsEmpty={!Object.values(dbSchema.schema).flatMap((s) => Object.values(s)).length}
 				{dbSchema}
 				colDefs={colDefs.current}
-				dbTableOpsFactory={({ colDefs, tableKey }) =>
+				dbTableOpsFactory={({ colDefs, tableKey, whereClause }) =>
 					dbTableOpsWithPreviewScripts({
 						colDefs,
 						tableKey,
+						whereClause,
 						input: _input,
 						workspace: ws,
 						tag: workerTag

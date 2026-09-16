@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO metrics (id, value)\n        SELECT id, COALESCE(to_jsonb(EXTRACT(EPOCH FROM now())::double precision - held_head), value)\n        FROM unnest($1::text[], $2::jsonb[], $3::double precision[]) AS u(id, value, held_head)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "JsonbArray",
+        "Float8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d4ce900b8e60b530c2ea57c082edbc8c12c71869c4e45219dad4fb7198aaa1e3"
+}

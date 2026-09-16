@@ -45,4 +45,18 @@ describe('workspaceMenuHref', () => {
 			})
 		).toBe('/runs?workspace=w')
 	})
+
+	// An operator lands on home in the workspace they switch into. The href has to carry
+	// that too, not just the click handler: this is what a middle-click opens.
+	it('points at home, dropping the current page and its params, when landOnHome is set', () => {
+		expect(
+			workspaceMenuHref({
+				pathname: '/runs',
+				searchParams: new URLSearchParams('workspace=old&job=123&session_name=s'),
+				id: 'target',
+				sameFamily: true,
+				landOnHome: true
+			})
+		).toBe('/?workspace=target')
+	})
 })

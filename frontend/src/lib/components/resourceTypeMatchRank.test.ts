@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
 	addResourceTitle,
+	addResourceTypeDisplayName,
+	integrationDisplayName,
 	resourceTypeDisplayName,
+	setHubIntegrationDisplayNames,
+	setResourceTypeDisplayNames,
 	sortResourceTypesByMatch
 } from './resourceTypeDisplay'
 
@@ -54,7 +58,7 @@ describe('sortResourceTypesByMatch', () => {
 })
 
 describe('resourceTypeDisplayName', () => {
-	it('takes the whole-name override when there is one', () => {
+	it('cases each word from the word table', () => {
 		expect(resourceTypeDisplayName('ms_sql_server')).toBe('Microsoft SQL Server')
 	})
 
@@ -64,6 +68,46 @@ describe('resourceTypeDisplayName', () => {
 
 	it('capitalizes anything the tables do not cover', () => {
 		expect(resourceTypeDisplayName('stripe')).toBe('Stripe')
+	})
+
+	it('prefers the name stored with the type, and infers one where it has none', () => {
+		expect(resourceTypeDisplayName('gsheets')).toBe('Gsheets')
+		setResourceTypeDisplayNames([
+			{ name: 'gsheets', display_name: 'Google Sheets' },
+			{ name: 'smtp', display_name: null }
+		])
+		expect(resourceTypeDisplayName('gsheets')).toBe('Google Sheets')
+		expect(resourceTypeDisplayName('smtp')).toBe('SMTP')
+	})
+
+	it('keeps a name when a nameless row shares it, in either order', () => {
+		for (const rows of [
+			[{ name: 'gdrive', display_name: 'Google Drive' }, { name: 'gdrive' }],
+			[{ name: 'gdrive' }, { name: 'gdrive', display_name: 'Google Drive' }]
+		]) {
+			setResourceTypeDisplayNames([{ name: 'gdrive' }])
+			expect(resourceTypeDisplayName('gdrive')).toBe('Gdrive')
+			setResourceTypeDisplayNames(rows)
+			expect(resourceTypeDisplayName('gdrive')).toBe('Google Drive')
+		}
+		// Reading one type never clears a name: that row can be the nameless copy.
+		addResourceTypeDisplayName({ name: 'gdrive' })
+		expect(resourceTypeDisplayName('gdrive')).toBe('Google Drive')
+	})
+})
+
+describe('integrationDisplayName', () => {
+	it('reverts to the inferred name once a hub stops sending one', () => {
+		setHubIntegrationDisplayNames([{ name: 'activecampaign', display_name: 'ActiveCampaign' }])
+		expect(integrationDisplayName('activecampaign')).toBe('ActiveCampaign')
+		// A private hub predating display names omits the field altogether.
+		setHubIntegrationDisplayNames([{ name: 'activecampaign' }])
+		expect(integrationDisplayName('activecampaign')).toBe('Activecampaign')
+	})
+
+	it('cases slugs from a hub predating the slug rule', () => {
+		expect(integrationDisplayName('aws-lambda')).toBe('AWS Lambda')
+		expect(integrationDisplayName('RSS')).toBe('RSS')
 	})
 })
 

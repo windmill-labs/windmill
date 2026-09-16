@@ -8,7 +8,7 @@
  * runs a step body and its replays, so a mirror would not pin it. The two
  * generated modules are stubbed so the import works without ./build.sh.
  */
-import { expect, test, describe, mock, beforeEach } from "bun:test";
+import { expect, test, describe, mock, beforeEach, afterAll } from "bun:test";
 
 mock.module("../services.gen", () => ({
   ResourceService: {},
@@ -25,14 +25,17 @@ mock.module("../core/OpenAPI", () => ({
   OpenAPI: { BASE: "http://localhost:8000/api", TOKEN: "tok" },
 }));
 
-const { WorkflowCtx, step, task, setWorkflowCtx } = await import("../client.ts");
+const { WorkflowCtx, step, task, setWorkflowCtx, StepSuspend } = await import("../client.ts");
 import type { Jsonified } from "../client.ts";
+import { isSuspendSignal } from "../wacError";
 
 process.env.WM_JOB_ID = "job-1";
 process.env.WM_WORKSPACE = "admins";
 
 /** Last checkpoint POSTed by the fast path. */
 let posted: Record<string, any>;
+
+const realFetch = globalThis.fetch;
 
 beforeEach(() => {
   posted = {};
@@ -42,6 +45,15 @@ beforeEach(() => {
     posted[payload.key] = payload.result;
     return new Response("{}", { status: 200 });
   };
+});
+
+// `bun test` runs every file in one process, so the env above and the stub
+// together satisfy the fast-path gate for whatever file runs next, silently
+// changing what a `step()` there does.
+afterAll(() => {
+  globalThis.fetch = realFetch;
+  delete process.env.WM_JOB_ID;
+  delete process.env.WM_WORKSPACE;
 });
 
 describe("inline step round parity", () => {
@@ -124,6 +136,42 @@ describe("inline step round parity", () => {
     } finally {
       setWorkflowCtx(null);
     }
+  });
+
+  // The fast path is the default, so this is the path a retried task actually
+  // takes. A `step()` named like an attempt key must not checkpoint under it:
+  // the retry would then read the step's value and never re-dispatch.
+  test("a step named like an attempt key checkpoints under its renamed key", async () => {
+    const t = task(async function t(x: number) {
+      return x;
+    }, { retry: { attempts: 1 } });
+    const body = async () => {
+      const pending = t(1);
+      const decoy = await step("t#2", () => "not an attempt");
+      return [decoy, await pending];
+    };
+    const round = async (completed: Record<string, any>) => {
+      setWorkflowCtx(new WorkflowCtx({ completed_steps: completed } as any));
+      try {
+        await body();
+        throw new Error("expected a suspend");
+      } catch (e: any) {
+        if (!isSuspendSignal(e, StepSuspend)) throw e;
+        return e.dispatchInfo;
+      } finally {
+        setWorkflowCtx(null);
+      }
+    };
+
+    expect(await round({})).toMatchObject({ steps: [{ key: "t" }] });
+    expect(Object.keys(posted)).toEqual(["t#2_2"]);
+
+    // `t#2` was left free, so the failed task retries instead of resolving to
+    // the step recorded above.
+    const failed = { __wmill_error: true, message: "boom", step_key: "t" };
+    expect(await round({ t: failed, "t#2_2": posted["t#2_2"] })).toMatchObject({
+      steps: [{ key: "t#2" }],
+    });
   });
 });
 

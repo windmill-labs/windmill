@@ -63,6 +63,7 @@
 		matchPreviewPage,
 		pageKey,
 		parseArtifactRoute,
+		parseRunFormRoute,
 		parsePreviewItemRoute,
 		previewLocationLabel,
 		resolvePreviewTab,
@@ -514,7 +515,12 @@
 	const displayPath = $derived(owner?.activeTab?.loc ?? owner?.activeTab?.url ?? `${base}/`)
 	// Artifacts have no workspace page, so "Open in workspace" can't resolve for them.
 	const activeArtifact = $derived(owner?.activeTab ? parseArtifactRoute(owner.activeTab.url) : null)
-	const activeTabIsArtifact = $derived(activeArtifact != null)
+	// Nor does a run form: it belongs to a chat, and its url is a scheme rather than a path,
+	// so the link would resolve to the tool call id as a route.
+	const activeTabHasNoWorkspacePage = $derived(
+		activeArtifact != null ||
+			(owner?.activeTab ? parseRunFormRoute(owner.activeTab.url) != null : false)
+	)
 	// The active session's artifacts, surfaced as an "Artifacts" branch in the
 	// preview pickers.
 	const sessionArtifacts = $derived(activeRuntime?.manager.artifacts.artifacts ?? [])
@@ -1065,7 +1071,7 @@
 											</ToggleButtonGroup>
 										</div>
 									{/if}
-									{#if !activeTabIsArtifact}
+									{#if !activeTabHasNoWorkspacePage}
 										<a
 											href={withWorkspaceParam(
 												owner?.activeTab?.loc || owner?.activeTab?.url || `${base}/`,

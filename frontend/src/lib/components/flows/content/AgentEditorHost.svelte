@@ -29,9 +29,13 @@
 		inputTransformsToAgentConfig,
 		type AIAgentConfig
 	} from '../agentResourceUtils'
-	import { AGENT_TOOLS_ROW } from '../agentFormFields'
+	import { agentArgsToTransforms } from '../linkedAgentDrafts'
+	import { AGENT_EDITOR_RUN_INPUTS, AGENT_TOOLS_ROW } from '../agentFormFields'
 	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
 	import { useAgentDraft } from '../agentDraft.svelte'
+	import Path from '$lib/components/Path.svelte'
+	import Label from '$lib/components/Label.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		/** The `ai_agent` resource being edited. */
@@ -223,19 +227,6 @@
 		})
 	})
 
-	/** Every argument the resource carries, as a static transform. `tools` is the roster rather than
-	 *  a field, so it rides on the module's own key instead. Not only the keys the form renders: a
-	 *  run reads them all, and an agent holding its own `user_message` answers with it when nothing
-	 *  overrides it, so a test here has to run the configuration a linked step would. */
-	function agentArgsToTransforms(args: AIAgentConfig): Record<string, InputTransform> {
-		const it: Record<string, InputTransform> = {}
-		for (const [key, value] of Object.entries(args ?? {})) {
-			if (key === 'tools' || value === undefined) continue
-			it[key] = { type: 'static', value } as InputTransform
-		}
-		return it
-	}
-
 	/** Everything the form does not model. `inputTransformsToAgentConfig` rebuilds the value from
 	 *  `AGENT_BRAIN_KEYS` alone, so a key this editor never renders — one a newer backend added, or
 	 *  the `user_message` default a resource may carry, which the runtime does read when the step
@@ -332,13 +323,19 @@
 		if (toolId === id) onSelectTool?.(undefined)
 	}
 
+	/** The path field's own verdict (a taken path, an invalid name), which the server would otherwise
+	 *  only report after the request. */
+	let pathError = $state('')
+
 	export function deploy(): Promise<boolean> {
-		return draft.deploy().then(async (ok) => {
-			// The path this editor opened, not the draft's live one: `deploy` refuses a renaming draft,
-			// so the write always lands here, while the shared draft can be repointed by another tab
-			// mid-request and would send the reconciliation after a resource nobody wrote.
-			if (ok) await onSaved?.(path)
-			return ok
+		if (pathError) {
+			sendUserToast(`Cannot deploy the agent: ${pathError}`, true)
+			return Promise.resolve(false)
+		}
+		return draft.deploy().then(async (written) => {
+			// The path the write landed on, which a rename moves off the one this editor opened.
+			if (written) await onSaved?.(written)
+			return written !== undefined
 		})
 	}
 	export function draftHandle() {
@@ -364,6 +361,25 @@
 		<Splitpanes class="h-full">
 			<Pane size={66} minSize={30}>
 				<div class="h-full min-h-0 overflow-auto">
+					<div class="px-4 pt-4">
+						<Label label="Path">
+							<Path
+								bind:path={
+									() => draft.state?.path,
+									(v) => {
+										if (draft.state && v !== undefined) draft.state.path = v
+									}
+								}
+								bind:error={pathError}
+								initialPath={path}
+								namePlaceholder="agent"
+								kind="resource"
+								workspaceOverride={workspace}
+								autofocus={false}
+								disabled={readOnly}
+							/>
+						</Label>
+					</div>
 					<PropPickerWrapper
 						pickableProperties={stepPropPicker?.pickableProperties}
 						noPadding
@@ -404,6 +420,7 @@
 								mod={agentModule as FlowModule}
 								schema={flowLocalAgentSchema(schema)}
 								pickableProperties={stepPropPicker?.pickableProperties}
+								runInputKeys={AGENT_EDITOR_RUN_INPUTS}
 								bind:testJob
 								bind:testIsLoading
 								bind:scriptProgress

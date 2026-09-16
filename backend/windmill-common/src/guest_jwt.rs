@@ -579,6 +579,15 @@ pub async fn jwks_key_for(url: &str, token: &str) -> Result<(DecodingKey, Vec<Al
 /// Verify `token` for `w_id` against whatever key the workspace configured. A PEM key
 /// ignores `kid`; a JWKS selects by it.
 pub async fn verify_for_workspace(db: &DB, w_id: &str, token: &str) -> Result<GuestJwtClaims> {
+    // The admit check downstream refuses these anyway; refusing here keeps a deployment
+    // with no guests from parsing attacker-supplied JWTs at all, and names the reason in
+    // the log the caller writes.
+    if !crate::workspaces::instance_supports_guests() {
+        return Err(Error::NotAuthorized(format!(
+            "guest JWT refused: {}",
+            crate::workspaces::GUESTS_UNAVAILABLE_MESSAGE
+        )));
+    }
     if token.len() > MAX_GUEST_JWT_LEN {
         return Err(Error::NotAuthorized(format!(
             "guest JWT refused: token is longer than {MAX_GUEST_JWT_LEN} bytes"

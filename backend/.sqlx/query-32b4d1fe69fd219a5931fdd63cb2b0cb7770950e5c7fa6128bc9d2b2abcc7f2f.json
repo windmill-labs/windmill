@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb($1::text))) WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of' = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "32b4d1fe69fd219a5931fdd63cb2b0cb7770950e5c7fa6128bc9d2b2abcc7f2f"
+}

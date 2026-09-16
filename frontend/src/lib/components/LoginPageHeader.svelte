@@ -9,9 +9,10 @@
 	interface Props {
 		/** Off for the login page, which puts the mark and the instance name in the middle. */
 		showBrand?: boolean
+		showVersion?: boolean
 	}
 
-	let { showBrand = true }: Props = $props()
+	let { showBrand = true, showVersion = true }: Props = $props()
 </script>
 
 <div class="absolute top-0 inset-x-0 flex items-center justify-between gap-2 px-4 py-2">
@@ -31,9 +32,11 @@
 	<div class="flex flex-row gap-2 text-2xs text-gray-800 italic">
 		<DarkModeToggle forcedDarkMode={false} />
 
-		<div class="font-mono flex-col flex p-2 justify-center">
-			<Version />
-			<Uptodate />
-		</div>
+		{#if showVersion}
+			<div class="font-mono flex-col flex p-2 justify-center">
+				<Version />
+				<Uptodate />
+			</div>
+		{/if}
 	</div>
 </div>

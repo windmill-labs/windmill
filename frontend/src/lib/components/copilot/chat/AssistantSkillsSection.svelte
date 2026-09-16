@@ -24,19 +24,25 @@ and the actions that create, edit, import and delete them.
 	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import {
 		ArrowLeft,
 		BookOpen,
+		ChevronDown,
+		ChevronRight,
 		Eye,
+		Folder,
+		FolderTree,
 		FolderUp,
 		Pencil,
 		Plus,
 		RotateCcw,
-		Trash2
+		Trash2,
+		User
 	} from 'lucide-svelte'
+	import { useListHighlight } from '$lib/components/common/listRow/listHighlight.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
-	import { isSkillEnabled, setSkillEnabled } from './skills/enabledSkills'
+	import { forgetSkill, isSkillEnabled, setSkillEnabled } from './skills/enabledSkills'
 	import {
 		ambiguousSkillNames,
 		deleteSkillResource,
@@ -52,6 +58,17 @@ and the actions that create, edit, import and delete them.
 		parseSkillMd,
 		type SkillUpload
 	} from './skills/skillMd'
+	import {
+		buildSkillTree,
+		countSkills,
+		folderKey,
+		nodeSkills,
+		skillFolderPaths,
+		skillKey,
+		visibleEntries,
+		type SkillTreeEntry,
+		type SkillTreeNode
+	} from './skills/skillTree'
 
 	let {
 		ws,
@@ -162,6 +179,53 @@ What the assistant should do when this skill applies.
 	let overwriteChoices: Record<string, boolean> = $state({})
 
 	let ambiguous = $derived(ambiguousSkillNames(skills))
+	// Skills in one folder are a list; spread over several, the folder is what tells
+	// two of them apart, so they are grouped under it instead.
+	let grouped = $derived(skillFolderPaths(skills).size > 1)
+	let tree = $derived(buildSkillTree(skills))
+	/** Folders the user closed, keyed by full prefix. Everything opens expanded: the
+	 * point of this list is seeing what the assistant carries. */
+	let collapsed = $state<Record<string, boolean>>({})
+	/** The list top to bottom as it stands, for the keyboard to walk. Empty whenever
+	 * the rows are not the thing on screen — a reload after a save or a delete shows
+	 * the loading line, and a failed one shows the error, both over the rows this
+	 * would otherwise still walk. Flat mode has no folders, so the same keys drive
+	 * both layouts. */
+	let entries: SkillTreeEntry<Row>[] = $derived(
+		loading || loadError !== undefined
+			? []
+			: grouped
+				? visibleEntries(tree, (path) => collapsed[path] === true)
+				: skills.map((skill) => ({ kind: 'skill', key: skillKey(skill.path), skill }))
+	)
+	/** Where each entry sits in the walk, so a row rendered deep in the tree can say
+	 * whether it is the highlighted one. */
+	let entryIndexByKey = $derived(new Map(entries.map((e, i) => [e.key, i])))
+	/** The row the highlight goes back to when the list changes shape under it.
+	 * Folding is the case: it changes the row count without reshuffling what the rows
+	 * mean, and the folder just folded is where someone still is — unlike a search,
+	 * which reranks everything and belongs back at its top hit.
+	 *
+	 * Deliberately not `$state`. `useListHighlight` reads this through `restingIndex`
+	 * inside the effect that reacts to the row count, so a reactive write here would
+	 * re-run that effect and reset the highlight — clearing it on the next arrow would
+	 * undo the very move that cleared it. */
+	let stickyKey: string | undefined = undefined
+	const highlight = useListHighlight({
+		count: () => entries.length,
+		rowId: (index) => entryDomId(entries[index]?.key ?? ''),
+		// Otherwise nothing is lit until a key or the pointer picks a row: this list has
+		// no search ranking one to the top.
+		restingIndex: () => (stickyKey === undefined ? -1 : (entryIndexByKey.get(stickyKey) ?? -1)),
+		onActivate: (index) => {
+			const entry = entries[index]
+			if (entry === undefined) return
+			if (entry.kind === 'skill') openSkill(entry.skill)
+			else fold(entry.key, entry.node.path, !collapsed[entry.node.path])
+		}
+		// No `activateEnterFrom`: Enter is answered by `onListKeydown`, which does not
+		// depend on where focus happens to be.
+	})
 	let parsed = $derived(parseSkillMd(content))
 	// The Path field is what names the skill, and Path validates it. The frontmatter
 	// `name` only seeds that field and is never persisted, so validating it here
@@ -219,21 +283,154 @@ What the assistant should do when this skill applies.
 		if (!active && !contentChanged && !pathChanged) editorOpen = false
 	})
 
+	/** The list takes focus when this section is the one on screen.
+	 *
+	 * Without it the keyboard here is unreachable by the way people arrive: the click
+	 * on "Skills" in the settings sidebar leaves that button focused, and the sidebar
+	 * answers Up/Down itself (`arrowTabNav`), so the arrows would walk the sections
+	 * rather than the skills. Taking focus is also what makes the keys unambiguous —
+	 * a control keeps Space and Enter, and none holds them once the list has focus. */
+	let listEl: HTMLDivElement | undefined = $state(undefined)
+	$effect(() => {
+		if (!active || editorOpen) return
+		const el = listEl
+		untrack(() => {
+			if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true })
+		})
+	})
+
 	/** Escape leaves the editor rather than the whole modal: `blocksClose` stops the
 	 * modal's own handler, so this is the only thing left to answer the key. */
 	function onKeydown(event: KeyboardEvent) {
 		// Every section stays mounted while the modal is open, and `stopPropagation`
 		// does nothing between listeners on `window`: without this, a key aimed at the
 		// section on screen is answered by the four behind it too.
-		if (!active || event.key !== 'Escape' || !editorOpen) return
+		if (!active) return
+		// A dialog of ours is up and owns the keyboard.
 		if (toDelete !== undefined || pendingImport !== undefined) return
-		event.preventDefault()
-		event.stopPropagation()
-		closeEditor()
+		if (editorOpen) {
+			if (event.key !== 'Escape') return
+			event.preventDefault()
+			event.stopPropagation()
+			closeEditor()
+			return
+		}
+		onListKeydown(event)
+	}
+
+	/** DOM id of a row, so the highlight can bring itself into view. */
+	function entryDomId(key: string): string {
+		return `wm-skill-entry-${key}`
+	}
+
+	/** Fold or unfold, keeping the highlight on the folder rather than losing it to
+	 * the row count changing underneath. */
+	function fold(key: string, path: string, shut: boolean) {
+		stickyKey = key
+		collapsed[path] = shut
+		// Held only across the re-render this fold causes. Left set, it would pull the
+		// highlight back to this folder on the next change of any kind — another fold, a
+		// save, a delete, a workspace switch.
+		tick().then(() => (stickyKey = undefined))
+	}
+
+	/** The tree keys this list adds to `useListHighlight`: Left and Right fold a folder
+	 * or step into it, Space flips the switch under the highlight. Up, Down and Enter
+	 * are the composable's, and so is everything about the mouse — a scroll under a
+	 * resting pointer does not move the highlight, only a real movement does.
+	 *
+	 * Answered at the `window`, not on the list: focus moves around this modal — the
+	 * page transition out of the editor parks it elsewhere — and a handler bound to the
+	 * list would go silent whenever it did. Keys left unanswered keep their meaning:
+	 * Left and Right with nothing lit still step between this list and the editor,
+	 * which is `PagedContent` reading the same event. */
+	function onListKeydown(event: KeyboardEvent) {
+		if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return
+		const target = event.target as HTMLElement | null
+		// A focused control answers its own activation keys — a row's switch, a folder
+		// header, the buttons above the list. `Toggle` hides a real checkbox behind its
+		// label (frontend/AGENTS.md), and that checkbox holds focus after a plain click.
+		const control = target?.closest?.('button, a, input, select, textarea, [role="button"]') as
+			| HTMLElement
+			| null
+			| undefined
+		if ((event.key === ' ' || event.key === 'Enter') && control) {
+			// The control answers the key, and the highlight follows it there: a switch
+			// holds focus after a plain click, and leaving another row lit would draw one
+			// row while flipping another.
+			const row = control.closest('[id^="wm-skill-entry-"]')
+			const index = row ? (entryIndexByKey.get(row.id.replace('wm-skill-entry-', '')) ?? -1) : -1
+			if (index >= 0) highlight.moveTo(index)
+			return
+		}
+		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+			// A row reached with Tab is where the walk carries on from. `useListHighlight`
+			// cannot see that itself: `ListRow` puts the row's id on its outer div while
+			// focus sits on the button inside it.
+			const focusedRow = target?.closest?.('[id^="wm-skill-entry-"]')
+			const focusedIndex = focusedRow
+				? (entryIndexByKey.get(focusedRow.id.replace('wm-skill-entry-', '')) ?? -1)
+				: -1
+			if (focusedIndex >= 0) highlight.moveTo(focusedIndex)
+			// Taking the highlight takes the keyboard with it: a control left focused
+			// would keep Space and act on its own row while another one is lit.
+			if (control) {
+				control.blur()
+				listEl?.focus({ preventScroll: true })
+			}
+			highlight.onKeydown(event)
+			return
+		}
+		const current = entries[highlight.index]
+		if (current === undefined) {
+			highlight.onKeydown(event)
+			return
+		}
+		const answer = () => {
+			event.preventDefault()
+			event.stopPropagation()
+		}
+		if (event.key === ' ') {
+			answer()
+			if (current.kind === 'skill') void toggle(current.skill.path, !current.skill.enabled)
+			else void toggleFolder(current.node, !folderEnabled(current.node))
+		} else if (event.key === 'Enter') {
+			answer()
+			if (current.kind === 'skill') openSkill(current.skill)
+			else fold(current.key, current.node.path, !collapsed[current.node.path])
+		} else if (event.key === 'ArrowRight') {
+			answer()
+			if (current.kind === 'skill') {
+				// Forward from a lit skill is that skill. Left unanswered the key reaches
+				// `PagedContent`, which steps to the editor page — showing whichever skill
+				// it was last parked on, not this one.
+				openSkill(current.skill)
+			} else if (collapsed[current.node.path]) {
+				fold(current.key, current.node.path, false)
+			} else {
+				// Into what opening it revealed: the next row down is its first child.
+				highlight.move(1)
+			}
+		} else if (event.key === 'ArrowLeft') {
+			if (current.kind === 'folder' && !collapsed[current.node.path]) {
+				answer()
+				fold(current.key, current.node.path, true)
+			} else if (current.parentKey !== undefined) {
+				answer()
+				const parent = entries.findIndex((e) => e.key === current.parentKey)
+				if (parent >= 0) highlight.moveTo(parent)
+			}
+		} else {
+			highlight.onKeydown(event)
+		}
 	}
 
 	function closeEditor() {
 		editorOpen = false
+		// The list is what answers the keys, so it takes focus back as the editor gives
+		// way. Left to the effect above, the page transition lands focus somewhere else
+		// afterwards and the arrows do nothing until something is clicked.
+		tick().then(() => listEl?.focus({ preventScroll: true }))
 	}
 
 	/** Left and Right step between the two pages, which is `PagedContent` answering the
@@ -254,6 +451,8 @@ What the assistant should do when this skill applies.
 		untrack(() => {
 			loadSeq++
 			skills = []
+			// Keyed by path, and another workspace's folders are not these.
+			collapsed = {}
 			listNotice = undefined
 			toDelete = undefined
 			pendingImport = undefined
@@ -289,7 +488,7 @@ What the assistant should do when this skill applies.
 			// A notice, not `loadError`: that one replaces the list, and a truncated
 			// read still has skills worth showing.
 			listNotice = truncated
-				? `Showing the first ${found.length} skills; this workspace has more. Delete unused ones so the rest can be selected.`
+				? `Showing the first ${found.length} skills; this workspace has more. Delete unused ones so the rest are listed here.`
 				: undefined
 			// Seeded rather than filled by the bindings: an unset entry would hand
 			// DropdownV2 an `undefined` open state instead of a closed one.
@@ -307,16 +506,38 @@ What the assistant should do when this skill applies.
 	async function toggle(p: string, enabled: boolean) {
 		if (blockedByPendingFork()) return
 		if (!setSkillEnabled(ws, p, enabled)) {
-			sendUserToast('Could not save the selection for this account.', true)
+			sendUserToast('Could not save this choice for this account.', true)
 			return
 		}
 		const skill = skills.find((s) => s.path === p)
 		if (skill) skill.enabled = enabled
-		// Whether people select skills at all. Never the skill itself: a path is
+		// Whether people turn skills off at all. Never the skill itself: a path is
 		// workspace-authored text.
 		logFeatureUsage('ai_session', 'skill_toggle', { key: enabled ? 'on' : 'off', workspace: ws })
-		// The prompt lists exactly the enabled skills, so it has to be rebuilt
+		// The prompt lists exactly the skills that are on, so it has to be rebuilt
 		// before the next message rather than on the next mode change.
+		await aiChatManager.refreshGlobalSkills(ws)
+	}
+
+	/** A folder is on only when everything under it is, so its switch always offers
+	 * the completing action: a folder with one skill off turns fully on first. */
+	function folderEnabled(node: SkillTreeNode<Row>): boolean {
+		return nodeSkills(node).every((s) => s.enabled)
+	}
+
+	async function toggleFolder(node: SkillTreeNode<Row>, enabled: boolean) {
+		if (blockedByPendingFork()) return
+		for (const skill of nodeSkills(node)) {
+			if (skill.enabled === enabled) continue
+			if (!setSkillEnabled(ws, skill.path, enabled)) {
+				sendUserToast('Could not save this choice for this account.', true)
+				return
+			}
+			skill.enabled = enabled
+		}
+		// Once for the folder, not once per skill: what this counts is the action a
+		// person took. Never the folder itself, which is workspace-authored text.
+		logFeatureUsage('ai_session', 'skill_toggle', { key: enabled ? 'on' : 'off', workspace: ws })
 		await aiChatManager.refreshGlobalSkills(ws)
 	}
 
@@ -425,11 +646,13 @@ What the assistant should do when this skill applies.
 					validated.skill.description,
 					validated.skill.instructions
 				)
-				// A move leaves the old path selected but gone; carry the choice over
-				// so an edit that renames does not silently switch the skill off.
-				if (editing.path !== path && isSkillEnabled(target, editing.path)) {
-					setSkillEnabled(target, editing.path, false)
-					setSkillEnabled(target, path, true)
+				// A move leaves the old path's state behind on a path that no longer
+				// exists; carry it over so an edit that renames does not switch the
+				// skill back on, and does not inherit whatever the new path held.
+				if (editing.path !== path) {
+					const wasEnabled = isSkillEnabled(target, editing.path)
+					forgetSkill(target, editing.path)
+					setSkillEnabled(target, path, wasEnabled)
 				}
 			} else {
 				await saveSkillResource(
@@ -438,8 +661,9 @@ What the assistant should do when this skill applies.
 					validated.skill.description,
 					validated.skill.instructions
 				)
-				// Authoring a skill is the act of choosing it.
-				setSkillEnabled(target, path, true)
+				// A skill written here now is not the one someone turned off at this path
+				// earlier, so it starts from the default rather than inheriting that.
+				forgetSkill(target, path)
 			}
 			editorOpen = false
 			await refresh(target)
@@ -456,9 +680,9 @@ What the assistant should do when this skill applies.
 		const target = ws
 		try {
 			await deleteSkillResource(target, skill.path)
-			// A later skill at this path is a different one; it must be turned on
-			// deliberately rather than inherit this one's selection.
-			setSkillEnabled(target, skill.path, false)
+			// A later skill at this path is a different one, and must not inherit a
+			// decision aimed at this one.
+			forgetSkill(target, skill.path)
 			sendUserToast(`Deleted ${skill.path}`)
 			await refresh(target)
 		} catch (e) {
@@ -589,7 +813,7 @@ What the assistant should do when this skill applies.
 					await saveSkillResource(target, dest, skill.description, skill.instructions, {
 						overwrite
 					})
-					setSkillEnabled(target, dest, true)
+					forgetSkill(target, dest)
 					written++
 				} catch (e) {
 					failed.push(`${skill.name} (${e.body ?? e.message})`)
@@ -626,10 +850,22 @@ What the assistant should do when this skill applies.
 />
 
 {#snippet listPage()}
-	<div class="grow min-h-0 overflow-y-auto pr-2">
+	<!-- Stable gutter: collapsing a folder can take the list under the scrollable
+	     height, and without the reserved space every row would jump sideways as the
+	     scrollbar came and went. Focusable so the keys have somewhere to belong — see
+	     the effect that focuses it. -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+	<div
+		bind:this={listEl}
+		tabindex="-1"
+		class="grow min-h-0 overflow-y-auto pr-2 outline-none"
+		style="scrollbar-gutter: stable;"
+		onpointermove={highlight.pointerMoved}
+	>
 		<Section
 			label="Skills"
-			description="Reusable instruction sets the assistant loads when they apply. Turning one on is personal to you and to this workspace."
+			description="Reusable instruction sets the assistant loads when they apply. Every skill in the workspace is on; turning one off is personal to you and to this workspace."
 		>
 			{#snippet action()}
 				<div class="flex items-center gap-2 shrink-0">
@@ -668,8 +904,8 @@ What the assistant should do when this skill applies.
 
 			{#if forkPending}
 				<Alert type="info" title="This session has no workspace yet" size="xs" class="mb-4">
-					Skills are read-only until the first message creates this session's fork. Editing or
-					selecting one now would apply to the parent workspace and stop applying once the fork is
+					Skills are read-only until the first message creates this session's fork. Editing one or
+					turning it off now would apply to the parent workspace and stop applying once the fork is
 					created.
 				</Alert>
 			{/if}
@@ -698,55 +934,133 @@ What the assistant should do when this skill applies.
 				/>
 			{:else}
 				<div class="flex flex-col gap-0.5">
-					{#each skills as skill (skill.path)}
-						{#snippet icon()}
-							<BookOpen size={16} class="text-tertiary" />
-						{/snippet}
-						{#snippet title()}
-							<span class="truncate leading-5">
-								{ambiguous.has(skill.name) ? skill.path : skill.name}
-							</span>
-						{/snippet}
-						{#snippet subtitle()}{skill.description}{/snippet}
-						{#snippet trailing()}
-							<Toggle
-								size="sm"
-								disabled={forkPending}
-								checked={skill.enabled}
-								on:change={async (e) => await toggle(skill.path, e.detail)}
-							/>
-							<DropdownV2
-								size="sm"
-								bind:open={rowMenuOpen[skill.path]}
-								items={[
-									{
-										// One entry for both halves of the detail: it opens on the rendered
-										// skill, and editing is the switch in its header.
-										displayName: 'Manage skill',
-										icon: skill.canWrite ? Pencil : Eye,
-										action: () => openSkill(skill)
-									},
-									{
-										displayName: 'Delete',
-										icon: Trash2,
-										type: 'delete',
-										disabled: !skill.canWrite || forkPending,
-										action: () => (toDelete = skill)
-									}
-								]}
-							/>
-						{/snippet}
-						<ListRow
-							{icon}
-							{title}
-							{trailing}
-							subtitle={skill.description ? subtitle : undefined}
-							onClick={() => openSkill(skill)}
-						/>
-					{/each}
+					{#if grouped}
+						{#each tree as node (node.path)}
+							{@render folder(node, true)}
+						{/each}
+					{:else}
+						{#each skills as skill (skill.path)}
+							{@render row(skill)}
+						{/each}
+					{/if}
 				</div>
 			{/if}
 		</Section>
+	</div>
+{/snippet}
+
+<!-- One skill. A snippet rather than markup inside the list, because the tree
+     renders the same row at every depth. -->
+{#snippet row(skill: Row)}
+	{#snippet icon()}
+		<BookOpen size={16} class="text-tertiary" />
+	{/snippet}
+	{#snippet title()}
+		<span class="truncate leading-5">
+			<!-- Grouped, the folder above the row is what tells two skills of the same
+			     name apart; flat, the path has to do it. -->
+			{!grouped && ambiguous.has(skill.name) ? skill.path : skill.name}
+		</span>
+	{/snippet}
+	{#snippet subtitle()}{skill.description}{/snippet}
+	{#snippet trailing()}
+		<Toggle
+			size="xs"
+			disabled={forkPending}
+			checked={skill.enabled}
+			on:change={async (e) => await toggle(skill.path, e.detail)}
+		/>
+		<DropdownV2
+			size="sm"
+			bind:open={rowMenuOpen[skill.path]}
+			items={[
+				{
+					// One entry for both halves of the detail: it opens on the rendered
+					// skill, and editing is the switch in its header.
+					displayName: 'Manage skill',
+					icon: skill.canWrite ? Pencil : Eye,
+					action: () => openSkill(skill)
+				},
+				{
+					displayName: 'Delete',
+					icon: Trash2,
+					type: 'delete',
+					disabled: !skill.canWrite || forkPending,
+					action: () => (toDelete = skill)
+				}
+			]}
+		/>
+	{/snippet}
+	<ListRow
+		{icon}
+		{title}
+		{trailing}
+		id={entryDomId(skillKey(skill.path))}
+		highlighted={entryIndexByKey.get(skillKey(skill.path)) === highlight.index}
+		onMouseEnter={() => highlight.hovered(entryIndexByKey.get(skillKey(skill.path)) ?? -1)}
+		subtitle={skill.description ? subtitle : undefined}
+		onClick={() => openSkill(skill)}
+	/>
+{/snippet}
+
+<!-- One folder and everything under it. Recursive: a path may name folders below
+     the `u/x` or `f/x` root it starts from. -->
+{#snippet folder(node: SkillTreeNode<Row>, root: boolean)}
+	<div>
+		<!-- The switch sits beside the header button rather than inside it: a switch
+		     nested in a button would fold the folder on every flip. `pr-14` clears the
+		     row menu column, so a folder's switch stands in the same column as the
+		     switches of the rows under it. -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			id={entryDomId(folderKey(node.path))}
+			class="w-full flex items-center gap-2 pr-14 rounded-md {entryIndexByKey.get(
+				folderKey(node.path)
+			) === highlight.index
+				? 'bg-surface-hover'
+				: ''}"
+			onmouseenter={() => highlight.hovered(entryIndexByKey.get(folderKey(node.path)) ?? -1)}
+		>
+			<button
+				type="button"
+				class="grow min-w-0 flex items-center gap-2 px-2 py-2 text-left"
+				aria-expanded={!collapsed[node.path]}
+				onclick={() => fold(folderKey(node.path), node.path, !collapsed[node.path])}
+			>
+				{#if collapsed[node.path]}
+					<ChevronRight size={14} class="text-tertiary shrink-0" />
+				{:else}
+					<ChevronDown size={14} class="text-tertiary shrink-0" />
+				{/if}
+				{#if root && node.path.startsWith('u/')}
+					<User size={14} class="text-secondary shrink-0" />
+				{:else if root}
+					<Folder size={14} class="text-secondary shrink-0" />
+				{:else}
+					<FolderTree size={14} class="text-secondary shrink-0" />
+				{/if}
+				<!-- Explicitly normal: the header is a button, and buttons carry a heavier
+				     weight of their own that the label would otherwise inherit. -->
+				<span class="text-xs font-normal text-emphasis truncate">{node.label}</span>
+				<span class="text-2xs text-secondary">{countSkills(node)}</span>
+			</button>
+			<Toggle
+				size="xs"
+				disabled={forkPending}
+				checked={folderEnabled(node)}
+				on:change={async (e) => await toggleFolder(node, e.detail)}
+			/>
+		</div>
+		{#if !collapsed[node.path]}
+			<div class="pl-4 flex flex-col gap-0.5">
+				{#each node.children as child (child.path)}
+					{@render folder(child, false)}
+				{/each}
+				{#each node.skills as skill (skill.path)}
+					{@render row(skill)}
+				{/each}
+			</div>
+		{/if}
 	</div>
 {/snippet}
 
@@ -754,7 +1068,9 @@ What the assistant should do when this skill applies.
 	<!-- The editor takes the panel over rather than opening on top of it: a form
 	     stacked on the settings modal leaves two surfaces arguing over which one a
 	     click or an Escape belongs to. -->
-	<div class="grow min-h-0 overflow-y-auto pr-2">
+	<!-- Same reserved gutter as the list, so the slide between the two pages does not
+	     shift what is under the cursor. -->
+	<div class="grow min-h-0 overflow-y-auto pr-2" style="scrollbar-gutter: stable;">
 		<!-- Sticky so the way back is always one click away, however far the page scrolls. -->
 		<div class="flex sticky top-0 z-10 bg-surface pb-1">
 			<Button
@@ -886,7 +1202,7 @@ What the assistant should do when this skill applies.
 >
 	<span class="text-xs text-primary">
 		This deletes the resource at <span class="font-semibold">{toDelete?.path}</span>, so everyone
-		who selected it loses the skill.
+		who can read it loses the skill.
 	</span>
 </ConfirmationModal>
 

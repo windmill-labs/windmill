@@ -158,6 +158,7 @@ pub struct RunJob {
     pub payload: JobPayload,
     pub args: serde_json::Map<String, serde_json::Value>,
     pub scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
+    pub username: String,
     pub email: String,
     pub job_id: Option<Uuid>,
     pub workspace_id: String,
@@ -169,6 +170,7 @@ impl From<JobPayload> for RunJob {
             payload,
             args: Default::default(),
             scheduled_for_o: None,
+            username: "test-user".to_string(),
             email: "test@windmill.dev".to_string(),
             job_id: None,
             workspace_id: "test-workspace".to_string(),
@@ -190,7 +192,11 @@ impl RunJob {
         self
     }
 
-    pub fn email(mut self, email: impl Into<String>) -> Self {
+    /// Run as this workspace member. Both halves together, because the job's identity is the
+    /// principal: an address paired with another member's username is re-resolved at push to
+    /// the address that username holds.
+    pub fn as_user(mut self, username: impl Into<String>, email: impl Into<String>) -> Self {
+        self.username = username.into();
         self.email = email.into();
         self
     }
@@ -206,7 +212,7 @@ impl RunJob {
     }
 
     pub async fn push(self, db: &Pool<Postgres>) -> Uuid {
-        let RunJob { payload, args, scheduled_for_o, email, job_id, workspace_id } = self;
+        let RunJob { payload, args, scheduled_for_o, username, email, job_id, workspace_id } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
@@ -219,9 +225,9 @@ impl RunJob {
             &workspace_id,
             payload,
             windmill_queue::PushArgs::from(&hm_args),
-            /* user */ "test-user",
+            /* user */ &username,
             /* email  */ &email,
-            /* permissioned_as */ "u/test-user".to_string(),
+            /* permissioned_as */ format!("u/{username}"),
             /* token_prefix */ None,
             /* audit_end_user */ None,
             scheduled_for_o,

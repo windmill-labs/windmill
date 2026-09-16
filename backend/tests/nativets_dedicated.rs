@@ -12,7 +12,7 @@ mod prewarmed_isolate_tests {
     use windmill_worker::{build_loader, LoaderMode, BUN_PATH};
 
     fn default_annotation() -> NativeAnnotation {
-        NativeAnnotation { useragent: None, proxy: None }
+        NativeAnnotation::default()
     }
 
     /// Bundle a TypeScript script into JS suitable for `PrewarmedIsolate`.

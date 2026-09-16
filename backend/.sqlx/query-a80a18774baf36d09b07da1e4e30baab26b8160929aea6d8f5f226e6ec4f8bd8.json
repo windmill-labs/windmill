@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO usr (workspace_id, username, email, is_admin, operator)\n         SELECT $1::varchar, u.username, u.email, true, false FROM usr u\n         WHERE u.workspace_id = $2 AND u.email = $3 AND u.is_admin AND NOT u.operator AND NOT u.disabled\n           AND NOT EXISTS (SELECT 1 FROM password p WHERE p.email = u.email AND p.disabled)\n           AND NOT EXISTS (SELECT 1 FROM usr f WHERE f.workspace_id = $1::varchar AND f.email = $3)\n         ON CONFLICT DO NOTHING\n         RETURNING username",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a80a18774baf36d09b07da1e4e30baab26b8160929aea6d8f5f226e6ec4f8bd8"
+}

@@ -226,6 +226,10 @@ pub struct NativeTrigger {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub summary: Option<String>,
+    /// Whether incoming webhooks for this trigger start a job. Operational state: a create sets
+    /// its initial value and `setenabled` is its only mutator afterwards, so saving a
+    /// configuration can never silently re-enable a trigger someone paused.
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -235,12 +239,20 @@ pub struct NativeTriggerConfig {
     pub webhook_token: String,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NativeTriggerData<C> {
     pub script_path: String,
     pub is_flow: bool,
     pub service_config: C,
     pub summary: Option<String>,
+    /// Honoured on create only, so a trigger can be registered already paused in one request.
+    /// An update ignores it: `setenabled` is the only way to change an existing trigger's state.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -1179,11 +1191,15 @@ pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>
     config: &NativeTriggerConfig,
     service_config: C,
     summary: Option<&str>,
+    enabled: bool,
 ) -> Result<()> {
     use windmill_common::auth::hash_token;
 
     let webhook_token_hash = hash_token(&config.webhook_token);
 
+    // `enabled` is set by the INSERT alone: writing it here rather than in a follow-up statement
+    // is what keeps a trigger created paused from ever being visible, and therefore runnable, in
+    // any other state. The conflict branch leaves it untouched for the mirror-image reason.
     sqlx::query!(
         r#"
         INSERT INTO native_trigger (
@@ -1194,9 +1210,10 @@ pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>
             is_flow,
             webhook_token_hash,
             service_config,
-            summary
+            summary,
+            enabled
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8
+            $1, $2, $3, $4, $5, $6, $7, $8, $9
         )
         ON CONFLICT (external_id, workspace_id, service_name)
         DO UPDATE SET script_path = $4, is_flow = $5, webhook_token_hash = $6, service_config = $7, summary = $8, error = NULL, updated_at = NOW()
@@ -1209,6 +1226,7 @@ pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>
         webhook_token_hash,
         sqlx::types::Json(service_config) as _,
         summary,
+        enabled,
     )
     .execute(db)
     .await?;
@@ -1405,7 +1423,8 @@ pub async fn get_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>>(
             error,
             created_at,
             updated_at,
-            summary
+            summary,
+            enabled
         FROM
             native_trigger
         WHERE
@@ -1444,7 +1463,8 @@ pub async fn get_native_trigger_by_script<'c, E: sqlx::Executor<'c, Database = P
             error,
             created_at,
             updated_at,
-            summary
+            summary,
+            enabled
         FROM
             native_trigger
         WHERE
@@ -1491,7 +1511,8 @@ pub async fn list_native_triggers<'c, E: sqlx::Executor<'c, Database = Postgres>
             nt.error,
             nt.created_at,
             nt.updated_at,
-            nt.summary
+            nt.summary,
+            nt.enabled
         FROM
             native_trigger nt
         WHERE
@@ -1553,6 +1574,71 @@ pub async fn update_native_trigger_error<'c, E: sqlx::Executor<'c, Database = Po
     .await?;
 
     Ok(())
+}
+
+/// Pause or resume a trigger. Returns `false` when there is no such trigger.
+///
+/// Callers MUST have verified write access to the trigger's runnable: this writes operational
+/// state and performs no authorization of its own.
+pub async fn set_native_trigger_enabled<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    workspace_id: &str,
+    service_name: ServiceName,
+    external_id: &str,
+    enabled: bool,
+) -> Result<bool> {
+    // `updated_at` is the row version `record_reregistration` conditions on, so leave it alone:
+    // pausing a trigger must not make a registration that is mid-flight discard its result.
+    let updated = sqlx::query!(
+        r#"
+        UPDATE native_trigger
+        SET enabled = $1
+        WHERE
+            workspace_id = $2
+            AND service_name = $3
+            AND external_id = $4
+        "#,
+        enabled,
+        workspace_id,
+        service_name as ServiceName,
+        external_id,
+    )
+    .execute(db)
+    .await?
+    .rows_affected();
+
+    Ok(updated > 0)
+}
+
+/// Whether a webhook arriving for this trigger should start a job.
+///
+/// A trigger Windmill no longer knows about counts as enabled: the token in the URL is what
+/// authorizes the run, and this is a pause switch, not a second authorization check. It reads
+/// nothing a caller could not already learn from the trigger it is delivering for, so it needs no
+/// authorization of its own — but it also grants none, and must not be used as one.
+pub async fn native_trigger_is_enabled<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    workspace_id: &str,
+    service_name: ServiceName,
+    external_id: &str,
+) -> Result<bool> {
+    let enabled = sqlx::query_scalar!(
+        r#"
+        SELECT enabled
+        FROM native_trigger
+        WHERE
+            workspace_id = $1
+            AND service_name = $2
+            AND external_id = $3
+        "#,
+        workspace_id,
+        service_name as ServiceName,
+        external_id,
+    )
+    .fetch_optional(db)
+    .await?;
+
+    Ok(enabled.unwrap_or(true))
 }
 
 pub async fn update_native_trigger_service_config<
@@ -1701,6 +1787,11 @@ pub async fn delete_workspace_integration(
 ///
 /// `external_id` is optional because during CREATE we don't have it yet
 /// (it's returned by the external service). During UPDATE, we have it.
+///
+/// Every registered URL MUST end up carrying it: it is the only thing a delivery identifies its
+/// trigger by, so a service that leaves it out ships a disable switch that silently does nothing.
+/// A handler that returns `None` from `service_config_from_create_response` gets this for free —
+/// `create_native_trigger` then runs the `update` cycle that re-registers with the assigned id.
 pub fn generate_webhook_service_url(
     base_url: &str,
     w_id: &str,

@@ -23,14 +23,11 @@
 	let {
 		workspace,
 		path,
-		editHref,
 		onEdit,
 		onLoadState
 	}: {
 		workspace: string
 		path: string
-		/** Where the Edit button points (low-code vs raw editor). */
-		editHref: string
 		/** Handle Edit in place instead of following `editHref`. An AI session shows
 		 * this viewer inside a preview tab, where a plain link would navigate the whole
 		 * page out of the session rather than flipping the tab to its editor. */
@@ -44,6 +41,12 @@
 	let notExists = $state(false)
 	let noPermission = $state(false)
 	let canWriteApp = $state(false)
+	/** Raw vs low-code, read from the app itself rather than from the route:
+	 * both kinds render here and either route serves either kind (links to a raw
+	 * app point at /apps/get all over the app), so only the app can say which
+	 * editor the Edit button must open. */
+	let isRawApp = $state(false)
+	let editHref = $derived(`${base}/${isRawApp ? 'apps_raw' : 'apps'}/edit/${path}?nodraft=true`)
 	let refresh: (() => void) | undefined
 
 	// The opaque iframe loads the dedicated cookieless, chrome-less viewer route.
@@ -116,11 +119,14 @@
 		}
 	}
 
-	// Edit button: determine write access on this real-origin page (cookie).
+	// Edit button: determine write access and which editor to open on this
+	// real-origin page (cookie). The sandboxed low-code app never loads on this
+	// page (it loads inside the opaque iframe), so `app` can't be the source.
 	async function loadPerms() {
 		try {
 			const lite: any = await AppService.getAppLiteByPath({ workspace, path })
 			canWriteApp = canWrite(lite?.path, lite?.extra_perms ?? {}, $userStore)
+			isRawApp = !!lite?.raw_app
 		} catch (_) {
 			canWriteApp = false
 		}

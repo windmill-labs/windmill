@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM git_sync_synced_head h\n         WHERE h.synced_at < now() - make_interval(secs => $1)\n           AND EXISTS (\n               SELECT 1 FROM git_sync_synced_head n\n               WHERE n.workspace_id = h.workspace_id\n                 AND n.repo_resource_path = h.repo_resource_path\n                 AND n.branch = h.branch\n                 AND n.synced_at > h.synced_at\n           )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e6f2a6fa47bf3b5c774d6bc6060ca5a99addffab3dd44529ce9f40de115b0a3c"
+}

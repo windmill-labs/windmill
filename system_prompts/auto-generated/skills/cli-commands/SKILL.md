@@ -380,7 +380,7 @@ Manage jobs (import/export)
 
 ### lint
 
-Validate Windmill flow, schedule, and trigger YAML files in a directory
+Validate Windmill flow, schedule, and trigger YAML files in a directory, and report script metadata that has no deployable content file
 
 **Arguments:** `[directory:string]`
 
@@ -672,6 +672,27 @@ Manage API tokens
   - `--label <label:string>` - Token label
   - `--expiration <expiration:string>` - Token expiration (ISO 8601 timestamp)
 - `token delete <token_prefix:string>` - Delete a token by its prefix
+
+### trash
+
+List, inspect and restore items deleted in the last three days (requires admin)
+
+**Options:**
+- `--json` - Output as JSON (for piping to jq)
+- `--kind <kind:string>` - Only items of this kind: script, flow, app, schedule, variable, resource or a trigger kind such as http_trigger
+- `--limit <limit:integer>` - Number of items to return (default 100, max 1000)
+- `--page <page:integer>` - Page to return, starting at 1
+
+**Subcommands:**
+
+- `trash list` - List trashed items, most recently deleted first
+  - `--json` - Output as JSON (for piping to jq)
+  - `--kind <kind:string>` - Only items of this kind: script, flow, app, schedule, variable, resource or a trigger kind such as http_trigger
+  - `--limit <limit:integer>` - Number of items to return (default 100, max 1000)
+  - `--page <page:integer>` - Page to return, starting at 1
+- `trash get <id:integer>` - Show a trashed item and the data it was deleted with
+  - `--json` - Output as JSON (for piping to jq)
+- `trash restore <ids...:integer>` - Put trashed items back at their paths
 
 ### trigger
 

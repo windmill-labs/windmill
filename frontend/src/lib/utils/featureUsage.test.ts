@@ -1,10 +1,34 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('$lib/gen', () => ({ OpenAPI: { BASE: '/api' } }))
-vi.mock('$lib/stores', () => ({ workspaceStore: { subscribe: () => () => {} } }))
+
+// Stores `get()` can read, so a test can say which hub the instance points at and whether
+// the instance has answered at all.
+const hubBaseUrl = vi.hoisted(() => {
+	const readable = <T>(initial: T) => {
+		let value = initial
+		return {
+			set: (v: T) => (value = v),
+			store: {
+				subscribe: (run: (v: T) => void) => {
+					run(value)
+					return () => {}
+				}
+			}
+		}
+	}
+	return { url: readable('https://hub.windmill.dev'), known: readable(true) }
+})
+
+vi.mock('$lib/stores', () => ({
+	workspaceStore: { subscribe: () => () => {} },
+	hubBaseUrlStore: hubBaseUrl.url.store,
+	hubBaseUrlKnown: hubBaseUrl.known.store
+}))
 
 import {
 	createFeatureUsageBuffer,
+	hubProjectUsageKey,
 	hubScriptUsageKey,
 	type FeatureUsageEventPayload
 } from './featureUsage'
@@ -105,5 +129,52 @@ describe('hubScriptUsageKey', () => {
 		expect(
 			hubScriptUsageKey({ version_id: 12, app: 'acme', summary: "List a user's items, sorted" })
 		).toBe('acme/list_a_user_s_items_sorted')
+	})
+})
+
+describe('hubProjectUsageKey', () => {
+	// The fixture is module-level and mutable, so each case states the world it needs rather
+	// than inheriting whatever the case above it left behind.
+	beforeEach(() => {
+		hubBaseUrl.url.set('https://hub.windmill.dev')
+		hubBaseUrl.known.set(true)
+	})
+
+	it('reports the slug for every spelling of the public hub', () => {
+		for (const hub of [
+			'https://hub.windmill.dev',
+			'http://hub.windmill.dev/',
+			'HTTPS://hub.windmill.dev',
+			'https://HUB.WINDMILL.DEV',
+			'https://hub.windmill.dev:443',
+			'  https://hub.windmill.dev  '
+		]) {
+			hubBaseUrl.url.set(hub)
+			expect(hubProjectUsageKey('stripe-invoices'), hub).toBe('stripe-invoices')
+		}
+	})
+
+	it('answers private until the instance has said which hub it points at', () => {
+		// The store is seeded with the public hub, so a settings read that failed must not
+		// read as permission to report the name.
+		hubBaseUrl.known.set(false)
+		expect(hubProjectUsageKey('acme-payroll')).toBe('private')
+		hubBaseUrl.known.set(true)
+		expect(hubProjectUsageKey('acme-payroll')).toBe('acme-payroll')
+	})
+
+	it("keeps a private hub's project names off the wire", () => {
+		// The slug is the customer's own content on an instance running its own hub, and the
+		// disclosure only claims public project names.
+		for (const hub of [
+			'https://hub.internal.example',
+			'https://hub.windmill.dev.evil.example',
+			'https://windmill.dev',
+			'hub.windmill.dev',
+			'not a url'
+		]) {
+			hubBaseUrl.url.set(hub)
+			expect(hubProjectUsageKey('acme-payroll'), hub).toBe('private')
+		}
 	})
 })

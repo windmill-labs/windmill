@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Folder, User, Circle } from 'lucide-svelte'
 	import { appIconComponent } from '../icons'
+	import { integrationDisplayName } from '../resourceTypeDisplay'
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from '../common'
 
@@ -51,7 +52,7 @@
 				btnClasses="justify-start"
 				title={filter}
 			>
-				<span class="truncate">{filter}</span>
+				<span class="truncate">{resourceType ? integrationDisplayName(filter) : filter}</span>
 			</Button>
 		</div>
 	{/each}

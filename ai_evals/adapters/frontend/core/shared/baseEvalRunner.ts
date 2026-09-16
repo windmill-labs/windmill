@@ -132,6 +132,10 @@ export async function runEval<THelpers, TOutput>(
     setToolStatus: () => {},
     removeToolStatus: () => {},
     isPlanModeActive,
+    // Accepts the run form exactly as the model prefilled it: there is nobody here to
+    // edit the arguments, so a case can assert what the model proposed but never how
+    // it reacts to the user changing something.
+    requestRunArgs: async (_toolId, form) => form.args,
     onNewToken: (token: string) => {
       if (shouldEmitMessageStart) {
         onAssistantMessageStart?.();

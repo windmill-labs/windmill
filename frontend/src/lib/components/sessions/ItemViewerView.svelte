@@ -176,7 +176,6 @@
 		<InWorkspaceAppViewer
 			workspace={workspaceId}
 			{path}
-			editHref="{base}/apps_raw/edit/{path}?nodraft=true"
 			onEdit={() => onNavigate(`/apps_raw/edit/${path}`)}
 			onLoadState={setLoadState}
 		/>

@@ -2005,7 +2005,8 @@ pub async fn update_flow_status_after_job_completion_internal(
 
             if flow_job.cache_ttl.is_some() && success {
                 let flow = RawData::Flow(flow_data.clone());
-                let cached_res_path = cached_result_path(db, client, &flow_job, Some(&flow)).await;
+                let cached_res_path =
+                    cached_result_path(db, client, &flow_job, Some(&flow)).await?;
 
                 save_in_cache(
                     db,
@@ -2034,8 +2035,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                 chat_ai_info.conversation_id,
             )
             .await?;
-            let (duration, wac_job_ids) = if success {
-                let (_, duration, wac_job_ids) = add_completed_job(
+            let duration = if success {
+                let (_, duration) = add_completed_job(
                     db,
                     &cflow_job,
                     true,
@@ -2049,9 +2050,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                (duration, wac_job_ids)
+                duration
             } else {
-                let (_, duration, wac_job_ids) = add_completed_job(
+                let (_, duration) = add_completed_job(
                     db,
                     &cflow_job,
                     false,
@@ -2069,30 +2070,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                (duration, wac_job_ids)
+                duration
             };
             flow_job_duration = flow_job
                 .started_at
                 .map(|x| FlowJobDuration { started_at: x, duration_ms: duration });
-
-            // If this flow is a WAC child (not a flow step, has parent),
-            // notify the WAC parent of completion.
-            if !flow_job.is_flow_step() {
-                if let Some(parent_job) = flow_job.parent_job {
-                    if let Some(job_ids) = wac_job_ids {
-                        let _ = crate::result_processor::handle_wac_child_completion(
-                            db,
-                            &flow_job.id,
-                            parent_job,
-                            &flow_job.workspace_id,
-                            nresult.clone(),
-                            success,
-                            job_ids,
-                        )
-                        .await;
-                    }
-                }
-            }
         }
         true
     } else {
@@ -3891,7 +3873,18 @@ async fn push_next_flow_job(
 
     drop(resume_messages);
 
-    let is_skipped = if let Some(skip_if) = &module.skip_if {
+    // `skip_if` is a one-time entry gate, so only first-entry statuses evaluate it.
+    // Once the module is looping, the last completed job is an inner iteration, not
+    // `previous_id`'s, and re-evaluating would alias `results.<previous_id>` to it.
+    // A restart-at-iteration also enters as `InProgress`: it resumes without re-gating.
+    let is_skipped = if let Some(skip_if) = module.skip_if.as_ref().filter(|_| {
+        matches!(
+            status_module,
+            FlowStatusModule::WaitingForPriorSteps { .. }
+                | FlowStatusModule::WaitingForEvents { .. }
+                | FlowStatusModule::WaitingForExecutor { .. }
+        )
+    }) {
         let idcontext = get_transform_context(&flow_job, previous_id.as_str(), &status);
         let skip_if_res = compute_bool_from_expr(
             &skip_if.expr,
@@ -4438,6 +4431,8 @@ async fn push_next_flow_job(
             .as_deref()
             .filter(|t| !t.is_empty() && *t != flow_job.tag.as_str())
         {
+            // A step with its own on-behalf-of carries a cached dispatch address, up to one
+            // notify poll stale; accepted, see `get_email_from_permissioned_as`.
             let is_super_admin = windmill_common::auth::is_super_admin_email(db, email).await?;
             check_tag_available_for_workspace_internal(
                 db,

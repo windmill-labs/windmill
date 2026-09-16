@@ -135,6 +135,7 @@ async fn reregister_one<T: External>(
         is_flow: trigger.is_flow,
         service_config,
         summary: trigger.summary.clone(),
+        enabled: trigger.enabled,
     };
 
     // The token is scoped to the runnable path and only its hash is kept, so pointing the webhook

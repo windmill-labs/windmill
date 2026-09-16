@@ -64,6 +64,7 @@ async function diff(
   remoteEl: Mock,
   skips: Record<string, unknown>,
   parentOwnsScheduleEnabled?: (scheduleFilePath: string) => boolean,
+  isEls1Remote = false,
 ) {
   const { changes } = await compareDynFSElement(
     localEl as any,
@@ -76,7 +77,7 @@ async function diff(
     false,
     undefined,
     undefined,
-    false,
+    isEls1Remote,
     false,
     parentOwnsScheduleEnabled,
   );
@@ -295,4 +296,27 @@ test("push: checkout inline names stay inside the flow folder", async () => {
   expect(
     await checkoutInlineNames(join(process.cwd(), "missing.yaml")),
   ).toEqual({});
+});
+
+// A push never applies the workspace's display name and applies its color only
+// when the local file carries one (see pushWorkspaceSettings), so a file that
+// differs only in what would not be applied is not a push change; a pull still
+// rewrites the file.
+test("push: settings.yaml differing only by name or an unset color is not a change", async () => {
+  const remote = local({
+    "settings.yaml": "name: prod\ncolor: '#ff0000'\nerror_handler: null\n",
+  });
+  const unsetColor = local({
+    "settings.yaml": "name: staging\nerror_handler: null\n",
+  });
+  const skips = { includeSettings: true };
+  expect(await diff(unsetColor, remote, skips)).toEqual([]);
+  expect(await diff(remote, unsetColor, skips, undefined, true)).toEqual([
+    "edited settings.yaml",
+  ]);
+
+  const otherColor = local({
+    "settings.yaml": "name: staging\ncolor: '#00ff00'\nerror_handler: null\n",
+  });
+  expect(await diff(otherColor, remote, skips)).toEqual(["edited settings.yaml"]);
 });

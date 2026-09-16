@@ -1,5 +1,5 @@
 import { getContext, setContext } from 'svelte'
-import { enterpriseLicense } from '$lib/stores'
+import { enterpriseLicense, userStore } from '$lib/stores'
 import { get } from 'svelte/store'
 import { sendUserToast } from '$lib/toast'
 import { apiErrorMessage } from '$lib/utils'
@@ -533,6 +533,15 @@ export function createGitSyncContext(workspace: string) {
 				}
 			}
 		})
+
+		// The server stamps the saving admin as who pulls run as; mirror it so the card
+		// names them without a reload.
+		if (repoToSave.auto_pull) {
+			repoToSave.auto_pull = {
+				...repoToSave.auto_pull,
+				enabled_by: repoToSave.auto_pull.enabled ? get(userStore)?.email : undefined
+			}
+		}
 
 		// Update local state with migrated repository
 		repositories[idx] = repoToSave

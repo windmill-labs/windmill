@@ -3,6 +3,7 @@
 	import { ExternalLink, PanelRight } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import { newTabModifier } from '$lib/attachments/newTabModifier.svelte'
 	import {
 		hasToolDisplayActionHandler,
 		runToolDisplayAction
@@ -12,6 +13,7 @@
 		type WindmillItemKind,
 		type WorkspaceItemTargetKind
 	} from './workspaceItems.svelte'
+	import { safeHref } from './safeHref'
 
 	type Props = {
 		href?: string
@@ -44,6 +46,10 @@
 	const previewAction = $derived(available?.type === 'open_item_preview' ? available : undefined)
 	const drawerAction = $derived(available?.type === 'open_created_resource' ? available : undefined)
 
+	const allowedHref = $derived(safeHref(href, window.location.href))
+
+	const modifier = newTabModifier()
+
 	const hint = $derived(
 		previewAction ? `Open ${wmPath} in the preview panel` : `Open ${wmPath} in a new tab`
 	)
@@ -65,11 +71,15 @@
 	}
 </script>
 
-{#if href}
+{#if allowedHref}
 	{#if wmKind}
-		<span class="group inline-flex items-baseline">
+		<!-- Only a preview pill can change icon, so only it is worth tracking the modifier for. -->
+		<span
+			class="group inline-flex items-baseline"
+			{@attach previewAction ? modifier.attach : undefined}
+		>
 			<a
-				{href}
+				href={allowedHref}
 				target={previewAction ? undefined : '_blank'}
 				rel={previewAction ? undefined : 'noopener noreferrer'}
 				title={title || hint}
@@ -85,7 +95,9 @@
 					<span
 						class="absolute inset-0 flex items-center justify-center text-tertiary opacity-0 transition-opacity group-hover:opacity-100"
 					>
-						{#if previewAction}
+						<!-- Narrower than the modifier list `onclick` bails on: only the modifier that
+						     really opens a tab may show the icon for one. -->
+						{#if previewAction && !modifier.held}
 							<PanelRight size={12} />
 						{:else}
 							<ExternalLink size={11} />
@@ -110,8 +122,11 @@
 			{/if}
 		</span>
 	{:else}
-		<a {href} target="_blank" rel="noopener noreferrer" {title}>
+		<a href={allowedHref} target="_blank" rel="noopener noreferrer" {title}>
 			{@render children?.()}
 		</a>
 	{/if}
+{:else}
+	<!-- An empty or unsafe href still has text; drop only the link. -->
+	{@render children?.()}
 {/if}

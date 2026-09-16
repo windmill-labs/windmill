@@ -89,7 +89,7 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="1200px" {disableChatOffset} on:close={handleDrawerClose}>
+<Drawer bind:this={drawer} size="1300px" {disableChatOffset} on:close={handleDrawerClose}>
 	<DrawerContent noPadding overflow_y={false} title="Instance settings" on:close={handleClose}>
 		{#snippet titleExtra()}
 			<MeltTooltip disablePopup={!uptodateVersion}>

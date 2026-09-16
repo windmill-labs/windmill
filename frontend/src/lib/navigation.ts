@@ -1,6 +1,6 @@
 import { goto as svelteGoto } from '$app/navigation'
 import { base as svelteBase } from '$app/paths'
-import { serializeParam } from '$lib/svelte5UtilsKit.svelte'
+import { serializeParam } from '$lib/utils/serializeParam'
 
 export function goto(path: string, options = {}) {
 	if (svelteBase == '' || path.startsWith('?')) {

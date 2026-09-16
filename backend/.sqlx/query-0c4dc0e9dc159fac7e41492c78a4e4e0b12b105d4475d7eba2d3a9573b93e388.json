@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.username, u.email FROM usr u WHERE u.workspace_id = $1 AND u.is_admin AND NOT u.operator AND NOT u.disabled AND NOT EXISTS (SELECT 1 FROM password p WHERE p.email = u.email AND p.disabled) ORDER BY u.username LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "0c4dc0e9dc159fac7e41492c78a4e4e0b12b105d4475d7eba2d3a9573b93e388"
+}

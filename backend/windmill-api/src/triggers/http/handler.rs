@@ -1,6 +1,7 @@
 use super::{
-    http_trigger_args::RawHttpTriggerArgs, refresh_routers, AuthenticationMethod, HttpMethod,
-    RequestType, TriggerRoute, HTTP_ACCESS_CACHE, HTTP_AUTH_CACHE, HTTP_ROUTERS_CACHE,
+    effective_allowed_origins, http_trigger_args::RawHttpTriggerArgs, match_origin,
+    refresh_routers, AuthenticationMethod, HttpMethod, RequestType, TriggerRoute,
+    HTTP_ACCESS_CACHE, HTTP_AUTH_CACHE, HTTP_ROUTERS_CACHE,
 };
 use crate::{
     auth::{AuthCache, OptTokened},
@@ -24,6 +25,7 @@ use std::{collections::HashMap, sync::Arc};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    global_settings::HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS,
     jobs::JobTriggerKind,
     triggers::{TriggerKind, TriggerMetadata},
     utils::{not_found_if_none, StripPath},
@@ -37,11 +39,221 @@ use {
     windmill_object_store::build_object_store_client,
 };
 
+/// Which router a request's CORS decision must be looked up in.
+///
+/// A preflight names the method it is asking about in
+/// `Access-Control-Request-Method`; the routers are keyed by method, so without
+/// that header there is nothing to look up.
+fn cors_lookup_method(req: &axum::extract::Request) -> Option<HttpMethod> {
+    let method = req.method();
+    if method == http::Method::OPTIONS {
+        req.headers()
+            .get(http::header::ACCESS_CONTROL_REQUEST_METHOD)
+            .and_then(|method| method.to_str().ok())
+            .and_then(|method| http::Method::try_from(method).ok())
+            .as_ref()
+            .and_then(routable_method)
+    } else {
+        routable_method(method)
+    }
+}
+
+/// The router key a request method maps to. `HEAD` resolves the `GET` route it
+/// mirrors, and does so for a preflight naming it too: browsers send
+/// `Access-Control-Request-Method: HEAD` when the HEAD carries a non-safelisted
+/// header, and answering that preflight from a different route than the request
+/// itself resolves is how the two come to disagree.
+fn routable_method(method: &http::Method) -> Option<HttpMethod> {
+    if method == http::Method::HEAD {
+        Some(HttpMethod::Get)
+    } else {
+        HttpMethod::try_from(method).ok()
+    }
+}
+
+/// The key to look a request up by, matching what `route_job` resolves it to.
+///
+/// `Path<StripPath>` percent-decodes before `get_http_route_trigger` builds its
+/// lookup key, so decoding here is what keeps the two agreeing: on the raw path,
+/// `/us%65rs` misses the trigger registered at `/users` that goes on to serve the
+/// request, and the response would carry the permissive default instead of that
+/// trigger's allowlist.
+fn cors_lookup_path(raw_path: &str) -> Option<String> {
+    let decoded = urlencoding::decode(raw_path).ok()?;
+    // `StripPath::to_path` strips one leading slash and the handler trims
+    // trailing ones, before a single `/` is prefixed back on.
+    let stripped = decoded.strip_prefix('/').unwrap_or(&decoded);
+    Some(format!("/{}", stripped.trim_end_matches('/')))
+}
+
+/// What the middleware should stamp, decided while the routers guard is held.
+///
+/// Deliberately small and owned: the allowlist itself never leaves the guard,
+/// so a large one is scanned in place instead of being copied per request onto
+/// a path an unauthenticated preflight can reach.
+#[derive(Clone)]
+enum CorsDecision {
+    /// No allowlist applies, so the permissive default stands.
+    Unrestricted,
+    /// An allowlist applies. `allow_origin` is the value to echo, present only
+    /// when the request's own `Origin` is on the list.
+    Restricted { route_method: Option<HttpMethod>, allow_origin: Option<http::HeaderValue> },
+    /// The routers could not be read, so nothing is known about this path.
+    Unavailable,
+}
+
+/// Whether a route actually serves a static website, rather than merely saying
+/// it does.
+///
+/// `is_static_website` is a caller-set flag that validation ties to nothing: a
+/// route can carry it while having no assets configured and a `script_path`
+/// that `route_job` runs regardless. Keying the exemption off the flag alone
+/// would let one boolean disable a route's allowlist and hand its runnable back
+/// the `wm_headers` escape hatch, so the assets have to be there too.
+fn serves_a_static_website(trigger: &TriggerRoute) -> bool {
+    trigger.is_static_website && trigger.static_asset_config.is_some()
+}
+
+/// A static website is never subject to an allowlist, its own included. It has
+/// no authentication of its own — the editor does not offer any — so it hands
+/// out public files that any non-browser client can already fetch, and
+/// restricting which browsers may read them protects nothing while breaking the
+/// cross-origin uses that do consult CORS: a webfont, a `crossorigin` asset, a
+/// `fetch`.
+///
+/// A single-file static asset is not exempt. That one can carry an
+/// `authentication_method`, so its content need not be public, and an allowlist
+/// is what keeps another origin from reading a response its own credentials
+/// would not have obtained.
+///
+/// The CORS verdict for a request, published by whoever resolved its trigger.
+///
+/// The middleware stamps headers after the handler returns, but only the
+/// handler knows which trigger it actually served. Re-deriving that from the
+/// routers cache is a second lookup which can disagree with the first when a
+/// route is edited, deleted or widened mid-request, and every ordering of the
+/// two is wrong in some case. So the verdict travels with the request instead
+/// of being worked out twice.
+#[derive(Clone, Default)]
+struct ResolvedCorsPolicy(std::sync::Arc<std::sync::OnceLock<CorsDecision>>);
+
+impl ResolvedCorsPolicy {
+    /// Record what the trigger being served allows. Called once, where the
+    /// route is resolved, so the answer cannot drift from the response.
+    fn publish(&self, trigger: &TriggerRoute, method: Option<HttpMethod>, headers: &HeaderMap) {
+        let decision = if serves_a_static_website(trigger) {
+            CorsDecision::Unrestricted
+        } else {
+            let instance_default = HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS.load();
+            match effective_allowed_origins(
+                trigger.allowed_origins.as_deref(),
+                instance_default.as_slice(),
+            ) {
+                None => CorsDecision::Unrestricted,
+                Some(allowed_origins) => CorsDecision::Restricted {
+                    route_method: method,
+                    allow_origin: match_origin(allowed_origins, headers.get(http::header::ORIGIN)),
+                },
+            }
+        };
+        let _ = self.0.set(decision);
+    }
+
+    fn published(&self) -> Option<CorsDecision> {
+        self.0.get().cloned()
+    }
+}
+
+/// Decide the CORS answer from the routers cache, for a request no handler
+/// published a verdict for: a preflight, an unknown path, or any failure ahead
+/// of the publish — authentication included, which runs after the route itself
+/// resolves.
+///
+/// Loads the routers when the cache is cold, the way `get_http_route_trigger`
+/// does, so a preflight is answered from the same view of the routes as the
+/// request that follows it.
+async fn resolve_cors_decision(
+    db: &DB,
+    http_method: HttpMethod,
+    requested_path: &str,
+    origin: Option<&http::HeaderValue>,
+) -> CorsDecision {
+    let routers_cache = HTTP_ROUTERS_CACHE.read().await;
+
+    let routers_cache = if routers_cache.routers.is_empty() {
+        drop(routers_cache);
+        match refresh_routers(db, false).await {
+            Ok((_, routers_cache)) => routers_cache,
+            Err(err) => {
+                tracing::error!("Could not load HTTP routers to resolve CORS: {err:#}");
+                return CorsDecision::Unavailable;
+            }
+        }
+    } else {
+        routers_cache
+    };
+
+    let Some(router) = routers_cache.routers.get(&http_method) else {
+        return CorsDecision::Unavailable;
+    };
+
+    let route = router.at(requested_path).ok();
+    if route
+        .as_ref()
+        .is_some_and(|trigger| serves_a_static_website(trigger.value))
+    {
+        return CorsDecision::Unrestricted;
+    }
+    let route_allowed_origins = route
+        .as_ref()
+        .and_then(|trigger| trigger.value.allowed_origins.as_deref());
+
+    let instance_default = HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS.load();
+    match effective_allowed_origins(route_allowed_origins, instance_default.as_slice()) {
+        None => CorsDecision::Unrestricted,
+        Some(allowed_origins) => CorsDecision::Restricted {
+            route_method: route.map(|_| http_method),
+            allow_origin: match_origin(allowed_origins, origin),
+        },
+    }
+}
+
 async fn conditional_cors_middleware(
-    req: axum::extract::Request,
+    Extension(db): Extension<DB>,
+    mut req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
+    let origin = req.headers().get(http::header::ORIGIN).cloned();
+    // Owned before `next.run` consumes the request. `&Request` is not `Send`
+    // (`Body` is not `Sync`), so nothing borrowed from it can cross the await.
+    // The URI is carried rather than the decoded path: cloning it is a refcount
+    // bump, while decoding allocates, and only the fallback below ever needs it.
+    let lookup_method = cors_lookup_method(&req);
+    let uri = req.uri().clone();
+
+    let resolved = ResolvedCorsPolicy::default();
+    req.extensions_mut().insert(resolved.clone());
+
     let mut response = next.run(req).await;
+
+    let decision = match resolved.published() {
+        // The handler resolved a trigger and said what it served under. That is
+        // the policy this response was produced with, so nothing else can be
+        // more authoritative.
+        Some(decision) => decision,
+        // No verdict was published: a preflight, an unknown path, or a request
+        // that failed before reaching the publish, authentication included. No
+        // runnable produced this body, so reading the cache cannot contradict
+        // anything.
+        None => match lookup_method.zip(cors_lookup_path(uri.path())) {
+            Some((method, path)) => {
+                resolve_cors_decision(&db, method, &path, origin.as_ref()).await
+            }
+            // Not a preflight, not a routable method, or a path that does not
+            // decode.
+            None => CorsDecision::Unrestricted,
+        },
+    };
 
     let headers = response.headers_mut();
 
@@ -67,18 +279,65 @@ async fn conditional_cors_middleware(
         }
     }
 
-    // Insert only the missing headers
-    if !not_insert_origin {
-        headers.insert(
-            http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
-            http::HeaderValue::from_static("*"),
-        );
+    match &decision {
+        CorsDecision::Restricted { allow_origin, .. } => {
+            // A configured allowlist decides, overriding any `wm_headers` value
+            // the runnable set. The preflight is answered before any code runs,
+            // so config is the only thing it can consult; letting the response
+            // widen what the preflight advertised would make the two disagree
+            // and leave the allowlist bounding nothing. A route escapes a
+            // stricter instance default — `wm_headers` included — by setting
+            // its own list to `*`.
+            match allow_origin {
+                Some(value) => {
+                    headers.insert(http::header::ACCESS_CONTROL_ALLOW_ORIGIN, value.clone())
+                }
+                // No match: omit the header entirely so the browser blocks the
+                // read, and drop any value the runnable set.
+                None => headers.remove(http::header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            };
+            // Appended, not inserted: the answer now depends on the request's
+            // Origin, and a shared cache that ignores it would hand one
+            // origin's response to another.
+            headers.append(http::header::VARY, http::HeaderValue::from_static("origin"));
+        }
+        // The routers could not be read, so nothing is known about this path;
+        // only a preflight or an unresolved request reaches here. Answering a
+        // preflight permissively would let a disallowed origin go on to invoke
+        // a runnable whose purpose may be a side effect.
+        CorsDecision::Unavailable => {
+            headers.remove(http::header::ACCESS_CONTROL_ALLOW_ORIGIN);
+        }
+        CorsDecision::Unrestricted => {
+            if !not_insert_origin {
+                headers.insert(
+                    http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                    http::HeaderValue::from_static("*"),
+                );
+            }
+        }
     }
 
     if !not_insert_methods {
+        // A route accepts exactly one method, so advertising all seven
+        // overstates it. Only a route under an allowlist gets the narrower
+        // answer; an unrestricted one advertises the full supported set, since
+        // narrowing it would say something about a route the response is not
+        // otherwise willing to disclose.
+        let restricted_method = match &decision {
+            CorsDecision::Restricted { route_method, .. } => *route_method,
+            _ => None,
+        };
         headers.insert(
             http::header::ACCESS_CONTROL_ALLOW_METHODS,
-            http::HeaderValue::from_static("GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS"),
+            http::HeaderValue::from_static(match restricted_method {
+                Some(HttpMethod::Get) => "GET, OPTIONS",
+                Some(HttpMethod::Post) => "POST, OPTIONS",
+                Some(HttpMethod::Put) => "PUT, OPTIONS",
+                Some(HttpMethod::Delete) => "DELETE, OPTIONS",
+                Some(HttpMethod::Patch) => "PATCH, OPTIONS",
+                None => "GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS",
+            }),
         );
     }
 
@@ -237,6 +496,7 @@ async fn route_job(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(auth_cache): Extension<Arc<AuthCache>>,
+    Extension(cors_policy): Extension<ResolvedCorsPolicy>,
     OptTokened { token }: OptTokened,
     Path(route_path): Path<StripPath>,
     headers: HeaderMap,
@@ -254,6 +514,10 @@ async fn route_job(
     )
     .await
     .map_err(|e| e.into_response())?;
+
+    // Publish before anything else can fail: the CORS middleware stamps this
+    // response either way, and it must reflect the trigger actually served.
+    cors_policy.publish(&trigger, routable_method(&args.0.metadata.method), &headers);
 
     if trigger.script_path.is_empty() && trigger.static_asset_config.is_none() {
         return Err(Error::NotFound(format!(

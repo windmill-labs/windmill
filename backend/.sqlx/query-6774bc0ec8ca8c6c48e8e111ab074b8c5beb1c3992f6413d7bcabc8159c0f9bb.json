@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM ai_shared_artifact\n         WHERE shared_at <= now() - ($1::bigint::text || ' s')::interval",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6774bc0ec8ca8c6c48e8e111ab074b8c5beb1c3992f6413d7bcabc8159c0f9bb"
+}

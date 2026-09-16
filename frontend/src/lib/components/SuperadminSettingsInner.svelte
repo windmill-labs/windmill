@@ -26,11 +26,10 @@
 		CheckCircle2,
 		ExternalLink,
 		Pencil,
+		Settings,
 		UserMinus,
 		UserPlus
 	} from 'lucide-svelte'
-	import Badge from './common/badge/Badge.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -155,6 +154,11 @@
 	loadExtJwtPage(1)
 
 	let tab: string = $state('users')
+	let usersListShown = $derived(
+		tab === 'users' &&
+			!yamlMode &&
+			(usersSubTab === 'users' || (usersSubTab === 'ext_jwt' && extJwtTokens.length === 0))
+	)
 
 	$effect(() => {
 		tab = $instanceSettingsSelectedTab
@@ -320,11 +324,14 @@
 		<!-- Main Content -->
 		<div class="flex-1 min-w-0 h-full">
 			<div class="h-full overflow-auto bg-surface">
-				<div class="h-fit px-8 py-4">
+				<!-- The users list scrolls inside a bounded table, so its tab fills the pane instead of
+				     growing with it: that is what lets the header pin and keeps the horizontal
+				     scrollbar in view rather than under hundreds of rows. -->
+				<div class={usersListShown ? 'h-full flex flex-col px-8 py-4' : 'h-fit px-8 py-4'}>
 					{#if tab === 'ai' && !yamlMode}
 						<InstanceAISettings {disableChatOffset} />
 					{:else if tab === 'users' && !yamlMode}
-						<div class="h-full">
+						<div class="flex-1 min-h-0 flex flex-col">
 							{#if !automateUsernameCreation && !isCloudHosted()}
 								<div class="mb-4">
 									<h3 class="mb-2"> Automatic username creation </h3>
@@ -373,7 +380,7 @@
 								<Tab value="guests" label="Guests" />
 							</Tabs>
 
-							{#if usersSubTab === 'users' || (usersSubTab === 'ext_jwt' && extJwtTokens.length === 0)}
+							{#if usersListShown}
 								<SettingsPageHeader
 									title="Instance users ({users.length})"
 									description="Manage all users across your Windmill instance."
@@ -414,14 +421,10 @@
 								<p class="text-hint text-2xs mt-2">
 									{filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''} found
 								</p>
-								<div class="mt-1">
-									<DataTable
-										shouldLoadMore={(filteredUsers?.length ?? 0) > 50}
-										loadMore={50}
-										on:loadMore={() => {
-											nbDisplayed += 50
-										}}
-									>
+								<!-- Shrinks but never grows: a short list keeps its box hugging the rows, a long one
+								     is capped by the pane and scrolls inside, with a floor of a few rows. -->
+								<div class="mt-1 min-h-48">
+									<DataTable>
 										<Head>
 											<tr>
 												<Cell head first>Email</Cell>
@@ -434,7 +437,7 @@
 													<Cell head>Kind</Cell>
 												{/if}
 												<Cell head>Role</Cell>
-												<Cell head last>
+												<Cell head last actions>
 													<span class="sr-only">Actions</span>
 												</Cell>
 											</tr>
@@ -443,12 +446,22 @@
 											{#if filteredUsers && users}
 												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only, is_workspace_admin, role_source, disabled, workspace_id }, i (email + '::' + (workspace_id ?? ''))}
 													{@const isServiceAccount = login_type === 'service_account'}
+													{@const groupRole =
+														role_source === 'instance_group' && (super_admin || devops)}
+													<!-- Any elevated role picked here is stored as manual and wins over the group on later
+													     syncs; only a demotion to User is re-applied from the group. So only User locks. -->
+													{@const groupRoleTooltip =
+														'Role is set by an instance group. Superadmin and Devops can be set here, but demoting to User requires removing the user from the group.'}
+													{@const serviceAccountTooltip =
+														'Service accounts are always users in the instance. Their workspace role is managed in the workspace user settings.'}
+													<!-- Dimmed per cell content, not on the row: opacity on the row would make the pinned
+													     actions cell translucent and let the columns scrolling under it show through. -->
 													<tr
 														class="{i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'} {disabled
-															? 'opacity-60'
+															? '[&>td>*]:opacity-60'
 															: ''}"
 													>
-														<Cell first class="max-w-[250px]">
+														<Cell first class="max-w-[240px]">
 															<div class="flex items-center gap-1.5">
 																{#if isServiceAccount}
 																	<Bot size={16} class="text-blue-500 shrink-0" />
@@ -457,14 +470,6 @@
 																	<a href="mailto:{email}" title={email} class="truncate block"
 																		>{email}</a
 																	>
-																{/if}
-																{#if workspace_id}
-																	<a
-																		href="{base}/?workspace={workspace_id}"
-																		title="Workspace: {workspace_id}"
-																	>
-																		<Badge color="blue">{truncate(workspace_id, 20)}</Badge>
-																	</a>
 																{/if}
 																{#if disabled}
 																	<span
@@ -475,7 +480,7 @@
 															</div>
 														</Cell>
 														{#if automateUsernameCreation}
-															<Cell class="max-w-[150px]">
+															<Cell class="max-w-[140px]">
 																{#if username}
 																	<span title={username} class="truncate block">{username}</span>
 																{:else}
@@ -503,133 +508,157 @@
 														>
 														{#if activeOnly}
 															<Cell>
-																{#if is_workspace_admin}
-																	Admin
-																{:else if operator_only}
-																	Operator only
-																{:else}
-																	Developer
-																{/if}
+																<span>
+																	{#if is_workspace_admin}
+																		Admin
+																	{:else if operator_only}
+																		Operator only
+																	{:else}
+																		Developer
+																	{/if}
+																</span>
 															</Cell>
 														{/if}
 														<Cell>
-															{#if isServiceAccount}
-																<div class="flex items-center gap-1">
+															<!-- A service account has no `password` row, so it can never hold an
+															     instance role: the group renders locked on "User" rather than hidden. -->
+															<div class="flex flex-col items-start">
+																{#key `${super_admin}_${devops}_${role_source}`}
+																	<ToggleButtonGroup
+																		disabled={isServiceAccount}
+																		selected={super_admin
+																			? 'super_admin'
+																			: devops
+																				? 'devops'
+																				: 'user'}
+																		on:selected={async (e) => {
+																			if (email == $userStore?.email) {
+																				sendUserToast('You cannot demote yourself', true)
+																				listUsers(activeOnly)
+																				return
+																			}
+
+																			let role = e.detail
+
+																			if (role === 'super_admin') {
+																				await UserService.globalUserUpdate({
+																					email,
+																					requestBody: {
+																						is_super_admin: true,
+																						is_devops: false
+																					}
+																				})
+																			}
+																			if (role === 'devops') {
+																				await UserService.globalUserUpdate({
+																					email,
+																					requestBody: {
+																						is_super_admin: false,
+																						is_devops: true
+																					}
+																				})
+																			}
+																			if (role === 'user') {
+																				await UserService.globalUserUpdate({
+																					email,
+																					requestBody: {
+																						is_super_admin: false,
+																						is_devops: false
+																					}
+																				})
+																			}
+																			sendUserToast('User updated')
+																			listUsers(activeOnly)
+																		}}
+																	>
+																		{#snippet children({ item })}
+																			<ToggleButton
+																				value={'user'}
+																				small
+																				label="User"
+																				shortLabel="User"
+																				disabled={isServiceAccount || groupRole}
+																				tooltip={isServiceAccount
+																					? serviceAccountTooltip
+																					: groupRole
+																						? groupRoleTooltip
+																						: undefined}
+																				{item}
+																			/>
+																			<ToggleButton
+																				value={'devops'}
+																				small
+																				label="Devops"
+																				shortLabel="Dev"
+																				disabled={isServiceAccount}
+																				tooltip={isServiceAccount
+																					? serviceAccountTooltip
+																					: "Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"}
+																				{item}
+																			/>
+																			<ToggleButton
+																				value={'super_admin'}
+																				small
+																				label="Superadmin"
+																				shortLabel="Admin"
+																				disabled={isServiceAccount}
+																				tooltip={isServiceAccount
+																					? serviceAccountTooltip
+																					: undefined}
+																				{item}
+																			/>
+																		{/snippet}
+																	</ToggleButtonGroup>
+																{/key}
+																{#if isServiceAccount}
 																	<span
-																		class="rounded-md text-xs px-2 py-1 bg-surface shadow-md font-bold"
+																		class="text-2xs text-tertiary mt-0.5 ml-1 whitespace-nowrap"
+																		title={serviceAccountTooltip}
 																	>
 																		{is_workspace_admin
 																			? 'Admin'
 																			: operator_only
 																				? 'Operator'
 																				: 'Developer'}
+																		in
+																		{#if workspace_id}
+																			<a
+																				href="{base}/workspace_settings?tab=users&workspace={workspace_id}"
+																				class="hover:underline"
+																				title={workspace_id}
+																				onclick={() => closeDrawer?.()}
+																				>{truncate(workspace_id, 20)}</a
+																			>
+																		{:else}
+																			its workspace
+																		{/if}
 																	</span>
-																	<Tooltip>
-																		Service-account role is managed in the workspace user settings.
-																	</Tooltip>
-																</div>
-															{:else}
-																<div class="flex flex-col items-start">
-																	{#key `${super_admin}_${devops}_${role_source}`}
-																		<ToggleButtonGroup
-																			selected={super_admin
-																				? 'super_admin'
-																				: devops
-																					? 'devops'
-																					: 'user'}
-																			on:selected={async (e) => {
-																				if (email == $userStore?.email) {
-																					sendUserToast('You cannot demote yourself', true)
-																					listUsers(activeOnly)
-																					return
-																				}
-
-																				let role = e.detail
-
-																				if (role === 'super_admin') {
-																					await UserService.globalUserUpdate({
-																						email,
-																						requestBody: {
-																							is_super_admin: true,
-																							is_devops: false
-																						}
-																					})
-																				}
-																				if (role === 'devops') {
-																					await UserService.globalUserUpdate({
-																						email,
-																						requestBody: {
-																							is_super_admin: false,
-																							is_devops: true
-																						}
-																					})
-																				}
-																				if (role === 'user') {
-																					await UserService.globalUserUpdate({
-																						email,
-																						requestBody: {
-																							is_super_admin: false,
-																							is_devops: false
-																						}
-																					})
-																				}
-																				sendUserToast('User updated')
-																				listUsers(activeOnly)
-																			}}
-																		>
-																			{#snippet children({ item })}
-																				<ToggleButton
-																					value={'user'}
-																					small
-																					label="User"
-																					disabled={role_source === 'instance_group' &&
-																						(super_admin || devops)}
-																					tooltip={role_source === 'instance_group' &&
-																					(super_admin || devops)
-																						? 'Role is set by an instance group. Remove the user from the group to demote to "User".'
-																						: undefined}
-																					showTooltipIcon={role_source === 'instance_group' &&
-																						(super_admin || devops)}
-																					{item}
-																				/>
-																				<ToggleButton
-																					value={'devops'}
-																					small
-																					label="Devops"
-																					tooltip="Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"
-																					{item}
-																				/>
-																				<ToggleButton
-																					value={'super_admin'}
-																					small
-																					label="Superadmin"
-																					{item}
-																				/>
-																			{/snippet}
-																		</ToggleButtonGroup>
-																	{/key}
-																	{#if role_source === 'instance_group' && (super_admin || devops)}
-																		<a
-																			href="{base}/groups"
-																			class="text-2xs text-tertiary mt-0.5 ml-1 hover:underline"
-																			title="Role set by instance group. You can upgrade to a higher role manually, but demoting to &quot;User&quot; requires removing them from the group."
-																			onclick={() => closeDrawer?.()}
-																		>
-																			Set by instance group
-																		</a>
-																	{/if}
-																</div>
-															{/if}
+																{:else if groupRole}
+																	<a
+																		href="{base}/groups"
+																		class="text-2xs text-tertiary mt-0.5 ml-1 hover:underline"
+																		title={groupRoleTooltip}
+																		onclick={() => closeDrawer?.()}
+																	>
+																		Set by instance group
+																	</a>
+																{/if}
+															</div>
 														</Cell>
-														<Cell last>
+														<Cell last actions class={i % 2 === 0 ? 'bg-surface-tertiary' : ''}>
 															<div class="flex items-center justify-end">
 																{#if isServiceAccount}
 																	{#if workspace_id}
-																		<a
-																			href="{base}/workspace_settings?tab=users&workspace={workspace_id}"
-																			class="text-xs text-secondary hover:text-primary hover:underline"
-																			title="Manage in workspace settings">Manage in workspace</a
-																		>
+																		<DropdownV2
+																			items={[
+																				{
+																					displayName: 'Manage in workspace',
+																					icon: Settings,
+																					action: () => closeDrawer?.(),
+																					href: `${base}/workspace_settings?tab=users&workspace=${workspace_id}`
+																				}
+																			]}
+																		/>
 																	{/if}
 																{:else}
 																	<div
@@ -722,6 +751,29 @@
 														</Cell>
 													</tr>
 												{/each}
+												{#if filteredUsers.length > nbDisplayed}
+													{@const remaining = Math.min(50, filteredUsers.length - nbDisplayed)}
+													<!-- Last row rather than a footer under the scroller, the way the runs
+													     list pages: the control scrolls with the rows it extends. -->
+													<tr>
+														<Cell
+															colspan={5 +
+																(automateUsernameCreation ? 1 : 0) +
+																(activeOnly ? 1 : 0)}
+														>
+															<Button
+																variant="subtle"
+																unifiedSize="xs"
+																wrapperClasses="w-full justify-center"
+																onClick={() => {
+																	nbDisplayed += 50
+																}}
+															>
+																Load next {remaining} user{remaining !== 1 ? 's' : ''}
+															</Button>
+														</Cell>
+													</tr>
+												{/if}
 											{/if}
 										</tbody>
 									</DataTable>

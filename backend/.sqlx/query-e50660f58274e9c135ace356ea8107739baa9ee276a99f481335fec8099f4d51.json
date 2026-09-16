@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM ai_shared_artifact\n         WHERE workspace_id = $1 AND id = $2 AND (email = $3 OR $4::bool)\n         RETURNING name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e50660f58274e9c135ace356ea8107739baa9ee276a99f481335fec8099f4d51"
+}

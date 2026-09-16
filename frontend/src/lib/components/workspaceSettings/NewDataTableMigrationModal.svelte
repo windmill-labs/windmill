@@ -64,9 +64,8 @@
 	function wrapInTransaction(body: string): string {
 		return `BEGIN;\n\n${body}\n\nEND;`
 	}
-	// A statement inside BEGIN; ... END; must be `;`-terminated. The SQL splitter
-	// strips the trailing `;` when extracting a detected DDL statement, so re-add
-	// it when missing.
+	// Every statement inside BEGIN; ... END; must be `;`-terminated, so normalize
+	// a prefilled body that ends without one.
 	function ensureTrailingSemicolon(body: string): string {
 		const trimmed = body.trimEnd()
 		return trimmed.endsWith(';') ? trimmed : `${trimmed};`

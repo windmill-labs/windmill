@@ -40,7 +40,10 @@ const config = {
 		},
 		alias: {
 			$system_prompts: '../system_prompts/auto-generated',
-			$oauth_connect_registry: '../backend/oauth_connect.json'
+			$oauth_connect_registry: '../backend/oauth_connect.json',
+			// The flow chat runs on the published SDK's source, so the product and the
+			// package share one implementation (vite.config.js allows serving it).
+			'windmill-chat': '../chat-sdk/src/index.ts'
 		}
 	},
 

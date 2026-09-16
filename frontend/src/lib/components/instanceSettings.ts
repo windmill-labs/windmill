@@ -1,5 +1,7 @@
 import type { ButtonType } from './common/button/model'
+import { allowedOriginsSettingError } from './triggers/http/utils'
 import { z } from 'zod'
+import { instanceBannerFormError } from './instanceBanner'
 import { writable } from 'svelte/store'
 
 /**
@@ -68,6 +70,7 @@ export interface Setting {
 		| 'webhook_base_url'
 		| 'ws_connectivity'
 		| 'retention_overrides'
+		| 'instance_banner'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -237,6 +240,19 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
+			label: 'Announcement banner',
+			description:
+				'Message shown above every page of the instance, for maintenance windows and incidents.',
+			key: 'instance_banner',
+			fieldType: 'instance_banner',
+			storage: 'setting',
+			// The banner only renders on the managed cloud, so only offer it there.
+			cloudonly: true,
+			hideInQuickSetup: true,
+			// Gates Save. The card renders the specific message itself, so no `error` here.
+			isValid: (value: any) => instanceBannerFormError(value) == undefined
+		},
+		{
 			label: 'Non-prod instance',
 			description:
 				'Whether we should consider the reported usage of this instance as non-prod. <a href="https://www.windmill.dev/docs/advanced/instance_settings#non-prod-instance">Learn more</a>',
@@ -263,6 +279,22 @@ export const settings: Record<string, Setting[]> = {
 			key: 'http_route_workspaced_route',
 			fieldType: 'boolean',
 			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'HTTP route default allowed origins',
+			description:
+				'Origins that HTTP routes allow to call them from a browser when the route sets none of its own. A route overrides this with its own list, and opts out entirely by setting its allowed origins to *. Leave unset for no instance-wide default, so every route is callable from any origin unless it restricts itself.',
+			key: 'http_route_default_allowed_origins',
+			fieldType: 'text',
+			placeholder: 'https://app.example.com, https://admin.example.com',
+			storage: 'setting',
+			error:
+				'Each origin must be visible ASCII with no comma, and there can be at most 100 of them. null is not allowed, since every sandboxed iframe sends it.',
+			// The same check the API applies, so a value it would refuse cannot be
+			// saved here and then silently drop to no restriction at the next boot.
+			isValid: (value: unknown) => allowedOriginsSettingError(value) === undefined,
 			ee_only: '',
 			hideInQuickSetup: true
 		},
@@ -530,6 +562,17 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Back AI sessions up to the instance object storage',
+			description:
+				"Browsers back their AI sessions up to their workspace's object storage, encrypted with the workspace key. When this is on and instance object storage is configured, a workspace without object storage of its own uses the instance object storage instead, under the same encryption; configuring a storage for the workspace moves its backups there and deletes what it kept in the instance storage. On by default; turn off to keep the AI sessions of such workspaces in the browser only.",
+			key: 'ai_sessions_instance_storage_fallback',
+			fieldType: 'boolean',
+			defaultValue: () => true,
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
 		},
 		{
 			label: 'Store audit logs in object storage',

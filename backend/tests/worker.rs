@@ -3091,16 +3091,16 @@ async fn test_php_job(db: Pool<Postgres>) -> anyhow::Result<()> {
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    let content = r#"
+    let content = r#"// schema_validation
 <?php
 
-function main(string $name): string {
-    return "hello " . $name;
+function main(string $name, string $prefix = "hello "): string {
+    return $prefix . $name;
 }
 "#
     .to_owned();
 
-    let result = RunJob::from(JobPayload::Code(RawCode {
+    let code = RawCode {
         hash: None,
         content,
         path: None,
@@ -3114,14 +3114,28 @@ function main(string $name): string {
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
         tag: None,
-    }))
-    .arg("name", json!("world"))
-    .run_until_complete(&db, false, port)
-    .await
-    .json_result()
-    .unwrap();
+    };
+    let completed = RunJob::from(JobPayload::Code(code.clone()))
+        .arg("name", json!("world"))
+        .run_until_complete(&db, false, port)
+        .await;
 
-    assert_eq!(result, serde_json::json!("hello world"));
+    assert!(completed.success, "{:?}", completed.result);
+    assert_eq!(
+        completed.json_result().unwrap(),
+        serde_json::json!("hello world")
+    );
+
+    let invalid = RunJob::from(JobPayload::Code(code))
+        .arg("name", json!(42))
+        .run_until_complete(&db, false, port)
+        .await;
+    // PHP coerces numbers to strings; rejection proves inferred validation ran.
+    assert!(!invalid.success, "{:?}", invalid.result);
+    assert!(invalid.json_result().unwrap()["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Argument `name` should be a string"));
     Ok(())
 }
 
@@ -5469,7 +5483,7 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
 
     let result =
         RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
-            .email("test2@windmill.dev")
+            .as_user("test-user-2", "test2@windmill.dev")
             .run_until_complete(&db, false, server.addr.port())
             .await;
 
@@ -5631,6 +5645,83 @@ async fn test_whileloop_propagates_inner_iterator_eval_failure(
         !cjob.success,
         "flow should fail when inner forloop iterator throws inside a while-loop with skip_failures=false"
     );
+
+    Ok(())
+}
+
+#[cfg(all(feature = "quickjs", feature = "python"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_whileloop_skip_if_evaluated_once_at_entry(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    // Regression test for #11007: `skip_if` on a while-loop module must be
+    // evaluated once, at loop entry, using the preceding step's result.
+    // Re-evaluating it on every iteration aliases `results.first` to the
+    // previous iteration's own result instead, which here lacks `.ok` and
+    // makes `skip_if` incorrectly turn true after the first iteration.
+    let port = 123;
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "id": "first",
+                "value": {
+                    "type": "rawscript",
+                    "language": "python3",
+                    "content": "def main(): return {\"ok\": True}",
+                },
+            },
+            {
+                "id": "outer",
+                "value": {
+                    "type": "whileloopflow",
+                    "skip_failures": false,
+                    "modules": [
+                        {
+                            "id": "inner",
+                            "value": {
+                                "input_transforms": {
+                                    "i": {
+                                        "type": "javascript",
+                                        "expr": "flow_input.iter.index",
+                                    },
+                                },
+                                "type": "rawscript",
+                                "language": "python3",
+                                "content": "def main(i): return i",
+                            },
+                        },
+                    ],
+                },
+                "skip_if": { "expr": "!results.first.ok" },
+                "stop_after_if": {
+                    "expr": "result >= 2",
+                    "skip_if_stopped": false,
+                },
+            },
+        ],
+    }))
+    .unwrap();
+    let job = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
+
+    let cjob = RunJob::from(job).run_until_complete(&db, false, port).await;
+
+    assert!(cjob.success, "flow should succeed");
+
+    let outer_module = get_module(&cjob, "outer").expect("outer module status");
+    match outer_module {
+        windmill_common::flow_status::FlowStatusModule::Success { skipped, flow_jobs, .. } => {
+            assert!(
+                !skipped,
+                "while-loop must not be skipped: skip_if should only run once, at entry"
+            );
+            assert_eq!(
+                flow_jobs.map(|v| v.len()),
+                Some(3),
+                "while-loop should run 3 iterations before stop_after_if halts it"
+            );
+        }
+        other => panic!("expected outer module to be Success, got {other:?}"),
+    }
 
     Ok(())
 }

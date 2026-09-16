@@ -1,4 +1,4 @@
-import { List, Plug, Plus } from 'lucide-svelte'
+import { List, Plus } from 'lucide-svelte'
 import type { Component } from 'svelte'
 import { get } from 'svelte/store'
 import { ResourceService } from '$lib/gen'
@@ -8,7 +8,9 @@ import type { Item } from '$lib/utils'
 import type { AIChatManager } from '../copilot/chat/AIChatManager.svelte'
 import { isMcpEnabled, setMcpEnabled } from './enabledServers'
 import { cachedProviderKey, rememberProviderKey } from './iconCache'
+import { isOwnOrSharedMcpPath, MCP_LIST_PER_PAGE, mcpViewer } from './ownServers'
 import { loadProviderIcon } from './providerIcon'
+import McpServerIcon from './McpServerIcon.svelte'
 
 type Row = {
 	path: string
@@ -55,17 +57,22 @@ export class McpMenu {
 	async #load(ws: string) {
 		const seq = ++this.#seq
 		try {
-			const resources = await ResourceService.listResource({
-				workspace: ws,
-				resourceType: 'mcp',
-				perPage: 100
-			})
+			const [resources, viewer] = await Promise.all([
+				ResourceService.listResource({
+					workspace: ws,
+					resourceType: 'mcp',
+					perPage: MCP_LIST_PER_PAGE
+				}),
+				mcpViewer(ws)
+			])
 			if (seq !== this.#seq) return
-			this.#rows = resources.map((r) => ({
-				path: r.path,
-				editedAt: r.edited_at,
-				enabled: isMcpEnabled(ws, r.path)
-			}))
+			this.#rows = resources
+				.filter((r) => isOwnOrSharedMcpPath(r.path, r.extra_perms, viewer))
+				.map((r) => ({
+					path: r.path,
+					editedAt: r.edited_at,
+					enabled: isMcpEnabled(ws, r.path)
+				}))
 			this.#rowsWorkspace = ws
 			void this.#loadIcons(ws, seq)
 		} catch {
@@ -164,19 +171,13 @@ export class McpMenu {
 		return [
 			...shown.map(({ path }) => ({
 				displayName: path,
+				icon: McpServerIcon,
 				// Getters, not snapshots: the menu stays open across a click, and it has
 				// to read through the live list rather than the row captured here, since
 				// a reload replaces every row object and a getter bound to the old one
 				// would go on reporting the state it was built with.
-				get icon() {
-					// Plug where the provider is unknown, so one nameless server does not
-					// pull its label out of line with the rest.
-					return row(path)?.icon ?? Plug
-				},
-				// Provider icons take css lengths and ignore lucide's `size`, so without
-				// this one of them renders at its 24px default among 14px menu icons.
 				get iconProps() {
-					return row(path)?.icon ? { width: '14px', height: '14px' } : undefined
+					return { icon: row(path)?.icon, size: 14 }
 				},
 				get toggle() {
 					return row(path)?.enabled ?? false

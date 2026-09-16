@@ -294,7 +294,9 @@
 		untrack(() => {
 			for (const entry of refs ? refs.split('\u0001') : []) {
 				const [moduleId, agentPath] = entry.split('\u0000')
-				publishLinkedAgentTools(agentPath, ws, scope, moduleId)
+				// Without the draft: this viewer describes a run that has already happened, and it ran
+				// the deployed agent.
+				publishLinkedAgentTools(agentPath, ws, scope, moduleId, false)
 			}
 		})
 	})
