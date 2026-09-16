@@ -3075,20 +3075,28 @@ pub async fn create_guest_session_token<'c>(
 
 // create_token_internal is re-exported from windmill-api-auth above
 
-/// Instance-wide ceiling on how long a token minted through this handler may live.
+/// Applies the instance-wide ceiling on how long a token minted through this handler may
+/// live, returning the expiration to store: the requested one while it fits, the ceiling
+/// otherwise, and the ceiling as well when none was requested.
+///
+/// It shortens rather than refuses because most callers cannot comply on their own. The CLI
+/// authorization page, `wmill user create-token` and the editor's language-server token each
+/// pick a lifetime — often none at all — with no way to read the setting, so refusing would
+/// break logging in and the editor instead of the long-lived tokens the setting is aimed at.
+///
 /// Read from `global_settings` on each call rather than cached: token creation is rare
-/// enough that the round trip costs nothing, and the cap is then never served stale.
+/// enough that the round trip costs nothing, and the ceiling is then never served stale.
 ///
 /// Service accounts are exempt: their credentials back unattended automation and are
 /// rotated by an operator rather than by an interactive login.
-async fn check_token_expiration_within_instance_max(
+async fn cap_token_expiration(
     db: &DB,
     authed: &ApiAuthed,
     token_config: &NewToken,
-) -> Result<()> {
+) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
     let value = load_value_from_global_settings(db, MAX_TOKEN_EXPIRATION_DAYS_SETTING).await?;
-    // The settings UI writes a `number` input, which lands as a JSON number or, when the
-    // browser hands back the raw field, as a string.
+    // The settings UI stores a JSON number; the YAML instance config and config sync can
+    // both write the same setting as a string.
     let Some(max_days) = value
         .and_then(|v| match v {
             serde_json::Value::Number(n) => n.as_i64(),
@@ -3097,13 +3105,13 @@ async fn check_token_expiration_within_instance_max(
         })
         .filter(|days| *days > 0)
     else {
-        return Ok(());
+        return Ok(token_config.expiration);
     };
     // A ceiling too far out to be a timestamp is no ceiling.
     let Some(max) =
         chrono::Duration::try_days(max_days).and_then(|d| chrono::Utc::now().checked_add_signed(d))
     else {
-        return Ok(());
+        return Ok(token_config.expiration);
     };
 
     let is_service_account = sqlx::query_scalar!(
@@ -3116,25 +3124,20 @@ async fn check_token_expiration_within_instance_max(
     .await?
     .unwrap_or(false);
     if is_service_account {
-        return Ok(());
+        return Ok(token_config.expiration);
     }
 
-    match token_config.expiration {
-        None => Err(Error::BadRequest(format!(
-            "This instance requires tokens to expire, at most {max_days} days from now"
-        ))),
-        Some(expiration) if expiration > max => Err(Error::BadRequest(format!(
-            "This instance limits token expiration to {max_days} days from now"
-        ))),
-        Some(_) => Ok(()),
-    }
+    Ok(Some(match token_config.expiration {
+        Some(expiration) if expiration < max => expiration,
+        _ => max,
+    }))
 }
 
 async fn create_token(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
     OptJobAuthed { job_id, .. }: OptJobAuthed,
-    Json(token_config): Json<NewToken>,
+    Json(mut token_config): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
     forbid_elevated_job_token(&db, &authed.email, job_id).await?;
     check_token_create_rate_limit(&authed.username)?;
@@ -3156,7 +3159,7 @@ async fn create_token(
 
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
 
-    check_token_expiration_within_instance_max(&db, &authed, &token_config).await?;
+    token_config.expiration = cap_token_expiration(&db, &authed, &token_config).await?;
 
     let mut tx = db.begin().await?;
 

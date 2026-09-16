@@ -12,6 +12,12 @@ Symbols, not line numbers, are cited: they drift less.
   by `create_session_token` (`windmill-api-users/src/users.rs`). `GET /api/users/refresh_token`
   mints one for any non-job token but returns plain text, no redirect.
 - **`tokens/impersonate`** (superadmin) returns a multi-use token and sets no cookie.
+- **`max_token_expiration_days`** caps `POST /users/tokens/create` only, by shortening the stored
+  expiration (`cap_token_expiration`), never by refusing: the CLI authorization page,
+  `wmill user create-token` and the editor's language-server token all pick a lifetime with no way
+  to read the setting. Server-side mints (`create_token_internal` callers, `create_token_for_owner`,
+  sessions) and `tokens/impersonate` are deliberately uncapped, and an email that is a service
+  account in any `usr` row is exempt outright.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user
