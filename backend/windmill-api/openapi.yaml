@@ -1277,6 +1277,37 @@ paths:
                     - archived
                     - deleted
 
+  /workspaces/session_workspace_retention:
+    post:
+      summary: get the AI session retention of workspaces referenced by client-side sessions
+      operationId: getSessionWorkspaceRetention
+      tags:
+        - workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workspace_ids:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - workspace_ids
+      responses:
+        "200":
+          description: >-
+            map of workspace id to its `ai_config.sessions_retention_days`; a workspace
+            without a retention, or one the caller cannot be authenticated into, is absent
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: integer
+
   /w/{workspace}/workspaces/get_as_superadmin:
     get:
       summary: get workspace as super admin (require to be super admin)

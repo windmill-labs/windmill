@@ -227,6 +227,10 @@ pub fn global_service() -> Router {
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
         .route("/session_workspace_status", post(session_workspace_status))
+        .route(
+            "/session_workspace_retention",
+            post(session_workspace_retention),
+        )
         .route("/create", post(create_workspace))
         .route("/create_fork", post(deprecated_create_workspace_fork))
         .route("/exists", post(exists_workspace))
@@ -5684,6 +5688,42 @@ async fn session_workspace_status(
     .await?;
     let statuses = rows.into_iter().map(|r| (r.id, r.status)).collect();
     Ok(Json(statuses))
+}
+
+/// The AI session retention a browser deletes its local copies by (docs/ai-session-backups.md).
+/// Its own route, not a field on the status above, whose shape an older tab still reads. Unlike
+/// a status, it answers only for a workspace this caller can be authed into: a setting is the
+/// workspace's to tell, so a disabled membership gets none though its sessions still reconcile.
+async fn session_workspace_retention(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(req): Json<SessionWorkspaceStatusRequest>,
+) -> JsonResult<HashMap<String, u32>> {
+    if req.workspace_ids.len() > 1000 {
+        return Err(Error::BadRequest(
+            "Too many workspace ids (max 1000)".to_string(),
+        ));
+    }
+    let email = &authed.email;
+    let is_superadmin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
+    let rows = sqlx::query!(
+        "SELECT workspace_settings.workspace_id AS \"id!\",
+                workspace_settings.ai_config->'sessions_retention_days' AS retention
+         FROM workspace_settings
+         LEFT JOIN usr ON usr.workspace_id = workspace_settings.workspace_id AND usr.email = $2
+         WHERE workspace_settings.workspace_id = ANY($1)
+           AND ($3 OR (usr.email IS NOT NULL AND NOT usr.disabled))",
+        &req.workspace_ids[..],
+        email,
+        is_superadmin,
+    )
+    .fetch_all(&db)
+    .await?;
+    let days = rows
+        .into_iter()
+        .filter_map(|r| sessions_retention_days(r.retention.as_ref()).map(|days| (r.id, days)))
+        .collect();
+    Ok(Json(days))
 }
 
 /// The instance critical alert channels belong to the instance operator, who on cloud is
