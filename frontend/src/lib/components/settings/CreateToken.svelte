@@ -5,7 +5,6 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
 	import { UserService, type NewToken } from '$lib/gen'
-	import { sendUserToast } from '$lib/toast'
 	import TokenDisplay from './TokenDisplay.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
 
@@ -134,7 +133,6 @@
 			}
 		} catch (err) {
 			console.error('Failed to create token:', err)
-			sendUserToast(`Failed to create token: ${err.body ?? err.message}`, true)
 		}
 	}
 
@@ -272,30 +270,30 @@
 				</div>
 			{/if}
 
-			<!-- Shown in MCP mode too: when the `max_token_expiration_days` instance setting is set,
-			     a token with no expiration is refused, so without this no MCP URL can be created. -->
-			<div>
-				<span class="block mb-1 text-xs text-emphasis font-semibold"
-					>Expires In <span class="text-xs text-primary">(optional)</span></span
-				>
-				<Select
-					bind:value={newTokenExpiration}
-					placeholder="No expiration"
-					inputClass="w-full"
-					items={[
-						{ label: 'No expiration', value: undefined },
-						{ label: '15 minutes', value: 15 * 60 },
-						{ label: '30 minutes', value: 30 * 60 },
-						{ label: '1 hour', value: 1 * 60 * 60 },
-						{ label: '1 day', value: 1 * 24 * 60 * 60 },
-						{ label: '7 days', value: 7 * 24 * 60 * 60 },
-						{ label: '30 days', value: 30 * 24 * 60 * 60 },
-						{ label: '90 days', value: 90 * 24 * 60 * 60 },
-						{ label: '180 days', value: 180 * 24 * 60 * 60 },
-						{ label: '365 days', value: 365 * 24 * 60 * 60 }
-					]}
-				/>
-			</div>
+			{#if !mcpCreationMode}
+				<div>
+					<span class="block mb-1 text-xs text-emphasis font-semibold"
+						>Expires In <span class="text-xs text-primary">(optional)</span></span
+					>
+					<Select
+						bind:value={newTokenExpiration}
+						placeholder="No expiration"
+						inputClass="w-full"
+						items={[
+							{ label: 'No expiration', value: undefined },
+							{ label: '15 minutes', value: 15 * 60 },
+							{ label: '30 minutes', value: 30 * 60 },
+							{ label: '1 hour', value: 1 * 60 * 60 },
+							{ label: '1 day', value: 1 * 24 * 60 * 60 },
+							{ label: '7 days', value: 7 * 24 * 60 * 60 },
+							{ label: '30 days', value: 30 * 24 * 60 * 60 },
+							{ label: '90 days', value: 90 * 24 * 60 * 60 },
+							{ label: '180 days', value: 180 * 24 * 60 * 60 },
+							{ label: '365 days', value: 365 * 24 * 60 * 60 }
+						]}
+					/>
+				</div>
+			{/if}
 		</div>
 
 		<div class="mt-4 flex justify-end gap-2 flex-row">

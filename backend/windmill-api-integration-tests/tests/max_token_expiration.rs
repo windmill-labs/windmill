@@ -18,12 +18,12 @@ fn from_now(secs: u64) -> DateTime<Utc> {
     Utc::now() + std::time::Duration::from_secs(secs)
 }
 
-async fn set_max_days(db: &Pool<Postgres>, days: i64) {
+async fn set_max(db: &Pool<Postgres>, value: serde_json::Value) {
     sqlx::query(
         "INSERT INTO global_settings (name, value) VALUES ('max_token_expiration_days', $1)
          ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
     )
-    .bind(json!(days))
+    .bind(value)
     .execute(db)
     .await
     .unwrap();
@@ -64,7 +64,7 @@ async fn test_max_token_expiration_days_shortens_user_tokens(
         "with no setting a token may still have no expiration"
     );
 
-    set_max_days(&db, 7).await;
+    set_max(&db, json!(7)).await;
 
     let resp = create_token(port, json!({ "label": "none asked" })).await;
     assert_eq!(resp.status(), 201);
@@ -100,6 +100,20 @@ async fn test_max_token_expiration_days_shortens_user_tokens(
         "an expiration within the ceiling must be kept, got {expiration}"
     );
 
+    // The settings UI stores a number, but the YAML instance config and config sync can both
+    // write the same setting as a string. Reading that as "unset" would silently drop the
+    // ceiling.
+    set_max(&db, json!("5")).await;
+    let resp = create_token(port, json!({ "label": "string setting" })).await;
+    assert_eq!(resp.status(), 201);
+    let expiration = stored_expiration(&db, "string setting")
+        .await
+        .expect("a string-valued setting is still a ceiling");
+    assert!(
+        expiration > from_now(4 * DAY) && expiration <= from_now(5 * DAY),
+        "expected the 5 day ceiling, got {expiration}"
+    );
+
     // The ceiling is this route's alone. Moving it down into `create_token_internal` would
     // also cap the server-side mints (webhook tokens, app embed tokens, sessions) that pick
     // a lifetime no caller asked for.
@@ -127,7 +141,7 @@ async fn test_service_accounts_are_exempt(db: Pool<Postgres>) -> anyhow::Result<
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    set_max_days(&db, 7).await;
+    set_max(&db, json!(7)).await;
     // The same email is a service account in one workspace and an ordinary user in another.
     sqlx::query(
         "UPDATE usr SET is_service_account = true
