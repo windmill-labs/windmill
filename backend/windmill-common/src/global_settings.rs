@@ -101,8 +101,13 @@ pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
 /// may expire; a request asking for more, or for no expiration at all, is shortened to it
 /// rather than refused. On that route only: server-side mints (webhook tokens, app embed
 /// tokens, sessions) choose a lifetime the caller never picks and go straight to
-/// `create_token_internal`. Absent or non-positive leaves tokens uncapped.
+/// `create_token_internal`. Absent, or anything but a whole number within
+/// `1..=MAX_TOKEN_EXPIRATION_DAYS_BOUND`, leaves tokens uncapped.
 pub const MAX_TOKEN_EXPIRATION_DAYS_SETTING: &str = "max_token_expiration_days";
+/// Largest `max_token_expiration_days` read as a ceiling, about 2,700 years. The token form
+/// applies the same bound (`frontend/src/lib/tokenExpiration.ts`) so that it and the server
+/// agree on whether a ceiling exists.
+pub const MAX_TOKEN_EXPIRATION_DAYS_BOUND: i64 = 1_000_000;
 pub const AUTO_LOGIN_PROVIDER_SETTING: &str = "auto_login_provider";
 /// Name of the SAML attribute or OIDC userinfo claim carrying the user's IdP groups. Unset or
 /// empty leaves instance-group membership entirely to SCIM.

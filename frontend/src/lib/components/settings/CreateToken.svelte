@@ -7,6 +7,7 @@
 	import { SettingService, UserService, type NewToken } from '$lib/gen'
 	import TokenDisplay from './TokenDisplay.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
+	import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
@@ -92,14 +93,8 @@
 			// The server still shortens tokens itself; the form just offers every choice.
 			return
 		}
-		const days = typeof value === 'string' ? Number(value.trim()) : value
-		// Non-positive is no ceiling, and so is one too far out to be a date, as on the server.
-		if (
-			typeof days !== 'number' ||
-			!Number.isInteger(days) ||
-			days <= 0 ||
-			isNaN(new Date(Date.now() + days * DAY_SECS * 1000).getTime())
-		) {
+		const days = parseMaxTokenExpirationDays(value)
+		if (days == undefined) {
 			return
 		}
 		maxExpirationDays = days

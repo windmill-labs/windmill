@@ -2,6 +2,7 @@ import type { ButtonType } from './common/button/model'
 import { allowedOriginsSettingError } from './triggers/http/utils'
 import { z } from 'zod'
 import { instanceBannerFormError } from './instanceBanner'
+import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 import { writable } from 'svelte/store'
 
 /**
@@ -317,12 +318,13 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: 'no limit',
 			storage: 'setting',
 			hideInQuickSetup: true,
-			error: 'Must be a whole number of days, 1 or more',
+			error: 'Must be a whole number of days, from 1 to 1,000,000',
+			// The server reads anything else as no ceiling at all.
 			isValid: (value: unknown) =>
 				value === undefined ||
 				value === null ||
 				value === '' ||
-				(typeof value === 'number' && Number.isInteger(value) && value >= 1)
+				parseMaxTokenExpirationDays(value) !== undefined
 		}
 	],
 	Jobs: [

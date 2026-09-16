@@ -49,7 +49,7 @@ use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::{hash_token, safe_token_prefix, TOKEN_PREFIX_LEN};
 use windmill_common::global_settings::{
     load_value_from_global_settings, AUTOMATE_USERNAME_CREATION_SETTING,
-    MAX_TOKEN_EXPIRATION_DAYS_SETTING,
+    MAX_TOKEN_EXPIRATION_DAYS_BOUND, MAX_TOKEN_EXPIRATION_DAYS_SETTING,
 };
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::per_minute_counter::PerMinuteCounter;
@@ -3079,10 +3079,11 @@ pub async fn create_guest_session_token<'c>(
 /// live, returning the expiration to store: the requested one while it fits, the ceiling
 /// otherwise, and the ceiling as well when none was requested.
 ///
-/// It shortens rather than refuses because most callers cannot comply on their own. The CLI
+/// It shortens rather than refuses because most callers do not comply on their own. The CLI
 /// authorization page, `wmill user create-token` and the editor's language-server token each
-/// pick a lifetime — often none at all — with no way to read the setting, so refusing would
-/// break logging in and the editor instead of the long-lived tokens the setting is aimed at.
+/// pick a lifetime, often none at all, without reading the setting (and CLIs already installed
+/// never will), so refusing would break logging in and the editor instead of the long-lived
+/// tokens the setting is aimed at.
 ///
 /// Read from `global_settings` on each call rather than cached: token creation is rare
 /// enough that the round trip costs nothing, and the ceiling is then never served stale.
@@ -3095,24 +3096,23 @@ async fn cap_token_expiration(
     token_config: &NewToken,
 ) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
     let value = load_value_from_global_settings(db, MAX_TOKEN_EXPIRATION_DAYS_SETTING).await?;
-    // The settings UI stores a JSON number; the YAML instance config and config sync can
-    // both write the same setting as a string.
+    // A whole number of days, however it was stored: an integer from the settings UI, an
+    // integral float such as `7.0` or a string of digits from the YAML instance config or
+    // config sync. `parseMaxTokenExpirationDays` in the frontend must accept exactly the same
+    // values, or the token form and this disagree on whether a ceiling exists.
     let Some(max_days) = value
         .and_then(|v| match v {
-            serde_json::Value::Number(n) => n.as_i64(),
+            serde_json::Value::Number(n) => n
+                .as_i64()
+                .or_else(|| n.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64)),
             serde_json::Value::String(s) => s.trim().parse::<i64>().ok(),
             _ => None,
         })
-        .filter(|days| *days > 0)
+        .filter(|days| (1..=MAX_TOKEN_EXPIRATION_DAYS_BOUND).contains(days))
     else {
         return Ok(token_config.expiration);
     };
-    // A ceiling too far out to be a timestamp is no ceiling.
-    let Some(max) =
-        chrono::Duration::try_days(max_days).and_then(|d| chrono::Utc::now().checked_add_signed(d))
-    else {
-        return Ok(token_config.expiration);
-    };
+    let max = chrono::Utc::now() + chrono::Duration::days(max_days);
 
     let is_service_account = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM usr WHERE email = $1 AND is_service_account IS true

@@ -112,19 +112,22 @@ async fn test_max_token_expiration_days_shortens_user_tokens(
         "an expiration within the ceiling must be kept, got {expiration}"
     );
 
-    // The settings UI stores a number, but the YAML instance config and config sync can both
-    // write the same setting as a string. Reading that as "unset" would silently drop the
-    // ceiling.
-    set_max(&db, json!("5")).await;
-    let resp = create_token(port, json!({ "label": "string setting" })).await;
-    assert_eq!(resp.status(), 201);
-    let expiration = stored_expiration(&db, "string setting")
-        .await
-        .expect("a string-valued setting is still a ceiling");
-    assert!(
-        expiration > from_now(4 * DAY) && expiration <= from_now(5 * DAY),
-        "expected the 5 day ceiling, got {expiration}"
-    );
+    // The settings UI stores an integer, but the YAML instance config and config sync can write
+    // the same whole number as a string or as `5.0`. Reading either as "unset" would silently
+    // drop the ceiling, while the token form (`parseMaxTokenExpirationDays`) still showed it.
+    for (stored, label) in [
+        (json!("5"), "string setting"),
+        (json!(5.0), "float setting"),
+    ] {
+        set_max(&db, stored).await;
+        let resp = create_token(port, json!({ "label": label })).await;
+        assert_eq!(resp.status(), 201);
+        let expiration = stored_expiration(&db, label).await;
+        assert!(
+            expiration.is_some_and(|e| e > from_now(4 * DAY) && e <= from_now(5 * DAY)),
+            "{label}: expected the 5 day ceiling, got {expiration:?}"
+        );
+    }
 
     // The ceiling is this route's alone. Moving it down into `create_token_internal` would
     // also cap the server-side mints (webhook tokens, app embed tokens, sessions) that pick
