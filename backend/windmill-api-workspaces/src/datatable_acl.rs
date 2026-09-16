@@ -36,10 +36,7 @@ use windmill_common::datatable_roles::{
     ADMIN_DATATABLE_ROLE, CUSTOM_INSTANCE_USER,
 };
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
-use windmill_common::workspaces::{
-    get_datatable_resource_from_db_unchecked, resolve_governing_datatable, DataTable,
-    GoverningDatatable,
-};
+use windmill_common::workspaces::{resolve_governing_datatable, DataTable, GoverningDatatable};
 use windmill_common::{PgDatabase, DB};
 
 use crate::datatable_permissions::{ensure_governs_datatable, ensure_reaches_datatable};
@@ -323,27 +320,20 @@ async fn connect_as_admin_unchecked(
     mpsc::UnboundedReceiver<DbError>,
     String,
 )> {
-    let resource =
-        get_datatable_resource_from_db_unchecked(db, &governing.workspace_id, &governing.name)
-            .await?;
-    let pg: PgDatabase = serde_json::from_value(resource)
-        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {e}")))?;
-    // Resolving reads the settings again, and a save since `governing` was authorized can point
-    // the entry elsewhere and back. An instance entry's database is its `resource_path`, so the
-    // connection is held to the database that was authorized, and a later check of the entry
-    // cannot pass while this talks to another one.
-    if governing
+    ensure_instance(governing)?;
+    // Built from the authorized entry, never by resolving the settings again: a save in between
+    // could point the entry at a resource on another server and back, and this connection would
+    // then alter a database the later checks of the entry never see.
+    let mut pg = PgDatabase::parse_uri(&windmill_common::get_database_url().await?.as_str().await)?;
+    pg.dbname = governing
         .datatable
         .database
         .as_ref()
-        .map(|d| d.resource_path.as_str())
-        != Some(&pg.dbname)
-    {
-        return Err(Error::BadRequest(format!(
-            "Data table '{}' was pointed at another database while this ran; try again",
-            governing.name
-        )));
-    }
+        .expect("a governing entry owns a database")
+        .resource_path
+        .clone();
+    pg.user = Some(CUSTOM_INSTANCE_USER.to_string());
+    pg.password = Some(windmill_common::utils::get_custom_pg_instance_password(db).await?);
     let dbname = pg.dbname.clone();
     let (client, mut connection) = pg.connect(Some(db)).await?;
     // Unbounded: the driver must never wait on the receiver, which only drains once the statement
