@@ -85,6 +85,10 @@ pub struct WacStepDispatch {
     pub concurrency_key: Option<String>,
     #[serde(default)]
     pub concurrency_time_window_s: Option<i32>,
+    /// The SDK's fingerprint of the task's code, the identity its cached result
+    /// is keyed on; absent from an SDK that predates it.
+    #[serde(default)]
+    pub fn_id: Option<String>,
 }
 
 fn default_dispatch_type() -> String {

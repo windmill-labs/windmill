@@ -1847,3 +1847,84 @@ class TestApprovalKeys:
             await wait_for_approval()
 
         assert _run_workflow(wf, {"completed_steps": {"approval": {}}}, {})["key"] == "approval_2"
+
+
+class TestTaskFingerprint:
+    """The worker keys a task child's cached result on the ``fn_id`` its dispatch
+    carries, so it has to follow the task, not the position it is called at."""
+
+    def test_one_task_keeps_its_fingerprint_and_another_gets_its_own(self):
+        first = _run_workflow(double_parallel_wf, {}, {})
+        assert [s["key"] for s in first["steps"]] == ["double", "double_2"]
+        assert first["steps"][0]["fn_id"] == first["steps"][1]["fn_id"]
+
+        second = _run_workflow(
+            double_parallel_wf, {"completed_steps": {"double": 2, "double_2": 4}}, {}
+        )
+        assert [s["key"] for s in second["steps"]] == ["add_one", "add_one_2"]
+        assert second["steps"][0]["fn_id"] != first["steps"][0]["fn_id"]
+
+    def test_a_builtin_task_still_decorates_and_dispatches(self):
+        """The fingerprint is taken for every task, cached or not, so a callable
+        with neither source nor code object must not break the decorator."""
+        builtin_task = task(pow)
+
+        @workflow
+        async def wf():
+            return await builtin_task(2, 3)
+
+        result = _run_workflow(wf, {}, {})
+        assert result["type"] == "dispatch"
+        assert result["steps"][0]["key"] == "pow"
+
+    def test_two_lambdas_on_one_line_are_told_apart(self):
+        """``inspect.getsource`` gives each the whole line, so the code's shape is
+        what separates them, and it must not depend on where the line sits."""
+        first, second = task(lambda x: x + 1), task(lambda x: x + 2)
+
+        @workflow
+        async def wf():
+            return await asyncio.gather(first(x=1), second(x=1))
+
+        result = _run_workflow(wf, {}, {})
+        assert result["steps"][0]["fn_id"] != result["steps"][1]["fn_id"]
+
+    def test_two_lambdas_differing_inside_a_genexp_are_told_apart(self):
+        """The difference lives in a nested code object, and they share a source
+        line, so the shape has to be read recursively."""
+        first, second = task(lambda xs: sum(x + 1 for x in xs)), task(lambda xs: sum(x + 2 for x in xs))
+
+        @workflow
+        async def wf():
+            return await asyncio.gather(first(xs=[1]), second(xs=[1]))
+
+        result = _run_workflow(wf, {}, {})
+        assert result["steps"][0]["fn_id"] != result["steps"][1]["fn_id"]
+
+    def test_fingerprint_does_not_move_with_the_interpreter_hash_seed(self):
+        """A set constant renders in hash order, which the interpreter randomizes
+        per process: a fingerprint that moved with it would never hit its cache."""
+        import os
+        import pathlib
+        import subprocess
+        import sys
+
+        script = (
+            "from wmill.client import _fn_fingerprint\n"
+            "def t(x):\n"
+            "    return x in frozenset({'a', 'b', 'c', 'd', 'e'})\n"
+            "print(_fn_fingerprint(t))\n"
+        )
+        root = str(pathlib.Path(__file__).resolve().parents[1])
+        seen = set()
+        for seed in ("1", "2"):
+            env = {**os.environ, "PYTHONHASHSEED": seed, "PYTHONPATH": root}
+            out = subprocess.run(
+                [sys.executable, "-c", script],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=True,
+            )
+            seen.add(out.stdout.strip())
+        assert len(seen) == 1

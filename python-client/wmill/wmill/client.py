@@ -3026,7 +3026,7 @@ class WorkflowCtx:
             print(f"\n--- WAC: {key} ---")
             info = {"name": name or key, "script": script or key, "args": kwargs, "key": key, "dispatch_type": dispatch_type}
             if _task_options:
-                for opt_key in ("timeout", "tag", "cache_ttl", "priority", "concurrent_limit", "concurrency_key", "concurrency_time_window_s"):
+                for opt_key in ("timeout", "tag", "cache_ttl", "priority", "concurrent_limit", "concurrency_key", "concurrency_time_window_s", "fn_id"):
                     if opt_key in _task_options and _task_options[opt_key] is not None:
                         info[opt_key] = _task_options[opt_key]
             self._pending.append(info)
@@ -3285,6 +3285,60 @@ class WorkflowCtx:
         })
 
 
+def _code_shape(code) -> bytes:
+    """What a code object does, rendered the same way in every process.
+
+    A set renders in hash order, which the interpreter randomizes per process, so
+    a fingerprint built on it would change between jobs and never find its cached
+    result; sorting the members fixes that. A nested code object is where a
+    generator expression's body lives, and two of those can be the only
+    difference between two functions, so it is rendered rather than skipped.
+    """
+    import types
+
+    def const(c) -> bytes:
+        if isinstance(c, types.CodeType):
+            return b"code:" + _code_shape(c)
+        if isinstance(c, (frozenset, set)):
+            return b"set:" + b",".join(sorted(const(x) for x in c))
+        if isinstance(c, tuple):
+            return b"tuple:" + b",".join(const(x) for x in c)
+        return f"{type(c).__name__}:{c!r}".encode()
+
+    return b"|".join(
+        [
+            code.co_code,
+            repr(code.co_names).encode(),
+            repr(code.co_varnames).encode(),
+            b",".join(const(c) for c in code.co_consts),
+        ]
+    )
+
+
+def _fn_fingerprint(func) -> str:
+    """A stable identity for a task's code, what its cached result is keyed on: a
+    name is shared by any two tasks called the same, and a step key by any two
+    tasks called at the same position, so neither can tell them apart."""
+    import hashlib
+    import inspect
+
+    # Runs for every task at decoration, cached or not, so it must never raise: a
+    # builtin has neither source nor code object. Source alone cannot separate two
+    # lambdas written on one line, so the code's shape goes in as well, without the
+    # line numbers that would move whenever the file is edited above it.
+    parts = []
+    try:
+        parts.append(inspect.getsource(func).encode())
+    except Exception:
+        pass
+    code = getattr(func, "__code__", None)
+    if code is not None:
+        parts.append(_code_shape(code))
+    if not parts:
+        parts.append(repr(func).encode())
+    return hashlib.sha256(b"\x1f".join(parts)).hexdigest()
+
+
 def task(
     _func=None,
     *,
@@ -3328,12 +3382,11 @@ def task(
     no ``delay`` all go out in a single round.
 
     ``cache_ttl`` serves a previous result of the task for that many seconds
-    instead of running it again. A task is keyed on its step key (its name and
-    call order) and the workflow's input, not on the arguments it is called
-    with, so cache one only when whether it runs, and what it receives, follow
-    from the workflow's input alone. A ``task_script`` target is keyed on the
-    arguments it is called with. It has no effect on a ``task_flow`` target,
-    which keeps its flow's own cache policy.
+    instead of running it again. The result is keyed on the task, the step it
+    runs as and the arguments it is called with, so anything a cached task reads
+    from its closure, the receiver of a bound method included, must be passed in
+    as an argument. It has no effect on a ``task_flow`` target, which keeps its
+    flow's own cache policy.
 
     Usage::
 
@@ -3364,6 +3417,7 @@ def task(
     def decorator(func) -> Callable[..., Any]:
         task_path = path
         task_name = func.__name__
+        _fn_opts = {**(_task_opts or {}), "fn_id": _fn_fingerprint(func)}
 
         _params_list = list(_sig(func).parameters)
 
@@ -3389,7 +3443,7 @@ def task(
             if ctx is not None:
                 script = task_path if task_path else task_name
                 merged = _merge_args(args, kwargs)
-                return ctx._next_step(task_name, script, func, _task_options=_task_opts, **merged)
+                return ctx._next_step(task_name, script, func, _task_options=_fn_opts, **merged)
 
             # WAC v1: running inside a Windmill job but not in a @workflow
             if (

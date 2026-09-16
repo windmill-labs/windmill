@@ -40,6 +40,16 @@ pub struct WacCheckpoint {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub _executing_key: Option<String>,
+    /// With `_executing_key`: the SDK's fingerprint of the task's code and the
+    /// arguments it was called with. A cached result is keyed on all three, or,
+    /// for a child whose SDK sent no fingerprint, on the step key and the
+    /// parent's arguments (`cached_result_path`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub _executing_fn: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub _executing_args: Option<serde_json::Map<String, Value>>,
     /// `resume_job.id` values already consumed by earlier approval steps (the
     /// row primary key, not the distinct integer `resume_id` column). Rows are
     /// never deleted, so a workflow with several sequential wait_for_approval()
