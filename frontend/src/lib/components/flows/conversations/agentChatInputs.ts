@@ -1,5 +1,6 @@
 import type { AIProvider, FlowModule, InputTransform } from '$lib/gen'
-import { getReasoningCapability } from '$lib/components/copilot/reasoningRegistry'
+import { explicitOffToken, getReasoningCapability } from '$lib/components/copilot/reasoningRegistry'
+import { carriedReasoning } from '$lib/components/copilot/chatModelSettings'
 import { parseExpressionAt } from 'acorn'
 
 /**
@@ -423,12 +424,18 @@ export function withoutRejectedEffort(
 	return rejected ? { ...values, [effortInput]: '' } : values
 }
 
-/** Whether the registry positively says this model will not take this effort. */
+/**
+ * Whether the registry positively says this model will not take this effort: no reasoning at
+ * all, a level it does not have (`xhigh` on `gpt-5.1`), or an off token it cannot honour
+ * (`none` on `gpt-5`). The same rule the button applies when the model changes.
+ */
 function rejectsEffort(provider: unknown, model: unknown, effort: unknown): boolean {
 	if (typeof effort !== 'string' || effort === '') return false
 	if (typeof provider !== 'string' || typeof model !== 'string' || !provider || !model) {
 		return false
 	}
 	const capability = getReasoningCapability(provider as AIProvider, model)
-	return capability.known && !capability.supported
+	if (!capability.known) return false
+	const offToken = explicitOffToken(provider as AIProvider, model)
+	return carriedReasoning(effort, offToken, capability) === undefined
 }

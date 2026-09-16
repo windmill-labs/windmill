@@ -371,6 +371,16 @@ describe('withoutRejectedEffort', () => {
 		}
 		expect(withoutRejectedEffort(wiring, values)).toBe(values)
 	})
+
+	// A model that reasons can still refuse a particular token, and the provider answers with a
+	// 400 on every turn.
+	it('drops a level or off token a reasoning model does not take', () => {
+		const openai = wiring({ model: 'model', reasoning_effort: 'effort' }, { kind: 'openai' })
+		expect(withoutRejectedEffort(openai, { model: 'gpt-5', effort: 'none' }).effort).toBe('')
+		expect(withoutRejectedEffort(openai, { model: 'gpt-5.1', effort: 'xhigh' }).effort).toBe('')
+		const kept = { model: 'gpt-5.1', effort: 'none' }
+		expect(withoutRejectedEffort(openai, kept)).toBe(kept)
+	})
 })
 
 /**
