@@ -20,7 +20,7 @@ use crate::{
 
 /// Whether `label` denotes a user-created token rather than a system token
 /// (`session`, `guest_session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`,
-/// `embed_app:*`, `sdk_app:*`, `impersonation:*`). System-token labels are load-bearing —
+/// `embed_app:*`, `sdk_app:*`, `impersonation:*`, `cli-login:*`). System-token labels are load-bearing —
 /// session cleanup, super_admin propagation, expiry notifications and username overrides
 /// all key off them — so they must not be user-editable. `None` (no label) is treated as
 /// a user token.
@@ -47,6 +47,7 @@ pub fn is_user_token(label: Option<&str>) -> bool {
                 && !l.starts_with(APP_EMBED_TOKEN_LABEL_PREFIX)
                 && !l.starts_with(RAW_APP_SDK_TOKEN_LABEL_PREFIX)
                 && !l.starts_with("impersonation:")
+                && !l.starts_with(CLI_LOGIN_TOKEN_LABEL_PREFIX)
         }
     }
 }
@@ -58,6 +59,13 @@ pub const APP_EMBED_TOKEN_LABEL_PREFIX: &str = "embed_app:";
 /// Label prefix, followed by the app path, of the token a raw app's bundle uses for the
 /// frontend SDK. Reserved in [`is_user_token`], whose SQL and frontend mirrors spell it out.
 pub const RAW_APP_SDK_TOKEN_LABEL_PREFIX: &str = "sdk_app:";
+
+/// Label prefix, followed by the username, of the token the CLI authorization page mints for
+/// `wmill` logins. Reserved in [`is_user_token`], whose SQL and frontend mirrors spell it out:
+/// the CLI signs in again on its own once that token expires, so an expiry email for it asks
+/// the user to do nothing. Not in [`is_server_minted_label`], since the page mints it through
+/// `/users/tokens/create`.
+pub const CLI_LOGIN_TOKEN_LABEL_PREFIX: &str = "cli-login:";
 
 /// Whether `label` belongs to a namespace only the server mints, and which therefore must be
 /// rejected by `create_token`. Narrower than [`is_user_token`], which also drives label
@@ -475,14 +483,16 @@ async fn fetch_authed_from_permissioned_as_inner(
     // principal — a username freed and reassigned while its previous holder keeps a privileged
     // account — would mix one account's role with another's instance privileges.
     let member = match permissioned_as.split_once('/') {
-        Some(("u", name)) => sqlx::query!(
-            "SELECT is_admin, operator, email FROM usr where username = $1 AND \
+        Some(("u", name)) => {
+            sqlx::query!(
+                "SELECT is_admin, operator, email FROM usr where username = $1 AND \
                                          workspace_id = $2 AND disabled = false",
-            name,
-            &w_id
-        )
-        .fetch_optional(&mut *conn)
-        .await?,
+                name,
+                &w_id
+            )
+            .fetch_optional(&mut *conn)
+            .await?
+        }
         _ => None,
     };
     let resolved_email;
@@ -980,6 +990,7 @@ mod tests {
         assert!(!is_user_token(Some("embed_app:f/team/dashboard")));
         assert!(!is_user_token(Some("sdk_app:u/admin/raw app")));
         assert!(!is_user_token(Some("impersonation:admin@windmill.dev")));
+        assert!(!is_user_token(Some("cli-login:admin")));
     }
 
     #[test]

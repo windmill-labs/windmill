@@ -15,18 +15,20 @@ Symbols, not line numbers, are cited: they drift less.
 - **`max_token_expiration_days`** caps `POST /users/tokens/create` and `tokens/impersonate`, by
   shortening the stored expiration (`cap_token_expiration`), never by refusing: the CLI
   authorization page, `wmill user create-token` and the editor's language-server token all pick a
-  lifetime without reading the setting, and CLIs already installed never will. Service accounts are
-  capped too. Only the stored expiration is capped: the auth lookup never reads the setting, so
-  tokens that exist when it is turned on or lowered keep theirs, including none. Deliberately
-  outside it: server-side mints (`create_token_internal` callers such as native trigger webhook
-  tokens, which never expire for GitHub and Nextcloud), and tokens with their own fixed lifetime
-  that outlive a short ceiling: sessions (`MAX_SESSION_VALIDITY_SECONDS`, 3 days, and re-mintable
-  through `GET /users/refresh_token`) and MCP OAuth access tokens (7 days, with a rotating 30-day
-  refresh token). Any logged-in user can read the setting through `GET /settings/global/{key}`,
-  which the token form uses to offer only expirations within it. The settings API and config sync
-  reject any value `parse_max_token_expiration_days` cannot read, since the token routes would read
-  it as no ceiling; `parseMaxTokenExpirationDays` in the frontend must accept exactly the same
-  values.
+  lifetime without reading the setting, and CLIs already installed never will. The CLI signs in
+  again on its own when its token expires, which is why the authorization page labels it
+  `cli-login:<username>`, reserved in `is_user_token` so its expiry does not email the user. Service
+  accounts are capped too. Only the stored expiration is capped: the auth lookup never reads the
+  setting, so tokens that exist when it is turned on or lowered keep theirs, including none.
+  Deliberately outside it: server-side mints (`create_token_internal` callers such as native trigger
+  webhook tokens, which never expire for GitHub and Nextcloud), and tokens with their own fixed
+  lifetime that outlive a short ceiling: sessions (`MAX_SESSION_VALIDITY_SECONDS`, 3 days, and
+  re-mintable through `GET /users/refresh_token`) and MCP OAuth access tokens (7 days, with a
+  rotating 30-day refresh token). Any logged-in user can read the setting through `GET
+  /settings/global/{key}`, which the token form uses to offer only expirations within it. The
+  settings API and config sync reject any value `parse_max_token_expiration_days` cannot read, since
+  the token routes would read it as no ceiling; `parseMaxTokenExpirationDays` in the frontend must
+  accept exactly the same values.
 - **A token's label decides whether its expiry raises alerts.** When `delete_expired_items`
   removes an expired `token` row, the monitor emails the owner and raises a critical alert (if
   enabled); rows registered by `register_token_expiry_notification` also get an "expiring soon"

@@ -3971,6 +3971,7 @@ async fn update_token_label(
                  AND NOT starts_with(label, 'embed_app:')
                  AND NOT starts_with(label, 'sdk_app:')
                  AND NOT starts_with(label, 'impersonation:')
+                 AND NOT starts_with(label, 'cli-login:')
              ))
            RETURNING token_prefix",
         req.label.as_deref(),
