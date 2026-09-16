@@ -594,7 +594,6 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	lastReconcileAt = Date.now()
 	const db = await sessionsDb.whenReady()
 	if (!db) return
-	const email = emailOfScopedKey(SESSIONS_DB, db.name)
 	const wsIds = new Set<string>()
 	const sessions = await db.getAll('sessions')
 	// Committed sessions reconcile on workspace_id; persisted pending drafts on
@@ -606,7 +605,7 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	}
 	if (wsIds.size === 0) return
 
-	let status: Awaited<ReturnType<typeof WorkspaceService.getSessionWorkspaceStatus>>
+	let status: Record<string, 'active' | 'archived' | 'deleted'>
 	try {
 		status = await WorkspaceService.getSessionWorkspaceStatus({
 			requestBody: { workspace_ids: [...wsIds] }
@@ -615,14 +614,13 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 		console.error('Failed to reconcile session lifecycle', e)
 		return
 	}
-	if (email) rememberRetention(email, status)
 
 	const deletedIds = new Set<string>()
 	try {
 		for (const s of sessions) {
 			const ws = s.workspace_id ?? s.pending_workspace_id
 			if (!ws) continue
-			const { action, patch } = decideSessionLifecycle(s, status[ws]?.status)
+			const { action, patch } = decideSessionLifecycle(s, status[ws])
 			if (action === 'delete') {
 				await deleteSessionRow(db, s.id)
 				// GC linked files too, matching deleteSession — a record-only delete
@@ -672,41 +670,36 @@ function isSessionExpired(
 	return since < now - retentionDays * DAY_MS
 }
 
-// What the last reconcile was told, per workspace, in days. It decides whether the sweep has
-// anything to ask the server about, and nothing else: it can be days old, and a retention
-// raised or cleared meanwhile must not delete a session — a persisted unsent draft has no
-// backup to come back from. Stale the other way it only delays a sweep to the next load.
+// What the server last told this browser, and when. It decides whether the sweep asks again,
+// and nothing else: a retention raised or cleared since must not delete a session, and a
+// persisted unsent draft has no backup to come back from.
 const RETENTION_DAYS = 'windmill_sessions_retention_days'
 
-function retentionDaysOf(
-	status: Awaited<ReturnType<typeof WorkspaceService.getSessionWorkspaceStatus>>
-): Record<string, number> {
-	const days: Record<string, number> = {}
-	for (const [ws, answer] of Object.entries(status)) {
-		if (answer.sessions_retention_days) days[ws] = answer.sessions_retention_days
-	}
-	return days
+// Nothing remembered for longer than this is trusted even to say there is nothing to ask
+// about, so a retention lowered while this browser saw nothing expiring still takes effect.
+const RETENTION_STALE_MS = 24 * 60 * 60 * 1000
+
+interface RememberedRetention {
+	at: number
+	days: Record<string, number>
 }
 
-function rememberRetention(
-	email: string,
-	status: Awaited<ReturnType<typeof WorkspaceService.getSessionWorkspaceStatus>>
-): void {
+function rememberRetention(email: string, days: Record<string, number>): void {
 	try {
-		localStorage.setItem(
-			scopedKeyFor(RETENTION_DAYS, email),
-			JSON.stringify(retentionDaysOf(status))
-		)
+		const remembered: RememberedRetention = { at: Date.now(), days }
+		localStorage.setItem(scopedKeyFor(RETENTION_DAYS, email), JSON.stringify(remembered))
 	} catch {}
 }
 
-function rememberedRetention(email: string): Record<string, number> {
+function rememberedRetention(email: string): RememberedRetention | undefined {
 	try {
 		const stored = localStorage.getItem(scopedKeyFor(RETENTION_DAYS, email))
-		const days = stored ? JSON.parse(stored) : undefined
-		if (days && typeof days === 'object') return days as Record<string, number>
+		const remembered = stored ? JSON.parse(stored) : undefined
+		if (remembered?.days && typeof remembered.days === 'object') {
+			return remembered as RememberedRetention
+		}
 	} catch {}
-	return {}
+	return undefined
 }
 
 // How long the sweep waits for the retention of the workspaces it is about to sweep in. The
@@ -718,11 +711,12 @@ const RETENTION_ASK_MS = 5000
 // session is deleted only on an answer of the moment.
 async function askRetention(workspaceIds: string[]): Promise<Record<string, number> | undefined> {
 	try {
-		const status = await Promise.race([
-			WorkspaceService.getSessionWorkspaceStatus({ requestBody: { workspace_ids: workspaceIds } }),
+		return await Promise.race([
+			WorkspaceService.getSessionWorkspaceRetention({
+				requestBody: { workspace_ids: workspaceIds }
+			}),
 			new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), RETENTION_ASK_MS))
 		])
-		return status && retentionDaysOf(status)
 	} catch (e) {
 		console.error('Failed to read the AI session retention of the workspaces', e)
 		return undefined
@@ -871,14 +865,17 @@ async function sweepExpiredSessions(email: string): Promise<void> {
 					const ws = retentionWorkspaceOf(s)
 					if (ws === undefined) continue
 					workspaces.add(ws)
-					expired ||= isSessionExpired(s, remembered[ws], now)
+					expired ||= isSessionExpired(s, remembered?.days[ws], now)
 				}
-				// Nothing the last reconcile heard of is old enough to be worth a request.
-				if (!expired) return
+				// Nothing to sweep in, or nothing old enough by an answer recent enough to be
+				// believed about that: this load costs no request.
+				const fresh = remembered !== undefined && now - remembered.at < RETENTION_STALE_MS
+				if (workspaces.size === 0 || (!expired && fresh)) return
 				const retention = await askRetention([...workspaces])
 				// Asked and not told: the sessions wait for the next load rather than go on an
 				// answer this browser does not have.
 				if (!retention) return
+				rememberRetention(email, retention)
 				for (const s of stored) {
 					const ws = retentionWorkspaceOf(s)
 					if (ws === undefined || !isSessionExpired(s, retention[ws], Date.now())) continue

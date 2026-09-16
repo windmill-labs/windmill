@@ -227,6 +227,10 @@ pub fn global_service() -> Router {
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
         .route("/session_workspace_status", post(session_workspace_status))
+        .route(
+            "/session_workspace_retention",
+            post(session_workspace_retention),
+        )
         .route("/create", post(create_workspace))
         .route("/create_fork", post(deprecated_create_workspace_fork))
         .route("/exists", post(exists_workspace))
@@ -5629,15 +5633,6 @@ struct SessionWorkspaceStatusRequest {
     workspace_ids: Vec<String>,
 }
 
-#[derive(Serialize)]
-struct SessionWorkspaceStatus {
-    status: String,
-    /// `ai_config.sessions_retention_days` of a reachable workspace: the browser deletes its
-    /// copy of a session whose last activity is older, as the server deletes the backup.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sessions_retention_days: Option<u32>,
-}
-
 /// `ai_config.sessions_retention_days` as stored, `None` when unset or not a count of days.
 pub fn sessions_retention_days(value: Option<&serde_json::Value>) -> Option<u32> {
     value
@@ -5658,14 +5653,12 @@ pub fn sessions_retention_days(value: Option<&serde_json::Value>) -> Option<u32>
 /// workspace without a `usr` row, and `admins` has no `usr` rows at all, so answering from
 /// `usr` destroys sessions that still work. It over-reports in one direction — a `usr` row
 /// with `disabled` counts here but not in the extractor — which only leaves a session
-/// lingering, so it is deliberately not treated as unreachable. The retention is held to the
-/// extractor's bar instead: a status is what to do with the caller's own sessions, a setting
-/// is the workspace's to tell.
+/// lingering, so it is deliberately not treated as unreachable.
 async fn session_workspace_status(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
     Json(req): Json<SessionWorkspaceStatusRequest>,
-) -> JsonResult<HashMap<String, SessionWorkspaceStatus>> {
+) -> JsonResult<HashMap<String, String>> {
     if req.workspace_ids.len() > 1000 {
         return Err(Error::BadRequest(
             "Too many workspace ids (max 1000)".to_string(),
@@ -5683,37 +5676,57 @@ async fn session_workspace_status(
                     WHEN usr.email IS NULL AND NOT $3 THEN 'deleted'
                     WHEN workspace.deleted THEN 'archived'
                     ELSE 'active'
-                END) AS \"status!\",
-                COALESCE(usr.disabled, false) AS \"membership_disabled!\",
-                workspace_settings.ai_config->'sessions_retention_days' AS retention
+                END) AS \"status!\"
          FROM unnest($1::text[]) AS req(id)
          LEFT JOIN workspace ON workspace.id = req.id
-         LEFT JOIN usr ON usr.workspace_id = workspace.id AND usr.email = $2
-         LEFT JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id",
+         LEFT JOIN usr ON usr.workspace_id = workspace.id AND usr.email = $2",
         &req.workspace_ids[..],
         email,
         is_superadmin,
     )
     .fetch_all(&db)
     .await?;
-    let statuses = rows
-        .into_iter()
-        .map(|r| {
-            // A setting is told only to a caller the extractor would let into the workspace,
-            // which a disabled membership is not, however its sessions are reconciled.
-            let sessions_retention_days =
-                if r.status == "deleted" || (r.membership_disabled && !is_superadmin) {
-                    None
-                } else {
-                    sessions_retention_days(r.retention.as_ref())
-                };
-            (
-                r.id,
-                SessionWorkspaceStatus { status: r.status, sessions_retention_days },
-            )
-        })
-        .collect();
+    let statuses = rows.into_iter().map(|r| (r.id, r.status)).collect();
     Ok(Json(statuses))
+}
+
+/// The AI session retention of the workspaces a browser holds sessions for, which it deletes
+/// its local copies by (`sessionState.svelte.ts`), as the server deletes their backups. Its
+/// own route rather than a field on the status above, whose answer a tab loaded before this
+/// version still reads. A workspace without a retention, or one this caller cannot be authed
+/// into, is absent: a status says what to do with the caller's own sessions, a setting is the
+/// workspace's to tell, so a disabled membership is told nothing though its sessions still
+/// reconcile.
+async fn session_workspace_retention(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(req): Json<SessionWorkspaceStatusRequest>,
+) -> JsonResult<HashMap<String, u32>> {
+    if req.workspace_ids.len() > 1000 {
+        return Err(Error::BadRequest(
+            "Too many workspace ids (max 1000)".to_string(),
+        ));
+    }
+    let email = &authed.email;
+    let is_superadmin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
+    let rows = sqlx::query!(
+        "SELECT workspace_settings.workspace_id AS \"id!\",
+                workspace_settings.ai_config->'sessions_retention_days' AS retention
+         FROM workspace_settings
+         LEFT JOIN usr ON usr.workspace_id = workspace_settings.workspace_id AND usr.email = $2
+         WHERE workspace_settings.workspace_id = ANY($1)
+           AND ($3 OR (usr.email IS NOT NULL AND NOT usr.disabled))",
+        &req.workspace_ids[..],
+        email,
+        is_superadmin,
+    )
+    .fetch_all(&db)
+    .await?;
+    let days = rows
+        .into_iter()
+        .filter_map(|r| sessions_retention_days(r.retention.as_ref()).map(|days| (r.id, days)))
+        .collect();
+    Ok(Json(days))
 }
 
 /// The instance critical alert channels belong to the instance operator, who on cloud is

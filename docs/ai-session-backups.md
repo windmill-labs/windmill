@@ -290,14 +290,18 @@ writes to the session again (its incremental push is refused and goes whole):
   plans nor stages a session half deleted; like the restore, it does not run where Web Locks
   do not exist. With several tabs open nothing is swept, until one of them reloads alone.
 
-  What deletes is the retention the server gives as the sweep runs, never a remembered one: a
-  retention raised or cleared since would otherwise delete a session that is now within it,
-  and a persisted unsent draft has no backup to come back from. The retention the last
-  lifecycle reconcile was told, kept in localStorage per workspace, only decides whether there
-  is anything to ask about, so a load with nothing expired costs no request. Stale the other
-  way it delays a sweep to a later load. A browser that has never reconciled sweeps nothing,
-  and an answer that does not arrive within five seconds leaves the sessions for the next
-  load rather than delete on what this browser guessed.
+  What deletes is the retention the server gives as the sweep runs, asked for under both locks
+  (`POST /workspaces/session_workspace_retention`, its own route rather than a field on the
+  lifecycle status, whose answer a tab loaded before this version still reads). Never a
+  remembered one: a retention raised or cleared since would otherwise delete a session that is
+  now within it, and a persisted unsent draft has no backup to come back from. What the sweep
+  keeps in localStorage decides only whether to ask again — it asks when it has asked nothing
+  yet, when the answer it has is a day old, or when that answer marks a session expired — so
+  an ordinary load costs no request at all. An answer that does not arrive within five seconds
+  leaves the sessions for the next load rather than delete on what this browser guessed. That
+  route answers for a workspace the caller can be authed into, unlike the status: a status is
+  what to do with the caller's own sessions, a setting is the workspace's to tell, so a
+  disabled membership is told nothing though its sessions still reconcile.
 
   Each session's record goes before its pieces, so nothing plans a push for it afterwards,
   and a localStorage key written before the record and removed once every piece is gone makes
