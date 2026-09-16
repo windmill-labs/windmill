@@ -97,6 +97,10 @@ export type ItemRowPort = {
 	pending(key: ItemKey): unknown | undefined
 	/** Whether a row is waiting with no baseline behind it, so sending it would be unconditional. */
 	unbased(key: ItemKey): boolean
+	/** Keep what is waiting for `key` waiting, without dropping it, until the returned release is
+	 *  called. For a reader about to find out whether a row exists that an unbased payload would
+	 *  otherwise go out over. */
+	hold(key: ItemKey): () => void
 	/** Raise a conflict the server has not reported, for the user to resolve. */
 	markConflict(key: ItemKey, serverTimestamp: string): void
 	seedSync(key: ItemKey, draftSavedAt: string | undefined, since: number): void
@@ -427,6 +431,9 @@ class Entry<V> {
 			let unbasedPending = false
 			let waitingBefore: unknown | undefined
 			let res: ItemLoad<V>
+			// Released only once this read has said whether a row exists it would have gone out
+			// over, which is the last thing below.
+			let releaseHold: (() => void) | undefined
 			try {
 				if (this.retired) return superseded
 				if (!adapter.load) throw new Error('This item cannot be loaded')
@@ -435,7 +442,11 @@ class Entry<V> {
 				// when no row existed — it has no baseline, so it would go out unconditional over a row
 				// created since; the read below gives it one, and `pending` shows it meanwhile.
 				unbasedPending = this.ports.unbased(key)
-				if (!unbasedPending) await this.ports.flush(key)
+				// Held rather than merely not flushed: the debounce that queued it is still armed,
+				// and firing while this read is out would send it unconditional over a row created
+				// since, before the response is back to say there is one. Released in the `finally`.
+				if (unbasedPending) releaseHold = this.ports.hold(key)
+				else await this.ports.flush(key)
 				// Taken here, not when the command was asked for: rows this read's own flush sent
 				// are in the response it is about to get. Only one handed over from now on, while
 				// the read is out, leaves that response behind.
@@ -455,6 +466,10 @@ class Entry<V> {
 				return { ok: false, error: this.error }
 			} finally {
 				this.loads--
+				// Everything below runs without awaiting, so nothing can fire between here and the
+				// conflict this read may raise: releasing at the last statement instead would only
+				// be the same instant, reached by more paths.
+				releaseHold?.()
 			}
 			// A conflicted key holds a value that is on screen only: the server refused it and
 			// nothing can send it, so a read nobody asked for must not put the server's value in
@@ -1348,6 +1363,9 @@ const syncerRows: ItemRowPort = {
 	},
 	unbased(key) {
 		return UserDraftDbSyncer.hasUnbasedPending(keyQuery(key))
+	},
+	hold(key) {
+		return UserDraftDbSyncer.hold(keyQuery(key))
 	},
 	markConflict(key, serverTimestamp) {
 		UserDraftDbSyncer.markConflict(keyQuery(key), serverTimestamp)

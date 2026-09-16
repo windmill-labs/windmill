@@ -26,6 +26,8 @@ function deferred<T = void>() {
 function fakeRows() {
 	const writes: { path: string; value: unknown }[] = []
 	const conflicts = new Set<string>()
+	/** Keys a reader is holding: nothing sends while one is out, and nothing is dropped. */
+	const holds = new Map<string, number>()
 	/** Paths whose next write the server fails. */
 	const failing = new Set<string>()
 	/** Paths the server rejects whenever a row is actually sent, until a read adopts a fresh
@@ -72,7 +74,7 @@ function fakeRows() {
 			// Nothing goes out while the key is conflicted, whether it was queued before the
 			// refusal or parked by it: the payload is kept so the edit survives, and which
 			// version wins is the user's to say. `postSave` gates every send this way.
-			if (conflicts.has(key.path)) {
+			if (conflicts.has(key.path) || holds.has(key.path)) {
 				parked.set(key.path, going.value)
 				return
 			}
@@ -111,6 +113,17 @@ function fakeRows() {
 					? parked.get(key.path)
 					: undefined,
 		unbased: (key) => (queued.has(key.path) || parked.has(key.path)) && !baselines.has(key.path),
+		hold: (key) => {
+			holds.set(key.path, (holds.get(key.path) ?? 0) + 1)
+			let released = false
+			return () => {
+				if (released) return
+				released = true
+				const left = (holds.get(key.path) ?? 1) - 1
+				if (left > 0) holds.set(key.path, left)
+				else holds.delete(key.path)
+			}
+		},
 		markConflict: (key) => void conflicts.add(key.path),
 		seedSync: (key, at, since) => {
 			// The syncer refuses a baseline from a read a row handed over since has passed.
@@ -1958,31 +1971,62 @@ describe('item store: conflicts', () => {
 		expect(rows.seeds).toEqual([])
 	})
 
-	it('does not raise a conflict against its own autosave landing during the reopen', async () => {
+	it('holds its own unbased autosave across the reopening read rather than racing it', async () => {
 		const rows = fakeRows()
 		const read = deferred<ItemLoad<Res>>()
 		const store = createItemStore(rows.port)
 		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
 		const mine = { ...deployedRes, description: 'typed before closing' }
 		const a = adapter(() => read.promise)
-		// No draft exists yet, so this first autosave carries no baseline.
+		// No draft exists yet, so this first autosave carries no baseline: sending it is
+		// unconditional, and nothing yet knows whether there is a row for it to take over.
 		rows.port.write(key, mine)
 		const acq = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
 		await settle()
-		// Its debounce fires and the save succeeds while the reopening GET is still out, which
-		// gives the key a baseline of its own.
+		// Its debounce fires while the reopening GET is still out.
 		await rows.port.flush(key)
-		read.resolve({ deployed: deployedRes, draft: mine, draftSavedAt: 'T-mine' })
+		expect(rows.sent.get('u/me/r')).toBeUndefined()
+
+		// The read says there is no row, so there was never anything to take over — and nothing to
+		// conflict against either, which would have stopped the editor saving with nobody else
+		// involved.
+		read.resolve({ deployed: deployedRes })
+		await settle()
+		expect(acq.handle.status).not.toBe('conflicted')
+		expect(acq.handle.value).toEqual(mine)
+
+		// Released with the read, the edit goes out as it always would have.
+		await rows.port.flush(key)
+		expect(rows.sent.get('u/me/r')).toEqual(mine)
+	})
+
+	it('does not let a pending send fire while the reopening read is still out', async () => {
+		const rows = fakeRows()
+		const read = deferred<ItemLoad<Res>>()
+		const store = createItemStore(rows.port)
+		const key: ItemKey = { workspace: 'w', kind: 'resource', path: 'u/me/r' }
+		const mine = { ...deployedRes, description: 'tab A, never sent' }
+		const a = adapter(() => read.promise)
+		// Unbased again: written when no row existed, so it would go out unconditional.
+		rows.port.write(key, mine)
+		const acq = store.acquire(key, { workspace: 'w', path: 'u/me/r' }, a)
 		await settle()
 
-		// The row it meets is the one it just wrote. Conflicting against your own successful save
-		// stops the editor autosaving with nobody else involved.
-		expect(acq.handle.status).not.toBe('conflicted')
-		acq.handle.value = { ...deployedRes, description: 'typed after reopening' }
-		expect(rows.writes.at(-1)).toEqual({
-			path: 'u/me/r',
-			value: { ...deployedRes, description: 'typed after reopening' }
-		})
+		// Another tab creates the draft while this read is still unresolved, and only then does
+		// this tab's debounce fire.
+		const theirs = { ...deployedRes, description: 'tab B' }
+		rows.sent.set('u/me/r', theirs)
+		rows.handExternally('u/me/r')
+		await rows.port.flush(key)
+
+		// Sending here would have gone out with no `last_sync`, which the server takes
+		// unconditionally — over their draft, and before this read could say it was there.
+		expect(rows.sent.get('u/me/r')).toEqual(theirs)
+
+		read.resolve({ deployed: deployedRes, draft: theirs, draftSavedAt: 'T-theirs' })
+		await settle()
+		expect(acq.handle.status).toBe('conflicted')
+		expect(rows.sent.get('u/me/r')).toEqual(theirs)
 	})
 
 	it('does not let a debounce armed before a synthetic conflict send behind the user', async () => {
