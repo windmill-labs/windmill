@@ -62,7 +62,7 @@ const listDataMetricsToolDef = createToolDef(
 // (token scope + RLS on `script`), so an empty result means "none declared" or
 // "none readable by you" and the tool cannot tell which.
 const NO_DATA_METRICS_NOTE =
-	'Nothing matched. That does not establish the table has no declared measures: declarations whose producing script you cannot read are omitted from this list, not flagged. You may write your own aggregate, but tell the user you found no declared measure you can read rather than stating none is declared.'
+	'Nothing matched. That does not establish that nothing is declared: declarations whose producing script you cannot read are omitted from this list, not flagged. You may write your own aggregate, but tell the user you found no declared measure you can read rather than stating none is declared.'
 
 // Well under the endpoint's 1000 cap: a full page is pretty-printed into the
 // chat context, and 1000 declarations would cost tens of thousands of tokens.
