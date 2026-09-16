@@ -45,6 +45,8 @@ interface Turn {
   isNew: boolean
   /** The run was asked for. Before that, a failure or a stop withdraws the turn instead of failing it. */
   started: boolean
+  /** Both `stop()` and the send's own rejection withdraw; only the first may. */
+  withdrawn: boolean
   jobId?: string
   /** The flow job and its step jobs; a persisted answer carries one of them as `job_id`. */
   jobIds?: Set<string>
@@ -126,6 +128,7 @@ class ChatImpl implements Chat {
       userMessageId: `pending-${randomId()}`,
       isNew,
       started: false,
+      withdrawn: false,
       streamedText: false
     }
     this.#turn = turn
@@ -585,10 +588,15 @@ class ChatImpl implements Chat {
    * has already written the pending message to local history and kept the conversation listed.
    */
   #withdrawTurn(turn: Turn): void {
+    if (turn.withdrawn) return
+    turn.withdrawn = true
     const id = turn.conversationId
-    const onScreen = this.#state.conversationId === id
+    // A turn started since (a resend right after Stop, or after switching back) owns the
+    // conversation and the status; this one only takes its own message away.
+    const newerTurn = this.#turn !== undefined && this.#turn !== turn
+    const onScreen = this.#state.conversationId === id && !newerTurn
     const withoutTurn = (messages: ChatMessage[]) => messages.filter((m) => m.id !== turn.userMessageId)
-    if (turn.isNew) {
+    if (turn.isNew && !(newerTurn && this.#turn?.conversationId === id)) {
       if (this.#state.history === 'local') this.#local.deleteConversation(id)
       this.#set({
         conversations: this.#state.conversations.filter((c) => c.id !== id),
@@ -601,6 +609,8 @@ class ChatImpl implements Chat {
     if (onScreen) {
       this.#set({ messages: withoutTurn(this.#state.messages), status: 'idle', error: undefined })
       this.#persistLocal()
+    } else if (this.#state.conversationId === id) {
+      this.#set({ messages: withoutTurn(this.#state.messages) })
     } else if (this.#state.history === 'local') {
       this.#local.saveMessages(id, withoutTurn(this.#local.getMessages(id)))
     }

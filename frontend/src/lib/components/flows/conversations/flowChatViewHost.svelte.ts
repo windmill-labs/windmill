@@ -171,6 +171,8 @@ export class FlowChatViewHost implements ChatViewHost {
 		if (previous.conversationId !== state.conversationId) {
 			// A conversation opens at its end, whatever the reader was doing in the last one.
 			this.#automaticScroll = true
+			// A conversation reopened later comes back from the server under other message ids.
+			this.#sentAttachments.clear()
 			// The queue was typed into the conversation that just went away; a message sent
 			// after the switch would ride out of the wrong one, so it goes back to the composer.
 			this.dequeueMessage()
@@ -304,6 +306,14 @@ export class FlowChatViewHost implements ChatViewHost {
 		})
 		this.#turnDone = turn
 		await turn
+		// The files are kept only for a turn that failed, the one Retry is offered on: a base64
+		// payload per sent file would otherwise pile up for as long as the panel lives.
+		if (sentId) {
+			const index = this.#state.messages.findIndex((m) => m.id === sentId)
+			if (index === -1 || !turnFailed(this.#state.messages, index)) {
+				this.#sentAttachments.delete(sentId)
+			}
+		}
 		return true
 	}
 	/** Settles when the chat has released the last turn this host started. */

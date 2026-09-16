@@ -1,5 +1,6 @@
 import type { WindmillChatApi } from './api'
 import type { ChatAttachment } from './types'
+import { isAbortError } from './utils'
 
 /**
  * Where a chat's uploads live in the workspace's object storage. Under `windmill_uploads/`
@@ -87,15 +88,39 @@ export async function uploadAttachments(
   signal?: AbortSignal
 ): Promise<UploadedAttachment[]> {
   const prefix = `${CHAT_UPLOADS_PREFIX}/${turnId}`
-  return Promise.all(
-    attachments.map(async (attachment, index) => {
-      const blob = attachmentBlob(attachment)
-      const filename = storedAttachmentName(attachment.name || `attachment-${index + 1}`, blob.type)
-      const { file_key } = await api.uploadFile(`${prefix}/${index}/${filename}`, blob, {
-        contentType: blob.type,
-        signal
+  // One failed upload aborts the rest, and whatever already landed is deleted: no run will
+  // read it, and a resend uploads under a fresh prefix. Best effort, so a delete that fails
+  // leaves that object behind rather than masking the upload error.
+  const batch = new AbortController()
+  const abortBatch = () => batch.abort()
+  signal?.addEventListener('abort', abortBatch, { once: true })
+  try {
+    const results = await Promise.allSettled(
+      attachments.map(async (attachment, index) => {
+        try {
+          const blob = attachmentBlob(attachment)
+          const filename = storedAttachmentName(
+            attachment.name || `attachment-${index + 1}`,
+            blob.type
+          )
+          const { file_key } = await api.uploadFile(`${prefix}/${index}/${filename}`, blob, {
+            contentType: blob.type,
+            signal: batch.signal
+          })
+          return { s3: file_key, filename }
+        } catch (e) {
+          batch.abort()
+          throw e
+        }
       })
-      return { s3: file_key, filename }
-    })
-  )
+    )
+    const uploaded = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+    const reasons = results.flatMap((r) => (r.status === 'rejected' ? [r.reason] : []))
+    if (reasons.length === 0) return uploaded
+    await Promise.all(uploaded.map((u) => api.deleteFile(u.s3).catch(() => {})))
+    // The failure that started it, not the aborts it caused in the other uploads.
+    throw reasons.find((reason) => !isAbortError(reason)) ?? reasons[0]
+  } finally {
+    signal?.removeEventListener('abort', abortBatch)
+  }
 }

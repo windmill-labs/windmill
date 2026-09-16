@@ -245,4 +245,78 @@ describe('sendMessage with attachments', () => {
     const reloaded = createChat({ ...options(fetch), storage })
     expect((await reloaded.loadConversations()).map((c) => c.id)).not.toContain(opened)
   })
+
+  test('a failed upload deletes the files of the same batch that did land', async () => {
+    let first: (r: Response) => void = () => {}
+    const { fetch, calls } = fetchMock(
+      (c) => {
+        if (c.url.pathname !== UPLOAD_PATH) return undefined
+        const key = c.url.searchParams.get('file_key')!
+        // The first file lands after the second has already failed.
+        if (key.includes('/0/')) return new Promise<Response>((resolve) => (first = resolve))
+        setTimeout(() => first(json({ file_key: keys()[0] })), 5)
+        return text('quota exceeded', 507)
+      },
+      (c) =>
+        c.method === 'DELETE' && c.url.pathname === '/api/w/ws/job_helpers/delete_s3_file'
+          ? json('deleted')
+          : undefined,
+      run,
+      answer
+    )
+    const keys = () => uploads(calls).map((c) => c.url.searchParams.get('file_key')!)
+    const chat = createChat(options(fetch))
+    await expect(
+      chat.sendMessage('read these', {
+        attachments: [
+          { name: 'a.pdf', data: pdf },
+          { name: 'b.png', data: png }
+        ],
+        attachmentsInput: { name: 'files', multiple: true }
+      })
+    ).rejects.toThrow('quota exceeded')
+    const deletes = calls
+      .filter((c) => c.method === 'DELETE')
+      .map((c) => c.url.searchParams.get('file_key'))
+    expect(deletes).toEqual([keys()[0]])
+    expect(runs(calls)).toHaveLength(0)
+  })
+
+  test('a send made right after stop() is not reset by the stopped upload', async () => {
+    let releaseRun: (r: Response) => void = () => {}
+    const { fetch, calls } = fetchMock(
+      (c) =>
+        c.url.pathname === UPLOAD_PATH
+          ? new Promise((_, reject) =>
+              c.signal!.addEventListener('abort', () => reject(abortError()))
+            )
+          : undefined,
+      (c) =>
+        c.method === 'POST' && c.url.pathname === `/api/w/ws/jobs/run/f/${FLOW}`
+          ? new Promise<Response>((resolve) => (releaseRun = resolve))
+          : undefined,
+      answer
+    )
+    const chat = createChat(options(fetch))
+    // An existing conversation, so the stopped turn and the next one share it.
+    const first = chat.sendMessage('first')
+    await new Promise((r) => setTimeout(r, 0))
+    releaseRun(text('job-1'))
+    await first
+    const stopped = chat.sendMessage('with a file', {
+      attachments: [{ name: 'a.pdf', data: pdf }],
+      attachmentsInput: { name: 'files', multiple: true }
+    })
+    await new Promise((r) => setTimeout(r, 0))
+    void chat.stop()
+    const next = chat.sendMessage('right after')
+    await expect(stopped).rejects.toMatchObject({ name: 'AbortError' })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(chat.getState().status).toBe('submitted')
+    expect(chat.getState().messages.map((m) => m.content)).toContain('right after')
+    expect(chat.getState().messages.map((m) => m.content)).not.toContain('with a file')
+    releaseRun(text('job-1'))
+    await next
+    expect(runs(calls)).toHaveLength(2)
+  })
 })
