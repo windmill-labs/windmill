@@ -322,17 +322,39 @@ export function agentModelGap(wiring: AgentModelWiring | undefined): string | un
  * resource leaves the button nothing to write it with, and hiding it would leave the run
  * without a provider kind and no way to supply one.
  *
- * `reasoning_effort` needs no such condition: the button always draws a thinking control,
- * whatever it can say about the model — a ladder, a typed token, or why there is neither — so
- * a wired effort is always the button's. Asking for it in the modal as well would be a second
- * editor for a field that already has one.
+ * `reasoning_effort` is the button's only where it has a model to place the effort against
+ * (see `composerDrivesEffort`).
  */
 export function agentModelWiringInputs(wiring: AgentModelWiring | undefined): string[] {
 	if (!wiring) return []
 	if (wiring.whole) return [wiring.whole]
-	const driven: ProviderField[] = ['resource', 'model', 'reasoning_effort']
+	const driven: ProviderField[] = ['resource', 'model']
 	if (wiring.fields.resource !== undefined) driven.push('kind')
+	if (composerDrivesEffort(wiring)) driven.push('reasoning_effort')
 	return driven.map((field) => wiring.fields[field]).filter((name): name is string => !!name)
+}
+
+/**
+ * Whether the model button draws the thinking control for a wired effort.
+ *
+ * Every thinking state but one is usable: a ladder, a typed token, or why the model has
+ * neither. The exception is a model the button cannot name, as when agents share an effort
+ * input but fix different models. It would say "Pick a model first" with no model to pick,
+ * so the effort stays with the modal.
+ */
+export function composerDrivesEffort(wiring: AgentModelWiring): boolean {
+	if (wiring.whole) return true
+	if (wiring.fields.reasoning_effort === undefined) return false
+	return wiring.fields.model !== undefined || !agentFieldEmpty(wiring, 'model')
+}
+
+/**
+ * Whether the composer draws a model button at all: something to write, or a fixed model to
+ * name. Agents that fix different models leave neither.
+ */
+export function showsModelButton(wiring: AgentModelWiring | undefined): boolean {
+	if (!wiring) return false
+	return agentModelWiringInputs(wiring).length > 0 || !agentFieldEmpty(wiring, 'model')
 }
 
 /**

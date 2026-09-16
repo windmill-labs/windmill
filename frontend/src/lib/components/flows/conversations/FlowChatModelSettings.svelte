@@ -23,7 +23,11 @@
 	import type { Item } from '$lib/utils'
 	import { Plug, Plus } from 'lucide-svelte'
 	import { resource } from 'runed'
-	import type { AgentModelWiring, ProviderField } from './agentChatInputs'
+	import {
+		composerDrivesEffort,
+		type AgentModelWiring,
+		type ProviderField
+	} from './agentChatInputs'
 
 	interface Props {
 		wiring: AgentModelWiring
@@ -59,7 +63,9 @@
 
 	const resourceEditable = $derived(editable('resource'))
 	const modelEditable = $derived(editable('model'))
-	const effortEditable = $derived(editable('reasoning_effort'))
+	const effortEditable = $derived(composerDrivesEffort(wiring))
+	// Wired, but left to the Configure-inputs modal: the button has no model to place it on.
+	const effortInModal = $derived(wiring.fields.reasoning_effort !== undefined && !effortEditable)
 	// Nothing to write: the flow fixes the lot, so the button names it and opens nothing.
 	const readOnly = $derived(!resourceEditable && !modelEditable && !effortEditable)
 
@@ -227,32 +233,43 @@
 							onSelect: () => setFields({ model: m, ...effortPatch(m) })
 						})),
 						loading: models.loading,
-						emptyMessage: provider ? 'No model available' : 'Pick a provider first'
+						emptyMessage: provider ? 'No model listed' : 'Pick a provider first',
+						// The step's own provider picker takes any model id, and the modal does not
+						// ask for this input: without a typed entry, an endpoint that lists nothing
+						// leaves the run with no model.
+						custom: provider
+							? {
+									placeholder: 'Custom model id',
+									onCommit: (m) => setFields({ model: m, ...effortPatch(m) })
+								}
+							: undefined
 					}
 				]
 			: undefined,
-		// Always present, whatever we can say about it: the run uses an effort either way, and
-		// the control is the only place it can be read or set. What varies is the state it
-		// renders — a ladder, a typed token, why there is none, or what the flow fixed.
-		reasoning: {
-			provider,
-			model: typeof model === 'string' && model ? model : undefined,
-			value: typeof effort === 'string' ? effort : undefined,
-			// An agent writes the provider-native token straight into its step, so there is no
-			// sentinel to translate later. Where a model disables by omission instead, the empty
-			// string is that off: the run reads an empty `reasoning_effort` as absent
-			// (types.rs `get_reasoning_effort`).
-			offToken:
-				provider && typeof model === 'string' && model
-					? (explicitOffToken(provider, model) ?? '')
-					: '',
-			// An agent step omits `reasoning_effort` when it is unset, so the provider picks —
-			// naming a level would claim something the run does not do.
-			sendsDefaultWhenUnset: false,
-			writable: effortEditable,
-			typedWhenUnknown: true,
-			onSelect: (token) => setFields({ reasoning_effort: token })
-		}
+		// Present whatever we can say about it, since the run uses an effort either way: a ladder,
+		// a typed token, why there is none, or what the flow fixed. Absent only when the modal
+		// is the effort's editor.
+		reasoning: effortInModal
+			? undefined
+			: {
+					provider,
+					model: typeof model === 'string' && model ? model : undefined,
+					value: typeof effort === 'string' ? effort : undefined,
+					// An agent writes the provider-native token straight into its step, so there is no
+					// sentinel to translate later. Where a model disables by omission instead, the empty
+					// string is that off: the run reads an empty `reasoning_effort` as absent
+					// (types.rs `get_reasoning_effort`).
+					offToken:
+						provider && typeof model === 'string' && model
+							? (explicitOffToken(provider, model) ?? '')
+							: '',
+					// An agent step omits `reasoning_effort` when it is unset, so the provider picks —
+					// naming a level would claim something the run does not do.
+					sendsDefaultWhenUnset: false,
+					writable: effortEditable,
+					typedWhenUnknown: true,
+					onSelect: (token) => setFields({ reasoning_effort: token })
+				}
 	})
 </script>
 

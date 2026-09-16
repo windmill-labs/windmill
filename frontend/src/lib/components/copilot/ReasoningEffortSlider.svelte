@@ -31,8 +31,8 @@
 
 	/**
 	 * A `current` naming no stop is a real state, not a missing one: an agent that leaves the
-	 * effort unset sends nothing and the provider decides. Three things follow, and each has
-	 * been got wrong on its own — keep them together.
+	 * effort unset sends nothing and the provider decides. Three things follow, and they only
+	 * hold together.
 	 *
 	 * The thumb rests at the start, because a range input always has one somewhere, and
 	 * `overrideLabel` is what tells the reader this is not the lowest stop. The track is

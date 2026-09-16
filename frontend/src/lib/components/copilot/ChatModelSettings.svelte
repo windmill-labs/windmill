@@ -48,8 +48,8 @@
 				})
 			: undefined
 	)
-	// The stops, the one in use and the trigger's suffix are decided together, in one
-	// tested place: they have to agree, and three rounds of review found them disagreeing.
+	// The stops, the one in use and the trigger's suffix are decided together, in one tested
+	// place: a stop the slider shows as `off` must not read as the provider's `none` on the button.
 	const display = $derived(reasoningDisplay(reasoning, capability, effective))
 	const stops = $derived(display.stops)
 	const currentStop = $derived(display.currentStop)
@@ -117,7 +117,49 @@
 	</div>
 {/snippet}
 
-{#snippet section(sec: ChoiceSection, item: MeltItem)}
+{#snippet typedField(
+	value: string,
+	placeholder: string,
+	onCommit: (value: string) => void,
+	close: () => void
+)}
+	{#key value}
+		<TextInput
+			size="sm"
+			{value}
+			inputProps={{
+				placeholder,
+				onchange: (e) => onCommit(e.currentTarget.value.trim()),
+				// Capture, not bubble: Svelte delegates `keydown` to the root, which sits above the
+				// menu — so a bubble handler here would run only after melt's own listener had read
+				// the key as typeahead and moved focus. A capture key is not delegatable, so this
+				// becomes a real listener on the input and sees the event first.
+				onkeydowncapture: (e) => {
+					// Escape cancels: let it reach the menu with the value untouched.
+					if (e.key === 'Escape') return
+					// Tab closes the menu, unmounting this field before focus moves, so no change
+					// event would ever fire. Commit on the way past.
+					if (e.key === 'Tab') {
+						onCommit(e.currentTarget.value.trim())
+						return
+					}
+					// Enter means done: commit and close, rather than leaving the menu open around a
+					// field the commit is about to rebuild.
+					if (e.key === 'Enter') {
+						e.preventDefault()
+						onCommit(e.currentTarget.value.trim())
+						close()
+						return
+					}
+					// Everything else is typing; the menu reads loose keys as typeahead.
+					e.stopPropagation()
+				}
+			}}
+		/>
+	{/key}
+{/snippet}
+
+{#snippet section(sec: ChoiceSection, item: MeltItem, close: () => void)}
 	<div class="px-3 pt-1.5 pb-1 text-2xs uppercase tracking-wide text-secondary">{sec.label}</div>
 	{#if sec.loading}
 		<div class="flex items-center gap-2 px-3 py-1.5 text-tertiary">
@@ -138,6 +180,19 @@
 					{/if}
 				</MenuItem>
 			{/each}
+		</div>
+	{/if}
+	{#if sec.custom && !sec.loading}
+		{@const custom = sec.custom}
+		<div class="px-3 pt-1 pb-1.5">
+			{@render typedField(
+				'',
+				custom.placeholder,
+				(value) => {
+					if (value) custom.onCommit(value)
+				},
+				close
+			)}
 		</div>
 	{/if}
 {/snippet}
@@ -188,7 +243,7 @@
 				{/if}
 				{#each config.sections ?? [] as sec (sec.label)}
 					<div class={BLOCK_CLASS}>
-						{@render section(sec, item)}
+						{@render section(sec, item, close)}
 					</div>
 				{/each}
 				{#if reasoning}
@@ -213,41 +268,7 @@
 							     would be a guess, and offering nothing would leave it settable nowhere. -->
 							<div class="px-3 pt-1 pb-1.5">
 								<div class="text-2xs uppercase tracking-wide text-secondary mb-1">Thinking</div>
-								{#key reasoning.value}
-									<TextInput
-										size="sm"
-										value={reasoning.value ?? ''}
-										inputProps={{
-											placeholder: 'none',
-											onchange: (e) => reasoning?.onSelect(e.currentTarget.value.trim()),
-											// Capture, not bubble: Svelte delegates `keydown` to the root, which sits
-											// above the menu — so a bubble handler here would run only after melt's own
-											// listener had read the key as typeahead and moved focus. A capture key is
-											// not delegatable, so this becomes a real listener on the input and sees the
-											// event first.
-											onkeydowncapture: (e) => {
-												// Escape cancels: let it reach the menu with the value untouched.
-												if (e.key === 'Escape') return
-												// Tab closes the menu, unmounting this field before focus moves, so no
-												// change event would ever fire. Commit on the way past.
-												if (e.key === 'Tab') {
-													reasoning?.onSelect(e.currentTarget.value.trim())
-													return
-												}
-												// Enter means done: commit and close, rather than leaving the menu open
-												// around a field the commit is about to rebuild.
-												if (e.key === 'Enter') {
-													e.preventDefault()
-													reasoning?.onSelect(e.currentTarget.value.trim())
-													close()
-													return
-												}
-												// Everything else is typing; the menu reads loose keys as typeahead.
-												e.stopPropagation()
-											}
-										}}
-									/>
-								{/key}
+								{@render typedField(reasoning.value ?? '', 'none', reasoning.onSelect, close)}
 								<div class="text-2xs text-tertiary mt-1">
 									Windmill has no thinking levels for this provider — type what it accepts.
 								</div>

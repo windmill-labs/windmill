@@ -31,6 +31,11 @@ export type ChoiceSection = {
 	/** Shown when the list is empty and settled. */
 	emptyMessage?: string
 	maxHeight?: string
+	/**
+	 * A typed entry under the options, for a value the list does not hold: an endpoint with no
+	 * listing, or a model newer than the catalogue. An empty entry commits nothing.
+	 */
+	custom?: { placeholder: string; onCommit: (value: string) => void }
 }
 
 export type ChatModelSettingsConfig = {

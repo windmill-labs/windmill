@@ -17,6 +17,7 @@
 		agentModelGap,
 		composerOwnedInputs,
 		resolveAgentModelWiring,
+		showsModelButton,
 		withoutRejectedEffort
 	} from './agentChatInputs'
 
@@ -61,6 +62,7 @@
 	// An agent with nothing to call cannot answer, and the composer cannot fix it, so the
 	// chat says what to go and do instead of offering controls that write nowhere.
 	const modelGap = $derived(agentModelGap(modelWiring))
+	const showModelButton = $derived(showsModelButton(modelWiring))
 
 	// LocalStorage helpers
 	const STORAGE_KEY_PREFIX = 'windmill_flow_chat_inputs_'
@@ -249,7 +251,7 @@
 			{/if}
 		</div>
 	{/if}
-	{#if modelWiring}
+	{#if modelWiring && showModelButton}
 		<!-- `runInputs`, not `effectiveInputs`: a stored effort the model rejects is dropped
 		     before the run, and the button must not name one the run will not send. -->
 		<FlowChatModelSettings
@@ -283,7 +285,7 @@
 		hideModeSelector
 		{wideLayout}
 		{emptyHint}
-		footerSettings={modalSchema || modelWiring ? footerSettings : undefined}
+		footerSettings={modalSchema || showModelButton ? footerSettings : undefined}
 		placeholder="Send a message to run the flow"
 		disabled={deploymentInProgress || !!modelGap}
 		disabledMessage={deploymentInProgress ? 'Deployment in progress' : (modelGap ?? '')}

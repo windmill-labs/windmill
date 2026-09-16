@@ -129,8 +129,7 @@ describe('reasoningDisplay', () => {
 describe('carriedReasoning', () => {
 	const cap = (model: string) => getReasoningCapability('openai', model)
 
-	// The bug this exists for: picking a model that cannot think left the old level in the
-	// flow input, and the run sent it anyway.
+	// A level carried onto a model that cannot think stays in the flow input, and the run sends it.
 	it('drops a level the new model does not have', () => {
 		expect(carriedReasoning('high', '', cap('gpt-4o'))).toBeUndefined()
 		expect(carriedReasoning('xhigh', '', cap('gpt-5.1'))).toBeUndefined()

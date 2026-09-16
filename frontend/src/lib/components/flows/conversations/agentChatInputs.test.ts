@@ -5,6 +5,7 @@ import {
 	composerOwnedInputs,
 	parseProviderTransform,
 	resolveAgentModelWiring,
+	showsModelButton,
 	withoutRejectedEffort
 } from './agentChatInputs'
 import type { FlowModule } from '$lib/gen'
@@ -113,9 +114,9 @@ describe('agentModelWiringInputs', () => {
 		expect(agentModelWiringInputs(wiring)?.sort()).toEqual(['k', 'm', 'r'])
 	})
 
-	// The button always draws a thinking control — a ladder, a typed token, or why there is
-	// neither — so a wired effort is the button's whatever the registry knows about the model.
-	it('always claims a wired reasoning_effort, whatever the provider', () => {
+	// A thinking control is usable whatever the registry knows about the model — a ladder, a
+	// typed token, or why there is neither — so a wired effort is the button's there.
+	it('claims a wired reasoning_effort whatever the provider', () => {
 		const custom = resolveAgentModelWiring([
 			agent(
 				`({ "kind": "customai", "resource": "$res:u/admin/custom", model: flow_input.m, reasoning_effort: flow_input.thinking })`
@@ -130,10 +131,22 @@ describe('agentModelWiringInputs', () => {
 		])
 		expect(agentModelWiringInputs(known)).toEqual(['thinking'])
 	})
+
+	// Agents on different fixed models leave the button no model to place the effort on, so
+	// it would say "Pick a model first" with nothing to pick. The modal keeps the input.
+	it('leaves a shared effort to the modal when the agents fix different models', () => {
+		const resource = `"kind": "anthropic", "resource": "$res:u/admin/claude"`
+		const wiring = resolveAgentModelWiring([
+			agent(`({ ${resource}, "model": "claude-sonnet-5", reasoning_effort: flow_input.thinking })`),
+			agent(`({ ${resource}, "model": "claude-opus-5", reasoning_effort: flow_input.thinking })`)
+		])
+		expect(wiring?.fields.reasoning_effort).toBe('thinking')
+		expect(agentModelWiringInputs(wiring)).toEqual([])
+		expect(showsModelButton(wiring)).toBe(false)
+	})
 })
 
-// The modal is whatever this does not return, so the two can no longer disagree about an
-// input — and what a control can do *right now* is deliberately not part of the answer.
+// The modal is whatever this does not return, so the two cannot disagree about an input.
 describe('composerOwnedInputs', () => {
 	const wiring = () =>
 		resolveAgentModelWiring([
