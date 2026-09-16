@@ -4650,6 +4650,12 @@ pub fn tag_reads_args(tag: &str) -> bool {
     RE_ARG_TAG.is_match(tag)
 }
 
+/// Whether the tag reads the flow's state (`$flow_expr[results.a.foo]`). Only the flow runtime
+/// can resolve it, right before pushing the step; `push` leaves it verbatim.
+pub fn tag_reads_flow_expr(tag: &str) -> bool {
+    RE_FLOW_EXPR_TAG.is_match(tag)
+}
+
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
     // Save this value to avoid parsing twice
     let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
@@ -5269,6 +5275,8 @@ pub fn empty_result() -> Box<RawValue> {
 
 lazy_static::lazy_static! {
     pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[((?:\w+\.)*\w+)\]"#).unwrap();
+    pub static ref RE_FLOW_EXPR_TAG: Regex =
+        Regex::new(r#"\$flow_expr\[((?:\w+\.)*\w+)\]"#).unwrap();
 }
 
 #[cfg(feature = "cloud")]

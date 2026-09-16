@@ -3312,3 +3312,60 @@ export function main(i: number) {
 
     Ok(())
 }
+
+// A `$flow_expr[...]` step tag is resolved from the flow's state before the step is pushed, and
+// one that cannot be evaluated fails the step instead of queueing it on a tag no worker serves.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_expr_step_tag(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let step = |id: &str, tag: Option<&str>| {
+        flow_module(
+            id,
+            FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: "export function main() { return { lang: 'bun' } }".to_string(),
+                path: None,
+                lock: None,
+                tag: tag.map(str::to_string),
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            },
+        )
+    };
+    let flow = FlowValue {
+        modules: vec![
+            step("a", None),
+            step("b", Some("$flow_expr[results.a.lang]")),
+            step("c", Some("nobody-serves-$flow_expr[a.lang]")),
+        ],
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, server.addr.port())
+        .await;
+
+    let b_tag = sqlx::query_scalar::<_, String>(
+        "SELECT tag FROM v2_job WHERE parent_job = $1 AND flow_step_id = 'b'",
+    )
+    .bind(job.id)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(b_tag, "bun");
+
+    assert!(!job.success);
+    let result = job.json_result().unwrap();
+    let message = result["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("Could not resolve the step tag `nobody-serves-$flow_expr[a.lang]`"),
+        "got {result:?}"
+    );
+
+    Ok(())
+}

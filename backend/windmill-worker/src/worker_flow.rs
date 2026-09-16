@@ -71,8 +71,8 @@ use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
     insert_concurrency_key_capped, interpolate_args,
     report_error_to_workspace_handler_or_critical_side_channel, tag_reads_args,
-    try_schedule_next_job, CanceledBy, FlowRunners, MiniCompletedJob, MiniPulledJob, PushArgs,
-    PushIsolationLevel, SameWorkerPayload, WrappedError,
+    tag_reads_flow_expr, try_schedule_next_job, CanceledBy, FlowRunners, MiniCompletedJob,
+    MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError, RE_FLOW_EXPR_TAG,
 };
 
 use windmill_audit::audit_oss::audit_log;
@@ -3114,6 +3114,48 @@ fn resolve_flow_step_tag(
     }
 }
 
+/// Resolves each `$flow_expr[path]` of a step tag by evaluating `path` as a flow expression
+/// (`results.a.foo`, `flow_input.region`, `flow_env.pool`). A string renders bare, `null` (also
+/// what a missing field evaluates to) renders empty, any other value as its JSON text.
+async fn interpolate_flow_expr_tag(
+    tag: &str,
+    last_result: Arc<Box<RawValue>>,
+    flow_args: Marc<HashMap<String, Box<RawValue>>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    client: &AuthedClient,
+    by_id: &IdContext,
+) -> error::Result<String> {
+    let mut rendered: HashMap<&str, String> = HashMap::new();
+    for cap in RE_FLOW_EXPR_TAG.captures_iter(tag) {
+        let expr = cap.get(1).unwrap().as_str();
+        if rendered.contains_key(expr) {
+            continue;
+        }
+        let value = evaluate_input_transform::<Value>(
+            &InputTransform::new_javascript_expr(expr),
+            last_result.clone(),
+            Some(flow_args.clone()),
+            flow_env,
+            Some(client),
+            Some(by_id),
+        )
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("Could not resolve the step tag `{tag}`: {e}")))?;
+        rendered.insert(expr, render_flow_expr_tag_value(value));
+    }
+    Ok(RE_FLOW_EXPR_TAG
+        .replace_all(tag, |cap: &regex::Captures| rendered[&cap[1]].clone())
+        .into_owned())
+}
+
+fn render_flow_expr_tag_value(value: Value) -> String {
+    match value {
+        Value::String(s) => s,
+        Value::Null => String::new(),
+        v => v.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tag_resolution_tests {
     use super::resolve_flow_step_tag;
@@ -4192,6 +4234,11 @@ async fn push_next_flow_job(
             None
         };
 
+        // The scope the step's input transforms were evaluated in, which a `$flow_expr[...]` tag
+        // must read too.
+        let mut expr_flow_args = arc_flow_job_args.clone();
+        let mut expr_previous_id = previous_id.as_str();
+
         let marc;
         let me;
         let args = match &next_status {
@@ -4216,8 +4263,11 @@ async fn push_next_flow_job(
                 if let Some(input_transforms) = simple_input_transforms {
                     //previous id is none because we do not want to use previous id if we are in a for loop
                     let ctx = get_transform_context(&flow_job, "", &status);
+                    let args = Marc::new(args);
+                    expr_flow_args = args.clone();
+                    expr_previous_id = "";
                     let ti = transform_input(
-                        Marc::new(args),
+                        args,
                         flow_env,
                         arc_last_job_result.clone(),
                         input_transforms,
@@ -4396,17 +4446,21 @@ async fn push_next_flow_job(
             payload_tag.tag.as_deref(),
         );
 
-        // `push_args` is empty once the input transforms failed, so a tag reading `$args[...]`
-        // interpolates to a queue nobody serves and the step sits there instead of reporting
-        // the error. Send it to the flow's tag, which a worker is provably serving right now.
+        // A step whose inputs, or whose `$flow_expr[...]` tag, failed to evaluate is pushed only
+        // to report the error, and a computed tag can then name a queue nobody serves (`push_args`
+        // is empty, so `$args[...]` reads nothing), leaving the step stuck instead. Send it to the
+        // flow's tag, which a worker is provably serving right now.
         //
         // A step handed over by id, or one whose tag `push` replaces, never reaches a worker
         // through its tag, so rewriting theirs would be noise.
         let step_is_pulled_by_tag = !continue_on_same_worker
             && !continue_with_runners
             && !payload_tag.payload.is_dedicated_worker();
-        let reroute_to_flow_tag =
-            err.is_some() && step_is_pulled_by_tag && tag.as_deref().is_some_and(tag_reads_args);
+        let reroute_to_flow_tag = err.is_some()
+            && step_is_pulled_by_tag
+            && tag
+                .as_deref()
+                .is_some_and(|t| tag_reads_args(t) || tag_reads_flow_expr(t));
         let tag = if reroute_to_flow_tag {
             Some(flow_job.tag.clone())
         } else {
@@ -4447,6 +4501,38 @@ async fn push_next_flow_job(
             )
             .await?;
         }
+
+        // Resolved only after the check: CUSTOM_TAGS allows the template, so its value may name
+        // any queue, as the value of an `$args[...]` tag does.
+        let mut tag_err = None;
+        let tag = match tag {
+            Some(t) if err.is_none() && tag_reads_flow_expr(&t) => {
+                let ctx = get_transform_context(&flow_job, expr_previous_id, &status);
+                match interpolate_flow_expr_tag(
+                    &t,
+                    arc_last_job_result.clone(),
+                    expr_flow_args.clone(),
+                    flow_env,
+                    client,
+                    &ctx,
+                )
+                .warn_after_seconds(3)
+                .await
+                {
+                    Ok(resolved) => Some(resolved),
+                    Err(e) => {
+                        tag_err = Some(e);
+                        Some(if step_is_pulled_by_tag {
+                            flow_job.tag.clone()
+                        } else {
+                            t
+                        })
+                    }
+                }
+            }
+            t => t,
+        };
+        let err = err.or(tag_err.as_ref());
 
         let evaluated_timeout = if let Some(timeout_transform) = &module.timeout {
             let ctx = get_transform_context(&flow_job, &previous_id, &status);
