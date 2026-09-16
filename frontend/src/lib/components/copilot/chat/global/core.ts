@@ -181,6 +181,7 @@ import {
 	workspaceStore
 } from '$lib/stores'
 import { getWorkspaceRole, type RoleLookup } from '$lib/user'
+import { refreshSuperadmin } from '$lib/refreshUser'
 import { get } from 'svelte/store'
 import {
 	canonicalDraftSideValue,
@@ -3801,6 +3802,10 @@ export const globalTools: Tool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing workers...' })
 			const pings = await WorkerService.listWorkers({ perPage: WORKER_PAGE_SIZE })
 			if (pings.length === 0) {
+				// Both role stores resolve asynchronously, and an unloaded one must not read as
+				// an absent role — that hedges the answer this branch exists to give plainly.
+				// No-ops once they hold a value.
+				await refreshSuperadmin()
 				const hiddenFromCaller = !get(superadmin) && !get(devopsRole)
 				const message = hiddenFromCaller ? NO_WORKERS_VISIBLE_MESSAGE : NO_WORKERS_CONNECTED_MESSAGE
 				toolCallbacks.setToolStatus(toolId, {

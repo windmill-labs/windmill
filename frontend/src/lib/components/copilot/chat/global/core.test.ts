@@ -244,6 +244,17 @@ vi.mock('$lib/gen', async () => {
 				const user = whoamiByWorkspace.get(workspace)
 				if (!user) throw new Error(`not a member of ${workspace}`)
 				return user
+			}),
+			// `refreshSuperadmin` cancels the previous in-flight call, so this stands in for
+			// the CancelablePromise the real client returns.
+			globalWhoami: vi.fn(() => {
+				const pending: any = Promise.resolve({
+					email: 'devops@windmill.dev',
+					super_admin: false,
+					devops: true
+				})
+				pending.cancel = () => {}
+				return pending
 			})
 		}),
 		DraftService: wrapService(actual.DraftService, {
@@ -752,6 +763,24 @@ describe('global AI tools', () => {
 		expect(result).not.toContain('10.0.0.1')
 	})
 
+	it('says so when the worker page is cut short', async () => {
+		vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce(
+			Array(100).fill({
+				worker: 'wk',
+				worker_group: 'default',
+				custom_tags: [],
+				last_ping: 1,
+				jobs_executed: 0
+			}) as any
+		)
+
+		const result = await callGlobalTool('list_workers', {})
+
+		// A full page is indistinguishable from the whole fleet, and the model reasons
+		// about tag coverage from this list.
+		expect(JSON.parse(result).note).toContain('Only the first 100 workers')
+	})
+
 	describe('list_workers with nothing to show', () => {
 		afterEach(() => {
 			superadmin.set(undefined)
@@ -782,6 +811,18 @@ describe('global AI tools', () => {
 			// stuck queue is waiting on.
 			expect(result).toContain('No workers are connected')
 			expect(result).not.toContain('does NOT establish')
+		})
+
+		it('resolves the role before deciding, rather than reading unloaded stores as no role', async () => {
+			// Both stores start undefined; without the refresh a devops caller whose whoami
+			// has not landed yet is hedged at instead of answered.
+			expect(get(superadmin)).toBeUndefined()
+			expect(get(devopsRole)).toBeUndefined()
+			vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce([])
+
+			const result = await callGlobalTool('list_workers', {})
+
+			expect(result).toContain('No workers are connected')
 		})
 	})
 
