@@ -1442,6 +1442,7 @@ const CLEANED_VALUE_KEYS = new Set([
 	'draft_only',
 	'draft_saved_at',
 	'draft_created_at',
+	'draft_base',
 	'is_draft',
 	'other_drafts_users',
 	'created_at',

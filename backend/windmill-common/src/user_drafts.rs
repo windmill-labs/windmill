@@ -790,6 +790,21 @@ pub async fn record_draft_move(
     )
     .execute(&mut **tx)
     .await?;
+    // Routes that ended at the destination before this move describe drafts that were
+    // carried there for an item this one is replacing: left alive, a save addressed to
+    // the start of that chain would land on this move's draft instead.
+    sqlx::query!(
+        "DELETE FROM draft_move
+         WHERE workspace_id = $1 AND typ::text = ANY($2::text[])
+           AND new_path = $4 AND old_path <> $3 AND ($5::text IS NULL OR email = $5)",
+        w_id,
+        &typs as &[&str],
+        old_path,
+        new_path,
+        email,
+    )
+    .execute(&mut **tx)
+    .await?;
     sqlx::query!(
         "UPDATE draft_move SET new_path = $4
          WHERE workspace_id = $1 AND typ::text = ANY($2::text[])
@@ -842,8 +857,11 @@ pub async fn record_draft_move(
     Ok(())
 }
 
-/// Drop the move records leaving `path`: an item was just created there, and saves
-/// addressed to it are its own.
+/// Drop the move records at `path`: an item was just created there, so saves addressed to
+/// it are its own (records leaving `path`). A deploy that is not a rename also drops the
+/// records arriving, which point at an item that no longer owns the path; `keep_from`,
+/// the path a rename came from, suppresses that, since the chain ending here is the one
+/// this very deploy just wrote.
 ///
 /// **The caller must have authorized the deploy that created the item first.**
 /// Dropping a record sends later draft writes at `path` back to `path`.
@@ -852,13 +870,16 @@ pub async fn clear_draft_moves_from(
     w_id: &str,
     kinds: &[UserDraftItemKind],
     path: &str,
+    keep_from: Option<&str>,
 ) -> Result<()> {
     let typs = kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
     sqlx::query!(
-        "DELETE FROM draft_move WHERE workspace_id = $1 AND typ::text = ANY($2::text[]) AND old_path = $3",
+        "DELETE FROM draft_move WHERE workspace_id = $1 AND typ::text = ANY($2::text[])
+           AND (old_path = $3 OR (new_path = $3 AND $4::text IS NULL))",
         w_id,
         &typs as &[&str],
         path,
+        keep_from,
     )
     .execute(&mut **tx)
     .await?;

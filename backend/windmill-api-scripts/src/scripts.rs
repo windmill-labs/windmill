@@ -2426,6 +2426,7 @@ async fn create_script_internal<'c>(
         &w_id,
         &[UserDraftItemKind::Script],
         &ns.path,
+        p_path_opt.as_deref(),
     )
     .await?;
     if p_hashes.is_some() && !p_hashes.unwrap().is_empty() {

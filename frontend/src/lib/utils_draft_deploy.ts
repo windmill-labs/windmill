@@ -262,7 +262,7 @@ export async function getDraftDiffValues(
 	// draft-table row (e.g. a flow created via createFlow(draft_only: true), like
 	// `u/admin/new`). There `draft` is null, so the draft side must fall back to
 	// the row's own value — otherwise the diff "after" is empty and nothing shows.
-	// Strip overlay metadata (is_draft / draft_saved_at / no_deployed /
+	// Strip overlay metadata (is_draft / draft_saved_at / draft_base / no_deployed /
 	// other_drafts_users) from the deployed side so the diff doesn't show the
 	// per-user markers as noise.
 	if (kind === 'script') {
@@ -271,6 +271,7 @@ export async function getDraftDiffValues(
 			draft,
 			is_draft: _i,
 			draft_saved_at: _c,
+			draft_base: _b,
 			no_deployed,
 			other_drafts_users: _o,
 			hash: _h,
@@ -289,6 +290,7 @@ export async function getDraftDiffValues(
 			draft,
 			is_draft: _i,
 			draft_saved_at: _c,
+			draft_base: _b,
 			no_deployed,
 			other_drafts_users: _o,
 			version_id: _v,

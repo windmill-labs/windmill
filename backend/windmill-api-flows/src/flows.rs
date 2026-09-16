@@ -719,6 +719,7 @@ async fn create_flow(
         &w_id,
         &[UserDraftItemKind::Flow],
         &nf.path,
+        None,
     )
     .await?;
 

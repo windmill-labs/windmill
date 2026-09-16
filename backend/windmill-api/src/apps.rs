@@ -2611,6 +2611,7 @@ async fn create_app_internal<'a>(
         &w_id,
         &[UserDraftItemKind::App, UserDraftItemKind::RawApp],
         &app.path,
+        None,
     )
     .await?;
     let id = sqlx::query_scalar!(

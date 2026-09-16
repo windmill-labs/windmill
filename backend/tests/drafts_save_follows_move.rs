@@ -530,3 +530,58 @@ async fn test_a_moved_draft_deploys_at_its_new_path(db: Pool<Postgres>) -> anyho
     assert_eq!(status, 201, "the moved draft could not be deployed: {body}");
     Ok(())
 }
+
+/// A route is only as good as the item it points at: when an unrelated item claims the
+/// destination, a save still addressed to the old path must stay where it is rather than
+/// land on that item's draft.
+#[sqlx::test(fixtures("base", "drafts_save_follows_move"))]
+async fn test_a_reused_destination_ends_the_route(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query("UPDATE script SET archived = true WHERE path = 'u/test-user/follow_a'")
+        .execute(&db)
+        .await?;
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/drafts/move/script/u/test-user/follow_a"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({ "new_path": "u/test-user/follow_b" }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "move failed: {}",
+        resp.text().await?
+    );
+    // Someone else's item takes the destination, and the moved draft goes with the
+    // deploy that consumes it.
+    sqlx::query("DELETE FROM draft WHERE workspace_id = 'test-workspace' AND path = 'u/test-user/follow_b'")
+        .execute(&db)
+        .await?;
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/scripts/create"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({
+            "path": "u/test-user/follow_b",
+            "summary": "unrelated",
+            "description": "",
+            "content": "export function main() { return 3 }",
+            "language": "deno",
+            "schema": {}
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "create failed: {}", resp.text().await?);
+
+    assert_eq!(
+        save_at(port, "u/test-user/follow_a", "after the destination was reused").await?,
+        "u/test-user/follow_a",
+        "a save was routed onto the item that now owns the destination"
+    );
+    Ok(())
+}
