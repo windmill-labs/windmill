@@ -144,6 +144,20 @@ describe('agentModelWiringInputs', () => {
 		expect(agentModelWiringInputs(wiring)).toEqual([])
 		expect(showsModelButton(wiring)).toBe(false)
 	})
+
+	// The same one level up: agents on different providers leave the model menu nothing to
+	// list and no provider to gate a typed id, so the shared model input stays in the modal.
+	it('leaves a shared model to the modal when the agents fix different providers', () => {
+		const wiring = resolveAgentModelWiring([
+			agent(`({ "kind": "openai", "resource": "$res:u/admin/oai", model: flow_input.model })`),
+			agent(
+				`({ "kind": "azure_openai", "resource": "$res:u/admin/azure", model: flow_input.model })`
+			)
+		])
+		expect(wiring?.fields.model).toBe('model')
+		expect(agentModelWiringInputs(wiring)).toEqual([])
+		expect(showsModelButton(wiring)).toBe(false)
+	})
 })
 
 // The modal is whatever this does not return, so the two cannot disagree about an input.

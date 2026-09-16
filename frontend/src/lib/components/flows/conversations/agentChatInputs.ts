@@ -314,38 +314,47 @@ export function agentModelGap(wiring: AgentModelWiring | undefined): string | un
 }
 
 /**
- * The flow inputs the model button actually writes, so the modal does not ask for them a
- * second time — and, just as much, so it still asks for the ones the button cannot reach.
+ * The provider fields the model button edits. Everything else wired to an input is left to
+ * the Configure-inputs modal, and the button draws no control for it.
  *
- * `kind` is the one to watch: the button writes it only alongside a resource, since a
- * provider is picked as a pair. A flow that wires `kind` to an input while fixing the
- * resource leaves the button nothing to write it with, and hiding it would leave the run
- * without a provider kind and no way to supply one.
- *
- * `reasoning_effort` is the button's only where it has a model to place the effort against
- * (see `composerDrivesEffort`).
+ * A field is the button's only where its control can be used, which each field makes depend
+ * on the one before it. An input promoted without a usable control is one nothing can edit.
+ * - `resource` is always usable: the submenu lists the workspace's AI resources.
+ * - `kind` is written only alongside a resource, since a provider is picked as a pair. Wired
+ *   with the resource fixed, the button has nothing to write it with.
+ * - `model` needs a provider to list models for and to gate the typed entry: a wired resource
+ *   or kind, or one fixed kind. Agents that fix different kinds leave none.
+ * - `reasoning_effort` needs a model to place the effort on: a driven model or one fixed
+ *   model. Agents that fix different models leave none.
  */
+export function composerDrivenFields(wiring: AgentModelWiring): Set<ProviderField> {
+	if (wiring.whole) return new Set(PROVIDER_FIELDS)
+	const wired = (field: ProviderField) => wiring.fields[field] !== undefined
+	const driven = new Set<ProviderField>()
+	if (wired('resource')) {
+		driven.add('resource')
+		if (wired('kind')) driven.add('kind')
+	}
+	const providerKnown = wired('resource') || wired('kind') || fixedOne(wiring, 'kind')
+	if (wired('model') && providerKnown) driven.add('model')
+	const modelKnown = driven.has('model') || fixedOne(wiring, 'model')
+	if (wired('reasoning_effort') && modelKnown) driven.add('reasoning_effort')
+	return driven
+}
+
+/** Whether every agent fixes the field to the same non-empty literal. */
+function fixedOne(wiring: AgentModelWiring, field: ProviderField): boolean {
+	const value = wiring.fixed[field]
+	return value !== undefined && value !== ''
+}
+
+/** The flow inputs the model button writes, so the modal does not ask for them twice. */
 export function agentModelWiringInputs(wiring: AgentModelWiring | undefined): string[] {
 	if (!wiring) return []
 	if (wiring.whole) return [wiring.whole]
-	const driven: ProviderField[] = ['resource', 'model']
-	if (wiring.fields.resource !== undefined) driven.push('kind')
-	if (composerDrivesEffort(wiring)) driven.push('reasoning_effort')
-	return driven.map((field) => wiring.fields[field]).filter((name): name is string => !!name)
-}
-
-/**
- * Whether the model button draws the thinking control for a wired effort.
- *
- * Every thinking state but one is usable: a ladder, a typed token, or why the model has
- * neither. The exception is a model the button cannot name, as when agents share an effort
- * input but fix different models. It would say "Pick a model first" with no model to pick,
- * so the effort stays with the modal.
- */
-export function composerDrivesEffort(wiring: AgentModelWiring): boolean {
-	if (wiring.whole) return true
-	if (wiring.fields.reasoning_effort === undefined) return false
-	return wiring.fields.model !== undefined || !agentFieldEmpty(wiring, 'model')
+	return [...composerDrivenFields(wiring)]
+		.map((field) => wiring.fields[field])
+		.filter((name): name is string => !!name)
 }
 
 /**
@@ -354,7 +363,7 @@ export function composerDrivesEffort(wiring: AgentModelWiring): boolean {
  */
 export function showsModelButton(wiring: AgentModelWiring | undefined): boolean {
 	if (!wiring) return false
-	return agentModelWiringInputs(wiring).length > 0 || !agentFieldEmpty(wiring, 'model')
+	return agentModelWiringInputs(wiring).length > 0 || fixedOne(wiring, 'model')
 }
 
 /**

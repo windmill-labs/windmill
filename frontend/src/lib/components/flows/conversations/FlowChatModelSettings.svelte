@@ -24,7 +24,7 @@
 	import { Plug, Plus } from 'lucide-svelte'
 	import { resource } from 'runed'
 	import {
-		composerDrivesEffort,
+		composerDrivenFields,
 		type AgentModelWiring,
 		type ProviderField
 	} from './agentChatInputs'
@@ -45,8 +45,10 @@
 		return name ? values[name] : wiring.fixed[field]
 	}
 
+	const driven = $derived(composerDrivenFields(wiring))
+
 	function editable(field: ProviderField): boolean {
-		return wiring.whole !== undefined || wiring.fields[field] !== undefined
+		return driven.has(field)
 	}
 
 	/** Written together, because choosing a resource also invalidates the model. */
@@ -63,7 +65,7 @@
 
 	const resourceEditable = $derived(editable('resource'))
 	const modelEditable = $derived(editable('model'))
-	const effortEditable = $derived(composerDrivesEffort(wiring))
+	const effortEditable = $derived(editable('reasoning_effort'))
 	// Wired, but left to the Configure-inputs modal: the button has no model to place it on.
 	const effortInModal = $derived(wiring.fields.reasoning_effort !== undefined && !effortEditable)
 	// Nothing to write: the flow fixes the lot, so the button names it and opens nothing.
@@ -180,7 +182,9 @@
 			// arrives async, so there is nothing to carry the current one against — nor the
 			// effort, which only means something against a model. Cleared only where the
 			// registry can speak for the new provider, for the same reason as `effortPatch`.
-			model: undefined,
+			// `''`, not `undefined`: storage drops an undefined key, and the schema's default
+			// model would then come back under the new provider on reload.
+			model: '',
 			...(getReasoningCapability(picked, '').known ? { reasoning_effort: '' } : {})
 		})
 	}
