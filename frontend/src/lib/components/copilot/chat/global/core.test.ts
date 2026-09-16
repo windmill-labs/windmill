@@ -752,33 +752,37 @@ describe('global AI tools', () => {
 		expect(result).not.toContain('10.0.0.1')
 	})
 
-	it('never reports an empty worker list as an absence to a caller workers can be hidden from', async () => {
-		superadmin.set(false)
-		devopsRole.set(false)
-		vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce([])
+	describe('list_workers with nothing to show', () => {
+		afterEach(() => {
+			superadmin.set(undefined)
+			devopsRole.set(undefined)
+		})
 
-		const result = await callGlobalTool('list_workers', {})
+		it('never reports an empty list as an absence to a caller workers can be hidden from', async () => {
+			superadmin.set(false)
+			devopsRole.set(false)
+			vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce([])
 
-		// An instance hiding workers from a non-devops caller answers with an empty
-		// list, so absence is unprovable here.
-		expect(result).toContain('does NOT establish that no workers are running')
-		expect(result).toContain('devops role')
-		expect(result).not.toContain('"workers"')
-		superadmin.set(undefined)
-		devopsRole.set(undefined)
-	})
+			const result = await callGlobalTool('list_workers', {})
 
-	it('reports an empty worker list as an absence to a devops caller', async () => {
-		devopsRole.set('devops@windmill.dev')
-		vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce([])
+			// An instance hiding workers from a non-devops caller answers with an empty
+			// list, so absence is unprovable here.
+			expect(result).toContain('does NOT establish that no workers are running')
+			expect(result).toContain('devops role')
+			expect(result).not.toContain('"workers"')
+		})
 
-		const result = await callGlobalTool('list_workers', {})
+		it('reports an empty list as an absence to a devops caller', async () => {
+			devopsRole.set('devops@windmill.dev')
+			vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce([])
 
-		// Nothing is hidden from this caller, so hedging would withhold the answer a
-		// stuck queue is waiting on.
-		expect(result).toContain('No workers are connected')
-		expect(result).not.toContain('does NOT establish')
-		devopsRole.set(undefined)
+			const result = await callGlobalTool('list_workers', {})
+
+			// Nothing is hidden from this caller, so hedging would withhold the answer a
+			// stuck queue is waiting on.
+			expect(result).toContain('No workers are connected')
+			expect(result).not.toContain('does NOT establish')
+		})
 	})
 
 	it('fetches job logs by id and always suppresses the backend ansi hint line', async () => {

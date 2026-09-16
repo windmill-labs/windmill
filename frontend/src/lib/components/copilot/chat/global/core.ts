@@ -3793,7 +3793,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			z.object({}),
 			'list_workers',
-			'List the workers connected to this Windmill instance (those that pinged in the last 5 minutes), with their worker group, custom tags, seconds since their last ping, and jobs executed. Pair with list_runs to diagnose a stuck queue: runs queued on a tag no listed worker picks up will never start. Two blind spots to report rather than reason past: an empty result states whether no worker is connected or whether workers may be hidden from you, so relay the one it gives instead of picking, and a missing custom_tags can mean tags are hidden from you, not unset.'
+			'List the workers connected to this Windmill instance (those that pinged in the last 5 minutes), with their worker group, custom tags, seconds since their last ping, and jobs executed. Pair with list_runs to diagnose a stuck queue: runs queued on a tag no listed worker picks up will never start. Three blind spots to report rather than reason past: an empty result states whether no worker is connected or whether workers may be hidden from you, so relay the one it gives instead of picking; a missing custom_tags can mean tags are hidden from you, not unset; and only the 100 most recently pinging workers are listed, so on a bigger instance a tag none of them carries may still be served.'
 		),
 		planModeSafe: true,
 		showDetails: true,
@@ -3802,10 +3802,12 @@ export const globalTools: Tool<{}>[] = [
 			const pings = await WorkerService.listWorkers({ perPage: WORKER_PAGE_SIZE })
 			if (pings.length === 0) {
 				const hiddenFromCaller = !get(superadmin) && !get(devopsRole)
+				const message = hiddenFromCaller ? NO_WORKERS_VISIBLE_MESSAGE : NO_WORKERS_CONNECTED_MESSAGE
 				toolCallbacks.setToolStatus(toolId, {
-					content: hiddenFromCaller ? 'No workers visible' : 'No workers connected'
+					content: hiddenFromCaller ? 'No workers visible' : 'No workers connected',
+					result: message
 				})
-				return hiddenFromCaller ? NO_WORKERS_VISIBLE_MESSAGE : NO_WORKERS_CONNECTED_MESSAGE
+				return message
 			}
 			const workers = pings.map((w) => ({
 				worker: w.worker,
