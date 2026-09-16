@@ -776,6 +776,13 @@ describe('global AI tools', () => {
 		expect(JSON.parse(await callGlobalTool('get_run', { id: 'job-123' })).run.logs).toBe(
 			'Logs could not be read for this run.'
 		)
+
+		// Nor does every failed read reject: the generated client resolves undefined
+		// when it cannot read the body, which lands on the same "no logs" branch.
+		vi.mocked(JobService.getJobLogs).mockResolvedValueOnce(undefined as any)
+		expect(JSON.parse(await callGlobalTool('get_run', { id: 'job-123' })).run.logs).toBe(
+			'Logs could not be read for this run.'
+		)
 	})
 
 	it('keeps the end of a long log, and never opens it on half a surrogate pair', async () => {

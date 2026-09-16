@@ -440,8 +440,16 @@ export async function getRun(workspace: string, id: string, step?: string): Prom
 		])
 		const { id: _id, ...summary } = summarizeRun(job)
 		const payloads = { ...shapeRunArgs(job), ...shapeRunResult(job) }
+		// A read that fails without rejecting still arrives here: the generated client
+		// resolves `undefined` when it cannot read the body (a truncated response, a
+		// dropped connection). Logs are the one payload where empty is a real answer,
+		// so that has to be told apart from an empty log rather than reported as one.
 		const shapedLogs =
-			logs === LOGS_UNREADABLE ? logs : logs?.trim() ? cap(logs, true) : 'No logs for this run.'
+			typeof logs !== 'string' || logs === LOGS_UNREADABLE
+				? LOGS_UNREADABLE
+				: logs.trim()
+					? cap(logs, true)
+					: 'No logs for this run.'
 		return shapeFlowRunTree(results, {
 			...summary,
 			...diagnoseRun(job),
