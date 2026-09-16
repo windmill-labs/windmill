@@ -174,6 +174,10 @@ async fn datatable_database_arg(
     // default role — which is what `ensure_migration_role_allowed` gated it as, and which is the
     // only role a DDL statement can be expected to succeed under. A migration that does declare a
     // role overrides this: the annotation wins over the reference.
+    //
+    // A legacy name containing `?` cannot be migrated through this reference: the appended query
+    // makes it neither an exact name nor a parseable one. Accepted on purpose, since such names can
+    // no longer be created and none are expected to carry migrations.
     Ok(to_raw_value(&format!(
         "datatable://{datatable_name}?role={ADMIN_DATATABLE_ROLE}"
     )))
