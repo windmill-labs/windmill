@@ -621,9 +621,15 @@ class ChatImpl implements Chat {
           (m.content === row.content || (row.tool !== undefined && m.tool?.name === row.tool.name))
       )
       // A structured answer streams as the call of the structured-output tool, whose
-      // arguments are the answer's text: its row replaces that call.
+      // arguments are the answer's text: its row replaces that call. Only past the newest
+      // user message, where a stopped turn's identical call cannot be.
       if (i < 0 && row.role === 'assistant') {
-        i = messages.findIndex((m) => m.seq === undefined && m.role === 'tool' && m.tool?.arguments === row.content)
+        let j = messages.length - 1
+        while (j >= 0 && messages[j].role !== 'user') {
+          const m = messages[j]
+          if (m.seq === undefined && m.role === 'tool' && m.tool?.arguments === row.content) i = j
+          j--
+        }
       }
       if (i >= 0) {
         const m = messages[i]

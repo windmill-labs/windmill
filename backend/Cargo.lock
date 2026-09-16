@@ -14896,6 +14896,7 @@ dependencies = [
  "eventsource-stream",
  "futures",
  "http 1.5.0",
+ "indexmap 2.14.2",
  "lazy_static",
  "mime_guess",
  "reqwest 0.13.5",

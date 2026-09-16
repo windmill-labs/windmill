@@ -691,6 +691,44 @@ describe('createChat with server history', () => {
     ])
   })
 
+  test('a structured answer row leaves a stopped turn its identical call', async () => {
+    const call = (id: string) =>
+      ndjson(
+        { type: 'tool_call', call_id: id, function_name: 'structured_output' },
+        { type: 'tool_call_arguments', call_id: id, function_name: 'structured_output', arguments: '{"ok": true}' }
+      )
+    let jobs = 0
+    const { fetch } = fetchMock(
+      (c) => (c.method === 'POST' && c.url.pathname.includes('/jobs/run/f/') ? text(`job-${++jobs}`) : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/getupdate_sse/job-1') ? sse([{ type: 'update', new_result_stream: call('c1'), stream_offset: 2 }]) : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/getupdate_sse/job-2')
+          ? sse([{ type: 'update', new_result_stream: call('c2'), stream_offset: 2, completed: true, only_result: { output: { ok: true }, messages: [] } }])
+          : undefined,
+      (c) => (c.url.pathname.includes('/queue/cancel/') ? text('ok') : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json([messageRow(41, 'user', 'first'), messageRow(42, 'user', 'again'), messageRow(43, 'assistant', '{"ok": true}', { job_id: 'step-2' })])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    const first = chat.sendMessage('first')
+    await new Promise((r) => setTimeout(r, 50))
+    const stopped = chat.stop()
+    await first
+    const second = chat.sendMessage('again')
+    await stopped
+    await second
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.tool?.callId])).toEqual([
+      ['user', 'first', undefined],
+      ['tool', '', 'c1'],
+      ['user', 'again', undefined],
+      ['assistant', '{"ok": true}', undefined]
+    ])
+  })
+
   test('the stream asks for a server poll interval only when one is set', async () => {
     const answer: Route = (c) =>
       c.url.pathname === streamPath ? sse([{ type: 'update', completed: true, only_result: 'ok' }]) : undefined
