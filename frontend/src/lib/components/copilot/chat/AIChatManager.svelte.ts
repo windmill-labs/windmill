@@ -1,3 +1,4 @@
+import type { AttachedBlob } from './blobUtils'
 import type { ChatViewHost } from './chatViewHost'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
@@ -463,6 +464,10 @@ export class AIChatManager implements ChatViewHost {
 	get supportsLinkedFolders() {
 		return this.mode === AIMode.GLOBAL
 	}
+	// The copilot reads attachments in the browser, so non-image files decode to text.
+	attachmentsAsBlobs = false
+	// The copilot decodes its attachments, so nothing ever lands in the blob lane.
+	queuedBlobs: AttachedBlob[] = []
 	// Steers the OS file picker toward text + image formats (a soft hint; both attach to
 	// the message — text files after a content sniff).
 	attachmentAccept =

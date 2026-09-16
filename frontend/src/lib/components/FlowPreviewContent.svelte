@@ -473,6 +473,7 @@
 						hideSidebar={true}
 						path={$pathStore}
 						inputSchema={flowStore.val.schema}
+						flowModules={flowStore.val.value?.modules}
 					/>
 				</div>
 			{:else}

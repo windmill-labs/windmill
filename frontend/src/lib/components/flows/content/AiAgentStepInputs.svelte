@@ -38,7 +38,7 @@
 	import StepInputsGen from '$lib/components/copilot/StepInputsGen.svelte'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import InputTransformPickers from '$lib/components/InputTransformPickers.svelte'
-	import { useS3StorageConfigured } from '$lib/components/inputTransformEnv.svelte'
+	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
 	import type ItemPicker from '$lib/components/ItemPicker.svelte'
 	import type VariableEditor from '$lib/components/VariableEditor.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -153,7 +153,7 @@
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
-	const s3Storage = useS3StorageConfigured(() => ws)
+	const s3Storage = useWorkspaceStorageConfigured(() => ws)
 
 	// The per-field copilot only ever writes a JavaScript transform, so it belongs only where one can
 	// be stored. On a static-only field the write lands in a key the config drops on deploy, which

@@ -20,13 +20,13 @@
      here only for context-ONLY queues: text queues pin the same chips, but
      those stay visible in the composer, and repeating them would read as two
      selections. -->
-{#if chatHost.queuedMessage || chatHost.queuedImages.length > 0 || chatHost.queuedFiles.length > 0 || (chatHost.queuedContext?.length ?? 0) > 0}
+{#if chatHost.queuedMessage || chatHost.queuedImages.length > 0 || chatHost.queuedFiles.length > 0 || chatHost.queuedBlobs.length > 0 || (chatHost.queuedContext?.length ?? 0) > 0}
 	<!-- The body and the X are sibling buttons for the same action (an X inside a
 	     clickable chip would be a nested interactive control, invalid ARIA). -->
 	<div
 		class="mb-1 flex flex-row items-start gap-1 rounded-md bg-surface-input px-3 py-2 opacity-60 hover:opacity-100"
 	>
-		{#if chatHost.queuedMessage || chatHost.queuedImages.length > 0 || chatHost.queuedFiles.length > 0}
+		{#if chatHost.queuedMessage || chatHost.queuedImages.length > 0 || chatHost.queuedFiles.length > 0 || chatHost.queuedBlobs.length > 0}
 			<button
 				type="button"
 				class="min-w-0 grow text-left cursor-pointer"
@@ -54,6 +54,21 @@
 							>
 								<FileText size={10} class="shrink-0" />
 								<span class="truncate min-w-0">{file.name}</span>
+							</span>
+						{/each}
+					</div>
+				{/if}
+				{#if chatHost.queuedBlobs.length > 0}
+					<!-- Blobs are the same chip as files: a host that forwards bytes verbatim
+					     queues them here instead, and a queue of them alone must still show. -->
+					<div class="flex flex-row flex-wrap gap-1 {chatHost.queuedMessage ? 'mb-1' : ''}">
+						{#each chatHost.queuedBlobs as blob, i (i)}
+							<span
+								class="flex flex-row items-center gap-1 px-1.5 rounded border border-border-light text-2xs text-secondary max-w-36"
+								title={blob.name}
+							>
+								<FileText size={10} class="shrink-0" />
+								<span class="truncate min-w-0">{blob.name}</span>
 							</span>
 						{/each}
 					</div>

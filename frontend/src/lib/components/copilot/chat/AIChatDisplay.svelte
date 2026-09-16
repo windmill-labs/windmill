@@ -361,7 +361,15 @@
 		chatHost.mode === AIMode.SCRIPT || chatHost.mode === AIMode.FLOW || chatHost.mode === AIMode.APP
 	)
 
-	const canAttachFiles = $derived(chatHost.supportsMessageAttachments && !disabled)
+	// Why attaching is off, when this chat takes attachments but cannot right now. The `+` is
+	// kept and disabled rather than dropped: the input is the composer's either way, so the
+	// reader has to be able to see here why nothing can be attached.
+	const attachmentsOffReason = $derived(
+		chatHost.supportsMessageAttachments ? chatHost.attachmentsUnavailableReason : undefined
+	)
+	const canAttachFiles = $derived(
+		chatHost.supportsMessageAttachments && !disabled && !attachmentsOffReason
+	)
 	// Folders are linked as session-wide assets, which only a host that reads files in
 	// the browser can do — a host running the turn server-side takes attachments only.
 	const canLinkFolders = $derived(chatHost.supportsLinkedFolders && !disabled)
@@ -430,24 +438,32 @@
 		return Array.from(e.dataTransfer?.types ?? []).includes('Files')
 	}
 
+	// A drop is claimed while attaching is off for a stated reason, too: the browser would
+	// otherwise navigate to the dropped file, and the reader is owed the reason instead.
+	const panelTakesDrops = $derived(canAttachFiles || attachmentsOffReason !== undefined)
+
 	function onPanelDragEnter(e: DragEvent) {
-		if (!canAttachFiles || !dragHasFiles(e)) return
+		if (!panelTakesDrops || !dragHasFiles(e)) return
 		e.preventDefault()
 		dragDepth++
 	}
 	function onPanelDragOver(e: DragEvent) {
-		if (!canAttachFiles || !dragHasFiles(e)) return
+		if (!panelTakesDrops || !dragHasFiles(e)) return
 		e.preventDefault()
 		if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
 	}
 	function onPanelDragLeave(_e: DragEvent) {
-		if (!canAttachFiles) return
+		if (!panelTakesDrops) return
 		dragDepth = Math.max(0, dragDepth - 1)
 	}
 	async function onPanelDrop(e: DragEvent) {
 		dragDepth = 0
-		if (!canAttachFiles || !dragHasFiles(e)) return
+		if (!panelTakesDrops || !dragHasFiles(e)) return
 		e.preventDefault()
+		if (attachmentsOffReason) {
+			sendUserToast(attachmentsOffReason, true)
+			return
+		}
 		const dt = e.dataTransfer
 		if (!dt) return
 		// Images and loose text files attach to the message; folders link as session
@@ -484,9 +500,8 @@
 				handles.length === 0
 					? flatFiles
 					: await Promise.all(handles.filter(isFileHandle).map((h) => h.getFile()))
-			// Loose text files attach to the message, like images.
-			const textFiles = looseFiles.filter((f) => !isImageFile(f))
-			if (textFiles.length > 0) await aiChatInput?.addTextFiles(textFiles)
+			// Loose files attach to the message, like images.
+			await attachNonImageFiles(looseFiles.filter((f) => !isImageFile(f)))
 			// Folders link as a live handle.
 			const dirs = handles.filter(isDirectoryHandle)
 			if (dirs.length > 0 && !canLinkFolders) {
@@ -523,22 +538,29 @@
 				if (canLinkFolders) await handleAddFiles(folderEntries)
 				else sendUserToast('Folders cannot be attached in this chat — drop individual files.', true)
 			}
-			if (topLevelText.length > 0) await aiChatInput?.addTextFiles(topLevelText)
+			await attachNonImageFiles(topLevelText)
 		}
 	}
 
 	async function onFileInputChange(e: Event) {
 		const input = e.currentTarget as HTMLInputElement
 		if (input.files && input.files.length > 0) {
-			const picked = Array.from(input.files)
-			const imageFiles = picked.filter(isImageFile)
-			const textFiles = picked.filter((f) => !isImageFile(f))
-			// Reserved before the text work is awaited — see onPanelDrop.
-			const imageWork = imageFiles.length > 0 ? aiChatInput?.addImages(imageFiles) : undefined
-			if (textFiles.length > 0) await aiChatInput?.addTextFiles(textFiles)
-			await imageWork
+			await attachPickedFiles(Array.from(input.files))
 		}
 		input.value = '' // allow re-selecting the same file
+	}
+
+	async function attachNonImageFiles(files: File[]) {
+		await aiChatInput?.addNonImageFiles(files)
+	}
+
+	async function attachPickedFiles(picked: File[]) {
+		const imageFiles = picked.filter(isImageFile)
+		const others = picked.filter((f) => !isImageFile(f))
+		// Reserved before the other work is awaited — see onPanelDrop.
+		const imageWork = imageFiles.length > 0 ? aiChatInput?.addImages(imageFiles) : undefined
+		await attachNonImageFiles(others)
+		await imageWork
 	}
 
 	function onFolderInputChange(e: Event) {
@@ -622,6 +644,7 @@
 	const showFooterLeftControls = $derived(
 		!footerMessageShown &&
 			(canAttachFiles ||
+				attachmentsOffReason !== undefined ||
 				showContextPicker ||
 				showAutonomyModeSelector ||
 				(chatHost.mode === AIMode.SCRIPT && hasDiff))
@@ -991,7 +1014,21 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								{/snippet}
 							</Popover>
 						{/if}
-						{#if canAttachFiles}
+						{#if attachmentsOffReason}
+							<Tooltip small placement="top">
+								<Button
+									nonCaptureEvent
+									unifiedSize="2xs"
+									variant="default"
+									iconOnly
+									disabled
+									startIcon={{ icon: Plus }}
+								/>
+								{#snippet text()}
+									<div class="max-w-64 text-xs">{attachmentsOffReason}</div>
+								{/snippet}
+							</Tooltip>
+						{:else if canAttachFiles}
 							<DropdownV2
 								items={async () => {
 									// Both submenus fetch on the menu's first open, so they start

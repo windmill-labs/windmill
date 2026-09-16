@@ -705,6 +705,7 @@
 								path={flow?.path ?? ''}
 								description={flow?.description}
 								inputSchema={flow?.schema}
+								flowModules={flow?.value?.modules}
 								wideLayout
 							/>
 						{:else}

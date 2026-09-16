@@ -10,11 +10,21 @@
 	import { emptyString, type DynamicInput } from '$lib/utils'
 	import { onDestroy, tick, untrack } from 'svelte'
 	import type { Chat } from 'windmill-chat'
+	import type { FlowModule } from '$lib/gen'
+	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
+	import {
+		attachmentsTargetFor,
+		isEmptyAgentChatInputValue,
+		PER_TURN_AGENT_CHAT_INPUT_KEY,
+		resolveAgentChatInputs
+	} from './agentAttachmentInput'
 
 	interface Props {
 		chat: Chat
 		deploymentInProgress?: boolean
 		additionalInputsSchema?: Record<string, any>
+		/** The flow's steps, read for the AI agent inputs the composer drives itself. */
+		flowModules?: FlowModule[]
 		path: string
 		workspace?: string
 		/** The flow's description, shown under the empty transcript's prompt. */
@@ -26,6 +36,7 @@
 		chat,
 		deploymentInProgress = false,
 		additionalInputsSchema,
+		flowModules = undefined,
 		path,
 		workspace = undefined,
 		description = undefined,
@@ -40,6 +51,39 @@
 			return { source: 'inline', code: dynCode, lang: dynLang }
 		}
 		return undefined
+	})
+
+	// The composer's attachments feed this input, and the paperclip is its whole editor.
+	const attachmentsTarget = $derived(
+		attachmentsTargetFor(
+			resolveAgentChatInputs(flowModules, additionalInputsSchema).find(
+				(input) => input.key === PER_TURN_AGENT_CHAT_INPUT_KEY
+			)
+		)
+	)
+	// Uploading needs the workspace's object storage; without one the `+` is drawn disabled
+	// saying so, since the modal could not upload either.
+	const workspaceStorage = useWorkspaceStorageConfigured(() => workspace)
+
+	// What the Configure-inputs modal asks for: every flow input the composer does not edit
+	// itself. A stored value for the promoted input is left where it is; the host drops it
+	// from what a turn sends.
+	const modalSchema = $derived.by(() => {
+		if (!additionalInputsSchema) return undefined
+		const promoted = attachmentsTarget?.name
+		if (!promoted) return additionalInputsSchema
+		const properties = Object.fromEntries(
+			Object.entries(additionalInputsSchema.properties ?? {}).filter(([key]) => key !== promoted)
+		)
+		if (Object.keys(properties).length === 0) return undefined
+		const required: string[] = Array.isArray(additionalInputsSchema.required)
+			? additionalInputsSchema.required
+			: []
+		return {
+			...additionalInputsSchema,
+			properties,
+			required: required.filter((key) => key !== promoted)
+		}
 	})
 
 	// LocalStorage helpers
@@ -85,12 +129,9 @@
 	}
 
 	const hasMissingRequired = $derived.by(() => {
-		if (!additionalInputsSchema?.required?.length) return false
+		if (!modalSchema?.required?.length) return false
 		const values = additionalInputsValues ?? {}
-		return additionalInputsSchema.required.some(
-			(field: string) =>
-				values[field] === undefined || values[field] === '' || values[field] === null
-		)
+		return modalSchema.required.some((field: string) => isEmptyAgentChatInputValue(values[field]))
 	})
 
 	// The host follows the chat it was built on for the life of this component: FlowChat
@@ -100,6 +141,11 @@
 		{
 			additionalInputs: () =>
 				additionalInputsSchema ? (loadInputsFromStorage() ?? additionalInputsValues) : undefined,
+			attachmentsTarget: () => attachmentsTarget,
+			attachmentsUnavailable: () =>
+				workspaceStorage.current
+					? undefined
+					: 'This workspace has no object storage, so files cannot be attached.',
 			workspace: () => workspace,
 			sendDisabled: () => deploymentInProgress
 		}
@@ -127,10 +173,10 @@
 </script>
 
 <!-- Additional Inputs Modal -->
-{#if additionalInputsSchema}
+{#if modalSchema}
 	<Modal title="Configure inputs" bind:open={showInputsModal}>
 		<SchemaForm
-			schema={additionalInputsSchema}
+			schema={modalSchema}
 			bind:args={additionalInputsValues}
 			helperScript={dynamicInputHelperScript}
 			{workspace}
@@ -159,7 +205,7 @@
 {/snippet}
 
 {#snippet footerSettings()}
-	{#if additionalInputsSchema}
+	{#if modalSchema}
 		<div class="relative">
 			<Button
 				unifiedSize="2xs"
@@ -200,7 +246,7 @@
 		hideModeSelector
 		{wideLayout}
 		{emptyHint}
-		footerSettings={additionalInputsSchema ? footerSettings : undefined}
+		footerSettings={modalSchema ? footerSettings : undefined}
 		placeholder="Send a message to run the flow"
 		disabled={deploymentInProgress}
 		disabledMessage={deploymentInProgress ? 'Deployment in progress' : ''}

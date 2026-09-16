@@ -1,0 +1,204 @@
+import { describe, expect, test } from 'bun:test'
+import { storedAttachmentName } from '../src/attachments'
+import { createChat } from '../src/chat'
+import type { ChatOptions } from '../src/types'
+import { abortError } from '../src/utils'
+import { fetchMock, json, memoryStorage, sse, text, type RecordedCall, type Route } from './support'
+
+const BASE = 'http://wm.test'
+const FLOW = 'f/chat/agent'
+const UPLOAD_PATH = '/api/w/ws/job_helpers/upload_s3_file'
+
+const run: Route = (c) =>
+  c.method === 'POST' && c.url.pathname === `/api/w/ws/jobs/run/f/${FLOW}`
+    ? text('job-1')
+    : undefined
+
+/** Stores under the key it was asked to, like the server with a `file_key`. */
+const upload: Route = (c) =>
+  c.url.pathname === UPLOAD_PATH
+    ? json({ file_key: c.url.searchParams.get('file_key') })
+    : undefined
+
+const answer: Route = (c) =>
+  c.url.pathname === '/api/w/ws/jobs_u/getupdate_sse/job-1'
+    ? sse([
+        {
+          type: 'update',
+          completed: true,
+          only_result: { output: 'ok', messages: [] }
+        }
+      ])
+    : undefined
+
+function options(fetch: ChatOptions['fetch']): ChatOptions {
+  return {
+    flowPath: FLOW,
+    baseUrl: BASE,
+    workspace: 'ws',
+    token: 'tok',
+    fetch,
+    storage: memoryStorage()
+  }
+}
+
+const uploads = (calls: RecordedCall[]) => calls.filter((c) => c.url.pathname === UPLOAD_PATH)
+const runs = (calls: RecordedCall[]) =>
+  calls.filter((c) => c.url.pathname.startsWith('/api/w/ws/jobs/run/'))
+
+const png = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], {
+  type: 'image/png'
+})
+const pdf = new Blob(['%PDF-1.7'], { type: 'application/pdf' })
+
+describe('storedAttachmentName', () => {
+  // The worker reads the media type from the key's extension, so it has to match the bytes.
+  test('renames a re-encoded image and gives a bare name its extension', () => {
+    expect(storedAttachmentName('photo.webp', 'image/png')).toBe('photo.png')
+    expect(storedAttachmentName('holiday.png', 'image/jpeg')).toBe('holiday.jpg')
+    expect(storedAttachmentName('contract', 'application/pdf')).toBe('contract.pdf')
+    expect(storedAttachmentName('report.2026.final.webp', 'image/png')).toBe(
+      'report.2026.final.png'
+    )
+  })
+
+  test('leaves a type it does not know alone', () => {
+    expect(storedAttachmentName('notes.csv', 'text/csv')).toBe('notes.csv')
+  })
+})
+
+describe('sendMessage with attachments', () => {
+  test('uploads each file under the turn prefix and hands the list to the input', async () => {
+    const { fetch, calls } = fetchMock(upload, run, answer)
+    const chat = createChat(options(fetch))
+
+    await chat.sendMessage('read these', {
+      inputs: { locale: 'fr' },
+      attachments: [
+        { name: 'photo.webp', data: png },
+        { name: 'contract', data: pdf },
+        // A data URL is decoded to its bytes; the mediaType names what they are.
+        {
+          name: 'photo.webp',
+          data: `data:image/png;base64,${btoa('\x89PNG')}`
+        }
+      ],
+      attachmentsInput: { name: 'files', multiple: true }
+    })
+
+    const keys = uploads(calls).map((c) => c.url.searchParams.get('file_key')!)
+    expect(keys).toHaveLength(3)
+    const prefix = keys[0].split('/').slice(0, 2).join('/')
+    expect(prefix).toMatch(/^windmill_chat_uploads\/[0-9a-f-]{36}$/)
+    expect(keys).toEqual([
+      `${prefix}/0/photo.png`,
+      `${prefix}/1/contract.pdf`,
+      `${prefix}/2/photo.png`
+    ])
+    expect(uploads(calls).map((c) => c.url.searchParams.get('content_type'))).toEqual([
+      'image/png',
+      'application/pdf',
+      'image/png'
+    ])
+    expect(uploads(calls).map((c) => c.headers['content-type'])).toEqual([
+      'image/png',
+      'application/pdf',
+      'image/png'
+    ])
+    expect(new Uint8Array(await uploads(calls)[2].raw!.arrayBuffer())).toEqual(
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+    )
+
+    expect(runs(calls)[0].body).toEqual({
+      locale: 'fr',
+      user_message: 'read these',
+      files: [
+        { s3: `${prefix}/0/photo.png`, filename: 'photo.png' },
+        { s3: `${prefix}/1/contract.pdf`, filename: 'contract.pdf' },
+        { s3: `${prefix}/2/photo.png`, filename: 'photo.png' }
+      ]
+    })
+    expect(chat.getState().status).toBe('idle')
+  })
+
+  test('hands a single object to an input that holds one file', async () => {
+    const { fetch, calls } = fetchMock(upload, run, answer)
+    const chat = createChat(options(fetch))
+    await chat.sendMessage('read this', {
+      attachments: [{ name: 'contract.pdf', data: pdf }],
+      attachmentsInput: { name: 'file', multiple: false }
+    })
+    const body = runs(calls)[0].body as Record<string, unknown>
+    expect(body.file).toEqual({
+      s3: expect.stringMatching(/\/0\/contract\.pdf$/),
+      filename: 'contract.pdf'
+    })
+  })
+
+  test('refuses attachments without an input to put them in', async () => {
+    const { fetch, calls } = fetchMock(upload, run, answer)
+    const chat = createChat(options(fetch))
+    await expect(
+      chat.sendMessage('hi', { attachments: [{ name: 'a.pdf', data: pdf }] })
+    ).rejects.toThrow('attachmentsInput')
+    expect(calls).toHaveLength(0)
+  })
+
+  test('a failed upload rejects without a run, and withdraws the message', async () => {
+    const { fetch, calls } = fetchMock(
+      (c) => (c.url.pathname === UPLOAD_PATH ? text('no object storage', 500) : undefined),
+      run,
+      answer
+    )
+    const chat = createChat(options(fetch))
+    const statuses: string[] = []
+    chat.subscribe((s) => statuses.push(s.status))
+
+    await expect(
+      chat.sendMessage('read this', {
+        attachments: [{ name: 'contract.pdf', data: pdf }],
+        attachmentsInput: { name: 'files', multiple: true }
+      })
+    ).rejects.toThrow('no object storage')
+
+    expect(runs(calls)).toHaveLength(0)
+    // Shown as submitted while uploading, then withdrawn whole: no message, no conversation.
+    expect(statuses).toContain('submitted')
+    const state = chat.getState()
+    expect(state.status).toBe('idle')
+    expect(state.messages).toEqual([])
+    expect(state.conversationId).toBeUndefined()
+    expect(state.conversations).toEqual([])
+    // The chat is free for the next message.
+    await chat.sendMessage('plain')
+    expect(runs(calls)).toHaveLength(1)
+  })
+
+  test('stop() during the upload aborts it and withdraws the message', async () => {
+    const { fetch, calls } = fetchMock(
+      (c) =>
+        c.url.pathname === UPLOAD_PATH
+          ? new Promise((_, reject) =>
+              c.signal!.addEventListener('abort', () => reject(abortError()))
+            )
+          : undefined,
+      run,
+      answer
+    )
+    const chat = createChat(options(fetch))
+    const sending = chat.sendMessage('read this', {
+      attachments: [{ name: 'contract.pdf', data: pdf }],
+      attachmentsInput: { name: 'files', multiple: true }
+    })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(chat.getState().status).toBe('submitted')
+    await chat.stop()
+    await expect(sending).rejects.toMatchObject({ name: 'AbortError' })
+    expect(runs(calls)).toHaveLength(0)
+    expect(chat.getState()).toMatchObject({
+      status: 'idle',
+      messages: [],
+      conversationId: undefined
+    })
+  })
+})

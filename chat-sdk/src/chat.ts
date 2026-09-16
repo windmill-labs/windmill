@@ -7,6 +7,7 @@ import {
 import { resolveConfig, type ResolvedConfig } from './config'
 import { followJob } from './follow'
 import { createLocalHistory, type LocalHistory } from './history'
+import { uploadAttachments } from './attachments'
 import type { AgentStreamEvent } from './stream'
 import type {
   Chat,
@@ -14,6 +15,7 @@ import type {
   ChatOptions,
   ChatState,
   Conversation,
+  SendMessageOptions,
   ToolInvocation
 } from './types'
 import {
@@ -39,6 +41,10 @@ interface Turn {
   conversationId: string
   /** Id of the turn's user message; the answer is whatever follows it. */
   userMessageId: string
+  /** The turn opened the conversation; withdrawing it closes the conversation again. */
+  isNew: boolean
+  /** The run was asked for. Before that, a failure or a stop withdraws the turn instead of failing it. */
+  started: boolean
   jobId?: string
   /** The flow job and its step jobs; a persisted answer carries one of them as `job_id`. */
   jobIds?: Set<string>
@@ -97,14 +103,16 @@ class ChatImpl implements Chat {
     }
   }
 
-  sendMessage = async (
-    text: string,
-    options: { inputs?: Record<string, unknown> } = {}
-  ): Promise<void> => {
+  sendMessage = async (text: string, options: SendMessageOptions = {}): Promise<void> => {
     const content = text.trim()
     if (!content) return
     if (this.#turn) {
       throw new Error('windmill-chat: a message is already being answered; call stop() first')
+    }
+    const attachments = options.attachments ?? []
+    const attachmentsInput = options.attachmentsInput
+    if (attachments.length > 0 && !attachmentsInput) {
+      throw new Error('windmill-chat: attachments need `attachmentsInput`, the flow input that takes them')
     }
     const isNew = this.#state.conversationId === undefined
     const conversationId = this.#state.conversationId ?? randomId()
@@ -112,6 +120,8 @@ class ChatImpl implements Chat {
       controller: new AbortController(),
       conversationId,
       userMessageId: `pending-${randomId()}`,
+      isNew,
+      started: false,
       streamedText: false
     }
     this.#turn = turn
@@ -134,7 +144,14 @@ class ChatImpl implements Chat {
     this.#rememberConversation()
 
     try {
-      const args = { ...this.#config.inputs, ...options.inputs, user_message: content }
+      const args: Record<string, unknown> = { ...this.#config.inputs, ...options.inputs, user_message: content }
+      if (attachmentsInput && attachments.length > 0) {
+        // Uploaded with the turn already shown as submitted: the message is in the transcript
+        // and `stop()` can abort the upload, while a second send is refused as usual.
+        const uploaded = await uploadAttachments(this.#api, attachments, randomId(), turn.controller.signal)
+        args[attachmentsInput.name] = attachmentsInput.multiple ? uploaded : uploaded[0]
+      }
+      turn.started = true
       const context = { memoryId: conversationId, conversationId, signal: turn.controller.signal }
       turn.jobId = this.#config.run
         ? await this.#config.run(args, context)
@@ -148,6 +165,13 @@ class ChatImpl implements Chat {
       }
       await this.#finishTurn(turn, result, isNew)
     } catch (e) {
+      if (!turn.started) {
+        // Nothing ran: the message is withdrawn rather than shown as a failed turn, and the
+        // caller gets the reason (an upload that failed, or the AbortError of a stop()).
+        if (this.#turn === turn) this.#turn = undefined
+        this.#withdrawTurn(turn)
+        throw e
+      }
       // stop() and a conversation switch abort the turn and settle the state themselves.
       if (turn.controller.signal.aborted || isAbortError(e)) return
       this.#failTurn(turn, e)
@@ -160,6 +184,12 @@ class ChatImpl implements Chat {
     const turn = this.#turn
     if (!turn) return
     this.#detachTurn()
+    if (!turn.started) {
+      // Still uploading its attachments: there is no run to cancel, and the message the
+      // reader took back must not stay in the transcript as sent.
+      this.#withdrawTurn(turn)
+      return
+    }
     if (this.#state.conversationId === turn.conversationId) {
       this.#set({ messages: finalized(this.#state.messages), status: 'idle' })
       this.#persistLocal()
@@ -543,6 +573,29 @@ class ChatImpl implements Chat {
       if (isAbortError(e)) throw e
       return undefined
     }
+  }
+
+  /**
+   * Undo what `sendMessage` showed for a turn that never ran: its user message, and the
+   * conversation it opened when there was none. Only while that conversation is still the
+   * one on screen; a switch meanwhile has already left it behind.
+   */
+  #withdrawTurn(turn: Turn): void {
+    if (this.#state.conversationId !== turn.conversationId) return
+    const messages = this.#state.messages.filter((m) => m.id !== turn.userMessageId)
+    if (turn.isNew) {
+      if (this.#state.history === 'local') this.#local.deleteConversation(turn.conversationId)
+      this.#set({
+        conversationId: undefined,
+        conversations: this.#state.conversations.filter((c) => c.id !== turn.conversationId),
+        messages,
+        status: 'idle',
+        error: undefined
+      })
+      return
+    }
+    this.#set({ messages, status: 'idle', error: undefined })
+    this.#persistLocal()
   }
 
   #failTurn(turn: Turn, e: unknown): void {
