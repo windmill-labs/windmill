@@ -60,9 +60,12 @@ class ChatImpl implements Chat {
   #turn: Turn | undefined
   #page = 1
   #persistTimer: ReturnType<typeof setTimeout> | undefined
+  /** The flow later runs and listings name; `setFlowPath` moves it. Local history stays keyed on the path the chat was created with. */
+  #flowPath: string
 
   constructor(options: ChatOptions) {
     this.#config = resolveConfig(options)
+    this.#flowPath = this.#config.flowPath
     this.#api = new WindmillChatApi({
       baseUrl: this.#config.baseUrl,
       workspace: this.#config.workspace,
@@ -138,7 +141,7 @@ class ChatImpl implements Chat {
       const context = { memoryId: conversationId, conversationId, signal: turn.controller.signal }
       turn.jobId = this.#config.run
         ? await this.#config.run(args, context)
-        : await this.#api.runFlow(this.#config.flowPath, args, context)
+        : await this.#api.runFlow(this.#flowPath, args, context)
       const stopPolling = this.#state.history === 'server' ? this.#startPolling(turn) : () => {}
       let result: unknown
       try {
@@ -235,7 +238,7 @@ class ChatImpl implements Chat {
     let conversations: Conversation[]
     if (this.#state.history === 'server') {
       try {
-        const rows = await this.#api.listConversations(this.#config.flowPath, {
+        const rows = await this.#api.listConversations(this.#flowPath, {
           page,
           perPage: options.perPage ?? this.#config.pageSize
         })
@@ -300,6 +303,10 @@ class ChatImpl implements Chat {
     } finally {
       if (this.#state.conversationId === conversationId) this.#set({ loadingMessages: false })
     }
+  }
+
+  setFlowPath = (flowPath: string): void => {
+    this.#flowPath = flowPath
   }
 
   destroy = (): void => {

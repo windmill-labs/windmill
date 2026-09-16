@@ -10,16 +10,37 @@ import { AttachedFilesStore } from '$lib/components/copilot/chat/files/attachedF
 import { SessionArtifactsStore } from '$lib/components/copilot/chat/artifacts/artifactsState.svelte'
 import type { AttachedImage } from '$lib/components/copilot/chat/imageUtils'
 import type { AttachedTextFile } from '$lib/components/copilot/chat/textFileUtils'
+import {
+	prefersInstantReveal,
+	TypewriterReveal,
+	type TypewriterRevealOptions
+} from '$lib/components/copilot/chat/typewriterReveal'
+import { JobService } from '$lib/gen'
+import { sendUserToast } from '$lib/toast'
+import { ToolCallStore, type ToolCallDetails } from './toolCallContext.svelte'
+import {
+	argsToMessageInputs,
+	attachmentsToMessageInputs,
+	MessageInputsStore,
+	type MessageInputs
+} from './messageInputContext.svelte'
 
 export type FlowChatViewHostOptions = {
 	/** The flow inputs sent next to `user_message` with every turn. */
 	additionalInputs?: () => Record<string, any> | undefined
-	/** The workspace the transcript's paths resolve against. */
+	/** The workspace the transcript's paths resolve against, and the jobs are read from. */
 	workspace?: () => string | undefined
 	/** Whether sending is refused right now (a deployment in progress, say). The composer
 	 * is disabled on the same condition; this covers the sends the composer does not
 	 * make itself: a queued message going out, a retry. */
 	sendDisabled?: () => boolean
+	/** The flow's input schema, which says which of a run's arguments are secret. */
+	inputsSchema?: () => { properties?: Record<string, any> } | undefined
+	/** Flow inputs the composer renders a control of its own for: a message does not repeat
+	 * them as chips, and a retry takes their current value rather than the failed turn's. */
+	inputsShownInComposer?: () => string[]
+	/** Injectables for tests: the clock and scheduler behind the typewriter pacing. */
+	revealOptions?: Pick<TypewriterRevealOptions, 'instant' | 'now' | 'schedule' | 'cancel'>
 }
 
 function isBusy(status: ChatState['status']): boolean {
@@ -34,6 +55,17 @@ function parseToolPayload(raw: string | undefined): unknown {
 	} catch {
 		return raw
 	}
+}
+
+/**
+ * A failed tool's result as the line the card shows for it: the worker stores what the
+ * tool failed with, a string for the failures it words itself and a structured error for
+ * one a job reported. Anything else says nothing about the failure.
+ */
+function asErrorText(result: unknown): string | undefined {
+	if (typeof result === 'string') return result
+	const message = (result as any)?.error?.message ?? (result as any)?.message
+	return typeof message === 'string' ? message : undefined
 }
 
 /**
@@ -59,53 +91,114 @@ function lastTurnFailed(messages: readonly ChatMessage[]): boolean {
 	return false
 }
 
-export function toDisplayMessages(messages: readonly ChatMessage[]): DisplayMessage[] {
+/**
+ * The step name says which AI agent step wrote a message, so it only tells the reader
+ * anything once the conversation holds more than one. Counted over the transcript rather
+ * than over the flow's steps: a conversation outlives edits to the flow, so it can carry
+ * labels from a shape the flow no longer has.
+ */
+export function showsStepNames(messages: readonly ChatMessage[]): boolean {
+	return new Set(messages.map((m) => m.stepName).filter(Boolean)).size > 1
+}
+
+/** How much of a streaming message is on screen, per lane, in characters. */
+export type Revealed = { content: number; reasoning: number }
+
+const EMPTY_TOOL_CALL: ToolCallDetails = {}
+const EMPTY_INPUTS: MessageInputs = { images: [], contextElements: [] }
+
+/** What a display row can only learn beyond the message itself. Every lookup is optional. */
+export type DisplayLookups = {
+	/** A tool row's call, from the job it names. */
+	toolCall?: (jobId: string | undefined) => ToolCallDetails
+	/** What a user row ran with. */
+	inputs?: (message: ChatMessage) => MessageInputs
+	/** How much of a pending assistant row the pacing has put on screen. */
+	revealed?: (message: ChatMessage) => Revealed | undefined
+}
+
+export function toDisplayMessages(
+	messages: readonly ChatMessage[],
+	lookups: DisplayLookups = {}
+): DisplayMessage[] {
 	let userIndex = 0
+	const stepNames = showsStepNames(messages)
 	return messages.map((message, i): DisplayMessage => {
 		switch (message.role) {
-			case 'user':
+			case 'user': {
+				const { images, contextElements } = lookups.inputs?.(message) ?? EMPTY_INPUTS
 				return {
 					role: 'user',
 					index: userIndex++,
 					content: message.content,
 					// Drives the shared Retry button.
-					error: turnFailed(messages, i) || undefined
+					error: turnFailed(messages, i) || undefined,
+					images: images.length > 0 ? images : undefined,
+					contextElements: contextElements.length > 0 ? contextElements : undefined
 				}
+			}
 			case 'tool': {
-				const parameters = parseToolPayload(message.tool?.arguments)
-				const result = parseToolPayload(message.tool?.result)
 				const failed = message.success === false
+				// The same three details reach a row from one of two places, never both: the
+				// row itself for a tool still streaming, or one that ran inside the agent's job;
+				// the tool's own job otherwise. A row that carries its own call must not ask a
+				// job for it: an MCP tool runs inside the agent's job and names it, so the answer
+				// would be the agent's own arguments and result rather than the tool's.
+				const fromRow: ToolCallDetails = {
+					toolName: message.tool?.name,
+					parameters: parseToolPayload(message.tool?.arguments),
+					result: parseToolPayload(message.tool?.result)
+				}
+				const carriesItsOwnCall = fromRow.parameters !== undefined || fromRow.result !== undefined
+				const fromJob =
+					carriesItsOwnCall || !lookups.toolCall ? EMPTY_TOOL_CALL : lookups.toolCall(message.jobId)
+				const toolName = fromRow.toolName ?? fromJob.toolName
+				const parameters = fromRow.parameters ?? fromJob.parameters
+				const result = fromRow.result ?? fromJob.result
 				return {
 					role: 'tool',
 					tool_call_id: message.id,
 					// The card's header is the row's text, which the server only words once the
 					// tool has returned; until then the row says what is running.
-					content: message.content || (message.tool ? `Running ${message.tool.name}` : ''),
+					content: message.content || (toolName ? `Running ${toolName}` : ''),
 					// Withheld for the copilot's two plan-mode names: `toolName` is what makes
 					// ToolExecutionDisplay render a plan card, and an agent tool that happened to
 					// share one would silently become one.
-					toolName: isPlanCardTool(message.tool?.name) ? undefined : message.tool?.name,
+					toolName: isPlanCardTool(toolName) ? undefined : toolName,
 					parameters,
 					result,
 					showDetails: parameters !== undefined || result !== undefined,
-					error: failed ? message.content : undefined,
+					// What the tool failed with, from its result; from the row's text for one
+					// written before the worker put the error in the result.
+					error: failed ? (asErrorText(result) ?? message.content) : undefined,
 					isLoading: message.pending && message.tool?.status === 'running'
 				}
 			}
-			default:
+			default: {
+				// The pacing's prefix while the message streams; the whole text once it has
+				// settled, or the turn was stopped.
+				const revealed = message.pending ? lookups.revealed?.(message) : undefined
 				return {
 					role: 'assistant',
-					content: message.content,
+					content: revealed ? message.content.slice(0, revealed.content) : message.content,
 					// Only the message a turn is still writing: a finalized reasoning-only
 					// message must not look in progress.
 					streaming: message.pending || undefined,
-					reasoning: message.reasoning,
-					stepName: message.stepName,
+					reasoning: revealed ? message.reasoning?.slice(0, revealed.reasoning) : message.reasoning,
+					stepName: stepNames ? message.stepName : undefined,
 					jobId: message.jobId,
 					createdAt: message.createdAt
 				}
+			}
 		}
 	})
+}
+
+/** The two paced lanes of one streaming message, and how much of each has been fed in. */
+type RevealLanes = {
+	content: TypewriterReveal
+	reasoning: TypewriterReveal
+	fed: Revealed
 }
 
 /**
@@ -137,6 +230,7 @@ export class FlowChatViewHost implements ChatViewHost {
 		this.#disposed = true
 		this.#queued = ''
 		this.#unsubscribe()
+		for (const id of Object.keys(this.#reveals)) this.#dropReveal(id)
 	}
 
 	/** The latest `ChatState`, for what the interface reads beyond the seam (paging, loading). */
@@ -147,6 +241,7 @@ export class FlowChatViewHost implements ChatViewHost {
 	#onState(state: ChatState) {
 		const previous = this.#state
 		this.#state = state
+		this.#paceReveals(state.messages)
 		if (previous.conversationId !== state.conversationId) {
 			// A conversation opens at its end, whatever the reader was doing in the last one.
 			this.#automaticScroll = true
@@ -168,8 +263,91 @@ export class FlowChatViewHost implements ChatViewHost {
 		}
 	}
 
+	// Smooth streaming. The chat appends each delta to the pending assistant message as it
+	// arrives, in the coarse bursts the provider sends; what is shown is a prefix that a
+	// typewriter advances per lane, so the bursts read as continuous typing. Plain fields
+	// for the pacers, reactive counts for what they have put on screen.
+	#reveals: Record<string, RevealLanes> = {}
+	#revealed = $state<Record<string, Revealed>>({})
+
+	#paceReveals(messages: readonly ChatMessage[]) {
+		const pending = new Set<string>()
+		for (let i = 0; i < messages.length; i++) {
+			const message = messages[i]
+			if (message.role !== 'assistant' || !message.pending) continue
+			pending.add(message.id)
+			const lanes = (this.#reveals[message.id] ??= this.#newLanes(message.id))
+			const content = message.content.slice(lanes.fed.content)
+			const reasoning = (message.reasoning ?? '').slice(lanes.fed.reasoning)
+			lanes.fed = { content: message.content.length, reasoning: (message.reasoning ?? '').length }
+			lanes.content.push(content)
+			lanes.reasoning.push(reasoning)
+			// A row the turn has moved past — a tool card now follows it — is shown whole:
+			// what the pacing still holds belongs above that card, not trickling in under it.
+			if (i < messages.length - 1) {
+				lanes.content.flush()
+				lanes.reasoning.flush()
+			}
+		}
+		for (const id of Object.keys(this.#reveals)) {
+			if (!pending.has(id)) this.#dropReveal(id)
+		}
+	}
+
+	#newLanes(id: string): RevealLanes {
+		const options = this.#options.revealOptions ?? {}
+		const instant = options.instant ?? prefersInstantReveal()
+		const lane = (kind: keyof Revealed) =>
+			new TypewriterReveal({
+				...options,
+				instant,
+				onReveal: (chunk) => {
+					const current = this.#revealed[id] ?? { content: 0, reasoning: 0 }
+					this.#revealed[id] = { ...current, [kind]: current[kind] + chunk.length }
+				}
+			})
+		this.#revealed[id] = { content: 0, reasoning: 0 }
+		return {
+			content: lane('content'),
+			reasoning: lane('reasoning'),
+			fed: { content: 0, reasoning: 0 }
+		}
+	}
+
+	#dropReveal(id: string) {
+		this.#reveals[id]?.content.reset()
+		this.#reveals[id]?.reasoning.reset()
+		delete this.#reveals[id]
+		delete this.#revealed[id]
+	}
+
+	// The inputs a turn was sent with, by the id of the user row the chat appended for it.
+	// The row is named with its job once the run's row is read back, so the job could
+	// answer this too, but that is a fetch for arguments this tab just sent, and one that
+	// fails would blank the row for the rest of the session. Every send records, not only
+	// one carrying files: a row with no entry switches to the job lane the moment it is
+	// named, which renders it empty for the length of a round trip.
+	#sentInputs = $state<Record<string, MessageInputs>>({})
+
+	#messageInputs = new MessageInputsStore(
+		() => this.#options.workspace?.(),
+		() => this.#options.inputsSchema?.(),
+		() => new Set(this.#options.inputsShownInComposer?.() ?? [])
+	)
+	#toolCalls = new ToolCallStore(() => this.#options.workspace?.())
+
 	// Transcript
-	displayMessages = $derived.by(() => toDisplayMessages(this.#state.messages))
+	displayMessages = $derived.by(() =>
+		toDisplayMessages(this.#state.messages, {
+			toolCall: (jobId) => this.#toolCalls.get(jobId),
+			// What this tab sent wins wherever it has it, and the job answers for the rest: a
+			// row read back from the server on a later visit, a conversation reopened.
+			inputs: (message) =>
+				this.#sentInputs[message.id] ??
+				(message.jobId ? this.#messageInputs.get(message.jobId) : EMPTY_INPUTS),
+			revealed: (message) => this.#revealed[message.id]
+		})
+	)
 	get messages(): readonly unknown[] {
 		return this.#state.messages
 	}
@@ -203,7 +381,15 @@ export class FlowChatViewHost implements ChatViewHost {
 	instructions = ''
 	// The user message lands in the transcript before `sendMessage` awaits anything.
 	sendInFlight = false
-	sendRequest = async (options: ChatSendRequestOptions = {}): Promise<boolean> => {
+	/**
+	 * `replayInputs` are a failed turn's own run arguments, read back from its job. They
+	 * stand in for the composer's current inputs, so a retry runs the turn that failed
+	 * rather than a new one wearing its text.
+	 */
+	sendRequest = async (
+		options: ChatSendRequestOptions = {},
+		replayInputs?: Record<string, any>
+	): Promise<boolean> => {
 		const text = options.instructions?.trim() ?? ''
 		if (!text) return false
 		if (this.loading) {
@@ -216,15 +402,57 @@ export class FlowChatViewHost implements ChatViewHost {
 			return false
 		}
 		this.#automaticScroll = true
+		const inputs = replayInputs ?? this.#options.additionalInputs?.()
+		const before = this.#state.messages.length
 		// A run that fails is reported through the chat's `onError` and as a failed message;
 		// the promise itself only rejects when the chat refuses the turn outright, and the
 		// text is then handed back rather than dropped.
 		const turn = this.#chat
-			.sendMessage(text, { inputs: this.#options.additionalInputs?.() })
+			.sendMessage(text, { inputs })
 			.catch(() => this.#aiChatInput?.prependText(text))
 		this.#turnDone = turn
+		// The chat appends the user row before it awaits anything, so the row it added for
+		// this send is the last one now, and its inputs are recorded against it.
+		const added = this.#state.messages[before]
+		if (added?.role === 'user' && added.pending && this.#state.messages.length === before + 1) {
+			this.#recordSentInputs(added.id, inputs, options.images ?? [])
+		}
 		await turn
 		return true
+	}
+
+	/**
+	 * The chips a row shows for the turn just sent, through the same split a job's
+	 * arguments get, so the row looks the same before and after a reload. Images the
+	 * composer attached are described from what was attached: their data URLs are still
+	 * in hand and render with no fetch.
+	 */
+	#recordSentInputs(
+		rowId: string,
+		inputs: Record<string, any> | undefined,
+		images: AttachedImage[]
+	) {
+		const workspace = this.#options.workspace?.()
+		// Without one there is no way to build a file's link, so the job lane answers instead.
+		if (!workspace) return
+		const fromArgs = argsToMessageInputs(
+			workspace,
+			inputs,
+			this.#options.inputsSchema?.(),
+			new Set(this.#options.inputsShownInComposer?.() ?? [])
+		)
+		const attached = attachmentsToMessageInputs(images, [])
+		// Entries for rows the transcript still holds, so a long session does not keep every
+		// turn it ever sent.
+		const live = new Set(this.#state.messages.map((m) => m.id))
+		const kept = Object.fromEntries(Object.entries(this.#sentInputs).filter(([id]) => live.has(id)))
+		this.#sentInputs = {
+			...kept,
+			[rowId]: {
+				images: [...attached.images, ...fromArgs.images],
+				contextElements: [...attached.contextElements, ...fromArgs.contextElements]
+			}
+		}
 	}
 	/** Settles when the chat has released the last turn this host started. */
 	#turnDone: Promise<unknown> = Promise.resolve()
@@ -274,11 +502,62 @@ export class FlowChatViewHost implements ChatViewHost {
 
 	// Per-message actions
 	storedImages = () => undefined
-	/** Send the user message at this transcript position again. */
-	retryRequest = (messageIndex: number) => {
+	/** A retry reading back the turn it is about to replay. Deliberately not part of
+	 * `loading`, which renders Stop: there is no run yet to stop. */
+	#readingReplayArgs = false
+	/**
+	 * Run the turn at this transcript position again, as it ran the first time: its own
+	 * arguments, read back from its job, rather than whatever the composer holds now. The
+	 * row shows the inputs it ran with, so a retry that quietly used today's settings would
+	 * run something other than what the reader is looking at.
+	 *
+	 * The composer's own controls are the exception: what they edit is on screen beside the
+	 * transcript rather than on the row, and changing it before pressing Retry has to count.
+	 *
+	 * A job that has been purged can no longer say what it ran with; the composer is then
+	 * the only account left, and the row shows nothing either, so the two still agree.
+	 */
+	retryRequest = async (messageIndex: number) => {
 		const message = this.#state.messages[messageIndex]
-		if (!message || message.role !== 'user' || this.loading) return
-		void this.sendRequest({ instructions: message.content })
+		if (!message || message.role !== 'user' || this.loading || this.#readingReplayArgs) return
+		const conversationId = this.#state.conversationId
+		const workspace = this.#options.workspace?.()
+		let replayInputs: Record<string, any> | undefined
+		if (message.jobId && workspace) {
+			this.#readingReplayArgs = true
+			try {
+				const original = (await JobService.getJobArgs({ workspace, id: message.jobId })) as
+					| Record<string, any>
+					| undefined
+				// `user_message` is the message itself, passed as the instructions below.
+				const { user_message: _sent, ...rest } = original ?? {}
+				const current = this.#options.additionalInputs?.() ?? {}
+				for (const name of this.#options.inputsShownInComposer?.() ?? []) {
+					if (name in current) rest[name] = current[name]
+					else delete rest[name]
+				}
+				replayInputs = rest
+			} catch (error) {
+				// Only a job that is gone justifies running something else. Anything else, a
+				// network blip or a 500, would substitute a different turn silently, which is
+				// the whole thing this guards against.
+				if ((error as { status?: number })?.status !== 404) {
+					sendUserToast('Could not read what that turn ran with. Try again.', true)
+					return
+				}
+			} finally {
+				this.#readingReplayArgs = false
+			}
+		}
+		// The reader may have moved on while the arguments were read: to another
+		// conversation, where this turn does not belong, or by sending, which started a turn
+		// that `sendRequest` would queue this one behind as if it had been typed.
+		if (this.#disposed || this.#state.conversationId !== conversationId) return
+		if (this.loading) {
+			sendUserToast('That chat started another turn. Retry once it finishes.', true)
+			return
+		}
+		void this.sendRequest({ instructions: message.content }, replayInputs)
 	}
 	restartGeneration = () => {}
 	handleUserQuestionAnswer = () => false

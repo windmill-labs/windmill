@@ -131,6 +131,13 @@ export interface Chat {
   loadConversations(options?: { page?: number; perPage?: number }): Promise<Conversation[]>
   deleteConversation(conversationId: string): Promise<void>
   loadOlderMessages(): Promise<void>
+  /**
+   * Points later runs and conversation listings at another flow path, for a flow that was
+   * renamed while the chat was open. Conversations already started keep the path they were
+   * created under, so listings after the rename show the new path's alone; the open
+   * conversation and its turn are untouched.
+   */
+  setFlowPath(flowPath: string): void
   /** Stops background work (stream, polling) and writes local history out. The chat stays usable. */
   destroy(): void
 }

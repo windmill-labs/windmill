@@ -1,6 +1,24 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Chat, ChatMessage, ChatState } from 'windmill-chat'
 import { FlowChatViewHost, toDisplayMessages } from './flowChatViewHost.svelte'
+
+vi.mock('$lib/gen', () => ({
+	JobService: { getJobArgs: vi.fn(), getJob: vi.fn() }
+}))
+vi.mock('$lib/toast', () => ({ sendUserToast: vi.fn() }))
+
+import { JobService } from '$lib/gen'
+import { sendUserToast } from '$lib/toast'
+
+const getJobArgs = vi.mocked(JobService.getJobArgs)
+const getJob = vi.mocked(JobService.getJob)
+const toast = vi.mocked(sendUserToast)
+
+beforeEach(() => {
+	getJobArgs.mockReset()
+	getJob.mockReset()
+	toast.mockReset()
+})
 
 function message(partial: Partial<ChatMessage> & Pick<ChatMessage, 'role'>): ChatMessage {
 	return {
@@ -31,6 +49,10 @@ function idleState(partial: Partial<ChatState> = {}): ChatState {
 function fakeChat(initial: ChatState = idleState()) {
 	let state = initial
 	const listeners = new Set<(s: ChatState) => void>()
+	const set = (patch: Partial<ChatState>) => {
+		state = { ...state, ...patch }
+		for (const listener of listeners) listener(state)
+	}
 	const chat = {
 		getState: () => state,
 		subscribe: (listener: (s: ChatState) => void) => {
@@ -45,14 +67,29 @@ function fakeChat(initial: ChatState = idleState()) {
 		loadConversations: vi.fn(async () => []),
 		deleteConversation: vi.fn(async () => {}),
 		loadOlderMessages: vi.fn(async () => {}),
+		setFlowPath: vi.fn(),
 		destroy: vi.fn()
 	} satisfies Chat
-	const set = (patch: Partial<ChatState>) => {
-		state = { ...state, ...patch }
-		for (const listener of listeners) listener(state)
-	}
-	return { chat, set }
+	/** What the real chat does first thing in `sendMessage`: the user row lands before any await. */
+	const appendUserRowOnSend = () =>
+		chat.sendMessage.mockImplementation(async (text: string) => {
+			set({
+				messages: [
+					...state.messages,
+					message({
+						role: 'user',
+						id: `pending-${state.messages.length}`,
+						content: text,
+						pending: true
+					})
+				],
+				status: 'submitted'
+			})
+		})
+	return { chat, set, appendUserRowOnSend }
 }
+
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('toDisplayMessages', () => {
 	it('maps user, assistant and tool rows, marking the user message of a failed turn', () => {
@@ -77,17 +114,23 @@ describe('toDisplayMessages', () => {
 			message({ role: 'assistant', content: 'boom', success: false })
 		]
 		const display = toDisplayMessages(rows)
-		expect(display[0]).toEqual({ role: 'user', index: 0, content: 'hi', error: undefined })
+		expect(display[0]).toEqual({
+			role: 'user',
+			index: 0,
+			content: 'hi',
+			error: undefined,
+			images: undefined,
+			contextElements: undefined
+		})
 		expect(display[1]).toMatchObject({
 			role: 'assistant',
 			content: 'hello',
 			reasoning: 'thinking',
-			stepName: 'agent',
 			jobId: 'job-1',
 			createdAt: '2026-09-16T10:00:01Z',
 			streaming: undefined
 		})
-		expect(display[2]).toEqual({ role: 'user', index: 1, content: 'again', error: true })
+		expect(display[2]).toMatchObject({ role: 'user', index: 1, content: 'again', error: true })
 		expect(display[3]).toMatchObject({
 			role: 'tool',
 			tool_call_id: 'tool-row',
@@ -132,6 +175,77 @@ describe('toDisplayMessages', () => {
 			isLoading: false
 		})
 	})
+
+	// A row read back from the server keeps only its sentence; the call lives on the tool's
+	// own job. A row that streamed carries the call itself and must not ask a job for it.
+	it('reads a stored tool row from its job, and a streamed row from itself', () => {
+		const toolCall = vi.fn((jobId?: string) =>
+			jobId === 'tool-job'
+				? { toolName: 'search_docs', parameters: { query: 'retention' }, result: ['a'] }
+				: {}
+		)
+		const display = toDisplayMessages(
+			[
+				message({
+					role: 'tool',
+					content: 'Used search_docs tool',
+					jobId: 'tool-job',
+					tool: { name: 'search_docs', status: 'success' }
+				}),
+				message({
+					role: 'tool',
+					content: 'Used lookup tool',
+					jobId: 'agent-job',
+					tool: { name: 'lookup', status: 'success', arguments: '{"id":1}', result: '"ok"' }
+				})
+			],
+			{ toolCall }
+		)
+		expect(display[0]).toMatchObject({
+			toolName: 'search_docs',
+			parameters: { query: 'retention' },
+			result: ['a'],
+			showDetails: true
+		})
+		expect(display[1]).toMatchObject({ parameters: { id: 1 }, result: 'ok', showDetails: true })
+		expect(toolCall).toHaveBeenCalledTimes(1)
+		expect(toolCall).toHaveBeenCalledWith('tool-job')
+	})
+
+	it('labels answers with their step only once the transcript names more than one', () => {
+		const one = toDisplayMessages([
+			message({ role: 'assistant', content: 'a', stepName: 'agent' }),
+			message({ role: 'assistant', content: 'b', stepName: 'agent' })
+		])
+		expect(one.map((m) => (m.role === 'assistant' ? m.stepName : null))).toEqual([
+			undefined,
+			undefined
+		])
+		const two = toDisplayMessages([
+			message({ role: 'assistant', content: 'a', stepName: 'agent' }),
+			message({ role: 'assistant', content: 'b', stepName: 'reviewer' })
+		])
+		expect(two.map((m) => (m.role === 'assistant' ? m.stepName : null))).toEqual([
+			'agent',
+			'reviewer'
+		])
+	})
+
+	it('shows a user row what it ran with', () => {
+		const display = toDisplayMessages(
+			[message({ role: 'user', content: 'go', jobId: 'flow-job' })],
+			{
+				inputs: () => ({
+					images: [
+						{ dataUrl: 'data:image/png;base64,x', mediaType: 'image/png', name: 'shot.png' }
+					],
+					contextElements: []
+				})
+			}
+		)
+		expect(display[0]).toMatchObject({ role: 'user', images: [{ name: 'shot.png' }] })
+		expect((display[0] as any).contextElements).toBeUndefined()
+	})
 })
 
 describe('FlowChatViewHost', () => {
@@ -146,6 +260,25 @@ describe('FlowChatViewHost', () => {
 		expect(host.loading).toBe(true)
 		set({ status: 'idle' })
 		expect(host.loading).toBe(false)
+		host.dispose()
+	})
+
+	it('shows the turn just sent the inputs it went out with, before its job is known', async () => {
+		const { chat, appendUserRowOnSend } = fakeChat()
+		appendUserRowOnSend()
+		const host = new FlowChatViewHost(chat, {
+			workspace: () => 'ws',
+			additionalInputs: () => ({ tone: 'brief', token: 'hunter2' }),
+			inputsSchema: () => ({ properties: { token: { type: 'string', password: true } } })
+		})
+		await host.sendRequest({ instructions: 'hello' })
+		const [row] = host.displayMessages
+		expect(row.role).toBe('user')
+		expect((row as any).contextElements.map((c: any) => [c.title, c.content])).toEqual([
+			['tone', 'brief'],
+			['token', '<hidden>']
+		])
+		expect(getJobArgs).not.toHaveBeenCalled()
 		host.dispose()
 	})
 
@@ -164,10 +297,10 @@ describe('FlowChatViewHost', () => {
 		host.queueMessage('second')
 		expect(host.queuedMessage).toBe('first\nsecond')
 		set({ status: 'idle' })
-		await new Promise((resolve) => setTimeout(resolve, 0))
+		await flush()
 		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
 		releaseTurn()
-		await new Promise((resolve) => setTimeout(resolve, 0))
+		await flush()
 		expect(host.queuedMessage).toBe('')
 		expect(chat.sendMessage).toHaveBeenLastCalledWith('first\nsecond', { inputs: undefined })
 		host.dispose()
@@ -204,7 +337,7 @@ describe('FlowChatViewHost', () => {
 		// A deployment starts while the turn is still running; the composer is disabled.
 		deploying = true
 		set({ status: 'idle' })
-		await new Promise((resolve) => setTimeout(resolve, 0))
+		await flush()
 		expect(chat.sendMessage).not.toHaveBeenCalled()
 		expect(prependText).toHaveBeenCalledWith('after deploy')
 		expect(host.queuedMessage).toBe('')
@@ -224,7 +357,7 @@ describe('FlowChatViewHost', () => {
 		set({ status: 'idle' })
 		host.dispose()
 		releaseTurn()
-		await new Promise((resolve) => setTimeout(resolve, 0))
+		await flush()
 		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
 	})
 
@@ -263,5 +396,140 @@ describe('FlowChatViewHost', () => {
 		host.dispose()
 		set({ status: 'streaming' })
 		expect(host.loading).toBe(false)
+	})
+
+	describe('retry', () => {
+		const failedTurn = () =>
+			idleState({
+				messages: [
+					message({ role: 'user', content: 'go', jobId: 'flow-job' }),
+					message({ role: 'assistant', content: 'boom', success: false })
+				]
+			})
+
+		it("replays the turn with the inputs its run had, not the composer's", async () => {
+			const { chat } = fakeChat(failedTurn())
+			getJobArgs.mockResolvedValueOnce({ user_message: 'go', tone: 'terse', model: 'old' } as any)
+			const host = new FlowChatViewHost(chat, {
+				workspace: () => 'ws',
+				additionalInputs: () => ({ tone: 'brief', model: 'new' }),
+				inputsShownInComposer: () => ['model']
+			})
+			await host.retryRequest(0)
+			expect(getJobArgs).toHaveBeenCalledWith({ workspace: 'ws', id: 'flow-job' })
+			// The composer's own control wins for what it shows; everything else replays.
+			expect(chat.sendMessage).toHaveBeenCalledWith('go', {
+				inputs: { tone: 'terse', model: 'new' }
+			})
+			host.dispose()
+		})
+
+		it('falls back to a plain resend once the job is purged', async () => {
+			const { chat } = fakeChat(failedTurn())
+			getJobArgs.mockRejectedValueOnce(Object.assign(new Error('gone'), { status: 404 }))
+			const host = new FlowChatViewHost(chat, {
+				workspace: () => 'ws',
+				additionalInputs: () => ({ tone: 'brief' })
+			})
+			await host.retryRequest(0)
+			expect(chat.sendMessage).toHaveBeenCalledWith('go', { inputs: { tone: 'brief' } })
+			expect(toast).not.toHaveBeenCalled()
+			host.dispose()
+		})
+
+		it('does nothing but say so when the run cannot be read', async () => {
+			const { chat } = fakeChat(failedTurn())
+			getJobArgs.mockRejectedValueOnce(Object.assign(new Error('down'), { status: 500 }))
+			const host = new FlowChatViewHost(chat, { workspace: () => 'ws' })
+			await host.retryRequest(0)
+			expect(chat.sendMessage).not.toHaveBeenCalled()
+			expect(toast).toHaveBeenCalledWith('Could not read what that turn ran with. Try again.', true)
+			host.dispose()
+		})
+
+		it('refuses once a turn started while the run was being read', async () => {
+			const { chat, set } = fakeChat(failedTurn())
+			let answer = (_: unknown) => {}
+			getJobArgs.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)) as any)
+			const host = new FlowChatViewHost(chat, { workspace: () => 'ws' })
+			const retried = host.retryRequest(0)
+			set({ status: 'streaming' })
+			answer({ user_message: 'go' })
+			await retried
+			expect(chat.sendMessage).not.toHaveBeenCalled()
+			expect(toast).toHaveBeenCalledWith(
+				'That chat started another turn. Retry once it finishes.',
+				true
+			)
+			host.dispose()
+		})
+	})
+
+	describe('streaming reveal', () => {
+		/** A scheduler the test steps by hand, and a clock it advances. */
+		function manualReveal() {
+			let time = 0
+			const queue: (() => void)[] = []
+			return {
+				options: {
+					instant: false,
+					now: () => time,
+					schedule: (cb: () => void) => (queue.push(cb), cb),
+					cancel: (handle: unknown) => {
+						const i = queue.indexOf(handle as () => void)
+						if (i >= 0) queue.splice(i, 1)
+					}
+				},
+				tick: (ms: number) => {
+					time += ms
+					const due = queue.splice(0)
+					for (const cb of due) cb()
+				}
+			}
+		}
+
+		it('paces a streaming answer and shows it whole once it settles', () => {
+			const { chat, set } = fakeChat(idleState({ status: 'streaming' }))
+			const reveal = manualReveal()
+			const host = new FlowChatViewHost(chat, { revealOptions: reveal.options })
+			const streaming = message({ role: 'assistant', id: 'a1', content: '', pending: true })
+			set({ messages: [{ ...streaming, content: 'The answer, in one burst of text.' }] })
+			const shown = () => (host.displayMessages[0] as { content: string }).content
+			// Nothing is revealed until the pacer's first frame, and that frame shows a slice.
+			expect(shown()).toBe('')
+			reveal.tick(16)
+			expect(shown().length).toBeGreaterThan(0)
+			expect(shown().length).toBeLessThan('The answer, in one burst of text.'.length)
+			expect('The answer, in one burst of text.'.startsWith(shown())).toBe(true)
+			// Settled: the whole text, whatever the pacer had got to.
+			set({
+				status: 'idle',
+				messages: [{ ...streaming, content: 'The answer, in one burst of text.', pending: false }]
+			})
+			expect(shown()).toBe('The answer, in one burst of text.')
+			host.dispose()
+		})
+
+		it('shows a paced row whole once a tool card follows it', () => {
+			const { chat, set } = fakeChat(idleState({ status: 'streaming' }))
+			const reveal = manualReveal()
+			const host = new FlowChatViewHost(chat, { revealOptions: reveal.options })
+			const answer = message({
+				role: 'assistant',
+				id: 'a1',
+				content: 'Let me look.',
+				pending: true
+			})
+			set({ messages: [answer] })
+			expect((host.displayMessages[0] as { content: string }).content).toBe('')
+			set({
+				messages: [
+					answer,
+					message({ role: 'tool', pending: true, tool: { name: 'lookup', status: 'running' } })
+				]
+			})
+			expect((host.displayMessages[0] as { content: string }).content).toBe('Let me look.')
+			host.dispose()
+		})
 	})
 })

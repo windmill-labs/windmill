@@ -10,12 +10,15 @@
 	import { emptyString, type DynamicInput } from '$lib/utils'
 	import { onDestroy, tick, untrack } from 'svelte'
 	import type { Chat } from 'windmill-chat'
+	import { chatFlowKey } from './flowChatProps'
 
 	interface Props {
 		chat: Chat
 		deploymentInProgress?: boolean
 		additionalInputsSchema?: Record<string, any>
 		path: string
+		/** What the stored inputs are filed under when the path is not steady (see FlowChat). */
+		identity?: string
 		workspace?: string
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
@@ -27,6 +30,7 @@
 		deploymentInProgress = false,
 		additionalInputsSchema,
 		path,
+		identity = undefined,
 		workspace = undefined,
 		description = undefined,
 		wideLayout = false
@@ -52,7 +56,7 @@
 	)
 
 	function getStorageKey(): string {
-		return `${STORAGE_KEY_PREFIX}${path}`
+		return `${STORAGE_KEY_PREFIX}${chatFlowKey({ path, identity })}`
 	}
 
 	function loadInputsFromStorage(): Record<string, any> | null {
@@ -101,7 +105,8 @@
 			additionalInputs: () =>
 				additionalInputsSchema ? (loadInputsFromStorage() ?? additionalInputsValues) : undefined,
 			workspace: () => workspace,
-			sendDisabled: () => deploymentInProgress
+			sendDisabled: () => deploymentInProgress,
+			inputsSchema: () => additionalInputsSchema
 		}
 	)
 	setChatViewHost(chatHost)

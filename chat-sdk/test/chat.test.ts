@@ -414,6 +414,35 @@ describe('createChat with server history', () => {
     expect(chat.getState().conversations.map((c) => c.id)).toEqual(['c1', 'c2'])
   })
 
+  test('setFlowPath points later runs and listings at the renamed flow', async () => {
+    const { fetch, calls } = fetchMock(
+      (c) => (c.method === 'POST' && c.url.pathname.includes('/jobs/run/f/') ? text('job-1') : undefined),
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([
+              {
+                type: 'update',
+                new_result_stream: ndjson({ type: 'token_delta', content: 'hi' }),
+                stream_offset: 1,
+                completed: true,
+                only_result: { output: 'hi', messages: [] }
+              }
+            ])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({ token: 'tok' }, fetch))
+    chat.setFlowPath('f/chat/renamed')
+    await chat.sendMessage('hello')
+    expect(calls.find((c) => c.method === 'POST')!.url.pathname).toBe('/api/w/ws/jobs/run/f/f/chat/renamed')
+
+    const listing = createChat(options({ history: 'server' }, fetch))
+    listing.setFlowPath('f/chat/renamed')
+    await listing.loadConversations()
+    const listed = calls.find((c) => c.url.pathname.endsWith('/flow_conversations/list'))!
+    expect(listed.url.searchParams.get('flow_path')).toBe('f/chat/renamed')
+  })
+
   test('a turn started right after stop() is not touched by the stop sync', async () => {
     let jobs = 0
     const { fetch } = fetchMock(

@@ -748,6 +748,7 @@
 					<FlowChat
 						onRunFlow={runFlowWithMessage}
 						path={$pathStore}
+						identity={$initialPathStore || fakeInitialPath}
 						hideSidebar={true}
 						inputSchema={flowStore.val.schema}
 					/>

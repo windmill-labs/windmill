@@ -35,6 +35,7 @@
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
+	import ScrollFade from '$lib/components/ScrollFade.svelte'
 	import AssistantSettingsModal from './AssistantSettingsModal.svelte'
 	import { SkillsMenu } from './skills/skillsMenu.svelte'
 	import { McpMenu } from '$lib/components/mcp/mcpMenu.svelte'
@@ -569,6 +570,19 @@
 	// The typing-dots indicator implies the AI is busy, which is misleading while
 	// the loop is parked on the user; surface a text pill instead so users know to
 	// act on the tool above.
+	/**
+	 * The transcript and composer share one column. An agent step's answer hangs its icon in
+	 * the margin (see AssistantMessage), so a transcript carrying step names asks the column
+	 * to carry enough padding for it to land in. Widened on both sides, not just the left:
+	 * the column is centred, and padding one side alone would shift the text off centre.
+	 */
+	const agentGutter = $derived(messages.some((m) => m.role === 'assistant' && m.stepName))
+	const columnClass = $derived(
+		wideLayout
+			? `w-full max-w-3xl mx-auto ${agentGutter ? 'px-8' : 'px-7'}`
+			: `w-full max-w-2xl mx-auto ${agentGutter ? 'px-8' : 'px-3'}`
+	)
+
 	const waitingForUserAction = $derived(chatHost.loading && !!pendingUserAction(messages))
 
 	// Gated on `loading` because a card restored from history still looks parked:
@@ -800,12 +814,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				bind:this={scrollElement}
 				onscroll={onScroll}
 			>
-				<div
-					class={wideLayout
-						? 'w-full max-w-3xl mx-auto px-7 flex flex-col pb-2'
-						: 'w-full max-w-2xl mx-auto px-3 flex flex-col pb-2'}
-					bind:clientHeight={height}
-				>
+				<div class="{columnClass} flex flex-col pb-2" bind:clientHeight={height}>
 					{#each messages as message, messageIndex (messageIndex)}
 						<AIChatMessage
 							{message}
@@ -844,6 +853,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					{/if}
 				</div>
 			</div>
+			<!-- Sits below the scroll-to-latest button, which carries z-10. -->
+			<ScrollFade scroller={scrollElement} />
 			{#if showScrollToLatest}
 				<div
 					transition:fade={{ duration: 120 }}
@@ -869,11 +880,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		</div>
 	{/if}
 
-	<div
-		class={wideLayout
-			? 'relative w-full max-w-3xl mx-auto px-6 pb-2'
-			: 'relative w-full max-w-2xl mx-auto px-2 pb-2'}
-	>
+	<!-- Same horizontal padding as the transcript above: the composer's edges line up with
+	     the messages rather than sitting closer to the panel edge. -->
+	<div class="relative {columnClass} pb-2">
 		{#if showFlowPendingActionControls}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
 				<Button
