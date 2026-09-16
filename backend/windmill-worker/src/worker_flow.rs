@@ -4475,10 +4475,10 @@ async fn push_next_flow_job(
             payload_tag.tag.as_deref(),
         );
 
-        // A step whose inputs, or whose `$flow_expr[...]` tag, failed to evaluate is pushed only
-        // to report the error, and a computed tag can then name a queue nobody serves (`push_args`
-        // is empty, so `$args[...]` reads nothing), leaving the step stuck instead. Send it to the
-        // flow's tag, which a worker is provably serving right now.
+        // A step whose inputs failed to evaluate, or whose `$flow_expr[...]` tag failed to resolve,
+        // is pushed only to report the error, and a computed tag can then name a queue nobody
+        // serves (`push_args` is empty, so `$args[...]` reads nothing), leaving the step stuck
+        // instead. Send it to the flow's tag, which a worker is provably serving right now.
         //
         // A step handed over by id, or one whose tag `push` replaces, never reaches a worker
         // through its tag, so rewriting theirs would be noise.
