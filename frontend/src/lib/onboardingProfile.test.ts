@@ -46,6 +46,15 @@ describe('parseOnboardingProfile', () => {
 		})
 	})
 
+	it('keeps a known survey switch and drops any other value', () => {
+		expect(parseOnboardingProfile({ survey: 'ask' })?.survey).toBe('ask')
+		expect(parseOnboardingProfile({ survey: 'skip' })?.survey).toBe('skip')
+		expect(parseOnboardingProfile({ touch_point: 'support:x', survey: 'ASK' })).toEqual({
+			touch_point: 'support:x'
+		})
+		expect(parseOnboardingProfile({ survey: true })).toBeNull()
+	})
+
 	it('is null for an empty, non-object, or entirely unusable profile', () => {
 		expect(parseOnboardingProfile(null)).toBeNull()
 		expect(parseOnboardingProfile([])).toBeNull()

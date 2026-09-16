@@ -12,8 +12,13 @@ import { WORKSPACE_NAME_MAX_LENGTH } from './utils/workspaceId'
  * value is trusted before it is shown.
  */
 export interface OnboardingProfile {
-	/** Answers onboarding's source question; `outbound:<campaign>`. */
+	/** Answers onboarding's source question; e.g. `outbound:<campaign>`. */
 	touch_point?: string
+	/**
+	 * Whether onboarding still asks its questions when `touch_point` is already known.
+	 * Absent means skip.
+	 */
+	survey?: 'ask' | 'skip'
 	company?: string
 	/** What to call the first workspace; `company` is the fallback. */
 	workspace_name?: string
@@ -71,6 +76,7 @@ export function parseOnboardingProfile(raw: unknown): OnboardingProfile | null {
 		: []
 	const profile: OnboardingProfile = {
 		touch_point: str(r.touch_point, 200),
+		survey: r.survey === 'ask' || r.survey === 'skip' ? r.survey : undefined,
 		company: str(r.company, WORKSPACE_NAME_MAX_LENGTH),
 		workspace_name: str(r.workspace_name, WORKSPACE_NAME_MAX_LENGTH),
 		hub_projects: strList(r.hub_projects, 100),

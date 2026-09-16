@@ -55,17 +55,24 @@
 	// An invited account arrives with the survey already answered: the invite that brought
 	// them here is how they heard about us, and their use case was researched before it was
 	// sent. Neither question is asked; the known source is recorded and they go straight to
-	// naming their workspace. Resolved before first paint: rendering a survey step and
+	// naming their workspace. A profile with `survey: 'ask'` knows only the source, so it
+	// skips just that question. Resolved before first paint: rendering a survey step and
 	// yanking it away a frame later reads as a glitch.
 	let invitedTouchPoint = $state<string | null>(null)
+	// A known source is never asked, so no step leads back to it or counts it as progress.
+	const sourceStepShown = $derived(!invitedTouchPoint)
 	let profileReady = $state(false)
 	async function loadInviteProfile() {
 		const profile = await onboardingProfile()
 		if (profile?.touch_point) {
 			invitedTouchPoint = profile.touch_point
-			// An account that already has somewhere to go leaves from here; painting the
-			// survey behind that navigation would show a step this account never takes.
-			if (await skip()) return
+			if (profile.survey === 'ask') {
+				currentStep = STEP_USE_CASE
+			} else if (await skip()) {
+				// An account that already has somewhere to go leaves from here; painting the
+				// survey behind that navigation would show a step this account never takes.
+				return
+			}
 		}
 		profileReady = true
 	}
@@ -165,13 +172,14 @@
 	}
 
 	async function continueToWorkspaces() {
-		if (!selectedSource || isSubmitting) return
+		const touchPoint = selectedSource ?? invitedTouchPoint
+		if (!touchPoint || isSubmitting) return
 
 		isSubmitting = true
 		try {
 			await UserService.submitOnboardingData({
 				requestBody: {
-					touch_point: selectedSource,
+					touch_point: touchPoint,
 					use_case: useCaseText
 				}
 			})
@@ -296,16 +304,22 @@
 				></textarea>
 			</div>
 
-			<div class="flex flex-row justify-between items-center pt-4 gap-4">
-				<Button
-					color="light"
-					variant="border"
-					startIcon={{ icon: ArrowLeft }}
-					size="xs"
-					on:click={goToPreviousStep}
-				>
-					Previous
-				</Button>
+			<div
+				class="flex flex-row items-center pt-4 gap-4 {sourceStepShown
+					? 'justify-between'
+					: 'justify-end'}"
+			>
+				{#if sourceStepShown}
+					<Button
+						color="light"
+						variant="border"
+						startIcon={{ icon: ArrowLeft }}
+						size="xs"
+						on:click={goToPreviousStep}
+					>
+						Previous
+					</Button>
+				{/if}
 				<Button
 					color="blue"
 					variant="contained"
@@ -318,15 +332,20 @@
 				</Button>
 			</div>
 
-			<div class="flex justify-center mt-4">
-				<div class="flex items-center gap-2">
-					<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
-					<div class="w-2 h-2 rounded-full bg-blue-500"></div>
-					{#if !alreadyPlaced}
-						<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
-					{/if}
+			{#if sourceStepShown || !alreadyPlaced}
+				<!-- A lone step has no progress to show. -->
+				<div class="flex justify-center mt-4">
+					<div class="flex items-center gap-2">
+						{#if sourceStepShown}
+							<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
+						{/if}
+						<div class="w-2 h-2 rounded-full bg-blue-500"></div>
+						{#if !alreadyPlaced}
+							<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
+						{/if}
+					</div>
 				</div>
-			</div>
+			{/if}
 		</div>
 	</CenteredModal>
 {:else if currentStep === STEP_WORKSPACE}
@@ -354,11 +373,13 @@
 				{/snippet}
 			</SimpleCreateWorkspace>
 
-			{#if !invitedTouchPoint}
-				<!-- The only step an invited account sees: no progress to show. -->
+			{#if sourceStepShown || !skippedSurvey}
+				<!-- An invited account that skipped the survey sees only this step: no progress to show. -->
 				<div class="flex justify-center mt-4">
 					<div class="flex items-center gap-2">
-						<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
+						{#if sourceStepShown}
+							<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
+						{/if}
 						<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></div>
 						<div class="w-2 h-2 rounded-full bg-blue-500"></div>
 					</div>
