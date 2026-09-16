@@ -1098,22 +1098,25 @@ async fn without_the_enterprise_edition_a_data_table_under_roles_is_refused_a_co
         assert!(err.to_string().contains(ENTERPRISE_REFUSAL), "{err}");
     }
 
-    // Not under roles, it resolves as it always has; naming a role on it is refused.
+    // Not under roles, it resolves as it always has, including when `admin` is named — which every
+    // migration does; naming any other role on it is refused.
     sqlx::query(
         "UPDATE workspace_settings SET datatable = datatable #- '{datatables,main,permissions}'
          WHERE workspace_id = 'test-workspace'",
     )
     .execute(&db)
     .await?;
-    let resolved = get_datatable_resource_from_db(
-        &db,
-        "test-workspace",
-        "main",
-        None,
-        DatatableAccess::NoIdentity,
-    )
-    .await?;
-    assert_eq!(resolved["dbname"], "dt_main", "{resolved}");
+    for role in [None, Some("admin")] {
+        let resolved = get_datatable_resource_from_db(
+            &db,
+            "test-workspace",
+            "main",
+            role,
+            DatatableAccess::NoIdentity,
+        )
+        .await?;
+        assert_eq!(resolved["dbname"], "dt_main", "{resolved}");
+    }
     let err = get_datatable_resource_from_db(
         &db,
         "test-workspace",
