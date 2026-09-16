@@ -143,7 +143,7 @@ export interface SendMessageOptions {
    * and the run never starts; `stop()` during the upload does the same with an `AbortError`.
    */
   attachments?: ChatAttachment[]
-  /** Required with `attachments`. */
+  /** Required with `attachments`. With `multiple: false`, more than one attachment is refused before anything uploads. */
   attachmentsInput?: AttachmentsInput
 }
 

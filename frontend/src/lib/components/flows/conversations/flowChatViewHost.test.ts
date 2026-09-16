@@ -358,6 +358,30 @@ describe('FlowChatViewHost', () => {
 		host.dispose()
 	})
 
+	it('retries a failed turn with the files it was sent with', async () => {
+		const { chat, set } = fakeChat(idleState({ messages: [] }))
+		chat.sendMessage.mockImplementationOnce(async () => {
+			set({ messages: [message({ id: 'u1', role: 'user', content: 'read', pending: true })] })
+		})
+		// The chat shows the user message before its first await.
+		chat.sendMessage.mockImplementationOnce(async () => {})
+		const host = new FlowChatViewHost(chat, { attachmentsTarget: () => listInput })
+		const sending = host.sendRequest({ instructions: 'read', images: [image], blobs: [pdf] })
+		await sending
+		set({
+			messages: [
+				message({ id: 'u1', role: 'user', content: 'read' }),
+				message({ role: 'assistant', content: 'boom', success: false })
+			]
+		})
+		host.retryRequest(0)
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		const [text, options] = chat.sendMessage.mock.calls[1] as any
+		expect(text).toBe('read')
+		expect(options.attachments.map((a: any) => a.name)).toEqual(['shot.webp', 'contract.pdf'])
+		host.dispose()
+	})
+
 	it('queues attachments with the text and sends them together', async () => {
 		const { chat, set } = fakeChat(idleState({ status: 'streaming' }))
 		const host = new FlowChatViewHost(chat, { attachmentsTarget: () => listInput })

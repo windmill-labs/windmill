@@ -274,26 +274,34 @@ export class FlowChatViewHost implements ChatViewHost {
 		// already running, an upload that failed, Stop pressed while it ran — and the draft
 		// is then handed back rather than dropped. The composer took it before calling, so
 		// nothing else would.
-		const turn = this.#chat
-			.sendMessage(text, {
-				inputs: this.#options.additionalInputs?.() ? inputs : undefined,
-				attachments,
-				attachmentsInput: target
-			})
-			.catch((e) => {
-				if (this.#disposed) return
-				if (attachments.length > 0 && !isAbort(e)) {
-					sendUserToast(
-						`Could not upload the attachments: ${e instanceof Error ? e.message : String(e)}`,
-						true
-					)
-				}
-				// What was queued behind it comes back too, after it: the chat publishes `idle`
-				// when it withdraws the turn, and a queue left in place would be flushed as if
-				// the turn had run.
-				this.dequeueMessage()
-				this.#aiChatInput?.prependText(text, images, [], blobs)
-			})
+		const sending = this.#chat.sendMessage(text, {
+			inputs: this.#options.additionalInputs?.() ? inputs : undefined,
+			attachments,
+			attachmentsInput: target
+		})
+		// `sendMessage` shows the user message before its first await, so the last one is this
+		// turn's. Its id is stable across the server sync, which lets Retry resend the files.
+		const last = this.#chat.getState().messages.at(-1)
+		const sentId =
+			last?.role === 'user' && last.pending && last.content === text ? last.id : undefined
+		if (sentId && (images.length > 0 || blobs.length > 0)) {
+			this.#sentAttachments.set(sentId, { images, blobs })
+		}
+		const turn = sending.catch((e) => {
+			if (sentId) this.#sentAttachments.delete(sentId)
+			if (this.#disposed) return
+			if (attachments.length > 0 && !isAbort(e)) {
+				sendUserToast(
+					`Could not upload the attachments: ${e instanceof Error ? e.message : String(e)}`,
+					true
+				)
+			}
+			// What was queued behind it comes back too, after it: the chat publishes `idle`
+			// when it withdraws the turn, and a queue left in place would be flushed as if
+			// the turn had run.
+			this.dequeueMessage()
+			this.#aiChatInput?.prependText(text, images, [], blobs)
+		})
 		this.#turnDone = turn
 		await turn
 		return true
@@ -368,10 +376,16 @@ export class FlowChatViewHost implements ChatViewHost {
 	// Per-message actions
 	storedImages = () => undefined
 	/** Send the user message at this transcript position again. */
+	/** The files each user message of this session went out with, for Retry. A message loaded
+	 * from history has none recorded here and retries with its text alone. */
+	#sentAttachments = new Map<string, { images: AttachedImage[]; blobs: AttachedBlob[] }>()
 	retryRequest = (messageIndex: number) => {
 		const message = this.#state.messages[messageIndex]
 		if (!message || message.role !== 'user' || this.loading) return
-		void this.sendRequest({ instructions: message.content })
+		void this.sendRequest({
+			instructions: message.content,
+			...this.#sentAttachments.get(message.id)
+		})
 	}
 	restartGeneration = () => {}
 	handleUserQuestionAnswer = () => false

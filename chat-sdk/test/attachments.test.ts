@@ -135,6 +135,22 @@ describe('sendMessage with attachments', () => {
     })
   })
 
+  test('refuses several files for an input that holds one, before uploading any', async () => {
+    const { fetch, calls } = fetchMock(upload, run, answer)
+    const chat = createChat(options(fetch))
+    await expect(
+      chat.sendMessage('read these', {
+        attachments: [
+          { name: 'a.pdf', data: pdf },
+          { name: 'b.png', data: png }
+        ],
+        attachmentsInput: { name: 'file', multiple: false }
+      })
+    ).rejects.toThrow('holds one file')
+    expect(calls).toHaveLength(0)
+    expect(chat.getState().messages).toEqual([])
+  })
+
   test('refuses attachments without an input to put them in', async () => {
     const { fetch, calls } = fetchMock(upload, run, answer)
     const chat = createChat(options(fetch))

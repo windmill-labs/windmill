@@ -114,6 +114,10 @@ class ChatImpl implements Chat {
     if (attachments.length > 0 && !attachmentsInput) {
       throw new Error('windmill-chat: attachments need `attachmentsInput`, the flow input that takes them')
     }
+    if (attachmentsInput && !attachmentsInput.multiple && attachments.length > 1) {
+      // Uploading all of them would run with the first and leave the rest stranded in storage.
+      throw new Error(`windmill-chat: \`${attachmentsInput.name}\` holds one file; got ${attachments.length}`)
+    }
     const isNew = this.#state.conversationId === undefined
     const conversationId = this.#state.conversationId ?? randomId()
     const turn: Turn = {
