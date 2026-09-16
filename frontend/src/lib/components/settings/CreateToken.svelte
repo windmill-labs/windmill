@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte'
-	import { userStore, userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
+	import {
+		userWorkspaces,
+		usersWorkspaceStore,
+		workspaceStore,
+		type UserWorkspace
+	} from '$lib/stores'
 	import { Button } from '../common'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
@@ -45,7 +50,8 @@
 
 	let newToken = $state<string | undefined>(undefined)
 	let newMcpToken = $state<string | undefined>(undefined)
-	let newTokenExpiration = $state<number | undefined>(undefined)
+	// What the user picked; `newTokenExpiration` is that pick held within the ceiling.
+	let pickedExpiration = $state<number | undefined>(undefined)
 	let newTokenWorkspace = $state<string | undefined>(untrack(() => defaultNewTokenWorkspace))
 	let mcpCreationMode = $state(false)
 	let lastRequestedMcpMode = $state<boolean | undefined>(undefined)
@@ -70,25 +76,6 @@
 	// The `max_token_expiration_days` instance setting. The server shortens any token that asks
 	// for longer, or for no expiration, so with it set the form only offers what would be kept.
 	let maxExpirationDays = $state<number | undefined>(undefined)
-	// The server exempts service accounts, so one being impersonated keeps every choice. Only the
-	// current workspace's membership is known here, which is the one an impersonation targets.
-	const isServiceAccount = $derived(
-		$userStore?.is_service_account === true && $userStore.workspace_id === $workspaceStore
-	)
-	const maxExpirationSecs = $derived(
-		maxExpirationDays == undefined || isServiceAccount ? undefined : maxExpirationDays * DAY_SECS
-	)
-	const maxExpirationLabel = $derived(
-		maxExpirationDays === 1 ? '1 day' : `${maxExpirationDays} days`
-	)
-	const expirationItems = $derived(
-		maxExpirationSecs == undefined
-			? [{ label: 'No expiration', value: undefined }, ...EXPIRATION_CHOICES]
-			: [
-					...EXPIRATION_CHOICES.filter((choice) => choice.value < maxExpirationSecs),
-					{ label: `${maxExpirationLabel} (maximum)`, value: maxExpirationSecs }
-				]
-	)
 
 	onMount(async () => {
 		let value: unknown
@@ -103,12 +90,6 @@
 			return
 		}
 		maxExpirationDays = days
-		if (
-			maxExpirationSecs != undefined &&
-			(newTokenExpiration == undefined || newTokenExpiration > maxExpirationSecs)
-		) {
-			newTokenExpiration = maxExpirationSecs
-		}
 	})
 
 	// Without a ceiling the expiration field is hidden in MCP mode, so a value picked on one side
@@ -116,7 +97,7 @@
 	// its value.
 	function resetExpirationOnModeChange() {
 		if (maxExpirationSecs == undefined) {
-			newTokenExpiration = undefined
+			pickedExpiration = undefined
 		}
 	}
 
@@ -170,18 +151,12 @@
 
 			const tokenScopes = scopes ?? pickedScopes ?? undefined
 
-			const workspaceId = isAllWorkspaces
-				? undefined
-				: mcpMode
-					? newTokenWorkspace || $workspaceStore
-					: newTokenWorkspace
-
 			const createdToken = await UserService.createToken({
 				requestBody: {
 					label: newTokenLabel,
 					expiration: date?.toISOString(),
 					scopes: tokenScopes,
-					workspace_id: workspaceId,
+					workspace_id: tokenWorkspaceId,
 					read_only: readOnly
 				} as NewToken
 			})
@@ -205,6 +180,44 @@
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
 	const isAllWorkspaces = $derived(newTokenWorkspace === ALL_WORKSPACES)
+	const tokenWorkspaceId = $derived(
+		isAllWorkspaces
+			? undefined
+			: mcpCreationMode
+				? newTokenWorkspace || $workspaceStore
+				: newTokenWorkspace
+	)
+
+	// Mirrors the server's exemption for tokens owned by a service account: one in the workspace
+	// the token is for, or in any workspace for a workspace-less token.
+	const isServiceAccount = $derived.by(() => {
+		const memberships = $usersWorkspaceStore?.workspaces ?? []
+		return tokenWorkspaceId == undefined
+			? memberships.some((w) => w.is_service_account)
+			: memberships.some((w) => w.id === tokenWorkspaceId && w.is_service_account)
+	})
+	const maxExpirationSecs = $derived(
+		maxExpirationDays == undefined || isServiceAccount ? undefined : maxExpirationDays * DAY_SECS
+	)
+	const maxExpirationLabel = $derived(
+		maxExpirationDays === 1 ? '1 day' : `${maxExpirationDays} days`
+	)
+	const expirationItems = $derived(
+		maxExpirationSecs == undefined
+			? [{ label: 'No expiration', value: undefined }, ...EXPIRATION_CHOICES]
+			: [
+					...EXPIRATION_CHOICES.filter((choice) => choice.value < maxExpirationSecs),
+					{ label: `${maxExpirationLabel} (maximum)`, value: maxExpirationSecs }
+				]
+	)
+	// A ceiling can start applying after the pick: once the setting loads, or when the MCP workspace
+	// moves to one where the account is not a service account.
+	const newTokenExpiration = $derived(
+		maxExpirationSecs != undefined &&
+			(pickedExpiration == undefined || pickedExpiration > maxExpirationSecs)
+			? maxExpirationSecs
+			: pickedExpiration
+	)
 	// The workspace used to browse scripts/flows/endpoints in the scope picker.
 	// For an all-workspaces token there is no single workspace, so fall back to
 	// the current one just for populating the endpoint list.
@@ -346,7 +359,7 @@
 						{/if}
 					</span>
 					<Select
-						bind:value={newTokenExpiration}
+						bind:value={() => newTokenExpiration, (v) => (pickedExpiration = v)}
 						placeholder={maxExpirationSecs == undefined ? 'No expiration' : 'Pick an expiration'}
 						inputClass="w-full"
 						items={expirationItems}

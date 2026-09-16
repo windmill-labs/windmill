@@ -175,12 +175,31 @@ async fn test_service_accounts_are_exempt(db: Pool<Postgres>) -> anyhow::Result<
     sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ('other', 'other', 'test-user')")
         .execute(&db)
         .await?;
+    sqlx::query("INSERT INTO workspace_settings (workspace_id) VALUES ('other')")
+        .execute(&db)
+        .await?;
     sqlx::query(
         "INSERT INTO usr (workspace_id, email, username, is_admin, role)
          VALUES ('other', 'test2@windmill.dev', 'test-user-2', false, 'User')",
     )
     .execute(&db)
     .await?;
+
+    // The token form decides the exemption from this list, so it must carry each membership's flag.
+    let memberships: serde_json::Value = client()
+        .get(format!("http://localhost:{port}/api/workspaces/users"))
+        .header("Authorization", "Bearer SECRET_TOKEN_2")
+        .send()
+        .await?
+        .json()
+        .await?;
+    for (workspace, is_service_account) in [("test-workspace", true), ("other", false)] {
+        let membership = memberships["workspaces"]
+            .as_array()
+            .and_then(|ws| ws.iter().find(|w| w["id"] == workspace))
+            .unwrap_or_else(|| panic!("{workspace} missing from {memberships}"));
+        assert_eq!(membership["is_service_account"], json!(is_service_account));
+    }
 
     for (label, workspace_id, exempt) in [
         ("own workspace", Some("test-workspace"), true),
