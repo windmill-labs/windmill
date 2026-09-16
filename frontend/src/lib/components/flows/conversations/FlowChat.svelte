@@ -6,6 +6,7 @@
 	import FlowChatInterface from './FlowChatInterface.svelte'
 	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../types'
+	import type { FlowModule } from '$lib/gen'
 	import { chatFlowKey, FRAME_CLASS, type ChatFrame } from './flowChatProps'
 
 	interface Props {
@@ -31,6 +32,8 @@
 		identity?: string
 		hideSidebar?: boolean
 		inputSchema?: Record<string, any>
+		/** The flow's modules, which say which of a tool call's arguments the model supplied. */
+		flowModules?: FlowModule[]
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
 		wideLayout?: boolean
@@ -44,6 +47,7 @@
 		identity = undefined,
 		hideSidebar = false,
 		inputSchema = undefined,
+		flowModules = undefined,
 		description = undefined,
 		wideLayout = false,
 		frame = 'top'
@@ -130,6 +134,7 @@
 					{additionalInputsSchema}
 					{path}
 					{identity}
+					{flowModules}
 					{workspace}
 					{description}
 					{wideLayout}

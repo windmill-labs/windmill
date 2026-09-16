@@ -475,6 +475,7 @@
 						path={$pathStore}
 						identity={$initialPathStore || fakeInitialPath}
 						inputSchema={flowStore.val.schema}
+						flowModules={flowStore.val.value?.modules}
 					/>
 				</div>
 			{:else}

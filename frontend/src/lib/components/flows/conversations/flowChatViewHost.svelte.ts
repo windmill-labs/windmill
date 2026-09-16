@@ -15,7 +15,7 @@ import {
 	TypewriterReveal,
 	type TypewriterRevealOptions
 } from '$lib/components/copilot/chat/typewriterReveal'
-import { JobService } from '$lib/gen'
+import { JobService, type FlowModule } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { ToolCallStore, type ToolCallDetails } from './toolCallContext.svelte'
 import {
@@ -34,6 +34,8 @@ export type FlowChatViewHostOptions = {
 	 * is disabled on the same condition; this covers the sends the composer does not
 	 * make itself: a queued message going out, a retry. */
 	sendDisabled?: () => boolean
+	/** The flow's modules, which say which of a tool job's arguments the model supplied. */
+	flowModules?: () => FlowModule[] | undefined
 	/** The flow's input schema, which says which of a run's arguments are secret. */
 	inputsSchema?: () => { properties?: Record<string, any> } | undefined
 	/** Flow inputs edited by a control beside the composer rather than the Inputs modal. No
@@ -329,7 +331,10 @@ export class FlowChatViewHost implements ChatViewHost {
 		() => this.#options.inputsSchema?.(),
 		() => new Set(this.#options.inputsShownInComposer?.() ?? [])
 	)
-	#toolCalls = new ToolCallStore(() => this.#options.workspace?.())
+	#toolCalls = new ToolCallStore(
+		() => this.#options.workspace?.(),
+		() => this.#options.flowModules?.()
+	)
 
 	// Transcript
 	displayMessages = $derived.by(() =>

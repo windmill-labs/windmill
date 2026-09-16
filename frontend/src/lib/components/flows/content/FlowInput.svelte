@@ -751,6 +751,7 @@
 						identity={$initialPathStore || fakeInitialPath}
 						hideSidebar={true}
 						inputSchema={flowStore.val.schema}
+						flowModules={flowStore.val.value?.modules}
 					/>
 				</div>
 			{:else}

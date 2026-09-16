@@ -11,6 +11,7 @@
 	import { onDestroy, tick, untrack } from 'svelte'
 	import type { Chat } from 'windmill-chat'
 	import { chatFlowKey } from './flowChatProps'
+	import type { FlowModule } from '$lib/gen'
 
 	interface Props {
 		chat: Chat
@@ -19,6 +20,7 @@
 		path: string
 		/** What the stored inputs are filed under when the path is not steady (see FlowChat). */
 		identity?: string
+		flowModules?: FlowModule[]
 		workspace?: string
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
@@ -31,6 +33,7 @@
 		additionalInputsSchema,
 		path,
 		identity = undefined,
+		flowModules = undefined,
 		workspace = undefined,
 		description = undefined,
 		wideLayout = false
@@ -106,7 +109,8 @@
 				additionalInputsSchema ? (loadInputsFromStorage() ?? additionalInputsValues) : undefined,
 			workspace: () => workspace,
 			sendDisabled: () => deploymentInProgress,
-			inputsSchema: () => additionalInputsSchema
+			inputsSchema: () => additionalInputsSchema,
+			flowModules: () => flowModules
 		}
 	)
 	setChatViewHost(chatHost)
