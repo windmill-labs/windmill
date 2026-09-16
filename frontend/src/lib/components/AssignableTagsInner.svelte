@@ -210,8 +210,8 @@
 					{/if}
 					{#if dynamicTag?.kind == 'flow_expr'}
 						<div>
-							Interpolated tag based on flow expression <b>{dynamicTag.path}</b>, resolved when the
-							flow step starts
+							Interpolated tag based on the flow value at <b>{dynamicTag.path}</b>, resolved when
+							the flow step starts
 						</div>
 					{:else if dynamicTag}
 						<div>Interpolated tag based on args input of <b>{dynamicTag.path}</b></div>
@@ -259,8 +259,8 @@
 			based on args input, use <pre class="inline text-emphasis">$args[a.b.c]</pre> where
 			<pre class="inline">a.b.c</pre> is the path to the value in the args object.
 			<br />{#if variant !== 'drawer'}<br />{/if}
-			On flow steps, use a flow expression path to base the tag on earlier results, flow inputs or flow
-			env, e.g. <pre class="inline text-emphasis">$flow_expr[results.a.region]</pre> or
+			On flow steps, use a path into earlier step results, flow inputs or flow env, e.g.
+			<pre class="inline text-emphasis">$flow_expr[results.a.region]</pre> or
 			<pre class="inline text-emphasis">$flow_expr[flow_input.region]</pre>.
 		</span>
 	{/if}

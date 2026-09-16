@@ -3114,53 +3114,77 @@ fn resolve_flow_step_tag(
     }
 }
 
-/// Resolves each `$flow_expr[path]` of a step tag by evaluating `path` as a flow expression
-/// (`results.a.foo`, `flow_input.region`, `flow_env.pool`, `resume.region`). A string renders
-/// bare, `null` (also what a missing field evaluates to) renders empty, any other value as its
-/// JSON text.
+/// Resolves each `$flow_expr[root.path]` of a step tag by reading `path` from `results` (keyed by
+/// step id), `flow_input` or `flow_env`. As for `$args[...]`, a path that reaches nothing renders
+/// empty, a string renders bare and any other value as its JSON text.
 async fn interpolate_flow_expr_tag(
     tag: &str,
-    env: HashMap<String, Arc<Box<RawValue>>>,
-    flow_args: Marc<HashMap<String, Box<RawValue>>>,
+    db: &DB,
+    flow_job: &MiniPulledJob,
+    flow_input: &HashMap<String, Box<RawValue>>,
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
-    client: &AuthedClient,
-    by_id: &IdContext,
 ) -> error::Result<String> {
     let mut rendered: HashMap<&str, String> = HashMap::new();
     for cap in RE_FLOW_EXPR_TAG.captures_iter(tag) {
-        let expr = cap.get(1).unwrap().as_str();
-        if rendered.contains_key(expr) {
+        let path = cap.get(1).unwrap().as_str();
+        if rendered.contains_key(path) {
             continue;
         }
-        let value = eval_timeout(
-            expr.to_string(),
-            env.clone(),
-            Some(flow_args.clone()),
-            flow_env,
-            Some(client),
-            Some(by_id),
-            None,
-        )
-        .await
-        .map_err(|e| {
-            Error::ExecutionErr(format!(
-                "Could not resolve the step tag `{tag}`: error during evaluation of `{expr}`:\n{e:#}"
-            ))
-        })?;
-        let value = serde_json::from_str::<Value>(value.get()).map_err(to_anyhow)?;
-        rendered.insert(expr, render_flow_expr_tag_value(value));
+        let mut segments = path.split('.');
+        let root = segments.next().unwrap_or_default();
+        let segments = segments.collect::<Vec<_>>();
+        let value = match (root, segments.split_first()) {
+            ("flow_input", _) => read_flow_expr_path(Some(flow_input), &segments),
+            ("flow_env", _) => read_flow_expr_path(flow_env, &segments),
+            ("results", Some((step_id, rest))) => {
+                match windmill_queue::get_result_by_id(
+                    db.clone(),
+                    flow_job.workspace_id.clone(),
+                    flow_job.id,
+                    step_id.to_string(),
+                    (!rest.is_empty()).then(|| rest.join(".")),
+                )
+                .await
+                {
+                    Ok(result) => serde_json::from_str(result.get()).unwrap_or_default(),
+                    Err(Error::NotFound(_)) => Value::Null,
+                    Err(e) => {
+                        return Err(Error::ExecutionErr(format!(
+                            "Could not resolve the step tag `{tag}`: {e}"
+                        )))
+                    }
+                }
+            }
+            _ => {
+                return Err(Error::ExecutionErr(format!(
+                    "Could not resolve the step tag `{tag}`: `{path}` must start with \
+                     `results.<step_id>`, `flow_input` or `flow_env`"
+                )))
+            }
+        };
+        let value = match value {
+            Value::String(s) => s,
+            Value::Null => String::new(),
+            v => v.to_string(),
+        };
+        rendered.insert(path, value);
     }
     Ok(RE_FLOW_EXPR_TAG
         .replace_all(tag, |cap: &regex::Captures| rendered[&cap[1]].clone())
         .into_owned())
 }
 
-fn render_flow_expr_tag_value(value: Value) -> String {
-    match value {
-        Value::String(s) => s,
-        Value::Null => String::new(),
-        v => v.to_string(),
-    }
+fn read_flow_expr_path(map: Option<&HashMap<String, Box<RawValue>>>, segments: &[&str]) -> Value {
+    let Some((key, rest)) = segments.split_first() else {
+        return Value::Null;
+    };
+    map.and_then(|m| m.get(*key))
+        .and_then(|raw| serde_json::from_str::<Value>(raw.get()).ok())
+        .and_then(|v| {
+            v.pointer(&rest.iter().map(|s| format!("/{s}")).collect::<String>())
+                .cloned()
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -4241,10 +4265,9 @@ async fn push_next_flow_job(
             None
         };
 
-        // The scope the step's input transforms were evaluated in, which a `$flow_expr[...]` tag
-        // must read too.
-        let mut expr_flow_args = arc_flow_job_args.clone();
-        let mut expr_previous_id = previous_id.as_str();
+        // The `flow_input` the step's input transforms read, which a `$flow_expr[flow_input...]`
+        // tag must read too: the body of a simple for-loop also sees `iter` there.
+        let mut step_flow_input = arc_flow_job_args.clone();
 
         let marc;
         let me;
@@ -4271,8 +4294,7 @@ async fn push_next_flow_job(
                     //previous id is none because we do not want to use previous id if we are in a for loop
                     let ctx = get_transform_context(&flow_job, "", &status);
                     let args = Marc::new(args);
-                    expr_flow_args = args.clone();
-                    expr_previous_id = "";
+                    step_flow_input = args.clone();
                     let ti = transform_input(
                         args,
                         flow_env,
@@ -4514,23 +4536,9 @@ async fn push_next_flow_job(
         let mut tag_err = None;
         let tag = match tag {
             Some(t) if err.is_none() && tag_reads_flow_expr(&t) => {
-                let ctx = get_transform_context(&flow_job, expr_previous_id, &status);
-                let env = HashMap::from([
-                    ("previous_result".to_string(), arc_last_job_result.clone()),
-                    ("resume".to_string(), resume.clone()),
-                    ("resumes".to_string(), resumes.clone()),
-                    ("approvers".to_string(), approvers.clone()),
-                ]);
-                match interpolate_flow_expr_tag(
-                    &t,
-                    env,
-                    expr_flow_args.clone(),
-                    flow_env,
-                    client,
-                    &ctx,
-                )
-                .warn_after_seconds(3)
-                .await
+                match interpolate_flow_expr_tag(&t, db, &flow_job, &step_flow_input, flow_env)
+                    .warn_after_seconds(3)
+                    .await
                 {
                     Ok(resolved) => Some(resolved),
                     Err(e) => {

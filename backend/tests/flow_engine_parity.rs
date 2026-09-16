@@ -3314,7 +3314,7 @@ export function main(i: number) {
 }
 
 // A `$flow_expr[...]` step tag is resolved from the flow's state before the step is pushed, and
-// one that cannot be evaluated fails the step instead of queueing it on a tag no worker serves.
+// one that cannot be resolved fails the step instead of queueing it on a tag no worker serves.
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_expr_step_tag(db: Pool<Postgres>) -> anyhow::Result<()> {
