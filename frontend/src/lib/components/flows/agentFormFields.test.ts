@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AI_AGENT_SCHEMA, memoryPropertyFor } from './flowInfers'
+import { AI_AGENT_SCHEMA, memoryOptionLabel, memoryPropertyFor } from './flowInfers'
 import {
 	AGENT_FIELD_BY_KEY,
 	AGENT_FIELDS,
@@ -94,6 +94,7 @@ describe('historyInputApplies', () => {
 		expect(agentMemoryMode({ kind: 'window', context_length: 10 })).toBe('managed')
 		expect(agentMemoryMode({ kind: 'manual', messages: [] })).toBe('legacy')
 		expect(agentMemoryMode({ kind: 'auto', context_length: 4, memory_id: 'x' })).toBe('legacy')
+		expect(agentMemoryMode({ kind: 'auto' })).toBe('off')
 		expect(historyInputApplies('memory_id', 'managed')).toBe(true)
 		expect(historyInputApplies('previous_messages', 'managed')).toBe(false)
 		expect(historyInputApplies('memory_id', 'off')).toBe(false)
@@ -101,6 +102,16 @@ describe('historyInputApplies', () => {
 		expect(historyInputApplies('memory_id', 'legacy')).toBe(false)
 		expect(historyInputApplies('previous_messages', 'legacy')).toBe(false)
 		expect(historyInputApplies('previous_messages', undefined)).toBe(true)
+	})
+})
+
+describe('memoryOptionLabel', () => {
+	// The ignored-input note names the setting by the same label its own button carries.
+	it('names each memory option the way the field renders it', () => {
+		expect(memoryOptionLabel({ kind: 'manual', messages: [] })).toBe('Previous messages (legacy)')
+		expect(memoryOptionLabel({ kind: 'auto', context_length: 4 })).toBe('On (legacy)')
+		expect(memoryOptionLabel({ kind: 'window', context_length: 10 })).toBe('On')
+		expect(memoryOptionLabel(undefined)).toBeUndefined()
 	})
 })
 

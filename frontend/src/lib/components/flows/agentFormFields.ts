@@ -45,9 +45,12 @@ export function keepsManagedMemory(memory: any): boolean {
 
 export type AgentMemoryMode = 'legacy' | 'managed' | 'off'
 
-/** Which shape the step's memory holds: an older `auto`/`manual` setting, or the current one. */
+/** Which shape a run reads this memory as: an older `auto`/`manual` setting, or the current one. */
 export function agentMemoryMode(memory: any): AgentMemoryMode {
-	if (memory?.kind === 'auto' || memory?.kind === 'manual') return 'legacy'
+	if (memory?.kind === 'manual') return 'legacy'
+	// The worker reads an `auto` that keeps no messages as off, history inputs included, so the form
+	// offers what that run would read.
+	if (memory?.kind === 'auto') return memory.context_length ? 'legacy' : 'off'
 	return keepsManagedMemory(memory) ? 'managed' : 'off'
 }
 
@@ -66,7 +69,7 @@ export function historyInputApplies(
 /** A memory setting in words, for a linked agent's summary. */
 export function describeMemoryPolicy(memory: any): string {
 	if (keepsManagedMemory(memory)) return `Last ${memory.context_length} messages`
-	if (memory?.kind === 'manual') return 'Off, sends a fixed list of messages'
+	if (memory?.kind === 'manual') return 'Off, sends previous messages saved with the agent'
 	return 'Off'
 }
 

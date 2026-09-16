@@ -68,7 +68,7 @@
 	} from '../agentFormFields'
 	import AgentToolRoster from './AgentToolRoster.svelte'
 	import AgentMemoryNotes from './AgentMemoryNotes.svelte'
-	import { memoryPropertyFor } from '../flowInfers'
+	import { memoryOptionLabel, memoryPropertyFor } from '../flowInfers'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any> }
@@ -241,6 +241,22 @@
 		'memory' in schemaProperties &&
 			(args?.memory?.type === 'javascript' || args?.memory?.type === 'ai')
 	)
+	// Names the legacy value the way the memory field's own button does, reading it wherever the mode
+	// came from, so the row and the setting it points at cannot name it differently.
+	let legacyMemoryNote = $derived.by(() => {
+		const onThisForm = 'memory' in schemaProperties
+		const label = memoryOptionLabel(
+			onThisForm
+				? args?.memory?.type === 'static'
+					? args.memory.value
+					: undefined
+				: linkedMemory?.memory
+		)
+		return onThisForm
+			? `Ignored while memory is set to ${label}.`
+			: `Ignored while the agent's memory is set to ${label}.`
+	})
+
 	let memoryIdOffered = $derived(
 		(memoryMode === 'managed' || memoryIsExpression) &&
 			scopedFields.some((spec) => spec.key === 'memory_id')
@@ -582,7 +598,7 @@
 											{#if isHistoryKey(spec.key) && !historyInputApplies(spec.key, memoryMode)}
 												<p class="mt-1 text-2xs text-hint">
 													{memoryMode === 'legacy'
-														? 'Not read by the older memory setting on this step.'
+														? legacyMemoryNote
 														: `Ignored while managed memory is ${memoryMode === 'managed' ? 'on' : 'off'}.`}
 												</p>
 											{/if}

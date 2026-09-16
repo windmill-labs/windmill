@@ -42,7 +42,10 @@
 	// state, so switching to that setting is the only choice.
 	let legacyEquivalent = $derived(memory?.kind === 'auto' && !legacyMemoryId)
 
+	// The older setting never read the step's own memory id, so a conversion that promises the same
+	// behaviour, or the run's id, drops it rather than bringing it to life. Off keeps ignoring it.
 	function switchToEquivalent() {
+		if (on) delete args.memory_id
 		args.memory = {
 			type: 'static',
 			value: on ? { kind: 'window', context_length: memory?.context_length } : { kind: 'off' }
@@ -52,6 +55,8 @@
 	function convertLegacyMemoryId(keepAsMemoryId: boolean) {
 		if (keepAsMemoryId && legacyMemoryId) {
 			args.memory_id = { type: 'static', value: legacyMemoryId }
+		} else {
+			delete args.memory_id
 		}
 		args.memory = {
 			type: 'static',
@@ -74,8 +79,8 @@
 	<Alert type="info" title="Older memory setting" class="mt-2">
 		<div class="flex flex-col gap-2">
 			<span>
-				An earlier version of the editor saved a fixed list of messages here, which this agent still
-				sends.
+				An earlier version of the editor saved these previous messages inside the memory setting,
+				and this agent still sends them.
 			</span>
 			{#if historyOnStep}
 				<div class="flex">

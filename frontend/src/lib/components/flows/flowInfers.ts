@@ -6,6 +6,19 @@ import type { FlowModule, InputTransform } from '$lib/gen'
 import { AGENT_FLOW_LOCAL_KEYS } from './agentResourceUtils'
 import { AGENT_HISTORY_KEYS } from './agentFormFields'
 
+/** Display names for the memory field's options, so anything else naming the setting an author
+ *  picked cannot drift from the button they see. */
+export const MEMORY_OPTION_LABELS: Record<string, string> = {
+	off: 'Off',
+	window: 'On',
+	auto: 'On (legacy)',
+	manual: 'Previous messages (legacy)'
+}
+
+export function memoryOptionLabel(memory: any): string | undefined {
+	return memory?.kind ? MEMORY_OPTION_LABELS[memory.kind] : undefined
+}
+
 export const AI_AGENT_SCHEMA: Schema = {
 	$schema: 'https://json-schema.org/draft/2020-12/schema',
 	properties: {
@@ -42,12 +55,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 			type: 'object',
 			description:
 				'Windmill stores the conversation and sends its last messages with each request.',
-			enumLabels: {
-				off: 'Off',
-				window: 'On',
-				auto: 'On (legacy)',
-				manual: 'Previous messages (legacy)'
-			},
+			enumLabels: MEMORY_OPTION_LABELS,
 			oneOf: [
 				{
 					type: 'object',
