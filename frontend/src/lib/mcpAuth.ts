@@ -8,8 +8,8 @@ import { SettingService } from '$lib/gen'
  * Deliberately uncached: callers read it at the moment an MCP URL is asked for, so a superadmin
  * flipping the setting does not leave open tabs handing out URLs the server now refuses.
  *
- * Throws rather than falling back. A caller that guessed `false` here would mint a
- * non-expiring token and hand over a URL the server refuses for as long as it exists.
+ * Throws rather than falling back, so the caller picks the safe default. Guessing `false`
+ * here would mint a non-expiring token for a URL the server may refuse.
  */
 export async function mcpTokenUrlDisabled(): Promise<boolean> {
 	return (

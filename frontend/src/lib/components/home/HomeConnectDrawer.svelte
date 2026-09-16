@@ -26,10 +26,10 @@ wmill sync pull`)
 	export function openDrawer(tab: ConnectTab = 'cli') {
 		selectedTab = tab
 		openVersion += 1
-		// Only drives this blurb's wording; CreateToken below surfaces a failed check itself.
+		// Falls back like CreateToken below, which shows the bare URL when the read fails.
 		void mcpTokenUrlDisabled()
 			.then((v) => (tokenUrlDisabled = v))
-			.catch(() => (tokenUrlDisabled = false))
+			.catch(() => (tokenUrlDisabled = true))
 		drawer?.openDrawer()
 	}
 

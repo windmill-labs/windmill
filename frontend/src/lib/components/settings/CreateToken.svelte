@@ -57,9 +57,9 @@
 	let readOnly = $state(false)
 	// How this instance lets an MCP client in. `oauth` means it refuses `?token=`, so a
 	// generated token would not get a client in and the URL is handed over bare instead.
-	// Never assumed while unknown: guessing `token` mints a non-expiring credential for a
-	// URL the server would refuse.
-	type McpUrlPolicy = 'loading' | 'token' | 'oauth' | 'unavailable'
+	// A failed read lands on `oauth`: the bare URL works whichever way the setting is,
+	// whereas guessing `token` mints a non-expiring credential the server may refuse.
+	type McpUrlPolicy = 'loading' | 'token' | 'oauth'
 	let mcpUrlPolicy = $state<McpUrlPolicy>('loading')
 
 	async function loadMcpUrlPolicy() {
@@ -68,7 +68,7 @@
 			mcpUrlPolicy = (await mcpTokenUrlDisabled()) ? 'oauth' : 'token'
 		} catch (err) {
 			console.error('Failed to load the MCP token setting:', err)
-			mcpUrlPolicy = 'unavailable'
+			mcpUrlPolicy = 'oauth'
 		}
 	}
 
@@ -234,17 +234,7 @@
 			</div>
 		{/if}
 
-		{#if mcpCreationMode && mcpUrlPolicy === 'unavailable'}
-			<Alert type="error" title="Could not check how this instance accepts MCP clients" size="xs">
-				<div class="flex flex-col items-start gap-2">
-					<span>
-						Without that answer a generated token could be one this instance refuses, so nothing is
-						created here until the check succeeds.
-					</span>
-					<Button onClick={loadMcpUrlPolicy} variant="default" unifiedSize="xs">Try again</Button>
-				</div>
-			</Alert>
-		{:else if mcpCreationMode && mcpUrlPolicy === 'loading'}
+		{#if mcpCreationMode && mcpUrlPolicy === 'loading'}
 			<Skeleton layout={[[2], 0.5, [1]]} />
 		{:else if mcpCreationMode && mcpUrlPolicy === 'oauth'}
 			{#if !lockWorkspace}
