@@ -350,7 +350,11 @@
 			// a move keeps its old save time while the move mints a fresh deploy, so
 			// the timestamps alone would call every carried draft stale.
 			draftBaseHash = backendScript.draft_base
-			deployedHeadHash = backendScript.hash as string | undefined
+			// A draft-only script has no deployed hash to be behind: what comes back
+			// under `hash` is then the draft's own value, not a head.
+			deployedHeadHash = backendScript.no_deployed
+				? undefined
+				: (backendScript.hash as string | undefined)
 			const effectiveScript: EditableScript = draftFromBackend
 				? { ...deployedScript, ...draftFromBackend }
 				: (deployedScript as EditableScript)

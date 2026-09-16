@@ -413,9 +413,14 @@ async fn update_draft(
     // legacy row too, since the same rename carried it — and the draft whose presence
     // means this path is still the write's own.
     let owner: Option<&str> = (!legacy_delete).then_some(email.as_str());
-    // The caller's own draft-only move outranks the move of the deployed item.
-    let moved_to = sqlx::query_scalar!(
-        r#"SELECT m.new_path FROM draft_move m
+    // The caller's own draft-only move outranks the move of the deployed item. Only the
+    // kinds whose value carries a deploy target are ever recorded as moved, so for the
+    // rest this would be a guaranteed-empty query on the autosave hot path.
+    let moved_to = match kind.typed_path_field() {
+        None => None,
+        Some(_) => {
+            sqlx::query_scalar!(
+                r#"SELECT m.new_path FROM draft_move m
            WHERE m.workspace_id = $1 AND m.typ = $2 AND m.old_path = $3
              AND (m.email IS NULL OR m.email = $4)
              AND NOT EXISTS (
@@ -425,13 +430,15 @@ async fn update_draft(
              )
            ORDER BY m.email IS NULL
            LIMIT 1"#,
-        &w_id,
-        kind as UserDraftItemKind,
-        url_path,
-        owner,
-    )
-    .fetch_optional(&db)
-    .await?;
+                &w_id,
+                kind as UserDraftItemKind,
+                url_path,
+                owner,
+            )
+            .fetch_optional(&db)
+            .await?
+        }
+    };
     let path: &str = moved_to.as_deref().unwrap_or(url_path);
 
     // Everything past here writes, so the gate applies from here on. Answered
@@ -439,9 +446,18 @@ async fn update_draft(
     // cannot see.
     if !is_own_discard {
         match require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await {
-            Err(Error::NotAuthorized(_)) if moved_to.is_some() => {
+            // Naming the move is for whoever was editing the item: it tells them why a
+            // save they were already making stopped landing. Someone who cannot read the
+            // path they addressed gets the plain denial, or the wording itself would
+            // answer whether an item was moved away from a path they only guessed at.
+            Err(Error::NotAuthorized(e)) if moved_to.is_some() => {
                 return Err(Error::NotAuthorized(
-                    "this draft's item was moved to a path you cannot write".to_string(),
+                    match require_can_read_path(&authed, &user_db, &w_id, kind, url_path).await {
+                        Ok(()) => {
+                            "this draft's item was moved to a path you cannot write".to_string()
+                        }
+                        Err(_) => e,
+                    },
                 ));
             }
             other => other?,
