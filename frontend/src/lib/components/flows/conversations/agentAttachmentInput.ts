@@ -33,35 +33,23 @@ export function agentSteps(modules: FlowModule[] | undefined): FlowModule[] {
 }
 
 /**
- * AI agent inputs the chat composer can drive.
- *
- * The composer never edits the flow: an agent field is reachable only when the author
- * wired a flow input to it, so what the composer writes is a run input like any other. That
- * also keeps it working on the deployed chat, where the reader has no write access, and
- * on a step linked to an `ai_agent` resource, where every field but `user_message` /
- * `user_attachments` comes from the resource and is not overridable at all.
- *
- * Only what the person chatting legitimately owns turn to turn belongs here, which today
- * is the files they attach and nothing else. `system_prompt`, `temperature` and
- * `max_completion_tokens` shape how the agent behaves for everyone who runs the flow —
- * surfacing them per conversation invites tuning the flow from the chat instead of
- * fixing it in the editor. They stay flow settings, reachable through Configure inputs
- * when the author deliberately exposes them. `max_iterations` is absent for the same
- * reason, and because it caps the tool-use loop rather than a single generation.
+ * AI agent inputs the chat composer drives, through the flow input the author wired to each:
+ * the composer writes run inputs, never the flow. Only what the person chatting owns turn to
+ * turn belongs here. `system_prompt`, `temperature` and the like shape the agent for everyone
+ * who runs the flow, so they stay in the Configure-inputs modal.
  */
 export const AGENT_CHAT_INPUT_KEYS = ['user_attachments'] as const
 
 export type AgentChatInputKey = (typeof AGENT_CHAT_INPUT_KEYS)[number]
 
-/** The key that rides one message rather than the conversation, which the composer
- * clears on send. A later key of the other sort would not be this one. */
+/** The key that rides one message rather than the conversation, cleared on send. */
 export const PER_TURN_AGENT_CHAT_INPUT_KEY: AgentChatInputKey = 'user_attachments'
 
 export type AgentChatInput = {
 	/** Flow input property feeding the agent field. */
 	name: string
 	key: AgentChatInputKey
-	/** The flow input's own schema entry — the chip renders it with the same editor the modal would. */
+	/** The flow input's own schema entry. */
 	property: Record<string, any>
 }
 
@@ -118,8 +106,7 @@ export function isEmptyAgentChatInputValue(value: any): boolean {
 
 /**
  * The flow inputs that an AI agent step reads directly into one of its chat-relevant
- * fields. Several agents may resolve to the same flow input; it is one chip either way,
- * and one that stays unambiguous however many agents read it.
+ * fields. Several agents may read the same flow input; it is promoted once.
  */
 export function resolveAgentChatInputs(
 	modules: FlowModule[] | undefined,

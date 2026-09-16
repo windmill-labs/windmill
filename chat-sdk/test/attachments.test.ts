@@ -88,8 +88,8 @@ describe('sendMessage with attachments', () => {
 
     const keys = uploads(calls).map((c) => c.url.searchParams.get('file_key')!)
     expect(keys).toHaveLength(3)
-    const prefix = keys[0].split('/').slice(0, 2).join('/')
-    expect(prefix).toMatch(/^windmill_chat_uploads\/[0-9a-f-]{36}$/)
+    const prefix = keys[0].split('/').slice(0, 3).join('/')
+    expect(prefix).toMatch(/^windmill_uploads\/chat\/[0-9a-f-]{36}$/)
     expect(keys).toEqual([
       `${prefix}/0/photo.png`,
       `${prefix}/1/contract.pdf`,
@@ -200,5 +200,33 @@ describe('sendMessage with attachments', () => {
       messages: [],
       conversationId: undefined
     })
+  })
+
+  test('a switch away mid-upload leaves no conversation behind', async () => {
+    const storage = memoryStorage()
+    const { fetch, calls } = fetchMock(
+      (c) =>
+        c.url.pathname === UPLOAD_PATH
+          ? new Promise((_, reject) =>
+              c.signal!.addEventListener('abort', () => reject(abortError()))
+            )
+          : undefined,
+      run,
+      answer
+    )
+    const chat = createChat({ ...options(fetch), storage })
+    const sending = chat.sendMessage('never runs', {
+      attachments: [{ name: 'contract.pdf', data: pdf }],
+      attachmentsInput: { name: 'files', multiple: true }
+    })
+    await new Promise((r) => setTimeout(r, 0))
+    const opened = chat.getState().conversationId!
+    chat.newConversation()
+    await expect(sending).rejects.toMatchObject({ name: 'AbortError' })
+
+    expect(runs(calls)).toHaveLength(0)
+    expect(chat.getState().conversations.map((c) => c.id)).not.toContain(opened)
+    const reloaded = createChat({ ...options(fetch), storage })
+    expect((await reloaded.loadConversations()).map((c) => c.id)).not.toContain(opened)
   })
 })

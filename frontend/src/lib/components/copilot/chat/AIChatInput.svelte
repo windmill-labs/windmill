@@ -493,9 +493,7 @@
 	 */
 	export async function addNonImageFiles(files: File[]) {
 		if (files.length === 0) return
-		// Attaching can be off despite the chat taking attachments — no object storage to
-		// upload to, say. The `+` renders disabled with the reason; a drop and a paste reach
-		// here instead, and would otherwise become a chip that only fails once sent.
+		// Same reason as in addImages.
 		const unavailable = chatHost.attachmentsUnavailableReason
 		if (unavailable) {
 			sendUserToast(unavailable, true)

@@ -8,7 +8,7 @@ import type { AIAutonomyMode } from '$lib/components/copilot/chat/AIChatManager.
 import { isPlanCardTool } from '$lib/components/copilot/chat/planMode'
 import { AttachedFilesStore } from '$lib/components/copilot/chat/files/attachedFiles.svelte'
 import { SessionArtifactsStore } from '$lib/components/copilot/chat/artifacts/artifactsState.svelte'
-import { dataUrlToBlob, type AttachedBlob } from '$lib/components/copilot/chat/blobUtils'
+import type { AttachedBlob } from '$lib/components/copilot/chat/blobUtils'
 import type { AttachedImage } from '$lib/components/copilot/chat/imageUtils'
 import type { AttachedTextFile } from '$lib/components/copilot/chat/textFileUtils'
 import { sendUserToast } from '$lib/toast'
@@ -242,10 +242,8 @@ export class FlowChatViewHost implements ChatViewHost {
 		}
 		const target = this.#options.attachmentsTarget?.()
 		const inputs = { ...(this.#options.additionalInputs?.() ?? {}) }
-		// Where the paperclip is the input's editor, the stored settings have no say over it:
-		// a value saved while the modal owned it — before this workspace had object storage —
-		// would otherwise ride along on every later message. The chat sets it from the
-		// attachments, or not at all.
+		// The attachments are this input's only editor: a value stored for it in the inputs
+		// modal would otherwise ride along on every message.
 		if (target) delete inputs[target.name]
 		// The per-turn cap again, at the place the truncation would happen: the composer
 		// enforces it as files are attached, but a queue built over several turns arrives
@@ -263,12 +261,11 @@ export class FlowChatViewHost implements ChatViewHost {
 				true
 			)
 		}
-		// The bytes go up as picked (or as the composer re-encoded them, for an image): the
-		// chat uploads them to the workspace's object storage and names them by their type.
 		const attachments: ChatAttachment[] = target
 			? [...images, ...blobs].map((attachment, index) => ({
 					name: attachment.name ?? `attachment-${index + 1}`,
-					data: dataUrlToBlob(attachment.dataUrl, attachment.mediaType)
+					data: attachment.dataUrl,
+					mediaType: attachment.mediaType
 				}))
 			: []
 		this.#automaticScroll = true
@@ -291,29 +288,15 @@ export class FlowChatViewHost implements ChatViewHost {
 						true
 					)
 				}
-				this.#restoreToComposer(text, images, blobs)
+				// What was queued behind it comes back too, after it: the chat publishes `idle`
+				// when it withdraws the turn, and a queue left in place would be flushed as if
+				// the turn had run.
+				this.dequeueMessage()
+				this.#aiChatInput?.prependText(text, images, [], blobs)
 			})
 		this.#turnDone = turn
 		await turn
 		return true
-	}
-	/**
-	 * Give a spent draft back after a send that did not run. Back to the front of the queue
-	 * whenever one is waiting: anything queued was typed later, and the next settled turn
-	 * sends the queue whole — so putting the older draft in the composer would run the two
-	 * out of order.
-	 */
-	#restoreToComposer(text: string, images: AttachedImage[], blobs: AttachedBlob[]) {
-		const queue = this.#queue
-		if (!queue.text && queue.images.length === 0 && queue.blobs.length === 0) {
-			this.#aiChatInput?.prependText(text, images, [], blobs)
-			return
-		}
-		this.#queue = {
-			text: queue.text ? `${text}\n${queue.text}` : text,
-			images: [...images, ...queue.images],
-			blobs: [...blobs, ...queue.blobs]
-		}
 	}
 	/** Settles when the chat has released the last turn this host started. */
 	#turnDone: Promise<unknown> = Promise.resolve()

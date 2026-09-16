@@ -1,8 +1,13 @@
 import type { WindmillChatApi } from './api'
 import type { ChatAttachment } from './types'
 
-/** Where a chat's uploads live in the workspace's object storage. */
-export const CHAT_UPLOADS_PREFIX = 'windmill_chat_uploads'
+/**
+ * Where a chat's uploads live in the workspace's object storage. Under `windmill_uploads/`
+ * because the default Enterprise storage permissions grant every user write and read there
+ * and deny any other top-level prefix: a key outside it is refused for non-admins, both on
+ * upload and when the agent's job reads the file back.
+ */
+export const CHAT_UPLOADS_PREFIX = 'windmill_uploads/chat'
 
 /** What an AI agent step reads out of `user_attachments`. */
 export interface UploadedAttachment {

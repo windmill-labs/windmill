@@ -290,7 +290,7 @@ describe('FlowChatViewHost', () => {
 		expect(single.attachmentsUnavailableReason).toBe('no storage')
 	})
 
-	it('hands the attachments to the chat as bytes, and drops a stored value for their input', async () => {
+	it('hands the attachments to the chat, and drops a stored value for their input', async () => {
 		const { chat } = fakeChat()
 		const host = new FlowChatViewHost(chat, {
 			additionalInputs: () => ({ tone: 'brief', files: [{ s3: 'stale' }] }),
@@ -300,13 +300,10 @@ describe('FlowChatViewHost', () => {
 		const [, options] = chat.sendMessage.mock.calls[0] as any
 		expect(options.inputs).toEqual({ tone: 'brief' })
 		expect(options.attachmentsInput).toBe(listInput)
-		expect(options.attachments.map((a: any) => [a.name, a.data.type])).toEqual([
-			['shot.webp', 'image/png'],
-			['contract.pdf', 'application/pdf']
+		expect(options.attachments).toEqual([
+			{ name: 'shot.webp', data: PNG, mediaType: 'image/png' },
+			{ name: 'contract.pdf', data: pdf.dataUrl, mediaType: 'application/pdf' }
 		])
-		expect(new Uint8Array(await options.attachments[0].data.arrayBuffer())).toEqual(
-			new Uint8Array([0x89, 0x50, 0x4e, 0x47])
-		)
 	})
 
 	// The composer caps as files are attached, but a queue built over several turns
@@ -332,6 +329,32 @@ describe('FlowChatViewHost', () => {
 		chat.sendMessage.mockRejectedValueOnce(new DOMException('aborted', 'AbortError'))
 		await host.sendRequest({ instructions: 'again', images: [image] })
 		expect(prependText).toHaveBeenLastCalledWith('again', [image], [], [])
+		host.dispose()
+	})
+
+	// The chat settles a withdrawn turn as `idle`, which reads like a turn that ran; a queue
+	// left waiting would then go out with the failed draft merged in front of it.
+	it('does not send what was queued behind an upload that failed', async () => {
+		const { chat, set } = fakeChat(
+			idleState({ messages: [message({ role: 'user', content: 'earlier' })] })
+		)
+		let refuse = (_e: Error) => {}
+		chat.sendMessage.mockImplementationOnce(
+			() => new Promise<void>((_, reject) => (refuse = reject))
+		)
+		const host = new FlowChatViewHost(chat, { attachmentsTarget: () => listInput })
+		const prependText = vi.fn()
+		host.setAiChatInput({ prependText } as any)
+		void host.sendRequest({ instructions: 'A', blobs: [pdf] })
+		set({ status: 'submitted' })
+		host.queueMessage('B')
+		set({ status: 'idle' })
+		refuse(new Error('upload failed (500)'))
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
+		expect(host.queuedMessage).toBe('')
+		expect(prependText.mock.calls.map((c) => c[0])).toEqual(['B', 'A'])
+		expect(prependText).toHaveBeenLastCalledWith('A', [], [], [pdf])
 		host.dispose()
 	})
 

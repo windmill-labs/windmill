@@ -577,25 +577,29 @@ class ChatImpl implements Chat {
 
   /**
    * Undo what `sendMessage` showed for a turn that never ran: its user message, and the
-   * conversation it opened when there was none. Only while that conversation is still the
-   * one on screen; a switch meanwhile has already left it behind.
+   * conversation it opened when there was none. Also after a switch away mid-upload, which
+   * has already written the pending message to local history and kept the conversation listed.
    */
   #withdrawTurn(turn: Turn): void {
-    if (this.#state.conversationId !== turn.conversationId) return
-    const messages = this.#state.messages.filter((m) => m.id !== turn.userMessageId)
+    const id = turn.conversationId
+    const onScreen = this.#state.conversationId === id
+    const withoutTurn = (messages: ChatMessage[]) => messages.filter((m) => m.id !== turn.userMessageId)
     if (turn.isNew) {
-      if (this.#state.history === 'local') this.#local.deleteConversation(turn.conversationId)
+      if (this.#state.history === 'local') this.#local.deleteConversation(id)
       this.#set({
-        conversationId: undefined,
-        conversations: this.#state.conversations.filter((c) => c.id !== turn.conversationId),
-        messages,
-        status: 'idle',
-        error: undefined
+        conversations: this.#state.conversations.filter((c) => c.id !== id),
+        ...(onScreen
+          ? { conversationId: undefined, messages: withoutTurn(this.#state.messages), status: 'idle', error: undefined }
+          : {})
       })
       return
     }
-    this.#set({ messages, status: 'idle', error: undefined })
-    this.#persistLocal()
+    if (onScreen) {
+      this.#set({ messages: withoutTurn(this.#state.messages), status: 'idle', error: undefined })
+      this.#persistLocal()
+    } else if (this.#state.history === 'local') {
+      this.#local.saveMessages(id, withoutTurn(this.#local.getMessages(id)))
+    }
   }
 
   #failTurn(turn: Turn, e: unknown): void {

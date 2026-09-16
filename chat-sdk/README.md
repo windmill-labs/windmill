@@ -243,12 +243,13 @@ await chat.sendMessage('What does this contract say?', {
 ```
 
 Each file is uploaded to the workspace's object storage under
-`windmill_chat_uploads/<turn>/<index>/<name>` and handed to the input as `{ s3, filename }`
+`windmill_uploads/chat/<turn>/<index>/<name>` and handed to the input as `{ s3, filename }`
 objects (the object for a single-file input). The name's extension is corrected to the
 file's media type for PNG, JPEG and PDF, because the worker reads the type off the key.
 A failed upload rejects `sendMessage` before any run starts, and `stop()` during the
 upload aborts it; both leave the transcript as it was. The workspace needs object
-storage set up, and the token needs to be allowed to upload.
+storage set up. With Enterprise advanced storage permissions, the user needs read and
+write on `windmill_uploads/*`, which the default rules grant.
 
 ## History
 

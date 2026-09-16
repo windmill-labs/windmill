@@ -61,19 +61,3 @@ export async function fileToAttachedBlob(file: File): Promise<AttachedBlob> {
 		size: file.size
 	}
 }
-
-/** The bytes behind a `data:` URL, for a host that has to re-upload them. */
-export function dataUrlToBlob(dataUrl: string, fallbackType = 'application/octet-stream'): Blob {
-	const comma = dataUrl.indexOf(',')
-	const header = dataUrl.slice(5, comma)
-	const isBase64 = header.endsWith(';base64')
-	const mediaType = (isBase64 ? header.slice(0, -';base64'.length) : header) || fallbackType
-	const payload = dataUrl.slice(comma + 1)
-	if (!isBase64) {
-		return new Blob([decodeURIComponent(payload)], { type: mediaType })
-	}
-	const binary = atob(payload)
-	const bytes = new Uint8Array(binary.length)
-	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-	return new Blob([bytes], { type: mediaType })
-}
