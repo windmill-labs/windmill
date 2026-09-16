@@ -154,6 +154,7 @@ async fn list_flows(
             "favorite.path IS NOT NULL as starred",
             "ws_error_handler_muted",
             "o.labels",
+            "(o.value->>'chat_input_enabled')::bool as chat_input_enabled",
             "draft.email IS NOT NULL as is_draft",
             // Per-path draft owners as a JSON array; see scripts.rs for the rationale
             // (non-member superadmin identity fallback via `password`, legacy NULL-email row).
@@ -301,6 +302,10 @@ async fn list_flows(
                 ws_error_handler_muted: None,
                 deployment_msg: None,
                 labels: None,
+                chat_input_enabled: v
+                    .get("value")
+                    .and_then(|fv| fv.get("chat_input_enabled"))
+                    .and_then(|b| b.as_bool()),
                 // No deployed row to inherit folder labels from.
                 inherited_labels: None,
                 is_draft: true,

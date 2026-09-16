@@ -12010,6 +12010,13 @@ paths:
                       properties:
                         draft_only:
                           type: boolean
+                        chat_input_enabled:
+                          type: boolean
+                          description: |
+                            `chat_input_enabled` of the flow's value,
+                            projected so the list can mark flows that open
+                            as a chat. Omitted when the value has no such
+                            field.
                         is_draft:
                           type: boolean
                           description: |
@@ -28951,6 +28958,12 @@ components:
           type: boolean
         has_deploy_errors:
           type: boolean
+        chat_input_enabled:
+          type: boolean
+          description: >-
+            flow-only. `chat_input_enabled` of the flow's value, projected so
+            the list can mark flows that open as a chat. Omitted when the
+            value has no such field.
         raw_app:
           type: boolean
         execution_mode:
