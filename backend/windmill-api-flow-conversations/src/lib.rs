@@ -36,6 +36,13 @@ pub struct FlowConversationMessage {
     pub created_seq: i64,
     pub step_name: Option<String>,
     pub success: bool,
+    /// The call behind a tool row whose tool has no job of its own — an MCP tool, or a
+    /// provider-native one. Read back from the job otherwise, and null here.
+    pub tool_arguments: Option<String>,
+    pub tool_result: Option<String>,
+    /// The thinking of the iteration that produced this row. The agent job keeps the
+    /// turn's thinking as one string.
+    pub reasoning: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -178,7 +185,7 @@ async fn list_messages(
     let messages = if let Some(after_seq) = query.after_seq {
         sqlx::query_as!(
             FlowConversationMessage,
-            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, created_seq, step_name, success
+            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, created_seq, step_name, success, tool_arguments, tool_result, reasoning
              FROM flow_conversation_message
              WHERE conversation_id = $1
                AND created_seq > $2
@@ -195,9 +202,9 @@ async fn list_messages(
         // Fetch messages for this conversation, oldest first, but reverse the order of the messages for easy rendering on the frontend
         sqlx::query_as!(
             FlowConversationMessage,
-            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, created_seq, step_name, success
+            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, created_seq, step_name, success, tool_arguments, tool_result, reasoning
              FROM (
-                SELECT id, conversation_id, message_type, content, job_id, created_at, created_seq, step_name, success
+                SELECT id, conversation_id, message_type, content, job_id, created_at, created_seq, step_name, success, tool_arguments, tool_result, reasoning
                 FROM flow_conversation_message
                 WHERE conversation_id = $1
                 ORDER BY created_seq DESC

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { UIMessage, UIMessageChunk } from 'ai'
 import { createWindmillChatTransport, toUIMessages } from '../src/ai-sdk'
 import type { ChatMessage } from '../src/types'
-import { fetchMock, json, ndjson, sse, text, type Route } from './support'
+import { fetchMock, json, messageRow, ndjson, sse, text, type Route } from './support'
 
 const FLOW = 'f/chat/agent'
 const run: Route = (c) =>
@@ -139,6 +139,23 @@ describe('createWindmillChatTransport', () => {
     const second = await collect(await send())
     expect(second.map((c) => c.type)).toEqual(['start', 'error'])
     expect(second[1]).toMatchObject({ errorText: 'ExecutionErr: boom' })
+  })
+
+  test('loads the call an MCP tool row carries and the reasoning behind an answer', async () => {
+    const { fetch } = fetchMock((c) =>
+      c.method === 'GET' && c.url.pathname.endsWith('/messages')
+        ? json([
+            messageRow(1, 'user', 'hi'),
+            messageRow(2, 'tool', 'Used lookup tool', { job_id: 'agent-job', tool_arguments: '{"q":1}', tool_result: '42' }),
+            messageRow(3, 'assistant', 'The answer is 42', { reasoning: 'hmm' })
+          ])
+        : undefined
+    )
+    const transport = createWindmillChatTransport({ baseUrl: 'http://wm.test', workspace: 'ws', flowPath: FLOW, fetch })
+    const ui = await transport.loadMessages('c')
+    expect(ui.map((m) => m.parts.map((p) => p.type))).toEqual([['text'], ['dynamic-tool', 'reasoning', 'text']])
+    expect(ui[1].parts[0]).toMatchObject({ toolName: 'lookup', state: 'output-available', input: { q: 1 }, output: 42 })
+    expect(ui[1].parts[1]).toMatchObject({ type: 'reasoning', text: 'hmm' })
   })
 
   test('refuses attachments with a clear error', async () => {

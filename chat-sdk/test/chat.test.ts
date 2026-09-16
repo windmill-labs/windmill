@@ -327,6 +327,38 @@ describe('createChat with server history', () => {
     expect(messagesCall.headers.authorization).toBeUndefined()
   })
 
+  test('a persisted row brings back its reasoning and the call an MCP tool row carries', async () => {
+    const { fetch } = fetchMock(
+      (c) =>
+        c.method === 'GET' && c.url.pathname === '/api/w/ws/flow_conversations/conv-1/messages'
+          ? json([
+              messageRow(1, 'user', 'hi'),
+              messageRow(2, 'tool', 'Used lookup tool', {
+                job_id: 'agent-job',
+                tool_arguments: '{"q":1}',
+                tool_result: '42'
+              }),
+              messageRow(3, 'tool', 'Error executing lookup', {
+                job_id: 'agent-job',
+                success: false,
+                tool_arguments: '{"q":2}',
+                tool_result: 'MCP tool error: boom'
+              }),
+              messageRow(4, 'assistant', 'The answer is 42', { reasoning: 'hmm' }),
+              messageRow(5, 'assistant', 'Hello')
+            ])
+          : undefined
+    )
+    const chat = createChat(options({ history: 'server' }, fetch))
+    await chat.selectConversation('conv-1')
+
+    const [, used, failed, answer, plain] = chat.getState().messages
+    expect(used.tool).toEqual({ name: 'lookup', status: 'success', arguments: '{"q":1}', result: '42' })
+    expect(failed.tool).toEqual({ name: 'lookup', status: 'error', arguments: '{"q":2}', result: 'MCP tool error: boom' })
+    expect(answer.reasoning).toBe('hmm')
+    expect(plain.reasoning).toBeUndefined()
+  })
+
   test('keeps the streamed answer until its row lands, even when a tool row lands first', async () => {
     let messageFetches = 0
     const { fetch } = fetchMock(

@@ -1,5 +1,10 @@
 import type { ChatTransport, UIMessage, UIMessageChunk, UIMessagePart } from 'ai'
-import { WindmillApiError, WindmillChatApi, type WindmillChatApiOptions } from './api'
+import {
+  WindmillApiError,
+  WindmillChatApi,
+  type FlowConversationMessage,
+  type WindmillChatApiOptions
+} from './api'
 import { followJob } from './follow'
 import type { AgentStreamEvent } from './stream'
 import type { ChatMessage, Conversation } from './types'
@@ -101,7 +106,8 @@ export function createWindmillChatTransport<UI_MESSAGE extends UIMessage = UIMes
           stepName: row.step_name ?? undefined,
           pending: false,
           seq: row.created_seq,
-          tool: toolFromRowContent(row.message_type, row.content, row.success ?? true)
+          reasoning: row.reasoning ?? undefined,
+          tool: toolFromRow(row)
         }))
       ) as UI_MESSAGE[]
     },
@@ -123,10 +129,20 @@ export function createWindmillChatTransport<UI_MESSAGE extends UIMessage = UIMes
   }
 }
 
-function toolFromRowContent(role: string, content: string, success: boolean): ChatMessage['tool'] {
-  if (role !== 'tool') return undefined
-  const name = /^Used (.+) tool$/.exec(content)?.[1] ?? /^Error executing (.+)$/.exec(content)?.[1]
-  return name ? { name, status: success ? 'success' : 'error' } : undefined
+/** The call a stored tool row carries: its tool, named by the sentence the worker words
+ *  every tool row from, and the arguments and result the row keeps when its job cannot be
+ *  asked for them — for a failed tool, the result is what it failed with. */
+function toolFromRow(row: FlowConversationMessage): ChatMessage['tool'] {
+  if (row.message_type !== 'tool') return undefined
+  const name =
+    /^Used (.+) tool$/.exec(row.content)?.[1] ?? /^Error executing (.+)$/.exec(row.content)?.[1]
+  if (!name) return undefined
+  return {
+    name,
+    status: (row.success ?? true) ? 'success' : 'error',
+    arguments: row.tool_arguments ?? undefined,
+    result: row.tool_result ?? undefined
+  }
 }
 
 /** Streams a job's answer as AI SDK chunks; resumes from `entry.offset` when the job is already running. */

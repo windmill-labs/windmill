@@ -706,6 +706,7 @@ pub async fn handle_chat_conversation_messages(
         MessageType::User,
         None,
         true,
+        None,
     )
     .await?;
 

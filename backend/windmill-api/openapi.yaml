@@ -28367,6 +28367,26 @@ components:
         success:
           type: boolean
           description: Whether the message is a success
+        tool_arguments:
+          type: string
+          nullable: true
+          description: >-
+            The call, for a tool that runs inside the agent's job and so has none of its
+            own: an MCP tool, or a provider-native one such as web search. A Windmill tool
+            is a script or flow with its own job, and its call is read from there instead.
+        tool_result:
+          type: string
+          nullable: true
+          description: >-
+            What that same call returned, including the citations of a provider-native web
+            search, and what it failed with when it failed — the row's own text names the
+            tool rather than the reason. Null for a tool whose job holds the answer.
+        reasoning:
+          type: string
+          nullable: true
+          description: >-
+            The thinking behind this row, for the iteration that produced it. The agent
+            job's result keeps the turn's thinking as a single string.
 
     EndpointTool:
       type: object
