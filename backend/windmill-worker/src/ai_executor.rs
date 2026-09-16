@@ -107,6 +107,15 @@ fn prepare_auto_memory_messages_for_persistence(
     non_system_messages[start_idx..].to_vec()
 }
 
+/// The inputs a linked step supplies for itself; the resource holds the rest of the brain.
+const FLOW_LOCAL_AGENT_KEYS: [&str; 5] = [
+    "user_message",
+    "user_attachments",
+    "enabled_tools",
+    "memory_id",
+    "previous_messages",
+];
+
 /// Where one agent invocation's history comes from.
 #[derive(Debug)]
 enum HistorySource<'a> {
@@ -634,6 +643,11 @@ pub async fn handle_ai_agent_job(
             None => Vec::new(),
         };
         overlay_tool_inputs(&mut tools, &tool_inputs);
+        // The resource is not validated against a schema, so a flow-local key it happens to carry
+        // is dropped before interpolation, where a bad `$res:` in it would fail the step.
+        for key in FLOW_LOCAL_AGENT_KEYS {
+            config.remove(key);
+        }
         let brain = transform_json_value(
             "ai_agent",
             client,
@@ -654,17 +668,8 @@ pub async fn handle_ai_agent_job(
         };
         // Only after interpolating the resource: these are caller-controlled and already resolved by
         // build_args_map, so passing them through it again would expand contextual values —
-        // `$WM_TOKEN` in a user message would reach the model provider. The resource is not
-        // validated against a schema, so a flow-local key it happens to carry is dropped rather
-        // than read as the step's.
-        for key in [
-            "user_message",
-            "user_attachments",
-            "enabled_tools",
-            "memory_id",
-            "previous_messages",
-        ] {
-            brain.remove(key);
+        // `$WM_TOKEN` in a user message would reach the model provider.
+        for key in FLOW_LOCAL_AGENT_KEYS {
             if let Some(v) = local_args.get(key) {
                 brain.insert(
                     key.to_string(),
