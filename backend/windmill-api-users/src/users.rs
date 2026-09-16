@@ -3090,11 +3090,15 @@ pub async fn create_guest_session_token<'c>(
 /// Read from `global_settings` on each call rather than cached: token creation is rare
 /// enough that the round trip costs nothing, and the ceiling is then never served stale.
 ///
-/// Service accounts are capped like everyone else: theirs are the long-lived tokens a rotation
-/// policy is meant to bound, and exempting them would let any workspace admin get an uncapped
-/// token by impersonating one.
+/// A token owned by a service account is exempt: in the workspace the token names, or in any
+/// workspace for a workspace-less token, which has none to match. Service accounts are the
+/// identity automation that needs a long-lived credential runs as. The cost is that any
+/// workspace admin can create and impersonate one to hold an uncapped token, so the ceiling
+/// bounds personal tokens rather than what an admin can obtain.
 async fn cap_token_expiration(
     db: &DB,
+    owner_email: &str,
+    workspace_id: Option<&str>,
     requested: Option<chrono::DateTime<chrono::Utc>>,
 ) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
     let value = load_value_from_global_settings(db, MAX_TOKEN_EXPIRATION_DAYS_SETTING).await?;
@@ -3108,6 +3112,19 @@ async fn cap_token_expiration(
         }
     };
     let max = chrono::Utc::now() + chrono::Duration::days(max_days);
+
+    let is_service_account = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE email = $1 AND is_service_account IS true
+            AND ($2::varchar IS NULL OR workspace_id = $2))",
+        owner_email,
+        workspace_id,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+    if is_service_account {
+        return Ok(requested);
+    }
 
     Ok(Some(match requested {
         Some(expiration) if expiration < max => expiration,
@@ -3141,7 +3158,13 @@ async fn create_token(
 
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
 
-    token_config.expiration = cap_token_expiration(&db, token_config.expiration).await?;
+    token_config.expiration = cap_token_expiration(
+        &db,
+        &authed.email,
+        token_config.workspace_id.as_deref(),
+        token_config.expiration,
+    )
+    .await?;
 
     let mut tx = db.begin().await?;
 
@@ -3199,7 +3222,7 @@ async fn impersonate(
     .fetch_optional(&db)
     .await?
     .unwrap_or(false);
-    let expiration = cap_token_expiration(&db, new_token.expiration).await?;
+    let expiration = cap_token_expiration(&db, &impersonated, None, new_token.expiration).await?;
     let mut tx = db.begin().await?;
 
     sqlx::query!(

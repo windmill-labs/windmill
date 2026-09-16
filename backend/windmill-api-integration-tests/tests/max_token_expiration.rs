@@ -1,5 +1,5 @@
 //! `max_token_expiration_days`: the instance-wide ceiling on how far ahead a token a caller
-//! picks the lifetime of may expire.
+//! picks the lifetime of may expire, and the service-account exemption.
 
 use serde_json::json;
 use sqlx::types::chrono::{DateTime, Utc};
@@ -139,23 +139,6 @@ async fn test_max_token_expiration_days_shortens_user_tokens(
         );
     }
 
-    sqlx::query(
-        "UPDATE usr SET is_service_account = true
-         WHERE email = 'test2@windmill.dev' AND workspace_id = 'test-workspace'",
-    )
-    .execute(&db)
-    .await?;
-    let resp = create_token(
-        port,
-        json!({ "label": "service account", "workspace_id": "test-workspace" }),
-    )
-    .await;
-    assert_eq!(resp.status(), 201);
-    assert!(
-        stored_expiration(&db, "service account").await.is_some(),
-        "a service account gets the ceiling like anyone else"
-    );
-
     // A superadmin impersonating a user picks the lifetime too, so the ceiling applies there;
     // left out, it would be the one way to mint a token that never expires.
     let resp = client()
@@ -170,6 +153,67 @@ async fn test_max_token_expiration_days_shortens_user_tokens(
     assert!(
         stored_expiration(&db, "impersonated").await.is_some(),
         "an impersonation token asking for no expiration gets the ceiling"
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_service_accounts_are_exempt(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    set_max(&db, json!(7)).await;
+    // The same email is a service account in one workspace and an ordinary user in another.
+    sqlx::query(
+        "UPDATE usr SET is_service_account = true
+         WHERE email = 'test2@windmill.dev' AND workspace_id = 'test-workspace'",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ('other', 'other', 'test-user')")
+        .execute(&db)
+        .await?;
+    sqlx::query(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('other', 'test2@windmill.dev', 'test-user-2', false, 'User')",
+    )
+    .execute(&db)
+    .await?;
+
+    for (label, workspace_id, exempt) in [
+        ("own workspace", Some("test-workspace"), true),
+        ("other workspace", Some("other"), false),
+        // A workspace-less token has no workspace to match, so a service account anywhere counts.
+        ("global", None, true),
+    ] {
+        let resp = create_token(
+            port,
+            json!({ "label": label, "workspace_id": workspace_id }),
+        )
+        .await;
+        assert_eq!(resp.status(), 201);
+        assert_eq!(
+            stored_expiration(&db, label).await.is_none(),
+            exempt,
+            "{label}: expected exempt = {exempt}"
+        );
+    }
+
+    // Impersonation checks the impersonated account, not the superadmin minting the token.
+    let resp = client()
+        .post(format!(
+            "http://localhost:{port}/api/users/tokens/impersonate"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({ "label": "impersonated service account", "impersonate_email": "test2@windmill.dev" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201);
+    assert_eq!(
+        stored_expiration(&db, "impersonated service account").await,
+        None
     );
 
     Ok(())

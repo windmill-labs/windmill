@@ -313,7 +313,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Maximum token expiration (days)',
 			key: 'max_token_expiration_days',
 			description:
-				'Furthest ahead an API token a user creates can expire, in days. A token asking for longer, or for no expiration, is created with this expiration instead, including tokens for service accounts. Leave empty to let users pick any expiration, including none.',
+				'Furthest ahead an API token a user creates can expire, in days. A token asking for longer, or for no expiration, is created with this expiration instead. Service accounts are exempt, so automation can keep longer-lived credentials. Leave empty to let users pick any expiration, including none.',
 			fieldType: 'number',
 			placeholder: 'no limit',
 			storage: 'setting',

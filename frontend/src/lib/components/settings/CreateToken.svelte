@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte'
-	import { userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
+	import { userStore, userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
 	import { Button } from '../common'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
@@ -70,8 +70,13 @@
 	// The `max_token_expiration_days` instance setting. The server shortens any token that asks
 	// for longer, or for no expiration, so with it set the form only offers what would be kept.
 	let maxExpirationDays = $state<number | undefined>(undefined)
+	// The server exempts service accounts, so one being impersonated keeps every choice. Only the
+	// current workspace's membership is known here, which is the one an impersonation targets.
+	const isServiceAccount = $derived(
+		$userStore?.is_service_account === true && $userStore.workspace_id === $workspaceStore
+	)
 	const maxExpirationSecs = $derived(
-		maxExpirationDays == undefined ? undefined : maxExpirationDays * DAY_SECS
+		maxExpirationDays == undefined || isServiceAccount ? undefined : maxExpirationDays * DAY_SECS
 	)
 	const maxExpirationLabel = $derived(
 		maxExpirationDays === 1 ? '1 day' : `${maxExpirationDays} days`
@@ -98,8 +103,11 @@
 			return
 		}
 		maxExpirationDays = days
-		if (newTokenExpiration == undefined || newTokenExpiration > days * DAY_SECS) {
-			newTokenExpiration = days * DAY_SECS
+		if (
+			maxExpirationSecs != undefined &&
+			(newTokenExpiration == undefined || newTokenExpiration > maxExpirationSecs)
+		) {
+			newTokenExpiration = maxExpirationSecs
 		}
 	})
 

@@ -17,12 +17,15 @@ Symbols, not line numbers, are cited: they drift less.
   authorization page, `wmill user create-token` and the editor's language-server token all pick a
   lifetime without reading the setting, and CLIs already installed never will. The CLI signs in
   again on its own when its token expires, which is why the authorization page labels it
-  `cli-login:<username>`, reserved in `is_user_token` so its expiry does not email the user. Service
-  accounts are capped too. Only the stored expiration is capped: the auth lookup never reads the
-  setting, so tokens that exist when it is turned on or lowered keep theirs, including none.
-  Deliberately outside it: server-side mints (`create_token_internal` callers such as native trigger
-  webhook tokens, which never expire for GitHub and Nextcloud), and tokens with their own fixed
-  lifetime that outlive a short ceiling: sessions (`MAX_SESSION_VALIDITY_SECONDS`, 3 days, and
+  `cli-login:<username>`, reserved in `is_user_token` so its expiry does not email the user. A token
+  owned by a service account is exempt: one in the workspace the token names, or in any workspace
+  for a workspace-less token (for `tokens/impersonate`, the impersonated account). Any workspace
+  admin can therefore create and impersonate a service account to hold an uncapped token, so the
+  ceiling bounds personal tokens only. Only the stored expiration is capped: the auth lookup never
+  reads the setting, so tokens that exist when it is turned on or lowered keep theirs, including
+  none. Deliberately outside it: server-side mints (`create_token_internal` callers such as native
+  trigger webhook tokens, which never expire for GitHub and Nextcloud), and tokens with their own
+  fixed lifetime that outlive a short ceiling: sessions (`MAX_SESSION_VALIDITY_SECONDS`, 3 days, and
   re-mintable through `GET /users/refresh_token`) and MCP OAuth access tokens (7 days, with a
   rotating 30-day refresh token). Any logged-in user can read the setting through `GET
   /settings/global/{key}`, which the token form uses to offer only expirations within it. The
