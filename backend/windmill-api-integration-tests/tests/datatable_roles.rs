@@ -912,6 +912,18 @@ async fn a_stored_name_containing_a_question_mark_resolves_as_itself(
         resolve("main?dt").await.is_err(),
         "an unknown parameter was ignored"
     );
+
+    sqlx::query(
+        "UPDATE workspace_settings
+         SET datatable = jsonb_set(datatable, '{datatables,main?role=analytics}', datatable->'datatables'->'main')
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .execute(&db)
+    .await?;
+    assert!(
+        resolve("main?role=analytics").await.is_err(),
+        "a reference naming both a stored data table and a role on another resolved to one of them"
+    );
     Ok(())
 }
 

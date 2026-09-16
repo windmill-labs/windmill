@@ -1876,22 +1876,34 @@ pub fn strip_datatable_permissions(
 /// As [`parse_datatable_ref`], except that an entry whose stored name itself contains `?` — which
 /// names could before they were restricted — resolves by that exact name, without a role. It is
 /// looked up first, so `sales?role=x` never reaches a different entry than the one stored so.
+/// When `sales` is stored too, the reference means either one, and is refused rather than
+/// resolved to whichever is looked up first.
 pub async fn parse_datatable_ref_for(
     db: &DB,
     w_id: &str,
     reference: &str,
 ) -> Result<(String, Option<String>)> {
     if reference.contains('?') {
-        let exists = sqlx::query_scalar::<_, Option<bool>>(
-            "SELECT (datatable->'datatables') ? $2 FROM workspace_settings WHERE workspace_id = $1",
+        let role_target = parse_datatable_ref(reference)
+            .ok()
+            .and_then(|(name, role)| role.map(|_| name));
+        let (exists, target_exists) = sqlx::query_as::<_, (Option<bool>, Option<bool>)>(
+            "SELECT (datatable->'datatables') ? $2, (datatable->'datatables') ? $3
+             FROM workspace_settings WHERE workspace_id = $1",
         )
         .bind(w_id)
         .bind(reference)
+        .bind(role_target)
         .fetch_optional(db)
         .await?
-        .flatten()
-        .unwrap_or(false);
-        if exists {
+        .unwrap_or((None, None));
+        if exists.unwrap_or(false) {
+            if let (Some(name), Some(true)) = (role_target, target_exists) {
+                return Err(Error::BadRequest(format!(
+                    "Data table reference '{reference}' names both the data table '{reference}' \
+                     and a role on the data table '{name}'. Rename '{reference}' to use either."
+                )));
+            }
             return Ok((reference.to_string(), None));
         }
     }
