@@ -166,7 +166,7 @@
 		rolesSettled &&
 			selectedDatatable !== undefined &&
 			roles.current.permissioned &&
-			loadedRoles.length === 0
+			roles.current.roles.length === 0
 	)
 	const rolesUnknown = $derived(rolesSettled && roles.current.failed)
 	const accessSettled = $derived(

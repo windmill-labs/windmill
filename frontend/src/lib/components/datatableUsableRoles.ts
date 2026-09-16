@@ -1,4 +1,5 @@
-import { WorkspaceService, type ListUsableDatatableRolesResponse } from '$lib/gen'
+import { OpenAPI, type ListUsableDatatableRolesResponse } from '$lib/gen'
+import { request } from '$lib/gen/core/request'
 import { isCloudHosted } from '$lib/cloud'
 import { ADMIN_DATATABLE_ROLE } from './dbTypes'
 
@@ -24,7 +25,16 @@ export async function listUsableDatatableRoles(
 ): Promise<ListUsableDatatableRolesResponse> {
 	if (isCloudHosted()) return NOT_UNDER_ROLES
 	try {
-		return await WorkspaceService.listUsableDatatableRoles({ workspace, datatableName })
+		// The generated client encodes path params with `encodeURI`, which leaves a '?' in a
+		// data table name created before names were restricted to cut the path short.
+		return await request(
+			{ ...OpenAPI, ENCODE_PATH: encodeURIComponent },
+			{
+				method: 'GET',
+				url: '/w/{workspace}/workspaces/datatable_usable_roles/{datatable_name}',
+				path: { workspace, datatable_name: datatableName }
+			}
+		)
 	} catch (e) {
 		const body = (e as { body?: unknown })?.body
 		const detail = `${typeof body === 'string' ? body : JSON.stringify(body ?? '')} ${(e as Error)?.message ?? e}`
