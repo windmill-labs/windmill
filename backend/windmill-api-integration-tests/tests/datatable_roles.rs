@@ -1009,6 +1009,70 @@ async fn an_entry_without_roles_cannot_newly_reach_a_database_under_roles(
     Ok(())
 }
 
+/// Browsing names the role it connects as, and a role the caller may not use is refused rather
+/// than quietly listed as the default. The refusal is decided before connecting, so the fixture's
+/// database never has to exist.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn browsing_as_a_role_the_caller_may_not_use_is_refused(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    // `test-user-2` is a tenant of `analytics` only.
+    let resp = authed(
+        client().get(format!(
+            "{base}/list_datatable_tables?role_for=main&role=admin"
+        )),
+        "SECRET_TOKEN_2",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    let entry = body
+        .as_array()
+        .and_then(|a| a.iter().find(|e| e["datatable_name"] == "main"))
+        .expect("main is listed");
+    assert_eq!(entry["usable_roles"], json!(["analytics"]), "{entry}");
+    assert_eq!(entry["default_role"], "analytics", "{entry}");
+    assert_eq!(entry["permissioned"], true, "{entry}");
+    assert_eq!(entry["instance"], true, "{entry}");
+    let error = entry["error"].as_str().unwrap_or_default();
+    assert!(
+        error.contains("Not allowed to use role 'admin'"),
+        "listed as another role than the one asked for: {entry}"
+    );
+
+    let resp = authed(
+        client().get(format!(
+            "{base}/get_datatable_table_schema?datatable_name=main&schema_name=public&table_name=t&role=admin"
+        )),
+        "SECRET_TOKEN_2",
+    )
+    .send()
+    .await?;
+    let status = resp.status();
+    let text = resp.text().await?;
+    assert!(
+        text.contains("Not allowed to use role 'admin'"),
+        "{status}: {text}"
+    );
+
+    // A role means nothing without the data table it belongs to.
+    let resp = authed(
+        client().get(format!("{base}/list_datatable_tables?role=analytics")),
+        "SECRET_TOKEN_2",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+    Ok(())
+}
+
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
 const ENTERPRISE_REFUSAL: &str = "Data table roles are a Windmill Enterprise Edition feature";
 

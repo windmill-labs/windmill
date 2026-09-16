@@ -4,13 +4,14 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import {
+		createDatatableAccessResource,
 		createDatatablesResource,
-		createSchemasResource,
 		toDatatableItems,
 		toSchemaItems
 	} from './datatableUtils.svelte'
 	import { Button } from '../common'
 	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
+	import { appDatatableRole } from './dataTableRefUtils'
 
 	const getOpWs = getRawAppOperatingWorkspace()
 	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
@@ -20,6 +21,8 @@
 		datatable: string | undefined
 		/** Currently selected schema */
 		schema: string | undefined
+		/** The role the app uses each data table through: schemas are listed as that role. */
+		roles?: Record<string, string>
 		/** Callback when either value changes */
 		onChange?: (datatable: string | undefined, schema: string | undefined) => void
 		/** Description text to show in the popover */
@@ -29,19 +32,28 @@
 	let {
 		datatable,
 		schema,
+		roles,
 		onChange,
 		description = 'Set the default datatable and schema for new tables. This is where AI will create new tables when needed.'
 	}: Props = $props()
 
+	const role = $derived(datatable ? appDatatableRole(roles, datatable) : undefined)
+
 	// Load available datatables and schemas using shared utilities
 	const datatables = createDatatablesResource(() => opWs)
-	const schemas = createSchemasResource(
+	const access = createDatatableAccessResource(
 		() => datatable,
+		() => role,
 		() => opWs
 	)
 
 	const datatableItems = $derived(toDatatableItems(datatables.current))
-	const schemaItems = $derived(toSchemaItems(schemas.current))
+	// Until the answer is for this data table and role, the schemas in hand belong to another.
+	const schemaItems = $derived(
+		access.current.datatable === datatable && access.current.role === role
+			? toSchemaItems(access.current.schemas)
+			: []
+	)
 
 	// Track datatable changes to reset schema
 	let previousDatatable = $state<string | undefined>(undefined)
@@ -82,6 +94,9 @@
 					placeholder="Select database"
 					size="sm"
 				/>
+				{#if role}
+					<span class="text-2xs text-tertiary">Used as role {role}</span>
+				{/if}
 			</div>
 
 			<div class="flex flex-col gap-1">

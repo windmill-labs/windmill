@@ -25,30 +25,24 @@
 	let {
 		workspace,
 		datatable,
-		target,
-		onLoaded
+		target
 	}: {
 		workspace: string
 		datatable: string
 		/** What owner and grants are read and written for. */
 		target: AclTarget
-		/** Each read, with the target it was made for: it also lists what the target holds. */
-		onLoaded?: (target: AclTarget, info: DatatableAclInfo) => void
 	} = $props()
 
 	const acl = resource(
 		() => [workspace, datatable, target] as const,
-		async ([ws, dt, t]) => {
-			const loaded = await WorkspaceService.getDatatableAcl({
+		async ([ws, dt, t]) =>
+			await WorkspaceService.getDatatableAcl({
 				workspace: ws,
 				datatableName: dt,
 				kind: t.kind,
 				schema: t.kind === 'database' ? undefined : t.schema,
 				table: t.kind === 'table' ? t.table : undefined
 			})
-			onLoaded?.(t, loaded)
-			return loaded
-		}
 	)
 
 	// Nothing is written before its SQL has been shown, and the apply runs exactly that SQL: the
