@@ -328,6 +328,22 @@ async fn connect_as_admin_unchecked(
             .await?;
     let pg: PgDatabase = serde_json::from_value(resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {e}")))?;
+    // Resolving reads the settings again, and a save since `governing` was authorized can point
+    // the entry elsewhere and back. An instance entry's database is its `resource_path`, so the
+    // connection is held to the database that was authorized, and a later check of the entry
+    // cannot pass while this talks to another one.
+    if governing
+        .datatable
+        .database
+        .as_ref()
+        .map(|d| d.resource_path.as_str())
+        != Some(&pg.dbname)
+    {
+        return Err(Error::BadRequest(format!(
+            "Data table '{}' was pointed at another database while this ran; try again",
+            governing.name
+        )));
+    }
     let dbname = pg.dbname.clone();
     let (client, mut connection) = pg.connect(Some(db)).await?;
     // Unbounded: the driver must never wait on the receiver, which only drains once the statement
