@@ -1,4 +1,5 @@
 <script module lang="ts">
+	import { noteSessionEmail } from '$lib/onboardingProfile'
 	import type { LastLoginMethod } from '$lib/lastLoginMethod'
 
 	/** Feeds the login card a fixed instance configuration instead of the live one.
@@ -60,6 +61,10 @@
 		popup?: boolean
 		firstTime?: boolean
 		autoRedirect?: boolean
+		/** Supplying this replaces the post-login redirect: the card hands back instead of
+		 * navigating, and the host is expected to re-check access in place. For a gate on a
+		 * page that stays mounted, `rd` is the URL already shown, so navigating there would
+		 * re-run nothing. */
 		onLoginSuccess?: () => void
 		/** A refusal the popup relayed back, in the server's words. */
 		onLoginError?: (message: string) => void
@@ -264,6 +269,9 @@
 
 		try {
 			await UserService.login({ requestBody })
+			// The session changed under a page that stays mounted: what was cached for the
+			// previous account must not be served to this one.
+			noteSessionEmail(email)
 		} catch (err) {
 			failLogin(loginErrorMessage(err), 'both', requestBody)
 			return
@@ -286,6 +294,11 @@
 
 		// Finally, we check whether the user is a superadmin
 		refreshSuperadmin()
+
+		if (onLoginSuccess) {
+			onLoginSuccess()
+			return
+		}
 		redirectUser()
 	}
 
@@ -517,6 +530,9 @@
 	function finishOauthFlow(via: 'postMessage' | 'storage' | 'poll', win?: Window) {
 		if (oauthFlowDone) return
 		oauthFlowDone = true
+		// The popup replaced the session under this still-mounted page; whatever the
+		// previous account had cached must not be served to the new one.
+		noteSessionEmail(undefined)
 		confirmPendingLoginMethod()
 		console.log(`oauth: signaled via ${via}`)
 		if (win && !win.closed) win.close()

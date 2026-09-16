@@ -1784,6 +1784,23 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
     }
 
+    let expired_login_links_r: std::result::Result<Vec<String>, _> =
+        // Expired rows stay a day so an open still reports "expired" rather than "invalid".
+        sqlx::query_scalar(
+            "DELETE FROM login_link WHERE expiration <= now() - interval '1 day' RETURNING token_hash",
+        )
+            .fetch_all(db)
+            .await;
+
+    match expired_login_links_r {
+        Ok(hashes) => {
+            if !hashes.is_empty() {
+                tracing::info!("deleted {} expired login links", hashes.len())
+            }
+        }
+        Err(e) => tracing::error!("Error deleting login links: {}", e.to_string()),
+    }
+
     let pip_resolution_r = sqlx::query_scalar!(
         "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash",
     )
@@ -1893,6 +1910,17 @@ pub async fn delete_expired_items(db: &DB) -> () {
         delete_expired_otel_traces(db, windmill_common::otel_traces_retention_secs()).await;
     if deleted_spans > 0 {
         tracing::info!("deleted {} expired otel trace spans", deleted_spans);
+    }
+
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM ai_shared_artifact
+         WHERE shared_at <= now() - ($1::bigint::text || ' s')::interval",
+        windmill_common::ai_shared_artifact_retention_secs(),
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error deleting expired shared AI artifacts: {:?}", e);
     }
 
     let audit_retention_days = audit_log_retention_days().await;
@@ -4352,6 +4380,23 @@ pub async fn monitor_db(
         }
     };
 
+    // Delete the AI session backups older than their workspace's retention. Every ~40 min
+    // (240 iterations at the default 10 s, the most a u8 `should_run` counts): the retention
+    // counts in days. Spawned for the same reason as the credential maintenance above, a
+    // sweep of many sessions outlasting the join's deadline; the sweep's own advisory lock
+    // keeps one server at a time at it.
+    let ai_session_retention_f = async {
+        #[cfg(feature = "parquet")]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(240) {
+            if let Some(db) = conn.as_sql() {
+                let db = db.clone();
+                tokio::spawn(
+                    async move { windmill_api::sweep_expired_ai_session_backups(&db).await },
+                );
+            }
+        }
+    };
+
     // run every 2 iterations (~20s at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
     // Enterprise feature: the active `// freshness` backstop lives in
     // windmill-queue's `freshness_watchdog` (`private`); OSS gets a no-op stub.
@@ -4406,6 +4451,7 @@ pub async fn monitor_db(
         cleanup_scheduled_job_deletions_f,
         git_auto_pull_f,
         git_credential_maintenance_f,
+        ai_session_retention_f,
         pipeline_freshness_watchdog_f,
         reconcile_unarmed_schedules_f,
     );
@@ -6151,7 +6197,10 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
 /// Force-complete a zombie job that handle_job_error failed to complete.
 /// This is a minimal fallback: it inserts a failed completed job and deletes
 /// from the queue in a single transaction, without schedule pushing or
-/// error handler logic that could cause the completion to fail.
+/// error handler logic. The one thing it keeps is the WAC parent notification,
+/// deliberately inside the transaction: if that fails, the whole completion
+/// rolls back and the job waits for the next sweep, which is cheaper than a
+/// parent parked for its full suspend window and a task run twice.
 async fn force_complete_zombie_job(
     db: &Pool<Postgres>,
     job_id: &Uuid,
@@ -6173,14 +6222,18 @@ async fn force_complete_zombie_job(
         "Zombie job {job_id} was not completed by handle_job_error, force-completing it"
     );
 
+    // Same `{"error": ...}` shape as every other failed job's result, so a WAC
+    // parent's failure record reads the name and message like any task failure.
     let error_value = serde_json::json!({
-        "message": error_message,
-        "name": "ExecutionErr",
+        "error": {
+            "message": error_message,
+            "name": "ExecutionErr",
+        }
     });
 
     let mut tx = db.begin().await?;
 
-    sqlx::query!(
+    let duration_ms = sqlx::query_scalar!(
         "INSERT INTO v2_job_completed
             (workspace_id, id, started_at, duration_ms, result, memory_peak, status, worker)
         SELECT q.workspace_id, q.id, q.started_at,
@@ -6189,18 +6242,49 @@ async fn force_complete_zombie_job(
         FROM v2_job_queue q
         LEFT JOIN v2_job_runtime r ON r.id = q.id
         WHERE q.id = $1
-        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb",
+        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb
+        RETURNING duration_ms AS \"duration_ms!\"",
         job_id,
         error_value,
     )
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
+
+    // A WAC parent parked on this job must learn of the failure here too, or it
+    // waits out its whole suspend window and runs the task again.
+    let mut wac_parent_ready = false;
+    if let Some(duration_ms) = duration_ms {
+        let parent = sqlx::query!(
+            "SELECT parent_job, flow_step_id FROM v2_job WHERE id = $1",
+            job_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(parent_job) = parent
+            .filter(|j| j.flow_step_id.is_none())
+            .and_then(|j| j.parent_job)
+        {
+            wac_parent_ready = windmill_common::wac::record_child_completion(
+                &mut tx,
+                &parent_job,
+                job_id,
+                false,
+                duration_ms,
+                &error_value.to_string(),
+            )
+            .await?;
+        }
+    }
 
     sqlx::query!("DELETE FROM v2_job_queue WHERE id = $1", job_id)
         .execute(&mut *tx)
         .await?;
 
     tx.commit().await?;
+
+    if wac_parent_ready {
+        windmill_common::wac::WAC_SUSPEND_READY.store(true, Ordering::Relaxed);
+    }
 
     tracing::info!("Force-completed zombie job {job_id}");
     Ok(())

@@ -227,6 +227,10 @@ pub fn global_service() -> Router {
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
         .route("/session_workspace_status", post(session_workspace_status))
+        .route(
+            "/session_workspace_retention",
+            post(session_workspace_retention),
+        )
         .route("/create", post(create_workspace))
         .route("/create_fork", post(deprecated_create_workspace_fork))
         .route("/exists", post(exists_workspace))
@@ -910,12 +914,15 @@ fn redact_git_sync_webhook_secrets(git_sync: &mut serde_json::Value) {
 }
 
 /// Zero the server-owned auto-pull fields (webhook id/secret/url/error, synced
-/// sha, last pull status) on a client-supplied `AutoPullSettings`. The client only
-/// controls `enabled` / `mode` / `poll_interval_s`; the rest is written by the
-/// server (webhook creation, poller) and must never be trusted from the request —
-/// otherwise a caller could inject a webhook id/secret or fake sync state.
-fn clear_client_supplied_auto_pull_state(
+/// sha, last pull status) on a client-supplied `AutoPullSettings`, and stamp who
+/// pulls run as: `saver_email` while auto pull is on. The client only controls
+/// `enabled` / `mode` / `poll_interval_s`; the rest is written by the server (webhook
+/// creation, poller, this save) and must never be trusted from the request —
+/// otherwise a caller could inject a webhook id/secret, fake sync state, or pick who
+/// pulls run as.
+fn sanitize_client_auto_pull(
     auto_pull: &mut windmill_common::workspaces::AutoPullSettings,
+    saver_email: &str,
 ) {
     auto_pull.webhook_id = None;
     auto_pull.webhook_secret = None;
@@ -923,6 +930,28 @@ fn clear_client_supplied_auto_pull_state(
     auto_pull.webhook_error = None;
     auto_pull.last_synced_sha = std::collections::HashMap::new();
     auto_pull.last_pull_status = None;
+    auto_pull.enabled_by = auto_pull.enabled.then(|| saver_email.to_string());
+}
+
+#[cfg(test)]
+mod sanitize_client_auto_pull_tests {
+    use windmill_common::workspaces::AutoPullSettings;
+
+    #[test]
+    fn a_save_stamps_the_saver_over_any_client_supplied_stamp() {
+        let mut ap = AutoPullSettings {
+            enabled: true,
+            enabled_by: Some("forged@example.com".to_string()),
+            ..Default::default()
+        };
+        super::sanitize_client_auto_pull(&mut ap, "saver@example.com");
+        assert_eq!(ap.enabled_by.as_deref(), Some("saver@example.com"));
+
+        ap.enabled = false;
+        ap.enabled_by = Some("forged@example.com".to_string());
+        super::sanitize_client_auto_pull(&mut ap, "saver@example.com");
+        assert_eq!(ap.enabled_by, None, "auto pull off carries no stamp");
+    }
 }
 
 /// Whether a git-sync repository tracking `tracked` rules out `label_branch` as a dev workspace's
@@ -2068,6 +2097,17 @@ async fn edit_large_file_storage_config(
             serde_json::to_value::<LargeFileStorageWithSecondary>(lfs_config)
                 .map_err(|err| Error::internal_err(err.to_string()))?;
 
+        // A workspace whose AI session backups fell back to the instance store leaves it
+        // here: the generation moves on, so nothing it left in any instance store is read
+        // again, whichever one a later return to the fallback finds (`ai_session_backups`).
+        sqlx::query!(
+            "UPDATE workspace_settings SET ai_sessions_backup_generation = \
+             ai_sessions_backup_generation + 1 \
+             WHERE workspace_id = $1 AND large_file_storage IS NULL",
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
         sqlx::query!(
             "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",
             serialized_lfs_config,
@@ -2083,7 +2123,22 @@ async fn edit_large_file_storage_config(
         .execute(&mut *tx)
         .await?;
     }
+    let backups_generation = sqlx::query_scalar!(
+        "SELECT ai_sessions_backup_generation FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
     tx.commit().await?;
+
+    // Read by nothing any more, whatever the storage is now: what the AI session backups
+    // left in the instance store under a generation older than the one just committed.
+    #[cfg(feature = "parquet")]
+    if let Some(generation) = backups_generation {
+        crate::ai_session_backups::spawn_delete_fallback(w_id.clone(), generation);
+    }
+    #[cfg(not(feature = "parquet"))]
+    let _ = backups_generation;
 
     // Trigger git sync for large file storage changes
     handle_deployment_metadata(
@@ -3983,7 +4038,7 @@ async fn edit_git_sync_config(
         // stay clean.
         for repo in git_sync_settings.repositories.iter_mut() {
             if let Some(ap) = repo.auto_pull.as_mut() {
-                clear_client_supplied_auto_pull_state(ap);
+                sanitize_client_auto_pull(ap, &authed.email);
             }
             repo.open_pr_error = None;
             repo.credential = None;
@@ -4230,7 +4285,7 @@ async fn edit_git_sync_repository(
     // existing repo re-derives it from the DB (carried over below) and a new one
     // starts clean.
     if let Some(ap) = new_config.repository.auto_pull.as_mut() {
-        clear_client_supplied_auto_pull_state(ap);
+        sanitize_client_auto_pull(ap, &authed.email);
     }
     new_config.repository.open_pr_error = None;
     new_config.repository.credential = None;
@@ -5314,6 +5369,17 @@ async fn set_encryption_key(
 
     let mut tx = db.begin().await?;
 
+    // Under the row's lock, so two rotations racing serialize and each sees the key the
+    // other committed. The AI session backups in the workspace storage live under a prefix
+    // named by a generation this bumps (with the key, in this transaction) rather than
+    // being re-keyed; the older generations are deleted once this one has committed (see
+    // `ai_session_backups`). The same key set again is no rotation to them.
+    let previous_key: String = sqlx::query_scalar(
+        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud' FOR UPDATE",
+    )
+    .bind(&w_id)
+    .fetch_one(&mut *tx)
+    .await?;
     sqlx::query!(
         "UPDATE workspace_key SET key = $1 WHERE workspace_id = $2",
         request.new_key.clone(),
@@ -5321,6 +5387,18 @@ async fn set_encryption_key(
     )
     .execute(&mut *tx)
     .await?;
+    let backups_generation: Option<i64> = if previous_key != request.new_key {
+        sqlx::query_scalar(
+            "UPDATE workspace_settings SET ai_sessions_backup_generation = \
+             ai_sessions_backup_generation + 1 WHERE workspace_id = $1 \
+             RETURNING ai_sessions_backup_generation",
+        )
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?
+    } else {
+        None
+    };
 
     let mut reencrypted_secret_paths: Vec<String> = Vec::new();
     if !request.skip_reencrypt.unwrap_or(false) {
@@ -5376,6 +5454,15 @@ async fn set_encryption_key(
 
     // Invalidate the cache only after the transaction has committed
     WORKSPACE_CRYPT_CACHE.remove(w_id.as_str());
+
+    // Nothing writes under the older generations any more; the browsers push their
+    // sessions again under the new one.
+    #[cfg(feature = "parquet")]
+    if let Some(generation) = backups_generation {
+        crate::ai_session_backups::spawn_delete_older(db.clone(), w_id.clone(), generation);
+    }
+    #[cfg(not(feature = "parquet"))]
+    let _ = backups_generation;
 
     // Build the batch: one event for the encryption key itself plus one per
     // re-encrypted secret variable. The batch entrypoint dispatches a single
@@ -5546,6 +5633,14 @@ struct SessionWorkspaceStatusRequest {
     workspace_ids: Vec<String>,
 }
 
+/// `ai_config.sessions_retention_days` as stored, `None` when unset or not a count of days.
+pub fn sessions_retention_days(value: Option<&serde_json::Value>) -> Option<u32> {
+    value
+        .and_then(|v| v.as_u64())
+        .filter(|days| *days >= 1)
+        .and_then(|days| u32::try_from(days).ok())
+}
+
 /// Reconciliation support for client-side AI sessions, which the backend cannot touch
 /// directly. The client posts the workspace ids its sessions reference and uses the
 /// per-id status to keep sessions in sync with workspace lifecycle: `deleted` (no row, or
@@ -5593,6 +5688,42 @@ async fn session_workspace_status(
     .await?;
     let statuses = rows.into_iter().map(|r| (r.id, r.status)).collect();
     Ok(Json(statuses))
+}
+
+/// The AI session retention a browser deletes its local copies by (docs/ai-session-backups.md).
+/// Its own route, not a field on the status above, whose shape an older tab still reads. Unlike
+/// a status, it answers only for a workspace this caller can be authed into: a setting is the
+/// workspace's to tell, so a disabled membership gets none though its sessions still reconcile.
+async fn session_workspace_retention(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(req): Json<SessionWorkspaceStatusRequest>,
+) -> JsonResult<HashMap<String, u32>> {
+    if req.workspace_ids.len() > 1000 {
+        return Err(Error::BadRequest(
+            "Too many workspace ids (max 1000)".to_string(),
+        ));
+    }
+    let email = &authed.email;
+    let is_superadmin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
+    let rows = sqlx::query!(
+        "SELECT workspace_settings.workspace_id AS \"id!\",
+                workspace_settings.ai_config->'sessions_retention_days' AS retention
+         FROM workspace_settings
+         LEFT JOIN usr ON usr.workspace_id = workspace_settings.workspace_id AND usr.email = $2
+         WHERE workspace_settings.workspace_id = ANY($1)
+           AND ($3 OR (usr.email IS NOT NULL AND NOT usr.disabled))",
+        &req.workspace_ids[..],
+        email,
+        is_superadmin,
+    )
+    .fetch_all(&db)
+    .await?;
+    let days = rows
+        .into_iter()
+        .filter_map(|r| sessions_retention_days(r.retention.as_ref()).map(|days| (r.id, days)))
+        .collect();
+    Ok(Json(days))
 }
 
 /// The instance critical alert channels belong to the instance operator, who on cloud is
@@ -6466,8 +6597,8 @@ async fn clone_resource_types(
     target_workspace_id: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at, created_by, format_extension, is_fileset)
-         SELECT $2, name, schema, description, edited_at, created_by, format_extension, is_fileset
+        "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at, created_by, format_extension, is_fileset, display_name)
+         SELECT $2, name, schema, description, edited_at, created_by, format_extension, is_fileset, display_name
          FROM resource_type
          WHERE workspace_id = $1",
         source_workspace_id,
@@ -7358,8 +7489,8 @@ async fn clone_workspace_runnable_dependencies(
 ) -> Result<()> {
     // Clone workspace_runnable_dependencies
     sqlx::query!(
-        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id, app_path)
-         SELECT flow_path, runnable_path, script_hash, runnable_is_flow, $1, app_path
+        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, script_hash, runnable_is_flow, runnable_is_agent, workspace_id, app_path)
+         SELECT flow_path, runnable_path, script_hash, runnable_is_flow, runnable_is_agent, $1, app_path
          FROM workspace_runnable_dependencies
          WHERE workspace_id = $2",
         target_workspace_id,

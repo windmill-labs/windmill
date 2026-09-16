@@ -80,11 +80,11 @@
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
+		editInForkDescription,
 		editInForkLabel,
 		onEditInForkClick
 	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
-	import { agentStreamingEnabled } from '$lib/components/flows/agentFormFields'
 
 	let flow: Flow | undefined = $state()
 	let can_write = $state(false)
@@ -302,6 +302,8 @@
 		if (flow && !$userStore?.operator) {
 			buttons.push({
 				label: 'Fork',
+				description: `Start a new flow from a copy of this one`,
+				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: `${base}/flows/add?template=${flow.path}`,
 					variant: 'subtle',
@@ -320,6 +322,8 @@
 		) {
 			buttons.push({
 				label: editInForkLabel($workspaceStore, $userWorkspaces),
+				description: editInForkDescription('flow', $workspaceStore, $userWorkspaces),
+				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: buildForkEditUrl('flow', flow.path),
 					onClick: (e: Event | undefined) =>
@@ -347,6 +351,7 @@
 
 		buttons.push({
 			label: `History`,
+			narrow: 'menu',
 			buttonProps: {
 				onClick: () => flowHistory?.open(),
 				unifiedSize: 'md',
@@ -362,6 +367,7 @@
 		if (!$userStore?.operator) {
 			buttons.push({
 				label: 'Build app',
+				narrow: 'menu',
 				buttonProps: {
 					onClick: async () => {
 						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
@@ -523,12 +529,6 @@
 	let showEditButtons = $state(false)
 	let mainButtons = $derived(getMainButtons(flow, args))
 	let chatInputEnabled = $derived(flow?.value?.chat_input_enabled ?? false)
-	let shouldUseStreaming = $derived.by(() => {
-		const modules = flow?.value?.modules
-		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		if (lastModule?.value?.type !== 'aiagent') return false
-		return agentStreamingEnabled(lastModule.value)
-	})
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -701,7 +701,6 @@
 								onRunFlow={runFlowForChat}
 								{deploymentInProgress}
 								path={flow?.path ?? ''}
-								useStreaming={shouldUseStreaming}
 								inputSchema={flow?.schema}
 							/>
 						{:else}

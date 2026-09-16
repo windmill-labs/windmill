@@ -25,6 +25,7 @@
 	import { buildResourceTypesFilterSchema } from '$lib/components/resources/resourceTypesFilter'
 	import {
 		resourceTypeSearchText,
+		setResourceTypeDisplayNames,
 		sortResourceTypesByMatch
 	} from '$lib/components/resourceTypeDisplay'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -328,14 +329,14 @@
 	}
 
 	async function loadResourceTypes(): Promise<void> {
-		resourceTypes = (await ResourceService.listResourceType({ workspace: $workspaceStore! })).map(
-			(x) => {
-				return {
-					canWrite: $workspaceStore! == x.workspace_id,
-					...x
-				}
+		const rows = await ResourceService.listResourceType({ workspace: $workspaceStore! })
+		setResourceTypeDisplayNames(rows)
+		resourceTypes = rows.map((x) => {
+			return {
+				canWrite: $workspaceStore! == x.workspace_id,
+				...x
 			}
-		)
+		})
 		loading.types = false
 	}
 
@@ -1566,6 +1567,18 @@
      this route's JavaScript and none of what the resources table needs. -->
 {#if agentEditorTarget()}
 	{#await import('$lib/components/flows/content/AgentEditorModal.svelte') then { default: AgentEditorModal }}
-		<AgentEditorModal enableAi={$copilotInfo.enabled} owns={(t) => t.host === undefined} />
+		<AgentEditorModal
+			enableAi={$copilotInfo.enabled}
+			owns={(t) => t.host === undefined}
+			onRenamed={(from, to) => {
+				void loadResources()
+				// Only while the dialog still shows the agent: closed mid-request, it already cleared the
+				// anchor, and writing it back would reopen the editor on refresh.
+				if (agentEditorTarget()?.path !== from) return
+				// Claimed first, as a row click does, so the deep-link effect does not reopen it.
+				handledHash = `#/resource/${to}`
+				setPageDrawerAnchor(RESOURCES_PATH, to)
+			}}
+		/>
 	{/await}
 {/if}

@@ -5,10 +5,12 @@
 	import LabelsInput from './LabelsInput.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
+		addResourceTypeDisplayName,
 		isCustomResourceTypeName,
 		resourceTypeDisplayName,
 		resourceTypeMatchRank,
 		resourceTypeSearchText,
+		setResourceTypeDisplayNames,
 		sortResourceTypesByMatch
 	} from './resourceTypeDisplay'
 	import {
@@ -497,6 +499,7 @@
 		// $derived, so search re-ranks when they land.
 		ResourceService.listResourceType({ workspace: effectiveWorkspace })
 			.then((types) => {
+				setResourceTypeDisplayNames(types)
 				resourceTypeDescriptions = Object.fromEntries(
 					types.filter((t) => t.description).map((t) => [t.name, t.description!])
 				)
@@ -652,6 +655,7 @@
 				workspace: effectiveWorkspace,
 				path: resourceType
 			})
+			addResourceTypeDisplayName(resourceTypeInfo)
 			const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
 			const newArgsKeys = Object.keys(props).filter((x) => props?.[x]?.type == 'string') ?? []
 

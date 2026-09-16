@@ -183,7 +183,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28958/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28969/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -514,6 +514,11 @@ pub struct AutoPullSettings {
     pub last_synced_sha: std::collections::HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_pull_status: Option<AutoPullStatus>,
+    /// Email of the admin this repository's automatic pulls (its own and its forks')
+    /// apply changes as: whoever last saved the settings with auto pull on. Stamped
+    /// server-side, never taken from the client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled_by: Option<String>,
 }
 
 // Manual Debug so the HMAC `webhook_secret` (even encrypted) never lands in logs.
@@ -524,6 +529,7 @@ impl std::fmt::Debug for AutoPullSettings {
             .field("mode", &self.mode)
             .field("poll_interval_s", &self.poll_interval_s)
             .field("sync_forks", &self.sync_forks)
+            .field("enabled_by", &self.enabled_by)
             .field("webhook_id", &self.webhook_id)
             .field(
                 "webhook_secret",
@@ -1782,6 +1788,48 @@ pub async fn workspace_with_fork_ancestors(db: &crate::DB, w_id: &str) -> Result
     Ok(chain)
 }
 
+/// The nearest fork ancestor of `w_id` holding a row at `path` in `table`, or `None` when no
+/// ancestor does (or `w_id` is not a fork). Fork creation clones trigger and schedule rows down
+/// the whole chain, so a row shares its upstream identifier (Kafka group, PG slot, cron) with
+/// every ancestor that still has one, not just the direct parent, which may have deleted its
+/// copy since.
+///
+/// Runs on the caller's connection so it sees the caller's transaction, and uncached: the
+/// answer depends on the target table, not only on lineage.
+///
+/// `table` is interpolated into SQL, hence `'static`: a trigger's `TABLE_NAME` or a literal,
+/// never caller input. Reads lineage for any `w_id` with no authorization check, like
+/// [`fork_ancestor_chain`], so the caller must already be authorized for `w_id`.
+pub async fn nearest_fork_ancestor_having(
+    conn: &mut sqlx::PgConnection,
+    table: &'static str,
+    w_id: &str,
+    path: &str,
+) -> Result<Option<String>> {
+    sqlx::query_scalar(&format!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT chain.id FROM chain
+            JOIN {table} t ON t.workspace_id = chain.id AND t.path = $2
+            WHERE chain.depth > 0
+            ORDER BY chain.depth LIMIT 1
+        "#
+    ))
+    .bind(w_id)
+    .bind(path)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(|e| Error::internal_err(format!("resolving fork ancestors of {w_id}: {e:#}")))
+}
+
 lazy_static::lazy_static! {
     /// workspace id -> (root workspace id, expiry ts). Read once per job start, so correctness
     /// rests on the invalidation rather than on the TTL: every mutation that can change the answer
@@ -2709,6 +2757,7 @@ mod tests {
             webhook_secret: None,
             webhook_url: None,
             webhook_error: None,
+            enabled_by: None,
             last_synced_sha: synced
                 .iter()
                 .map(|(r, s)| (r.to_string(), s.to_string()))

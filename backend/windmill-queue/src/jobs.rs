@@ -654,6 +654,16 @@ pub struct ResultMetadata {
     pub wm_failure: Option<String>,
 }
 
+/// Parses a marker struct out of a job result, which only an object can carry.
+/// A derived `Deserialize` also accepts an array, filling fields by position, so
+/// without the check a result like `[[], "boom"]` reads as `wm_failure: "boom"`.
+pub fn parse_result_object<T: serde::de::DeserializeOwned>(result: &str) -> Option<T> {
+    if !result.trim_start().starts_with('{') {
+        return None;
+    }
+    serde_json::from_str(result).ok()
+}
+
 /// Sentinel `error.name` we inject into a result when retagging a successful
 /// run as a failure due to `wm_failure`. Used downstream to detect that
 /// the result is already in the standard `{ error: { name, message }, ... }`
@@ -674,8 +684,7 @@ pub fn is_pre_shaped_wm_failure_result(result: &str) -> bool {
     struct NameOnly {
         name: String,
     }
-    serde_json::from_str::<Marker>(result)
-        .ok()
+    parse_result_object::<Marker>(result)
         .and_then(|m| m.error)
         .map(|e| e.name == MANUAL_FAILURE_ERROR_NAME)
         .unwrap_or(false)
@@ -721,7 +730,7 @@ impl ValidableJson for Box<RawValue> {
     }
 
     fn result_metadata(&self) -> ResultMetadata {
-        serde_json::from_str::<ResultMetadata>(self.get()).unwrap_or_default()
+        parse_result_object::<ResultMetadata>(self.get()).unwrap_or_default()
     }
 
     fn size(&self) -> usize {
@@ -774,6 +783,10 @@ impl ValidableJson for serde_json::Value {
     }
 
     fn result_metadata(&self) -> ResultMetadata {
+        // An array would decode positionally, see `parse_result_object`.
+        if !self.is_object() {
+            return ResultMetadata::default();
+        }
         serde_json::from_value::<ResultMetadata>(self.clone()).unwrap_or_default()
     }
 
@@ -983,7 +996,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     flow_is_done: bool,
     duration: Option<i64>,
     from_cache: bool,
-) -> Result<(Uuid, i64, Option<serde_json::Value>), Error> {
+) -> Result<(Uuid, i64), Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
 
@@ -1017,7 +1030,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     };
 
     let result_columns = result_columns.as_ref();
-    let (opt_uuid, duration, _skip_downstream_error_handlers, wac_job_ids) = (|| {
+    let (opt_uuid, duration, _skip_downstream_error_handlers, wac_parent_ready) = (|| {
         commit_completed_job(
             db,
             completed_job,
@@ -1052,9 +1065,13 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     .sleep(tokio::time::sleep)
     .await?;
 
+    if wac_parent_ready {
+        windmill_common::wac::WAC_SUSPEND_READY.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
     // if scheduling next job failed, return the job_id early to ensure the job get retried after a timeout
     if let Some(job_id) = opt_uuid {
-        return Ok((job_id, duration, None));
+        return Ok((job_id, duration));
     }
 
     // Auto-resolve a retry chain that ultimately worked, from whichever of the two
@@ -1101,7 +1118,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     // tracing::error!("4 {:?}", start.elapsed());
 
-    Ok((completed_job.id, duration, wac_job_ids))
+    Ok((completed_job.id, duration))
 }
 
 async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
@@ -1119,7 +1136,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // True when a native script retry was enqueued for this failed attempt, i.e.
     // this is not the terminal attempt — schedule completion handlers must wait.
     retry_pending: bool,
-) -> windmill_common::error::Result<(Option<Uuid>, i64, bool, Option<serde_json::Value>)> {
+) -> windmill_common::error::Result<(Option<Uuid>, i64, bool, bool)> {
     // let start = std::time::Instant::now();
 
     let job_id = completed_job.id;
@@ -1249,74 +1266,23 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .map_err(|e| Error::InternalErr(format!("Could not update job labels: {e:#}")))?;
     }
 
-    let mut wac_job_ids: Option<serde_json::Value> = None;
+    // Before `delete_job`: the parent's rows are locked ahead of the child's own
+    // queue row (see `record_child_completion` for the order this must keep).
+    let mut wac_parent_ready = false;
     if !completed_job.is_flow_step() {
         if let Some(parent_job) = completed_job.parent_job {
-            // Only update WAC parents (v1 or v2). The WHERE condition skips
-            // non-WAC parents entirely (error handlers, run_script children, etc.).
-            // Also returns pending_steps.job_ids so WAC v2 child completion
-            // doesn't need a separate read.
-            let row = sqlx::query_scalar!(
-                r#"UPDATE v2_job_status SET
-                        workflow_as_code_status = jsonb_set(
-                            jsonb_set(
-                                workflow_as_code_status,
-                                array[$1],
-                                COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
-                            ),
-                            array[$1, 'duration_ms'],
-                            to_jsonb($2::bigint)
-                        )
-                    WHERE id = $3 AND workflow_as_code_status IS NOT NULL
-                    RETURNING workflow_as_code_status->'_checkpoint'->'pending_steps'->'job_ids' AS "job_ids: serde_json::Value""#,
-                &completed_job.id.to_string(),
+            wac_parent_ready = windmill_common::wac::record_child_completion(
+                &mut tx,
+                &parent_job,
+                &completed_job.id,
+                success,
                 duration,
-                parent_job
+                sanitized_result.as_ref(),
             )
-            .fetch_optional(&mut *tx)
             .warn_after_seconds(10)
-            .await
-            .inspect_err(|e| {
-                tracing::error!(
-                    "Could not update parent job `duration_ms` in workflow as code status: {}",
-                    e,
-                )
-            })
-            .ok()
-            .flatten();
-            wac_job_ids = row.flatten();
-
-            // If parent was already completed (e.g. cancelled), update v2_job_completed instead
-            if wac_job_ids.is_none() {
-                let _ = sqlx::query!(
-                    r#"UPDATE v2_job_completed SET
-                            workflow_as_code_status = jsonb_set(
-                                jsonb_set(
-                                    workflow_as_code_status,
-                                    array[$1],
-                                    COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
-                                ),
-                                array[$1, 'duration_ms'],
-                                to_jsonb($2::bigint)
-                            )
-                        WHERE id = $3 AND workflow_as_code_status IS NOT NULL"#,
-                    &completed_job.id.to_string(),
-                    duration,
-                    parent_job
-                )
-                .execute(&mut *tx)
-                .warn_after_seconds(10)
-                .await
-                .inspect_err(|e| {
-                    tracing::error!(
-                        "Could not update completed parent job `duration_ms` in workflow as code status: {}",
-                        e,
-                    )
-                });
-            }
+            .await?;
         }
     }
-    // tracing::error!("Added completed job {:#?}", queued_job);
 
     let mut _skip_downstream_error_handlers = false;
     tx = delete_job(tx, &job_id).warn_after_seconds(10).await?;
@@ -1544,14 +1510,19 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         completed_job.id
     );
     // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
-    Ok((None, duration, _skip_downstream_error_handlers, wac_job_ids))
+    Ok((
+        None,
+        duration,
+        _skip_downstream_error_handlers,
+        wac_parent_ready,
+    ))
 }
 
 async fn check_result_size<T: ValidableJson>(
     db: &Pool<Postgres>,
     queued_job: &MiniCompletedJob,
     result: Json<&T>,
-) -> Option<Result<(Option<Uuid>, i64, bool, Option<serde_json::Value>), Error>> {
+) -> Option<Result<(Option<Uuid>, i64, bool, bool), Error>> {
     let result_size = result.size() / 1024 / 1024;
     if result_size > 2 {
         if result_size > *MAX_RESULT_SIZE_MB {
@@ -7916,5 +7887,38 @@ mod git_sync_concurrency_key_tests {
         let b = git_sync_concurrency_key(ws, Some(format!("u/user/b{long}")), 0);
         assert_ne!(a, b);
         assert!(a.len() <= 255 && b.len() <= 255);
+    }
+}
+
+#[cfg(test)]
+mod result_metadata_tests {
+    use super::{ResultMetadata, ValidableJson};
+    use serde_json::value::RawValue;
+
+    fn from_raw(json: &str) -> ResultMetadata {
+        RawValue::from_string(json.to_string())
+            .unwrap()
+            .result_metadata()
+    }
+
+    fn from_value(json: &str) -> ResultMetadata {
+        serde_json::from_str::<serde_json::Value>(json)
+            .unwrap()
+            .result_metadata()
+    }
+
+    #[test]
+    fn array_result_carries_no_markers() {
+        for json in [r#"[["label"], "boom"]"#, r#"[null, "boom"]"#] {
+            for meta in [from_raw(json), from_value(json)] {
+                assert!(
+                    meta.wm_labels.is_none() && meta.wm_failure.is_none(),
+                    "{json}"
+                );
+            }
+        }
+        let meta = from_raw(r#"{"wm_labels": ["label"], "wm_failure": "boom"}"#);
+        assert_eq!(meta.wm_labels, Some(vec!["label".to_string()]));
+        assert_eq!(meta.wm_failure.as_deref(), Some("boom"));
     }
 }

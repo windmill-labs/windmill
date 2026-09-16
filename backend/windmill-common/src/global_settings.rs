@@ -84,6 +84,11 @@ pub const SANDBOX_REGISTRY_AUTH_SETTING: &str = "sandbox_registry_auth";
 // windmill-worker/src/ssh_executor_ee.rs.
 pub const SSH_EXECUTION_SETTING: &str = "ssh_execution_enabled";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
+/// Whether the instance object store stands in for a workspace without storage of its own
+/// as the place its members' AI sessions are backed up to. On unless the row says `false`;
+/// inert without an instance object store.
+pub const AI_SESSIONS_INSTANCE_STORAGE_FALLBACK_SETTING: &str =
+    "ai_sessions_instance_storage_fallback";
 /// Compile a newly deployed script's binary right after its dependency job and push it
 /// to the instance object store, so the first run does not pay the compile. Inert unless
 /// instance object storage is configured — without it the binary would only ever land in
@@ -577,6 +582,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "OTEL_RESOURCE_ATTRIBUTES",
     "OTEL_JOB_LOGS",
     "OTEL_TRACES_RETENTION_SECS",
+    "AI_SHARED_ARTIFACT_RETENTION_SECS",
     "DISABLE_S3_STORE",
     "PG_SCHEMA",
     "PG_LISTENER_REFRESH_PERIOD_SECS",

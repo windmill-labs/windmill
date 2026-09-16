@@ -530,8 +530,8 @@
 					draftAgents.map((a) => [a.path, agentDraftCanWrite(a, user ?? $userStore ?? undefined)])
 				)
 				// The path is passed, so a draft that renames the agent is refused here too: a rename is
-				// the resource editor's to deploy, and this dialog lists the agent under the path the
-				// flow links.
+				// the agent editor's to deploy, and this dialog lists the agent under the path the flow
+				// links.
 				agentRefusal = Object.fromEntries(
 					draftAgents.map((a) => [a.path, agentDraftDeployRefusal(a.state, a.path)])
 				)

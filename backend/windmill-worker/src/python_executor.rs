@@ -2338,6 +2338,33 @@ async fn spawn_uv_install(
     }
 }
 
+/// First field (the path) of a wheel RECORD line. RECORD is CSV (PEP 376 /
+/// RFC 4180): a path containing a comma or a double quote is written quoted,
+/// with inner quotes doubled, so splitting on the first comma turns such an
+/// entry into a name that never exists on disk.
+fn record_first_field(line: &str) -> Option<String> {
+    let Some(quoted) = line.strip_prefix('"') else {
+        return line
+            .split(',')
+            .next()
+            .filter(|p| !p.is_empty())
+            .map(str::to_owned);
+    };
+    let mut field = String::new();
+    let mut chars = quoted.chars();
+    while let Some(c) = chars.next() {
+        if c != '"' {
+            field.push(c);
+        } else if chars.as_str().starts_with('"') {
+            chars.next();
+            field.push('"');
+        } else {
+            return Some(field).filter(|f| !f.is_empty());
+        }
+    }
+    None
+}
+
 /// Verify that every file listed in the wheel's RECORD exists on disk under
 /// `venv_p`. Used as a structural integrity check after both a successful
 /// `pull_from_tar` (object-store cache hit) and a successful local
@@ -2386,9 +2413,9 @@ async fn verify_wheel_record(venv_p: &str) -> Result<(), String> {
         if trimmed.is_empty() {
             continue;
         }
-        let rel_path = match trimmed.split(',').next() {
-            Some(p) if !p.is_empty() => p,
-            _ => continue,
+        let rel_path = match record_first_field(trimmed) {
+            Some(p) => p,
+            None => continue,
         };
         // Defensive: skip absolute paths or escaping entries — we only
         // validate package-relative files.
@@ -2397,7 +2424,7 @@ async fn verify_wheel_record(venv_p: &str) -> Result<(), String> {
         }
         let full = format!("{venv_p}/{rel_path}");
         if tokio::fs::metadata(&full).await.is_err() {
-            missing.push(rel_path.to_string());
+            missing.push(rel_path);
             // Bound error size in pathological cases (e.g. wholly empty dir).
             if missing.len() >= 10 {
                 missing.push("...".to_string());
@@ -3750,6 +3777,44 @@ mod tests {
         assert!(verify_wheel_record(dir.path().to_str().unwrap())
             .await
             .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_wheel_record_accepts_csv_quoted_path() {
+        let dir = tempfile::tempdir().unwrap();
+        // A path containing a comma is CSV-quoted in RECORD (wcwidth 0.8.3
+        // ships `wcwidth/textwrap.py,cover`). Splitting on the first comma
+        // looked for `"pkg/textwrap.py` and rejected a complete install.
+        write_fake_wheel(
+            dir.path(),
+            &["pkg/textwrap.py", "pkg/textwrap.py,cover"],
+            &[
+                "pkg/textwrap.py,sha256=aaa,1",
+                "\"pkg/textwrap.py,cover\",sha256=bbb,1",
+                "pkg-1.0.0.dist-info/RECORD,,",
+            ],
+        );
+        assert!(verify_wheel_record(dir.path().to_str().unwrap())
+            .await
+            .is_ok());
+    }
+
+    #[test]
+    fn test_record_first_field_unquotes_rfc4180() {
+        assert_eq!(
+            record_first_field("pkg/a.py,sha256=x,1").as_deref(),
+            Some("pkg/a.py")
+        );
+        assert_eq!(
+            record_first_field("\"pkg/a.py,cover\",sha256=x,1").as_deref(),
+            Some("pkg/a.py,cover")
+        );
+        assert_eq!(
+            record_first_field("\"pkg/say \"\"hi\"\".py\",sha256=x,1").as_deref(),
+            Some("pkg/say \"hi\".py")
+        );
+        assert_eq!(record_first_field(",,"), None);
+        assert_eq!(record_first_field("\"unterminated,sha256=x,1"), None);
     }
 
     // Regression tests for the concurrent-install guard. Two jobs installing the

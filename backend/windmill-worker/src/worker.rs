@@ -3405,7 +3405,7 @@ pub async fn run_worker(
                         let suspend_first = suspend_first_success
                             || rand::random::<f64>() < likelihood_of_suspend
                             || last_suspend_first.elapsed().as_secs_f64() > 5.0
-                            || crate::result_processor::WAC_SUSPEND_READY
+                            || windmill_common::wac::WAC_SUSPEND_READY
                                 .swap(false, Ordering::Relaxed);
 
                         if suspend_first {
@@ -4645,7 +4645,7 @@ pub async fn handle_queued_job(
     let cached_res_path = if job.cache_ttl.is_some() {
         match conn {
             Connection::Sql(db) => {
-                Some(cached_result_path(db, &client, &job, preview_data.as_ref()).await)
+                Some(cached_result_path(db, &client, &job, preview_data.as_ref()).await?)
             }
             Connection::Http(_) => None,
         }

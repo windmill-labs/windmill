@@ -1,9 +1,15 @@
-import { type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
+import {
+	type DBSchema as IDBSchema,
+	type IDBPDatabase,
+	type IDBPTransaction,
+	type StoreNames
+} from 'idb'
 import type { ChatJob, DisplayMessage } from './shared'
 import { expanded, messageDraft } from './chatDraft'
 import { createLongHash } from '$lib/editorLangUtils'
 import { userScopedDb, type UserScopedDbMigrateDeps } from '$lib/userScopedDb'
-import { scopedKey } from '$lib/userScopedStorage'
+import { emailOfScopedKey, scopedKey, scopedKeyFor } from '$lib/userScopedStorage'
+import { markSessionDirty } from '$lib/components/sessions/sessionMirrorSignal'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 import type { PersistedContextUsage } from './tokenUsage'
 import { IMAGE_OMITTED_PLACEHOLDER, type AttachedImage } from './imageUtils'
@@ -14,8 +20,9 @@ import { randomUUID } from '$lib/utils/uuid'
 // shared browser. The bare name is also the legacy (pre-namespacing) DB, claimed
 // once on first login.
 const DB_NAME = 'copilot-chat-history'
-// v3 adds the images blob store (replacing v2's short-lived toolImages store).
-const DB_VERSION = 3
+// v3 adds the images blob store (replacing v2's short-lived toolImages store); v4 indexes
+// chats by session.
+const DB_VERSION = 4
 /** Newest image blobs kept per chat; each is a bounded (≤1568px) data URL. */
 const MAX_IMAGES_PER_CHAT = 30
 /** Marks a persisted image whose bytes live in the `images` store. */
@@ -45,6 +52,7 @@ interface ChatSchema extends IDBSchema {
 			// chats predating this feature. Persisted out-of-band like modifiedItems.
 			backgroundJobs?: ChatJob[]
 		}
+		indexes: { 'by-session': string }
 	}
 	// Image bytes, out-of-band from the chat record on purpose: the record is
 	// re-cloned into IndexedDB on every saveChat, while a blob is written once
@@ -64,9 +72,19 @@ interface ChatSchema extends IDBSchema {
 	}
 }
 
-function createChatStore(db: IDBPDatabase<ChatSchema>): void {
-	if (!db.objectStoreNames.contains('chats')) {
-		db.createObjectStore('chats', { keyPath: 'id' })
+/** A persisted chat, exactly as the store holds it (image refs, not bytes). */
+export type StoredChat = ChatSchema['chats']['value']
+
+function createChatStore(
+	db: IDBPDatabase<ChatSchema>,
+	tx: IDBPTransaction<ChatSchema, StoreNames<ChatSchema>[], 'versionchange'>
+): void {
+	const chats = db.objectStoreNames.contains('chats')
+		? tx.objectStore('chats')
+		: db.createObjectStore('chats', { keyPath: 'id' })
+	// Lets the session backup find a session's chats without reading every record.
+	if (!chats.indexNames.contains('by-session')) {
+		chats.createIndex('by-session', 'sessionId')
 	}
 	// v2 briefly kept full-resolution tool screenshots in their own store; the
 	// general blob store below covers them now.
@@ -117,7 +135,9 @@ async function claimLegacyChatDb(
 	{ openDB, deleteDB }: UserScopedDbMigrateDeps
 ): Promise<void> {
 	if ((await scopedDb.count('chats')) > 0) return
-	const legacy = await openDB<ChatSchema>(DB_NAME, 1, { upgrade: createChatStore })
+	const legacy = await openDB<ChatSchema>(DB_NAME, 1, {
+		upgrade: (db, _oldVersion, _newVersion, tx) => createChatStore(db, tx)
+	})
 	const legacyChats = await legacy.getAll('chats')
 	if (legacyChats.length > 0) {
 		const tx = scopedDb.transaction('chats', 'readwrite')
@@ -153,6 +173,136 @@ export async function readChatModifiedItems(chatId: string): Promise<string[] | 
 		return undefined
 	} finally {
 		dbh.close()
+	}
+}
+
+// Store access for the session backup, outside any manager: it runs for sessions that have
+// no runtime mounted. Every call names the user it works for and gets nothing back once
+// the logged-in user differs, so a flush prepared for one user never reads or writes the
+// next user's history.
+const backupDbh = userScopedDb<ChatSchema>(DB_NAME, {
+	version: DB_VERSION,
+	upgrade: createChatStore,
+	migrate: migrateLegacyChatDb
+})
+
+async function backupDb(email: string): Promise<IDBPDatabase<ChatSchema> | undefined> {
+	const db = await backupDbh.whenReady()
+	return db && db.name === scopedKeyFor(DB_NAME, email) ? db : undefined
+}
+
+/** Test-only: let go of the backup's handle so the next call opens the test's fresh
+ * IndexedDB rather than the connection a previous test left. */
+export function __resetBackupStoreForTesting(): void {
+	backupDbh.close()
+}
+
+/** Ids of the chats tagged with this session, or undefined when the store is unavailable. */
+export async function listSessionChatIds(
+	sessionId: string,
+	email: string
+): Promise<string[] | undefined> {
+	const db = await backupDb(email)
+	if (!db) return undefined
+	return (await db.getAllKeysFromIndex('chats', 'by-session', sessionId)).map(String)
+}
+
+export async function readStoredChat(id: string, email: string): Promise<StoredChat | undefined> {
+	const db = await backupDb(email)
+	return db?.get('chats', id)
+}
+
+/** Ids of the image blobs a chat owns, or undefined when the store is unavailable. */
+export async function listChatImageIds(
+	chatId: string,
+	email: string
+): Promise<string[] | undefined> {
+	const db = await backupDb(email)
+	if (!db) return undefined
+	return (await imageKeysForChat(db, chatId)).map(String)
+}
+
+export async function readImageDataUrl(id: string, email: string): Promise<string | undefined> {
+	const db = await backupDb(email)
+	return (await db?.get('images', id))?.dataUrl
+}
+
+export interface RestoredImage {
+	id: string
+	chatId: string
+	dataUrl: string
+}
+
+/**
+ * Write restored chats and image blobs, leaving any that already exist alone: a record
+ * this browser wrote since is newer than the backup it came from. False when the store
+ * could not be reached, which the caller must not record as a restore.
+ */
+export async function importStoredChats(
+	chats: StoredChat[],
+	images: RestoredImage[],
+	email: string,
+	overwrite = false
+): Promise<boolean> {
+	const db = await backupDb(email)
+	if (!db) return false
+	const tx = db.transaction(['chats', 'images'], 'readwrite')
+	const chatStore = tx.objectStore('chats')
+	const imageStore = tx.objectStore('images')
+	const savedAt = Date.now()
+	for (const image of images) {
+		if (overwrite || (await imageStore.getKey(image.id)) === undefined) {
+			await imageStore.put({ id: image.id, chatId: image.chatId, dataUrl: image.dataUrl, savedAt })
+		}
+	}
+	// An overwrite never puts an older record over a newer one: without a cross-tab lock,
+	// another restore may have landed a newer backup's copy meanwhile.
+	for (const chat of chats) {
+		const existing = await chatStore.get(chat.id)
+		if (existing === undefined || (overwrite && existing.lastModified <= chat.lastModified)) {
+			await chatStore.put(chat)
+		}
+	}
+	await tx.done
+	return true
+}
+
+/** Every chat tagged with the session, and their images: for a session past its workspace's
+ * retention, which no runtime has mounted. */
+export function deleteSessionChats(sessionId: string, email: string): Promise<boolean> {
+	return pruneSessionChats(sessionId, undefined, new Set(), email)
+}
+
+/** Deletes chats of the session (with their images) and these images: what an earlier restore
+ * staged for it and the backup no longer has. `chats` names the ones to go; undefined is every
+ * chat of the session. False when nothing could be deleted. */
+export async function pruneSessionChats(
+	sessionId: string,
+	chats: Set<string> | undefined,
+	images: Set<string>,
+	email: string
+): Promise<boolean> {
+	if (chats?.size === 0 && images.size === 0) return true
+	const db = await backupDb(email)
+	if (!db) return false
+	try {
+		const tx = db.transaction(['chats', 'images'], 'readwrite')
+		const chatStore = tx.objectStore('chats')
+		const imageStore = tx.objectStore('images')
+		for (const chatId of await chatStore.index('by-session').getAllKeys(sessionId)) {
+			if (chats && !chats.has(String(chatId))) continue
+			await chatStore.delete(chatId)
+			const keys = await imageStore
+				.index('by-chat')
+				.getAllKeys(IDBKeyRange.bound([chatId, -Infinity], [chatId, Infinity]))
+			for (const key of keys) await imageStore.delete(key)
+		}
+		for (const id of images) await imageStore.delete(id)
+		await tx.done
+		return true
+	} catch (err) {
+		console.error('Could not prune chats for session', err)
+		return false
 	}
 }
 
@@ -289,7 +439,10 @@ export default class HistoryManager {
 		const snapshot = $state.snapshot(existing)
 		const updated = { ...snapshot, sessionId }
 		this.savedChats = { ...this.savedChats, [chatId]: updated }
-		await this.enqueueDbWrite((db) => db.put('chats', updated))
+		await this.enqueueDbWrite(async (db) => {
+			await db.put('chats', updated)
+			markSessionDirty(sessionId, chatId, emailOfScopedKey(DB_NAME, db.name))
+		})
 	}
 
 	getPastChats() {
@@ -565,6 +718,13 @@ export default class HistoryManager {
 				const keep = this.keptImageIds(refs)
 				await this.writeKeptImageBlobs(db, updatedChat.id, blobs, keep)
 				await db.put('chats', updatedChat)
+				if (updatedChat.sessionId) {
+					markSessionDirty(
+						updatedChat.sessionId,
+						updatedChat.id,
+						emailOfScopedKey(DB_NAME, db.name)
+					)
+				}
 				// Best-effort: the record is already committed, so a failed cleanup
 				// (e.g. a user switch closed this handle mid-op) must not turn a
 				// successful save into a rejection — the orphans are reclaimed by
@@ -589,6 +749,7 @@ export default class HistoryManager {
 	}
 
 	deletePastChat(id: string) {
+		const sessionId = this.savedChats[id]?.sessionId
 		this.savedChats = Object.fromEntries(
 			Object.entries(this.savedChats).filter(([key]) => key !== id)
 		)
@@ -596,6 +757,7 @@ export default class HistoryManager {
 			await db.delete('chats', id)
 			const keys = await imageKeysForChat(db, id)
 			await Promise.all(keys.map((key) => db.delete('images', key)))
+			if (sessionId) markSessionDirty(sessionId, id, emailOfScopedKey(DB_NAME, db.name))
 		}).catch((err) => console.error('Could not delete chat', err))
 	}
 

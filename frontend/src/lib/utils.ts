@@ -1670,6 +1670,8 @@ export function conditionalMelt(node: HTMLElement, meltItem: AnyMeltElement | un
 
 export type Item = {
 	displayName: string
+	/** Second line under the label, for an action whose name alone does not say what it does. */
+	description?: string
 	action?: (e: MouseEvent) => void
 	icon?: any
 	iconColor?: string
