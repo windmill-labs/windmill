@@ -28,7 +28,15 @@ export interface FlowConversation {
   created_at: string
   updated_at: string
   created_by: string
+  /** Started from the flow editor's test panel rather than a deployed run. */
+  is_test: boolean
 }
+
+/**
+ * Which conversations a listing holds: the flow editor's test chats, the deployed flow's
+ * own (the server's default), or both.
+ */
+export type ConversationKind = 'test' | 'deployed' | 'all'
 
 export interface FlowConversationMessage {
   id: string
@@ -167,13 +175,23 @@ export class WindmillChatApi {
 
   async listConversations(
     flowPath: string,
-    options: { page?: number; perPage?: number; signal?: AbortSignal } = {}
+    options: { page?: number; perPage?: number; kind?: ConversationKind; signal?: AbortSignal } = {}
   ): Promise<FlowConversation[]> {
+    const extra: Record<string, string> = { flow_path: flowPath }
+    if (options.kind !== undefined) extra.kind = options.kind
     const res = await this.#request('flow_conversations/list', {
-      query: pagination(options, { flow_path: flowPath }),
+      query: pagination(options, extra),
       signal: options.signal
     })
     return (await res.json()) as FlowConversation[]
+  }
+
+  /** Sets a conversation's title. Its place in the list is kept: only a turn moves one. */
+  async renameConversation(conversationId: string, title: string): Promise<void> {
+    await this.#request(`flow_conversations/update/${encodeURIComponent(conversationId)}`, {
+      method: 'POST',
+      body: { title }
+    })
   }
 
   /**

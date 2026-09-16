@@ -12464,6 +12464,15 @@ paths:
           in: query
           schema:
             type: string
+        - name: kind
+          description: which conversations to list - the flow editor's test chats, the deployed flow's own (the default), or both
+          in: query
+          schema:
+            type: string
+            enum:
+              - test
+              - deployed
+              - all
       responses:
         "200":
           description: flow conversations list
@@ -12473,6 +12482,40 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/FlowConversation"
+
+  /w/{workspace}/flow_conversations/update/{conversation_id}:
+    post:
+      summary: rename flow conversation
+      operationId: updateFlowConversation
+      tags:
+        - flow_conversations
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: conversation_id
+          description: conversation id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                  description: the chat's name
+      responses:
+        "200":
+          description: flow conversation updated
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/flow_conversations/delete/{conversation_id}:
     delete:
@@ -28301,7 +28344,7 @@ components:
     FlowConversation:
       type: object
       required:
-        [id, workspace_id, flow_path, created_at, updated_at, created_by]
+        [id, workspace_id, flow_path, created_at, updated_at, created_by, is_test]
       properties:
         id:
           type: string
@@ -28328,6 +28371,9 @@ components:
         created_by:
           type: string
           description: Username who created the conversation
+        is_test:
+          type: boolean
+          description: Started from the flow editor's test panel rather than a deployed run
 
     FlowConversationMessage:
       type: object

@@ -5,6 +5,7 @@ export {
   WindmillApiError,
   readServerSentEvents,
   type WindmillChatApiOptions,
+  type ConversationKind,
   type FlowConversation,
   type FlowConversationMessage,
   type JobUpdateEvent,

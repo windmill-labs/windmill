@@ -9553,6 +9553,8 @@ async fn run_preview_flow_job(
             &flow_path,
             &run_query,
             user_message.as_ref(),
+            // Run from the editor's test panel: a trial, not a real conversation.
+            true,
         )
         .await?;
     }

@@ -1,6 +1,7 @@
 import {
   WindmillApiError,
   WindmillChatApi,
+  type ConversationKind,
   type FlowConversation,
   type FlowConversationMessage
 } from './api'
@@ -229,7 +230,7 @@ class ChatImpl implements Chat {
   }
 
   loadConversations = async (
-    options: { page?: number; perPage?: number } = {}
+    options: { page?: number; perPage?: number; kind?: ConversationKind } = {}
   ): Promise<Conversation[]> => {
     const page = options.page ?? 1
     let conversations: Conversation[]
@@ -237,7 +238,8 @@ class ChatImpl implements Chat {
       try {
         const rows = await this.#api.listConversations(this.#config.flowPath, {
           page,
-          perPage: options.perPage ?? this.#config.pageSize
+          perPage: options.perPage ?? this.#config.pageSize,
+          kind: options.kind
         })
         conversations = rows.map(fromConversation)
       } catch (e) {
@@ -271,6 +273,23 @@ class ChatImpl implements Chat {
       this.#local.deleteConversation(conversationId)
     }
     this.#set({ conversations: this.#state.conversations.filter((c) => c.id !== conversationId) })
+  }
+
+  renameConversation = async (conversationId: string, title: string): Promise<void> => {
+    const trimmed = title.trim()
+    if (!trimmed) return
+    if (this.#state.history === 'server') {
+      await this.#api.renameConversation(conversationId, trimmed)
+    } else if (this.#state.history === 'local') {
+      this.#local.renameConversation(conversationId, trimmed)
+    }
+    // Patched in place: the server keeps `updated_at` on a rename, so the list order the
+    // next load returns is the one shown now.
+    this.#set({
+      conversations: this.#state.conversations.map((c) =>
+        c.id === conversationId ? { ...c, title: trimmed } : c
+      )
+    })
   }
 
   loadOlderMessages = async (): Promise<void> => {
@@ -734,7 +753,8 @@ function fromConversation(row: FlowConversation): Conversation {
     id: row.id,
     title: row.title ?? undefined,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    isTest: row.is_test
   }
 }
 

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by\n         FROM flow_conversation\n         WHERE id = $1 AND workspace_id = $2",
+  "query": "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by, is_test\n         FROM flow_conversation\n         WHERE id = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -37,6 +37,11 @@
         "ordinal": 6,
         "name": "created_by",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_test",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -52,8 +57,9 @@
       true,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "c383cc023714b361d10c10e8fef1fc148ab1da942951ee9ffdddaecee76a6be9"
+  "hash": "48c8522a4fed219c5011f4ba63c81cfe028a8b2a32bd790840cef65c452a8c31"
 }

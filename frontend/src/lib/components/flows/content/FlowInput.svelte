@@ -748,7 +748,7 @@
 					<FlowChat
 						onRunFlow={runFlowWithMessage}
 						path={$pathStore}
-						hideSidebar={true}
+						conversationKind="test"
 						inputSchema={flowStore.val.schema}
 					/>
 				</div>

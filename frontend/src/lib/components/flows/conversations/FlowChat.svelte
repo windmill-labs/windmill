@@ -25,6 +25,13 @@
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
 		wideLayout?: boolean
+		/**
+		 * What this surface's own runs are: the editor runs previews and lists its test
+		 * chats, the flow page runs the deployed flow and lists only its users' chats.
+		 * The sidebar offers the kind filter everywhere but on the deployed flow, whose
+		 * users have no test chats to look at.
+		 */
+		conversationKind?: 'test' | 'deployed'
 	}
 
 	let {
@@ -34,7 +41,8 @@
 		hideSidebar = false,
 		inputSchema = undefined,
 		description = undefined,
-		wideLayout = false
+		wideLayout = false,
+		conversationKind = 'deployed'
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
@@ -93,7 +101,13 @@
 <div class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-1">
 	{#if chat && chatState}
 		{#if !hideSidebar}
-			<FlowConversationsSidebar bind:this={sidebar} {chat} {chatState} />
+			<FlowConversationsSidebar
+				bind:this={sidebar}
+				{chat}
+				{chatState}
+				defaultKind={conversationKind}
+				canFilterKind={conversationKind !== 'deployed'}
+			/>
 		{/if}
 		<!-- The interface's host subscribes to the chat it was given, so a replaced chat
 		     (another flow or workspace) mounts a fresh interface rather than a stale host. -->
