@@ -439,6 +439,31 @@ describe('createChat with server history', () => {
     expect(chat.getState().conversations.map((c) => [c.id, c.isTest])).toEqual([['t1', true]])
   })
 
+  test('a list for a kind no longer asked for does not replace the newer one', async () => {
+    const row = (id: string, is_test: boolean) => ({
+      id,
+      workspace_id: 'ws',
+      flow_path: FLOW,
+      title: id,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      created_by: 'admin',
+      is_test
+    })
+    const { fetch } = fetchMock((c) => {
+      if (c.url.pathname !== '/api/w/ws/flow_conversations/list') return undefined
+      if (c.url.searchParams.get('kind') === 'test') {
+        return new Promise<Response>((r) => setTimeout(() => r(json([row('t1', true)])), 50))
+      }
+      return json([row('d1', false)])
+    })
+    const chat = createChat(options({}, fetch))
+    const slow = chat.loadConversations({ kind: 'test' })
+    await chat.loadConversations({ kind: 'deployed' })
+    await slow
+    expect(chat.getState().conversations.map((c) => c.id)).toEqual(['d1'])
+  })
+
   test('the refresh after a new turn lists the kind last asked for', async () => {
     const { fetch, calls } = fetchMock(
       run,

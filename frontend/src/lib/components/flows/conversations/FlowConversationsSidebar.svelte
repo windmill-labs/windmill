@@ -67,7 +67,14 @@
 		const c = chat
 		if (!l) return
 		untrack(() => {
-			l.setLoader((page, perPage) => c.loadConversations({ page, perPage, kind }))
+			// Every load goes through here, the first one and infinite scroll included. A
+			// response for a kind no longer selected keeps the rows shown: the load for the
+			// selected kind brings its own, whichever of the two lands last.
+			l.setLoader(async (page, perPage) => {
+				const requested = kind
+				const rows = await c.loadConversations({ page, perPage, kind: requested })
+				return requested === kind ? rows : items
+			})
 			l.setDeleteItemFn(async (id: string) => {
 				deletingId = id
 				try {
@@ -93,19 +100,7 @@
 		if (items.some((c) => c.id === conversationId)) return
 		draft = false
 		if (kind !== 'all' && kind !== defaultKind) kind = defaultKind
-		await reload()
-	}
-
-	// One reload at a time: the toggle is held while rows are on their way, so a slower
-	// earlier request cannot land after a newer one and show the wrong kind.
-	let reloading = $state(false)
-	async function reload() {
-		reloading = true
-		try {
-			await list?.loadData('forceRefresh')
-		} finally {
-			reloading = false
-		}
+		await list?.loadData('forceRefresh')
 	}
 
 	const draftShown = $derived(draft && !items.some((c) => c.id === chatState.conversationId))
@@ -133,7 +128,7 @@
 		const open = items.find((c) => c.id === chatState.conversationId)
 		const stillListed = open === undefined || next === 'all' || (next === 'test') === open.isTest
 		if (!stillListed) chat.newConversation()
-		await reload()
+		await list?.loadData('forceRefresh')
 	}
 
 	async function startRename(conversation: Conversation) {
@@ -155,8 +150,10 @@
 		try {
 			await chat.renameConversation(id, title)
 			// The list holds its own rows, loaded through the loader: patched rather than
-			// reloaded, so the row keeps its place without a round trip.
-			items = items.map((c) => (c.id === id ? { ...c, title } : c))
+			// reloaded, so the row keeps its place without a round trip. The title is read
+			// back from the chat, which holds it as the server stored it (a long one is cut).
+			const stored = chat.getState().conversations.find((c) => c.id === id)?.title ?? title
+			items = items.map((c) => (c.id === id ? { ...c, title: stored } : c))
 		} catch (error) {
 			console.error('Failed to rename conversation:', error)
 			sendUserToast('Failed to rename conversation', true)
@@ -242,7 +239,6 @@
 								<ToggleButtonGroup
 									selected={kind}
 									onSelected={(next) => setKind(next as ConversationKind)}
-									disabled={reloading}
 									noWFull
 								>
 									{#snippet children({ item })}
