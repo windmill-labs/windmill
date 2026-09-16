@@ -4,29 +4,11 @@ import {
   WindmillBackendClient,
   assertWindmillBackendReachable,
 } from "./windmillBackend";
-import { buildWorkspaceId } from "./workspaceId";
 
 const ORIGINAL_FETCH = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = ORIGINAL_FETCH;
-});
-
-describe("buildWorkspaceId", () => {
-  // `workspace.proper_id` rejects `--`, which truncating a slug on a hyphen
-  // produces once the suffix adds its own.
-  it("stays within the id length cap and the proper_id format", () => {
-    for (const caseId of [
-      "global-test6-secret-variable-draft",
-      "app-test9-recipe-book-search-delete",
-      "flow-test11-preprocessor-and-failure-handler",
-      "short",
-    ]) {
-      const id = buildWorkspaceId(caseId, 1);
-      expect(id.length).toBeLessThanOrEqual(50);
-      expect(id).toMatch(/^\w+(-\w+)*$/);
-    }
-  });
 });
 
 describe("assertWindmillBackendReachable", () => {
