@@ -110,6 +110,8 @@ class ChatImpl implements Chat {
     if (this.#turn) {
       throw new Error('windmill-chat: a message is already being answered; call stop() first')
     }
+    const wrongKind = this.wrongKindReason()
+    if (wrongKind) throw new Error(`windmill-chat: ${wrongKind}`)
     const isNew = this.#state.conversationId === undefined
     const conversationId = this.#state.conversationId ?? randomId()
     const turn: Turn = {
@@ -284,6 +286,17 @@ class ChatImpl implements Chat {
       this.#local.deleteConversation(conversationId)
     }
     this.#set({ conversations: this.#state.conversations.filter((c) => c.id !== conversationId) })
+  }
+
+  wrongKindReason = (): string | undefined => {
+    const id = this.#state.conversationId
+    const open = id === undefined ? undefined : this.#state.conversations.find((c) => c.id === id)
+    // Unknown kind (local history, or a conversation only this client has seen): nothing to refuse.
+    if (open?.isTest === undefined) return undefined
+    if (open.isTest === (this.#config.conversationKind === 'test')) return undefined
+    return open.isTest
+      ? 'This chat was run from the flow editor. Start a new chat to continue here.'
+      : 'This chat belongs to the deployed flow. Start a new chat to test.'
   }
 
   renameConversation = async (conversationId: string, title: string): Promise<void> => {

@@ -467,6 +467,31 @@ describe('createChat with server history', () => {
     expect(chat.getState().conversations.map((c) => c.id)).toEqual(['t1'])
   })
 
+  test('a chat does not send into a conversation of the other kind', async () => {
+    const row = (id: string, is_test: boolean) => ({
+      id,
+      workspace_id: 'ws',
+      flow_path: FLOW,
+      title: id,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      created_by: 'admin',
+      is_test
+    })
+    const { fetch, calls } = fetchMock(
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([row('d1', false), row('t1', true)]) : undefined),
+      (c) => (c.url.pathname.endsWith('/messages') ? json([]) : undefined)
+    )
+    const chat = createChat(options({ conversationKind: 'test' }, fetch))
+    await chat.loadConversations({ kind: 'all' })
+    await chat.selectConversation('t1')
+    expect(chat.wrongKindReason()).toBeUndefined()
+    await chat.selectConversation('d1')
+    expect(chat.wrongKindReason()).toContain('deployed flow')
+    await expect(chat.sendMessage('hi')).rejects.toThrow('deployed flow')
+    expect(calls.some((c) => c.method === 'POST')).toBe(false)
+  })
+
   test('the refresh after a new turn lists the kind last asked for', async () => {
     const { fetch, calls } = fetchMock(
       run,

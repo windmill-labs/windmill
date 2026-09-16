@@ -229,7 +229,10 @@ Methods: `sendMessage(text, { inputs? })`, `stop()`, `newConversation()`,
 `deleteConversation(id)`, `renameConversation(id, title)`, `loadOlderMessages()`,
 `destroy()`. `kind` lists the flow editor's test chats (`'test'`), the deployed flow's
 own (`'deployed'`, the server's default) or both (`'all'`); each `Conversation` carries
-`isTest`. A rename keeps the conversation's place in the list. Switching conversations
+`isTest`. A rename keeps the conversation's place in the list. A conversation keeps the
+kind it was created with: `ChatOptions.conversationKind` (`'deployed'` by default,
+`'test'` for editor previews) says what this chat's turns create, and `sendMessage`
+rejects a conversation of the other kind, with `wrongKindReason()` saying why. Switching conversations
 stops following the current answer; the flow keeps running and, with server history,
 its answer is there when you come back.
 

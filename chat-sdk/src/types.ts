@@ -117,6 +117,12 @@ export interface ChatOptions {
    * Windmill's own editor uses this to chat with an undeployed flow through a preview run.
    */
   run?: (args: Record<string, unknown>, turn: { conversationId: string; signal: AbortSignal }) => Promise<string>
+  /**
+   * What this chat's turns create: `test` for preview runs from the flow editor, `deployed`
+   * (the default) for runs of the deployed flow. A conversation keeps the kind it was created
+   * with, so `sendMessage` refuses one of the other kind rather than mixing the two in it.
+   */
+  conversationKind?: 'test' | 'deployed'
   /** Called once a turn has its answer (a failed flow included: its error is the answer). */
   onFinish?: (turn: { conversationId: string; jobId?: string; messages: ChatMessage[] }) => void
   /** Called when a turn could not run or be followed; `state.error` holds the same error. */
@@ -127,8 +133,14 @@ export interface Chat {
   getState(): ChatState
   /** Calls `listener` now and on every change; returns the unsubscribe function (Svelte store contract). */
   subscribe(listener: (state: ChatState) => void): () => void
-  /** Sends a message in the current conversation, starting one when there is none. Resolves when the answer is complete. */
+  /**
+   * Sends a message in the current conversation, starting one when there is none. Resolves
+   * when the answer is complete. Rejects when the current conversation is of the other kind
+   * than `ChatOptions.conversationKind` (see `wrongKindReason`).
+   */
   sendMessage(text: string, options?: { inputs?: Record<string, unknown> }): Promise<void>
+  /** Why the current conversation cannot take a message from this chat, if it cannot. */
+  wrongKindReason(): string | undefined
   /** Stops following the answer and asks Windmill to cancel the run. */
   stop(): Promise<void>
   newConversation(): void

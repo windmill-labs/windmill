@@ -101,10 +101,17 @@
 			additionalInputs: () =>
 				additionalInputsSchema ? (loadInputsFromStorage() ?? additionalInputsValues) : undefined,
 			workspace: () => workspace,
-			sendDisabled: () => deploymentInProgress
+			sendDisabled: () => deploymentInProgress || !!chat.wrongKindReason()
 		}
 	)
 	setChatViewHost(chatHost)
+
+	// A chat of the other kind can be read from here but not added to: the editor's runs
+	// are previews, the flow page's are deployed runs. Re-read whenever the chat state moves.
+	const wrongKindReason = $derived.by(() => {
+		chatHost.state
+		return chat.wrongKindReason()
+	})
 	onDestroy(() => chatHost.dispose())
 
 	// Older pages load when the reader reaches the top; the viewport stays where it was.
@@ -202,8 +209,8 @@
 		{emptyHint}
 		footerSettings={additionalInputsSchema ? footerSettings : undefined}
 		placeholder="Send a message to run the flow"
-		disabled={deploymentInProgress}
-		disabledMessage={deploymentInProgress ? 'Deployment in progress' : ''}
+		disabled={deploymentInProgress || !!wrongKindReason}
+		disabledMessage={deploymentInProgress ? 'Deployment in progress' : (wrongKindReason ?? '')}
 		loadPastChat={() => {}}
 		deletePastChat={() => {}}
 		saveAndClear={() => {}}

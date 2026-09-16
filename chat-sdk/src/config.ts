@@ -14,6 +14,7 @@ export interface ResolvedConfig {
   storageKey: string | undefined
   pageSize: number
   pollDelayMs: number | undefined
+  conversationKind: 'test' | 'deployed'
   run: ChatOptions['run']
   onFinish: ChatOptions['onFinish']
   onError: ChatOptions['onError']
@@ -78,6 +79,7 @@ export function resolveConfig(options: ChatOptions): ResolvedConfig {
     storageKey: options.storageKey,
     pageSize: options.pageSize ?? 50,
     pollDelayMs: options.pollDelayMs,
+    conversationKind: options.conversationKind ?? 'deployed',
     run: options.run,
     onFinish: options.onFinish,
     onError: options.onError
