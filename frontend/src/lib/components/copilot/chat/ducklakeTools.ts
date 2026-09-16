@@ -87,9 +87,10 @@ export function getDucklakeTools(): Tool<{}>[] {
 				})
 				// `canonical_table_path` expands a value only once it contains a `/`, so a bare
 				// table name matches nothing — a retryable filter, not a permissions outcome.
+				const bareTable = parsed.table?.replace('ducklake://', '')
 				const emptyNote =
-					parsed.table && !parsed.table.replace('ducklake://', '').includes('/')
-						? `Nothing matched \`${parsed.table}\`: a table filter must name its lake, as \`<lake>/${parsed.table}\`. Re-call with the lake before concluding anything about what is declared.`
+					bareTable && !bareTable.includes('/')
+						? `Nothing matched \`${parsed.table}\`: a table filter must name its lake, as \`<lake>/${bareTable}\`. Re-call with the lake before concluding anything about what is declared.`
 						: NO_DATA_METRICS_NOTE
 				const note = next_cursor
 					? `More declarations exist beyond the first ${limit}. Re-call with table/path_prefix to target what you are looking for, or with a higher limit (max 1000) for the rest of the list, rather than concluding a measure is undeclared.`

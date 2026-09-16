@@ -95,14 +95,18 @@ describe('list_data_metrics', () => {
 		expect(result).toContain('cannot read')
 	})
 
-	it('blames the missing lake, not readability, when the table filter has no lake', async () => {
-		listMetricsMock.mockResolvedValue({ metrics: [] })
-		const result = await run('list_data_metrics', { table: 'orders' })
-		// The server matches a lake-less name against nothing, so the readability
-		// hedge would confirm "nothing is declared" for a filter worth retrying.
-		expect(result).toContain('`<lake>/orders`')
-		expect(result).not.toContain('cannot read')
-	})
+	// The server matches a lake-less name against nothing, so the readability hedge
+	// would confirm "nothing is declared" for a filter worth retrying. The scheme is
+	// optional on the way in, so the retry it names must not carry it back.
+	it.each(['orders', 'ducklake://orders'])(
+		'blames the missing lake, not readability, for table %s',
+		async (table) => {
+			listMetricsMock.mockResolvedValue({ metrics: [] })
+			const result = await run('list_data_metrics', { table })
+			expect(result).toContain('`<lake>/orders`')
+			expect(result).not.toContain('cannot read')
+		}
+	)
 
 	it('warns that more declarations exist when the page is cut short', async () => {
 		listMetricsMock.mockResolvedValue({
