@@ -1286,7 +1286,8 @@ async fn get_latest_version(
     let row = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg,
                 av.created_by as created_by, av.created_at as created_at
-        FROM app a JOIN app_version av ON av.id = a.versions[array_upper(a.versions, 1)]
+        FROM app a JOIN app_version av
+             ON av.id = a.versions[array_upper(a.versions, 1)] AND av.app_id = a.id
         LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
         WHERE a.workspace_id = $1 AND a.path = $2",
         w_id,

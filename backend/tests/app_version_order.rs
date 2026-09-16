@@ -40,30 +40,29 @@ async fn test_app_head_follows_the_append_order_not_the_timestamps(
         .await?;
     assert!(res.status().is_success(), "{}", res.text().await?);
 
-    let first: i64 = sqlx::query_scalar!(
+    let first: i64 = sqlx::query_scalar(
         "SELECT versions[array_upper(versions, 1)] FROM app
-         WHERE workspace_id = 'test-workspace' AND path = 'u/test-user/order_app'"
+         WHERE workspace_id = 'test-workspace' AND path = 'u/test-user/order_app'",
     )
     .fetch_one(&db)
-    .await?
-    .expect("the created app has a version");
+    .await?;
 
     // The overlapping deploy: appended after `first`, so it is the version that
     // landed, but stamped before it, so a timestamp sort puts it underneath.
-    let second: i64 = sqlx::query_scalar!(
+    let second: i64 = sqlx::query_scalar(
         "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
          SELECT app_id, value, 'racer', created_at - interval '1 hour', raw_app
          FROM app_version WHERE id = $1
          RETURNING id",
-        first
     )
+    .bind(first)
     .fetch_one(&db)
     .await?;
-    sqlx::query!(
+    sqlx::query(
         "UPDATE app SET versions = array_append(versions, $1::bigint)
          WHERE workspace_id = 'test-workspace' AND path = 'u/test-user/order_app'",
-        second
     )
+    .bind(second)
     .execute(&db)
     .await?;
 
