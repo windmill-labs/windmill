@@ -44,7 +44,7 @@ export interface FlowConversationMessage {
   tool_arguments?: string | null
   /** An MCP tool's result, a web search's citations, and what any failed tool failed with. */
   tool_result?: string | null
-  /** The thinking of the iteration that produced this row; the agent job keeps the turn's thinking as one string. */
+  /** On an answer, the thinking that produced it; on a tool row, the thinking that led to the call. */
   reasoning?: string | null
 }
 

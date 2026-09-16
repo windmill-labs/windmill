@@ -146,16 +146,17 @@ describe('createWindmillChatTransport', () => {
       c.method === 'GET' && c.url.pathname.endsWith('/messages')
         ? json([
             messageRow(1, 'user', 'hi'),
-            messageRow(2, 'tool', 'Used lookup tool', { job_id: 'agent-job', tool_arguments: '{"q":1}', tool_result: '42' }),
+            messageRow(2, 'tool', 'Used lookup tool', { job_id: 'agent-job', reasoning: 'why', tool_arguments: '{"q":1}', tool_result: '42' }),
             messageRow(3, 'assistant', 'The answer is 42', { reasoning: 'hmm' })
           ])
         : undefined
     )
     const transport = createWindmillChatTransport({ baseUrl: 'http://wm.test', workspace: 'ws', flowPath: FLOW, fetch })
     const ui = await transport.loadMessages('c')
-    expect(ui.map((m) => m.parts.map((p) => p.type))).toEqual([['text'], ['dynamic-tool', 'reasoning', 'text']])
-    expect(ui[1].parts[0]).toMatchObject({ toolName: 'lookup', state: 'output-available', input: { q: 1 }, output: 42 })
-    expect(ui[1].parts[1]).toMatchObject({ type: 'reasoning', text: 'hmm' })
+    expect(ui.map((m) => m.parts.map((p) => p.type))).toEqual([['text'], ['reasoning', 'dynamic-tool', 'reasoning', 'text']])
+    expect(ui[1].parts[0]).toMatchObject({ type: 'reasoning', text: 'why' })
+    expect(ui[1].parts[1]).toMatchObject({ toolName: 'lookup', state: 'output-available', input: { q: 1 }, output: 42 })
+    expect(ui[1].parts[2]).toMatchObject({ type: 'reasoning', text: 'hmm' })
   })
 
   test('refuses attachments with a clear error', async () => {

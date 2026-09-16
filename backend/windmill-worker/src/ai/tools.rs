@@ -74,6 +74,9 @@ pub struct ToolExecutionContext<'a> {
     pub stream_event_processor: Option<&'a StreamEventProcessor>,
     pub flow_context: &'a mut FlowContext,
     pub omit_output_from_conversation: bool,
+    /// The thinking that led to this round's calls, stored on the first tool row written.
+    /// None when the round wrote text, whose row carries it.
+    pub reasoning: Option<String>,
     pub previous_result: &'a Option<Box<RawValue>>,
     pub id_context: &'a Option<crate::js_eval::IdContext>,
 
@@ -879,6 +882,12 @@ async fn add_tool_message_to_chat(
     if ctx.omit_output_from_conversation {
         return;
     }
+    let extras = match ctx.reasoning.take() {
+        Some(reasoning) => {
+            Some(MessageExtras { reasoning: Some(reasoning), ..extras.unwrap_or_default() })
+        }
+        None => extras,
+    };
 
     let chat_enabled = ctx
         .flow_context

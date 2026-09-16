@@ -43,8 +43,8 @@ pub struct FlowConversationMessage {
     /// An MCP tool's result, a web search's citations, and what any failed tool failed
     /// with. Null for a successful Windmill tool, whose own job holds the result.
     pub tool_result: Option<String>,
-    /// The thinking of the iteration that produced this row. The agent job keeps the
-    /// turn's thinking as one string.
+    /// On an answer, the thinking that produced it; on a tool row, the thinking that led to
+    /// the call. The agent job keeps the turn's thinking as one string.
     pub reasoning: Option<String>,
 }
 

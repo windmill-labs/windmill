@@ -91,6 +91,7 @@ export function toThreadMessage(turn: WindmillTurn): ThreadMessageLike {
   }
   const content: ThreadContentPart[] = []
   for (const m of turn.messages) {
+    if (m.reasoning) content.push({ type: 'reasoning', text: m.reasoning })
     if (m.role === 'tool') {
       const args = parseJsonOr(m.tool?.arguments)
       content.push({
@@ -104,7 +105,6 @@ export function toThreadMessage(turn: WindmillTurn): ThreadMessageLike {
       })
       continue
     }
-    if (m.reasoning) content.push({ type: 'reasoning', text: m.reasoning })
     if (m.content) content.push({ type: 'text', text: m.content })
   }
   const last = turn.messages[turn.messages.length - 1]

@@ -100,6 +100,38 @@ describe('toDisplayMessages', () => {
 		})
 	})
 
+	it('shows the thinking that led to a call as its own card, and retries by transcript position', async () => {
+		const rows = [
+			message({ role: 'user', content: 'first' }),
+			message({
+				role: 'tool',
+				content: 'Used search tool',
+				reasoning: 'why',
+				tool: { name: 'search', status: 'success' }
+			}),
+			message({ role: 'assistant', content: 'done' }),
+			message({ role: 'user', content: 'second' })
+		]
+		const display = toDisplayMessages(rows)
+		expect(display.map((m) => [m.role, m.content])).toEqual([
+			['user', 'first'],
+			['assistant', ''],
+			['tool', 'Used search tool'],
+			['assistant', 'done'],
+			['user', 'second']
+		])
+		expect(display[1]).toMatchObject({ reasoning: 'why' })
+		expect(display[1]).not.toHaveProperty('streaming')
+
+		const { chat } = fakeChat(idleState({ messages: rows }))
+		const host = new FlowChatViewHost(chat)
+		host.retryRequest(4)
+		await vi.waitFor(() =>
+			expect(chat.sendMessage).toHaveBeenCalledWith('second', expect.anything())
+		)
+		host.dispose()
+	})
+
 	it('does not flag a turn whose tool failed but whose agent still answered', () => {
 		const display = toDisplayMessages([
 			message({ role: 'user', content: 'try' }),

@@ -322,6 +322,7 @@ export function toUIMessages(messages: ChatMessage[]): UIMessage[] {
       target = { id: m.id, role: 'assistant', parts: [] }
       out.push(target)
     }
+    if (m.reasoning) target.parts.push({ type: 'reasoning', text: m.reasoning, state: 'done' })
     if (m.role === 'tool') {
       const toolCallId = m.tool?.callId ?? m.id
       const toolName = m.tool?.name ?? 'tool'
@@ -333,7 +334,6 @@ export function toUIMessages(messages: ChatMessage[]): UIMessage[] {
       )
       continue
     }
-    if (m.reasoning) target.parts.push({ type: 'reasoning', text: m.reasoning, state: 'done' })
     if (m.content) target.parts.push({ type: 'text', text: m.content, state: 'done' })
   }
   return out

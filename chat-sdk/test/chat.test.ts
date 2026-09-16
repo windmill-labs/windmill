@@ -615,29 +615,7 @@ describe('createChat with server history', () => {
     expect(chat.getState().messages.map((m) => m.content)).toEqual(['hi', 'Let me check', 'Used search tool', 'Final answer'])
   })
 
-  test('a reasoning-only row is not the answer of a turn that streamed no text', async () => {
-    const { fetch } = fetchMock(
-      run,
-      (c) =>
-        c.url.pathname === streamPath
-          ? sse([{ type: 'update', completed: true, only_result: { output: '{"n":1}', messages: [] } }])
-          : undefined,
-      (c) =>
-        c.url.pathname.endsWith('/messages')
-          ? json([messageRow(71, 'user', 'hi'), messageRow(72, 'assistant', '', { job_id: 'step-1', reasoning: 'hmm' })])
-          : undefined,
-      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
-    )
-    const chat = createChat(options({}, fetch))
-    await chat.sendMessage('hi')
-    expect(chat.getState().messages.map((m) => [m.role, m.content, m.reasoning])).toEqual([
-      ['user', 'hi', undefined],
-      ['assistant', '', 'hmm'],
-      ['assistant', '{"n":1}', undefined]
-    ])
-  })
-
-  test('a structured answer row claims the thinking that streamed before it', async () => {
+  test('thinking that led to a tool call rides on the call, live and once its row lands', async () => {
     const { fetch } = fetchMock(
       run,
       (c) =>
@@ -645,45 +623,53 @@ describe('createChat with server history', () => {
           ? sse([
               {
                 type: 'update',
-                new_result_stream: ndjson({ type: 'reasoning_token_delta', content: 'hmm' }),
-                stream_offset: 1,
+                // No `tool_call_arguments`: a stream cut short leaves the call without them.
+                new_result_stream: ndjson(
+                  { type: 'reasoning_token_delta', content: 'r1' },
+                  { type: 'tool_call', call_id: 'c1', function_name: 'lookup' },
+                  { type: 'tool_result', call_id: 'c1', function_name: 'lookup', result: '1', success: true },
+                  { type: 'token_delta', content: 'Final' }
+                ),
+                stream_offset: 4,
                 completed: true,
-                only_result: { output: { n: 1 }, messages: [] }
+                only_result: { output: 'Final', messages: [] }
               }
             ])
           : undefined,
       (c) =>
         c.url.pathname.endsWith('/messages')
-          ? json([messageRow(75, 'user', 'hi'), messageRow(76, 'assistant', '{"n":1}', { job_id: 'step-1', reasoning: 'hmm' })])
+          ? json([
+              messageRow(71, 'user', 'hi'),
+              messageRow(72, 'tool', 'Used lookup tool', { job_id: 'step-1', reasoning: 'r1', tool_arguments: '{"q":1}', tool_result: '1' }),
+              messageRow(73, 'assistant', 'Final', { job_id: 'step-1' })
+            ])
           : undefined,
       (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
     )
     const chat = createChat(options({}, fetch))
     await chat.sendMessage('hi')
-    expect(chat.getState().messages.map((m) => [m.role, m.content, m.reasoning])).toEqual([
-      ['user', 'hi', undefined],
-      ['assistant', '{"n":1}', 'hmm']
+    const messages = chat.getState().messages
+    expect(messages.map((m) => [m.role, m.content, m.reasoning, m.seq])).toEqual([
+      ['user', 'hi', undefined, 71],
+      ['tool', 'Used lookup tool', 'r1', 72],
+      ['assistant', 'Final', undefined, 73]
     ])
+    expect(messages[1].tool).toMatchObject({ callId: 'c1', arguments: '{"q":1}', result: '1', status: 'success' })
   })
 
-  test('reasoning rows of a turn with a tool round stay with that turn after a stopped one', async () => {
-    let jobs = 0
+  test('a structured answer row replaces the call it streamed as', async () => {
     const { fetch } = fetchMock(
-      (c) => (c.method === 'POST' && c.url.pathname.includes('/jobs/run/f/') ? text(`job-${++jobs}`) : undefined),
+      run,
       (c) =>
-        c.url.pathname.endsWith('/getupdate_sse/job-1')
-          ? sse([{ type: 'update', new_result_stream: ndjson({ type: 'reasoning_token_delta', content: 'first thoughts' }), stream_offset: 1 }])
-          : undefined,
-      (c) =>
-        c.url.pathname.endsWith('/getupdate_sse/job-2')
+        c.url.pathname === streamPath
           ? sse([
               {
                 type: 'update',
                 new_result_stream: ndjson(
-                  { type: 'reasoning_token_delta', content: 'r1' },
-                  { type: 'tool_call', call_id: 'c1', function_name: 'lookup' },
-                  { type: 'tool_result', call_id: 'c1', function_name: 'lookup', result: '1', success: true },
-                  { type: 'reasoning_token_delta', content: 'r2' }
+                  { type: 'reasoning_token_delta', content: 'hmm' },
+                  { type: 'tool_call', call_id: 'c9', function_name: 'structured_output' },
+                  { type: 'tool_call_arguments', call_id: 'c9', function_name: 'structured_output', arguments: '{"n": 1}' },
+                  { type: 'tool_execution', call_id: 'c9', function_name: 'structured_output' }
                 ),
                 stream_offset: 4,
                 completed: true,
@@ -691,77 +677,17 @@ describe('createChat with server history', () => {
               }
             ])
           : undefined,
-      (c) => (c.url.pathname.includes('/queue/cancel/') ? text('ok') : undefined),
       (c) =>
         c.url.pathname.endsWith('/messages')
-          ? json([
-              messageRow(51, 'user', 'first'),
-              messageRow(52, 'user', 'again'),
-              messageRow(53, 'assistant', '', { job_id: 'step-2', reasoning: 'r1' }),
-              messageRow(54, 'tool', 'Used lookup tool', { job_id: 'tool-2' }),
-              messageRow(55, 'assistant', '{"n":1}', { job_id: 'step-2', reasoning: 'r2' })
-            ])
+          ? json([messageRow(75, 'user', 'hi'), messageRow(76, 'assistant', '{"n": 1}', { job_id: 'step-1', reasoning: 'hmm' })])
           : undefined,
       (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
     )
     const chat = createChat(options({}, fetch))
-    const first = chat.sendMessage('first')
-    await new Promise((r) => setTimeout(r, 50))
-    const stopped = chat.stop()
-    await first
-    const second = chat.sendMessage('again')
-    await stopped
-    await second
-    expect(chat.getState().messages.map((m) => [m.role, m.content, m.reasoning, m.seq])).toEqual([
-      ['user', 'first', undefined, 51],
-      ['assistant', '', 'first thoughts', undefined],
-      ['user', 'again', undefined, 52],
-      ['assistant', '', 'r1', 53],
-      ['tool', 'Used lookup tool', undefined, 54],
-      ['assistant', '{"n":1}', 'r2', 55]
-    ])
-  })
-
-  test('a structured answer row leaves a stopped earlier turn its thinking', async () => {
-    let jobs = 0
-    const { fetch } = fetchMock(
-      (c) => (c.method === 'POST' && c.url.pathname.includes('/jobs/run/f/') ? text(`job-${++jobs}`) : undefined),
-      (c) =>
-        c.url.pathname.endsWith('/getupdate_sse/job-1')
-          ? sse([{ type: 'update', new_result_stream: ndjson({ type: 'reasoning_token_delta', content: 'first thoughts' }), stream_offset: 1 }])
-          : undefined,
-      (c) =>
-        c.url.pathname.endsWith('/getupdate_sse/job-2')
-          ? sse([
-              {
-                type: 'update',
-                new_result_stream: ndjson({ type: 'reasoning_token_delta', content: 'hmm' }),
-                stream_offset: 1,
-                completed: true,
-                only_result: { output: { n: 1 }, messages: [] }
-              }
-            ])
-          : undefined,
-      (c) => (c.url.pathname.includes('/queue/cancel/') ? text('ok') : undefined),
-      (c) =>
-        c.url.pathname.endsWith('/messages')
-          ? json([messageRow(41, 'user', 'first'), messageRow(42, 'user', 'again'), messageRow(43, 'assistant', '{"n":1}', { job_id: 'step-2', reasoning: 'hmm' })])
-          : undefined,
-      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
-    )
-    const chat = createChat(options({}, fetch))
-    const first = chat.sendMessage('first')
-    await new Promise((r) => setTimeout(r, 50))
-    const stopped = chat.stop()
-    await first
-    const second = chat.sendMessage('again')
-    await stopped
-    await second
-    expect(chat.getState().messages.map((m) => [m.role, m.content, m.reasoning])).toEqual([
-      ['user', 'first', undefined],
-      ['assistant', '', 'first thoughts'],
-      ['user', 'again', undefined],
-      ['assistant', '{"n":1}', 'hmm']
+    await chat.sendMessage('hi')
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.reasoning, m.tool])).toEqual([
+      ['user', 'hi', undefined, undefined],
+      ['assistant', '{"n": 1}', 'hmm', undefined]
     ])
   })
 

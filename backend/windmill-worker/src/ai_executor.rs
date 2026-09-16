@@ -1619,51 +1619,6 @@ pub async fn run_agent(
                     }
                 }
 
-                // An iteration that answered with tool calls has no message row to carry its
-                // thinking, and the next iteration's row holds only its own. Stored on a row
-                // of its own so a reader sees what led to the call. A call of the
-                // structured-output tool is the answer itself, and its row below carries
-                // the thinking: a bare row before it would read as the turn's last word.
-                let calls_structured_output =
-                    structured_output_tool_name.as_ref().map_or(false, |name| {
-                        tool_calls.iter().any(|tc| tc.function.name == *name)
-                    });
-                if persist_output_to_conversation
-                    && !calls_structured_output
-                    && response_content.as_deref().unwrap_or("").is_empty()
-                {
-                    if let (Some(memory_id), Some(reasoning)) =
-                        (memory_id, response_reasoning.clone())
-                    {
-                        let agent_job_id = job.id;
-                        let db_clone = db.clone();
-                        let step_name = step_name.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = add_message_to_conversation(
-                                &db_clone,
-                                &memory_id,
-                                Some(agent_job_id),
-                                "",
-                                MessageType::Assistant,
-                                &step_name,
-                                true,
-                                Some(&MessageExtras {
-                                    reasoning: Some(reasoning),
-                                    ..Default::default()
-                                }),
-                            )
-                            .await
-                            {
-                                tracing::warn!(
-                                    "Failed to add reasoning message to conversation {}: {}",
-                                    memory_id,
-                                    e
-                                );
-                            }
-                        });
-                    }
-                }
-
                 if tool_calls.is_empty() {
                     break;
                 } else if i == max_iterations - 1 {
@@ -1698,6 +1653,18 @@ pub async fn run_agent(
                     ..Default::default()
                 });
 
+                // A round's thinking is stored on one row, the first the round writes, which is
+                // where the stream shows it: its text row when it wrote text, else the row of
+                // its first call — the answer row below when that call is the structured-output
+                // tool. Two rows carrying it would show it twice after a reload.
+                let call_reasoning = response_reasoning
+                    .clone()
+                    .filter(|_| response_content.as_deref().unwrap_or("").is_empty());
+                let structured_output_first = structured_output_tool_name
+                    .as_ref()
+                    .zip(tool_calls.first())
+                    .map_or(false, |(name, tc)| tc.function.name == *name);
+
                 // Handle tool calls using extracted tools module
                 let tool_execution_ctx = ToolExecutionContext {
                     db,
@@ -1716,6 +1683,11 @@ pub async fn run_agent(
                     stream_event_processor: stream_event_processor.as_ref(),
                     flow_context: &mut flow_context,
                     omit_output_from_conversation,
+                    reasoning: if structured_output_first {
+                        None
+                    } else {
+                        call_reasoning.clone()
+                    },
                     previous_result: &previous_result,
                     id_context: &id_context,
                     tool_abort_handles: tool_abort_handles.clone(),
@@ -1736,8 +1708,7 @@ pub async fn run_agent(
                 messages.extend(tool_messages);
 
                 // A structured answer is the arguments of the structured-output tool call,
-                // on which the loop ends without a text iteration, so its row is written
-                // here with the thinking of the iteration that produced it.
+                // on which the loop ends without a text iteration, so its row is written here.
                 if tool_used_structured_output && persist_output_to_conversation {
                     if let (Some(memory_id), Some(OpenAIContent::Text(answer))) =
                         (memory_id, tool_content.as_ref())
@@ -1746,10 +1717,13 @@ pub async fn run_agent(
                         let db_clone = db.clone();
                         let message_content = answer.clone();
                         let step_name = step_name.clone();
-                        let extras = response_reasoning.clone().map(|reasoning| MessageExtras {
-                            reasoning: Some(reasoning),
-                            ..Default::default()
-                        });
+                        let extras = call_reasoning
+                            .clone()
+                            .filter(|_| structured_output_first)
+                            .map(|reasoning| MessageExtras {
+                                reasoning: Some(reasoning),
+                                ..Default::default()
+                            });
                         tokio::spawn(async move {
                             if let Err(e) = add_message_to_conversation(
                                 &db_clone,

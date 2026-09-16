@@ -344,16 +344,21 @@ class ChatImpl implements Chat {
           tool: { ...existing.tool!, ...toolPatch }
         }
       } else {
+        // Thinking that produced no text led to this call, and is stored on its row.
+        const a = turn.assistantId ? messages.findIndex((m) => m.id === turn.assistantId) : -1
+        const reasoning = a >= 0 && messages[a].content === '' ? messages.splice(a, 1)[0].reasoning : undefined
         messages.push({
           id: `pending-${randomId()}`,
           role: 'tool',
           content: content ?? '',
+          reasoning,
           success: success ?? true,
           createdAt: now(),
           pending: true,
           tool: { callId, name, status: 'running', ...toolPatch }
         })
       }
+      turn.assistantId = undefined
     }
     const appendAssistant = (text: string, reasoning: string) => {
       const i = turn.assistantId
@@ -388,17 +393,14 @@ class ChatImpl implements Chat {
         case 'reasoning_token_delta':
           appendAssistant('', event.content)
           break
+        // A call completes the round's text: text after it is a new message.
         case 'tool_call':
-          // The round's text is complete; text after the tool result is a new message.
-          turn.assistantId = undefined
           upsertTool(event.call_id, event.function_name, { status: 'running' })
           break
         case 'tool_call_arguments':
-          turn.assistantId = undefined
           upsertTool(event.call_id, event.function_name, { arguments: event.arguments })
           break
         case 'tool_execution':
-          turn.assistantId = undefined
           upsertTool(event.call_id, event.function_name, { status: 'running' })
           break
         case 'tool_result':
@@ -507,9 +509,6 @@ class ChatImpl implements Chat {
    * job is one of the turn's, which leaves out an earlier turn whose job outlived
    * `stop()` (a token without `jobs:write` cannot cancel it); a tool row without one
    * (an MCP call runs inside the agent step) belongs to whatever turn is under way.
-   * An assistant row with no text carries only the thinking before a tool call and
-   * is not an answer: a structured answer the agent never wrote a row for would
-   * otherwise be dropped instead of read from the flow result.
    */
   #answered(turn: Turn): boolean {
     const messages = this.#state.messages
@@ -522,7 +521,7 @@ class ChatImpl implements Chat {
       if (m.seq === undefined || m.role === 'user' || !ownJob(m)) continue
       if (latest === undefined || m.seq > latest.seq!) latest = m
     }
-    return latest?.role === 'assistant' && latest.content !== ''
+    return latest?.role === 'assistant'
   }
 
   /**
@@ -612,32 +611,19 @@ class ChatImpl implements Chat {
     if (rows.length === 0) return
     const messages = [...this.#state.messages]
     const known = new Set(messages.map((m) => m.serverId ?? m.id))
-    // An assistant message with no text is the thinking before a tool call, or before a
-    // structured answer whose text arrives as a tool call the stream never turns into a
-    // message. Text cannot tell such messages apart, so one is only ever claimed within
-    // the newest turn: a turn stopped before its rows landed leaves one behind, and no
-    // later row is its.
-    let turnStart = messages.length - 1
-    while (turnStart >= 0 && messages[turnStart].role !== 'user') turnStart--
-    const inTurn = (test: (m: ChatMessage) => boolean): number => {
-      const j = messages.slice(turnStart + 1).findIndex(test)
-      return j < 0 ? -1 : turnStart + 1 + j
-    }
     for (const row of rows.map(fromRow)) {
       if (known.has(row.id)) continue
       known.add(row.id)
-      const sameShape = (m: ChatMessage) =>
-        m.seq === undefined &&
-        m.role === row.role &&
-        (m.content === row.content || (row.tool !== undefined && m.tool?.name === row.tool.name))
-      let i: number
-      if (row.role === 'assistant' && row.content === '') {
-        i = inTurn(sameShape)
-      } else {
-        i = messages.findIndex(sameShape)
-        if (i < 0 && row.role === 'assistant' && row.reasoning !== undefined) {
-          i = inTurn((m) => m.seq === undefined && m.role === 'assistant' && m.content === '' && m.reasoning !== undefined)
-        }
+      let i = messages.findIndex(
+        (m) =>
+          m.seq === undefined &&
+          m.role === row.role &&
+          (m.content === row.content || (row.tool !== undefined && m.tool?.name === row.tool.name))
+      )
+      // A structured answer streams as the call of the structured-output tool, whose
+      // arguments are the answer's text: its row replaces that call.
+      if (i < 0 && row.role === 'assistant') {
+        i = messages.findIndex((m) => m.seq === undefined && m.role === 'tool' && m.tool?.arguments === row.content)
       }
       if (i >= 0) {
         const m = messages[i]
@@ -645,7 +631,16 @@ class ChatImpl implements Chat {
           ...row,
           id: m.id,
           reasoning: m.reasoning ?? row.reasoning,
-          tool: m.tool ? { ...m.tool, status: row.tool?.status ?? m.tool.status } : row.tool
+          // The stream's call wins where it has a value; a stream cut short leaves gaps the row fills.
+          tool:
+            row.role === 'tool' && m.tool
+              ? {
+                  ...m.tool,
+                  arguments: m.tool.arguments ?? row.tool?.arguments,
+                  result: m.tool.result ?? row.tool?.result,
+                  status: row.tool?.status ?? m.tool.status
+                }
+              : row.tool
         }
       } else {
         messages.push(row)

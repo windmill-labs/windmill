@@ -61,21 +61,23 @@ function lastTurnFailed(messages: readonly ChatMessage[]): boolean {
 
 export function toDisplayMessages(messages: readonly ChatMessage[]): DisplayMessage[] {
 	let userIndex = 0
-	return messages.map((message, i): DisplayMessage => {
+	return messages.flatMap((message, i): DisplayMessage[] => {
 		switch (message.role) {
 			case 'user':
-				return {
-					role: 'user',
-					index: userIndex++,
-					content: message.content,
-					// Drives the shared Retry button.
-					error: turnFailed(messages, i) || undefined
-				}
+				return [
+					{
+						role: 'user',
+						index: userIndex++,
+						content: message.content,
+						// Drives the shared Retry button.
+						error: turnFailed(messages, i) || undefined
+					}
+				]
 			case 'tool': {
 				const parameters = parseToolPayload(message.tool?.arguments)
 				const result = parseToolPayload(message.tool?.result)
 				const failed = message.success === false
-				return {
+				const call: DisplayMessage = {
 					role: 'tool',
 					tool_call_id: message.id,
 					// The card's header is the row's text, which the server only words once the
@@ -91,19 +93,36 @@ export function toDisplayMessages(messages: readonly ChatMessage[]): DisplayMess
 					error: failed ? message.content : undefined,
 					isLoading: message.pending && message.tool?.status === 'running'
 				}
+				// The tool card has no thinking section: the thinking that led to the call reads
+				// as a card of its own, just before it.
+				return message.reasoning
+					? [
+							{
+								role: 'assistant',
+								content: '',
+								reasoning: message.reasoning,
+								stepName: message.stepName,
+								jobId: message.jobId,
+								createdAt: message.createdAt
+							},
+							call
+						]
+					: [call]
 			}
 			default:
-				return {
-					role: 'assistant',
-					content: message.content,
-					// Only the message a turn is still writing: a finalized reasoning-only
-					// message must not look in progress.
-					streaming: message.pending || undefined,
-					reasoning: message.reasoning,
-					stepName: message.stepName,
-					jobId: message.jobId,
-					createdAt: message.createdAt
-				}
+				return [
+					{
+						role: 'assistant',
+						content: message.content,
+						// Only the message a turn is still writing: a finalized reasoning-only
+						// message must not look in progress.
+						streaming: message.pending || undefined,
+						reasoning: message.reasoning,
+						stepName: message.stepName,
+						jobId: message.jobId,
+						createdAt: message.createdAt
+					}
+				]
 		}
 	})
 }
@@ -274,9 +293,10 @@ export class FlowChatViewHost implements ChatViewHost {
 
 	// Per-message actions
 	storedImages = () => undefined
-	/** Send the user message at this transcript position again. */
+	/** Send the user message at this transcript position again. The position is in
+	 * `displayMessages`, which holds more entries than the chat's messages. */
 	retryRequest = (messageIndex: number) => {
-		const message = this.#state.messages[messageIndex]
+		const message = this.displayMessages[messageIndex]
 		if (!message || message.role !== 'user' || this.loading) return
 		void this.sendRequest({ instructions: message.content })
 	}

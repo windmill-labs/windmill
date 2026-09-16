@@ -28386,8 +28386,9 @@ components:
           type: string
           nullable: true
           description: >-
-            The thinking behind this row, for the iteration that produced it. The agent
-            job's result keeps the turn's thinking as a single string.
+            On an answer, the thinking that produced it; on a tool row, the thinking that
+            led to the call. Each round's thinking is on one row. The agent job's result
+            keeps the turn's thinking as a single string.
 
     EndpointTool:
       type: object
