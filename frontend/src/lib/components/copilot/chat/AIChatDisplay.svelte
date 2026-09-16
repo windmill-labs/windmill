@@ -74,12 +74,14 @@
 	// doesn't carry. They render only under GLOBAL, which a non-copilot host never sets.
 	const aiChatManager = getAiChatManager()
 
+	// The free grant pays for the copilot's own model, so its banners belong only to a host
+	// that sends to that model. A flow chat's turn runs on the flow's provider.
+	const freeTier = $derived(chatHost.supportsModelSettings ? $copilotInfo.freeTier : undefined)
 	// The user spent their one-time free Windmill AI grant: there is no model left to send
 	// to, so say so in the thread itself rather than only failing on send.
-	let freeTierExhausted = $derived($copilotInfo.freeTier?.exhausted === true)
+	let freeTierExhausted = $derived(freeTier?.exhausted === true)
 	// Still on the free grant: keep how much is left in view right above the composer, so
 	// running out isn't a surprise. Once spent, the exhausted banner replaces it.
-	let freeTier = $derived($copilotInfo.freeTier)
 	let freeTierUsedPct = $derived(Math.min(100, Math.round((freeTier?.used_ratio ?? 0) * 100)))
 	let showFreeTierUsage = $derived(!!freeTier && !freeTier.exhausted)
 

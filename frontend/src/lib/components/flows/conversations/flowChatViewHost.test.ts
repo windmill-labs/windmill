@@ -194,6 +194,23 @@ describe('FlowChatViewHost', () => {
 		host.dispose()
 	})
 
+	it('hands the queue back instead of sending while sending is disabled', async () => {
+		const { chat, set } = fakeChat(idleState({ status: 'streaming' }))
+		let deploying = false
+		const host = new FlowChatViewHost(chat, { sendDisabled: () => deploying })
+		const prependText = vi.fn()
+		host.setAiChatInput({ prependText } as any)
+		host.queueMessage('after deploy')
+		// A deployment starts while the turn is still running; the composer is disabled.
+		deploying = true
+		set({ status: 'idle' })
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect(chat.sendMessage).not.toHaveBeenCalled()
+		expect(prependText).toHaveBeenCalledWith('after deploy')
+		expect(host.queuedMessage).toBe('')
+		host.dispose()
+	})
+
 	it('drops a flush still waiting on the turn once disposed', async () => {
 		const { chat, set } = fakeChat()
 		let releaseTurn = () => {}

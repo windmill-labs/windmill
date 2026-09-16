@@ -16,6 +16,10 @@ export type FlowChatViewHostOptions = {
 	additionalInputs?: () => Record<string, any> | undefined
 	/** The workspace the transcript's paths resolve against. */
 	workspace?: () => string | undefined
+	/** Whether sending is refused right now (a deployment in progress, say). The composer
+	 * is disabled on the same condition; this covers the sends the composer does not
+	 * make itself: a queued message going out, a retry. */
+	sendDisabled?: () => boolean
 }
 
 function isBusy(status: ChatState['status']): boolean {
@@ -205,6 +209,11 @@ export class FlowChatViewHost implements ChatViewHost {
 		if (this.loading) {
 			this.queueMessage(text)
 			return true
+		}
+		if (this.#options.sendDisabled?.()) {
+			// Refused, not dropped: the text waits in the composer for sending to reopen.
+			this.#aiChatInput?.prependText(text)
+			return false
 		}
 		this.#automaticScroll = true
 		// A run that fails is reported through the chat's `onError` and as a failed message;

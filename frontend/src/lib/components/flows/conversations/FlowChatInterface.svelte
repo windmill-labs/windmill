@@ -100,7 +100,8 @@
 		{
 			additionalInputs: () =>
 				additionalInputsSchema ? (loadInputsFromStorage() ?? additionalInputsValues) : undefined,
-			workspace: () => workspace
+			workspace: () => workspace,
+			sendDisabled: () => deploymentInProgress
 		}
 	)
 	setChatViewHost(chatHost)
