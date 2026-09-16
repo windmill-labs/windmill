@@ -59,7 +59,9 @@
 			label !== 'guest_session' &&
 			!label.toLowerCase().startsWith('ephemeral') &&
 			label !== 'debugger-token' &&
-			!label.startsWith('mcp-oauth-')
+			!label.startsWith('mcp-oauth-') &&
+			!label.startsWith('embed_app:') &&
+			!label.startsWith('sdk_app:')
 		)
 	}
 

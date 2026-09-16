@@ -19,10 +19,11 @@ use crate::{
 };
 
 /// Whether `label` denotes a user-created token rather than a system token
-/// (`session`, `guest_session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`). System-token
-/// labels are load-bearing — session cleanup, super_admin propagation, expiry
-/// notifications and username overrides all key off them — so they must not be
-/// user-editable. `None` (no label) is treated as a user token.
+/// (`session`, `guest_session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`,
+/// `embed_app:*`, `sdk_app:*`). System-token labels are load-bearing — session
+/// cleanup, super_admin propagation, expiry notifications and username overrides all
+/// key off them — so they must not be user-editable. `None` (no label) is treated as
+/// a user token.
 ///
 /// This is the canonical copy. When updating it, also update its mirrors:
 /// - the `update_token_label` editability guard (SQL `WHERE`) in
@@ -40,6 +41,10 @@ pub fn is_user_token(label: Option<&str>) -> bool {
                 && !l.to_lowercase().starts_with("ephemeral")
                 && l != "debugger-token"
                 && !l.starts_with("mcp-oauth-")
+                // App viewer tokens: 12h, re-minted on every app open, so an expiry
+                // warning for one is noise.
+                && !l.starts_with("embed_app:")
+                && !l.starts_with("sdk_app:")
         }
     }
 }
@@ -961,6 +966,8 @@ mod tests {
         assert!(!is_user_token(Some("Ephemeral lsp token")));
         assert!(!is_user_token(Some("debugger-token")));
         assert!(!is_user_token(Some("mcp-oauth-client")));
+        assert!(!is_user_token(Some("embed_app:f/team/dashboard")));
+        assert!(!is_user_token(Some("sdk_app:u/admin/raw app")));
     }
 
     #[test]
