@@ -164,12 +164,17 @@
 	const scopeWorkspaceId = $derived(
 		isAllWorkspaces ? $workspaceStore || '' : newTokenWorkspace || $workspaceStore || ''
 	)
+	// Undefined wherever the workspace is: `/api/mcp/w/undefined/mcp` reads like a real URL
+	// and is copyable, so the OAuth panel withholds it rather than showing a broken one. The
+	// token branch guards the same case by disabling its generate button.
 	const mcpUrl = $derived(
 		isAllWorkspaces
 			? `${window.location.origin}/api/mcp/gateway`
-			: `${window.location.origin}/api/mcp/w/${newTokenWorkspace}/mcp`
+			: newTokenWorkspace
+				? `${window.location.origin}/api/mcp/w/${newTokenWorkspace}/mcp`
+				: undefined
 	)
-	const mcpBaseUrl = $derived(`${mcpUrl}?token=`)
+	const mcpBaseUrl = $derived(`${mcpUrl ?? ''}?token=`)
 
 	$effect(() => {
 		const requestedMcpMode = mcpOnly || openWithMcpMode
@@ -254,14 +259,18 @@
 				</div>
 			{/if}
 
-			<CopyableCodeBlock code={mcpUrl} language={shell} wrap />
+			{#if mcpUrl}
+				<CopyableCodeBlock code={mcpUrl} language={shell} wrap />
 
-			<div class="mt-2">
-				<Alert type="info" title="This instance requires MCP clients to sign in" size="xs">
-					Paste this URL into your client. It opens a Windmill page where you approve the access it
-					asks for, and no token needs to be copied around.
-				</Alert>
-			</div>
+				<div class="mt-2">
+					<Alert type="info" title="This instance requires MCP clients to sign in" size="xs">
+						Paste this URL into your client. It opens a Windmill page where you approve the access
+						it asks for, and no token needs to be copied around.
+					</Alert>
+				</div>
+			{:else}
+				<p class="text-xs text-tertiary">Pick a workspace to get its MCP URL.</p>
+			{/if}
 
 			{#if !mcpOnly}
 				<div class="mt-4 flex justify-end gap-2 flex-row">
