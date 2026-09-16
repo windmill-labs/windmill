@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.813.0](https://github.com/windmill-labs/windmill/compare/v1.812.0...v1.813.0) (2026-09-16)
+
+
+### Features
+
+* back AI sessions up to the workspace object storage ([#11116](https://github.com/windmill-labs/windmill/issues/11116)) ([796b6e5](https://github.com/windmill-labs/windmill/commit/796b6e5297d8cceb842ec097f33ec1c3115058bd))
+* delete a browser's copy of an AI session past its workspace retention ([#11156](https://github.com/windmill-labs/windmill/issues/11156)) ([a48ae65](https://github.com/windmill-labs/windmill/commit/a48ae656ae59d600311f81ef357d08df5226515a))
+* rename saved agents from the agent editor and flag broken links ([#11147](https://github.com/windmill-labs/windmill/issues/11147)) ([57a99f6](https://github.com/windmill-labs/windmill/commit/57a99f66a88f195cac8f583b59d69d627cc1ec1d))
+* retention for AI sessions on the object store and in the browser ([#11152](https://github.com/windmill-labs/windmill/issues/11152)) ([ee6d317](https://github.com/windmill-labs/windmill/commit/ee6d317e318fa8a1506fb18d51c45b627070627a))
+* return an ai agent step's thinking in its job result ([#11140](https://github.com/windmill-labs/windmill/issues/11140)) ([c4e878e](https://github.com/windmill-labs/windmill/commit/c4e878e8313a72a16bfbe81fbb3935ee7728ec6f))
+* stream reasoning summaries in AI agent Responses API steps ([#11124](https://github.com/windmill-labs/windmill/issues/11124)) ([b51c0ea](https://github.com/windmill-labs/windmill/commit/b51c0eabbe774c78a9cbf824a3df6528d970b8f6))
+
+
+### Bug Fixes
+
+* **apps:** re-check access in place after a password sign-in ([#11166](https://github.com/windmill-labs/windmill/issues/11166)) ([49d0310](https://github.com/windmill-labs/windmill/commit/49d0310ecc08040b6c6fa4f402584543d679e2e8))
+* **apps:** run-mode inline app component uses only pinned content ([#11135](https://github.com/windmill-labs/windmill/issues/11135)) ([781b5a5](https://github.com/windmill-labs/windmill/commit/781b5a57e81eb721d97d7b87e23dd84f23895400))
+* **cli:** keep the workspace color when settings are synced from git ([#11144](https://github.com/windmill-labs/windmill/issues/11144)) ([129c045](https://github.com/windmill-labs/windmill/commit/129c04559548cd1bcf67758ec416fb2a48e7b928))
+* **cli:** resolve lockgen imports through modules a push leaves alone ([#11160](https://github.com/windmill-labs/windmill/issues/11160)) ([54553b2](https://github.com/windmill-labs/windmill/commit/54553b2add6941395f03ca34ee24cf335a3b23c2))
+* dispatch workflow-as-code tasks from a deployed flow's inline step ([#11146](https://github.com/windmill-labs/windmill/issues/11146)) ([e8078f2](https://github.com/windmill-labs/windmill/commit/e8078f2a963166b09849650424583f5dcfd28a84))
+* keep sidebar confirmation dialogs from being confined to the rail ([#11158](https://github.com/windmill-labs/windmill/issues/11158)) ([b9b5988](https://github.com/windmill-labs/windmill/commit/b9b5988ebdf3edd75add445282977c516ef5ed51))
+* keep the instance users table's actions and header in view ([#11145](https://github.com/windmill-labs/windmill/issues/11145)) ([a9a9335](https://github.com/windmill-labs/windmill/commit/a9a9335a34a13ffd8cd2699adc92087b679548ca))
+* stop reading an array job result as wm_failure or http response ([#11154](https://github.com/windmill-labs/windmill/issues/11154)) ([9a8a9c4](https://github.com/windmill-labs/windmill/commit/9a8a9c480cf008761ec6ceaff694085a252a32ae))
+* walk the whole fork ancestry for app installations and fork conflicts ([#11151](https://github.com/windmill-labs/windmill/issues/11151)) ([73dc892](https://github.com/windmill-labs/windmill/commit/73dc892f9c9c840a5f0fb12fcbb28bbe0f38795f))
+* **worker:** bound cache transfers and import fetches in bun jobs ([#11138](https://github.com/windmill-labs/windmill/issues/11138)) ([31c4325](https://github.com/windmill-labs/windmill/commit/31c43255fdcc827c3fdf65e40238f8f3a83201cd))
+
 ## [1.812.0](https://github.com/windmill-labs/windmill/compare/v1.811.1...v1.812.0) (2026-09-15)
 
 
