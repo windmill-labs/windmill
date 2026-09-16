@@ -20,6 +20,8 @@
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
 		wideLayout?: boolean
+		/** What this surface's runs create: previews in the editor, deployed runs on the flow page. */
+		conversationKind?: 'test' | 'deployed'
 	}
 
 	let {
@@ -29,7 +31,8 @@
 		path,
 		workspace = undefined,
 		description = undefined,
-		wideLayout = false
+		wideLayout = false,
+		conversationKind = 'deployed'
 	}: Props = $props()
 
 	// Derive helperScript for dynamic inputs from schema
@@ -101,16 +104,21 @@
 			additionalInputs: () =>
 				additionalInputsSchema ? (loadInputsFromStorage() ?? additionalInputsValues) : undefined,
 			workspace: () => workspace,
-			sendDisabled: () => deploymentInProgress || !!chat.wrongKindReason()
+			sendDisabled: () => deploymentInProgress || !!wrongKindReason
 		}
 	)
 	setChatViewHost(chatHost)
 
-	// A chat of the other kind can be read from here but not added to: the editor's runs
-	// are previews, the flow page's are deployed runs. Re-read whenever the chat state moves.
+	// A chat of the other kind can be read from here but not added to: the server refuses a
+	// preview run into a deployed conversation and the reverse, so the composer says why first.
 	const wrongKindReason = $derived.by(() => {
-		chatHost.state
-		return chat.wrongKindReason()
+		const { conversationId, conversations } = chatHost.state
+		const open = conversations.find((c) => c.id === conversationId)
+		if (open?.isTest === undefined || open.isTest === (conversationKind === 'test'))
+			return undefined
+		return open.isTest
+			? 'This chat was run from the flow editor. Start a new chat to continue here.'
+			: 'This chat belongs to the deployed flow. Start a new chat to test.'
 	})
 	onDestroy(() => chatHost.dispose())
 

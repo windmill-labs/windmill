@@ -54,6 +54,16 @@ pub async fn get_or_create_conversation_with_id(
     .await?;
 
     if let Some(existing) = existing_conversation {
+        // `memory_id` is the caller's to choose, so a preview run could name a deployed
+        // conversation and the reverse. Its kind is fixed at creation and nothing would
+        // show the mixing afterwards, so the run is refused before it starts.
+        if existing.is_test != is_test {
+            return Err(crate::error::Error::BadRequest(if existing.is_test {
+                "this conversation was started from the flow editor's test panel; start a new conversation to run the deployed flow".to_string()
+            } else {
+                "this conversation belongs to the deployed flow; start a new conversation to test from the flow editor".to_string()
+            }));
+        }
         return Ok(existing);
     }
 

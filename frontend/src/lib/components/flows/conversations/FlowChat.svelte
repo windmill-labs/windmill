@@ -65,7 +65,6 @@
 			// Only an enterprise server honours it; elsewhere it would just log a warning per
 			// poll. The license loads asynchronously, so a cold load may create the chat twice.
 			pollDelayMs: $enterpriseLicense ? 50 : undefined,
-			conversationKind,
 			run: async ({ user_message, ...inputs }, { conversationId }) => {
 				const jobId = await onRunFlow(String(user_message), conversationId, inputs)
 				if (!jobId) throw new Error('the flow did not start')
@@ -121,6 +120,7 @@
 				{workspace}
 				{description}
 				{wideLayout}
+				{conversationKind}
 			/>
 		{/key}
 	{/if}

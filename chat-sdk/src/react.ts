@@ -12,7 +12,6 @@ export type UseWindmillChat = ChatState &
     | 'loadConversations'
     | 'deleteConversation'
     | 'renameConversation'
-    | 'wrongKindReason'
     | 'loadOlderMessages'
   > & { chat: Chat }
 
@@ -68,7 +67,6 @@ export function useWindmillChat(options: ChatOptions): UseWindmillChat {
       loadConversations: chat.loadConversations,
       deleteConversation: chat.deleteConversation,
       renameConversation: chat.renameConversation,
-      wrongKindReason: chat.wrongKindReason,
       loadOlderMessages: chat.loadOlderMessages
     }),
     [state, chat]
