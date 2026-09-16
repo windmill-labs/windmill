@@ -1235,6 +1235,161 @@ async fn test_backup_writes_are_refused_for_the_wrong_owner_token_or_id(
     Ok(())
 }
 
+/// Sets the object's modification time `days` back: the FilesystemStorage answers
+/// `last_modified` from it, so this is a session no push touched since.
+fn age_object(path: &std::path::Path, days: u64) -> std::io::Result<()> {
+    let at = std::time::SystemTime::now() - std::time::Duration::from_secs(days * 86_400);
+    std::fs::File::options()
+        .write(true)
+        .open(path)?
+        .set_modified(at)
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_expired_backups_are_swept_by_age_and_left_out_of_the_listing(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace",
+        server.addr.port()
+    );
+    let storage_dir = tempfile::tempdir()?;
+    configure_primary_lfs(&db, &storage_dir.path().to_string_lossy()).await?;
+
+    let chat = |sid: &str, cid: &str| {
+        json!({ "id": cid, "record": { "id": cid, "sessionId": sid, "lastModified": 2,
+                                        "actualMessages": [], "displayMessages": [] } })
+    };
+    let whole = |sid: &str| {
+        json!({
+            "id": sid, "whole": true, "epoch": 0,
+            "head": { "id": sid, "workspace_id": "test-workspace", "createdAt": 1, "chatId": "c1" },
+            "chats": [chat(sid, "c1")],
+            "images": [{ "chat_id": "c1", "id": "img1", "data_url": "data:image/png;base64,AAAA" }],
+            "artifacts": { "items": [], "versions": [] }
+        })
+    };
+    // Two pushes split over parts of which only the first part landed: one a browser
+    // abandoned long ago (its token aged past the retention), one still in flight.
+    let opening = |sid: &str| {
+        json!({
+            "id": sid, "whole": true, "epoch": 0, "push": format!("t-{sid}"), "opens": true,
+            "partial": true, "chats": [chat(sid, "c1")],
+            "head": { "id": sid, "workspace_id": "test-workspace", "createdAt": 1, "chatId": "c1" }
+        })
+    };
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "sessions": [
+            whole("old"), whole("live"), opening("abandoned"), opening("inflight")
+        ] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let root = user_root(storage_dir.path(), "test@windmill.dev");
+    age_object(&root.join("index/old/0"), 40)?;
+    age_object(&root.join("index/abandoned/push"), 40)?;
+
+    let listed = |listing: Value| -> Vec<String> {
+        let mut ids: Vec<String> = listing["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["id"].as_str().unwrap().to_string())
+            .collect();
+        ids.sort();
+        ids
+    };
+    let objects = |root: &std::path::Path| -> Vec<String> {
+        files_under(root)
+            .into_iter()
+            .map(|(p, _)| p.strip_prefix(root).unwrap().to_string_lossy().into_owned())
+            .collect()
+    };
+
+    // Without a retention nothing is swept, however old.
+    windmill_api::sweep_expired_ai_session_backups(&db).await;
+    assert_eq!(listed(list(&base, "SECRET_TOKEN").await?), ["live", "old"]);
+
+    let set_retention = |days: Value| {
+        authed(
+            client().post(format!("{base}/workspaces/edit_copilot_config")),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({ "sessions_retention_days": days }))
+        .send()
+    };
+    let resp = set_retention(json!(0)).await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+    let resp = set_retention(json!(30)).await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    // The listing leaves the expired session out before the sweep reaches it.
+    assert_eq!(listed(list(&base, "SECRET_TOKEN").await?), ["live"]);
+    assert!(root.join("sessions/old/head.json").exists());
+
+    // A removal cut short (a directory stands where the head is, so it cannot be unlinked)
+    // leaves the sweep's record with the markers gone; the next pass finds it and finishes.
+    let head = root.join("sessions/old/head.json");
+    std::fs::remove_file(&head)?;
+    std::fs::create_dir(&head)?;
+    std::fs::write(head.join("planted"), b"")?;
+    windmill_api::sweep_expired_ai_session_backups(&db).await;
+    assert!(root.join("index/old/sweep").exists());
+    assert!(!root.join("index/old/0").exists());
+    assert!(root.join("sessions/old/chats/c1.json").exists());
+    assert_eq!(listed(list(&base, "SECRET_TOKEN").await?), ["live"]);
+    std::fs::remove_dir_all(&head)?;
+
+    windmill_api::sweep_expired_ai_session_backups(&db).await;
+    let remaining = objects(&root);
+    assert!(
+        remaining
+            .iter()
+            .all(|p| !p.contains("/old/") && !p.contains("/abandoned/")),
+        "{remaining:?}"
+    );
+    for kept in [
+        "index/live/0",
+        "sessions/live/head.json",
+        "sessions/live/chats/c1.json",
+        "images/live/c1/img1",
+        "index/inflight/push",
+        "sessions/inflight/head.json",
+    ] {
+        assert!(
+            remaining.iter().any(|p| p == kept),
+            "{kept} in {remaining:?}"
+        );
+    }
+    assert_eq!(listed(list(&base, "SECRET_TOKEN").await?), ["live"]);
+
+    // A second pass has nothing to do; a session pushed again since its marker aged is
+    // renewed by the push, which rewrites the marker.
+    windmill_api::sweep_expired_ai_session_backups(&db).await;
+    age_object(&root.join("index/live/0"), 40)?;
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev",
+                "sessions": [{ "id": "live", "epoch": 0, "chats": [chat("live", "c2")] }] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    windmill_api::sweep_expired_ai_session_backups(&db).await;
+    let mut after = objects(&root);
+    after.sort();
+    let mut expected = remaining.clone();
+    expected.push("sessions/live/chats/c2.json".to_string());
+    expected.sort();
+    assert_eq!(after, expected);
+    assert_eq!(listed(list(&base, "SECRET_TOKEN").await?), ["live"]);
+    Ok(())
+}
+
 /// Puts the process-wide instance store back to none, even when an assertion fails.
 struct ResetInstanceStore;
 impl Drop for ResetInstanceStore {
@@ -1332,6 +1487,23 @@ async fn test_backups_fall_back_to_the_instance_storage(db: Pool<Postgres>) -> a
         .find(|s| s["storage"] == "_ai_sessions_fallback_")
         .unwrap_or_else(|| panic!("no fallback usage in {usage}"));
     assert!(fallback_usage["bytes"].as_i64().unwrap() > 0);
+
+    // The retention sweep reaches what the instance store keeps for the workspace, choosing
+    // that store from the row it reads the generation from.
+    let instance_user = user_root(instance_dir.path(), "test@windmill.dev");
+    age_object(&instance_user.join("index/s1/0"), 40)?;
+    sqlx::query(
+        "UPDATE workspace_settings SET ai_config = '{\"sessions_retention_days\": 30}' \
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .execute(&db)
+    .await?;
+    windmill_api::sweep_expired_ai_session_backups(&db).await;
+    assert!(!instance_user.join("index/s1/0").exists());
+    assert!(!instance_user.join("sessions/s1/head.json").exists());
+    // Pushed again, so the rotation below has a backup to delete.
+    assert_eq!(push_whole().await?.status(), 200);
+    assert!(!files_under(&in_instance).is_empty());
 
     // A key rotation sweeps the older generation out of the instance store too.
     rotate(&base, &"c".repeat(64)).await?;

@@ -30,6 +30,7 @@
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { Alert, Button } from './common'
+	import { overlayStack, type OverlayStack } from './common/overlayHost.svelte'
 	import { random_adj } from './random_positive_adjetive'
 	import { ChevronDown, Copy, SearchCode } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
@@ -405,9 +406,11 @@
 		}
 	})
 
-	const openSearchWithPrefilledText: (t?: string) => void = getContext(
+	const openSearchWithPrefilledText: (t?: string, stack?: OverlayStack) => void = getContext(
 		'openSearchWithPrefilledText'
 	)
+	// Handed to the search so it stacks above the modal or drawer this field sits in.
+	const searchStack = overlayStack()
 
 	$effect.pre(() => {
 		;[meta?.name, meta?.owner, meta?.ownerKind]
@@ -451,14 +454,18 @@
 			initialPath !== path
 	)
 	let pathUsageInFlowsPromise = $derived(
-		(kind == 'script' || kind == 'flow') &&
-			ws &&
-			initialPath &&
-			FlowService.listFlowPathsFromWorkspaceRunnable({
-				workspace: ws,
-				path: initialPath,
-				runnableKind: kind
-			})
+		ws && initialPath
+			? kind == 'script' || kind == 'flow'
+				? FlowService.listFlowPathsFromWorkspaceRunnable({
+						workspace: ws,
+						path: initialPath,
+						runnableKind: kind
+					})
+				: kind == 'resource'
+					? // Only steps linked to a saved agent are tracked; other `$res:` references are not.
+						FlowService.listFlowPathsLinkingAgent({ workspace: ws, path: initialPath })
+					: undefined
+			: undefined
 	)
 	let pathUsageInAppsPromise = $derived(
 		(kind == 'script' || kind == 'flow') &&
@@ -647,24 +654,36 @@
 						</ul>
 					</Alert>
 				{/if}
+			{:else if displayPathChangedWarning && kind == 'resource'}
+				{@render renameMayBreakWarning()}
+			{/if}
+		{:catch}
+			<!-- A resource's references beyond linked agents are never looked up, so a failed lookup
+			     still leaves it with the generic warning. -->
+			{#if displayPathChangedWarning && kind == 'resource'}
+				{@render renameMayBreakWarning()}
 			{/if}
 		{/await}
 	{:else if displayPathChangedWarning}
-		<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
-			You are renaming an item that may be depended upon by other items. This may break apps, flows
-			or resources. Find if it used elsewhere using the content search. Note that linked variables
-			and resources (having the same path) are automatically moved together.
-			<div class="flex pt-2">
-				<Button
-					variant="default"
-					on:click={() => {
-						openSearchWithPrefilledText('#')
-					}}
-					startIcon={{ icon: SearchCode }}
-				>
-					Search
-				</Button>
-			</div>
-		</Alert>
+		{@render renameMayBreakWarning()}
 	{/if}
 </div>
+
+{#snippet renameMayBreakWarning()}
+	<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
+		You are renaming an item that may be depended upon by other items. This may break apps, flows or
+		resources. Find if it used elsewhere using the content search. Note that linked variables and
+		resources (having the same path) are automatically moved together.
+		<div class="flex pt-2">
+			<Button
+				variant="default"
+				on:click={() => {
+					openSearchWithPrefilledText('#', searchStack)
+				}}
+				startIcon={{ icon: SearchCode }}
+			>
+				Search
+			</Button>
+		</div>
+	</Alert>
+{/snippet}

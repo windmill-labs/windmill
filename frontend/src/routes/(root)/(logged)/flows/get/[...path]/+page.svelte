@@ -80,6 +80,7 @@
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
+		editInForkDescription,
 		editInForkLabel,
 		onEditInForkClick
 	} from '$lib/utils/editInFork'
@@ -301,6 +302,8 @@
 		if (flow && !$userStore?.operator) {
 			buttons.push({
 				label: 'Fork',
+				description: `Start a new flow from a copy of this one`,
+				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: `${base}/flows/add?template=${flow.path}`,
 					variant: 'subtle',
@@ -319,6 +322,8 @@
 		) {
 			buttons.push({
 				label: editInForkLabel($workspaceStore, $userWorkspaces),
+				description: editInForkDescription('flow', $workspaceStore, $userWorkspaces),
+				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: buildForkEditUrl('flow', flow.path),
 					onClick: (e: Event | undefined) =>
@@ -346,6 +351,7 @@
 
 		buttons.push({
 			label: `History`,
+			narrow: 'menu',
 			buttonProps: {
 				onClick: () => flowHistory?.open(),
 				unifiedSize: 'md',
@@ -361,6 +367,7 @@
 		if (!$userStore?.operator) {
 			buttons.push({
 				label: 'Build app',
+				narrow: 'menu',
 				buttonProps: {
 					onClick: async () => {
 						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)

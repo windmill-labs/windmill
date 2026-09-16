@@ -227,6 +227,10 @@ pub fn global_service() -> Router {
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
         .route("/session_workspace_status", post(session_workspace_status))
+        .route(
+            "/session_workspace_retention",
+            post(session_workspace_retention),
+        )
         .route("/create", post(create_workspace))
         .route("/create_fork", post(deprecated_create_workspace_fork))
         .route("/exists", post(exists_workspace))
@@ -5629,6 +5633,14 @@ struct SessionWorkspaceStatusRequest {
     workspace_ids: Vec<String>,
 }
 
+/// `ai_config.sessions_retention_days` as stored, `None` when unset or not a count of days.
+pub fn sessions_retention_days(value: Option<&serde_json::Value>) -> Option<u32> {
+    value
+        .and_then(|v| v.as_u64())
+        .filter(|days| *days >= 1)
+        .and_then(|days| u32::try_from(days).ok())
+}
+
 /// Reconciliation support for client-side AI sessions, which the backend cannot touch
 /// directly. The client posts the workspace ids its sessions reference and uses the
 /// per-id status to keep sessions in sync with workspace lifecycle: `deleted` (no row, or
@@ -5676,6 +5688,42 @@ async fn session_workspace_status(
     .await?;
     let statuses = rows.into_iter().map(|r| (r.id, r.status)).collect();
     Ok(Json(statuses))
+}
+
+/// The AI session retention a browser deletes its local copies by (docs/ai-session-backups.md).
+/// Its own route, not a field on the status above, whose shape an older tab still reads. Unlike
+/// a status, it answers only for a workspace this caller can be authed into: a setting is the
+/// workspace's to tell, so a disabled membership gets none though its sessions still reconcile.
+async fn session_workspace_retention(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(req): Json<SessionWorkspaceStatusRequest>,
+) -> JsonResult<HashMap<String, u32>> {
+    if req.workspace_ids.len() > 1000 {
+        return Err(Error::BadRequest(
+            "Too many workspace ids (max 1000)".to_string(),
+        ));
+    }
+    let email = &authed.email;
+    let is_superadmin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
+    let rows = sqlx::query!(
+        "SELECT workspace_settings.workspace_id AS \"id!\",
+                workspace_settings.ai_config->'sessions_retention_days' AS retention
+         FROM workspace_settings
+         LEFT JOIN usr ON usr.workspace_id = workspace_settings.workspace_id AND usr.email = $2
+         WHERE workspace_settings.workspace_id = ANY($1)
+           AND ($3 OR (usr.email IS NOT NULL AND NOT usr.disabled))",
+        &req.workspace_ids[..],
+        email,
+        is_superadmin,
+    )
+    .fetch_all(&db)
+    .await?;
+    let days = rows
+        .into_iter()
+        .filter_map(|r| sessions_retention_days(r.retention.as_ref()).map(|days| (r.id, days)))
+        .collect();
+    Ok(Json(days))
 }
 
 /// The instance critical alert channels belong to the instance operator, who on cloud is
@@ -7423,8 +7471,8 @@ async fn clone_workspace_runnable_dependencies(
 ) -> Result<()> {
     // Clone workspace_runnable_dependencies
     sqlx::query!(
-        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id, app_path)
-         SELECT flow_path, runnable_path, script_hash, runnable_is_flow, $1, app_path
+        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, script_hash, runnable_is_flow, runnable_is_agent, workspace_id, app_path)
+         SELECT flow_path, runnable_path, script_hash, runnable_is_flow, runnable_is_agent, $1, app_path
          FROM workspace_runnable_dependencies
          WHERE workspace_id = $2",
         target_workspace_id,

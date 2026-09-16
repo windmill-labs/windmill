@@ -61,6 +61,10 @@
 		popup?: boolean
 		firstTime?: boolean
 		autoRedirect?: boolean
+		/** Supplying this replaces the post-login redirect: the card hands back instead of
+		 * navigating, and the host is expected to re-check access in place. For a gate on a
+		 * page that stays mounted, `rd` is the URL already shown, so navigating there would
+		 * re-run nothing. */
 		onLoginSuccess?: () => void
 		/** A refusal the popup relayed back, in the server's words. */
 		onLoginError?: (message: string) => void
@@ -290,6 +294,11 @@
 
 		// Finally, we check whether the user is a superadmin
 		refreshSuperadmin()
+
+		if (onLoginSuccess) {
+			onLoginSuccess()
+			return
+		}
 		redirectUser()
 	}
 

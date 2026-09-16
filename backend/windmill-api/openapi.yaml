@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.812.0
+  version: 1.813.0
   title: Windmill API
 
   contact:
@@ -1276,6 +1276,37 @@ paths:
                     - active
                     - archived
                     - deleted
+
+  /workspaces/session_workspace_retention:
+    post:
+      summary: get the AI session retention of workspaces referenced by client-side sessions
+      operationId: getSessionWorkspaceRetention
+      tags:
+        - workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workspace_ids:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - workspace_ids
+      responses:
+        "200":
+          description: >-
+            map of workspace id to its `ai_config.sessions_retention_days`; a workspace
+            without a retention, or one the caller cannot be authenticated into, is absent
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: integer
 
   /w/{workspace}/workspaces/get_as_superadmin:
     get:
@@ -12065,6 +12096,25 @@ paths:
       responses:
         "200":
           description: list of flow paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/flows/list_paths_linking_agent/{path}:
+    get:
+      summary: list flow paths with a step linked to a saved agent
+      operationId: listFlowPathsLinkingAgent
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: paths of the flows linking the `ai_agent` resource, as of their last deploy
           content:
             application/json:
               schema:
@@ -28448,6 +28498,14 @@ components:
           description: >-
             Stops browsers from backing their AI sessions up to the workspace's object
             storage. Read from the workspace's own settings like `copilot_disabled`.
+        sessions_retention_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
+          description: >-
+            The server deletes the backup of a session no push has reached for this many
+            days. Unset keeps backups until the user deletes the session. Read from the
+            workspace's own settings like `copilot_disabled`.
 
     AISessionBackupListing:
       type: object
