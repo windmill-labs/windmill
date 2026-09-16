@@ -31,14 +31,9 @@
 	let legacyMessages = $derived(
 		memory?.kind === 'manual' ? ((memory.messages ?? []) as unknown[]) : undefined
 	)
-	// A chat run always carries the conversation's memory id, and a step's own memory id replaces the
-	// baked one, so in either case the baked id is never read. A blank static id reads as unset.
-	let stepMemoryId = $derived(
-		args?.memory_id?.type === 'javascript' ||
-			(args?.memory_id?.type === 'static' && String(args.memory_id.value ?? '').trim() !== '')
-	)
+	// A chat run always carries the conversation's memory id, so there a baked id was never read.
 	let legacyMemoryId = $derived(
-		on && memory?.kind === 'auto' && memory.memory_id && !chatInputEnabled && !stepMemoryId
+		on && memory?.kind === 'auto' && memory.memory_id && !chatInputEnabled
 			? String(memory.memory_id)
 			: undefined
 	)

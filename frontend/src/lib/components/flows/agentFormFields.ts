@@ -43,14 +43,24 @@ export function keepsManagedMemory(memory: any): boolean {
 	return (memory?.kind === 'window' || memory?.kind === 'auto') && Boolean(memory.context_length)
 }
 
-/** Whether a run reads this step input, mirroring the worker: managed memory reads only a memory id,
- *  memory that is off only previous messages. A setting the form cannot read yet leaves both open. */
+export type AgentMemoryMode = 'legacy' | 'managed' | 'off'
+
+/** Which shape the step's memory holds: an older `auto`/`manual` setting, or the current one. */
+export function agentMemoryMode(memory: any): AgentMemoryMode {
+	if (memory?.kind === 'auto' || memory?.kind === 'manual') return 'legacy'
+	return keepsManagedMemory(memory) ? 'managed' : 'off'
+}
+
+/** Whether a run reads this step input, mirroring the worker: managed memory reads only a memory
+ *  id, memory that is off only previous messages, and an older setting neither. A setting the form
+ *  cannot read yet leaves both open. */
 export function historyInputApplies(
 	key: AgentHistoryKey,
-	managedMemory: boolean | undefined
+	mode: AgentMemoryMode | undefined
 ): boolean {
-	if (managedMemory === undefined) return true
-	return (key === 'memory_id') === managedMemory
+	if (mode === undefined) return true
+	if (mode === 'legacy') return false
+	return (key === 'memory_id') === (mode === 'managed')
 }
 
 /** A memory setting in words, for a linked agent's summary. */

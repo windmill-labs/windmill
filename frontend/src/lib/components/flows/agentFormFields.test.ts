@@ -3,8 +3,8 @@ import { AI_AGENT_SCHEMA, memoryPropertyFor } from './flowInfers'
 import {
 	AGENT_FIELD_BY_KEY,
 	AGENT_FIELDS,
+	agentMemoryMode,
 	historyInputApplies,
-	keepsManagedMemory,
 	agentFieldIsSet,
 	initialVisibleAgentFields
 } from './agentFormFields'
@@ -88,15 +88,18 @@ describe('initialVisibleAgentFields', () => {
 
 describe('historyInputApplies', () => {
 	// Mirrors the worker: offering a step input a run would ignore misleads the author.
-	it('offers a memory id only with managed memory, and previous messages only without', () => {
-		expect(keepsManagedMemory(undefined)).toBe(false)
-		expect(keepsManagedMemory({ kind: 'window', context_length: 0 })).toBe(false)
-		expect(keepsManagedMemory({ kind: 'manual', messages: [] })).toBe(false)
-		expect(keepsManagedMemory({ kind: 'auto', context_length: 4, memory_id: 'x' })).toBe(true)
-		expect(historyInputApplies('memory_id', true)).toBe(true)
-		expect(historyInputApplies('previous_messages', true)).toBe(false)
-		expect(historyInputApplies('memory_id', false)).toBe(false)
-		expect(historyInputApplies('previous_messages', false)).toBe(true)
+	it('offers each history input in its own memory mode, and neither on an older setting', () => {
+		expect(agentMemoryMode(undefined)).toBe('off')
+		expect(agentMemoryMode({ kind: 'window', context_length: 0 })).toBe('off')
+		expect(agentMemoryMode({ kind: 'window', context_length: 10 })).toBe('managed')
+		expect(agentMemoryMode({ kind: 'manual', messages: [] })).toBe('legacy')
+		expect(agentMemoryMode({ kind: 'auto', context_length: 4, memory_id: 'x' })).toBe('legacy')
+		expect(historyInputApplies('memory_id', 'managed')).toBe(true)
+		expect(historyInputApplies('previous_messages', 'managed')).toBe(false)
+		expect(historyInputApplies('memory_id', 'off')).toBe(false)
+		expect(historyInputApplies('previous_messages', 'off')).toBe(true)
+		expect(historyInputApplies('memory_id', 'legacy')).toBe(false)
+		expect(historyInputApplies('previous_messages', 'legacy')).toBe(false)
 		expect(historyInputApplies('previous_messages', undefined)).toBe(true)
 	})
 })

@@ -88,7 +88,7 @@ pub enum Memory {
         #[serde(default, deserialize_with = "deserialize_blank_as_none")]
         memory_id: Option<Uuid>,
     },
-    /// Written before the step's `previous_messages` input, which it is equivalent to.
+    /// Written before a step had history inputs of its own, and read on its own where it remains.
     Manual {
         messages: Vec<OpenAIMessage>,
     },
@@ -105,12 +105,6 @@ fn deserialize_blank_as_none<'de, D: serde::Deserializer<'de>>(
             .map_err(serde::de::Error::custom),
         _ => Ok(None),
     }
-}
-
-fn deserialize_present_messages<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<Option<Vec<OpenAIMessage>>>, D::Error> {
-    <Option<Vec<OpenAIMessage>> as serde::Deserialize>::deserialize(deserializer).map(Some)
 }
 
 fn deserialize_present<'de, D: serde::Deserializer<'de>>(
@@ -137,10 +131,8 @@ struct AIAgentArgsRaw {
     // nothing runs stateless instead of falling back to the run's memory id.
     #[serde(default, deserialize_with = "deserialize_present")]
     memory_id: Option<serde_json::Value>,
-    // Same distinction for an authored previous messages expression: null replaces a legacy manual
-    // list with no history, where an absent key keeps that list.
-    #[serde(default, deserialize_with = "deserialize_present_messages")]
-    previous_messages: Option<Option<Vec<OpenAIMessage>>>,
+    #[serde(default)]
+    previous_messages: Option<Vec<OpenAIMessage>>,
     enabled_tools: Option<Vec<String>>,
     // Legacy field for backward compatibility
     messages_context_length: Option<usize>,
@@ -207,7 +199,7 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
             max_iterations: raw.max_iterations,
             memory,
             memory_id,
-            previous_messages: raw.previous_messages.map(Option::unwrap_or_default),
+            previous_messages: raw.previous_messages,
             enabled_tools: raw.enabled_tools,
             credentials_check: raw.credentials_check.unwrap_or(false),
         }

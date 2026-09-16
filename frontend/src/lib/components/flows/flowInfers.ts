@@ -76,13 +76,13 @@ export const AI_AGENT_SCHEMA: Schema = {
 		memory_id: {
 			type: 'string',
 			description:
-				'Names the memory this step reads and writes, overriding the memory id the run was started with. Read only while managed memory is on.',
+				'Names the memory this step reads and writes, overriding the memory id the run was started with. Read only while managed memory is on, and not at all by an older auto or manual memory.',
 			showExpr: "fields.output_type !== 'image'"
 		},
 		previous_messages: {
 			type: 'array',
 			description:
-				'History the flow supplies, sent before the user message. Read only while managed memory is off.',
+				'History the flow supplies, sent before the user message. Read only while managed memory is off, and not at all by an older auto or manual memory.',
 			items: {
 				type: 'object',
 				properties: {

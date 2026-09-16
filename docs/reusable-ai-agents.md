@@ -58,17 +58,21 @@ which memory it is:
   hashed the same way: a fixed value is one memory shared by every run, an expression such as
   `flow_input.customer_id` one memory per key, and an expression that evaluates to nothing runs
   stateless rather than falling back to the run's id. With memory off, `previous_messages` supplies
-  the history itself. The editor never seeds a placeholder for either, because a present key is the
-  step's choice, and a static empty value reads as unset.
+  the history itself. An older `auto` or `manual` memory reads neither, so the editor offers them
+  only once the step is moved to the current settings, which the alert's button does. The editor
+  never seeds a placeholder for either, because a present key is the step's choice, and a static
+  empty value reads as unset.
 
 The worker reconciles them once per agent invocation, nested agent tools included, in
 `resolve_history_source` (`windmill-worker/src/ai_executor.rs`):
 
-1. Memory off, or a legacy `manual` memory: the history is `previous_messages`, else the `manual`
-   list, else nothing. Memory is neither read nor written, and a step `memory_id` is ignored.
-2. Managed memory: a step `previous_messages` is ignored. The memory id is the step's, else the
-   run's, else a legacy id baked into the `auto` object. With no memory id the agent runs
-   stateless.
+1. A legacy `auto` or `manual` memory: read as the editor that wrote it ran it. `manual` replays
+   its list; `auto` uses the run's memory id, else the id baked into it, else runs stateless.
+   Neither history input is read.
+2. Managed memory: the memory id is the step's, else the run's. With no memory id the agent runs
+   stateless, and a step `previous_messages` is ignored.
+3. Memory off: the history is `previous_messages`, else nothing. Memory is neither read nor
+   written, and a step `memory_id` is ignored.
 
 Each ignored input and each stateless fallback is written to the job log.
 

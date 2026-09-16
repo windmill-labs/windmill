@@ -58,9 +58,10 @@
 		AGENT_TOOLS_ROW,
 		AGENT_FIELD_GROUPS,
 		agentFieldAppliesTo,
+		agentMemoryMode,
 		historyInputApplies,
+		type AgentMemoryMode,
 		initialVisibleAgentFields,
-		keepsManagedMemory,
 		type AgentFieldGroup,
 		type AgentFieldSpec,
 		type AgentHistoryKey
@@ -179,16 +180,16 @@
 
 	let schemaProperties = $derived((schema?.properties ?? {}) as Record<string, any>)
 
-	// Whether the brain edited here, or the linked agent's, keeps managed memory. Unknown for an
+	// Which memory shape the brain edited here, or the linked agent's, holds. Unknown for an
 	// expression or a linked agent that has not loaded, which keeps previous messages addable.
-	let managedMemory = $derived.by((): boolean | undefined => {
+	let memoryMode = $derived.by((): AgentMemoryMode | undefined => {
 		if ('memory' in schemaProperties) {
 			const transform = args?.memory
 			return transform == undefined || transform.type === 'static'
-				? keepsManagedMemory(transform?.value)
+				? agentMemoryMode(transform?.value)
 				: undefined
 		}
-		return linkedMemory ? keepsManagedMemory(linkedMemory.memory) : undefined
+		return linkedMemory ? agentMemoryMode(linkedMemory.memory) : undefined
 	})
 
 	// The one-of field rewrites a value that matches none of its options, so a legacy kind the step
@@ -241,7 +242,7 @@
 			(args?.memory?.type === 'javascript' || args?.memory?.type === 'ai')
 	)
 	let memoryIdOffered = $derived(
-		(managedMemory === true || memoryIsExpression) &&
+		(memoryMode === 'managed' || memoryIsExpression) &&
 			scopedFields.some((spec) => spec.key === 'memory_id')
 	)
 
@@ -328,7 +329,7 @@
 				!(imageOutput && spec.textOnly) &&
 				// Memory id's row appears on its own when it is offered, so the menu never adds it.
 				spec.key !== 'memory_id' &&
-				!(isHistoryKey(spec.key) && !historyInputApplies(spec.key, managedMemory))
+				!(isHistoryKey(spec.key) && !historyInputApplies(spec.key, memoryMode))
 		)
 	}
 
@@ -578,9 +579,11 @@
 											{/if}
 										{:else}
 											{@render transformField(spec.key, spec.label, spec.tooltip, spec)}
-											{#if isHistoryKey(spec.key) && !historyInputApplies(spec.key, managedMemory)}
+											{#if isHistoryKey(spec.key) && !historyInputApplies(spec.key, memoryMode)}
 												<p class="mt-1 text-2xs text-hint">
-													Ignored while managed memory is {managedMemory ? 'on' : 'off'}.
+													{memoryMode === 'legacy'
+														? 'Not read by the older memory setting on this step.'
+														: `Ignored while managed memory is ${memoryMode === 'managed' ? 'on' : 'off'}.`}
 												</p>
 											{/if}
 											{#if spec.key === 'enabled_tools' && noToolsEnabled}

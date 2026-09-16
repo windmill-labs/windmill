@@ -554,8 +554,9 @@ components:
       type: object
       deprecated: true
       description: |
-        Deprecated, still read: equivalent to `window`. A `memory_id` here is only used when the run
-        passes no memory id; set `memory_id` on the step instead.
+        Deprecated, still read as it was written: the run's memory id, else the `memory_id` here.
+        The step's own `memory_id` is not read while this kind is set; switch the kind to `window`
+        to use it.
       properties:
         kind:
           type: string
@@ -589,7 +590,7 @@ components:
     MemoryManual:
       type: object
       deprecated: true
-      description: Deprecated, still read. Use the step's `previous_messages` input instead.
+      description: Deprecated, still read as it was written. Move the step to `off` with `previous_messages` instead.
       properties:
         kind:
           type: string
@@ -1086,14 +1087,15 @@ components:
                 parameter). Leave unset to use the run's memory id. A fixed value shares one memory
                 across every run; an expression such as `flow_input.customer_id` keeps one memory per
                 key. When it evaluates to an empty value the agent runs without memory. Read only
-                while `memory` keeps messages; ignored when it is off.
+                while `memory` is `window`: it is ignored when memory is off, and an older `auto` or
+                `manual` memory reads neither history input.
             previous_messages:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
               description: |
                 Array of MemoryMessage. History supplied by the flow, sent between the system prompt
-                and the user message. Read only while `memory` is off; ignored while it keeps
-                messages. Replaces the list of a deprecated `manual` memory.
+                and the user message. Read only while `memory` is off or absent: managed memory
+                ignores it, and an older `auto` or `manual` memory reads neither history input.
             output_schema:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
