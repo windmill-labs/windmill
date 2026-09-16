@@ -620,7 +620,7 @@
 			{/if}
 		</DetailPageHeader>
 	{/snippet}
-	{#snippet form()}
+	{#snippet form({ graphInline }: { graphInline: boolean })}
 		<div class="px-3">
 			<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showEditButtons = v)} />
 		</div>
@@ -764,7 +764,7 @@
 						{/if}
 					</div>
 				</div>
-				{#if !chatInputEnabled}
+				{#if graphInline}
 					<div class="grow min-h-0">
 						<FlowGraphViewer
 							triggerNode={true}
@@ -810,10 +810,10 @@
 		/>
 	{/snippet}
 
-	{#snippet flow_step()}
+	{#snippet flow_step({ onBack }: { onBack?: () => void })}
 		{#if flow}
 			{#if stepDetail}
-				<FlowGraphViewerStep schema={flow.schema} {stepDetail} />
+				<FlowGraphViewerStep schema={flow.schema} {stepDetail} {onBack} />
 			{/if}
 		{/if}
 	{/snippet}
@@ -842,7 +842,7 @@
 					triggerNode={true}
 					download
 					{flow}
-					noSide={false}
+					noSide={true}
 					noBorder
 					minHeight={flowGraphHeight}
 					on:select={(e) => {
