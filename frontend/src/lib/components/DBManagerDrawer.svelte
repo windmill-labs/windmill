@@ -14,7 +14,11 @@
 	import { resource } from 'runed'
 	import { tick, untrack } from 'svelte'
 	import type { DbManagerUriState } from './dbManagerDrawerModel.svelte'
-	import { ADMIN_DATATABLE_ROLE, type DatatableRowAction } from './dbTypes'
+	import {
+		ADMIN_DATATABLE_ROLE,
+		datatableNameTakesRole,
+		type DatatableRowAction
+	} from './dbTypes'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -79,7 +83,9 @@
 			(rolesOfCurrent !== undefined &&
 				(!rolesOfCurrent.permissioned ||
 					rolesOfCurrent.roles.length === 0 ||
-					selectedRole !== undefined))
+					selectedRole !== undefined ||
+					// Its reference cannot name a role, so it connects as the default one.
+					(selectedDatatable !== undefined && !datatableNameTakesRole(selectedDatatable))))
 	)
 
 	// Make the role explicit before anything queries the data table, so the URL, the
@@ -87,7 +93,12 @@
 	// is kept even when it is not usable: the server refuses it, visibly.
 	$effect(() => {
 		const roles = rolesOfCurrent
-		if (!roles?.permissioned || selectedRole !== undefined) return
+		if (
+			!roles?.permissioned ||
+			selectedRole !== undefined ||
+			(selectedDatatable !== undefined && !datatableNameTakesRole(selectedDatatable))
+		)
+			return
 		const effective = roles.roles.includes(roles.default_role) ? roles.default_role : roles.roles[0]
 		if (effective) untrack(() => (uriState.selectedRole = effective))
 	})

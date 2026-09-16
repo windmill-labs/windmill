@@ -48,6 +48,13 @@ describe('connecting as a role', () => {
 		expect(datatableReference('main', undefined)).toBe('datatable://main')
 	})
 
+	it('never appends a role to a name containing ?', () => {
+		// The server reads such a whole reference as the stored name first, so `?role=` would
+		// be taken as part of the name or refused instead of picking the role.
+		expect(datatableReference('legacy?x', undefined)).toBe('datatable://legacy?x')
+		expect(() => datatableReference('sales?role=analytics', 'admin')).toThrow(/'\?' in its name/)
+	})
+
 	it('refuses a role name the server would not accept', () => {
 		expect(() => datatableReference('main', 'a&role=admin')).toThrow(/Invalid data table role/)
 		expect(() => datatableReference('main', '')).toThrow(/Invalid data table role/)

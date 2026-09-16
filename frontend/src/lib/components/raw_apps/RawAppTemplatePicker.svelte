@@ -34,6 +34,7 @@
 		toDatatableItems,
 		toSchemaItems
 	} from './datatableUtils.svelte'
+	import { datatableNameTakesRole } from '../dbTypes'
 	import RawAppDataTableList from './RawAppDataTableList.svelte'
 	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
 	import FileEditorIcon from './FileEditorIcon.svelte'
@@ -86,8 +87,13 @@
 
 	// Every reader waits for an answer stamped with the current selection: until then `current`
 	// belongs to the previous data table or role.
+	// A data table whose name cannot carry a role in a reference is used as its default one.
 	const loadedRoles = $derived(
-		roles.current.datatable === selectedDatatable ? roles.current.roles : []
+		roles.current.datatable === selectedDatatable &&
+			selectedDatatable !== undefined &&
+			datatableNameTakesRole(selectedDatatable)
+			? roles.current.roles
+			: []
 	)
 	const showRolePicker = $derived(rolesWorthPicking(loadedRoles))
 	// Saved explicitly rather than left to resolve: "whatever the default is then" moves the app

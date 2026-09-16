@@ -11,7 +11,7 @@
 	import { resource } from 'runed'
 	import { ArrowLeft, Expand, Minimize, Plus, RefreshCcw } from 'lucide-svelte'
 	import DBManagerContent from '../DBManagerContent.svelte'
-	import { ADMIN_DATATABLE_ROLE, type DbInput } from '../dbTypes'
+	import { ADMIN_DATATABLE_ROLE, datatableNameTakesRole, type DbInput } from '../dbTypes'
 	import type { PendingRowAction, SelectedTable } from '../DBManager.svelte'
 	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import { useDbManagerTag } from '../dbManagerTag.svelte'
@@ -107,6 +107,8 @@
 	// without one runs, and caches, as whatever the server defaults to.
 	const roleSettled = $derived(
 		selectedDatatable === undefined ||
+			// Its reference cannot name a role, so it connects as the default one.
+			!datatableNameTakesRole(selectedDatatable) ||
 			(rolesOfCurrent !== undefined &&
 				(!rolesOfCurrent.permissioned ||
 					rolesOfCurrent.roles.length === 0 ||
@@ -115,7 +117,12 @@
 
 	$effect(() => {
 		const current = rolesOfCurrent
-		if (!current?.permissioned || selectedRole !== undefined) return
+		if (
+			!current?.permissioned ||
+			selectedRole !== undefined ||
+			(selectedDatatable !== undefined && !datatableNameTakesRole(selectedDatatable))
+		)
+			return
 		const effective = current.roles.includes(current.default_role)
 			? current.default_role
 			: current.roles[0]
@@ -152,6 +159,7 @@
 	/** The role a table of `datatable` is seen through right now: the connected data table's
 	 * picked role, or the default role the tree lists any other one as. */
 	function roleSeenFor(datatable: string): string | undefined {
+		if (!datatableNameTakesRole(datatable)) return undefined
 		if (datatable === selectedDatatable) {
 			return rolesOfCurrent?.permissioned ? selectedRole : undefined
 		}
@@ -205,7 +213,12 @@
 		selectedDatatable = datatable
 		// A data table opens as the role its picked tables were browsed as, else the one the app
 		// already uses it through.
-		connectAs(datatable, role ?? browsedRoles[datatable] ?? appDatatableRole(roles, datatable))
+		connectAs(
+			datatable,
+			datatableNameTakesRole(datatable)
+				? (role ?? browsedRoles[datatable] ?? appDatatableRole(roles, datatable))
+				: undefined
+		)
 	}
 
 	/** Connects to `datatable` as `role`. The tables picked on it under another role are dropped:
