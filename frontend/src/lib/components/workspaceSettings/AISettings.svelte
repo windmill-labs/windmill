@@ -693,7 +693,7 @@
 		</SettingCard>
 		<SettingCard
 			label="AI session retention"
-			description="Deletes AI sessions whose last activity is older than this many days: their backups in the workspace's object storage, by the server, and the copies a member's browser keeps, the next time it loads Windmill in a single tab over https. Archived sessions count too. Leave empty to keep sessions until their owner deletes them."
+			description="Deletes an AI session left untouched for this many days: its backup in the workspace's object storage, counted from the last push that reached it, and the copies a member's browser keeps, counted from the last time it was used there, the next time that browser loads Windmill in a single tab over https. Archived sessions count too. Leave empty to keep sessions until their owner deletes them."
 		>
 			<div class="flex items-center gap-2">
 				<div class="w-28">

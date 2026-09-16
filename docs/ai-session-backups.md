@@ -290,6 +290,14 @@ writes to the session again (its incremental push is refused and goes whole):
   plans nor stages a session half deleted; like the restore, it does not run where Web Locks
   do not exist. With several tabs open nothing is swept, until one of them reloads alone.
 
+  The hold is only as good as the tabs that take it, so a tab still running a build from before
+  it has the sessions loaded and holds nothing. A tab loaded after that one, across a deploy,
+  can sweep a session the older tab has in memory, and a write there afterwards brings the
+  record back without its chats, which the next flush pushes. It needs a tab left open across a
+  deploy, a session untouched for the whole retention, and the user going back to that session
+  in the older tab; the next sweep deletes it again. The same window is open to the
+  workspace-lifecycle delete in `reconcileSessionsLifecycle`, which no lock guards at all.
+
   What deletes is the retention the server gives as the sweep runs, asked for under both locks
   (`POST /workspaces/session_workspace_retention`, its own route rather than a field on the
   lifecycle status, whose answer a tab loaded before this version still reads). Never a
