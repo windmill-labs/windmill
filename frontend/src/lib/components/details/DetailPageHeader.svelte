@@ -137,7 +137,7 @@
 <div class="border-b">
 	<div class="mx-auto">
 		<div
-			class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center min-h-12"
+			class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center min-h-12 py-2 md:py-0"
 		>
 			<div class="grow px-2 inline-flex items-center gap-4 min-w-0">
 				<div class={twMerge('min-w-0', $userStore?.operator ? 'pl-10' : '')}>

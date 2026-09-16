@@ -49,7 +49,9 @@
 	const triggers_render = $derived(triggers)
 	const flow_graph_render = $derived(flow_graph)
 
-	const useDesktopLayout = $derived(clientWidth >= 768 && !forceSmallScreen)
+	// 1024 (Tailwind `lg`), where the page header also stops collapsing its actions: below it
+	// the split's right pane is under 340px, too narrow for a step's code.
+	const useDesktopLayout = $derived(clientWidth >= 1024 && !forceSmallScreen)
 
 	// The tabbed layout has no Step tab: a step opens as a page pushed over the graph tab, and
 	// the way back is the graph.
@@ -80,7 +82,9 @@
 								{@render save_inputs_render?.()}
 							{/snippet}
 							{#snippet flow_step()}
-								{@render flow_step_render?.({})}
+								<div class="min-h-0 grow overflow-y-auto p-2">
+									{@render flow_step_render?.({})}
+								</div>
 							{/snippet}
 							{#snippet triggers()}
 								{@render triggers_render?.()}
