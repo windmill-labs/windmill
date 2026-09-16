@@ -71,15 +71,20 @@ pub enum SetupStepStatus {
 pub struct ExternalInstancePgStatus {
     pub configured: bool,
     pub database_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_setup: Option<ExternalInstancePgSetupReport>,
 }
 
-pub async fn read_external_instance_pg_config(db: &DB) -> Result<Option<ExternalInstancePg>> {
+/// Authorization: returns the cluster's admin password and checks nothing. Callers MUST be
+/// superadmin or an internal server path.
+pub(crate) async fn read_external_instance_pg_config<'c>(
+    executor: impl sqlx::PgExecutor<'c>,
+) -> Result<Option<ExternalInstancePg>> {
     let value = sqlx::query_scalar!(
         "SELECT value FROM global_settings WHERE name = $1",
         EXTERNAL_INSTANCE_PG_SETTING
     )
-    .fetch_optional(db)
+    .fetch_optional(executor)
     .await?;
     value
         .map(|v| {
@@ -90,7 +95,9 @@ pub async fn read_external_instance_pg_config(db: &DB) -> Result<Option<External
         .transpose()
 }
 
-pub async fn read_external_instance_pg_state<'c>(
+/// Authorization: returns the passwords Windmill generated on the cluster and checks nothing.
+/// Callers MUST be superadmin or an internal server path.
+pub(crate) async fn read_external_instance_pg_state<'c>(
     executor: impl sqlx::PgExecutor<'c>,
 ) -> Result<ExternalInstancePgState> {
     let value = sqlx::query_scalar!(
