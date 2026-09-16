@@ -470,15 +470,24 @@ export class FlowChatViewHost implements ChatViewHost {
 			}
 			// Stop pressed while the upload ran has no job to cancel yet, so it is honoured
 			// here — the run has not started, and starting it now would execute a message the
-			// reader already took back. The panel going away is the same: nothing is left to
-			// run the turn for, and the composer it would be handed back to is gone too.
-			if (this.#gone) return false
+			// reader already took back.
 			if (this.#abortedSends.delete(conversationId)) {
 				this.#restoreToComposer({ ...options, conversationId })
 				return false
 			}
 			attachedLocally = true
 		}
+		// The one place a run starts, and so the one place to refuse to start one. Every way
+		// in waits on something first — uploading the attachments, asking a failed job what
+		// it ran with — and the panel can be replaced while any of them is in flight; the
+		// manager it would hand the turn to is then one nobody is reading, pointed at
+		// whichever flow replaced this one.
+		// The one place a run starts, and so the one place to refuse to start one. Every way
+		// in waits on something first — uploading the attachments, asking a failed job what
+		// it ran with — and the panel can be replaced while any of them is in flight; the
+		// manager it would hand the turn to is then one nobody is reading, pointed at
+		// whichever flow replaced this one.
+		if (this.#gone) return false
 		const sentInputs = this.#describeSentInputs(args, images, blobs, attachedLocally)
 
 		this.#manager.inputMessage = text

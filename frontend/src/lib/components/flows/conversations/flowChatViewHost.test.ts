@@ -442,3 +442,42 @@ describe('a failed tool call', () => {
 		expect(host(manager).displayMessages[0]?.error).toBe('MCP tool error: refused')
 	})
 })
+
+/**
+ * Every way into a send waits on something first — uploading attachments, asking a failed
+ * job what it ran with — and the panel can be replaced while it waits. The run must not
+ * start into a manager nobody is reading, pointed at whichever flow replaced this one.
+ */
+describe('a send whose panel went away', () => {
+	it('does not start a run once the host is disposed', async () => {
+		const manager = stubManager('a')
+		const chatHost = host(manager)
+		chatHost.dispose()
+
+		const started = await chatHost.sendRequest({ instructions: 'hello' })
+
+		expect(started).toBe(false)
+		expect(manager.sendMessage).not.toHaveBeenCalled()
+	})
+
+	it('does not start a replay either, which carries no attachments to stop at', async () => {
+		const manager = stubManager('a')
+		manager.messages = [
+			{
+				id: 'row-1',
+				conversation_id: 'a',
+				message_type: 'user',
+				content: 'ask',
+				created_seq: 1,
+				job_id: 'job-that-failed'
+			}
+		]
+		vi.mocked(JobService.getJobArgs).mockResolvedValue({ user_message: 'ask' } as any)
+		const chatHost = host(manager)
+		chatHost.dispose()
+
+		await chatHost.retryRequest(0)
+
+		expect(manager.sendMessage).not.toHaveBeenCalled()
+	})
+})
