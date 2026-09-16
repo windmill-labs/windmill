@@ -22,6 +22,9 @@
 		path: string
 		hideSidebar?: boolean
 		inputSchema?: Record<string, any>
+		/** The flow's description, shown under the empty transcript's prompt. */
+		description?: string
+		wideLayout?: boolean
 	}
 
 	let {
@@ -29,7 +32,9 @@
 		deploymentInProgress = false,
 		path,
 		hideSidebar = false,
-		inputSchema = undefined
+		inputSchema = undefined,
+		description = undefined,
+		wideLayout = false
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
@@ -90,13 +95,18 @@
 		{#if !hideSidebar}
 			<FlowConversationsSidebar bind:this={sidebar} {chat} {chatState} />
 		{/if}
-		<FlowChatInterface
-			{chat}
-			{chatState}
-			{deploymentInProgress}
-			{additionalInputsSchema}
-			{path}
-			{workspace}
-		/>
+		<!-- The interface's host subscribes to the chat it was given, so a replaced chat
+		     (another flow or workspace) mounts a fresh interface rather than a stale host. -->
+		{#key chat}
+			<FlowChatInterface
+				{chat}
+				{deploymentInProgress}
+				{additionalInputsSchema}
+				{path}
+				{workspace}
+				{description}
+				{wideLayout}
+			/>
+		{/key}
 	{/if}
 </div>

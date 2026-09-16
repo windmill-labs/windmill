@@ -703,7 +703,9 @@
 								onRunFlow={runFlowForChat}
 								{deploymentInProgress}
 								path={flow?.path ?? ''}
+								description={flow?.description}
 								inputSchema={flow?.schema}
+								wideLayout
 							/>
 						{:else}
 							{@const hasSchema =

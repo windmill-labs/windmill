@@ -1,3 +1,4 @@
+import type { ChatViewHost } from './chatViewHost'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
@@ -445,9 +446,27 @@ function planModeHostFor(m: AIChatManager): PlanModeHost {
 	}
 }
 
-export class AIChatManager {
+export class AIChatManager implements ChatViewHost {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
+	// The copilot owns its model choice and its own transcript, so both chat
+	// affordances apply here. See ChatViewHost for hosts where they don't.
+	supportsModelSettings = true
+	supportsMessageEditing = true
+	// The copilot turn is the attachments themselves when there is no text.
+	requiresMessageText = false
+	// Attachments and linked folders are GLOBAL-mode affordances. Declared as
+	// getters because `mode` changes under a mounted composer.
+	get supportsMessageAttachments() {
+		return this.mode === AIMode.GLOBAL
+	}
+	get supportsLinkedFolders() {
+		return this.mode === AIMode.GLOBAL
+	}
+	// Steers the OS file picker toward text + image formats (a soft hint; both attach to
+	// the message — text files after a content sniff).
+	attachmentAccept =
+		'image/*,text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
 	/** Files the user attached to the current GLOBAL-mode conversation. */
 	attachedFiles = new AttachedFilesStore()
 	/** Markdown artifacts the copilot created for the current session. */
