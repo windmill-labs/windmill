@@ -44,7 +44,7 @@ use windmill_common::{
     client::AuthedClient,
     db::DB,
     error::{self, Error},
-    flow_conversations::MessageType,
+    flow_conversations::{MessageExtras, MessageType},
     flow_status::AgentAction,
     flows::{AgentTool, FlowModule, FlowModuleValue, InputTransform, ToolValue},
     get_latest_hash_for_path,
@@ -1526,6 +1526,13 @@ pub async fn run_agent(
                             let db_clone = db.clone();
                             let message_content = "Used websearch tool successfully".to_string();
                             let step_name = step_name.clone();
+                            // The search ran inside the provider's call, so this job's args
+                            // describe the agent, not the search: its sources reach the row
+                            // only if they are written here.
+                            let extras = (!annotations.is_empty()).then(|| MessageExtras {
+                                tool_result: serde_json::to_string(&annotations).ok(),
+                                ..Default::default()
+                            });
                             tokio::spawn(async move {
                                 if let Err(e) = add_message_to_conversation(
                                     &db_clone,
@@ -1535,6 +1542,7 @@ pub async fn run_agent(
                                     MessageType::Tool,
                                     &step_name,
                                     true,
+                                    extras.as_ref(),
                                 )
                                 .await
                                 {
@@ -1578,6 +1586,11 @@ pub async fn run_agent(
                             let db_clone = db.clone();
                             let message_content = response_content.clone();
                             let step_name = step_name.clone();
+                            // The thinking is streamed and never returned in a response
+                            // body, so the answer's row is the only place it can be kept.
+                            let extras = response_reasoning.clone().map(|reasoning| {
+                                MessageExtras { reasoning: Some(reasoning), ..Default::default() }
+                            });
 
                             // Spawn task because we do not need to wait for the result
                             tokio::spawn(async move {
@@ -1589,6 +1602,7 @@ pub async fn run_agent(
                                     MessageType::Assistant,
                                     &step_name,
                                     true,
+                                    extras.as_ref(),
                                 )
                                 .await
                                 {
@@ -1600,6 +1614,44 @@ pub async fn run_agent(
                                 }
                             });
                         }
+                    }
+                }
+
+                // An iteration that answered with tool calls has no message row to carry its
+                // thinking, and the next iteration's row holds only its own. Stored on a row
+                // of its own so a reader sees what led to the call.
+                if persist_output_to_conversation
+                    && response_content.as_deref().unwrap_or("").is_empty()
+                {
+                    if let (Some(memory_id), Some(reasoning)) =
+                        (memory_id, response_reasoning.clone())
+                    {
+                        let agent_job_id = job.id;
+                        let db_clone = db.clone();
+                        let step_name = step_name.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = add_message_to_conversation(
+                                &db_clone,
+                                &memory_id,
+                                Some(agent_job_id),
+                                "",
+                                MessageType::Assistant,
+                                &step_name,
+                                true,
+                                Some(&MessageExtras {
+                                    reasoning: Some(reasoning),
+                                    ..Default::default()
+                                }),
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    "Failed to add reasoning message to conversation {}: {}",
+                                    memory_id,
+                                    e
+                                );
+                            }
+                        });
                     }
                 }
 
@@ -1716,6 +1768,7 @@ pub async fn run_agent(
                                 MessageType::Assistant,
                                 &step_name,
                                 true,
+                                None,
                             )
                             .await
                             {

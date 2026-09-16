@@ -13,7 +13,7 @@ use windmill_common::flows::FlowModuleValue;
 use windmill_common::{
     db::DB,
     error::Error,
-    flow_conversations::{add_message_to_conversation_tx, MessageType},
+    flow_conversations::{add_message_to_conversation_tx, MessageExtras, MessageType},
     flow_status::AgentAction,
     flows::{InputTransform, Step},
     jobs::JobKind,
@@ -209,6 +209,7 @@ pub async fn add_message_to_conversation(
     message_type: MessageType,
     step_name: &Option<String>,
     success: bool,
+    extras: Option<&MessageExtras>,
 ) -> Result<(), Error> {
     let mut tx = db.begin().await?;
     add_message_to_conversation_tx(
@@ -219,6 +220,7 @@ pub async fn add_message_to_conversation(
         message_type,
         step_name.as_deref(),
         success,
+        extras,
     )
     .await?;
     tx.commit().await?;

@@ -39,6 +39,12 @@ export const AI_AGENT_SCHEMA: Schema = {
 		},
 		memory: {
 			type: 'object',
+			// Chat mode keys memory on the conversation, so a chat whose agent has memory off
+			// forgets every turn. Enabling chat mode sets `auto`; this keeps it there. A step
+			// sitting at `off` stays switchable, or a flow that reached that state before —
+			// an agent added to an already-chat-enabled flow — would have no way out of it.
+			lockOneOfWhenChatEnabled:
+				"Chat mode keys this agent's history on the conversation, so memory stays on while it is enabled.",
 			description: 'History sent between the system message and the user message.',
 			oneOf: [
 				{

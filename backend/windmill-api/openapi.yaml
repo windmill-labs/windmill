@@ -12464,6 +12464,15 @@ paths:
           in: query
           schema:
             type: string
+        - name: kind
+          description: which conversations to list - the flow editor's test chats, the deployed flow's own, or both
+          in: query
+          schema:
+            type: string
+            enum:
+              - test
+              - deployed
+              - all
       responses:
         "200":
           description: flow conversations list
@@ -12473,6 +12482,40 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/FlowConversation"
+
+  /w/{workspace}/flow_conversations/update/{conversation_id}:
+    post:
+      summary: rename flow conversation
+      operationId: updateFlowConversation
+      tags:
+        - flow_conversations
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: conversation_id
+          description: conversation id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                  description: the chat's name
+      responses:
+        "200":
+          description: flow conversation updated
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/flow_conversations/delete/{conversation_id}:
     delete:
@@ -12521,6 +12564,16 @@ paths:
           schema:
             type: integer
             format: int64
+        - name: message_type
+          description: Keep only the messages of that kind
+          in: query
+          required: false
+          schema:
+            type: string
+            # The labels the MESSAGE_TYPE column actually has. The response schema below
+            # carries a fourth, `system`, which nothing writes and the column cannot hold;
+            # the handler refuses a request to filter on it.
+            enum: [user, assistant, tool]
       responses:
         "200":
           description: conversation messages
@@ -28301,7 +28354,7 @@ components:
     FlowConversation:
       type: object
       required:
-        [id, workspace_id, flow_path, created_at, updated_at, created_by]
+        [id, workspace_id, flow_path, created_at, updated_at, created_by, is_test]
       properties:
         id:
           type: string
@@ -28328,6 +28381,9 @@ components:
         created_by:
           type: string
           description: Username who created the conversation
+        is_test:
+          type: boolean
+          description: Started from the flow editor's test panel rather than a deployed run
 
     FlowConversationMessage:
       type: object
@@ -28367,6 +28423,26 @@ components:
         success:
           type: boolean
           description: Whether the message is a success
+        tool_arguments:
+          type: string
+          nullable: true
+          description: >-
+            The call, for a tool that runs inside the agent's job and so has none of its
+            own: an MCP tool, or a provider-native one such as web search. A Windmill tool
+            is a script or flow with its own job, and its call is read from there instead.
+        tool_result:
+          type: string
+          nullable: true
+          description: >-
+            What that same call returned, including the citations of a provider-native web
+            search, and what it failed with when it failed — the row's own text names the
+            tool rather than the reason. Null for a tool whose job holds the answer.
+        reasoning:
+          type: string
+          nullable: true
+          description: >-
+            The thinking behind this answer. Stored because it reaches the job result only
+            as `wm_stream`, which a step with `streaming: false` never accumulates.
 
     EndpointTool:
       type: object

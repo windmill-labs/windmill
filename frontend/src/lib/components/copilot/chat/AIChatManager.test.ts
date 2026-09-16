@@ -858,7 +858,9 @@ describe('AIChatManager autonomy mode', () => {
 		const jobId = await manager.helpers.testActiveFlow('u/admin/live_flow', { name: 'Ada' })
 
 		expect(jobId).toBe('job-flow-preview')
-		expect(testFlow).toHaveBeenCalledWith({ name: 'Ada' })
+		// Second argument is the chat-mode conversation id, which only `test_run_flow`'s
+		// own `conversation_id` supplies — never the session id.
+		expect(testFlow).toHaveBeenCalledWith({ name: 'Ada' }, undefined)
 		// A session chat resolves an editor by its storage path, so it never names one.
 		expect(manager.flowAiChatHelpers).toBeUndefined()
 	})

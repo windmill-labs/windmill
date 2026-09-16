@@ -40,6 +40,11 @@ export interface FlowConversationMessage {
   created_seq: number
   step_name?: string | null
   success?: boolean
+  /** The call a tool row carries itself, for a tool whose job cannot be asked for it. */
+  tool_arguments?: string | null
+  tool_result?: string | null
+  /** The thinking behind an answer, which is streamed and stored nowhere else. */
+  reasoning?: string | null
 }
 
 export type JobUpdateEvent =
