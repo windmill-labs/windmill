@@ -54,13 +54,17 @@
 	})
 
 	// The composer's attachments feed this input, and the paperclip is its whole editor.
-	const attachmentsTarget = $derived(
-		attachmentsTargetFor(
+	const attachmentsTarget = $derived.by(() => {
+		const target = attachmentsTargetFor(
 			resolveAgentChatInputs(flowModules, additionalInputsSchema).find(
 				(input) => input.key === PER_TURN_AGENT_CHAT_INPUT_KEY
 			)
 		)
-	)
+		const required: unknown = additionalInputsSchema?.required
+		return target && Array.isArray(required) && required.includes(target.name)
+			? { ...target, required: true }
+			: target
+	})
 	// Uploading needs the workspace's object storage; without one the `+` is drawn disabled
 	// saying so, since the modal could not upload either.
 	const workspaceStorage = useWorkspaceStorageConfigured(() => workspace)

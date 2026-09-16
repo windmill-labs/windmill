@@ -404,6 +404,21 @@ describe('FlowChatViewHost', () => {
 		host.dispose()
 	})
 
+	it('refuses a message without a file when the flow requires one', async () => {
+		const { chat } = fakeChat()
+		const host = new FlowChatViewHost(chat, {
+			attachmentsTarget: () => ({ ...listInput, required: true })
+		})
+		const prependText = vi.fn()
+		host.setAiChatInput({ prependText } as any)
+		expect(await host.sendRequest({ instructions: 'no file' })).toBe(false)
+		expect(chat.sendMessage).not.toHaveBeenCalled()
+		expect(prependText).toHaveBeenCalledWith('no file', [], [], [])
+		expect(await host.sendRequest({ instructions: 'with file', blobs: [pdf] })).toBe(true)
+		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
+		host.dispose()
+	})
+
 	it('queues attachments with the text and sends them together', async () => {
 		const { chat, set } = fakeChat(idleState({ status: 'streaming' }))
 		const host = new FlowChatViewHost(chat, { attachmentsTarget: () => listInput })

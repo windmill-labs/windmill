@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { storedAttachmentName } from '../src/attachments'
+import { WindmillChatApi } from '../src/api'
+import { storedAttachmentName, uploadAttachments } from '../src/attachments'
 import { createChat } from '../src/chat'
 import type { ChatOptions } from '../src/types'
 import { abortError } from '../src/utils'
@@ -318,5 +319,38 @@ describe('sendMessage with attachments', () => {
     releaseRun(text('job-1'))
     await next
     expect(runs(calls)).toHaveLength(2)
+  })
+
+  test('a conversation is listed only once its run starts', async () => {
+    let failUpload: (r: Response) => void = () => {}
+    const { fetch } = fetchMock(
+      (c) =>
+        c.url.pathname === UPLOAD_PATH
+          ? new Promise<Response>((resolve) => (failUpload = resolve))
+          : undefined,
+      run,
+      answer
+    )
+    const chat = createChat(options(fetch))
+    const sending = chat.sendMessage('read this', {
+      attachments: [{ name: 'a.pdf', data: pdf }],
+      attachmentsInput: { name: 'files', multiple: true }
+    })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(chat.getState()).toMatchObject({ status: 'submitted', conversations: [] })
+    failUpload(text('boom', 500))
+    await expect(sending).rejects.toThrow('boom')
+    expect(chat.getState().conversations).toEqual([])
+  })
+
+  test('an already aborted signal uploads nothing', async () => {
+    const { fetch, calls } = fetchMock(upload)
+    const api = new WindmillChatApi({ baseUrl: BASE, workspace: 'ws', token: 'tok', fetch })
+    const controller = new AbortController()
+    controller.abort()
+    await expect(
+      uploadAttachments(api, [{ name: 'a.pdf', data: pdf }], 'turn', controller.signal)
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    expect(calls).toHaveLength(0)
   })
 })

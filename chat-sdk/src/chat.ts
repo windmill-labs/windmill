@@ -140,7 +140,6 @@ class ChatImpl implements Chat {
     const touched = { ...conversation, updatedAt: timestamp }
     this.#set({
       conversationId,
-      conversations: [touched, ...this.#state.conversations.filter((c) => c.id !== conversationId)],
       messages: [
         ...this.#state.messages,
         { id: turn.userMessageId, role: 'user', content, success: true, createdAt: timestamp, pending: true }
@@ -148,7 +147,6 @@ class ChatImpl implements Chat {
       status: 'submitted',
       error: undefined
     })
-    this.#rememberConversation()
 
     try {
       const args: Record<string, unknown> = { ...this.#config.inputs, ...options.inputs, user_message: content }
@@ -159,6 +157,12 @@ class ChatImpl implements Chat {
         args[attachmentsInput.name] = attachmentsInput.multiple ? uploaded : uploaded[0]
       }
       turn.started = true
+      // Listed only once the run is asked for: a send that never runs (an upload that failed
+      // or was stopped) then has no conversation entry to take back.
+      this.#set({
+        conversations: [touched, ...this.#state.conversations.filter((c) => c.id !== conversationId)]
+      })
+      this.#rememberConversation()
       const context = { memoryId: conversationId, conversationId, signal: turn.controller.signal }
       turn.jobId = this.#config.run
         ? await this.#config.run(args, context)
@@ -583,36 +587,32 @@ class ChatImpl implements Chat {
   }
 
   /**
-   * Undo what `sendMessage` showed for a turn that never ran: its user message, and the
-   * conversation it opened when there was none. Also after a switch away mid-upload, which
-   * has already written the pending message to local history and kept the conversation listed.
+   * Take back the user message of a turn that never ran. A conversation it would have opened
+   * was never listed (see `sendMessage`), so only the message goes, and, while it is the turn
+   * on screen, the busy status. A switch away mid-upload has already written the message to
+   * local history, so it is removed there too.
    */
   #withdrawTurn(turn: Turn): void {
     if (turn.withdrawn) return
     turn.withdrawn = true
     const id = turn.conversationId
-    // A turn started since (a resend right after Stop, or after switching back) owns the
-    // conversation and the status; this one only takes its own message away.
-    const newerTurn = this.#turn !== undefined && this.#turn !== turn
-    const onScreen = this.#state.conversationId === id && !newerTurn
     const withoutTurn = (messages: ChatMessage[]) => messages.filter((m) => m.id !== turn.userMessageId)
-    if (turn.isNew && !(newerTurn && this.#turn?.conversationId === id)) {
-      if (this.#state.history === 'local') this.#local.deleteConversation(id)
-      this.#set({
-        conversations: this.#state.conversations.filter((c) => c.id !== id),
-        ...(onScreen
-          ? { conversationId: undefined, messages: withoutTurn(this.#state.messages), status: 'idle', error: undefined }
-          : {})
-      })
-      return
-    }
-    if (onScreen) {
-      this.#set({ messages: withoutTurn(this.#state.messages), status: 'idle', error: undefined })
+    if (this.#state.conversationId === id) {
+      const messages = withoutTurn(this.#state.messages)
+      // A turn started since, such as a resend right after Stop, owns the status.
+      const newerTurn = this.#turn !== undefined && this.#turn !== turn
+      if (newerTurn) {
+        this.#set({ messages })
+      } else {
+        const unopened = turn.isNew && messages.length === 0
+        this.#set({ messages, status: 'idle', error: undefined, ...(unopened ? { conversationId: undefined } : {}) })
+      }
       this.#persistLocal()
-    } else if (this.#state.conversationId === id) {
-      this.#set({ messages: withoutTurn(this.#state.messages) })
-    } else if (this.#state.history === 'local') {
-      this.#local.saveMessages(id, withoutTurn(this.#local.getMessages(id)))
+    }
+    if (this.#state.history === 'local' && this.#state.conversationId !== id) {
+      const stored = withoutTurn(this.#local.getMessages(id))
+      if (stored.length > 0) this.#local.saveMessages(id, stored)
+      else if (!this.#state.conversations.some((c) => c.id === id)) this.#local.deleteConversation(id)
     }
   }
 

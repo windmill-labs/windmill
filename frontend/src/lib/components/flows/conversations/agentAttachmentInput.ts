@@ -78,8 +78,9 @@ function holdsS3File(property: Record<string, any> | undefined): boolean {
 	)
 }
 
-/** The flow input the composer's attachments feed, and whether it holds a list. */
-export type AttachmentsTarget = { name: string; multiple: boolean }
+/** The flow input the composer's attachments feed, whether it holds a list, and whether the
+ * flow requires it (so a message without a file cannot run). */
+export type AttachmentsTarget = { name: string; multiple: boolean; required?: boolean }
 
 /**
  * Where the composer's attachments go, or nothing when there is nowhere they fit.

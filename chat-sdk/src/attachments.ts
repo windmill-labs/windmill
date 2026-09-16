@@ -1,6 +1,6 @@
 import type { WindmillChatApi } from './api'
 import type { ChatAttachment } from './types'
-import { isAbortError } from './utils'
+import { abortError, isAbortError } from './utils'
 
 /**
  * Where a chat's uploads live in the workspace's object storage. Under `windmill_uploads/`
@@ -91,6 +91,7 @@ export async function uploadAttachments(
   // One failed upload aborts the rest, and whatever already landed is deleted: no run will
   // read it, and a resend uploads under a fresh prefix. Best effort, so a delete that fails
   // leaves that object behind rather than masking the upload error.
+  if (signal?.aborted) throw abortError()
   const batch = new AbortController()
   const abortBatch = () => batch.abort()
   signal?.addEventListener('abort', abortBatch, { once: true })

@@ -243,6 +243,12 @@ export class FlowChatViewHost implements ChatViewHost {
 			return false
 		}
 		const target = this.#options.attachmentsTarget?.()
+		// The inputs modal does not ask for this input, so a required one is enforced here.
+		if (target?.required && images.length === 0 && blobs.length === 0) {
+			sendUserToast('This chat needs a file with each message. Attach one to send.', true)
+			this.#aiChatInput?.prependText(text, images, [], blobs)
+			return false
+		}
 		const inputs = { ...(this.#options.additionalInputs?.() ?? {}) }
 		// The attachments are this input's only editor: a value stored for it in the inputs
 		// modal would otherwise ride along on every message.
