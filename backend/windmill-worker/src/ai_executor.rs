@@ -1524,7 +1524,9 @@ pub async fn run_agent(
                         if let Some(memory_id) = memory_id {
                             let agent_job_id = job.id;
                             let db_clone = db.clone();
-                            let message_content = "Used websearch tool successfully".to_string();
+                            // Worded like every other tool row, so a reader recovers the
+                            // tool name from the sentence and keeps the citations below.
+                            let message_content = "Used websearch tool".to_string();
                             let step_name = step_name.clone();
                             // The search ran inside the provider's call, so this job's args
                             // describe the agent, not the search: its sources reach the row

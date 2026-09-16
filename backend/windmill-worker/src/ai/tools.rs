@@ -711,12 +711,19 @@ async fn handle_tool_execution_error(
     }
 
     // Add tool message to conversation if chat_input_enabled (error case). Worded from the
-    // tool like every other tool row; nothing is put on the row because the tool's own job
-    // holds it — `handle_non_flow_job_error` above completed that job with this error, and it
-    // was pushed with the arguments the step's input transforms produced rather than the raw
-    // ones the model supplied.
+    // tool like every other tool row, with the error as the row's result so the reason
+    // survives a reload. The arguments are not put on the row: the tool's job was pushed
+    // with the ones the step's input transforms produced, not the raw ones the model
+    // supplied, and the job holds those.
     let content = format!("Error executing {}", tool_call.function.name);
-    add_tool_message_to_chat(ctx, Some(job_id), &content, false, None).await;
+    add_tool_message_to_chat(
+        ctx,
+        Some(job_id),
+        &content,
+        false,
+        Some(MessageExtras { tool_result: Some(error_message.clone()), ..Default::default() }),
+    )
+    .await;
 
     Ok(())
 }
