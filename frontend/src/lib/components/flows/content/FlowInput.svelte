@@ -680,10 +680,9 @@
 			// would be ignored. Those are checked on the agent itself below instead.
 			const linkedAgent = value.agent ? normalizeAgentRef(value.agent) : undefined
 			if (linkedAgent === undefined) {
-				// `off` is the first oneOf variant of the memory field, so a step added by hand
-				// carries it without anyone choosing it — and an agent that forgets every turn
-				// makes the chat a series of unrelated questions. Overwritten rather than left
-				// alone; the toast below says it happened. A step supplying its own history, as
+				// `off` is the first oneOf variant, so a step added by hand carries it without anyone
+				// choosing it, and an agent that forgets every turn makes the chat a series of unrelated
+				// questions: overwritten, and the toast says so. A step supplying its own history, as
 				// previous messages or a legacy manual list, has chosen it and is left alone.
 				const memoryIsOff = (transform: InputTransform | undefined) =>
 					transform?.type === 'static' &&

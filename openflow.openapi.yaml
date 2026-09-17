@@ -1065,7 +1065,10 @@ components:
             user_message:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
-              description: The user's prompt/message to the AI agent. Supports variable interpolation with flow.input syntax.
+              description: |
+                The user's prompt/message to the AI agent. Supports variable interpolation with
+                flow.input syntax. Required unless memory is off and `previous_messages` supplies
+                the prompt; image output always needs it.
             system_prompt:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
@@ -1144,9 +1147,8 @@ components:
                 Number. Limits how many times the agent can loop through reasoning and tool use.
                 Range: 1-1000.
           # Only the flow-local inputs are always present: a step linked to an `ai_agent` resource
-          # (see `agent`) keeps just those and takes provider/output_type from the resource.
-          required:
-            - user_message
+          # (see `agent`) keeps just those and takes provider/output_type from the resource. Even
+          # `user_message` may be absent, when memory is off and `previous_messages` is the prompt.
         tools:
           type: array
           description: Array of tools the agent can use. The agent decides which tools to call based on the task
