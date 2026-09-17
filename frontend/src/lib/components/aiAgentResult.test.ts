@@ -86,6 +86,9 @@ describe('agent stream', () => {
 		// A provider that does not filter its empty deltas opens with one, and the
 		// run is an agent's all the same.
 		expect(isAgentStream('{"type":"token_delta","content":""}\n')).toBe(true)
+		// What the fold cannot use must not claim the pane either, or the script's
+		// own output is replaced by a view with nothing to draw.
+		expect(isAgentStream('{"type":"tool_call","function_name":"q"}\n')).toBe(false)
 	})
 
 	it('folds the token deltas into the answer so far', () => {

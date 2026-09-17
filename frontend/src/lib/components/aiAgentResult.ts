@@ -236,6 +236,24 @@ const TOOL_TURN_STARTED: AgentStreamEvent['type'][] = [
 ]
 
 /**
+ * Whether an event carries what its type declares: a delta its text, a tool event
+ * the `call_id` its row is keyed on and the name that labels it. `result_stream` is
+ * whatever the job wrote, so detection and the fold ask the same question — were
+ * they to differ, a stream would be claimed and then render nothing.
+ */
+function isWellFormedEvent(event: AgentStreamEvent): boolean {
+	if (event.type === 'token_delta' || event.type === 'reasoning_token_delta') {
+		return typeof event.content === 'string'
+	}
+	return (
+		typeof event.call_id === 'string' &&
+		event.call_id !== '' &&
+		typeof event.function_name === 'string' &&
+		event.function_name !== ''
+	)
+}
+
+/**
  * Whether `result_stream` is an agent's event stream rather than something a
  * script printed. Reads only the first complete line, because it runs on every
  * poll of a running job.
@@ -250,7 +268,7 @@ export function isAgentStream(raw: string): boolean {
 		}
 		const line = raw.slice(start, end)
 		if (line.trim() !== '') {
-			return parseStreamEvents(line).length > 0
+			return parseStreamEvents(line).some(isWellFormedEvent)
 		}
 		start = end + 1
 	}
@@ -276,24 +294,16 @@ export function advanceAgentStream(
 		return previous
 	}
 	const stream: AgentStream = { ...previous.stream, entries: [...previous.stream.entries] }
-	// `result_stream` is whatever the job wrote and the parser keeps any line whose
-	// `type` it knows, so an event can arrive without the fields its type promises.
-	// A delta with no text would append "undefined", and a tool event keyed on
-	// nothing would draw an unlabelled card every later nameless event joins.
 	for (const event of parseStreamEvents(raw.slice(previous.consumed, complete))) {
+		if (!isWellFormedEvent(event)) {
+			continue
+		}
 		if (event.type === 'token_delta') {
-			if (typeof event.content === 'string') {
-				stream.current += event.content
-			}
+			stream.current += event.content
 			continue
 		}
 		if (event.type === 'reasoning_token_delta') {
-			if (typeof event.content === 'string') {
-				stream.reasoning += event.content
-			}
-			continue
-		}
-		if (typeof event.call_id !== 'string' || typeof event.function_name !== 'string') {
+			stream.reasoning += event.content
 			continue
 		}
 		if (TOOL_TURN_STARTED.includes(event.type)) {
