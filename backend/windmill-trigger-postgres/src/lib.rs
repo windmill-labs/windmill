@@ -377,7 +377,10 @@ pub async fn get_raw_postgres_connection(
 /// A replication stream reads every row of every table whatever the data table's roles grant, so
 /// the two don't mix: a data table under roles takes no triggers or captures, and roles cannot be
 /// turned on while one is enabled on it.
-pub async fn ensure_not_under_roles(
+///
+/// Authorization: checks nothing, and its refusal says whether `w_id`'s data table is under roles.
+/// Callers MUST have established that the caller may manage triggers in `w_id` first.
+pub(crate) async fn ensure_not_under_roles(
     db: &DB,
     w_id: &str,
     postgres_resource_path: &str,

@@ -1147,6 +1147,60 @@ async fn an_alias_saved_elsewhere_waits_for_roles_going_on_for_its_database(
     Ok(())
 }
 
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn a_fork_waits_for_a_rename_of_the_data_table_it_keeps(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    // A rename in flight holds the parent's settings row and moves only the pointers it can see; a
+    // fork being created is invisible to it, so the fork has to read the name the rename commits.
+    let mut renaming = db.begin().await?;
+    sqlx::query(
+        "SELECT 1 FROM workspace_settings WHERE workspace_id = 'test-workspace' FOR UPDATE",
+    )
+    .execute(&mut *renaming)
+    .await?;
+    sqlx::query(
+        "UPDATE workspace_settings SET datatable = jsonb_set(datatable #- '{datatables,main}',
+           '{datatables,renamed}', datatable->'datatables'->'main')
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .execute(&mut *renaming)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let url = format!(
+        "http://localhost:{}/api/w/test-workspace/workspaces/create_fork",
+        server.addr.port()
+    );
+    let fork = tokio::spawn(
+        authed(client().post(&url), "SECRET_TOKEN")
+            .json(&json!({ "id": "wm-fork-race", "name": "race", "color": "#0000ff" }))
+            .send(),
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(
+        !fork.is_finished(),
+        "the fork copied the parent's data tables while a rename held them"
+    );
+    renaming.commit().await?;
+
+    let resp = fork.await??;
+    assert!(resp.status().is_success(), "{}", resp.text().await?);
+    let datatables: Option<Value> = sqlx::query_scalar(
+        "SELECT datatable->'datatables' FROM workspace_settings WHERE workspace_id = 'wm-fork-race'",
+    )
+    .fetch_one(&db)
+    .await?;
+    let datatables = datatables.unwrap();
+    assert_eq!(
+        datatables["renamed"]["reference"],
+        json!({ "workspace_id": "test-workspace", "datatable": "renamed" }),
+        "{datatables}"
+    );
+    Ok(())
+}
+
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
 const ENTERPRISE_REFUSAL: &str = "Data table roles are a Windmill Enterprise Edition feature";
 

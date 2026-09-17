@@ -226,27 +226,30 @@ pub async fn create_external_instance_database_unchecked(
     db: &DB,
     dbname: &str,
     tag: &str,
+    for_workspace: Option<&str>,
 ) -> Result<()> {
-    crate::external_instance_pg_oss::create_external_instance_database_unchecked(db, dbname, tag)
-        .await
+    crate::external_instance_pg_oss::create_external_instance_database_unchecked(
+        db,
+        dbname,
+        tag,
+        for_workspace,
+    )
+    .await
 }
 
 /// Drop `dbname` from the external cluster: only a database Windmill registered creating, and still
-/// carries the mark it set there. Refused while a data table names it, except one in
-/// `usage_allowed_in`: the fork whose own copy is being cleaned up.
+/// carries the mark it set there. Refused while anything uses it
+/// ([`crate::workspaces::managed_database_uses`]), except the `exempt` data table entry: the fork
+/// copy being cleaned up.
 ///
 /// Authorization: checks nothing. Callers MUST be superadmin, or be deleting the fork that owns
 /// this `wm_fork_` database.
 pub async fn drop_external_instance_database_unchecked(
     db: &DB,
     dbname: &str,
-    usage_allowed_in: Option<&str>,
+    exempt: Option<(&str, &str)>,
 ) -> Result<()> {
-    crate::external_instance_pg_oss::drop_external_instance_database_unchecked(
-        db,
-        dbname,
-        usage_allowed_in,
-    )
+    crate::external_instance_pg_oss::drop_external_instance_database_unchecked(db, dbname, exempt)
     .await
 }
 
