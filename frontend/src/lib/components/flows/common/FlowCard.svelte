@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { FlowModuleValue } from '$lib/gen'
+	import type { FlowModule, FlowModuleValue } from '$lib/gen'
 	import FlowCardHeader from './FlowCardHeader.svelte'
 
 	interface Props {
@@ -15,7 +15,7 @@
 		action?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 		/** See `FlowCardHeader`. */
-		trail?: import('svelte').Snippet
+		agentTrail?: Pick<FlowModule, 'id' | 'summary'>[]
 		isAgentTool?: boolean
 		siblingToolNames?: string[]
 	}
@@ -32,7 +32,7 @@
 		header,
 		action,
 		children,
-		trail,
+		agentTrail = undefined,
 		isAgentTool = false,
 		siblingToolNames = undefined
 	}: Props = $props()
@@ -52,7 +52,7 @@
 				{subtitleDocLink}
 				{flowModuleValue}
 				{action}
-				{trail}
+				{agentTrail}
 				{isAgentTool}
 				{siblingToolNames}
 			>

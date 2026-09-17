@@ -20,7 +20,7 @@
 		staticOnly?: boolean
 		/** See `FlowModuleComponent`: set where there is no graph to select a nested tool on. */
 		noToolNavigation?: boolean
-		/** See `FlowModuleComponent`. */
+		/** See `FlowCardHeader`. */
 		agentTrail?: Pick<FlowModule, 'id' | 'summary'>[]
 		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 	}
@@ -77,7 +77,7 @@
 	/>
 {:else if isMcpTool(tool)}
 	<!-- MCP tool - use McpToolEditor -->
-	<McpToolEditor bind:tool {noEditor} />
+	<McpToolEditor bind:tool {noEditor} {agentTrail} />
 {:else if isWebsearchTool(tool)}
-	<WebsearchToolDisplay {noEditor} />
+	<WebsearchToolDisplay {noEditor} {agentTrail} />
 {/if}

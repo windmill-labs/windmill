@@ -3,7 +3,8 @@
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
 	import IconedPath from '$lib/components/IconedPath.svelte'
-	import { ScriptService, type FlowModuleValue } from '$lib/gen'
+	import { ScriptService, type FlowModule, type FlowModuleValue } from '$lib/gen'
+	import AgentTrail from './AgentTrail.svelte'
 	import {
 		ArrowUpCircle,
 		Flag,
@@ -39,8 +40,9 @@
 		subtitleDocLink?: string | undefined
 		children?: import('svelte').Snippet
 		action?: import('svelte').Snippet
-		/** A line above the header naming where the step sits. */
-		trail?: import('svelte').Snippet
+		/** For an agent tool, the agents it sits under, shown above the header as the way back up:
+		 *  a nested agent's tools have no graph node to reach them from. */
+		agentTrail?: Pick<FlowModule, 'id' | 'summary'>[]
 		isAgentTool?: boolean
 		siblingToolNames?: string[]
 	}
@@ -54,7 +56,7 @@
 		subtitleDocLink = undefined,
 		children,
 		action,
-		trail,
+		agentTrail = undefined,
 		isAgentTool = false,
 		siblingToolNames = undefined
 	}: Props = $props()
@@ -195,7 +197,9 @@
 </script>
 
 <div class="flex flex-col gap-1 px-4 py-2">
-	{@render trail?.()}
+	{#if agentTrail?.length}
+		<AgentTrail agents={agentTrail} />
+	{/if}
 	<div
 		class="overflow-x-auto scrollbar-hidden flex items-center justify-between flex-nowrap w-full"
 	>

@@ -30,13 +30,16 @@
 	import { getContext, untrack } from 'svelte'
 	import McpConnect from '$lib/components/mcp/McpConnect.svelte'
 	import type { FlowEditorContext } from '../types'
+	import type { FlowModule } from '$lib/gen'
 
 	interface Props {
 		tool: McpTool
 		noEditor?: boolean
+		/** See `FlowCardHeader`. */
+		agentTrail?: Pick<FlowModule, 'id' | 'summary'>[]
 	}
 
-	let { tool = $bindable(), noEditor = false }: Props = $props()
+	let { tool = $bindable(), noEditor = false, agentTrail = undefined }: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
@@ -91,7 +94,7 @@
 	}
 </script>
 
-<FlowCard {noEditor} title="MCP tool">
+<FlowCard {noEditor} {agentTrail} title="MCP tool">
 	<div class="flex flex-col gap-4 overflow-auto p-4" style="scrollbar-gutter: stable">
 		<div class="w-full">
 			<Label label="MCP resource">
