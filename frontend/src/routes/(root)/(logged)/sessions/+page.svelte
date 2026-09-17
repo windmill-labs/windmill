@@ -64,9 +64,9 @@
 		parseArtifactRoute,
 		parsePageItemRoute,
 		type PageItemRef,
-		parseRunFormRoute,
 		parsePreviewItemRoute,
 		previewLocationLabel,
+		workspacePageHref,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import { toolReloadEffect, tabsToReload } from '$lib/components/sessions/previewReload'
@@ -497,13 +497,9 @@
 	// Page path shown after the workspace breadcrumb — the active tab's observed
 	// location, so the breadcrumb tracks where the user browses inside the tab.
 	const displayPath = $derived(owner?.activeTab?.loc ?? owner?.activeTab?.url ?? `${base}/`)
-	// Artifacts have no workspace page, so "Open in workspace" can't resolve for them.
 	const activeArtifact = $derived(owner?.activeTab ? parseArtifactRoute(owner.activeTab.url) : null)
-	// Nor does a run form: it belongs to a chat, and its url is a scheme rather than a path,
-	// so the link would resolve to the tool call id as a route.
-	const activeTabHasNoWorkspacePage = $derived(
-		activeArtifact != null ||
-			(owner?.activeTab ? parseRunFormRoute(owner.activeTab.url) != null : false)
+	const activeWorkspaceHref = $derived(
+		owner?.activeTab ? workspacePageHref(owner.activeTab.loc || owner.activeTab.url) : `${base}/`
 	)
 	// The active session's artifacts, surfaced as an "Artifacts" branch in the
 	// preview pickers.
@@ -557,53 +553,49 @@
 
 	// Reload mounted preview tabs affected by a mutating chat tool. Item and pipeline
 	// tabs are live editors that self-sync from the store the chat mutates, so nothing
-	// reloads them. Only list-page tabs (schedules, resources, …) are iframes, and each
-	// reloads only when a tool actually changed *its* page (toolReloadEffect) — so a
+	// reloads them. List-page tabs (schedules, resources, …) and page item tabs reload
+	// only when a tool actually changed *their* page or item (toolReloadEffect) — so a
 	// schedule write leaves the Resources tab alone, and a purely local tool (saving
 	// user instructions) reloads nothing.
 	const tabHosts: Record<string, PreviewTabHost | undefined> = {}
 
 	let reloadHandle: ReturnType<typeof setTimeout> | undefined
-	// Base-stripped list-page paths (e.g. `/schedules`) a chat round touched since
-	// the last flush — see toolReloadEffect for how tools map to pages.
-	let pendingPages = new Set<string>()
-	// The page items those tools named, as tab urls.
-	let pendingItems = new Set<string>()
+	// Per workspace a chat round touched since the last flush: base-stripped list-page paths
+	// (e.g. `/schedules`, see toolReloadEffect) and the page items its tools named, as tab
+	// urls. By workspace because a path names an item only within one: a write in one fork
+	// must not remount the same path's editor in a session on another.
+	let pending = new Map<string, { pages: Set<string>; items: Set<string> }>()
 
-	// Reload the mounted list-page tabs a chat round changed, across all warm
-	// sessions (a hidden preview would otherwise show pre-mutation content on
-	// return). tabsToReload picks only the tabs whose page is in `pages`.
-	function reloadTabs(pages: Set<string>, items: Set<string>) {
+	// Reload the mounted tabs a chat round changed in each warm session acting on that
+	// workspace (a hidden preview would otherwise show pre-mutation content on return).
+	function flushReload() {
+		const touched = pending
+		pending = new Map()
 		for (const s of warmSessions) {
+			const scope = touched.get(getEffectiveWorkspaceId(s) ?? $workspaceStore ?? '')
 			const owner = getRuntime(s.id)?.previewTabs
-			if (!owner) continue
-			for (const tab of tabsToReload(owner.tabs, pages, items)) {
+			if (!scope || !owner) continue
+			for (const tab of tabsToReload(owner.tabs, scope.pages, scope.items)) {
 				const key = tabKey(s.id, tab.id)
 				if (mountedTabKeys.has(key)) tabHosts[key]?.reload()
 			}
 		}
 	}
-	function flushReload() {
-		const pages = pendingPages
-		const items = pendingItems
-		pendingPages = new Set()
-		pendingItems = new Set()
-		reloadTabs(pages, items)
-	}
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
-		setToolCompletionListener((name, args) => {
+		setToolCompletionListener((name, args, workspace) => {
 			const { pages, items } = toolReloadEffect(name, args)
 			if (pages.length === 0) return
-			for (const p of pages) pendingPages.add(p)
-			for (const item of items) pendingItems.add(pageItemUrl(item))
+			let scope = pending.get(workspace)
+			if (!scope) pending.set(workspace, (scope = { pages: new Set(), items: new Set() }))
+			for (const p of pages) scope.pages.add(p)
+			for (const item of items) scope.items.add(pageItemUrl(item))
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)
 		})
 		return () => {
 			clearTimeout(reloadHandle)
-			pendingPages = new Set()
-			pendingItems = new Set()
+			pending = new Map()
 			setToolCompletionListener(undefined)
 		}
 	})
@@ -973,12 +965,9 @@
 								<!-- Open-in-full-page + full-screen toggle, floating over the top-right
 								     corner to mirror the collapse control. -->
 								<div class="absolute top-1 right-1 z-30 flex items-center gap-0.5">
-									{#if !activeTabHasNoWorkspacePage}
+									{#if activeWorkspaceHref}
 										<a
-											href={withWorkspaceParam(
-												owner?.activeTab?.loc || owner?.activeTab?.url || `${base}/`,
-												previewWorkspace
-											)}
+											href={withWorkspaceParam(activeWorkspaceHref, previewWorkspace)}
 											title="Open in workspace"
 											aria-label="Open in workspace"
 											class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
