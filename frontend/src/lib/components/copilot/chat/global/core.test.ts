@@ -256,6 +256,9 @@ vi.mock('$lib/gen', async () => {
 			createVariable: vi.fn(async () => 'created'),
 			updateVariable: vi.fn(async () => 'updated')
 		}),
+		WorkerService: wrapService(actual.WorkerService, {
+			listWorkers: vi.fn(async () => [])
+		}),
 		FolderService: wrapService(actual.FolderService, {
 			createFolder: vi.fn(async () => 'created')
 		}),
@@ -264,6 +267,17 @@ vi.mock('$lib/gen', async () => {
 				const user = whoamiByWorkspace.get(workspace)
 				if (!user) throw new Error(`not a member of ${workspace}`)
 				return user
+			}),
+			// `refreshSuperadmin` cancels the previous in-flight call, so this stands in for
+			// the CancelablePromise the real client returns.
+			globalWhoami: vi.fn(() => {
+				const pending: any = Promise.resolve({
+					email: 'devops@windmill.dev',
+					super_admin: false,
+					devops: true
+				})
+				pending.cancel = () => {}
+				return pending
 			})
 		}),
 		DraftService: wrapService(actual.DraftService, {
@@ -389,9 +403,10 @@ import {
 	ScheduleService,
 	ScriptService,
 	UserService,
-	VariableService
+	VariableService,
+	WorkerService
 } from '$lib/gen'
-import { superadmin, userStore, usersWorkspaceStore } from '$lib/stores'
+import { devopsRole, superadmin, userStore, usersWorkspaceStore } from '$lib/stores'
 import { processSecretArgs } from '$lib/components/secretArgUtils'
 import { clearWorkspaceRoleCache } from '$lib/user'
 import { get } from 'svelte/store'
@@ -736,6 +751,102 @@ describe('global AI tools', () => {
 		expect(JobService.listJobs).toHaveBeenCalledWith(
 			expect.objectContaining({ workspace: WORKSPACE, perPage: 30 })
 		)
+	})
+
+	it('lists workers with the diagnostic fields only', async () => {
+		vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce([
+			{
+				worker: 'wk-1',
+				worker_instance: 'host-1',
+				worker_group: 'gpu',
+				custom_tags: ['gpu'],
+				last_ping: 3,
+				jobs_executed: 12,
+				started_at: '2024-01-01T00:00:00Z',
+				ip: '10.0.0.1',
+				wm_version: 'v1',
+				memory: 123,
+				occupancy_rate: 0.5
+			}
+		])
+
+		const result = await callGlobalTool('list_workers', {})
+
+		expect(JSON.parse(result).workers).toEqual([
+			{
+				worker: 'wk-1',
+				worker_group: 'gpu',
+				custom_tags: ['gpu'],
+				last_ping: 3,
+				jobs_executed: 12
+			}
+		])
+		// Page telemetry must stay out of the model's context.
+		expect(result).not.toContain('occupancy_rate')
+		expect(result).not.toContain('10.0.0.1')
+	})
+
+	it('says so when the worker page is cut short', async () => {
+		vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce(
+			Array(100).fill({
+				worker: 'wk',
+				worker_group: 'default',
+				custom_tags: [],
+				last_ping: 1,
+				jobs_executed: 0
+			}) as any
+		)
+
+		const result = await callGlobalTool('list_workers', {})
+
+		// A full page is indistinguishable from the whole fleet, and the model reasons
+		// about tag coverage from this list.
+		expect(JSON.parse(result).note).toContain('Only the first 100 workers')
+	})
+
+	describe('list_workers with nothing to show', () => {
+		afterEach(() => {
+			superadmin.set(undefined)
+			devopsRole.set(undefined)
+		})
+
+		it('never reports an empty list as an absence to a caller workers can be hidden from', async () => {
+			superadmin.set(false)
+			devopsRole.set(false)
+			vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce([])
+
+			const result = await callGlobalTool('list_workers', {})
+
+			// An instance hiding workers from a non-devops caller answers with an empty
+			// list, so absence is unprovable here.
+			expect(result).toContain('does NOT establish that no workers are running')
+			expect(result).toContain('devops role')
+			expect(result).not.toContain('"workers"')
+		})
+
+		it('reports an empty list as an absence to a devops caller', async () => {
+			devopsRole.set('devops@windmill.dev')
+			vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce([])
+
+			const result = await callGlobalTool('list_workers', {})
+
+			// Nothing is hidden from this caller, so hedging would withhold the answer a
+			// stuck queue is waiting on.
+			expect(result).toContain('No workers are connected')
+			expect(result).not.toContain('does NOT establish')
+		})
+
+		it('resolves the role before deciding, rather than reading unloaded stores as no role', async () => {
+			// Both stores start undefined; without the refresh a devops caller whose whoami
+			// has not landed yet is hedged at instead of answered.
+			expect(get(superadmin)).toBeUndefined()
+			expect(get(devopsRole)).toBeUndefined()
+			vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce([])
+
+			const result = await callGlobalTool('list_workers', {})
+
+			expect(result).toContain('No workers are connected')
+		})
 	})
 
 	it('returns args, result and logs of a run in one call', async () => {
