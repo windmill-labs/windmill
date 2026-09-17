@@ -44,7 +44,7 @@ use windmill_common::{
     client::AuthedClient,
     db::DB,
     error::{self, Error},
-    flow_conversations::{memory_key, MessageType},
+    flow_conversations::{memory_key, MessageExtras, MessageType},
     flow_status::AgentAction,
     flows::{AgentTool, FlowModule, FlowModuleValue, InputTransform, ToolValue},
     get_latest_hash_for_path,
@@ -1690,29 +1690,34 @@ pub async fn run_agent(
                     });
                     if persist_output_to_conversation {
                         if let Some(conversation_id) = conversation_id {
-                            let agent_job_id = job.id;
-                            let db_clone = db.clone();
-                            let message_content = "Used websearch tool successfully".to_string();
-                            let step_name = step_name.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = add_message_to_conversation(
-                                    &db_clone,
-                                    &conversation_id,
-                                    Some(agent_job_id),
-                                    &message_content,
-                                    MessageType::Tool,
-                                    &step_name,
-                                    true,
-                                )
-                                .await
-                                {
-                                    tracing::warn!(
-                                        "Failed to add websearch tool message to conversation {}: {}",
-                                        conversation_id,
-                                        e
-                                    );
-                                }
+                            // The search ran inside the provider's call, so this job's args
+                            // describe the agent, not the search: its sources reach the row
+                            // only if they are written here.
+                            let extras = (!annotations.is_empty()).then(|| MessageExtras {
+                                tool_result: serde_json::to_string(&annotations).ok(),
+                                ..Default::default()
                             });
+                            // Awaited like every row of the loop, so rows commit in turn order.
+                            // Worded like every other tool row, so a reader recovers the tool
+                            // name from the sentence.
+                            if let Err(e) = add_message_to_conversation(
+                                db,
+                                &conversation_id,
+                                Some(job.id),
+                                "Used websearch tool",
+                                MessageType::Tool,
+                                &step_name,
+                                true,
+                                extras.as_ref(),
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    "Failed to add websearch tool message to conversation {}: {}",
+                                    conversation_id,
+                                    e
+                                );
+                            }
                         }
                     }
                 }
@@ -1742,31 +1747,29 @@ pub async fn run_agent(
                     // Add assistant message to conversation if chat_input_enabled
                     if persist_output_to_conversation && !response_content.is_empty() {
                         if let Some(conversation_id) = conversation_id {
-                            let agent_job_id = job.id;
-                            let db_clone = db.clone();
-                            let message_content = response_content.clone();
-                            let step_name = step_name.clone();
-
-                            // Spawn task because we do not need to wait for the result
-                            tokio::spawn(async move {
-                                if let Err(e) = add_message_to_conversation(
-                                    &db_clone,
-                                    &conversation_id,
-                                    Some(agent_job_id),
-                                    &message_content,
-                                    MessageType::Assistant,
-                                    &step_name,
-                                    true,
-                                )
-                                .await
-                                {
-                                    tracing::warn!(
-                                        "Failed to add assistant message to conversation {}: {}",
-                                        conversation_id,
-                                        e
-                                    );
-                                }
+                            // This iteration's thinking goes on the answer's row; the job
+                            // result only keeps the turn's thinking as one string.
+                            let extras = response_reasoning.clone().map(|reasoning| {
+                                MessageExtras { reasoning: Some(reasoning), ..Default::default() }
                             });
+                            if let Err(e) = add_message_to_conversation(
+                                db,
+                                &conversation_id,
+                                Some(job.id),
+                                response_content,
+                                MessageType::Assistant,
+                                &step_name,
+                                true,
+                                extras.as_ref(),
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    "Failed to add assistant message to conversation {}: {}",
+                                    conversation_id,
+                                    e
+                                );
+                            }
                         }
                     }
                 }
@@ -1805,6 +1808,18 @@ pub async fn run_agent(
                     ..Default::default()
                 });
 
+                // A round's thinking is stored on one row, the first the round writes, which is
+                // where the stream shows it: its text row when it wrote text, else the row of
+                // its first call — the answer row below when that call is the structured-output
+                // tool. Two rows carrying it would show it twice after a reload.
+                let call_reasoning = response_reasoning
+                    .clone()
+                    .filter(|_| response_content.as_deref().unwrap_or("").is_empty());
+                let structured_output_first = structured_output_tool_name
+                    .as_ref()
+                    .zip(tool_calls.first())
+                    .map_or(false, |(name, tc)| tc.function.name == *name);
+
                 // Handle tool calls using extracted tools module
                 let tool_execution_ctx = ToolExecutionContext {
                     db,
@@ -1823,6 +1838,11 @@ pub async fn run_agent(
                     stream_event_processor: stream_event_processor.as_ref(),
                     flow_context: &mut flow_context,
                     omit_output_from_conversation,
+                    reasoning: if structured_output_first {
+                        None
+                    } else {
+                        call_reasoning.clone()
+                    },
                     previous_result: &previous_result,
                     id_context: &id_context,
                     tool_abort_handles: tool_abort_handles.clone(),
@@ -1841,6 +1861,41 @@ pub async fn run_agent(
                     .await?;
 
                 messages.extend(tool_messages);
+
+                // A structured answer is the arguments of the structured-output tool call,
+                // on which the loop ends without a text iteration, so its row is written here.
+                if tool_used_structured_output && persist_output_to_conversation {
+                    if let (Some(conversation_id), Some(OpenAIContent::Text(answer))) =
+                        (conversation_id, tool_content.as_ref())
+                    {
+                        let extras = call_reasoning
+                            .clone()
+                            .filter(|_| structured_output_first)
+                            .map(|reasoning| MessageExtras {
+                                reasoning: Some(reasoning),
+                                ..Default::default()
+                            });
+                        if let Err(e) = add_message_to_conversation(
+                            db,
+                            &conversation_id,
+                            Some(job.id),
+                            answer,
+                            MessageType::Assistant,
+                            &step_name,
+                            true,
+                            extras.as_ref(),
+                        )
+                        .await
+                        {
+                            tracing::warn!(
+                                "Failed to add structured answer to conversation {}: {}",
+                                conversation_id,
+                                e
+                            );
+                        }
+                    }
+                }
+
                 if let Some(tc) = tool_content {
                     content = Some(tc);
                 }
@@ -1861,9 +1916,6 @@ pub async fn run_agent(
                 // Add assistant message to conversation if chat_input_enabled
                 if persist_output_to_conversation {
                     if let Some(conversation_id) = conversation_id {
-                        let agent_job_id = job.id;
-                        let db_clone = db.clone();
-
                         // Create extended version with type discriminator for conversation storage
                         // This avoids conflicts with outputs that are of the same format as S3 objects
                         let s3_with_type = S3ObjectWithType {
@@ -1874,26 +1926,24 @@ pub async fn run_agent(
                         let message_content = serde_json::to_string(&s3_with_type)
                             .unwrap_or_else(|_| content.get().to_string());
 
-                        // Spawn task because we do not need to wait for the result
-                        tokio::spawn(async move {
-                            if let Err(e) = add_message_to_conversation(
-                                &db_clone,
-                                &conversation_id,
-                                Some(agent_job_id),
-                                &message_content,
-                                MessageType::Assistant,
-                                &step_name,
-                                true,
-                            )
-                            .await
-                            {
-                                tracing::warn!(
-                                    "Failed to add assistant message to conversation {}: {}",
-                                    conversation_id,
-                                    e
-                                );
-                            }
-                        });
+                        if let Err(e) = add_message_to_conversation(
+                            db,
+                            &conversation_id,
+                            Some(job.id),
+                            &message_content,
+                            MessageType::Assistant,
+                            &step_name,
+                            true,
+                            None,
+                        )
+                        .await
+                        {
+                            tracing::warn!(
+                                "Failed to add assistant message to conversation {}: {}",
+                                conversation_id,
+                                e
+                            );
+                        }
                     }
                 }
 

@@ -26,19 +26,23 @@ export interface ToolInvocation {
   status: 'running' | 'success' | 'error'
 }
 
+export interface ChatAttachment { input: string; s3: string; storage?: string; filename?: string }
+
 export interface ChatMessage {
   id: string
   role: ChatRole
   content: string
   /** The model's reasoning summary, when the provider streams one. */
   reasoning?: string
-  /** Set on `tool` messages that came from the live stream. */
+  /** The call on a `tool` message, from the live stream or its stored row; `callId` is only known from the stream. */
   tool?: ToolInvocation
   success: boolean
   createdAt: string
   jobId?: string
   /** The flow step that produced the message. */
   stepName?: string
+  /** The files a user message carried, as object-storage references. */
+  attachments?: ChatAttachment[]
   /** True while the message is optimistic or still streaming. */
   pending: boolean
   /** Id of the persisted row once the server has it; `id` itself never changes, so list keys stay stable. */

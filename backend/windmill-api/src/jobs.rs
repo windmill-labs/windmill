@@ -9556,6 +9556,7 @@ async fn run_preview_flow_job(
             uuid,
             // Run from the editor's test panel: a trial, not a real conversation.
             true,
+            &flow_args,
         )
         .await?;
     }
