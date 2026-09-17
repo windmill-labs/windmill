@@ -17,12 +17,9 @@ export interface UploadedAttachment {
 }
 
 /**
- * The extension each type a chat composer sends must be stored under.
- *
- * The worker reads an attachment's media type from the object key and nothing else —
- * `mime_guess::from_path` in `windmill-ai/src/image_handler.rs`, falling back to
- * `image/png` when it can read no extension — and never from the content type stored
- * beside it. So the key's extension is a claim about the bytes, and it has to be true.
+ * The extension each type must be stored under. The worker reads an attachment's media type
+ * from the key's extension only (`mime_guess` in `windmill-ai/src/image_handler.rs`, falling
+ * back to `image/png`), never from the stored content type, so the extension must be true.
  */
 const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
   'image/png': 'png',
@@ -31,11 +28,8 @@ const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
 }
 
 /**
- * The name an attachment is stored under. A composer commonly re-encodes every image to PNG
- * or JPEG, so keeping the picked `photo.webp` would hand the provider PNG bytes labelled webp,
- * which Anthropic rejects outright; and a PDF picked without an extension would be read back
- * as the `image/png` fallback. A type not listed is left as picked — other files upload byte
- * for byte, so their name is already true.
+ * The name an attachment is stored under: the picked name with the extension its media type
+ * needs, e.g. a `photo.webp` re-encoded to PNG becomes `photo.png`. Other types keep their name.
  */
 export function storedAttachmentName(filename: string, mediaType: string): string {
   const extension = EXTENSION_BY_MEDIA_TYPE[mediaType]

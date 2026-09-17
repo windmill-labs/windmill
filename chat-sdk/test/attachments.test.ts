@@ -152,6 +152,18 @@ describe('sendMessage with attachments', () => {
     expect(chat.getState().messages).toEqual([])
   })
 
+  test('refuses attachments without message text, before uploading', async () => {
+    const { fetch, calls } = fetchMock(upload, run, answer)
+    const chat = createChat(options(fetch))
+    await expect(
+      chat.sendMessage('  ', {
+        attachments: [{ name: 'a.pdf', data: pdf }],
+        attachmentsInput: { name: 'files', multiple: true }
+      })
+    ).rejects.toThrow('need a message')
+    expect(calls).toHaveLength(0)
+  })
+
   test('refuses attachments without an input to put them in', async () => {
     const { fetch, calls } = fetchMock(upload, run, answer)
     const chat = createChat(options(fetch))

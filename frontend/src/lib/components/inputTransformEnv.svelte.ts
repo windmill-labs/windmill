@@ -18,12 +18,9 @@ function storageConfigured(storage: LargeFileStorage | undefined): boolean {
 }
 
 /**
- * Whether the workspace can store uploaded files. Call during component initialisation and
- * read `.current` where the answer is used.
- *
- * Assumed configured until this workspace's own answer lands, so a surface that says "no
- * storage configured" never flashes that on navigation, nor claims it merely because the
- * fetch failed.
+ * Whether the workspace can store uploaded files; read `.current`. Assumed configured until
+ * this workspace's own answer lands, so "no storage" never flashes on navigation or shows
+ * merely because the fetch failed.
  */
 export function useWorkspaceStorageConfigured(ws: () => string | undefined): {
 	readonly current: boolean

@@ -147,7 +147,7 @@ export interface SendMessageOptions {
    * and the run never starts; `stop()` during the upload does the same with an `AbortError`.
    */
   attachments?: AttachmentUpload[]
-  /** Required with `attachments`. With `multiple: false`, more than one attachment is refused before anything uploads. */
+  /** Required with `attachments`, which also need message text. With `multiple: false`, more than one attachment is refused before anything uploads. */
   attachmentsInput?: AttachmentsInput
 }
 

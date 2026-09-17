@@ -1,12 +1,7 @@
 /**
- * Message-scoped attachments that are neither an image nor readable text — a PDF
- * being the case that matters. They ride the composer next to images and files,
- * as chips cleared on send, and reach the host through `ChatSendRequestOptions`.
- *
- * The bytes are kept verbatim, unlike an image (which normalises to a bounded
- * PNG/JPEG for the model) and unlike a text file (which is decoded to a string):
- * a host that forwards these to object storage has to upload what the user
- * picked, not a re-encoding of it.
+ * Message attachments kept as their original bytes, such as a PDF, for a host that
+ * forwards them to object storage. Images are re-encoded and text files decoded instead,
+ * so neither lane can carry what the user picked unchanged.
  */
 
 /** Blobs one message may carry — the same slot cap images and text files use. */

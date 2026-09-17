@@ -107,7 +107,11 @@ class ChatImpl implements Chat {
 
   sendMessage = async (text: string, options: SendMessageOptions = {}): Promise<void> => {
     const content = text.trim()
-    if (!content) return
+    if (!content) {
+      // A run needs a message; files alone would otherwise be dropped without a word.
+      if (options.attachments?.length) throw new Error('windmill-chat: attachments need a message to go with them')
+      return
+    }
     if (this.#turn) {
       throw new Error('windmill-chat: a message is already being answered; call stop() first')
     }

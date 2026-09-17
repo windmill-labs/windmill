@@ -52,12 +52,9 @@ export type AgentChatInput = {
 const FLOW_INPUT_REF = /flow_input\??\.([A-Za-z_$][\w$]*)/g
 
 /**
- * The flow input a transform is fed by, when exactly one feeds it.
- *
- * The expression need not be a bare pass-through — a step commonly reshapes what it
- * reads, e.g. `(flow_input.files || []).map(f => ({ bucket: f.storage, key: f.s3 }))`.
- * Writing that input is still right, because the expression consumes it. Two or more
- * inputs are ambiguous: the composer would have no way to say which one it is editing.
+ * The flow input a transform reads, when it reads exactly one. The expression may reshape
+ * it (`(flow_input.files || []).map(...)`) and still counts; two inputs name none, since the
+ * composer could not tell which one it edits.
  */
 export function flowInputRef(transform: InputTransform | undefined): string | undefined {
 	if (transform?.type !== 'javascript') return undefined

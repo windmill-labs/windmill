@@ -485,11 +485,9 @@
 	let pendingBlobs = $state(0)
 
 	/**
-	 * Attach non-image files through the lane the host actually reads: a host that decodes
-	 * them takes text, one that forwards them verbatim (to object storage) takes blobs, and
-	 * its narrower `accept` is re-applied because a drop and a paste both bypass the picker's
-	 * own filtering. Every way of attaching goes through here, so no route can take the lane
-	 * the host ignores and drop the file at send.
+	 * Attach non-image files through the lane the host reads: text for a host that decodes
+	 * them, blobs for one that forwards them verbatim. The picker, a drop and both pastes all
+	 * route here, and `accept` is re-applied since drops and pastes bypass the picker's filter.
 	 */
 	export async function addNonImageFiles(files: File[]) {
 		if (files.length === 0) return
@@ -1170,12 +1168,9 @@
 	})
 
 	/**
-	 * Clipboard files on the plain composer. ContextTextarea does this for the rich one; a
-	 * host that attaches but renders the plain field would otherwise take files from the `+`
-	 * and from a drop and silently ignore the same file pasted.
-	 *
-	 * Only when the clipboard carries no text, as there: a spreadsheet or browser copy puts a
-	 * bitmap alongside the text, and pasting a cell range must paste the cells.
+	 * Clipboard files on the plain composer, as ContextTextarea does for the rich one. Only
+	 * when the clipboard has no text: a spreadsheet copy carries a bitmap next to the text,
+	 * and pasting a cell range must paste the cells.
 	 */
 	function handlePlainPaste(e: ClipboardEvent) {
 		if (!chatHost.supportsMessageAttachments) return
