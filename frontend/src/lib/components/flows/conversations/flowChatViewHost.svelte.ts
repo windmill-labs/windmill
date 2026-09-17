@@ -77,12 +77,18 @@ export function toDisplayMessages(messages: readonly ChatMessage[]): DisplayMess
 				const parameters = parseToolPayload(message.tool?.arguments)
 				const result = parseToolPayload(message.tool?.result)
 				const failed = message.success === false
+				// A call the turn finished without, stopped or lost before its row was written.
+				const unfinished =
+					message.tool && !message.pending && !message.content
+						? `${message.tool.name} did not finish`
+						: undefined
 				const call: DisplayMessage = {
 					role: 'tool',
 					tool_call_id: message.id,
 					// The card's header is the row's text, which the server only words once the
 					// tool has returned; until then the row says what is running.
-					content: message.content || (message.tool ? `Running ${message.tool.name}` : ''),
+					content:
+						message.content || unfinished || (message.tool ? `Running ${message.tool.name}` : ''),
 					// Withheld for the copilot's two plan-mode names: `toolName` is what makes
 					// ToolExecutionDisplay render a plan card, and an agent tool that happened to
 					// share one would silently become one.
@@ -90,7 +96,7 @@ export function toDisplayMessages(messages: readonly ChatMessage[]): DisplayMess
 					parameters,
 					result,
 					showDetails: parameters !== undefined || result !== undefined,
-					error: failed ? message.content : undefined,
+					error: failed ? message.content : unfinished,
 					isLoading: message.pending && message.tool?.status === 'running'
 				}
 				// The tool card has no thinking section: the thinking that led to the call reads

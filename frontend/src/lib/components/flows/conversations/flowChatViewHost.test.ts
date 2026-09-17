@@ -100,6 +100,18 @@ describe('toDisplayMessages', () => {
 		})
 	})
 
+	it('shows a call the turn finished without as an error, not as still running', () => {
+		const display = toDisplayMessages([
+			message({ role: 'user', content: 'hi' }),
+			message({ role: 'tool', tool: { name: 'search', status: 'running' } })
+		])
+		expect(display[1]).toMatchObject({
+			content: 'search did not finish',
+			error: 'search did not finish',
+			isLoading: false
+		})
+	})
+
 	it('shows the thinking that led to a call as its own card, and retries by transcript position', async () => {
 		const rows = [
 			message({ role: 'user', content: 'first' }),
