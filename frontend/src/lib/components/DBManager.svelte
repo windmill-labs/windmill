@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { superadmin, userStore, type DBSchema } from '$lib/stores'
 	import {
@@ -7,6 +7,7 @@
 		EditIcon,
 		Loader2,
 		Plus,
+		Network,
 		Table2,
 		Database as DatabaseIcon,
 		Folder as FolderIcon,
@@ -44,6 +45,11 @@
 	import { ADMIN_DATATABLE_ROLE, datatableNameTakesRole, type DatatableRowAction } from './dbTypes'
 	import TextInput from './text_input/TextInput.svelte'
 	import Checkbox from './common/checkbox/Checkbox.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import DbSchemaDiagram from './dbdiagram/DbSchemaDiagram.svelte'
+	import type { DbRelation } from './dbRelations'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {
@@ -66,6 +72,9 @@
 		| { kind: 'rename-schema'; schema: string }
 
 	export type PendingRowAction = RowAction & { datatable: string }
+
+	/** The right pane's content: the rows of one table, or the schema diagram. */
+	export type DbManagerViewMode = 'data' | 'diagram'
 
 	type Props = {
 		dbType: DbType
@@ -149,23 +158,61 @@
 	// cannot be renamed.
 	const SCHEMA_RENAME_DB_TYPES: DbType[] = ['postgresql', 'snowflake']
 
+	let requestedViewMode = $state<DbManagerViewMode>('data')
+
+	// PostgreSQL is the only database whose foreign keys can be read for the whole
+	// database in one query; the others would need one job per table. A caller
+	// already using the tree's checkboxes to collect tables keeps them.
+	let supportsDiagram = $derived(dbType === 'postgresql' && !multiSelectMode)
+
+	// The manager is not always remounted when the database under it changes, so a
+	// move away from PostgreSQL would otherwise leave the diagram on screen with no
+	// toggle left to leave it by.
+	let viewMode = $derived(supportsDiagram ? requestedViewMode : 'data')
+
+	// The tables drawn on the diagram. Kept apart from `selectedTables` so that
+	// checking a table to see it in the diagram can never add it to whatever the
+	// caller's multi-select is collecting.
+	let diagramTables = $state<SelectedTable[]>([])
+
+	let checkedTables = $derived(viewMode === 'diagram' ? diagramTables : selectedTables)
+
+	function setCheckedTables(tables: SelectedTable[]) {
+		if (viewMode === 'diagram') diagramTables = tables
+		else selectedTables = tables
+	}
+
+	/** The diagram only has the schema and relations of the database it is connected
+	 * to, so another data table's rows get no checkbox there. */
+	function showsCheckbox(datatable: string | undefined): boolean {
+		return multiSelectMode || (viewMode === 'diagram' && datatable === currentDatatable)
+	}
+
 	const sameTable = (a: SelectedTable, b: SelectedTable) =>
 		a.datatable === b.datatable && a.schema === b.schema && a.table === b.table
 
 	function isTableSelected(t: SelectedTable): boolean {
-		return selectedTables.some((s) => sameTable(s, t))
+		return checkedTables.some((s) => sameTable(s, t))
 	}
 
-	/** Already added by the caller: shown ticked and locked. */
+	/** Already added by the caller: shown ticked and locked. Only the caller's
+	 * selection has tables that are already spoken for. */
 	function isTableDisabled(t: SelectedTable): boolean {
-		return disabledTables.some((s) => sameTable(s, t))
+		return viewMode !== 'diagram' && disabledTables.some((s) => sameTable(s, t))
 	}
 
 	function toggleTableSelection(t: SelectedTable) {
 		if (isTableDisabled(t)) return
-		selectedTables = isTableSelected(t)
-			? selectedTables.filter((s) => !sameTable(s, t))
-			: [...selectedTables, t]
+		setCheckedTables(
+			isTableSelected(t) ? checkedTables.filter((s) => !sameTable(s, t)) : [...checkedTables, t]
+		)
+	}
+
+	/** In the diagram a row toggles what is drawn: selecting it would fetch that one
+	 * table's foreign keys for a data pane that is not shown. */
+	function onTableRowClick(t: SelectedTable) {
+		if (viewMode === 'diagram' && t.datatable === currentDatatable) toggleTableSelection(t)
+		else selectTable(t.datatable, t.schema, t.table)
 	}
 
 	/** Every table under a node, as it is currently rendered — so a batch toggle
@@ -199,10 +246,10 @@
 	function toggleBatch(datatable: string | undefined, schemaKey?: string) {
 		const selectable = tablesUnder(datatable, schemaKey).filter((t) => !isTableDisabled(t))
 		if (selectable.every((t) => isTableSelected(t))) {
-			selectedTables = selectedTables.filter((s) => !selectable.some((t) => sameTable(s, t)))
+			setCheckedTables(checkedTables.filter((s) => !selectable.some((t) => sameTable(s, t))))
 		} else {
 			const missing = selectable.filter((t) => !isTableSelected(t))
-			selectedTables = [...selectedTables, ...missing]
+			setCheckedTables([...checkedTables, ...missing])
 		}
 	}
 
@@ -622,6 +669,55 @@
 		)
 	})
 
+	// Fetched once for the whole database rather than per table: the diagram needs
+	// every relation at once, and the per-table query would be one job each.
+	let relationsError = $state<string | undefined>(undefined)
+	// Re-read only when the schema itself was reloaded, which is what a new
+	// `colDefs` identity means. Toggling back to the diagram must not queue the
+	// query again.
+	let relationsFetchedFor: Record<string, ColumnDef[]> | undefined
+	let relations = resource(
+		[() => viewMode, () => colDefs],
+		async ([mode, defs], _prev, { data }): Promise<DbRelation[]> => {
+			if (mode !== 'diagram' || (data && relationsFetchedFor === defs)) return data ?? []
+			relationsError = undefined
+			try {
+				const fetched = await dbSchemaOps.onFetchAllForeignKeys()
+				relationsFetchedFor = defs
+				return fetched
+			} catch (e) {
+				relationsError = (e as any)?.body ?? (e as Error)?.message ?? String(e)
+				return []
+			}
+		}
+	)
+
+	// Opening the diagram on an empty canvas would make it look broken, so the
+	// current schema is drawn to start with — unless it is big enough that drawing
+	// all of it is a choice the user should make. Once per entry into the mode:
+	// re-running it would refill a selection the user has just emptied.
+	const DIAGRAM_AUTOSELECT_LIMIT = 40
+	let autoSelected = false
+	$effect(() => {
+		if (viewMode !== 'diagram') {
+			autoSelected = false
+			return
+		}
+		if (autoSelected) return
+		autoSelected = true
+		untrack(() => {
+			const schemaKey = selected.schemaKey
+			if (!schemaKey || diagramTables.length) return
+			const tables = Object.keys(dbSchema.schema[schemaKey] ?? {})
+			if (!tables.length || tables.length > DIAGRAM_AUTOSELECT_LIMIT) return
+			diagramTables = tables.map((table) => ({
+				datatable: currentDatatable,
+				schema: schemaKey,
+				table
+			}))
+		})
+	})
+
 	let askingForConfirmation:
 		| (ConfirmationModal['$$prop_def'] & { onConfirm: () => void })
 		| undefined = $state()
@@ -732,6 +828,18 @@
 <Splitpanes>
 	<Pane size={28} class="relative flex flex-col">
 		<div class="mx-3 mt-3 flex flex-col gap-2">
+			{#if supportsDiagram}
+				<ToggleButtonGroup
+					bind:selected={requestedViewMode}
+					noWFull
+					onSelected={(v) => logFeatureUsage('db_manager', 'view_mode', { key: v })}
+				>
+					{#snippet children({ item })}
+						<ToggleButton value="data" label="Data" icon={Table2} {item} />
+						<ToggleButton value="diagram" label="Diagram" icon={Network} {item} />
+					{/snippet}
+				</ToggleButtonGroup>
+			{/if}
 			<TextInput bind:value={search} inputProps={{ placeholder: 'Search table or schema...' }} />
 		</div>
 		<div class="overflow-x-clip overflow-y-auto relative mt-1.5 flex-1">
@@ -752,7 +860,7 @@
 						class="group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10"
 						onclick={() => toggle(root.datatable)}
 					>
-						{#if multiSelectMode}
+						{#if showsCheckbox(root.datatable)}
 							{@const state = batchState(root.datatable)}
 							<Checkbox
 								checked={state.checked}
@@ -840,7 +948,7 @@
 									indent}
 								onclick={() => toggle(root.datatable, sc.schemaKey)}
 							>
-								{#if multiSelectMode}
+								{#if showsCheckbox(root.datatable)}
 									{@const state = batchState(root.datatable, sc.schemaKey)}
 									<Checkbox
 										checked={state.checked}
@@ -920,9 +1028,9 @@
 											tableIndent +
 											' ' +
 											(isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
-										onclick={() => selectTable(root.datatable, sc.schemaKey, tableKey)}
+										onclick={() => onTableRowClick(entry)}
 									>
-										{#if multiSelectMode}
+										{#if showsCheckbox(root.datatable)}
 											<Checkbox
 												checked={isTableSelected(entry) || isTableDisabled(entry)}
 												disabled={isTableDisabled(entry)}
@@ -1010,9 +1118,22 @@
 			{/each}
 		</div>
 	</Pane>
-	<Pane class="p-3 pt-1">
+	<Pane class={viewMode === 'diagram' && !mainPane ? '' : 'p-3 pt-1'}>
 		{#if mainPane}
 			{@render mainPane()}
+		{:else if viewMode === 'diagram'}
+			<DbSchemaDiagram
+				{dbSchema}
+				{colDefs}
+				selectedTables={diagramTables}
+				relations={relations.current ?? []}
+				loading={relations.loading}
+				error={relationsError}
+				onOpenTable={({ schema, table }) => {
+					requestedViewMode = 'data'
+					selectTable(currentDatatable, schema, table)
+				}}
+			/>
 		{:else if tableKey && colDefs?.[tableKey]?.length}
 			{@const dbTableOps = dbTableOpsFactory({ colDefs: colDefs[tableKey], tableKey, whereClause })}
 			<DBTable

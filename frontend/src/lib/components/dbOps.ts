@@ -24,6 +24,7 @@ import {
 	transformSnowflakeForeignKeys,
 	type RawForeignKey
 } from './apps/components/display/dbtable/queries/relationalKeys'
+import { groupForeignKeyRows, type DbRelation, type RawAllForeignKeyRow } from './dbRelations'
 
 export type IDbTableOps = {
 	dbType: DbType
@@ -259,6 +260,10 @@ export type IDbSchemaOps = {
 		table: string
 		schema?: string
 	}) => Promise<TableEditorForeignKey[]>
+	/** Every foreign key of the database in one query, for the schema diagram.
+	 * PostgreSQL only — the other databases either don't expose foreign keys or
+	 * can only be asked one table at a time. */
+	onFetchAllForeignKeys: () => Promise<DbRelation[]>
 }
 
 /** Thrown by a schema op when the user declines the out-of-order run warning.
@@ -454,6 +459,16 @@ export function dbSchemaOpsWithPreviewScripts({
 		return []
 	}
 
+	async function fetchAllForeignKeys(): Promise<DbRelation[]> {
+		if (dbType !== 'postgresql') return []
+		const content = makeMarker('ALL_FOREIGN_KEYS', {})
+		const rows = (await runScriptAndPollResult({
+			workspace,
+			requestBody: { args: dbArg(), content, language, tag }
+		})) as RawAllForeignKeyRow[]
+		return Array.isArray(rows) ? groupForeignKeyRows(rows) : []
+	}
+
 	return {
 		onDelete: async ({ tableKey, schema }) => {
 			const content = makeMarker('DROP_TABLE', { table: tableKey, schema })
@@ -518,6 +533,7 @@ export function dbSchemaOpsWithPreviewScripts({
 			await applyDdl(migrationName('rename_schema', schema), content, downContent)
 		},
 		onFetchForeignKeys: fetchForeignKeys,
+		onFetchAllForeignKeys: fetchAllForeignKeys,
 		onFetchTableEditorDefinition: async ({ table, schema, colDefs }) => {
 			const foreignKeys = await fetchForeignKeys({ table, schema })
 			let pk_constraint_name: string | undefined
