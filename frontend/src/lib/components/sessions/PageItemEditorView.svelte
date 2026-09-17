@@ -2,11 +2,19 @@
 	import { setContext, untrack } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { enterpriseLicense } from '$lib/stores'
-	import { ResourceService } from '$lib/gen'
+	import { resource } from 'runed'
+	import { Button } from '$lib/components/common'
+	import { lookupPageItem } from './pageItemLookup'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import { TRIGGER_PAGES, type PageItemRef, type TriggerKind } from './previewPaths'
+	import {
+		pageItemKindLabel,
+		pageItemUrl,
+		TRIGGER_PAGES,
+		type PageItemRef,
+		type TriggerKind
+	} from './previewPaths'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 
 	let {
@@ -70,29 +78,35 @@
 		const t = triggerEditor
 		untrack(() => {
 			v?.editVariable(path)
-			if (r) void openResource(r, path)
+			// An agent opens on JSON: the generic form would render its configuration field by
+			// field and write a default into each one the value leaves out, drafting just by opening.
+			void r?.initEdit(path, { json: lookup.current?.resourceType === 'ai_agent' })
 			void t?.openEdit(path, false)
 		})
 	})
-
-	// An agent is edited as JSON here: the generic form would render its configuration field by
-	// field and write a default into each one the value leaves out, drafting just by opening.
-	async function openResource(editor: ResourceEditorDrawer, path: string) {
-		let resourceType: string | undefined
-		try {
-			resourceType = (await ResourceService.getResource({ workspace: workspaceId, path }))
-				.resource_type
-		} catch {
-			// A draft-only resource has no row yet; the editor reads the draft itself.
-		}
-		if (editor !== resourceEditor) return
-		await editor.initEdit(path, { json: resourceType === 'ai_agent' })
-	}
 
 	// A save can move the item; the tab follows it, which remounts the editor on what was
 	// written. Saving in place remounts it too: the editors keep the pre-save baseline, and
 	// their drawers only ever relied on being closed after a save.
 	let savedNonce = $state(0)
+
+	// Whether the item still exists, deployed or as a draft, read again whenever the editor
+	// remounts: a delete or a discarded draft reloads the tab too, and the editors have no state
+	// of their own for an item that is gone. A lookup that fails otherwise is left to the editor,
+	// which reports its own load errors.
+	const lookup = resource(
+		() => ({ ref: item, workspace: workspaceId, reload: `${reloadNonce}:${savedNonce}` }),
+		({ ref, workspace }) =>
+			lookupPageItem(ref, workspace).then(
+				(found) => ({ exists: !!found, resourceType: found?.resource_type as string | undefined }),
+				() => ({ exists: true, resourceType: undefined })
+			)
+	)
+
+	function closeTab() {
+		const tab = runtime.previewTabs.tabs.find((t) => t.url === pageItemUrl(item))
+		if (tab) runtime.previewTabs.close(tab.id)
+	}
 	function onSaved(path: string | undefined) {
 		if (path && path !== item.path) {
 			runtime.previewTabs.retargetPageItem(item, { ...item, path })
@@ -111,6 +125,16 @@
 <div class="flex h-full min-h-0 flex-col">
 	{#if eeLocked}
 		<div class="p-4 text-sm text-secondary">This trigger requires an enterprise license.</div>
+	{:else if lookup.loading || !lookup.current}
+		{@render loading()}
+	{:else if !lookup.current.exists}
+		<div class="flex flex-col items-start gap-3 p-4 text-sm text-secondary">
+			<p>
+				{pageItemKindLabel(item)} <span class="font-mono">{item.path}</span> no longer exists in this
+				workspace.
+			</p>
+			<Button variant="default" unifiedSize="sm" onClick={closeTab}>Close tab</Button>
+		</div>
 	{:else}
 		{#key `${item.kind}:${triggerKey}:${item.path}:${workspaceId}:${reloadNonce}:${savedNonce}`}
 			{#if item.kind === 'variable'}
