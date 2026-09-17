@@ -244,10 +244,11 @@ class ChatImpl implements Chat {
     const kindChanged = 'kind' in options && options.kind !== this.#conversationKind
     if ('kind' in options) this.#conversationKind = options.kind
     const kind = this.#conversationKind
+    const flowPath = this.#flowPath
     let conversations: Conversation[]
     if (this.#state.history === 'server') {
       try {
-        const rows = await this.#api.listConversations(this.#flowPath, {
+        const rows = await this.#api.listConversations(flowPath, {
           page,
           perPage: options.perPage ?? this.#config.pageSize,
           kind
@@ -260,9 +261,9 @@ class ChatImpl implements Chat {
     } else {
       conversations = this.#state.history === 'local' ? this.#local.listConversations() : []
     }
-    // Another kind was asked for while this list was on its way: its rows are not the
-    // listing any more, whichever response lands last.
-    if (kind !== this.#conversationKind) return conversations
+    // Another kind, or another flow path, was asked for while this list was on its way: its
+    // rows are not the listing any more, whichever response lands last.
+    if (kind !== this.#conversationKind || flowPath !== this.#flowPath) return conversations
     const known = new Set(this.#state.conversations.map((c) => c.id))
     this.#set({
       conversations:
