@@ -47,6 +47,7 @@ function fakeChat(initial: ChatState = idleState()) {
 		deleteConversation: vi.fn(async () => {}),
 		renameConversation: vi.fn(async () => {}),
 		loadOlderMessages: vi.fn(async () => {}),
+		refreshMessages: vi.fn(async () => {}),
 		destroy: vi.fn()
 	} satisfies Chat
 	const set = (patch: Partial<ChatState>) => {

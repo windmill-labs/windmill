@@ -165,6 +165,11 @@ export interface Chat {
   /** Sets a conversation's title. The list keeps its order: only a turn moves a conversation. */
   renameConversation(conversationId: string, title: string): Promise<void>
   loadOlderMessages(): Promise<void>
+  /**
+   * Reads what the current conversation gained since its newest message held here, such
+   * as a turn another tab ran. Server history only; does nothing while a turn is followed.
+   */
+  refreshMessages(): Promise<void>
   /** Stops background work (stream, polling) and writes local history out. The chat stays usable. */
   destroy(): void
 }

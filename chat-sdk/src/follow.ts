@@ -11,7 +11,8 @@ const RESULT_POLL_MS = 2000
 export type FollowEvent =
   /** Agent events decoded from the job's result stream; empty when a chunk ended mid-line. */
   | { type: 'stream'; events: AgentStreamEvent[] }
-  | { type: 'completed'; result: unknown }
+  /** `streamLost`: the result was polled after the stream failed, so what streamed may stop short. */
+  | { type: 'completed'; result: unknown; streamLost?: boolean }
 
 /**
  * Follows a job to completion across the server's stream timeouts: every
@@ -91,7 +92,7 @@ export async function* followJob(
     try {
       const { completed, result } = await api.getCompletedResult(jobId, options.signal)
       if (completed) {
-        yield { type: 'completed', result }
+        yield { type: 'completed', result, streamLost: true }
         return
       }
     } catch (e) {

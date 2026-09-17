@@ -152,9 +152,19 @@ function chunkStream(
             for (const e of event.events) parts.apply(e)
             continue
           }
+          // A result polled after the stream failed: the round that was streaming stopped
+          // wherever the connection did. Sent chunks cannot be taken back, so the answer's
+          // rest follows them, or the whole answer when it does not continue them.
+          const cut = parts.openText ?? ''
           parts.closeOpen()
           failure = await failureText(api, entry.jobId, event.result, signal)
-          if (failure === undefined && !parts.streamedText) {
+          if (failure === undefined && event.streamLost) {
+            const answer = extractChatAnswer(event.result)
+            if (answer !== undefined && answer !== cut) {
+              parts.text(answer.startsWith(cut) ? answer.slice(cut.length) : answer)
+              parts.closeOpen()
+            }
+          } else if (failure === undefined && !parts.streamedText) {
             // No agent streamed: the flow's result is the answer.
             const answer = extractChatAnswer(event.result)
             if (answer !== undefined) {
@@ -199,6 +209,8 @@ async function failureText(
  */
 class PartWriter {
   streamedText = false
+  /** The text of the round still streaming, until a tool call or the end closes it. */
+  openText: string | undefined
   #textId: string | undefined
   #reasoningId: string | undefined
   #started = new Set<string>()
@@ -210,8 +222,10 @@ class PartWriter {
     this.streamedText = true
     if (!this.#textId) {
       this.#textId = randomId()
+      this.openText = ''
       this.emit({ type: 'text-start', id: this.#textId })
     }
+    this.openText += delta
     this.emit({ type: 'text-delta', id: this.#textId, delta })
   }
 
@@ -231,6 +245,7 @@ class PartWriter {
     if (this.#textId) {
       this.emit({ type: 'text-end', id: this.#textId })
       this.#textId = undefined
+      this.openText = undefined
     }
   }
 

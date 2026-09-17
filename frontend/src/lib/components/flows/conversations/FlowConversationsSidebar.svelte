@@ -85,7 +85,11 @@
 			// selected kind brings its own, whichever of the two lands last.
 			l.setLoader(async (page, perPage) => {
 				const requested = kind
+				// Only a listing read now says which turns run: the rows the chat holds keep
+				// what the last one said, and a rename or delete publishes those again.
+				const since = pool.listingStarted()
 				const rows = await c.loadConversations({ page, perPage, kind: requested })
+				pool.setListed(rows, since)
 				return requested === kind ? rows : items
 			})
 			l.setDeleteItemFn(async (id: string) => {

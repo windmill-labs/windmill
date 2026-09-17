@@ -65,6 +65,11 @@ interface Entry<H> extends PooledChat<H> {
 	lastShownAt: number
 	/** Assistant messages already counted, so a message counts once as it settles. */
 	counted: Set<string>
+	/** Its first page has been read: answers already there were never unread. */
+	loaded: boolean
+	busy: boolean
+	/** The pool's clock when its last turn ended. */
+	settledAt: number
 }
 
 /**
@@ -135,22 +140,30 @@ export class FlowChatPool<H> {
 		entry.lastShownAt = ++this.#clock
 		this.#unread.delete(conversationId)
 		const turn = this.#running.get(conversationId)
-		if (turn && !isBusy(entry.chat.getState().status)) {
+		if (turn && !entry.busy) {
 			this.#running.delete(conversationId)
 			this.#options.resumeTurn(entry.host, turn)
+		} else if (entry.loaded && !entry.busy) {
+			// Held while another conversation was shown: another tab may have written since.
+			void entry.chat.refreshMessages()
 		}
 		this.#evict()
 		this.#publish()
 	}
 
+	/** Marks a listing request; pass the mark to `setListed` with what it returns. */
+	listingStarted = (): number => ++this.#clock
+
 	/**
-	 * What the conversation list last said. A conversation it reports running that no chat
-	 * here is following gets its run polled, so its row stops saying so when the run ends.
+	 * What a listing requested at `since` said. A conversation it reports running that no
+	 * chat here is following gets its run polled, so its row stops saying so when the run
+	 * ends. A turn that ended here after the request is not running, whatever it said.
 	 */
-	setListed = (conversations: readonly Conversation[]): void => {
+	setListed = (conversations: readonly Conversation[], since: number): void => {
 		for (const conversation of conversations) {
 			const followed = this.#entries.get(conversation.id)
-			if (conversation.runningTurn && !(followed && isBusy(followed.chat.getState().status))) {
+			const stale = followed && (followed.busy || followed.settledAt > since)
+			if (conversation.runningTurn && !stale) {
 				this.#running.set(conversation.id, conversation.runningTurn)
 			} else {
 				this.#running.delete(conversation.id)
@@ -195,7 +208,10 @@ export class FlowChatPool<H> {
 			host: this.#options.createHost(chat),
 			unsubscribe: () => {},
 			lastShownAt: ++this.#clock,
-			counted: new Set()
+			counted: new Set(),
+			loaded: conversationId === undefined,
+			busy: false,
+			settledAt: 0
 		}
 		entry.unsubscribe = chat.subscribe((state) => this.#onChatState(entry, state))
 		return entry
@@ -211,14 +227,20 @@ export class FlowChatPool<H> {
 		}
 		const id = state.conversationId
 		if (id === undefined) return
-		if (isBusy(state.status)) this.#running.delete(id)
+		const busy = isBusy(state.status)
+		if (busy) this.#running.delete(id)
+		else if (entry.busy) entry.settledAt = ++this.#clock
+		entry.busy = busy
 		const shown = id === this.#selectedId
 		for (const message of state.messages) {
 			if (message.role !== 'assistant' || message.pending || entry.counted.has(message.id)) continue
 			entry.counted.add(message.id)
-			if (!shown && !state.loadingMessages) this.#unread.set(id, (this.#unread.get(id) ?? 0) + 1)
+			if (!shown && entry.loaded && !state.loadingMessages) {
+				this.#unread.set(id, (this.#unread.get(id) ?? 0) + 1)
+			}
 		}
-		if (!isBusy(state.status)) this.#evict()
+		if (!state.loadingMessages) entry.loaded = true
+		if (!busy) this.#evict()
 		this.#publish()
 	}
 

@@ -783,6 +783,29 @@ describe('createChat with server history', () => {
     expect(calls.some((c) => c.url.pathname.includes('/jobs_u/get/'))).toBe(false)
   })
 
+  test('an answer cut by a lost stream gives way to the polled result', async () => {
+    let streams = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? ++streams === 1
+            ? sse([{ type: 'update', new_result_stream: ndjson({ type: 'token_delta', content: 'Hel' }), stream_offset: 1 }])
+            : text('bad gateway', 502)
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/get_result_maybe/job-1')
+          ? json({ completed: true, success: true, result: { windmill_chat_answer: 'Hello, full answer' } })
+          : undefined
+    )
+    const chat = createChat(options({ history: 'none' }, fetch))
+    await chat.sendMessage('hi')
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.pending])).toEqual([
+      ['user', 'hi', false],
+      ['assistant', 'Hello, full answer', false]
+    ])
+  }, 15000)
+
   test('a stream that keeps failing hands the turn to polling the job', async () => {
     const { fetch } = fetchMock(
       run,

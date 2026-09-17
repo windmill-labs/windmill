@@ -30,11 +30,15 @@ function fakeChat() {
 		resumeTurn: vi.fn(async () => {}),
 		stop: vi.fn(async () => {}),
 		newConversation: vi.fn(),
-		selectConversation: vi.fn(async (id: string) => set({ conversationId: id })),
+		// Like the SDK: the id and the loading flag are set before the first page is read.
+		selectConversation: vi.fn(async (id: string) =>
+			set({ conversationId: id, loadingMessages: true })
+		),
 		loadConversations: vi.fn(async () => []),
 		deleteConversation: vi.fn(async () => {}),
 		renameConversation: vi.fn(async () => {}),
 		loadOlderMessages: vi.fn(async () => {}),
+		refreshMessages: vi.fn(async () => {}),
 		destroy: vi.fn()
 	} satisfies Chat
 	return { chat, set }
@@ -75,7 +79,7 @@ describe('FlowChatPool', () => {
 	it('runs a turn in each of two conversations and counts an answer that lands out of view', () => {
 		const { pool: p, chatOf } = pool()
 		p.select('a')
-		chatOf('a').set({ status: 'streaming' })
+		chatOf('a').set({ loadingMessages: false, status: 'streaming' })
 		p.select('b')
 		chatOf('b').set({ status: 'submitted' })
 		expect(p.getState().activity).toEqual({ a: 'running', b: 'running' })
@@ -95,10 +99,10 @@ describe('FlowChatPool', () => {
 		let finished = false
 		const { pool: p, chatOf, hosts } = pool({ isRunFinished: async () => finished })
 		const turn = { jobId: 'job-1', userSeq: 7 }
-		p.setListed([
-			conversation('a', { runningTurn: turn }),
-			conversation('b', { runningTurn: turn })
-		])
+		p.setListed(
+			[conversation('a', { runningTurn: turn }), conversation('b', { runningTurn: turn })],
+			p.listingStarted()
+		)
 		expect(p.getState().activity).toEqual({ a: 'running', b: 'running' })
 
 		p.select('a')
@@ -106,6 +110,30 @@ describe('FlowChatPool', () => {
 
 		finished = true
 		await vi.waitFor(() => expect(p.getState().activity).toEqual({}))
+		p.destroy()
+	})
+
+	it('does not take a turn back from a listing requested before it ended', () => {
+		const { pool: p, chatOf, hosts } = pool()
+		p.select('a')
+		chatOf('a').set({ status: 'streaming' })
+		const since = p.listingStarted()
+		chatOf('a').set({ status: 'idle', messages: [answer('m1')] })
+		p.setListed([conversation('a', { runningTurn: { jobId: 'job-1', userSeq: 3 } })], since)
+		expect(p.getState().activity).toEqual({})
+		expect(hosts.resumeTurn).not.toHaveBeenCalled()
+		p.destroy()
+	})
+
+	it('counts no answer of a first page that lands after the reader moved on, and rereads a held chat on return', () => {
+		const { pool: p, chatOf } = pool()
+		p.select('a')
+		p.select('b')
+		chatOf('a').set({ loadingMessages: false, messages: [answer('old-1'), answer('old-2')] })
+		expect(p.getState().unread).toEqual({})
+
+		p.select('a')
+		expect(chatOf('a').chat.refreshMessages).toHaveBeenCalledTimes(1)
 		p.destroy()
 	})
 

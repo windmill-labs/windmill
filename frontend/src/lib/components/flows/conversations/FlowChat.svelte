@@ -113,10 +113,7 @@
 			resumeTurn: (host, turn) => host.resumeTurn(turn),
 			isRunFinished: async (jobId) => (await api.getCompletedResult(jobId)).completed
 		})
-		const unsubscribeList = createdList.subscribe((s) => {
-			listState = s
-			createdPool.setListed(s.conversations)
-		})
+		const unsubscribeList = createdList.subscribe((s) => (listState = s))
 		const unsubscribePool = createdPool.subscribe((s) => (poolState = s))
 		listChat = createdList
 		pool = createdPool

@@ -425,6 +425,19 @@ class ChatImpl implements Chat {
     }
   }
 
+  refreshMessages = async (): Promise<void> => {
+    const conversationId = this.#state.conversationId
+    if (
+      !conversationId ||
+      this.#turn ||
+      this.#state.history !== 'server' ||
+      this.#state.loadingMessages
+    ) {
+      return
+    }
+    await this.#syncFromServer(conversationId)
+  }
+
   destroy = (): void => {
     this.#leaveConversation()
   }
@@ -434,7 +447,10 @@ class ChatImpl implements Chat {
   async #follow(turn: Turn, onStreamStart: () => void): Promise<unknown> {
     let started = false
     for await (const event of followJob(this.#api, turn.jobId!, { signal: turn.controller.signal })) {
-      if (event.type === 'completed') return event.result
+      if (event.type === 'completed') {
+        if (event.streamLost) this.#dropCutRound(turn)
+        return event.result
+      }
       if (!started) {
         started = true
         // Persisted rows for the streaming step would duplicate what is streaming.
@@ -443,6 +459,19 @@ class ChatImpl implements Chat {
       this.#applyEvents(turn, event.events)
     }
     throw new Error('windmill-chat: the job stream ended before the flow completed')
+  }
+
+  /**
+   * The stream failed while a round's text was arriving, so that text stops wherever the
+   * connection did. It goes: the persisted rows or, without them, the flow result give
+   * the whole answer instead. Rounds a tool call closed were complete and stay.
+   */
+  #dropCutRound(turn: Turn): void {
+    if (!this.#turnActive(turn)) return
+    const cut = turn.assistantId
+    turn.assistantId = undefined
+    turn.streamedText = false
+    if (cut) this.#set({ messages: this.#state.messages.filter((m) => m.id !== cut) })
   }
 
   #applyEvents(turn: Turn, events: AgentStreamEvent[]): void {
