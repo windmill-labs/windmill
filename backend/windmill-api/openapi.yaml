@@ -11267,11 +11267,10 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
 
       requestBody:
         description: script args
@@ -11308,11 +11307,10 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
 
       requestBody:
         description: script args
@@ -11349,11 +11347,10 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
 
       responses:
         "200":
@@ -11376,11 +11373,10 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -11418,11 +11414,10 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -11458,11 +11453,10 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -11506,11 +11500,10 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -14911,11 +14904,10 @@ paths:
           schema:
             type: boolean
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
       requestBody:
         description: flow args
         required: true
@@ -14969,11 +14961,10 @@ paths:
           schema:
             type: boolean
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
       requestBody:
         description: flow args
         required: true
@@ -15461,11 +15452,10 @@ paths:
             type: boolean
         - $ref: "#/components/parameters/NewJobId"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
 
       requestBody:
         description: preview
@@ -15493,11 +15483,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
 
       requestBody:
         description: preview
