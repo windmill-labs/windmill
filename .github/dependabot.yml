@@ -1,9 +1,12 @@
-# Weekly, grouped version updates for every shipped manifest.
+# Weekly, grouped version updates for every shipped manifest, plus one grouped
+# security-update PR per manifest. Security-update PRs have no open-PR limit, so
+# without an `applies-to: security-updates` group each alert would get its own PR.
+# Bun has no security updates: /cli alerts are fixed through its version group.
 #
 # Deliberately NOT covered here:
 #   - /rust-client: Cargo.toml is generated and gitignored
 #   - /backend/parsers/windmill-parser-wasm: excluded from the workspace, needs nightly cargo
-#   - /benchmarks/pulumi: being deleted in another PR
+#   - /benchmarks/pulumi: one-off load-test infrastructure, not shipped
 #   - /integration_tests: CI-only
 
 version: 2
@@ -28,6 +31,9 @@ updates:
       frontend-majors:
         patterns: ["*"]
         update-types: ["major"]
+      frontend-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   # Maintain dependencies for cargo
   - package-ecosystem: "cargo"
@@ -39,6 +45,9 @@ updates:
       cargo-deps:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      cargo-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   # Maintain dependencies for Docker
   - package-ecosystem: "docker"
@@ -51,6 +60,10 @@ updates:
     directory: "/python-client/wmill"
     schedule:
       interval: "weekly"
+    groups:
+      python-client-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   # Maintain dependencies for the CLI (bun.lock)
   - package-ecosystem: "bun"
@@ -69,6 +82,9 @@ updates:
     groups:
       yaml-validator-deps:
         patterns: ["*"]
+      yaml-validator-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   # Maintain dependencies for the TypeScript client (devDependencies only)
   - package-ecosystem: "npm"
@@ -78,6 +94,9 @@ updates:
     groups:
       typescript-client-deps:
         patterns: ["*"]
+      typescript-client-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   # Maintain dependencies for multiplayer
   - package-ecosystem: "npm"
@@ -86,4 +105,7 @@ updates:
       interval: "weekly"
     groups:
       multiplayer-deps:
+        patterns: ["*"]
+      multiplayer-security:
+        applies-to: security-updates
         patterns: ["*"]
