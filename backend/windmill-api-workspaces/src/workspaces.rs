@@ -8753,6 +8753,9 @@ async fn create_workspace_fork(
     }
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    // Before the settings clone reads the parent's data tables: a pointer this fork ends up with
+    // must not be written after cleanup of the parent decided that nothing points at its copies.
+    windmill_common::workspaces::lock_fork_datatables(&mut tx, &parent_workspace_id).await?;
 
     if nw.is_dev_workspace {
         // The checks above ran outside a transaction, so the parent's eligibility and the chain's
