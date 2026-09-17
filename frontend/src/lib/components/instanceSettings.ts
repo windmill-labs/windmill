@@ -71,6 +71,7 @@ export interface Setting {
 		| 'ws_connectivity'
 		| 'retention_overrides'
 		| 'instance_banner'
+		| 'external_instance_pg'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -718,6 +719,17 @@ export const settings: Record<string, Setting[]> = {
 		}
 	],
 	'DB Health': [],
+	'External Postgres': [
+		{
+			label: 'External instance cluster',
+			description:
+				'A PostgreSQL cluster Windmill administers for data tables and Ducklake catalogs of the External instance type. The admin user needs CREATEDB and CREATEROLE, plus REPLICATION for Postgres triggers. Windmill creates its own roles and databases there and leaves everything else on the cluster alone.',
+			key: 'external_instance_pg',
+			fieldType: 'external_instance_pg',
+			storage: 'setting',
+			ee_only: 'External instance databases are an Enterprise Edition feature'
+		}
+	],
 	Registries: [
 		{
 			label: 'Instance Python Version',
@@ -1241,6 +1253,14 @@ export const instanceSettingsNavigationGroups = [
 				aiId: 'instance-settings-object-storage',
 				aiDescription: 'Instance object storage settings',
 				isEE: true
+			},
+			{
+				id: 'external_postgres',
+				label: 'External Postgres',
+				aiId: 'instance-settings-external-postgres',
+				aiDescription:
+					'External PostgreSQL cluster Windmill manages for external instance data tables and Ducklake catalogs',
+				isEE: true
 			}
 		]
 	},
@@ -1365,6 +1385,7 @@ export const tabToCategoryMap: Record<string, string> = {
 	github_enterprise_app: 'GitHub App',
 	websocket: 'WebSocket',
 	db_health: 'DB Health',
+	external_postgres: 'External Postgres',
 	lsp: 'LSP'
 }
 
@@ -1401,6 +1422,7 @@ export const categoryToTabMap: Record<string, string> = {
 	'GitHub App': 'github_enterprise_app',
 	WebSocket: 'websocket',
 	'DB Health': 'db_health',
+	'External Postgres': 'external_postgres',
 	LSP: 'lsp'
 }
 

@@ -13,7 +13,7 @@
 		ducklakes: {
 			name: string
 			catalog: {
-				resource_type: 'postgresql' | 'mysql' | 'instance'
+				resource_type: 'postgresql' | 'mysql' | 'instance' | 'external_instance'
 				resource_path?: string // Name of the database when resource_type is instance
 			}
 			storage: {
@@ -105,7 +105,12 @@
 	import Popover from '../meltComponents/Popover.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import { slide } from 'svelte/transition'
-	import { isCustomInstanceDbEnabled, getUnusedInstanceDbName } from './utils.svelte'
+	import {
+		isCustomInstanceDbEnabled,
+		getUnusedInstanceDbName,
+		externalInstanceDbUnavailableReason
+	} from './utils.svelte'
+	import ExternalInstanceDbSelect from './ExternalInstanceDbSelect.svelte'
 	import { resource } from 'runed'
 	import CustomInstanceDbSelect from './CustomInstanceDbSelect.svelte'
 	import Label from '../Label.svelte'
@@ -283,10 +288,9 @@
 			This workspace is a fork, and these settings are its own copy. Lakes marked
 			<span class="font-semibold">isolated</span> read the parent's tables through defer views and
 			write to a fork-scoped namespace that is cleaned up when the fork is deleted. Lakes marked
-			<span class="font-semibold">shared with parent</span> read and write the parent's physical
-			lake directly — editing their catalog or storage here repoints the shared lake for this
-			fork's jobs. The choice is made per lake when the fork is created and cannot be changed
-			here.
+			<span class="font-semibold">shared with parent</span> read and write the parent's physical lake
+			directly — editing their catalog or storage here repoints the shared lake for this fork's jobs.
+			The choice is made per lake when the fork is created and cannot be changed here.
 		</Alert>
 	</div>
 {/if}
@@ -359,8 +363,8 @@
 									isolated
 								</span>
 								<Tooltip>
-									Writes go to a fork-scoped namespace; reads of tables not yet materialized in
-									this fork defer to the parent. Deleting the fork cleans the namespace up.
+									Writes go to a fork-scoped namespace; reads of tables not yet materialized in this
+									fork defer to the parent. Deleting the fork cleans the namespace up.
 								</Tooltip>
 							{/if}
 						</div>
@@ -373,6 +377,11 @@
 								<Tooltip wrapperClass="absolute mt-[0.6rem] right-2 z-20" placement="bottom-start">
 									Use Windmill's PostgreSQL instance as a catalog
 								</Tooltip>
+							{:else if ducklake.catalog.resource_type === 'external_instance'}
+								<Tooltip wrapperClass="absolute mt-[0.6rem] right-2 z-20" placement="bottom-start">
+									Use a database on the external PostgreSQL cluster set in instance settings as a
+									catalog
+								</Tooltip>
 							{/if}
 							<Select
 								items={[
@@ -382,6 +391,12 @@
 										value: 'instance',
 										label: 'Instance',
 										subtitle: $isCustomInstanceDbEnabled ? undefined : 'Superadmin only'
+									},
+									{
+										value: 'external_instance',
+										label: 'External instance',
+										disabled: !!$externalInstanceDbUnavailableReason,
+										subtitle: $externalInstanceDbUnavailableReason
 									}
 								]}
 								bind:value={
@@ -394,15 +409,21 @@
 										}
 									}
 								}
-								class="w-24"
+								class="w-40"
 							/>
 						</div>
 						<div class="flex flex-1">
-							{#if ducklake.catalog.resource_type !== 'instance'}
+							{#if ducklake.catalog.resource_type === 'postgresql' || ducklake.catalog.resource_type === 'mysql'}
 								<ResourcePicker
 									class="flex-1 min-w-32"
 									bind:value={ducklake.catalog.resource_path}
 									resourceType={ducklake.catalog.resource_type}
+								/>
+							{:else if ducklake.catalog.resource_type === 'external_instance'}
+								<ExternalInstanceDbSelect
+									class="flex-1 min-w-32"
+									bind:value={ducklake.catalog.resource_path}
+									tag="ducklake"
 								/>
 							{:else}
 								<CustomInstanceDbSelect

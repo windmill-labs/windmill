@@ -730,6 +730,7 @@
 		secret_backend: ['token'],
 		object_store_cache_config: ['secret_key', 'serviceAccountKey'],
 		custom_instance_pg_databases: ['user_pwd'],
+		external_instance_pg: ['password'],
 		rsa_keys: ['private_key'],
 		github_enterprise_app: ['private_key']
 	}
@@ -1233,6 +1234,11 @@
 				title="GitHub App"
 				description="Configure a self-managed GitHub App for git sync on GitHub.com, GHE Cloud or GitHub Enterprise Server."
 				link="https://www.windmill.dev/docs/integrations/git_repository#self-managed-github-app"
+			/>
+		{:else if category == 'External Postgres'}
+			<SettingsPageHeader
+				title="External Postgres"
+				description="Store data tables and Ducklake catalogs on a PostgreSQL cluster outside Windmill's own database. Save the connection, set the cluster up, then create databases for workspaces to use."
 			/>
 		{:else if category == 'DB Health'}
 			<SettingsPageHeader

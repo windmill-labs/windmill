@@ -1,6 +1,6 @@
 import { isCloudHosted } from '$lib/cloud'
 
-import { superadmin } from '$lib/stores'
+import { enterpriseLicense, superadmin } from '$lib/stores'
 import { getLocalSetting } from '$lib/utils'
 import { derived } from 'svelte/store'
 
@@ -18,6 +18,24 @@ export function isDataTableWizardEnabled(): boolean {
 export let isCustomInstanceDbEnabled = derived(
 	[superadmin],
 	([superadmin_]) => superadmin_ && !isCloudHosted()
+)
+
+export let isExternalInstanceDbEnabled = derived(
+	[superadmin, enterpriseLicense],
+	([superadmin_, enterpriseLicense_]) => superadmin_ && !!enterpriseLicense_ && !isCloudHosted()
+)
+
+/** Why the External instance option cannot be picked, or undefined when it can. */
+export let externalInstanceDbUnavailableReason = derived(
+	[superadmin, enterpriseLicense],
+	([superadmin_, enterpriseLicense_]) =>
+		isCloudHosted()
+			? 'Not available on cloud'
+			: !enterpriseLicense_
+				? 'Enterprise Edition only'
+				: !superadmin_
+					? 'Superadmin only'
+					: undefined
 )
 
 // Postgres caps identifiers at 63 bytes; the backend rejects longer db names.

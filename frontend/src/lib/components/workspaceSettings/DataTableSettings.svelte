@@ -9,7 +9,7 @@
 			id: string
 			name: string
 			database: {
-				resource_type: 'postgresql' | 'instance'
+				resource_type: 'postgresql' | 'instance' | 'external_instance'
 				resource_path?: string | undefined
 			}
 			/** Set on a fork's entry: it names the workspace whose data table governs this one, and
@@ -81,8 +81,10 @@
 	import {
 		isCustomInstanceDbEnabled,
 		getUnusedInstanceDbName,
-		isDataTableWizardEnabled
+		isDataTableWizardEnabled,
+		externalInstanceDbUnavailableReason
 	} from './utils.svelte'
+	import ExternalInstanceDbSelect from './ExternalInstanceDbSelect.svelte'
 	import { random_adj } from '../random_positive_adjetive'
 	import { sendUserToast } from '$lib/toast'
 	import {
@@ -420,6 +422,13 @@
 									>
 										Use Windmill's PostgreSQL instance
 									</Tooltip>
+								{:else if dataTable.database.resource_type === 'external_instance'}
+									<Tooltip
+										wrapperClass="absolute mt-[0.6rem] right-2 z-20"
+										placement="bottom-start"
+									>
+										Use a database on the external PostgreSQL cluster set in instance settings
+									</Tooltip>
 								{/if}
 								<Select
 									items={[
@@ -433,6 +442,12 @@
 												: isCloudHosted()
 													? 'Not available on cloud'
 													: 'Superadmin only'
+										},
+										{
+											value: 'external_instance',
+											label: 'External instance',
+											disabled: !!$externalInstanceDbUnavailableReason,
+											subtitle: $externalInstanceDbUnavailableReason
 										}
 									]}
 									bind:value={
@@ -446,15 +461,21 @@
 										}
 									}
 									id="database-type-select"
-									class="w-28"
+									class="w-40"
 								/>
 							</div>
 							<div class="flex items-center gap-1 w-80 relative">
-								{#if dataTable.database.resource_type !== 'instance'}
+								{#if dataTable.database.resource_type === 'postgresql'}
 									<ResourcePicker
 										class="flex-1"
 										bind:value={dataTable.database.resource_path}
 										resourceType={dataTable.database.resource_type}
+									/>
+								{:else if dataTable.database.resource_type === 'external_instance'}
+									<ExternalInstanceDbSelect
+										class="flex-1"
+										bind:value={dataTable.database.resource_path}
+										tag="datatable"
 									/>
 								{:else}
 									<CustomInstanceDbSelect

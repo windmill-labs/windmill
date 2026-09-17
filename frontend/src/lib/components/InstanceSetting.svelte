@@ -27,6 +27,7 @@
 	import WebhookBaseUrlSetting from './instanceSettings/WebhookBaseUrlSetting.svelte'
 	import WsConnectivityTest from './instanceSettings/WsConnectivityTest.svelte'
 	import InstanceBannerSetting from './instanceSettings/InstanceBannerSetting.svelte'
+	import ExternalInstancePgSettings from './instanceSettings/ExternalInstancePgSettings.svelte'
 	import IndexerMemorySettings from './instanceSettings/IndexerMemorySettings.svelte'
 	import IndexerJobIndexSettings from './instanceSettings/IndexerJobIndexSettings.svelte'
 	import IndexerLogIndexSettings from './instanceSettings/IndexerLogIndexSettings.svelte'
@@ -781,10 +782,10 @@
 								/>
 								<p class="text-xs text-tertiary">
 									Comma-separated host/IP patterns the proxy still traces but for which it skips
-									upstream TLS certificate verification. Use for internal endpoints with
-									self-signed or otherwise untrusted certificates — unlike NO_PROXY above, these
-									requests stay traced. Same matching as NO_PROXY (<code>example.com</code> matches
-									subdomains; <code>.example.com</code> matches subdomains only).
+									upstream TLS certificate verification. Use for internal endpoints with self-signed
+									or otherwise untrusted certificates — unlike NO_PROXY above, these requests stay
+									traced. Same matching as NO_PROXY (<code>example.com</code> matches subdomains;
+									<code>.example.com</code> matches subdomains only).
 								</p>
 							</div>
 							<div class="flex flex-col gap-1">
@@ -872,6 +873,8 @@
 					<WsConnectivityTest {values} />
 				{:else if setting.fieldType == 'instance_banner'}
 					<InstanceBannerSetting {values} disabled={loading} />
+				{:else if setting.fieldType == 'external_instance_pg'}
+					<ExternalInstancePgSettings {values} disabled={loading} />
 				{/if}
 				{#if hasError}
 					<span class="text-red-600 dark:text-red-400 text-xs">
