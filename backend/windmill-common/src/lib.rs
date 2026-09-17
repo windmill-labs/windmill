@@ -1653,6 +1653,10 @@ pub async fn create_custom_instance_database(
 /// `dbname`, unless `w_id` created it for that ([`create_custom_instance_database`]) and nothing uses
 /// it yet. The `wm_fork_` prefix is no authorization: every instance database answers to the same
 /// `custom_instance_user`, so a name is all it takes to reach another workspace's copy.
+///
+/// Authorization: reads the global registry and every workspace's settings, and names other
+/// workspaces in its refusal. Callers MUST have authorized `w_id` for the caller first — a member
+/// of it forking or importing there — and MUST NOT call it on a workspace the caller is not in.
 pub async fn ensure_fork_database_available_to(
     db: &DB,
     dbname: &str,
