@@ -1916,9 +1916,6 @@ pub async fn run_agent(
                 // Add assistant message to conversation if chat_input_enabled
                 if persist_output_to_conversation {
                     if let Some(conversation_id) = conversation_id {
-                        let agent_job_id = job.id;
-                        let db_clone = db.clone();
-
                         // Create extended version with type discriminator for conversation storage
                         // This avoids conflicts with outputs that are of the same format as S3 objects
                         let s3_with_type = S3ObjectWithType {
@@ -1929,27 +1926,24 @@ pub async fn run_agent(
                         let message_content = serde_json::to_string(&s3_with_type)
                             .unwrap_or_else(|_| content.get().to_string());
 
-                        // Spawn task because we do not need to wait for the result
-                        tokio::spawn(async move {
-                            if let Err(e) = add_message_to_conversation(
-                                &db_clone,
-                                &conversation_id,
-                                Some(agent_job_id),
-                                &message_content,
-                                MessageType::Assistant,
-                                &step_name,
-                                true,
-                                None,
-                            )
-                            .await
-                            {
-                                tracing::warn!(
-                                    "Failed to add assistant message to conversation {}: {}",
-                                    conversation_id,
-                                    e
-                                );
-                            }
-                        });
+                        if let Err(e) = add_message_to_conversation(
+                            db,
+                            &conversation_id,
+                            Some(job.id),
+                            &message_content,
+                            MessageType::Assistant,
+                            &step_name,
+                            true,
+                            None,
+                        )
+                        .await
+                        {
+                            tracing::warn!(
+                                "Failed to add assistant message to conversation {}: {}",
+                                conversation_id,
+                                e
+                            );
+                        }
                     }
                 }
 
