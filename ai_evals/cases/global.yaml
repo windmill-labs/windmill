@@ -2173,11 +2173,11 @@
     requiredToolsUsed:
       - test_run_flow
     # A chat flow's memory lives in its conversation, so a follow-up only reaches the first
-    # turn's history when every test run names the conversation it belongs to.
+    # turn's history when both test runs name the same conversation.
     toolCallArgs:
       - tool: test_run_flow
         field: conversation_id
-        nonEmpty: true
+        sharedByAtLeast: 2
     forbiddenToolsUsed:
       - run_flow
       - deploy_workspace_item

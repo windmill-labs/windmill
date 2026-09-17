@@ -396,6 +396,32 @@ describe("validateToolExpectations", () => {
     expect(nonEmptyCheck?.details).toContain("blank on 1 of 2");
   });
 
+  it("requires sharedByAtLeast calls to carry one value, not merely a value each", () => {
+    const run = (ids: (string | undefined)[]) =>
+      validateToolExpectations({
+        run: {
+          success: true,
+          actual: {},
+          assistantMessageCount: 1,
+          toolCallCount: ids.length,
+          toolsUsed: ["test_run_flow"],
+          toolCallDetails: ids.map((conversation_id) => ({
+            name: "test_run_flow",
+            arguments: { path: "f/chat", conversation_id },
+          })),
+          skillsInvoked: [],
+        },
+        toolExpect: {
+          toolCallArgs: [{ tool: "test_run_flow", field: "conversation_id", sharedByAtLeast: 2 }],
+        },
+      }).find((c) => c.name.includes("is shared by at least 2 calls"))?.passed;
+
+    expect(run(["a", "b"])).toBe(false);
+    expect(run(["a"])).toBe(false);
+    expect(run([undefined, undefined])).toBe(false);
+    expect(run(["rejected", "a", "a"])).toBe(true);
+  });
+
   it("passes nonEmpty when every call filled the field", () => {
     const checks = validateToolExpectations({
       run: {
