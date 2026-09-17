@@ -75,11 +75,19 @@ impl MaskSnapshot {
             .ac
             .replace_all(text, &self.compiled.replacements);
 
-        // Append the notice only once per snapshot (i.e. per batch)
+        // Append the notice only once per snapshot (i.e. per batch), as its own line.
+        // Callers pass either a bare line (`handle_child`) or a chunk that already ends
+        // in a newline (nativets), and the sinks concatenate what they get verbatim:
+        // assuming either shape welds the notice onto a neighbouring line.
         if !self.notice_shown.get() {
             self.notice_shown.set(true);
-            result.push('\n');
-            result.push_str(MASKED_NOTICE);
+            if result.ends_with('\n') {
+                result.push_str(MASKED_NOTICE);
+                result.push('\n');
+            } else {
+                result.push('\n');
+                result.push_str(MASKED_NOTICE);
+            }
         }
 
         Cow::Owned(result)
@@ -305,5 +313,28 @@ mod tests {
 
         let masked = masker.mask("logged supersecretvalue here");
         assert!(!masked.contains("supersecretvalue"), "{masked}");
+    }
+
+    /// The notice has to end up on a line of its own for both shapes callers pass:
+    /// a bare line (`handle_child`) and a newline-terminated chunk (nativets). The
+    /// sinks concatenate what they are given verbatim, so getting this wrong welds
+    /// the notice onto whichever line follows it.
+    #[test]
+    fn notice_lands_on_its_own_line_for_both_caller_shapes() {
+        let job_id = Uuid::new_v4();
+        register_running_job(job_id);
+        register_secret_for_job(job_id, "supersecretvalue");
+
+        let line = snapshot(&job_id)
+            .expect("secret registered")
+            .mask("tok supersecretvalue");
+        assert_eq!(line, format!("tok s*****e\n{MASKED_NOTICE}"));
+
+        let chunk = snapshot(&job_id)
+            .expect("secret registered")
+            .mask("tok supersecretvalue\n");
+        assert_eq!(chunk, format!("tok s*****e\n{MASKED_NOTICE}\n"));
+
+        unregister_running_job(job_id);
     }
 }
