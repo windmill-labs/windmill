@@ -5,22 +5,33 @@
 # them against Windmill's vulnerability policy (.github/prompts/dependabot-triage.md).
 #
 # What a run produces:
+#   - P3 alerts dismissed on GitHub with a comment (Claude writes
+#     .dependabot-triage/dismissals.json; the "Apply dismissals" step applies it);
 #   - at most ONE draft PR per ecosystem (branch security/dependabot-<ecosystem>-<date>,
 #     title "chore(security): resolve Dependabot alerts in <manifest>") containing only
 #     targeted, verified bumps, with the check results in the PR body;
-#   - one GitHub issue "Dependabot triage <date>" with the severity table, the proposed
-#     dismissals (reason + comment text, for a human to apply), unknowns, draft PR links
-#     and "needs a human" items. A P0 finding produces only an issue titled
+#   - a Linear ticket in the WIN team for every P0/P1/decision, and a webmux fix job for
+#     items with a concrete fix request (Claude writes .dependabot-triage/handoff.json;
+#     the "Hand off" step POSTs it to f/security/dependabot_handoff in the windmill-prod
+#     workspace, which runs the prompt-injection gate before dispatching webmux);
+#   - one GitHub issue "Dependabot triage <date>" as the public record of the run.
+#     A P0 finding produces only the hand-off and an issue titled
 #     "[P0] Dependabot triage <date>" with no exploit detail.
 #
-# What a run never does: it never dismisses an alert, never merges anything, never
-# pushes to main and never edits .github/workflows/. Dismissals stay proposals.
+# What a run never does: it never merges anything, never pushes to main and never edits
+# .github/workflows/. The Claude step holds none of the tokens that dismiss alerts or
+# reach Linear; those live in the two steps after it.
 #
 # Tokens:
 #   - The alerts are read with the default GITHUB_TOKEN. This needs the
 #     `vulnerability-alerts: read` job permission ("permits an action to list Dependabot
 #     alerts for the repository" - GitHub Actions workflow syntax reference,
-#     "permissions"). No PAT or extra secret is required for that.
+#     "permissions"). No PAT is required for reading.
+#   - Dismissing needs write access, and `vulnerability-alerts` supports read only, so the
+#     "Apply dismissals" step uses secrets.DEPENDABOT_ALERTS_TOKEN: a fine-grained PAT
+#     for this repository with "Dependabot alerts: read and write" and nothing else.
+#   - The hand-off uses secrets.WINDMILL_TRIAGE_TOKEN: a windmill-prod workspace token
+#     for a user allowed to run f/security/dependabot_handoff.
 #   - Claude authenticates with secrets.CLAUDE_CODE_OAUTH_TOKEN, like the other Claude
 #     workflows in this directory, and `id-token: write` lets the action mint its own
 #     GitHub App token for `gh pr create` / `gh issue create`.
@@ -202,3 +213,82 @@ jobs:
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
             --max-turns 200
             --model claude-opus-5
+
+      # Claude only writes dismissals.json; this step holds the token that can dismiss.
+      # Every entry is validated (shape, reason, and membership in this run's alert set)
+      # before any request is sent, and comments are capped at GitHub's 280 characters.
+      - name: Apply dismissals
+        if: steps.alerts.outputs.count != '0' && hashFiles('.dependabot-triage/dismissals.json') != ''
+        env:
+          GH_TOKEN: ${{ secrets.DEPENDABOT_ALERTS_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          FILE=.dependabot-triage/dismissals.json
+          SELECTED=$(jq '[.[].number]' .dependabot-triage/alerts.json)
+          jq -e --argjson sel "$SELECTED" '
+            type == "array" and all(.[];
+              (.alert | type == "number") and (.alert as $a | ($sel | index($a)) != null)
+              and (.reason == "not_used" or .reason == "tolerable_risk")
+              and (.comment | type == "string" and length > 0))' "$FILE" >/dev/null \
+            || { echo "::error::dismissals.json is malformed or names alerts outside this run"; exit 1; }
+
+          {
+            echo "## Dismissals applied"
+            echo
+            echo "| alert | reason | result |"
+            echo "|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          FAILED=0
+          while IFS= read -r item; do
+            n=$(jq -r '.alert' <<<"$item")
+            reason=$(jq -r '.reason' <<<"$item")
+            comment=$(jq -r '.comment[0:280]' <<<"$item")
+            if out=$(gh api -X PATCH "repos/$REPO/dependabot/alerts/$n" \
+                  -f state=dismissed -f "dismissed_reason=$reason" -f "dismissed_comment=$comment" \
+                  --jq '.state' 2>&1); then
+              echo "| $n | $reason | $out |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              FAILED=$((FAILED + 1))
+              echo "| $n | $reason | failed: ${out:0:120} |" >> "$GITHUB_STEP_SUMMARY"
+              echo "::warning::alert $n could not be dismissed: $out"
+            fi
+          done < <(jq -c '.[]' "$FILE")
+          [ "$FAILED" = "0" ] || echo "::warning::$FAILED dismissal(s) failed; see the summary"
+
+      # Claude only writes handoff.json; this step POSTs it to the windmill-prod script that
+      # creates the Linear tickets and dispatches webmux (behind the injection gate). The
+      # script is idempotent on alert numbers, so a re-run does not duplicate tickets.
+      - name: Hand off to Linear and webmux
+        if: steps.alerts.outputs.count != '0' && hashFiles('.dependabot-triage/handoff.json') != ''
+        env:
+          WM_TOKEN: ${{ secrets.WINDMILL_TRIAGE_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          FILE=.dependabot-triage/handoff.json
+          jq -e '
+            (.items | type == "array") and all(.items[];
+              (.kind | IN("p0", "p1", "decision", "fix"))
+              and (.alerts | type == "array" and length > 0)
+              and (.title | type == "string" and length > 0)
+              and (.summary | type == "string" and length > 0))' "$FILE" >/dev/null \
+            || { echo "::error::handoff.json is malformed"; exit 1; }
+          COUNT=$(jq '.items | length' "$FILE")
+          if [ "$COUNT" = "0" ]; then
+            echo "::notice::handoff.json has no items; nothing to hand off."
+            exit 0
+          fi
+          BODY=$(jq --arg run_url "$RUN_URL" '{ handoff: (. + { run_url: $run_url }) }' "$FILE")
+          RESP=$(curl -sS --fail-with-body -X POST \
+            "https://app.windmill.dev/api/w/windmill-prod/jobs/run_wait_result/p/f/security/dependabot_handoff" \
+            -H "Authorization: Bearer $WM_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$BODY")
+          {
+            echo "## Handed off ($COUNT items)"
+            echo
+            echo '```json'
+            echo "$RESP" | jq .
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
