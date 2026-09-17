@@ -120,6 +120,9 @@ const FLOW_LOCAL_AGENT_KEYS: [&str; 5] = [
     "previous_messages",
 ];
 
+/// The flow-local inputs that name a conversation, which a saved agent never carries.
+const STEP_HISTORY_KEYS: [&str; 2] = ["memory_id", "previous_messages"];
+
 /// Where one agent invocation's history comes from.
 #[derive(Debug)]
 enum HistorySource<'a> {
@@ -647,9 +650,10 @@ pub async fn handle_ai_agent_job(
             None => Vec::new(),
         };
         overlay_tool_inputs(&mut tools, &tool_inputs);
-        // The resource is not validated against a schema, so a flow-local key it happens to carry
-        // is dropped before interpolation, where a bad `$res:` in it would fail the step.
-        for key in FLOW_LOCAL_AGENT_KEYS {
+        // The resource is not validated against a schema, so a history input it happens to carry
+        // is dropped before interpolation, where a bad `$res:` in it would fail the step. The
+        // other flow-local keys stay: a resource's own user message is the step's fallback.
+        for key in STEP_HISTORY_KEYS {
             config.remove(key);
         }
         let brain = transform_json_value(
@@ -1190,6 +1194,17 @@ pub async fn run_agent(
         for note in &history_notes {
             append_logs(&job.id, &job.workspace_id, format!("{note}\n"), conn).await;
         }
+    } else if !matches!(history, HistorySource::Stateless)
+        || args.memory_id.is_some()
+        || args.previous_messages.is_some()
+    {
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            "Image output sends no history, so memory and previous messages are not read.\n",
+            conn,
+        )
+        .await;
     }
 
     // A `manual` memory sent whatever list it held, an empty one included, so a step that still has
