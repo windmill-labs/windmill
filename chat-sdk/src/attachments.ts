@@ -106,10 +106,11 @@ export async function uploadAttachments(
     )
     const uploaded = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
     const reasons = results.flatMap((r) => (r.status === 'rejected' ? [r.reason] : []))
-    if (reasons.length === 0) return uploaded
+    // A stop that lands once every upload has answered still withdraws the batch.
+    if (reasons.length === 0 && !signal?.aborted) return uploaded
     await Promise.all(uploaded.map((u) => api.deleteFile(u.s3).catch(() => {})))
     // The failure that started it, not the aborts it caused in the other uploads.
-    throw reasons.find((reason) => !isAbortError(reason)) ?? reasons[0]
+    throw reasons.find((reason) => !isAbortError(reason)) ?? reasons[0] ?? abortError()
   } finally {
     signal?.removeEventListener('abort', abortBatch)
   }

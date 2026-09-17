@@ -413,4 +413,31 @@ describe('sendMessage with attachments', () => {
     expect(call.url.searchParams.get('file_key')).toMatch(/\/0\/contract\.pdf$/)
     expect(call.url.searchParams.get('content_type')).toBe('application/pdf')
   })
+
+  test('stop() after the uploads land but before the run starts deletes them and runs nothing', async () => {
+    const { fetch, calls } = fetchMock(
+      upload,
+      (c) =>
+        c.method === 'DELETE' && c.url.pathname === '/api/w/ws/job_helpers/delete_s3_file'
+          ? json('deleted')
+          : undefined,
+      run,
+      answer
+    )
+    const chat = createChat(options(fetch))
+    const sending = chat.sendMessage('read this', {
+      attachments: [{ name: 'contract.pdf', data: pdf }],
+      attachmentsInput: { name: 'files', multiple: true }
+    })
+    // The upload responds at once; Stop lands before the send resumes after it.
+    while (uploads(calls).length === 0) await Promise.resolve()
+    await chat.stop()
+    await expect(sending).rejects.toMatchObject({ name: 'AbortError' })
+    expect(runs(calls)).toHaveLength(0)
+    const key = uploads(calls)[0].url.searchParams.get('file_key')
+    expect(
+      calls.filter((c) => c.method === 'DELETE').map((c) => c.url.searchParams.get('file_key'))
+    ).toEqual([key])
+    expect(chat.getState()).toMatchObject({ status: 'idle', messages: [], conversations: [] })
+  })
 })

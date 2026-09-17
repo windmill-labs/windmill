@@ -22,6 +22,7 @@ import {
   conversationTitle,
   errorResultMessage,
   extractChatAnswer,
+  abortError,
   isAbortError,
   isErrorResult,
   now,
@@ -167,6 +168,8 @@ class ChatImpl implements Chat {
           })
         }
       }
+      // Nothing may start once stop() or a conversation switch has withdrawn the turn.
+      if (turn.controller.signal.aborted) throw abortError()
       turn.started = true
       // Listed only once the run is asked for: a send that never runs (an upload that failed
       // or was stopped) then has no conversation entry to take back.
