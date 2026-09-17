@@ -670,12 +670,18 @@ pub async fn handle_chat_conversation_messages(
     flow_path: &str,
     run_query: &RunJobQuery,
     user_message_raw: Option<&Box<serde_json::value::RawValue>>,
+    job_id: Uuid,
     // The run's args, for the files the message carried.
     args: &HashMap<String, Box<serde_json::value::RawValue>>,
 ) -> error::Result<()> {
+    // Names the query parameter rather than the field: it is not a flow argument, and
+    // supplying it as one is the first thing tried on reading `memory_id is required`.
     let memory_id = run_query.memory_id.ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
-            "memory_id is required for chat-enabled flows".to_string(),
+            "memory_id is required for chat-enabled flows. Pass it as the `memory_id` query \
+             parameter, not as a flow argument: it names the conversation the turn belongs to, \
+             so a fresh UUID starts one and reusing a UUID continues it."
+                .to_string(),
         )
     })?;
 
@@ -702,10 +708,13 @@ pub async fn handle_chat_conversation_messages(
     )
     .await?;
 
+    // The run this message started. The row keeps the files the message carried as
+    // references; its args are the only record of every other flow input, and nothing
+    // written later points at them: an assistant row holds the AI agent step's job.
     add_message_to_conversation_tx(
         tx,
         memory_id,
-        None,
+        Some(job_id),
         &user_message,
         MessageType::User,
         None,
@@ -831,6 +840,7 @@ pub async fn run_flow<'c>(
             &flow_path.to_string(),
             &run_query,
             args.args.get("user_message"),
+            uuid,
             &args.args,
         )
         .await?;

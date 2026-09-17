@@ -9553,6 +9553,7 @@ async fn run_preview_flow_job(
             &flow_path,
             &run_query,
             user_message.as_ref(),
+            uuid,
             &flow_args,
         )
         .await?;
