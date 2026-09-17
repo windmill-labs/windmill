@@ -44,13 +44,14 @@
 	// An inspected run is read from the job itself rather than from the tool result, which
 	// is the copy capped for the model. Fetched on first expand, and only then: a transcript
 	// of collapsed inspections must not fire a request per row.
-	let fetched = $state<{ jobId: string; job: Job; logs: string; logsFailed?: boolean } | undefined>(
-		undefined
-	)
+	let fetched = $state<
+		{ callId: string; job: Job; logs: string; logsFailed?: boolean } | undefined
+	>(undefined)
 	let fetchFailed = $state<string | undefined>(undefined)
-	// This instance is reused across messages, so the fetch is only this card's while its
-	// job still matches — otherwise the previous message's run would render for a frame.
-	const inspectedJob = $derived(fetched?.jobId === inspected?.jobId ? fetched : undefined)
+	// Keyed by call id like the rest of this card's state, not by the job it read: a summarized
+	// transcript hands a surviving instance a different row, and two rows can inspect one job
+	// at different moments, so a job-keyed snapshot would serve the earlier row's reading.
+	const inspectedJob = $derived(fetched?.callId === message.tool_call_id ? fetched : undefined)
 
 	const inspectedStatus = $derived(inspectedJob ? deriveChatJobStatus(inspectedJob.job) : undefined)
 
@@ -222,7 +223,8 @@
 			if (fetched?.logsFailed) fetched = undefined
 			return
 		}
-		if (fetched?.jobId === target.jobId || fetchFailed === target.jobId) return
+		const callId = message.tool_call_id
+		if (fetched?.callId === callId || fetchFailed === callId) return
 		const jobReq = JobService.getJob({
 			workspace: target.workspace,
 			id: target.jobId,
@@ -250,10 +252,10 @@
 			)
 		])
 			.then(([j, l]) => {
-				if (live) fetched = { jobId: target.jobId, job: j, ...l }
+				if (live) fetched = { callId, job: j, ...l }
 			})
 			.catch(() => {
-				if (live) fetchFailed = target.jobId
+				if (live) fetchFailed = callId
 			})
 		return () => {
 			live = false
@@ -541,7 +543,7 @@
 						<!-- The strip above stays whatever the job does: the call's own result is already
 						     in the transcript, and the JSON toggle is how it is read. -->
 						<div class="text-2xs leading-4 text-hint">
-							{#if fetchFailed === inspected?.jobId}
+							{#if fetchFailed === message.tool_call_id}
 								This run could not be read. It may have been deleted, or be in another workspace.
 								Its result is on the JSON toggle.
 							{:else}
