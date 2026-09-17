@@ -34,7 +34,8 @@ export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 		case 'write_schedule':
 			return withItem(['/schedules'], itemRef('schedule', args))
 		case 'write_trigger':
-			return withItem(triggerPages(args?.kind), itemRef('trigger', args, args?.kind))
+			// Its path sits in the trigger's own config, not beside `kind`.
+			return withItem(triggerPages(args?.kind), itemRef('trigger', args?.config, args?.kind))
 		case 'write_resource':
 			return withItem(['/resources'], itemRef('resource', args))
 		case 'write_variable':
