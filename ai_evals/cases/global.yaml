@@ -889,13 +889,13 @@
     draftCountExactly: 0
   toolExpect:
     requiredToolsUsed:
-      - get_job_logs
+      - get_run
     forbiddenToolsUsed:
       - deploy_workspace_item
       - delete_workspace_item
       - write_script
     toolCallArgs:
-      - tool: get_job_logs
+      - tool: get_run
         field: id
         stringIncludesAnyOf:
           - 01920000-0000-7000-8000-0000000000f1
@@ -905,6 +905,34 @@
   judgeChecklist:
     - fetches the logs for the requested job id
     - explains the failure from the returned logs (connection refused to the upstream API)
+
+- id: global-run-args-and-result
+  prompt: |-
+    What was the run 01920000-0000-7000-8000-0000000000f2 called with, and what did it return?
+  initial: ai_evals/fixtures/frontend/global/initial/jobs_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_run
+    forbiddenToolsUsed:
+      - test_run_script
+      - run_script
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: get_run
+        field: id
+        stringIncludesAnyOf:
+          - 01920000-0000-7000-8000-0000000000f2
+  # Read-only, so no draft for the global judge to score — validated on tool use
+  # and the deterministic argument check, like the neighbouring run cases.
+  skipJudge: true
+  judgeChecklist:
+    - reports the arguments the run was called with (region emea, 12 recipients)
+    - reports what the run returned (12 sent, 3 skipped)
+    - does not start a new run to find out
 
 # --- Page navigation (open_page) ---
 # The assistant should take the user to a Windmill page (Runs/Schedules) with the

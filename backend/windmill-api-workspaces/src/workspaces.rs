@@ -1316,26 +1316,22 @@ async fn get_git_sync_deploy_mode(
 
     let configured = !settings.repositories.is_empty();
 
-    // Auto-pull runs only on Enterprise-licensed instances (see poll_git_auto_pull);
-    // without a caller branch there is nothing to match. Either way deploy_on_push
-    // stays false and the caller falls back (git push via CI, or wmill sync push).
+    // Auto-pull runs only in builds that compile the poller (`private`); without a
+    // caller branch there is nothing to match. Either way deploy_on_push stays
+    // false and the caller falls back (git push via CI, or wmill sync push).
     let Some(branch) = q.branch.as_deref() else {
         return Ok(Json(GitSyncDeployMode {
             configured,
             deploy_on_push: false,
         }));
     };
-    let licensed = matches!(
-        windmill_common::ee_oss::get_license_plan().await,
-        windmill_common::ee_oss::LicensePlan::Enterprise
-    );
 
     // Count the auto-pull repos that would deploy this branch. We deliberately do
     // not check the caller's remote URL: with exactly one such repo the local
     // checkout is unambiguously it, and with several we can't tell which is the
     // caller's, so we report false and let the CLI ask the user.
     let mut matches = 0u32;
-    if licensed && !root_deleted {
+    if cfg!(feature = "private") && !root_deleted {
         for repo in &settings.repositories {
             let Some(auto_pull) = repo.auto_pull.as_ref() else {
                 continue;
@@ -4234,54 +4230,6 @@ fn cleanup_legacy_git_sync_settings_in_memory(
 #[cfg(not(feature = "enterprise"))]
 const CE_GIT_SYNC_MAX_USERS: i64 = 2;
 
-/// Auto-pull is licensed per plan, not just per build: the poller only serves
-/// Enterprise plans at runtime, so the save path must reject the setting too —
-/// otherwise an EE binary without the plan could still register a webhook and
-/// receive webhook-driven pulls.
-#[cfg(feature = "enterprise")]
-async fn check_git_sync_ee_license(feature: &str) -> Result<()> {
-    if !matches!(
-        windmill_common::ee_oss::get_license_plan().await,
-        windmill_common::ee_oss::LicensePlan::Enterprise
-    ) {
-        return Err(Error::BadRequest(format!(
-            "{feature} requires an Enterprise license"
-        )));
-    }
-    Ok(())
-}
-
-#[cfg(feature = "enterprise")]
-async fn check_auto_pull_license() -> Result<()> {
-    check_git_sync_ee_license("Automatic pull from git").await
-}
-
-/// In-app PR creation (promotion/fork deploy branches) drives GitHub API calls
-/// from the deploy completion hook; runtime-gate it like auto-pull.
-#[cfg(feature = "enterprise")]
-async fn check_open_prs_license<'a>(
-    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
-) -> Result<()> {
-    if repos.any(|r| r.promotion_open_prs || r.fork_open_prs) {
-        check_git_sync_ee_license("Opening pull requests from Windmill").await?;
-    }
-    Ok(())
-}
-
-/// Promotion mode (`use_individual_branch`: per-item `wm_deploy/**` deploy
-/// branches) is an EE feature; runtime-gate it like auto-pull and PR creation
-/// so an enterprise binary without an active plan can't enable it via either
-/// git-sync edit endpoint.
-#[cfg(feature = "enterprise")]
-async fn check_promotion_license<'a>(
-    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
-) -> Result<()> {
-    if repos.any(|r| r.use_individual_branch.unwrap_or(false)) {
-        check_git_sync_ee_license("Promotion mode").await?;
-    }
-    Ok(())
-}
-
 /// Promotion on a dev workspace needs the dev-aware sync script (hub >= 28796):
 /// an older pinned script bundles a CLI that force-disables per-item branches
 /// on every fork, so enabling promotion would silently keep deploying to the
@@ -4533,18 +4481,6 @@ async fn edit_git_sync_config(
             ));
         }
         #[cfg(feature = "enterprise")]
-        if git_sync_settings
-            .repositories
-            .iter()
-            .any(|r| r.auto_pull.as_ref().is_some_and(|a| a.enabled))
-        {
-            check_auto_pull_license().await?;
-        }
-        #[cfg(feature = "enterprise")]
-        check_open_prs_license(git_sync_settings.repositories.iter()).await?;
-        #[cfg(feature = "enterprise")]
-        check_promotion_license(git_sync_settings.repositories.iter()).await?;
-        #[cfg(feature = "enterprise")]
         check_dev_promotion_script_version(&db, &w_id, git_sync_settings.repositories.iter())
             .await?;
         #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -4782,19 +4718,6 @@ async fn edit_git_sync_repository(
         ));
     }
     #[cfg(feature = "enterprise")]
-    if new_config
-        .repository
-        .auto_pull
-        .as_ref()
-        .is_some_and(|a| a.enabled)
-    {
-        check_auto_pull_license().await?;
-    }
-    #[cfg(feature = "enterprise")]
-    check_open_prs_license(std::iter::once(&new_config.repository)).await?;
-    #[cfg(feature = "enterprise")]
-    check_promotion_license(std::iter::once(&new_config.repository)).await?;
-    #[cfg(feature = "enterprise")]
     check_dev_promotion_script_version(&db, &w_id, std::iter::once(&new_config.repository)).await?;
     #[cfg(all(feature = "enterprise", feature = "private"))]
     check_dev_promotion_targets_parent_repo(&db, &w_id, std::iter::once(&new_config.repository))
@@ -4899,13 +4822,6 @@ async fn edit_git_sync_repository(
                 updated.auto_pull = existing_repo.auto_pull.clone();
             }
             _ => {}
-        }
-        // The request-side license gate above only saw the submitted config; the
-        // preservation can resurrect an enabled auto_pull (None arm), so re-check
-        // the effective state before it gets written and reconciled.
-        #[cfg(feature = "enterprise")]
-        if updated.auto_pull.as_ref().is_some_and(|a| a.enabled) {
-            check_auto_pull_license().await?;
         }
         *existing_repo = updated;
     } else {
