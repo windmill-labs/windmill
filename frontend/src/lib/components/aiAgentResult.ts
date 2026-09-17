@@ -51,13 +51,10 @@ function hasRole(message: unknown): boolean {
 }
 
 /**
- * A job result is whatever its script returned, so a message that passed the
- * shape check still has arbitrary anything underneath. Everything downstream
- * reads these as `AgentMessage`, and a value of the wrong type there throws in
- * the middle of rendering, taking the whole result viewer with it.
- *
- * So the coercion happens once, here: past this point the declared type is the
- * real one, and no reader needs a guard of its own.
+ * A job result is whatever its script returned, so a message that passed the shape
+ * check still has anything underneath. Coerced once here rather than guarded at
+ * each reader: a wrong type reaching one throws mid-render and takes the whole
+ * result viewer down, including the plain error it usually rides on.
  */
 function toAgentMessage(raw: Record<string, unknown>): AgentMessage {
 	const toolCalls = Array.isArray(raw.tool_calls)
@@ -98,22 +95,10 @@ function toAgentMessages(raw: unknown[]): AgentMessage[] {
 }
 
 /**
- * Recognise the envelope by its shape rather than by a marker key the worker
- * would have to add: sniffing works on runs that already completed, and the
- * envelope is also what a nested agent hands back, where an added key would
- * travel into the parent's conversation.
- *
- * The signature is deliberately closed — no key outside `ENVELOPE_KEYS`, and
- * every message carrying a `role` — so an ordinary result that happens to have
- * an `output` field cannot claim it.
- *
- * It stops short of also requiring a recognised `agent_action`, which would rule
- * out a hand-written script returning this same shape. Not every completed run
- * is guaranteed to tag a message (a run whose provider returns its answer
- * through a structured-output tool leaves the final assistant message untagged),
- * and the two failures are not symmetric: claiming a lookalike costs a viewer
- * one click on the JSON toggle, while rejecting a real agent hides its answer
- * with nothing on screen to say why.
+ * Recognised by shape, not a marker key: sniffing works on completed runs, and an
+ * added key would travel into a parent agent's conversation. Deliberately not also
+ * requiring a tagged `agent_action` — a run answering through a structured-output
+ * tool tags nothing, and hiding a real answer costs more than claiming a lookalike.
  */
 export function parseAgentResult(result: unknown): AgentResult | undefined {
 	if (!isRecord(result)) {
@@ -276,12 +261,10 @@ export function isAgentStream(raw: string): boolean {
 }
 
 /**
- * Fold the events that arrived since `previous` into the answer so far.
- *
- * Incremental rather than a parse of the whole buffer: the stream only ever
- * grows, a poll can arrive every 50ms, and a `tool_result` event carries the
- * tool's entire output — so re-reading everything each time is quadratic in the
- * number of events with a large constant.
+ * Fold the events that arrived since `previous` into the answer so far. Incremental
+ * rather than a parse of the whole buffer: the stream only grows, a poll can arrive
+ * every 50ms, and a `tool_result` carries the tool's entire output, so re-reading it
+ * all each tick is quadratic with a large constant.
  */
 export function advanceAgentStream(
 	raw: string,

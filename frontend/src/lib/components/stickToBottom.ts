@@ -1,12 +1,8 @@
 /**
- * The mechanics of keeping a growing pane pinned to its end, shared by the AI
- * chat transcript and the agent run viewer.
- *
- * Both need the same non-obvious guard, which is why this is not two copies: a
- * programmatic scroll dispatches its own `scroll` event asynchronously, and if
- * content lands between the call and the event the gap can exceed the threshold
- * for one tick — read naively, that looks like the reader scrolling away and
- * disengages the follow mid-stream.
+ * Keeps a growing pane pinned to its end, for the chat transcript and the agent run
+ * viewer. Shared for one non-obvious guard: a programmatic scroll dispatches its
+ * `scroll` event asynchronously, so content landing in between widens the gap for a
+ * tick, which reads as the reader scrolling away and disengages the follow.
  */
 
 /**

@@ -1,14 +1,8 @@
 /**
- * The pane an agent run is rendered in: the nearest ancestor that is a real
- * scroll container.
- *
- * Selection is on `overflow-y` alone, deliberately *not* on whether the element
- * currently overflows. A pane that happens to fit its content is still the pane,
- * and skipping it walks straight past into page chrome — `#content` and `<body>`
- * report `scrollHeight > clientHeight` merely because the document scrolls, so an
- * overflow test picks them and scrolling one drops a whole run page to its
- * footer. Their `overflow-y` is `visible`, which is what actually distinguishes
- * them, and the walk stops at the page's content root either way.
+ * The pane an agent run is rendered in. Selected on `overflow-y` alone, never on
+ * whether the element currently overflows: a pane that fits its content is still
+ * the pane, and an overflow test walks past it into `#content`, which overflows
+ * merely because the document scrolls — scrolling that drops the whole page.
  */
 export function runPane(node: HTMLElement | undefined | null): HTMLElement | undefined {
 	let current = node?.parentElement

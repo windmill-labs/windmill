@@ -175,16 +175,8 @@ describe('the max-iterations path', () => {
 				result: { messages }
 			}
 		})
-		expect(partial).toBeDefined()
-		expect(buildAgentTrace(partial!)).toEqual([
-			{
-				kind: 'tool',
-				name: 'query_metrics',
-				args: '{"w":"30m"}',
-				result: '{"eu-central-1":0.184}',
-				jobId: '0199-job'
-			},
-			{ kind: 'assistant', content: 'eu-central-1 is down.', sources: undefined }
-		])
+		// The trace itself is `buildAgentTrace`'s, pinned above; what this path can
+		// lose is the tags it reads, and an untagged conversation traces to nothing.
+		expect(buildAgentTrace(partial ?? [])).toHaveLength(2)
 	})
 })

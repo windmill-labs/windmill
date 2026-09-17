@@ -17,11 +17,10 @@
 		/** Identifies the run, so a reused viewer lands on the new one's output. */
 		runKey?: string
 		/**
-		 * How to render an output that is not text. An `output_schema` makes `output`
-		 * an object, and the right rendering for it is whatever the result viewer
-		 * would do with that object on its own — a table for rows, the file viewer
-		 * for an S3 object. Passed in rather than imported so this component does not
-		 * have to reach back into the viewer that renders it.
+		 * How to render an output that is not text: whatever the result viewer would do
+		 * with that object on its own, a table for rows or the file viewer for an S3
+		 * object. Passed in rather than imported so this does not reach back into the
+		 * viewer rendering it.
 		 */
 		structuredOutput: Snippet<[unknown]>
 	}

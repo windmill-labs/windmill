@@ -2,14 +2,10 @@ import type { WebSearchSource } from './copilot/chat/shared'
 import type { AgentMessage } from './aiAgentResult'
 
 /**
- * One entry in the trace of an agent run. Built from the envelope alone: the tool
- * arguments come from the assistant message that asked for the call, and the
- * result from the `tool` message that answered it, so the trace renders without
- * waiting on any request. A tool's child job is enrichment (logs, duration,
- * whether it succeeded), not what makes the row.
- *
- * The prompt and the user's question are deliberately absent. They are inputs to
- * the step and are shown as inputs; the trace is what the agent did with them.
+ * One entry in the trace of an agent run, built from the envelope alone so it
+ * renders without waiting on any request; a tool's child job is enrichment. The
+ * prompt and the question are deliberately absent: they are the step's inputs and
+ * are shown as inputs, while the trace is what the agent did with them.
  */
 export type AgentTraceEntry =
 	| { kind: 'assistant'; content: string; sources?: WebSearchSource[] }
@@ -111,16 +107,10 @@ export function buildAgentTrace(messages: AgentMessage[]): AgentTraceEntry[] {
 }
 
 /**
- * Separates the turn that produced the output from the rest of the trace, so a
- * view can render the answer once, under its own heading, with the citations
- * that belong to it.
- *
- * The turn is found by content, and from the end rather than at it. Every turn
- * that produced text is an entry while only one of them became the output, so a
- * run whose last turn returned a tool call and no text leaves its answer sitting
- * mid-trace — and anything that only inspects the final entry renders that answer
- * twice. Searching from the end is what makes two turns of identical text resolve
- * to the later one.
+ * Separates the turn that produced the output from the rest of the trace, so the
+ * answer is rendered once with the citations that belong to it. Found by content
+ * and searched from the end: a run whose last turn returned a tool call leaves its
+ * answer mid-trace, where inspecting only the final entry prints it twice.
  */
 export function splitFinalAnswer(
 	entries: AgentTraceEntry[],

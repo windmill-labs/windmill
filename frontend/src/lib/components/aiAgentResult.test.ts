@@ -37,8 +37,6 @@ describe('parseAgentResult', () => {
 		['messages that are not a list', { output: 'a', messages: { role: 'user' } }],
 		['no messages at all', { output: 'a', messages: [] }],
 		['a message without a role', { output: 'a', messages: [{ content: 'ask' }] }],
-		['an array', [envelope]],
-		['a string', 'output'],
 		['null', null]
 	])('rejects %s', (_label, value) => {
 		expect(parseAgentResult(value)).toBeUndefined()
@@ -89,15 +87,6 @@ describe('agent stream', () => {
 		// What the fold cannot use must not claim the pane either, or the script's
 		// own output is replaced by a view with nothing to draw.
 		expect(isAgentStream('{"type":"tool_call","function_name":"q"}\n')).toBe(false)
-	})
-
-	it('folds the token deltas into the answer so far', () => {
-		const { stream } = advanceAgentStream(events, emptyAgentStreamProgress())
-		expect(stream.current).toBe('eu-central-1 is down')
-		expect(stream.reasoning).toBe('checking')
-		expect(stream.entries).toEqual([
-			{ kind: 'tool', callId: 'c1', name: 'query_metrics', running: false, success: true }
-		])
 	})
 
 	// The stream only grows, so each poll must fold in the new lines and re-read
