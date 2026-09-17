@@ -137,6 +137,42 @@ tool, \`websearch\` for web search.
   "resource": "$res:<path>", "model": <model id> }\`. Required unless the module links to a saved
   agent through \`value.agent\`
 
+### Chat-Mode Flows
+
+A flow with \`value.chat_input_enabled: true\` is run from a chat instead of a form: the composer
+sends one message per turn and renders the conversation. It needs a required \`user_message\` string
+input, read by the agent. Any other flow input stays and is asked for under Configure inputs.
+
+\`\`\`json
+{
+  "id": "chat_agent",
+  "value": {
+    "type": "aiagent",
+    "input_transforms": {
+      "provider": {
+        "type": "static",
+        "value": { "kind": "anthropic", "resource": "$res:f/ai/claude", "model": "claude-sonnet-5" }
+      },
+      "user_message": { "type": "javascript", "expr": "flow_input.user_message" },
+      "user_attachments": { "type": "javascript", "expr": "flow_input.files" },
+      "memory": { "type": "static", "value": { "kind": "auto", "context_length": 10 } },
+      "streaming": { "type": "static", "value": true },
+      "output_type": { "type": "static", "value": "text" }
+    },
+    "tools": []
+  }
+}
+\`\`\`
+
+- \`memory\` is what lets the agent see earlier turns; without it every message starts from nothing
+- \`streaming\` on makes the answer and its thinking appear token by token instead of all at once
+- \`user_attachments\` points at a flow input typed as an array of s3 objects
+  (\`{ "type": "array", "items": { "type": "object", "resourceType": "s3object" } }\`), so files
+  sent with a message reach the agent
+- Running one needs a \`memory_id\` **query parameter** — not a flow argument — naming the
+  conversation the turn belongs to: a fresh UUID starts one, reusing a UUID continues it. The chat
+  supplies it itself; a run driven any other way has to pass it or the server refuses the job
+
 ### Tool Naming Rules
 
 These rules cover \`flowmodule\` tools, the ones the agent calls by name. A \`websearch\` tool's

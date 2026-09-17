@@ -999,6 +999,11 @@
 									{helperScript}
 									{s3StorageConfigured}
 									{chatInputEnabled}
+									oneOfLockedReason={chatInputEnabled &&
+									arg?.type === 'static' &&
+									(arg.value as any)?.kind !== 'off'
+										? schema.properties[argName]?.lockOneOfWhenChatEnabled
+										: undefined}
 									otherArgs={Object.fromEntries(
 										Object.entries(otherArgs).map(([key, transform]) => [
 											key,
