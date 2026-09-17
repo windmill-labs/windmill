@@ -2204,17 +2204,15 @@ async fn list_datatables(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<DataTableListItem>> {
-    let names = list_datatable_names(&db, &w_id).await?;
+    // A pointer entry owns no database, so what it resolves to is the only truthful answer here.
+    // One that resolves to nothing — a pointer whose workspace was deleted — is dropped rather than
+    // listed with a database it does not have; what happened is named where it is actionable
+    // instead: by the delete that stranded it, and by any attempt to use it.
+    let resolved =
+        windmill_common::workspaces::resolve_workspace_governing_datatables(&db, &w_id).await?;
 
-    let mut items = Vec::with_capacity(names.len());
-    for name in names {
-        // A pointer entry owns no database, so what it resolves to is the only truthful answer
-        // here. One that resolves to nothing — a pointer whose workspace was deleted — is dropped
-        // rather than listed with a database it does not have; what happened is named where it is
-        // actionable instead: by the delete that stranded it, and by any attempt to use it.
-        let Ok(governing) = resolve_governing_datatable(&db, &w_id, &name).await else {
-            continue;
-        };
+    let mut items = Vec::with_capacity(resolved.len());
+    for (name, governing) in resolved {
         let database = governing
             .datatable
             .database
