@@ -123,7 +123,8 @@
 	 * longer shows would be stored where nothing here lists it.
 	 */
 	async function setKind(next: ConversationKind) {
-		if (next === kind) return
+		// A turn writes into the open conversation, which a kind that excludes it would close.
+		if (next === kind || turnInFlight) return
 		kind = next
 		const open = items.find((c) => c.id === chatState.conversationId)
 		const stillListed = open === undefined || next === 'all' || (next === 'test') === open.isTest
@@ -218,7 +219,12 @@
 				{#if canFilterKind}
 					<!-- No focus trap: opening a row's menu does not close this popover, and a
 					     trapped popover pulls focus back from the rename field that menu opens. -->
-					<Popover placement="bottom-start" closeButton={false} disableFocusTrap>
+					<Popover
+						placement="bottom-start"
+						closeButton={false}
+						disableFocusTrap
+						disabled={turnInFlight}
+					>
 						{#snippet trigger()}
 							<!-- Icon-only next to the wider New chat: which kind is listed is named in
 							     the title and by the group inside. -->
@@ -239,6 +245,7 @@
 								<ToggleButtonGroup
 									selected={kind}
 									onSelected={(next) => setKind(next as ConversationKind)}
+									disabled={turnInFlight}
 									noWFull
 								>
 									{#snippet children({ item })}
