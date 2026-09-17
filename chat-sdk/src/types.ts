@@ -140,8 +140,8 @@ export interface Chat {
   /**
    * `kind` narrows server history to the flow editor's test chats, the deployed flow's
    * own (the server's default), or both. Local history has no test chats and ignores it.
-   * A response that lands after `setFlowPath` moved the path returns the current listing
-   * (first page) or nothing (later pages), never the old path's rows.
+   * A response that lands after another kind was asked for or `setFlowPath` moved the path
+   * returns the current listing (first page) or nothing (later pages), never its own rows.
    */
   loadConversations(options?: {
     page?: number

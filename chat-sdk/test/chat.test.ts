@@ -575,6 +575,14 @@ describe('createChat with server history', () => {
     // What the late response hands its caller too: a list loader shows these rows.
     expect((await slow).map((c) => c.id)).toEqual(['renamed'])
     expect(chat.getState().conversations.map((c) => c.id)).toEqual(['renamed'])
+
+    // The path and the kind changing together are one stale listing, not a stale kind.
+    const both = createChat(options({}, fetch))
+    const slowTest = both.loadConversations({ kind: 'test' })
+    both.setFlowPath('f/chat/renamed')
+    await both.loadConversations({ kind: 'deployed' })
+    expect((await slowTest).map((c) => c.id)).toEqual(['renamed'])
+    expect(both.getState().conversations.map((c) => c.id)).toEqual(['renamed'])
   })
 
   test('lists one kind of conversation and carries which kind each one is', async () => {
