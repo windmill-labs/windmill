@@ -65,11 +65,6 @@ function dataUrlToBlob(dataUrl: string, fallbackType: string): Blob {
   return new Blob([bytes], { type: mediaType })
 }
 
-/** Delete uploads no run will read. Best effort: a delete that fails leaves that object behind. */
-export async function discardUploads(api: WindmillChatApi, uploaded: UploadedAttachment[]): Promise<void> {
-  await Promise.all(uploaded.map((u) => api.deleteFile(u.s3).catch(() => {})))
-}
-
 /**
  * Put each attachment in the workspace's object storage and hand back what the agent reads.
  * The key's turn prefix and per-file index keep two files with the same name, in this turn or
@@ -82,9 +77,8 @@ export async function uploadAttachments(
   signal?: AbortSignal
 ): Promise<UploadedAttachment[]> {
   const prefix = `${CHAT_UPLOADS_PREFIX}/${turnId}`
-  // One failed upload aborts the rest, and whatever already landed is deleted: no run will
-  // read it, and a resend uploads under a fresh prefix. Best effort, so a delete that fails
-  // leaves that object behind rather than masking the upload error.
+  // One failed upload aborts the rest. Nothing already stored is deleted: the chat never
+  // removes objects from the workspace's storage, so a send that does not run leaves them.
   if (signal?.aborted) throw abortError()
   const batch = new AbortController()
   const abortBatch = () => batch.abort()
@@ -109,11 +103,11 @@ export async function uploadAttachments(
         }
       })
     )
-    const uploaded = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
     const reasons = results.flatMap((r) => (r.status === 'rejected' ? [r.reason] : []))
     // A stop that lands once every upload has answered still withdraws the batch.
-    if (reasons.length === 0 && !signal?.aborted) return uploaded
-    await discardUploads(api, uploaded)
+    if (reasons.length === 0 && !signal?.aborted) {
+      return results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+    }
     // The failure that started it, not the aborts it caused in the other uploads.
     throw reasons.find((reason) => !isAbortError(reason)) ?? reasons[0] ?? abortError()
   } finally {

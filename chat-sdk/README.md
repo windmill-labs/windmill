@@ -252,9 +252,10 @@ message lists them in `attachments`, as `{ input, s3, filename }` references. Th
 extension is corrected to the file's media type for PNG, JPEG and PDF, because the worker
 reads the type off the key.
 Files need message text to go with them. A failed upload rejects `sendMessage` before any
-run starts, and `stop()` during the upload aborts it; both leave the transcript as it was. The workspace needs object
-storage set up. With Enterprise advanced storage permissions, the user needs read, write
-and delete on `windmill_uploads/*`, which the default rules grant. The upload goes through
+run starts, and `stop()` during the upload aborts it; both leave the transcript as it was.
+The chat never deletes uploads, so files of a send that did not run stay in storage. The
+workspace needs object storage set up. With Enterprise advanced storage permissions, the
+user needs read and write on `windmill_uploads/*`, which the default rules grant. The upload goes through
 `job_helpers`, so a restricted token needs `job_helpers:write`; a sandboxed raw app cannot
 request that scope today, so attachments are not available there yet.
 

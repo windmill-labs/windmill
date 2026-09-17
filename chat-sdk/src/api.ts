@@ -232,11 +232,6 @@ export class WindmillChatApi {
     return (await res.json()) as { file_key: string }
   }
 
-  /** Removes an object from the workspace's object storage. */
-  async deleteFile(fileKey: string): Promise<void> {
-    await this.#request('job_helpers/delete_s3_file', { method: 'DELETE', query: { file_key: fileKey } })
-  }
-
   async deleteConversation(conversationId: string): Promise<void> {
     await this.#request(`flow_conversations/delete/${encodeURIComponent(conversationId)}`, {
       method: 'DELETE'

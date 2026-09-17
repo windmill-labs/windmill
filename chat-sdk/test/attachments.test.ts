@@ -259,7 +259,7 @@ describe('sendMessage with attachments', () => {
     expect((await reloaded.loadConversations()).map((c) => c.id)).not.toContain(opened)
   })
 
-  test('a failed upload deletes the files of the same batch that did land', async () => {
+  test('a failed upload aborts the rest of its batch and deletes nothing', async () => {
     let first: (r: Response) => void = () => {}
     const { fetch, calls } = fetchMock(
       (c) => {
@@ -270,10 +270,6 @@ describe('sendMessage with attachments', () => {
         setTimeout(() => first(json({ file_key: keys()[0] })), 5)
         return text('quota exceeded', 507)
       },
-      (c) =>
-        c.method === 'DELETE' && c.url.pathname === '/api/w/ws/job_helpers/delete_s3_file'
-          ? json('deleted')
-          : undefined,
       run,
       answer
     )
@@ -288,10 +284,7 @@ describe('sendMessage with attachments', () => {
         attachmentsInput: { name: 'files', multiple: true }
       })
     ).rejects.toThrow('quota exceeded')
-    const deletes = calls
-      .filter((c) => c.method === 'DELETE')
-      .map((c) => c.url.searchParams.get('file_key'))
-    expect(deletes).toEqual([keys()[0]])
+    expect(calls.filter((c) => c.method === 'DELETE')).toEqual([])
     expect(runs(calls)).toHaveLength(0)
   })
 
@@ -414,16 +407,8 @@ describe('sendMessage with attachments', () => {
     expect(call.url.searchParams.get('content_type')).toBe('application/pdf')
   })
 
-  test('stop() after the uploads land but before the run starts deletes them and runs nothing', async () => {
-    const { fetch, calls } = fetchMock(
-      upload,
-      (c) =>
-        c.method === 'DELETE' && c.url.pathname === '/api/w/ws/job_helpers/delete_s3_file'
-          ? json('deleted')
-          : undefined,
-      run,
-      answer
-    )
+  test('stop() after the uploads land but before the run starts runs nothing', async () => {
+    const { fetch, calls } = fetchMock(upload, run, answer)
     const chat = createChat(options(fetch))
     const sending = chat.sendMessage('read this', {
       attachments: [{ name: 'contract.pdf', data: pdf }],
@@ -434,23 +419,12 @@ describe('sendMessage with attachments', () => {
     await chat.stop()
     await expect(sending).rejects.toMatchObject({ name: 'AbortError' })
     expect(runs(calls)).toHaveLength(0)
-    const key = uploads(calls)[0].url.searchParams.get('file_key')
-    expect(
-      calls.filter((c) => c.method === 'DELETE').map((c) => c.url.searchParams.get('file_key'))
-    ).toEqual([key])
+    expect(calls.filter((c) => c.method === 'DELETE')).toEqual([])
     expect(chat.getState()).toMatchObject({ status: 'idle', messages: [], conversations: [] })
   })
 
-  test('a subscriber stopping when the attachments appear still discards the uploads', async () => {
-    const { fetch, calls } = fetchMock(
-      upload,
-      (c) =>
-        c.method === 'DELETE' && c.url.pathname === '/api/w/ws/job_helpers/delete_s3_file'
-          ? json('deleted')
-          : undefined,
-      run,
-      answer
-    )
+  test('a subscriber stopping when the attachments appear runs nothing', async () => {
+    const { fetch, calls } = fetchMock(upload, run, answer)
     const chat = createChat(options(fetch))
     chat.subscribe((s) => {
       if (s.messages.some((m) => m.attachments)) void chat.stop()
@@ -462,10 +436,7 @@ describe('sendMessage with attachments', () => {
       })
     ).rejects.toMatchObject({ name: 'AbortError' })
     expect(runs(calls)).toHaveLength(0)
-    const key = uploads(calls)[0].url.searchParams.get('file_key')
-    expect(
-      calls.filter((c) => c.method === 'DELETE').map((c) => c.url.searchParams.get('file_key'))
-    ).toEqual([key])
+    expect(calls.filter((c) => c.method === 'DELETE')).toEqual([])
     expect(chat.getState()).toMatchObject({ status: 'idle', messages: [], conversations: [] })
   })
 })
