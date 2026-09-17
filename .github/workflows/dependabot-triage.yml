@@ -10,10 +10,12 @@
 #   - at most ONE draft PR per ecosystem (branch security/dependabot-<ecosystem>-<date>,
 #     title "chore(security): resolve Dependabot alerts in <manifest>") containing only
 #     targeted, verified bumps, with the check results in the PR body;
-#   - a Linear ticket in the WIN team for every P0/P1/decision, and a webmux fix job for
-#     items with a concrete fix request (Claude writes .dependabot-triage/handoff.json;
-#     the "Hand off" step POSTs it to f/security/dependabot_handoff in the windmill-prod
-#     workspace, which runs the prompt-injection gate before dispatching webmux);
+#   - a thread in the support triage pipeline for everything that needs a person (P0, P1,
+#     decisions, ambiguous fixes), exactly like a privately reported GitHub advisory:
+#     Discord forum thread, sandboxed re-analysis, and a webmux fix job when the fix is
+#     concrete (behind the pipeline's prompt-injection gate). P0/P1 also get a WIN Linear
+#     ticket with the policy deadline. Claude writes .dependabot-triage/handoff.json; the
+#     "Hand off" step POSTs it to f/security/dependabot_handoff in windmill-prod;
 #   - one GitHub issue "Dependabot triage <date>" as the public record of the run.
 #     A P0 finding produces only the hand-off and an issue titled
 #     "[P0] Dependabot triage <date>" with no exploit detail.
@@ -257,9 +259,10 @@ jobs:
           [ "$FAILED" = "0" ] || echo "::warning::$FAILED dismissal(s) failed; see the summary"
 
       # Claude only writes handoff.json; this step POSTs it to the windmill-prod script that
-      # creates the Linear tickets and dispatches webmux (behind the injection gate). The
-      # script is idempotent on alert numbers, so a re-run does not duplicate tickets.
-      - name: Hand off to Linear and webmux
+      # starts one support-triage thread per item (origin `dependabot`) and creates the
+      # P0/P1 Linear tickets. Thread ids and ticket markers are derived from the alert
+      # numbers, so a re-run adds a follow-up to the same thread instead of a duplicate.
+      - name: Hand off to the support triage pipeline
         if: steps.alerts.outputs.count != '0' && hashFiles('.dependabot-triage/handoff.json') != ''
         env:
           WM_TOKEN: ${{ secrets.WINDMILL_TRIAGE_TOKEN }}
