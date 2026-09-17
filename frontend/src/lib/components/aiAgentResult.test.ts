@@ -22,6 +22,11 @@ describe('parseAgentResult', () => {
 	it('accepts the envelope with and without its optional keys', () => {
 		expect(parseAgentResult(envelope)?.output).toBe('the answer')
 		expect(parseAgentResult({ output: 1, messages: [{ role: 'user' }] })?.messages).toHaveLength(1)
+		// A key the worker serializes and the signature does not know costs every run
+		// carrying it the pretty display, so each one is pinned here.
+		expect(parseAgentResult({ ...envelope, reasoning: 'let me think' })?.reasoning).toBe(
+			'let me think'
+		)
 	})
 
 	// The signature is the only thing separating an agent result from any other

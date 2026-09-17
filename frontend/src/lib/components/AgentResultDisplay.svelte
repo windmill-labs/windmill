@@ -3,6 +3,7 @@
 	import { Badge } from '$lib/components/common'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import AgentTrace from './AgentTrace.svelte'
+	import ChatCollapsibleCard from './copilot/chat/ChatCollapsibleCard.svelte'
 	import LabeledDivider from './LabeledDivider.svelte'
 	import WebSearchSourcesDisplay from './copilot/chat/WebSearchSourcesDisplay.svelte'
 	import { buildAgentTrace, splitFinalAnswer } from './agentTrace'
@@ -35,6 +36,8 @@
 	// answered itself. Its citations move down with it.
 	let answer = $derived(splitFinalAnswer(buildAgentTrace(result.messages), result.output))
 	let trace = $derived(answer.trace)
+	let reasoning = $derived(result.reasoning?.trim())
+	let reasoningExpanded = $state(false)
 
 	let anchor: HTMLElement | undefined = $state()
 	const sticker = createBottomSticker()
@@ -43,6 +46,7 @@
 		// so the end has moved from wherever the stream had the reader parked.
 		runKey
 		trace.length
+		reasoning
 		sticker.scrollToEnd(runPane(anchor))
 	})
 </script>
@@ -50,6 +54,20 @@
 <div bind:this={anchor} class="flex flex-col w-full py-3">
 	{#if trace.length > 0}
 		<AgentTrace entries={trace} {workspaceId} />
+	{/if}
+	{#if reasoning}
+		<!-- The whole run's thinking, which the worker hands back joined rather than
+		     per iteration, so it reads as one block above the answer it led to. -->
+		<ChatCollapsibleCard
+			label="Thinking"
+			expanded={reasoningExpanded}
+			onToggle={() => (reasoningExpanded = !reasoningExpanded)}
+			contentClass="font-main"
+		>
+			<GfmMarkdown md={reasoning} prose="xs" noPadding />
+		</ChatCollapsibleCard>
+	{/if}
+	{#if trace.length > 0 || reasoning}
 		<LabeledDivider class="my-3">
 			<span class="text-2xs text-hint">Output</span>
 		</LabeledDivider>

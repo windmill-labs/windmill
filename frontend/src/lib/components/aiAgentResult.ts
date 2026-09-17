@@ -31,10 +31,16 @@ export type AgentResult = {
 	messages: AgentMessage[]
 	usage?: AgentTokenUsage
 	wm_stream?: string
+	/** The model's thinking across every iteration, blank-line separated. */
+	reasoning?: string
 }
 
-/** Every key `AIAgentResult` can serialize. `usage` and `wm_stream` are skipped when empty. */
-const ENVELOPE_KEYS = ['output', 'messages', 'usage', 'wm_stream']
+/**
+ * Every key `AIAgentResult` can serialize; the optional ones are skipped when
+ * empty. The signature below is closed, so a key the worker gains and this list
+ * does not makes every run carrying it fall back to the raw JSON.
+ */
+const ENVELOPE_KEYS = ['output', 'messages', 'usage', 'wm_stream', 'reasoning']
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -129,7 +135,8 @@ export function parseAgentResult(result: unknown): AgentResult | undefined {
 		output: result.output,
 		messages: toAgentMessages(result.messages),
 		usage: isRecord(result.usage) ? (result.usage as AgentTokenUsage) : undefined,
-		wm_stream: typeof result.wm_stream === 'string' ? result.wm_stream : undefined
+		wm_stream: typeof result.wm_stream === 'string' ? result.wm_stream : undefined,
+		reasoning: typeof result.reasoning === 'string' ? result.reasoning : undefined
 	}
 }
 
