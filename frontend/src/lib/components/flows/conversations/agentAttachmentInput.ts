@@ -55,7 +55,7 @@ export type AgentChatInput = {
  * so a mention in a comment, a string or a nested path (`results.a.flow_input.x`) is not a read.
  * A transform may be a statement body with `return`. Undefined when it does not parse.
  */
-function flowInputReads(expr: string): Set<string> | undefined {
+export function flowInputReads(expr: string): Set<string> | undefined {
 	let root: unknown
 	try {
 		root = parseExpressionAt(`(\n${expr}\n)`, 0, { ecmaVersion: 'latest' })

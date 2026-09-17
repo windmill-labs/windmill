@@ -2,7 +2,7 @@ import type { AIProvider, FlowModule, InputTransform } from '$lib/gen'
 import { explicitOffToken, getReasoningCapability } from '$lib/components/copilot/reasoningRegistry'
 import { carriedReasoning } from '$lib/components/copilot/chatModelSettings'
 import { parseExpressionAt } from 'acorn'
-import { agentSteps } from './agentAttachmentInput'
+import { agentSteps, flowInputReads } from './agentAttachmentInput'
 
 /** Block and line comments removed, so what is left is only what affects the value. */
 function withoutComments(source: string): string {
@@ -42,39 +42,9 @@ function chatFacingAgents(modules: FlowModule[] | undefined): FlowModule[] {
 	return facing.length > 0 ? facing : agents
 }
 
-/**
- * Whether an expression reads `flow_input.<name>` anywhere in it.
- *
- * Parsed rather than matched: the author may write `flow_input['user_message']` as readily
- * as the dot form the editor emits, and a mention inside a comment or a string is not a
- * read. Reading two inputs is still a read of each, which is why this is not the question
- * "which single input feeds a field" that the composer asks of a wired field.
- */
+/** Whether an expression reads `flow_input.<name>`, as `flowInputReads` parses it. */
 function readsFlowInput(expr: string, name: string): boolean {
-	let root: unknown
-	try {
-		root = parseExpressionAt(parenthesised(expr), 0, { ecmaVersion: 'latest' })
-	} catch {
-		return false
-	}
-	let found = false
-	const visit = (node: any) => {
-		if (found || !node || typeof node !== 'object') return
-		if (Array.isArray(node)) {
-			node.forEach(visit)
-			return
-		}
-		if (flowInputName(node) === name) {
-			found = true
-			return
-		}
-		for (const key of Object.keys(node)) {
-			if (key === 'type' || key === 'start' || key === 'end') continue
-			visit(node[key])
-		}
-	}
-	visit(root)
-	return found
+	return flowInputReads(expr)?.has(name) ?? false
 }
 
 /** A provider value as the agent stores it. */
