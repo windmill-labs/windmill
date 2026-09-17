@@ -1,5 +1,5 @@
 import type { WindmillChatApi } from './api'
-import type { ChatAttachment } from './types'
+import type { AttachmentUpload } from './types'
 import { abortError, isAbortError } from './utils'
 
 /**
@@ -45,7 +45,7 @@ export function storedAttachmentName(filename: string, mediaType: string): strin
 }
 
 /** The bytes of an attachment as a Blob carrying its media type. */
-export function attachmentBlob(attachment: ChatAttachment): Blob {
+export function attachmentBlob(attachment: AttachmentUpload): Blob {
   const data = attachment.data
   if (typeof data !== 'string') {
     return attachment.mediaType && attachment.mediaType !== data.type
@@ -83,7 +83,7 @@ function dataUrlToBlob(dataUrl: string, fallbackType: string): Blob {
  */
 export async function uploadAttachments(
   api: WindmillChatApi,
-  attachments: ChatAttachment[],
+  attachments: AttachmentUpload[],
   turnId: string,
   signal?: AbortSignal
 ): Promise<UploadedAttachment[]> {

@@ -1,4 +1,4 @@
-import type { Chat, ChatAttachment, ChatMessage, ChatState } from 'windmill-chat'
+import type { AttachmentUpload, Chat, ChatMessage, ChatState } from 'windmill-chat'
 import type {
 	ChatSendRequestOptions,
 	ChatViewHost
@@ -269,7 +269,7 @@ export class FlowChatViewHost implements ChatViewHost {
 				true
 			)
 		}
-		const attachments: ChatAttachment[] = target
+		const attachments: AttachmentUpload[] = target
 			? [...images, ...blobs].map((attachment, index) => ({
 					name: attachment.name ?? `attachment-${index + 1}`,
 					data: attachment.dataUrl,

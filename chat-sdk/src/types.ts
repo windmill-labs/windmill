@@ -26,6 +26,8 @@ export interface ToolInvocation {
   status: 'running' | 'success' | 'error'
 }
 
+export interface ChatAttachment { input: string; s3: string; storage?: string; filename?: string }
+
 export interface ChatMessage {
   id: string
   role: ChatRole
@@ -39,6 +41,8 @@ export interface ChatMessage {
   jobId?: string
   /** The flow step that produced the message. */
   stepName?: string
+  /** The files a user message carried, as object-storage references. */
+  attachments?: ChatAttachment[]
   /** True while the message is optimistic or still streaming. */
   pending: boolean
   /** Id of the persisted row once the server has it; `id` itself never changes, so list keys stay stable. */
@@ -119,7 +123,7 @@ export interface ChatOptions {
 }
 
 /** A file sent with a message. It is uploaded to the workspace's object storage before the run starts. */
-export interface ChatAttachment {
+export interface AttachmentUpload {
   /** Kept as the last segment of the stored key, its extension corrected to the media type for PNG, JPEG and PDF. */
   name: string
   /** The bytes: a Blob, or a `data:` URL of them. */
@@ -142,7 +146,7 @@ export interface SendMessageOptions {
    * the way an AI agent step reads `user_attachments`. A failed upload rejects `sendMessage`
    * and the run never starts; `stop()` during the upload does the same with an `AbortError`.
    */
-  attachments?: ChatAttachment[]
+  attachments?: AttachmentUpload[]
   /** Required with `attachments`. With `multiple: false`, more than one attachment is refused before anything uploads. */
   attachmentsInput?: AttachmentsInput
 }

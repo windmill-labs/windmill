@@ -353,4 +353,34 @@ describe('sendMessage with attachments', () => {
     ).rejects.toMatchObject({ name: 'AbortError' })
     expect(calls).toHaveLength(0)
   })
+
+  test('the pending user message carries its uploaded files before the run returns', async () => {
+    let releaseRun: (r: Response) => void = () => {}
+    const { fetch, calls } = fetchMock(
+      upload,
+      (c) =>
+        c.method === 'POST' && c.url.pathname === `/api/w/ws/jobs/run/f/${FLOW}`
+          ? new Promise<Response>((resolve) => (releaseRun = resolve))
+          : undefined,
+      answer
+    )
+    const chat = createChat(options(fetch))
+    const sending = chat.sendMessage('read these', {
+      attachments: [
+        { name: 'photo.webp', data: png },
+        { name: 'contract', data: pdf }
+      ],
+      attachmentsInput: { name: 'files', multiple: true }
+    })
+    while (runs(calls).length === 0) await new Promise((r) => setTimeout(r, 1))
+    const keys = uploads(calls).map((c) => c.url.searchParams.get('file_key')!)
+    const pending = chat.getState().messages.find((m) => m.role === 'user')!
+    expect(pending.pending).toBe(true)
+    expect(pending.attachments).toEqual([
+      { input: 'files', s3: keys[0], filename: 'photo.png' },
+      { input: 'files', s3: keys[1], filename: 'contract.pdf' }
+    ])
+    releaseRun(text('job-1'))
+    await sending
+  })
 })

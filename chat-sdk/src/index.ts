@@ -16,6 +16,7 @@ export { extractChatAnswer, conversationIdFor } from './utils'
 export { storedAttachmentName, uploadAttachments, CHAT_UPLOADS_PREFIX, type UploadedAttachment } from './attachments'
 export type {
   AttachmentsInput,
+  AttachmentUpload,
   Chat,
   ChatAttachment,
   ChatMessage,

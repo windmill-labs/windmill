@@ -155,6 +155,13 @@ class ChatImpl implements Chat {
         // and `stop()` can abort the upload, while a second send is refused as usual.
         const uploaded = await uploadAttachments(this.#api, attachments, randomId(), turn.controller.signal)
         args[attachmentsInput.name] = attachmentsInput.multiple ? uploaded : uploaded[0]
+        // Shown on the pending message until its server row replaces it, carrying its own.
+        const carried = uploaded.map((u) => ({ input: attachmentsInput.name, s3: u.s3, filename: u.filename }))
+        if (this.#turnActive(turn)) {
+          this.#set({
+            messages: this.#state.messages.map((m) => (m.id === turn.userMessageId ? { ...m, attachments: carried } : m))
+          })
+        }
       }
       turn.started = true
       // Listed only once the run is asked for: a send that never runs (an upload that failed
