@@ -222,6 +222,9 @@
 		// chat treats a load that did not land — a dropped connection must not be permanent.
 		if (!target || !expanded) {
 			fetchFailed = undefined
+			// A job whose logs did not land is dropped with it: the job itself is cached, so
+			// reopening would otherwise keep serving the unreadable logs for the session.
+			if (fetched?.logsFailed) fetched = undefined
 			return
 		}
 		if (fetched?.jobId === target.jobId || fetchFailed === target.jobId) return
@@ -519,7 +522,7 @@
 				class={twMerge(
 					'min-h-0 flex-1 px-3 py-2',
 					rawView ? '' : 'overflow-auto',
-					!rawView && activeTab === 'logs' ? 'bg-surface-secondary/50' : ''
+					!rawView && !jobPending && activeTab === 'logs' ? 'bg-surface-secondary/50' : ''
 				)}
 			>
 				<!-- min-h-full rather than h-full: the states that centre themselves need the height,
