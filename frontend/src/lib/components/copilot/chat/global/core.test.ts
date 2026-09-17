@@ -5298,6 +5298,43 @@ describe('global AI tools', () => {
 		)
 	})
 
+	it('test_run_flow gives a chat-enabled flow a conversation when none is named', async () => {
+		const value = {
+			modules: [{ id: 'chat_step', value: { type: 'identity' } }],
+			chat_input_enabled: true
+		}
+		seedBackendDraft(
+			'flow',
+			'u/admin/chat_preview',
+			{
+				path: 'u/admin/chat_preview',
+				summary: 'Chat preview',
+				value,
+				schema: { type: 'object', properties: { user_message: { type: 'string' } } },
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {}
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await withCompletedTestJob(() =>
+			callGlobalTool('test_run_flow', {
+				path: 'u/admin/chat_preview',
+				args: { user_message: 'hi' }
+			})
+		)
+
+		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			memoryId: expect.stringMatching(
+				/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+			),
+			requestBody: { path: 'u/admin/chat_preview', value, args: { user_message: 'hi' } }
+		})
+	})
+
 	it('test_run_flow falls back to preview when the live flow editor test hook returns undefined', async () => {
 		seedBackendDraft(
 			'flow',

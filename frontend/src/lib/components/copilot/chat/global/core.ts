@@ -935,8 +935,13 @@ const runScriptToolDef = createToolDef(
 const testRunFlowSchema = z.object({
 	path: z.string().describe('Workspace path of the flow to test.'),
 	args: testRunArgsSchema,
+	// A refinement rather than z.guid(): that emits `format`/`pattern` into the tool schema,
+	// which some providers' function-schema subsets reject.
 	conversation_id: z
 		.string()
+		.refine((value) => z.guid().safeParse(value).success, {
+			message: 'conversation_id must be a UUID'
+		})
 		.optional()
 		.describe(
 			'Chat-mode flows only. A UUID naming the conversation this turn belongs to: reuse the same one across calls to test memory and follow-ups, and omit it for a one-off turn in a conversation of its own. Generate the UUID yourself so you can pass it again.'
@@ -4399,8 +4404,7 @@ export type SessionToolHelpers = { sessionId?: string }
 
 export type GlobalToolHelpers = SessionToolHelpers & {
 	/** Runs the flow editor mounted on `storagePath`, if one is. `conversationId` names the
-	 * chat-mode conversation the turn belongs to; the editor mints one when it is omitted and
-	 * the flow is chat-enabled. */
+	 * chat-mode conversation the turn belongs to. */
 	testActiveFlow?: (
 		storagePath: string,
 		args?: Record<string, any>,
@@ -5474,7 +5478,7 @@ function flowDraftValueForPreview(flowDraft: FlowDraftValue): FlowValue {
  * way for the caller to supply it through `args`. A fresh id each time is the right default:
  * a test run is its own conversation, not a turn appended to one someone is reading.
  */
-function chatMemoryId(value: FlowValue): string | undefined {
+export function chatMemoryId(value: FlowValue): string | undefined {
 	return value.chat_input_enabled ? randomUUID() : undefined
 }
 
