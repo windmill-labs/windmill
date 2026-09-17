@@ -17,6 +17,7 @@
 	import {
 		ADMIN_DATATABLE_ROLE,
 		datatableNameTakesRole,
+		defaultMigrationRole,
 		type DatatableRowAction
 	} from './dbTypes'
 	import ResourcePicker from './ResourcePicker.svelte'
@@ -101,6 +102,17 @@
 			return
 		const effective = roles.roles.includes(roles.default_role) ? roles.default_role : roles.roles[0]
 		if (effective) untrack(() => (uriState.selectedRole = effective))
+	})
+
+	const contentInput = $derived.by(() => {
+		const input = uriState.effectiveInput
+		if (input?.type !== 'database' || selectedDatatable === undefined) return input
+		const migrationRole = defaultMigrationRole(
+			selectedDatatable,
+			rolesOfCurrent?.permissioned,
+			rolesOfCurrent?.default_role
+		)
+		return migrationRole === undefined ? input : { ...input, migrationRole }
 	})
 
 	// Every data table with its schemas and tables, in one call: this is what the
@@ -295,11 +307,11 @@
 		noPadding
 		id="db-manager-drawer"
 	>
-		{#if uriState.effectiveInput && ws && roleSettled}
+		{#if contentInput && ws && roleSettled}
 			{#key `${selectedDatatable}~${selectedRole ?? ''}`}
 				<DBManagerContent
 					bind:this={dbManagerContent}
-					input={uriState.effectiveInput}
+					input={contentInput}
 					workspace={uriState.workspace}
 					datatableTree={uriState.isDatatableInput ? datatables.current : undefined}
 					datatableTreeLoading={datatables.loading}

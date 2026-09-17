@@ -1240,7 +1240,7 @@ setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
 	if (entries.length === 0) {
 		return {
 			aiResult:
-				'The raw app preview is running, but it has not emitted console logs, uncaught errors, or unhandled rejections yet. If the user reported a failure, reproduce the interaction in the preview, then call get_app_runtime_logs again. For backend.<id>() failures, call list_app_runs and then get_job_logs for the relevant job_id.',
+				'The raw app preview is running, but it has not emitted console logs, uncaught errors, or unhandled rejections yet. If the user reported a failure, reproduce the interaction in the preview, then call get_app_runtime_logs again. For backend.<id>() failures, call list_app_runs and then get_run for the relevant job_id.',
 			uiMessage: 'No runtime logs',
 			toolResult: 'No runtime logs'
 		}

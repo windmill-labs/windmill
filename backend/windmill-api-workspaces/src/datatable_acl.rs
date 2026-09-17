@@ -36,12 +36,10 @@ use windmill_common::datatable_roles::{
     ADMIN_DATATABLE_ROLE, CUSTOM_INSTANCE_USER,
 };
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
-use windmill_common::workspaces::{
-    get_datatable_resource_from_db_unchecked, resolve_governing_datatable, GoverningDatatable,
-};
+use windmill_common::workspaces::{resolve_governing_datatable, DataTable, GoverningDatatable};
 use windmill_common::{PgDatabase, DB};
 
-use crate::datatable_permissions::{ensure_governs_datatable, ensure_reaches_datatable};
+use crate::datatable_permissions::{ensure_governs_datatable, ensure_reaches_governing_datatable};
 
 pub(crate) fn routes() -> Router {
     Router::new()
@@ -322,11 +320,20 @@ async fn connect_as_admin_unchecked(
     mpsc::UnboundedReceiver<DbError>,
     String,
 )> {
-    let resource =
-        get_datatable_resource_from_db_unchecked(db, &governing.workspace_id, &governing.name)
-            .await?;
-    let pg: PgDatabase = serde_json::from_value(resource)
-        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {e}")))?;
+    ensure_instance(governing)?;
+    // Built from the authorized entry, never by resolving the settings again: a save in between
+    // could point the entry at a resource on another server and back, and this connection would
+    // then alter a database the later checks of the entry never see.
+    let mut pg = PgDatabase::parse_uri(&windmill_common::get_database_url().await?.as_str().await)?;
+    pg.dbname = governing
+        .datatable
+        .database
+        .as_ref()
+        .expect("a governing entry owns a database")
+        .resource_path
+        .clone();
+    pg.user = Some(CUSTOM_INSTANCE_USER.to_string());
+    pg.password = Some(windmill_common::utils::get_custom_pg_instance_password(db).await?);
     let dbname = pg.dbname.clone();
     let (client, mut connection) = pg.connect(Some(db)).await?;
     // Unbounded: the driver must never wait on the receiver, which only drains once the statement
@@ -1011,8 +1018,8 @@ async fn get_datatable_acl(
 ) -> JsonResult<DatatableAclInfo> {
     crate::datatable_acl_oss::ensure_datatable_acl_available()?;
     let target: AclTarget = query.try_into()?;
-    ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed).await?;
     let governing = resolve_governing_datatable(&db, &w_id, &datatable_name).await?;
+    ensure_reaches_governing_datatable(&db, &w_id, &datatable_name, &governing, &authed).await?;
     ensure_instance(&governing)?;
     let editable = ensure_governs_datatable(&db, &authed, &w_id, &governing)
         .await
@@ -1307,6 +1314,76 @@ async fn authorize_acl_change(
     Ok(governing)
 }
 
+static APPLY_SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+
+/// A role passes on only privileges it holds with grant option, and an instance database
+/// provisioned before data table roles gave `custom_instance_user` none. Adds that option to its
+/// database and `public` privileges, and nothing else: default privileges are left alone, since a
+/// schema's change of owner is planned against them. Best-effort, as a grant it fails to enable is
+/// refused when it runs.
+async fn ensure_grant_options(client: &tokio_postgres::Client, db: &DB, dbname: &str) {
+    let held = client
+        .query_one(
+            "SELECT has_database_privilege(current_database(), 'CONNECT WITH GRANT OPTION')
+                AND has_database_privilege(current_database(), 'CREATE WITH GRANT OPTION')
+                AND (to_regnamespace('public') IS NULL
+                     OR (has_schema_privilege('public', 'USAGE WITH GRANT OPTION')
+                         AND has_schema_privilege('public', 'CREATE WITH GRANT OPTION')))",
+            &[],
+        )
+        .await
+        .is_ok_and(|row| row.get::<_, bool>(0));
+    if held {
+        return;
+    }
+    if let Err(e) = grant_options_as_server(db, dbname).await {
+        tracing::warn!("Could not enable grant options on '{dbname}': {e}");
+    }
+}
+
+/// Only the database's owner, the server's own Postgres user, can hand out an option it holds.
+async fn grant_options_as_server(db: &DB, dbname: &str) -> Result<()> {
+    let server = PgDatabase::parse_uri(&windmill_common::get_database_url().await?.as_str().await)?;
+    let creds = PgDatabase { dbname: dbname.to_string(), ..server };
+    let (client, connection) = creds.connect(Some(db)).await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+    let role = quote_ident(CUSTOM_INSTANCE_USER);
+    let result = client
+        .batch_execute(&format!(
+            "GRANT CONNECT, CREATE ON DATABASE {} TO {role} WITH GRANT OPTION;
+             DO $$ BEGIN
+               IF to_regnamespace('public') IS NOT NULL THEN
+                 GRANT USAGE, CREATE ON SCHEMA public TO {role} WITH GRANT OPTION;
+               END IF;
+             END $$;",
+            quote_ident(dbname)
+        ))
+        .await;
+    drop(client);
+    windmill_common::shutdown_pg_connection(join_handle).await?;
+    result.map_err(|e| {
+        Error::internal_err(format!(
+            "Failed to grant options on '{dbname}': {}",
+            pg_error_message(&e)
+        ))
+    })
+}
+
+/// Whether the governing entry an apply was authorized on is still the one in the settings, read
+/// under the lock: a save in between could have pointed it at another database or changed its roles.
+fn entry_unchanged(governing: &GoverningDatatable, entry_now: Option<serde_json::Value>) -> bool {
+    let Some(Ok(now)) = entry_now.map(serde_json::from_value::<DataTable>) else {
+        return false;
+    };
+    match (
+        serde_json::to_value(&now),
+        serde_json::to_value(&governing.datatable),
+    ) {
+        (Ok(now), Ok(authorized)) => now == authorized,
+        _ => false,
+    }
+}
+
 /// Plan one change against the catalog and the database as they are now.
 async fn build_plan(
     client: &tokio_postgres::Client,
@@ -1502,39 +1579,42 @@ async fn apply_datatable_acl(
                 .to_string(),
         )
     })?;
-    // Refuses without taking a lock; everything is checked again once they are held.
+    // Everything that needs the pool happens before the locks: once `tx` holds them, a second pool
+    // connection could wait forever on a pool that concurrent applies, queued on the same locks,
+    // have exhausted.
     let governing = authorize_acl_change(&db, &authed, &w_id, &datatable_name).await?;
+    // Applies queue on an instance-wide lock while each holds a direct connection to the instance's
+    // Postgres; unbounded, the queue alone could exhaust its connection limit. One at a time per
+    // server, and the ones waiting hold no connection at all.
+    let _slot = APPLY_SLOT
+        .acquire()
+        .await
+        .map_err(|e| Error::internal_err(format!("ACL apply slot closed: {e}")))?;
+    let (mut client, mut notices, dbname) = connect_as_admin_unchecked(&db, &governing).await?;
+    ensure_grant_options(&client, &db, &dbname).await;
 
     // Held until the change is committed: a role renamed or dropped meanwhile would change what
     // the plan names, and a settings save could move the entry onto another database. Taken in the
     // same order as the permissions save, so the two cannot deadlock.
     let mut tx = db.begin().await?;
     lock_role_catalog(&mut tx).await?;
-    sqlx::query!(
-        "SELECT 1 AS one FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
-        &governing.workspace_id
+    let entry_now = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
     )
+    .bind(&governing.workspace_id)
+    .bind(&governing.name)
     .fetch_optional(&mut *tx)
-    .await?;
-    let governing = authorize_acl_change(&db, &authed, &w_id, &datatable_name).await?;
+    .await?
+    .flatten();
     let catalog = read_role_catalog_tx(&mut tx).await?;
 
-    let (mut client, mut notices, dbname) = connect_as_admin_unchecked(&db, &governing).await?;
     let plan = build_plan(&client, &dbname, &catalog, &req.target, &req.change).await?;
-    if &plan.statements != confirmed {
+    if !entry_unchanged(&governing, entry_now) || &plan.statements != confirmed {
         return Err(Error::BadRequest(
             "The data table or its roles changed since this was planned, so it would no longer \
              run what was confirmed. Plan it again."
                 .to_string(),
         ));
-    }
-
-    // Postgres only lets a role pass on a privilege it holds with grant option, and an instance
-    // database provisioned before data table roles holds none. Best-effort: a grant this fails to
-    // enable is refused below rather than skipped.
-    if let Err(e) = windmill_common::ensure_instance_db_grant_options_unchecked(&db, &dbname).await
-    {
-        tracing::warn!("Could not refresh grant options on '{dbname}': {e}");
     }
 
     // One transaction: a half-applied ownership transfer leaves one schema's objects owned by two
