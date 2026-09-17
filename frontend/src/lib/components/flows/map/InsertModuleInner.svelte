@@ -25,8 +25,8 @@
 		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
 		allowTrigger?: boolean
 		toolMode?: boolean
-		/** Off for a tool of a nested agent: the worker runs an agent tool only under a step's own
-		 *  agent, and leaves one nested any deeper out of what the model is offered. */
+		/** Off for a tool of a nested agent: the worker refuses every call to a nested agent that
+		 *  carries an agent tool of its own, so offering one would break that nested agent. */
 		allowAiAgentTool?: boolean
 		/** Narrow layout (450px instead of 650px). Defaults on for the preprocessor
 		 *  and failure pickers; set it when the container cannot fit the wide one. */
