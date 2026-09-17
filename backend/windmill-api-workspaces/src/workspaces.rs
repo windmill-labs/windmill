@@ -8039,7 +8039,6 @@ async fn point_kept_datatables_at_parent(
     forked_w_id: &str,
     cloned: &[ForkedDatatableInfo],
 ) -> Result<()> {
-    windmill_common::workspaces::lock_fork_datatables(tx, parent_w_id).await?;
     let settings: Option<serde_json::Value> = sqlx::query_scalar!(
         "SELECT datatable FROM workspace_settings WHERE workspace_id = $1",
         forked_w_id
@@ -8607,6 +8606,9 @@ async fn create_workspace_fork(
     }
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    // Before the settings clone reads the parent's data tables: a pointer this fork ends up with
+    // must not be written after cleanup of the parent decided that nothing points at its copies.
+    windmill_common::workspaces::lock_fork_datatables(&mut tx, &parent_workspace_id).await?;
 
     if nw.is_dev_workspace {
         // The checks above ran outside a transaction, so the parent's eligibility and the chain's
