@@ -10,13 +10,16 @@
 	import Head from '../table/Head.svelte'
 	import Row from '../table/Row.svelte'
 	import { Pencil, Plus } from 'lucide-svelte'
-	import { SettingService, type InstanceDatatableRole } from '$lib/gen'
+	import { SettingService, type DatatableRoleCluster, type InstanceDatatableRole } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 
 	let {
+		cluster = 'instance',
 		initialName = '',
 		onChanged
 	}: {
+		/** The cluster whose role catalog is shown. Fixed for the component's lifetime. */
+		cluster?: DatatableRoleCluster
 		/** Prefills the name of the role to add. */
 		initialName?: string
 		/** Called after every change to the catalog, whether or not it went through. */
@@ -38,7 +41,7 @@
 		loading = true
 		loadError = undefined
 		try {
-			roles = await SettingService.listInstanceDatatableRoles()
+			roles = await SettingService.listInstanceDatatableRoles({ cluster })
 		} catch (e) {
 			loadError = e?.body ?? e?.message ?? String(e)
 		} finally {
@@ -69,7 +72,7 @@
 		await run(
 			() =>
 				SettingService.createInstanceDatatableRole({
-					requestBody: { name }
+					requestBody: { name, cluster }
 				}),
 			`Created the data table role ${name}`
 		)
@@ -80,7 +83,7 @@
 		const confirmed = await confirmationModal.ask({
 			title: `Delete the role ${role.name}?`,
 			children:
-				'Everything it owns in every instance database is handed back to the admin connection, its grants are dropped, and it is removed from every data table that named it. This cannot be undone.',
+				'Everything it owns in every database of its cluster is handed back to the admin connection, its grants are dropped, and it is removed from every data table that named it. This cannot be undone.',
 			confirmationText: 'Delete role'
 		})
 		if (!confirmed) return
@@ -95,7 +98,7 @@
 
 <div class="flex flex-col gap-2">
 	{#if loadError}
-		<Alert type="error" title="Could not load the instance roles" size="xs">{loadError}</Alert>
+		<Alert type="error" title="Could not load the data table roles" size="xs">{loadError}</Alert>
 	{:else}
 		<DataTable>
 			<Head>

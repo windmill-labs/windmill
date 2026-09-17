@@ -78,6 +78,9 @@
 	const unusedRoles = $derived(availableRoles.filter((r) => !roles.some((row) => row.id === r.id)))
 	const pendingRoles = $derived(roles.filter((r) => r.id === undefined))
 	let instanceRoles: InstanceRolesButton | undefined = $state(undefined)
+	const clusterLabel = $derived(
+		info?.cluster === 'external_instance' ? 'the external instance' : 'this instance'
+	)
 
 	const roleKey = (role: EditedRole) => role.id ?? `pending:${role.name}`
 
@@ -174,7 +177,7 @@
 	async function refreshCatalog() {
 		let fresh: InstanceDatatableRole[]
 		try {
-			fresh = await SettingService.listInstanceDatatableRoles()
+			fresh = await SettingService.listInstanceDatatableRoles({ cluster: info?.cluster })
 		} catch (e) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
 			return
@@ -231,7 +234,7 @@
 	<DrawerContent
 		title="Roles — {datatable}"
 		on:close={() => (drawerOpen = false)}
-		tooltip="A data table role is a Postgres login. A job that names one connects as it, and Postgres decides what it may touch — grant it privileges under Access. Roles are defined for the whole instance; here you say who may use each one on this data table."
+		tooltip="A data table role is a Postgres login. A job that names one connects as it, and Postgres decides what it may touch — grant it privileges under Access. Roles are defined once per cluster, for every data table on it; here you say who may use each one on this data table."
 	>
 		{#snippet titleExtra()}
 			<Badge color="blue" small>Beta</Badge>
@@ -254,9 +257,9 @@
 
 				{#if !info?.supported}
 					<Alert type="info" title="Not available on this data table" size="xs">
-						A data table role is a Postgres login on the Windmill instance's own database, so only a
-						data table backed by that database can use one. This one is backed by a PostgreSQL
-						resource — grant access on that server directly.
+						A data table role is a Postgres login on a cluster Windmill manages, so only a data table
+						on the Windmill instance or the external instance can use one. This one is backed by a
+						PostgreSQL resource — grant access on that server directly.
 					</Alert>
 				{:else if governing}
 					<Alert type="info" title="Governed by {governing}" size="xs">
@@ -283,7 +286,7 @@
 
 				{#if permissioned}
 					{#if editable && availableRoles.length === 0}
-						<Alert type="warning" title="No role defined on this instance" size="xs">
+						<Alert type="warning" title="No role defined on {clusterLabel}" size="xs">
 							Only <span class="font-mono">admin</span> can be used until a superadmin creates a data
 							table role. Type a name below to add one.
 						</Alert>
@@ -297,7 +300,7 @@
 									<Tooltip>
 										admin is the connection the data table used before roles, so it owns every
 										existing object and cannot be removed. Every other role is a login defined for
-										the whole instance, with only the privileges granted to it under Access.
+										the whole cluster, with only the privileges granted to it under Access.
 									</Tooltip>
 								</Cell>
 								<Cell head>
@@ -326,23 +329,23 @@
 											<span class="font-mono text-xs text-emphasis">{role.name ?? role.id}</span>
 											{#if !role.name}
 												<span class="text-2xs text-secondary italic">
-													no longer defined on this instance
+													no longer defined on {clusterLabel}
 												</span>
 											{:else if role.id === undefined}
 												<Alert type="warning" title="This role does not exist yet" size="xs">
 													{#if $superadmin}
 														<div class="flex flex-col items-start gap-1">
-															<span>Create it on the instance to use it here.</span>
+															<span>Create it on {clusterLabel} to use it here.</span>
 															<Button
 																unifiedSize="xs"
 																variant="default"
-																on:click={() => instanceRoles?.open(role.name)}
+																on:click={() => instanceRoles?.open(role.name, info?.cluster)}
 															>
 																Create it
 															</Button>
 														</div>
 													{:else}
-														Only a superadmin can create it on the instance.
+														Only a superadmin can create it on {clusterLabel}.
 													{/if}
 												</Alert>
 											{/if}
