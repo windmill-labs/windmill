@@ -85,6 +85,7 @@
 	let {
 		useDrawer = true,
 		inline = false,
+		onClose = undefined,
 		hideTarget = false,
 		description = undefined,
 		isEditor = false,
@@ -1069,11 +1070,11 @@
 
 {#snippet drawerBody()}
 	<DrawerContent
-		hideClose={inline}
+		hideClose={inline && !onClose}
 		fullScreen={!inline}
 		bannerReserved={draftSync.hasBaseline}
 		title={edit ? (can_write ? `Edit route ${initialPath}` : `Route ${initialPath}`) : 'New route'}
-		on:close={() => drawer?.closeDrawer()}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
 	>
 		{#snippet actions()}
 			{@render saveButton()}

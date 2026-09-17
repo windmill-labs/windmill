@@ -56,6 +56,7 @@
 	let {
 		useDrawer = true,
 		inline = false,
+		onClose = undefined,
 		hideTarget = false,
 		docDescription = undefined,
 		allowDraft = false,
@@ -1425,7 +1426,7 @@
 
 {#snippet drawerBody()}
 	<DrawerContent
-		hideClose={inline}
+		hideClose={inline && !onClose}
 		fullScreen={!inline}
 		bannerReserved={draftSync.hasBaseline}
 		title={edit
@@ -1433,7 +1434,7 @@
 				? `Edit schedule ${initialPath}`
 				: `View schedule ${initialPath}`
 			: 'New schedule'}
-		on:close={() => drawer?.closeDrawer()}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
 	>
 		{#snippet actions()}
 			<div class="flex flex-row gap-4 items-center">

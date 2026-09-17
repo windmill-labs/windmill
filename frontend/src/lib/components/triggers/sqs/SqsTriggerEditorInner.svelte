@@ -47,6 +47,8 @@
 		useDrawer?: boolean
 		/** With `useDrawer`, render the drawer's content in place, filling the parent, with no drawer or close button. */
 		inline?: boolean
+		/** With `inline`, closes whatever hosts the editor; the header has a close button only when set. */
+		onClose?: () => void
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		hideTooltips?: boolean
@@ -66,6 +68,7 @@
 	let {
 		useDrawer = true,
 		inline = false,
+		onClose = undefined,
 		description = undefined,
 		hideTarget = false,
 		hideTooltips = false,
@@ -383,7 +386,7 @@
 
 {#snippet drawerBody()}
 	<DrawerContent
-		hideClose={inline}
+		hideClose={inline && !onClose}
 		fullScreen={!inline}
 		bannerReserved={draftSync.hasBaseline}
 		title={edit
@@ -391,7 +394,7 @@
 				? `Edit SQS trigger ${initialPath}`
 				: `SQS trigger ${initialPath}`
 			: 'New SQS trigger'}
-		on:close={() => drawer?.closeDrawer()}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
 	>
 		{#snippet actions()}
 			{@render actionsSnippet()}

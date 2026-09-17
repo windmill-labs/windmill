@@ -138,12 +138,19 @@
 	{:else}
 		{#key `${item.kind}:${triggerKey}:${item.path}:${workspaceId}:${reloadNonce}:${savedNonce}`}
 			{#if item.kind === 'variable'}
-				<VariableEditor bind:this={variableEditor} inline workspace={workspaceId} {onSaved} />
+				<VariableEditor
+					bind:this={variableEditor}
+					inline
+					workspace={workspaceId}
+					{onSaved}
+					onClose={closeTab}
+				/>
 			{:else if item.kind === 'resource'}
 				<ResourceEditorDrawer
 					bind:this={resourceEditor}
 					inline
 					workspace={workspaceId}
+					onClose={closeTab}
 					onSaved={(path) => {
 						if (path !== undefined) onSaved(path)
 					}}
@@ -157,6 +164,7 @@
 						bind:this={triggerEditor}
 						useDrawer
 						inline
+						onClose={closeTab}
 						onUpdate={(path?: string) => onSaved(path)}
 					/>
 				{/await}

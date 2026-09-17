@@ -28,6 +28,7 @@
 		workspace = undefined,
 		disableChatOffset = false,
 		inline = false,
+		onClose = undefined,
 		onRestored = undefined,
 		onSaved = undefined
 	}: {
@@ -39,6 +40,8 @@
 		 * that gives the editor a whole pane. Saving and restoring then leave it open: the
 		 * host remounts it on what was written. */
 		inline?: boolean
+		/** With `inline`, closes whatever hosts the editor; the header has a close button only when set. */
+		onClose?: () => void
 		onRestored?: () => void
 		/** Fires after Save has written, for a caller showing state derived from the
 		 * resource — `onRestored` only covers restoring an old version. `path` is where the
@@ -163,9 +166,9 @@
 	<DrawerContent
 		title={mode == 'edit' ? 'Edit ' + path : addResourceTitle(resource_type)}
 		bannerReserved={mode == 'edit'}
-		hideClose={inline}
+		hideClose={inline && !onClose}
 		fullScreen={!inline}
-		on:close={() => drawer?.closeDrawer()}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
 	>
 		{#snippet titleExtra()}
 			{#if mode == 'new' && resource_type}

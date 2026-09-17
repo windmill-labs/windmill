@@ -46,6 +46,7 @@
 	let {
 		useDrawer = true,
 		inline = false,
+		onClose = undefined,
 		hideTarget = false,
 		description = undefined,
 		isEditor = false,
@@ -499,7 +500,7 @@
 
 {#snippet drawerBody()}
 	<DrawerContent
-		hideClose={inline}
+		hideClose={inline && !onClose}
 		fullScreen={!inline}
 		bannerReserved={draftSync.hasBaseline}
 		title={edit
@@ -507,7 +508,7 @@
 				? `Edit email trigger ${initialPath}`
 				: `Email trigger ${initialPath}`
 			: 'New email trigger'}
-		on:close={() => drawer?.closeDrawer()}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
 	>
 		{#snippet actions()}
 			{@render saveButton()}

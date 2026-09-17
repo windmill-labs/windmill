@@ -44,12 +44,15 @@
 	let {
 		workspace = undefined,
 		inline = false,
+		onClose = undefined,
 		onSaved = undefined
 	}: {
 		workspace?: string
 		/** Render in place, filling the parent, with no drawer or close button — for a host
 		 * that gives the editor a whole pane. */
 		inline?: boolean
+		/** With `inline`, closes whatever hosts the editor; the header has a close button only when set. */
+		onClose?: () => void
 		/** Fires once a save lands, with the path the variable now lives at in `workspace` —
 		 * not in the workspace-specific version selected, which can be another's. */
 		onSaved?: (path: string) => void
@@ -340,9 +343,9 @@
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
 		bannerReserved={edit}
-		hideClose={inline}
+		hideClose={inline && !onClose}
 		fullScreen={!inline}
-		on:close={() => drawer?.closeDrawer()}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
 	>
 		{#snippet banner()}
 			<LocalDraftBanner
