@@ -73,11 +73,11 @@
 	})
 </script>
 
-<!-- The same order a finished run uses — what it did, then what it is saying — so
-     nothing moves when the result lands. The text at the bottom is deliberately
-     unlabelled: a turn that goes on to call a tool was narration, and only the end
-     of the run settles which this one is. -->
-<div bind:this={anchor} class="flex flex-col w-full py-3">
+<!-- One gap on the container rather than margins per child, and the same gap the
+     finished trace uses: a turn's text must not shift when a tool call turns it from
+     the live text into a row. The text at the bottom is deliberately unlabelled — a
+     turn that goes on to call a tool was narration, and the run's end settles which. -->
+<div bind:this={anchor} class="flex flex-col w-full py-3 gap-1">
 	{#each stream.entries as entry, index (entry.kind === 'tool' ? entry.callId : index)}
 		{#if entry.kind === 'tool'}
 			<ChatCollapsibleCard
@@ -89,14 +89,14 @@
 				labelClass={entry.success === false ? 'text-red-500' : ''}
 			/>
 		{:else}
-			<div class="mb-1">
+			<div>
 				<GfmMarkdown md={entry.content} noPadding />
 			</div>
 		{/if}
 	{/each}
 
 	{#if stream.current !== ''}
-		<div class="mt-2">
+		<div>
 			<!-- Same sanitizing chain as a finished output: a partial answer is written
 			     by the same model and is no more trusted for arriving in pieces. -->
 			<GfmMarkdown md={stream.current} noPadding />
@@ -104,7 +104,7 @@
 	{:else if stream.reasoning !== ''}
 		<!-- Reasoning arrives before the text, so on its own it means the model is
 		     still thinking rather than that this run has nothing to say. -->
-		<div class="text-secondary mt-2">
+		<div class="text-secondary">
 			<GfmMarkdown md={stream.reasoning} prose="xs" noPadding />
 		</div>
 	{/if}
