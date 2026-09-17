@@ -41,8 +41,10 @@ export async function* followJob(
     let reopen = false
     try {
       for await (const update of api.streamJob(jobId, { streamOffset: offset, signal: options.signal })) {
-        failures = 0
+        // A ping proves the connection opened, not that it carries the job: only an update
+        // clears the count, or a connection that pings and drops would never reach polling.
         if (update.type === 'ping') continue
+        failures = 0
         if (update.type === 'timeout') {
           reopen = true
           break

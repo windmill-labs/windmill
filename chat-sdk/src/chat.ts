@@ -682,22 +682,29 @@ class ChatImpl implements Chat {
    * The flow job plus every step job it ran, the failure and preprocessor steps
    * included (a failure handler's answer is persisted under its own job), and the
    * jobs an agent step's tool calls ran as (a tool row is persisted under its own
-   * job too). Unknown when the read fails.
+   * job too). A failed read is retried like the rows are; unknown when it keeps
+   * failing or the credential may not read jobs. Unknown accepts every row after the
+   * question: refusing them would leave a token without job access with no turn ever
+   * answered, each one finished a second time from its result.
    */
   async #turnJobIds(turn: Turn): Promise<Set<string> | undefined> {
-    try {
-      const job = await this.#api.getFlowJob(turn.jobId!, turn.controller.signal)
-      const ids = new Set([turn.jobId!])
-      const status = job.flow_status
-      for (const m of [...(status?.modules ?? []), status?.failure_module, status?.preprocessor_module]) {
-        if (m?.job) ids.add(m.job)
-        for (const j of m?.flow_jobs ?? []) ids.add(j)
-        for (const a of m?.agent_actions ?? []) if (a.job_id) ids.add(a.job_id)
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const job = await this.#api.getFlowJob(turn.jobId!, turn.controller.signal)
+        const ids = new Set([turn.jobId!])
+        const status = job.flow_status
+        for (const m of [...(status?.modules ?? []), status?.failure_module, status?.preprocessor_module]) {
+          if (m?.job) ids.add(m.job)
+          for (const j of m?.flow_jobs ?? []) ids.add(j)
+          for (const a of m?.agent_actions ?? []) if (a.job_id) ids.add(a.job_id)
+        }
+        return ids
+      } catch (e) {
+        if (isAbortError(e)) throw e
+        const refused = e instanceof WindmillApiError && e.status >= 400 && e.status < 500
+        if (refused || attempt === RECONCILE_ATTEMPTS) return undefined
+        await sleep(RECONCILE_DELAY_MS, turn.controller.signal)
       }
-      return ids
-    } catch (e) {
-      if (isAbortError(e)) throw e
-      return undefined
     }
   }
 

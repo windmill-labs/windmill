@@ -1005,13 +1005,20 @@ describe('createChat with server history', () => {
 
   test("the previous run's answer landing after the next message is not that turn's answer", async () => {
     let reads = 0
+    let jobReads = 0
     const { fetch } = fetchMock(
       run,
       (c) =>
         c.url.pathname === streamPath
           ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'second answer' } }])
           : undefined,
-      (c) => (c.url.pathname.endsWith('/jobs_u/get/job-1') ? json({ flow_status: { modules: [{ job: 'step-2' }] } }) : undefined),
+      // A transient failure of the job read is retried, not taken as "any row counts".
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-1')
+          ? ++jobReads === 1
+            ? text('bad gateway', 502)
+            : json({ flow_status: { modules: [{ job: 'step-2' }] } })
+          : undefined,
       (c) => {
         if (!c.url.pathname.endsWith('/messages')) return undefined
         if (!c.url.searchParams.has('after_seq')) return json([messageRow(71, 'user', 'first')])
@@ -1058,9 +1065,20 @@ describe('createChat with server history', () => {
   }, 15000)
 
   test('a stream that keeps failing hands the turn to polling the job', async () => {
+    // Each connection opens, sends the server's ping, then drops.
+    const pingThenDrop = () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'ping' })}\n\n`))
+            setTimeout(() => controller.error(new TypeError('network connection was lost')), 20)
+          }
+        }),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } }
+      )
     const { fetch } = fetchMock(
       run,
-      (c) => (c.url.pathname === streamPath ? text('bad gateway', 502) : undefined),
+      (c) => (c.url.pathname === streamPath ? pingThenDrop() : undefined),
       (c) =>
         c.url.pathname.endsWith('/get_result_maybe/job-1')
           ? json({ completed: true, success: true, result: { windmill_chat_answer: 'polled' } })
