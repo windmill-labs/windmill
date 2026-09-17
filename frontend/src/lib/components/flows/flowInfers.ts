@@ -61,6 +61,12 @@ export const AI_AGENT_SCHEMA: Schema = {
 			description:
 				'Windmill stores the conversation and sends its last messages with each request.',
 			enumLabels: MEMORY_OPTION_LABELS,
+			// Chat mode keys memory on the conversation, so a chat whose agent has memory off
+			// forgets every turn. Enabling chat mode turns it on; this keeps it there. A step
+			// sitting at `off` stays switchable, or a flow that reached that state before —
+			// an agent added to an already-chat-enabled flow — would have no way out of it.
+			lockOneOfWhenChatEnabled:
+				"Chat mode keys this agent's history on the conversation, so memory stays on while it is enabled.",
 			oneOf: [
 				{
 					type: 'object',

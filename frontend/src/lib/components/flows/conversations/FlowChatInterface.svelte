@@ -1,78 +1,36 @@
 <script lang="ts">
-	import { Alert, Button } from '$lib/components/common'
-	import { MessageCircle, Loader2, Settings2 } from 'lucide-svelte'
-	import ChatMessage from '$lib/components/chat/ChatMessage.svelte'
-	import ChatInput from '$lib/components/chat/ChatInput.svelte'
+	import { Button } from '$lib/components/common'
+	import { Loader2, MessageCircle, Settings2 } from 'lucide-svelte'
+	import AIChatDisplay from '$lib/components/copilot/chat/AIChatDisplay.svelte'
+	import { setChatViewHost } from '$lib/components/copilot/chat/chatViewHost'
+	import { FlowChatViewHost } from './flowChatViewHost.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import { type DynamicInput } from '$lib/utils'
-	import { tick, untrack } from 'svelte'
-	import type { Chat, ChatState } from 'windmill-chat'
+	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
+	import { emptyString, type DynamicInput } from '$lib/utils'
+	import { onDestroy, tick, untrack } from 'svelte'
+	import type { Chat } from 'windmill-chat'
 
 	interface Props {
 		chat: Chat
-		chatState: ChatState
 		deploymentInProgress?: boolean
 		additionalInputsSchema?: Record<string, any>
 		path: string
 		workspace?: string
+		/** The flow's description, shown under the empty transcript's prompt. */
+		description?: string
+		wideLayout?: boolean
 	}
 
 	let {
 		chat,
-		chatState,
 		deploymentInProgress = false,
 		additionalInputsSchema,
 		path,
-		workspace = undefined
+		workspace = undefined,
+		description = undefined,
+		wideLayout = false
 	}: Props = $props()
-
-	let inputMessage = $state('')
-	let inputElement = $state<HTMLTextAreaElement | undefined>(undefined)
-	let messagesContainer = $state<HTMLDivElement | undefined>(undefined)
-	let loadingOlder = false
-
-	const busy = $derived(chatState.status === 'submitted' || chatState.status === 'streaming')
-	// Deriveds notify only when their value changes; `chatState` itself is a new
-	// object on every token, and following it would drag a reader who scrolled up
-	// back to the end on each one.
-	const messageCount = $derived(chatState.messages.length)
-	const conversationId = $derived(chatState.conversationId)
-	const loadingMessages = $derived(chatState.loadingMessages)
-
-	// Follow the conversation: new messages and a conversation switch scroll to the
-	// end, older pages loaded at the top keep the viewport where it was.
-	$effect(() => {
-		messageCount
-		conversationId
-		loadingMessages
-		untrack(() => {
-			if (loadingOlder) return
-			tick().then(() => {
-				if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight
-			})
-		})
-	})
-
-	async function handleScroll() {
-		if (
-			!messagesContainer ||
-			!chatState.hasMoreMessages ||
-			chatState.loadingMessages ||
-			loadingOlder
-		)
-			return
-		if (messagesContainer.scrollTop > 10) return
-		loadingOlder = true
-		const previousHeight = messagesContainer.scrollHeight
-		try {
-			await chat.loadOlderMessages()
-			await tick()
-			messagesContainer.scrollTop = messagesContainer.scrollHeight - previousHeight
-		} finally {
-			loadingOlder = false
-		}
-	}
 
 	// Derive helperScript for dynamic inputs from schema
 	const dynamicInputHelperScript = $derived.by((): DynamicInput.HelperScript | undefined => {
@@ -120,19 +78,6 @@
 		showInputsModal = false
 	}
 
-	async function handleSendMessage() {
-		const text = inputMessage.trim()
-		if (!text || busy || deploymentInProgress) return
-		const inputs = additionalInputsSchema
-			? (loadInputsFromStorage() ?? additionalInputsValues)
-			: undefined
-		inputMessage = ''
-		// A failure is reported through the chat's `onError` and as a failed message.
-		await chat.sendMessage(text, { inputs }).catch(() => {})
-		await tick()
-		inputElement?.focus()
-	}
-
 	function openInputsModal() {
 		const stored = loadInputsFromStorage()
 		if (stored) additionalInputsValues = stored
@@ -147,6 +92,38 @@
 				values[field] === undefined || values[field] === '' || values[field] === null
 		)
 	})
+
+	// The host follows the chat it was built on for the life of this component: FlowChat
+	// remounts the interface under `{#key chat}`, so a later value of the prop never reaches it.
+	const chatHost = new FlowChatViewHost(
+		untrack(() => chat),
+		{
+			additionalInputs: () =>
+				additionalInputsSchema ? (loadInputsFromStorage() ?? additionalInputsValues) : undefined,
+			workspace: () => workspace,
+			sendDisabled: () => deploymentInProgress
+		}
+	)
+	setChatViewHost(chatHost)
+	onDestroy(() => chatHost.dispose())
+
+	// Older pages load when the reader reaches the top; the viewport stays where it was.
+	let scrollElement = $state<HTMLDivElement | undefined>(undefined)
+	let loadingOlder = false
+	async function handleTranscriptScroll() {
+		const state = chatHost.state
+		if (!scrollElement || !state.hasMoreMessages || state.loadingMessages || loadingOlder) return
+		if (scrollElement.scrollTop > 10) return
+		loadingOlder = true
+		const previousHeight = scrollElement.scrollHeight
+		try {
+			await chat.loadOlderMessages()
+			await tick()
+			scrollElement.scrollTop = scrollElement.scrollHeight - previousHeight
+		} finally {
+			loadingOlder = false
+		}
+	}
 </script>
 
 <!-- Additional Inputs Modal -->
@@ -164,82 +141,71 @@
 	</Modal>
 {/if}
 
-<div class="flex flex-col h-full flex-1 min-w-0">
-	<!-- Messages Container -->
-	<div
-		bind:this={messagesContainer}
-		class="flex-1 min-h-0 overflow-y-auto p-4 bg-background"
-		onscroll={handleScroll}
-	>
-		{#if deploymentInProgress}
-			<Alert type="warning" title="Deployment in progress" size="xs" />
-		{/if}
-		{#if chatState.loadingMessages && chatState.messages.length === 0}
-			<div class="flex items-center justify-center h-full">
-				<Loader2 size={32} class="animate-spin" />
-			</div>
-		{:else if chatState.messages.length === 0}
-			<div class="text-center text-tertiary flex items-center justify-center flex-col h-full">
-				<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
-				<p class="text-lg font-medium">Start a conversation</p>
-				<p class="text-sm">Send a message to run the flow and see the results</p>
-			</div>
+{#snippet emptyHint()}
+	<div class="flex-1 text-center text-tertiary flex items-center justify-center flex-col">
+		{#if chatHost.state.loadingMessages}
+			<Loader2 size={32} class="animate-spin" />
 		{:else}
-			<div class="w-full space-y-4 xl:max-w-7xl mx-auto">
-				{#each chatState.messages as message (message.id)}
-					<ChatMessage
-						role={message.role}
-						content={message.content}
-						success={message.success}
-						stepName={message.stepName}
-					/>
-				{/each}
-				{#if busy}
-					<div class="flex items-center gap-2 text-tertiary">
-						<Loader2 size={16} class="animate-spin" />
-						<span class="text-sm">Processing...</span>
-					</div>
-				{/if}
-			</div>
-		{/if}
-	</div>
-
-	<!-- Chat Input -->
-	<div class="flex flex-col items-center p-2 xl:max-w-7xl mx-auto w-full gap-2">
-		{#if additionalInputsSchema}
-			<div class="flex items-center justify-end w-full">
-				<div class="relative">
-					<Button
-						unifiedSize="xs"
-						variant="default"
-						startIcon={{ icon: Settings2 }}
-						title="Inputs"
-						onClick={openInputsModal}
-					>
-						Inputs
-					</Button>
-					{#if hasMissingRequired}
-						<span class="absolute -top-1 -right-1 w-2 h-2 bg-yellow-500 rounded-full"></span>
-					{/if}
+			<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
+			<p class="text-lg font-medium">Start a conversation</p>
+			<p class="text-sm">Send a message to run the flow and see the results</p>
+			{#if !emptyString(description)}
+				<div class="mt-6 pt-4 border-t max-w-md text-left text-xs text-tertiary">
+					<GfmMarkdown md={description ?? ''} noPadding prose="sm" />
 				</div>
-			</div>
+			{/if}
 		{/if}
-		<div class="w-full" class:opacity-50={deploymentInProgress}>
-			<ChatInput
-				bind:value={inputMessage}
-				bind:bindTextarea={inputElement}
-				disabled={busy || deploymentInProgress}
-				onSend={handleSendMessage}
-				onKeydown={(e) => {
-					if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-						e.preventDefault()
-						handleSendMessage()
-					}
-				}}
-				showCancelButton={busy}
-				onCancel={() => chat.stop()}
-				sendTitle={deploymentInProgress ? 'Deployment in progress' : 'Send message (Enter)'}
-			/>
-		</div>
 	</div>
+{/snippet}
+
+{#snippet footerSettings()}
+	{#if additionalInputsSchema}
+		<div class="relative">
+			<Button
+				unifiedSize="2xs"
+				variant="subtle"
+				startIcon={{ icon: Settings2 }}
+				btnClasses="text-secondary font-normal"
+				title="Configure the flow inputs sent with each message"
+				onClick={openInputsModal}
+			>
+				Inputs
+			</Button>
+			{#if hasMissingRequired}
+				<span class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-yellow-500 rounded-full"></span>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
+<!-- The transcript scroller fills its flex row, which needs a height to resolve
+     against. Not every host gives one (the editor's Test-flow panel stacks the
+     chat above the job result in an auto-height column), so claim one: enough to
+     scroll in once there are messages, and before that enough for the empty-state
+     prompt and the composer. -->
+<div
+	class="flex flex-col h-full flex-1 min-w-0"
+	class:min-h-96={chatHost.displayMessages.length > 0}
+	class:min-h-64={chatHost.displayMessages.length === 0}
+>
+	<AIChatDisplay
+		messages={chatHost.displayMessages}
+		bind:scrollElement
+		onTranscriptScroll={handleTranscriptScroll}
+		pastChats={[]}
+		diffMode={false}
+		selectedContext={[]}
+		availableContext={[]}
+		hideHeader
+		hideModeSelector
+		{wideLayout}
+		{emptyHint}
+		footerSettings={additionalInputsSchema ? footerSettings : undefined}
+		placeholder="Send a message to run the flow"
+		disabled={deploymentInProgress}
+		disabledMessage={deploymentInProgress ? 'Deployment in progress' : ''}
+		loadPastChat={() => {}}
+		deletePastChat={() => {}}
+		saveAndClear={() => {}}
+	/>
 </div>

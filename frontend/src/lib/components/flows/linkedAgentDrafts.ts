@@ -35,6 +35,25 @@ export function linkedAgentPaths(value: FlowValue | undefined): string[] {
 	return [...paths]
 }
 
+/** Point every step of this flow linked to `from` at `to`, for an agent renamed from inside it.
+ *  Returns the ids of the steps it moved. */
+export function repointLinkedAgent(
+	value: FlowValue | undefined,
+	from: string,
+	to: string
+): string[] {
+	if (!value?.modules) return []
+	const moved: string[] = []
+	for (const module of dfs(value.modules, (m) => m)) {
+		const v = module?.value as { type?: string; agent?: string } | undefined
+		if (v?.type === 'aiagent' && v.agent === from) {
+			v.agent = to
+			moved.push(module.id)
+		}
+	}
+	return moved
+}
+
 /**
  * The unsaved draft for an agent, freshest first: the cell an open agent editor is writing, then
  * what a `get_draft` response carried.
@@ -114,7 +133,7 @@ export function agentDraftCanWrite(draft: LinkedAgentDraft, user: UserExt | unde
  *  neither should stop the caller — the flow still tests and deploys, against the deployed agent.
  *  Every other failure is an outage, and answering "no draft" to one would quietly run or deploy
  *  the wrong configuration, which is the whole thing this module exists to prevent. */
-function isExpectedLinkFailure(err: unknown): boolean {
+export function isExpectedLinkFailure(err: unknown): boolean {
 	const status = (err as { status?: number } | null | undefined)?.status
 	return status === 401 || status === 403 || status === 404
 }

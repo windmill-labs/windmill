@@ -26,6 +26,10 @@ use windmill_ai::{
     image_handler::upload_image_to_s3,
     providers::{
         create_chat_completions_query_builder, create_query_builder, is_chat_completions_only,
+        openai::{
+            is_reasoning_summary_unavailable, rejects_reasoning_summary,
+            remember_reasoning_summary_unavailable,
+        },
         remember_chat_completions_only,
     },
     proxy::{
@@ -1453,6 +1457,10 @@ pub async fn run_agent(
                 attachments: args.user_attachments.as_deref(),
                 has_websearch,
                 prompt_cache_key: include_prompt_cache_key.then_some(prompt_cache_key.as_str()),
+                reasoning_summary: !is_reasoning_summary_unavailable(
+                    &credentials,
+                    args.provider.get_model(),
+                ),
             };
 
             // A worker cannot run the client credentials exchange, so an OAuth resource
@@ -1503,7 +1511,8 @@ pub async fn run_agent(
 
             // An endpoint can reject the request shape rather than the model:
             // `stream_options` and `prompt_cache_key`, which not every OpenAI-compatible
-            // gateway accepts, and the route itself, when an Azure resource is outside
+            // gateway accepts, a reasoning summary, which OpenAI refuses to unverified
+            // organizations, and the route itself, when an Azure resource is outside
             // the Responses API's model/region matrix. Each is retried once with that
             // part dropped.
             // Set where the route is found to be absent, and read once the fallback has
@@ -1560,6 +1569,9 @@ pub async fn run_agent(
                             && status.as_u16() == 400
                             && text.contains("prompt_cache_key");
 
+                        let summary_refused = build_args.reasoning_summary
+                            && rejects_reasoning_summary(status.as_u16(), &text);
+
                         // Only the first call of the step may re-route: an endpoint that
                         // does not serve this API rejects that one already, whereas a
                         // rejection once the conversation is under way is about the
@@ -1583,6 +1595,15 @@ pub async fn run_agent(
                             );
                             include_prompt_cache_key = false;
                             build_args.prompt_cache_key = None;
+                        } else if summary_refused {
+                            tracing::info!(
+                                "Retrying request without the reasoning summary the endpoint refused"
+                            );
+                            remember_reasoning_summary_unavailable(
+                                &credentials,
+                                args.provider.get_model(),
+                            );
+                            build_args.reasoning_summary = false;
                         } else if route_unserved {
                             tracing::info!(
                                 "Endpoint rejected the request ({}), falling back to chat/completions",

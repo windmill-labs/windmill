@@ -98,6 +98,11 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Projected from the flow value so a list can mark a flow that opens as a
+    /// chat without fetching every flow's value.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat_input_enabled: Option<bool>,
     /// True when the authed user has a draft for this flow (draft-only or layered
     /// over the deployed row). See ListableScript in scripts.rs.
     #[serde(default)]
