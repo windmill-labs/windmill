@@ -851,6 +851,7 @@
 							path={$pathStore}
 							hideSidebar={true}
 							inputSchema={flowStore.val.schema}
+							flowModules={flowStore.val.value?.modules}
 						/>
 					</div>
 				</div>
