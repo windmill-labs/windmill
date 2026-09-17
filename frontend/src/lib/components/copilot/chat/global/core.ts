@@ -30,7 +30,6 @@ import type {
 	Flow,
 	FlowModule,
 	FlowValue,
-	Job,
 	ListableApp,
 	ListableResource,
 	ListableVariable,
@@ -187,7 +186,7 @@ import {
 	getDraftDiffValues
 } from '$lib/utils_draft_deploy'
 import { changedLineIndices, draftDeployedPatch, windowPatch } from './draftDiff'
-import { getFlowRunDetails } from './flowRunTree'
+import { getRun, summarizeRun } from './flowRunTree'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import type { UserDraftItemKind } from '$lib/gen'
@@ -693,17 +692,13 @@ const searchResourceTypesSchema = z.object({
 		.describe('Max number of resource types to return. Defaults to 5.')
 })
 
-const getJobLogsSchema = z.object({
-	id: z.string().describe('The UUID of the job to fetch logs for.')
-})
-
-const getFlowRunDetailsSchema = z.object({
-	id: z.string().describe('The UUID of the flow run to inspect.'),
+const getRunSchema = z.object({
+	id: z.string().describe('The UUID of the run (job) to inspect.'),
 	step: z
 		.string()
 		.optional()
 		.describe(
-			'Step to drill into for its result (returned in full up to 12k chars), addressed by the step ids shown in the tree: "b" for a top-level step, "b/c" for a step inside a subflow, "b[12]" for iteration 12 of a loop or attempt 12 of a retried step (1-based), composable as "b[12]/c". Omit to get the whole per-step tree.'
+			'Step to drill into for its result (returned in full up to 12k chars), addressed by the step ids shown in the tree: "b" for a top-level step, "b/c" for a step inside a subflow, "b[12]" for iteration 12 of a loop or attempt 12 of a retried step (1-based), composable as "b[12]/c". Omit to get the run itself.'
 		)
 })
 
@@ -1356,8 +1351,8 @@ Rules:
 ${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Do the same for a raw app: run test_run_app_runnable on each backend runnable you wrote or changed before saying the app works. A bundle that compiles proves nothing about whether the runnables run. An inline runnable executes the app's draft code; a path runnable executes the DEPLOYED script/flow it names, so a path runnable aimed at something you have not deployed fails here — that failure is the point: report it and offer to deploy that one target. The app itself does not need deploying to be tested.
-- Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
-- To see what a flow run actually did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — use get_flow_run_details with the run id (it also works while the flow is still running). Pass step to read one step's result in full (capped at 12k chars). Prefer it over get_job_logs when you need step results rather than logs.
+- Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_run with a returned id to see what that run was called with, what it returned and what it logged — without starting a new test run.
+- get_run also covers what a flow run did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — and works while the flow is still running. Pass step to read one step's result in full (capped at 12k chars).
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Carry over every filter the user described — Runs takes the page's whole filter set (time window, path, user, folder, label, tag, worker, trigger kind, args/result, ...), so don't drop a criterion just because it wasn't in the request's main clause. Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
 - Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its edit drawer, or the page's filters otherwise). Never just describe where to click.
 - When the user is happy with the changes and wants to review or deploy them, use open_page with page "compare" — it opens the Compare & Deploy review page.${
@@ -1376,7 +1371,7 @@ ${pipelineBullet}
 - Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - To inspect what actually rendered in a running raw app (verify an edit landed on screen, diagnose a blank/empty or wrong view, answer "what's showing"), use search_dom (regex over the live HTML) and read_dom (a line-numbered window). Pass a \`selector\` to scope to an element — prefer the selector from a DOM element chip the user attached — or omit it for the whole page. When a chip lists an \`app_path\`, pass it too so the RIGHT app is read (several previews can be open; a query without \`app_path\` hits the visible one). The DOM is read live and is never in context; no match means the element isn't rendered. Both need the raw app preview open.
-- get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
+- get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_run with it. Use this when a backend call errors or returns something unexpected.
 ${
 	isChromiumBrowser()
 		? `- When the user raises how a raw app looks (something is off, or they want the design or layout improved), call take_screenshot to see what they are looking at before changing anything. Reach for it when the request is about appearance, not to review your own edits, which you can read back from the code. It needs the raw app preview open (open_preview kind="raw_app").`
@@ -1552,36 +1547,6 @@ function variableToItem(variable: ListableVariable): WorkspaceItem {
 		summary: variable.description,
 		isSecret: variable.is_secret,
 		isDraft: false
-	}
-}
-
-// Compact metadata for one run. The raw Job carries args/result/logs/raw_code
-// which can be huge — list_runs returns only what's needed to identify a run.
-function summarizeRun(job: Job): Record<string, unknown> {
-	const base = {
-		id: job.id,
-		job_kind: job.job_kind,
-		path: job.script_path,
-		created_by: job.created_by,
-		created_at: job.created_at,
-		started_at: job.started_at,
-		schedule_path: job.schedule_path,
-		is_flow_step: job.is_flow_step,
-		tag: job.tag,
-		worker: job.worker
-	}
-	if ('success' in job) {
-		// CompletedJob
-		return {
-			...base,
-			status: job.canceled ? 'canceled' : job.success ? 'success' : 'failure',
-			duration_ms: job.duration_ms
-		}
-	}
-	// QueuedJob (running or still waiting in the queue)
-	return {
-		...base,
-		status: job.running ? 'running' : 'queued'
 	}
 }
 
@@ -3752,7 +3717,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listRunsSchema,
 			'list_runs',
-			"List recent runs (jobs), most recent first. Optionally filter by path, creator, label, or status. Returns compact metadata only — use get_job_logs with a returned id to read a run's logs."
+			'List recent runs (jobs), most recent first. Optionally filter by path, creator, label, or status. Returns compact metadata only — use get_run with a returned id to see what a run was called with, returned and logged.'
 		),
 		planModeSafe: true,
 		showDetails: true,
@@ -3779,56 +3744,24 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
-			getFlowRunDetailsSchema,
-			'get_flow_run_details',
-			"Inspect a flow run's execution tree: per-step statuses and truncated results, including subflow steps, loop iterations, branches, and retries. Works on running flows too. Pass step to fetch one step's result in full (up to 12k chars)."
+			getRunSchema,
+			'get_run',
+			"Inspect one run: its status, arguments, result and logs, plus — for a flow — the per-step execution tree with each step's status and truncated result (subflow steps, loop iterations, branches and retries included). Works on running jobs too. Pass step to fetch one step's result in full (up to 12k chars)."
 		),
 		planModeSafe: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-			const parsed = getFlowRunDetailsSchema.parse(args)
+			const parsed = getRunSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, {
 				content: parsed.step
 					? `Fetching result of step ${parsed.step} in run ${parsed.id}...`
-					: `Inspecting flow run ${parsed.id}...`
+					: `Inspecting run ${parsed.id}...`
 			})
-			const result = await getFlowRunDetails(workspace, parsed.id, parsed.step)
+			const result = await getRun(workspace, parsed.id, parsed.step)
 			toolCallbacks.setToolStatus(toolId, {
 				content: parsed.step
 					? `Fetched result of step ${parsed.step} in run ${parsed.id}`
-					: `Inspected flow run ${parsed.id}`,
-				result
-			})
-			return result
-		}
-	},
-	{
-		def: createToolDef(
-			getJobLogsSchema,
-			'get_job_logs',
-			'Fetch the logs of a job by its id. Use this to inspect the output of an existing run.'
-		),
-		planModeSafe: true,
-		showDetails: true,
-		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-			const parsed = getJobLogsSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Fetching logs for job ${parsed.id}...`
-			})
-			const logs = await JobService.getJobLogs({
-				workspace,
-				id: parsed.id,
-				// Always suppress the "to remove ansi colors, use: sed ..." hint the
-				// backend otherwise prepends — it is noise for the model and is not
-				// actual ANSI stripping (the raw logs are returned either way).
-				removeAnsiWarnings: true
-			})
-			const hasLogs = typeof logs === 'string' && logs.trim().length > 0
-			const result = hasLogs ? logs : 'No logs available for this job.'
-			toolCallbacks.setToolStatus(toolId, {
-				content: hasLogs
-					? `Fetched logs for job ${parsed.id}`
-					: `No logs available for job ${parsed.id}`,
+					: `Inspected run ${parsed.id}`,
 				result
 			})
 			return result
@@ -6569,7 +6502,7 @@ async function testRunAppRunnable(
 		toolId,
 		startMessage: `Running backend runnable "${key}" of app "${path}"...`,
 		// A path runnable pointing at a flow really does queue a flow job, so the
-		// failure path can offer get_flow_run_details; everything else is a script job.
+		// failure path can offer get_run's step tree; everything else is a script job.
 		contextName: runnable.runType === 'flow' ? 'flow' : 'script',
 		completionName: 'backend runnable',
 		background: args.background,

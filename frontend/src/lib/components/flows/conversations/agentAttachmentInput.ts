@@ -133,11 +133,6 @@ export function attachmentsTargetFor(
 		: undefined
 }
 
-export function isEmptyAgentChatInputValue(value: any): boolean {
-	if (value === undefined || value === null || value === '') return true
-	return Array.isArray(value) && value.length === 0
-}
-
 /**
  * The flow inputs that an AI agent step reads directly into one of its chat-relevant
  * fields. Several agents may read the same flow input; it is promoted once.
