@@ -85,9 +85,32 @@ vi.mock('$lib/gen', async () => {
 			runScriptByPath: vi.fn(async () => 'job-script-by-path'),
 			getJob: vi.fn(async () => ({
 				type: 'CompletedJob',
+				id: 'job-123',
+				job_kind: 'script',
+				script_path: 'f/team/runner',
 				success: true,
+				canceled: false,
+				args: { n: 3 },
 				result: { ok: true },
 				logs: 'test logs'
+			})),
+			getJobArgs: vi.fn(async () => ({ big: 'real args' })),
+			getCompletedJobResultMaybe: vi.fn(async () => ({ completed: true, result: { big: 'x' } })),
+			getFlowAllResults: vi.fn(async () => ({
+				entries: [
+					{
+						job_id: 'job-123',
+						label: 'Flow',
+						kind: 'script',
+						depth: 0,
+						sibling_index: 1,
+						sibling_count: 1,
+						status: 'success',
+						success: true
+					}
+				],
+				truncated: false,
+				scope_filtered: false
 			})),
 			// What every job wait polls first; unmocked it reaches the real client and the
 			// wait never returns. Answers completed, so one tick settles the job.
@@ -233,6 +256,9 @@ vi.mock('$lib/gen', async () => {
 			createVariable: vi.fn(async () => 'created'),
 			updateVariable: vi.fn(async () => 'updated')
 		}),
+		WorkerService: wrapService(actual.WorkerService, {
+			listWorkers: vi.fn(async () => [])
+		}),
 		FolderService: wrapService(actual.FolderService, {
 			createFolder: vi.fn(async () => 'created')
 		}),
@@ -241,6 +267,17 @@ vi.mock('$lib/gen', async () => {
 				const user = whoamiByWorkspace.get(workspace)
 				if (!user) throw new Error(`not a member of ${workspace}`)
 				return user
+			}),
+			// `refreshSuperadmin` cancels the previous in-flight call, so this stands in for
+			// the CancelablePromise the real client returns.
+			globalWhoami: vi.fn(() => {
+				const pending: any = Promise.resolve({
+					email: 'devops@windmill.dev',
+					super_admin: false,
+					devops: true
+				})
+				pending.cancel = () => {}
+				return pending
 			})
 		}),
 		DraftService: wrapService(actual.DraftService, {
@@ -366,9 +403,10 @@ import {
 	ScheduleService,
 	ScriptService,
 	UserService,
-	VariableService
+	VariableService,
+	WorkerService
 } from '$lib/gen'
-import { superadmin, userStore, usersWorkspaceStore } from '$lib/stores'
+import { devopsRole, superadmin, userStore, usersWorkspaceStore } from '$lib/stores'
 import { processSecretArgs } from '$lib/components/secretArgUtils'
 import { clearWorkspaceRoleCache } from '$lib/user'
 import { get } from 'svelte/store'
@@ -489,7 +527,7 @@ describe('global AI tools', () => {
 		expect(names).toContain('test_run_script')
 		expect(names).toContain('test_run_flow')
 		expect(names).toContain('test_run_step')
-		expect(names).toContain('get_job_logs')
+		expect(names).toContain('get_run')
 		expect(names).toContain('list_runs')
 	})
 
@@ -715,29 +753,306 @@ describe('global AI tools', () => {
 		)
 	})
 
-	it('fetches job logs by id and always suppresses the backend ansi hint line', async () => {
-		const result = await callGlobalTool('get_job_logs', { id: 'job-123' })
+	it('lists workers with the diagnostic fields only', async () => {
+		vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce([
+			{
+				worker: 'wk-1',
+				worker_instance: 'host-1',
+				worker_group: 'gpu',
+				custom_tags: ['gpu'],
+				last_ping: 3,
+				jobs_executed: 12,
+				started_at: '2024-01-01T00:00:00Z',
+				ip: '10.0.0.1',
+				wm_version: 'v1',
+				memory: 123,
+				occupancy_rate: 0.5
+			}
+		])
+
+		const result = await callGlobalTool('list_workers', {})
+
+		expect(JSON.parse(result).workers).toEqual([
+			{
+				worker: 'wk-1',
+				worker_group: 'gpu',
+				custom_tags: ['gpu'],
+				last_ping: 3,
+				jobs_executed: 12
+			}
+		])
+		// Page telemetry must stay out of the model's context.
+		expect(result).not.toContain('occupancy_rate')
+		expect(result).not.toContain('10.0.0.1')
+	})
+
+	it('says so when the worker page is cut short', async () => {
+		vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce(
+			Array(100).fill({
+				worker: 'wk',
+				worker_group: 'default',
+				custom_tags: [],
+				last_ping: 1,
+				jobs_executed: 0
+			}) as any
+		)
+
+		const result = await callGlobalTool('list_workers', {})
+
+		// A full page is indistinguishable from the whole fleet, and the model reasons
+		// about tag coverage from this list.
+		expect(JSON.parse(result).note).toContain('Only the first 100 workers')
+	})
+
+	describe('list_workers with nothing to show', () => {
+		afterEach(() => {
+			superadmin.set(undefined)
+			devopsRole.set(undefined)
+		})
+
+		it('never reports an empty list as an absence to a caller workers can be hidden from', async () => {
+			superadmin.set(false)
+			devopsRole.set(false)
+			vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce([])
+
+			const result = await callGlobalTool('list_workers', {})
+
+			// An instance hiding workers from a non-devops caller answers with an empty
+			// list, so absence is unprovable here.
+			expect(result).toContain('does NOT establish that no workers are running')
+			expect(result).toContain('devops role')
+			expect(result).not.toContain('"workers"')
+		})
+
+		it('reports an empty list as an absence to a devops caller', async () => {
+			devopsRole.set('devops@windmill.dev')
+			vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce([])
+
+			const result = await callGlobalTool('list_workers', {})
+
+			// Nothing is hidden from this caller, so hedging would withhold the answer a
+			// stuck queue is waiting on.
+			expect(result).toContain('No workers are connected')
+			expect(result).not.toContain('does NOT establish')
+		})
+
+		it('resolves the role before deciding, rather than reading unloaded stores as no role', async () => {
+			// Both stores start undefined; without the refresh a devops caller whose whoami
+			// has not landed yet is hedged at instead of answered.
+			expect(get(superadmin)).toBeUndefined()
+			expect(get(devopsRole)).toBeUndefined()
+			vi.mocked(WorkerService.listWorkers).mockResolvedValueOnce([])
+
+			const result = await callGlobalTool('list_workers', {})
+
+			expect(result).toContain('No workers are connected')
+		})
+	})
+
+	it('returns args, result and logs of a run in one call', async () => {
+		const result = await callGlobalTool('get_run', { id: 'job-123' })
 
 		expect(JobService.getJobLogs).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
 			id: 'job-123',
+			// The backend's "to remove ansi colors, use: sed ..." hint is noise for
+			// the model, so it is always suppressed.
 			removeAnsiWarnings: true
 		})
-		expect(result).toBe('job log line 1\njob log line 2')
-		// The logs must be surfaced as the tool result so the details panel shows
-		// them rather than "No result yet".
+		const parsed = JSON.parse(result)
+		expect(parsed.run).toMatchObject({
+			status: 'success',
+			path: 'f/team/runner',
+			args: expect.stringContaining('"n": 3'),
+			result: expect.stringContaining('"ok": true'),
+			logs: 'job log line 1\njob log line 2'
+		})
+		// The result must be surfaced as the tool result so the details panel shows
+		// it rather than "No result yet".
 		expect(toolCallbacks.setToolStatus).toHaveBeenCalledWith(
-			'test-get_job_logs',
-			expect.objectContaining({ result: 'job log line 1\njob log line 2' })
+			'test-get_run',
+			expect.objectContaining({ result })
 		)
 	})
 
-	it('reports when a job has no logs', async () => {
+	it('reports when a run has no logs, and tells that apart from logs it could not read', async () => {
 		vi.mocked(JobService.getJobLogs).mockResolvedValueOnce('   ')
+		expect(JSON.parse(await callGlobalTool('get_run', { id: 'job-empty' })).run.logs).toBe(
+			'No logs for this run.'
+		)
 
-		const result = await callGlobalTool('get_job_logs', { id: 'job-empty' })
+		// A failed fetch must not read as "this run logged nothing" — the model
+		// would report that to the user as fact.
+		vi.mocked(JobService.getJobLogs).mockRejectedValueOnce(new Error('boom'))
+		expect(JSON.parse(await callGlobalTool('get_run', { id: 'job-123' })).run.logs).toBe(
+			'Logs could not be read for this run.'
+		)
 
-		expect(result).toBe('No logs available for this job.')
+		// Nor does every failed read reject: the generated client resolves undefined
+		// when it cannot read the body, which lands on the same "no logs" branch.
+		vi.mocked(JobService.getJobLogs).mockResolvedValueOnce(undefined as any)
+		expect(JSON.parse(await callGlobalTool('get_run', { id: 'job-123' })).run.logs).toBe(
+			'Logs could not be read for this run.'
+		)
+	})
+
+	it('keeps the end of a long log, and never opens it on half a surrogate pair', async () => {
+		// 12002 code points over 24003 UTF-16 units: the 12000-unit tail opens one
+		// unit into a unicorn, so the lone low surrogate has to be dropped.
+		vi.mocked(JobService.getJobLogs).mockResolvedValueOnce('🦄'.repeat(12001) + 'z')
+
+		const [note, body] = JSON.parse(
+			await callGlobalTool('get_run', { id: 'job-123' })
+		).run.logs.split('\n')
+
+		// The note goes first: the tail is what the model came for, and a note at
+		// the end would read as the last thing the run logged.
+		expect(note).toContain('12002 chars total')
+		expect(body).toHaveLength(11999)
+		expect(body.codePointAt(0)).toBe(0x1f984)
+		expect(body.endsWith('🦄z')).toBe(true)
+	})
+
+	it('keeps the step tree optional: a failed tree fetch still returns the run itself', async () => {
+		vi.mocked(JobService.getFlowAllResults).mockRejectedValueOnce(new Error('tree unavailable'))
+
+		const parsed = JSON.parse(await callGlobalTool('get_run', { id: 'job-123' }))
+
+		expect(parsed.run).toMatchObject({ args: expect.stringContaining('"n": 3') })
+		expect(parsed.run.logs).toBe('job log line 1\njob log line 2')
+		// Silence here would read as "this flow ran no steps", which the model
+		// would then report to the user as fact.
+		expect(parsed.run.steps_unavailable).toBe(true)
+		// The tree's root entry normally names the run; without it nothing does.
+		expect(parsed.run.job_id).toBe('job-123')
+
+		// And the tree read fails the same two ways the log read does: reading
+		// `.entries` off a resolved undefined throws, which would cost the model the
+		// job and logs already in hand rather than just the tree.
+		vi.mocked(JobService.getFlowAllResults).mockResolvedValueOnce(undefined as any)
+		const noTree = JSON.parse(await callGlobalTool('get_run', { id: 'job-123' }))
+		expect(noTree.run.steps_unavailable).toBe(true)
+		expect(noTree.run.logs).toBe('job log line 1\njob log line 2')
+	})
+
+	it('reports why a run was canceled or died, the fields getJob used to carry', async () => {
+		vi.mocked(JobService.getJob).mockResolvedValueOnce({
+			type: 'CompletedJob',
+			id: 'job-oom',
+			job_kind: 'script',
+			success: false,
+			canceled: true,
+			canceled_by: 'alice',
+			canceled_reason: 'exceeded memory limit',
+			mem_peak: 2097152
+		} as any)
+
+		const run = JSON.parse(await callGlobalTool('get_run', { id: 'job-oom' })).run
+
+		expect(run.status).toBe('canceled')
+		expect(run.canceled_by).toBe('alice')
+		expect(run.canceled_reason).toBe('exceeded memory limit')
+		expect(run.mem_peak_kb).toBe(2097152)
+	})
+
+	// Over ~90KB the job endpoint elides the payload, leaving the step tree as the
+	// only place a real (server-side truncated) head of the result survives.
+	function mockElidedJob() {
+		vi.mocked(JobService.getJob).mockResolvedValueOnce({
+			type: 'CompletedJob',
+			id: 'job-big',
+			job_kind: 'script',
+			success: true,
+			canceled: false,
+			args: { reason: 'WINDMILL_TOO_BIG' },
+			result: 'WINDMILL_TOO_BIG'
+		} as any)
+		vi.mocked(JobService.getFlowAllResults).mockResolvedValueOnce({
+			entries: [
+				{
+					job_id: 'job-big',
+					label: 'Flow',
+					kind: 'script',
+					depth: 0,
+					sibling_index: 1,
+					sibling_count: 1,
+					status: 'success',
+					success: true,
+					result_prefix: '{"blob":"real head"}',
+					result_length: 300018
+				}
+			],
+			truncated: false,
+			scope_filtered: false
+		} as any)
+	}
+
+	it("reports getJob's WINDMILL_TOO_BIG placeholders instead of fetching around them", async () => {
+		mockElidedJob()
+
+		const run = JSON.parse(await callGlobalTool('get_run', { id: 'job-big' })).run
+
+		// The marker is never the run's own value, so it must not reach the model.
+		expect(JSON.stringify(run)).not.toContain('WINDMILL_TOO_BIG')
+		// The result falls to the step tree's real server-side head, flagged and
+		// sized so the model can't mistake the fragment for the whole payload.
+		expect(run.result).toBe('{"blob":"real head"}')
+		expect(run.result_total_chars).toBe(300018)
+		expect(run.result_truncated).toBe(true)
+		expect(run.args_truncated).toBe(true)
+		expect(run.args).toBeUndefined()
+		// The endpoints that return these whole take no length parameter, so
+		// reaching for one would pull the entire payload into the tab.
+		expect(JobService.getJobArgs).not.toHaveBeenCalled()
+		expect(JobService.getCompletedJobResultMaybe).not.toHaveBeenCalled()
+	})
+
+	it('keeps a payload that merely carries the marker string in a reason of its own', async () => {
+		// The backend elides a result to the bare string and args to exactly
+		// {reason: marker}. A payload with that reason plus fields of its own is the
+		// run's own value, and withholding it would report an elision that never was.
+		vi.mocked(JobService.getJob).mockResolvedValueOnce({
+			type: 'CompletedJob',
+			id: 'job-reason',
+			job_kind: 'script',
+			success: false,
+			canceled: false,
+			args: { reason: 'WINDMILL_TOO_BIG', retries: 2 },
+			result: { reason: 'WINDMILL_TOO_BIG', code: 42 }
+		} as any)
+
+		const run = JSON.parse(await callGlobalTool('get_run', { id: 'job-reason' })).run
+
+		expect(run.args_truncated).toBeUndefined()
+		expect(run.result_truncated).toBeUndefined()
+		expect(run.args).toContain('"retries": 2')
+		expect(run.result).toContain('"code": 42')
+	})
+
+	it('reports skipped and suspended runs as such rather than success or running', async () => {
+		// `success` is true for a skipped job, and a suspended job is `running`.
+		vi.mocked(JobService.getJob).mockResolvedValueOnce({
+			type: 'CompletedJob',
+			id: 'job-skipped',
+			job_kind: 'script',
+			success: true,
+			canceled: false,
+			is_skipped: true
+		} as any)
+		expect(JSON.parse(await callGlobalTool('get_run', { id: 'job-skipped' })).run.status).toBe(
+			'skipped'
+		)
+
+		vi.mocked(JobService.getJob).mockResolvedValueOnce({
+			type: 'QueuedJob',
+			id: 'job-suspended',
+			job_kind: 'flow',
+			running: true,
+			suspend: 1
+		} as any)
+		expect(JSON.parse(await callGlobalTool('get_run', { id: 'job-suspended' })).run.status).toBe(
+			'suspended'
+		)
 	})
 
 	it('searches hub scripts without fetching script contents', async () => {
@@ -6302,7 +6617,7 @@ describe('prepareGlobalSystemMessage', () => {
 		it('dispatches to the registered handler with the session id and default limit of 20', async () => {
 			const callbacks: ToolCallbacks = { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
 			const handler = vi.fn(() => ({
-				aiResult: 'runs output. Next step: call get_job_logs.',
+				aiResult: 'runs output. Next step: call get_run.',
 				uiMessage: 'Listed 1 app run',
 				toolResult:
 					'[{"job_id":"job-1","component":"backend.1","status":"completed","created_at":1718000000000,"started_at":1718000000000,"duration_ms":1000}]'
@@ -6311,7 +6626,7 @@ describe('prepareGlobalSystemMessage', () => {
 			const result = await callGlobalTool('list_app_runs', {}, callbacks, {
 				sessionId: 'sess-runs'
 			})
-			expect(result).toBe('runs output. Next step: call get_job_logs.')
+			expect(result).toBe('runs output. Next step: call get_run.')
 			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-runs', limit: 20 })
 			expect(callbacks.setToolStatus).toHaveBeenLastCalledWith('test-list_app_runs', {
 				content: 'Listed 1 app run',

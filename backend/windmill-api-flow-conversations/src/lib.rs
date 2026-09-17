@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, Query},
-    routing::{delete, get},
+    routing::{delete, get, post},
     Extension, Json, Router,
 };
 use chrono::{DateTime, Utc};
@@ -15,13 +15,14 @@ use windmill_common::{
     db::{UserDB, DB},
     error::{JsonResult, Result},
     flow_conversations::MessageType,
-    utils::{not_found_if_none, paginate, Pagination},
+    utils::{not_found_if_none, paginate, truncate_with_ellipsis, Pagination},
 };
 
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_conversations))
         .route("/delete/{conversation_id}", delete(delete_conversation))
+        .route("/update/{conversation_id}", post(update_conversation))
         .route("/{conversation_id}/messages", get(list_messages))
 }
 
@@ -51,9 +52,22 @@ pub struct FlowConversationMessage {
     pub attachments: Option<sqlx::types::JsonValue>,
 }
 
+/// Which conversations a listing holds. A test chat was started from the editor's test
+/// panel; a deployed one from the flow itself.
+#[derive(Deserialize, Default, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum ConversationKind {
+    Test,
+    /// The default: a deployed flow's chat should not surface someone's trial runs.
+    #[default]
+    Deployed,
+    All,
+}
+
 #[derive(Deserialize)]
 pub struct ListConversationsQuery {
     pub flow_path: Option<String>,
+    pub kind: Option<ConversationKind>,
 }
 
 #[derive(Deserialize)]
@@ -80,11 +94,22 @@ async fn list_conversations(
         "created_at",
         "updated_at",
         "created_by",
+        "is_test",
     ])
     .and_where_eq("workspace_id", "?".bind(&w_id));
 
     if let Some(flow_path) = &query.flow_path {
         sqlb.and_where_eq("flow_path", "?".bind(flow_path));
+    }
+
+    match query.kind.unwrap_or_default() {
+        ConversationKind::Test => {
+            sqlb.and_where_eq("is_test", "true");
+        }
+        ConversationKind::Deployed => {
+            sqlb.and_where_eq("is_test", "false");
+        }
+        ConversationKind::All => {}
     }
 
     sqlb.order_by("updated_at", true)
@@ -114,7 +139,7 @@ async fn delete_conversation(
     // Verify the conversation exists and belongs to the user
     let conversation = sqlx::query_as!(
         FlowConversation,
-        "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
+        "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by, is_test
          FROM flow_conversation
          WHERE id = $1 AND workspace_id = $2",
         conversation_id,
@@ -159,6 +184,50 @@ async fn delete_conversation(
     }
 
     Ok(format!("Conversation {} deleted", conversation_id))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateConversation {
+    pub title: String,
+}
+
+async fn update_conversation(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, conversation_id)): Path<(String, Uuid)>,
+    Json(update): Json<UpdateConversation>,
+) -> Result<String> {
+    // Postgres refuses a NUL in a text column, so it must not reach the query as a 500.
+    if update.title.contains('\0') {
+        return Err(windmill_common::error::Error::BadRequest(
+            "title cannot contain a NUL character".to_string(),
+        ));
+    }
+    // The column is VARCHAR(255) and the helper appends an ellipsis to what it cuts, so the
+    // bound it takes is three short of the column's. A longer title would otherwise reach
+    // Postgres as a 22001 and come back a 500.
+    let title = truncate_with_ellipsis(update.title.trim(), 252);
+
+    let mut tx = user_db.clone().begin(&authed).await?;
+
+    // `updated_at` is kept: the list is ordered by it, and a rename must not move the
+    // chat to the top the way a new turn does.
+    let updated = sqlx::query_scalar!(
+        "UPDATE flow_conversation SET title = $1, updated_at = updated_at
+         WHERE id = $2 AND workspace_id = $3
+         RETURNING id",
+        title,
+        conversation_id,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    not_found_if_none(updated, "Conversation", conversation_id.to_string())?;
+
+    tx.commit().await?;
+
+    Ok(format!("Conversation {} updated", conversation_id))
 }
 
 async fn list_messages(

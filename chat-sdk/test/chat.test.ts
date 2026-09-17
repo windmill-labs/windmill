@@ -456,6 +456,112 @@ describe('createChat with server history', () => {
     expect(chat.getState().conversations.map((c) => c.id)).toEqual(['c1', 'c2'])
   })
 
+  test('lists one kind of conversation and carries which kind each one is', async () => {
+    const row = (id: string, is_test: boolean) => ({
+      id,
+      workspace_id: 'ws',
+      flow_path: FLOW,
+      title: id,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      created_by: 'admin',
+      is_test
+    })
+    const { fetch, calls } = fetchMock((c) =>
+      c.url.pathname === '/api/w/ws/flow_conversations/list'
+        ? json(c.url.searchParams.get('kind') === 'test' ? [row('t1', true)] : [row('d1', false)])
+        : undefined
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.loadConversations()
+    expect(calls[0].url.searchParams.has('kind')).toBe(false)
+    expect(chat.getState().conversations.map((c) => [c.id, c.isTest])).toEqual([['d1', false]])
+    await chat.loadConversations({ kind: 'test' })
+    expect(calls[1].url.searchParams.get('kind')).toBe('test')
+    expect(chat.getState().conversations.map((c) => [c.id, c.isTest])).toEqual([['t1', true]])
+  })
+
+  test('a list for a kind no longer asked for does not replace the newer one', async () => {
+    const row = (id: string, is_test: boolean) => ({
+      id,
+      workspace_id: 'ws',
+      flow_path: FLOW,
+      title: id,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      created_by: 'admin',
+      is_test
+    })
+    const { fetch } = fetchMock((c) => {
+      if (c.url.pathname !== '/api/w/ws/flow_conversations/list') return undefined
+      if (c.url.searchParams.get('kind') === 'test') {
+        return new Promise<Response>((r) => setTimeout(() => r(json([row('t1', true)])), 50))
+      }
+      return json([row('d1', false)])
+    })
+    const chat = createChat(options({}, fetch))
+    const slow = chat.loadConversations({ kind: 'test' })
+    await chat.loadConversations({ kind: 'deployed' })
+    await slow
+    expect(chat.getState().conversations.map((c) => c.id)).toEqual(['d1'])
+    // Another kind asked for on a later page starts its own listing rather than appending.
+    await chat.loadConversations({ page: 2, kind: 'test' })
+    expect(chat.getState().conversations.map((c) => c.id)).toEqual(['t1'])
+  })
+
+  test('the refresh after a new turn lists the kind last asked for', async () => {
+    const { fetch, calls } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { output: 'Hello', messages: [] } }])
+          : undefined,
+      (c) =>
+        c.method === 'GET' && c.url.pathname.endsWith('/messages')
+          ? json([messageRow(11, 'user', 'hi'), messageRow(12, 'assistant', 'Hello', { job_id: 'agent-job' })])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.loadConversations({ kind: 'test' })
+    await chat.sendMessage('hi')
+    const lists = calls.filter((c) => c.url.pathname === '/api/w/ws/flow_conversations/list')
+    expect(lists.length).toBeGreaterThan(1)
+    expect(lists.every((c) => c.url.searchParams.get('kind') === 'test')).toBe(true)
+  })
+
+  test('renaming a conversation keeps its place in the list', async () => {
+    const row = (id: string) => ({
+      id,
+      workspace_id: 'ws',
+      flow_path: FLOW,
+      title: id,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      created_by: 'admin',
+      is_test: false
+    })
+    const { fetch, calls } = fetchMock(
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([row('c1'), row('c2')]) : undefined),
+      (c) =>
+        c.method === 'POST' && c.url.pathname === '/api/w/ws/flow_conversations/update/c2'
+          ? text('Conversation c2 updated')
+          : undefined
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.loadConversations()
+    await chat.renameConversation('c2', '  Budget review  ')
+    expect(calls[1].body).toEqual({ title: 'Budget review' })
+    expect(chat.getState().conversations.map((c) => [c.id, c.title])).toEqual([
+      ['c1', 'c1'],
+      ['c2', 'Budget review']
+    ])
+    // Cut as the server cuts, so what is shown is what is stored.
+    await chat.renameConversation('c2', 'x'.repeat(300))
+    expect(chat.getState().conversations[1].title).toBe('x'.repeat(252) + '...')
+    expect(calls[2].body).toEqual({ title: 'x'.repeat(252) + '...' })
+  })
+
   test('a turn started right after stop() is not touched by the stop sync', async () => {
     let jobs = 0
     const { fetch } = fetchMock(
@@ -880,6 +986,27 @@ describe('createChat with server history', () => {
     await new Promise((r) => setTimeout(r, 400))
     const again = createChat(options({ token: 'tok', storage }, fetch))
     expect((await again.loadConversations()).map((c) => c.id)).toEqual([newer, older])
+  })
+
+  test('renaming a local conversation persists the title without reordering history', async () => {
+    const storage = memoryStorage()
+    const { fetch, calls } = fetchMock(run, (c) =>
+      c.url.pathname === streamPath ? sse([{ type: 'update', completed: true, only_result: 'ok' }]) : undefined
+    )
+    const chat = createChat(options({ token: 'tok', storage }, fetch))
+    await chat.sendMessage('older')
+    const older = chat.getState().conversationId!
+    chat.newConversation()
+    await chat.sendMessage('newer')
+    const newer = chat.getState().conversationId!
+    const before = calls.length
+    await chat.renameConversation(older, 'Renamed')
+    expect(calls.length).toBe(before)
+    const again = createChat(options({ token: 'tok', storage }, fetch))
+    expect((await again.loadConversations()).map((c) => [c.id, c.title])).toEqual([
+      [newer, 'newer'],
+      [older, 'Renamed']
+    ])
   })
 
   test('destroying the chat mid-turn leaves it idle', async () => {

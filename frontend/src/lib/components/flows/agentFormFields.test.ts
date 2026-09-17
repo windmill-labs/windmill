@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { AI_AGENT_SCHEMA } from './flowInfers'
+import { AI_AGENT_SCHEMA, memoryOptionLabel, memoryPropertyFor } from './flowInfers'
 import {
 	AGENT_FIELD_BY_KEY,
 	AGENT_FIELDS,
+	agentMemoryMode,
+	historyInputApplies,
 	agentFieldIsSet,
 	initialVisibleAgentFields
 } from './agentFormFields'
@@ -79,7 +81,69 @@ describe('initialVisibleAgentFields', () => {
 	})
 
 	it('covers every schema key, so no field can only be reached through the raw doc', () => {
-		const registered = new Set(AGENT_FIELDS.map((f) => f.key))
+		const registered = new Set<string>(AGENT_FIELDS.map((f) => f.key))
 		expect(Object.keys(schemaProperties).filter((k) => !registered.has(k))).toEqual([])
+	})
+})
+
+describe('historyInputApplies', () => {
+	// Mirrors the worker: offering a step input a run would ignore misleads the author.
+	it('offers each history input in its own memory mode, and neither on an older setting', () => {
+		expect(agentMemoryMode(undefined)).toBe('off')
+		expect(agentMemoryMode({ kind: 'window', context_length: 0 })).toBe('off')
+		expect(agentMemoryMode({ kind: 'window', context_length: 10 })).toBe('managed')
+		expect(agentMemoryMode({ kind: 'manual', messages: [] })).toBe('legacy')
+		expect(agentMemoryMode({ kind: 'auto', context_length: 4, memory_id: 'x' })).toBe('legacy')
+		expect(agentMemoryMode({ kind: 'auto' })).toBe('off')
+		expect(historyInputApplies('memory_id', 'managed')).toBe(true)
+		expect(historyInputApplies('previous_messages', 'managed')).toBe(false)
+		expect(historyInputApplies('memory_id', 'off')).toBe(false)
+		expect(historyInputApplies('previous_messages', 'off')).toBe(true)
+		expect(historyInputApplies('memory_id', 'legacy')).toBe(false)
+		expect(historyInputApplies('previous_messages', 'legacy')).toBe(false)
+		expect(historyInputApplies('previous_messages', undefined)).toBe(true)
+	})
+})
+
+describe('memoryOptionLabel', () => {
+	// The ignored-input note names the setting by the same label its own button carries.
+	it('names each memory option the way the field renders it', () => {
+		expect(memoryOptionLabel({ kind: 'manual', messages: [] })).toBe('Previous messages (legacy)')
+		expect(memoryOptionLabel({ kind: 'auto', context_length: 4 })).toBe('On (legacy)')
+		expect(memoryOptionLabel({ kind: 'window', context_length: 10 })).toBe('On')
+		// Keeping no messages runs as off, whichever kind says so.
+		expect(memoryOptionLabel({ kind: 'window', context_length: 0 })).toBe('Off')
+		expect(memoryOptionLabel({ kind: 'auto' })).toBe('Off')
+		expect(memoryOptionLabel(undefined)).toBeUndefined()
+	})
+})
+
+describe('memoryPropertyFor', () => {
+	const property = schemaProperties.memory
+	const kinds = (value: unknown) =>
+		memoryPropertyFor(property, value).oneOf.map((variant: { title: string }) => variant.title)
+
+	it('adds a legacy kind as an option only while the value holds it', () => {
+		expect(memoryPropertyFor(property, { kind: 'window', context_length: 10 })).toBe(property)
+		expect(memoryPropertyFor(property, undefined)).toBe(property)
+		expect(kinds({ kind: 'auto', context_length: 4, memory_id: 'x' })).toEqual([
+			'off',
+			'window',
+			'auto'
+		])
+		expect(kinds({ kind: 'manual', messages: [] })).toEqual(['off', 'window', 'manual'])
+		const autoVariant = (value: unknown) => memoryPropertyFor(property, value).oneOf.at(-1)
+		expect(autoVariant({ kind: 'auto', context_length: 4 }).properties.memory_id).toBeUndefined()
+		expect(
+			autoVariant({ kind: 'auto', context_length: 4, memory_id: 'x' }).properties.memory_id
+		).toBeDefined()
+		// A chat flow drops the baked id on save, so the form does not offer it there.
+		expect(
+			memoryPropertyFor(
+				property,
+				{ kind: 'auto', context_length: 4, memory_id: 'x' },
+				true
+			).oneOf.at(-1).properties.memory_id
+		).toBeUndefined()
 	})
 })

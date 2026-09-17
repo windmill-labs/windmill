@@ -11,6 +11,7 @@ import type {
 	Script
 } from '../../../frontend/src/lib/gen'
 import type {
+	DataMetric,
 	DataTableTables,
 	DataTableTableSchema,
 	EndpointTool,
@@ -92,7 +93,7 @@ export interface BenchmarkWorkspaceResource {
 }
 
 export interface BenchmarkWorkspaceJob {
-	/** Stable id so a case prompt can reference a specific run (e.g. for get_job_logs). */
+	/** Stable id so a case prompt can reference a specific run (e.g. for get_run). */
 	id?: string
 	jobKind?: CompletedJob['job_kind']
 	scriptPath?: string
@@ -100,6 +101,8 @@ export interface BenchmarkWorkspaceJob {
 	label?: string
 	success?: boolean
 	logs?: string
+	args?: Record<string, unknown>
+	result?: unknown
 }
 
 export interface BenchmarkWorkspaceRunnables {
@@ -110,6 +113,9 @@ export interface BenchmarkWorkspaceRunnables {
 	aiProviders?: BenchmarkWorkspaceAiProvider[]
 	resources?: BenchmarkWorkspaceResource[]
 	datatables?: BenchmarkDatatableSeed[]
+	/** DuckLake catalog names, as `list_ducklakes` reports them. */
+	ducklakes?: string[]
+	dataMetrics?: DataMetric[]
 	jobs?: BenchmarkWorkspaceJob[]
 }
 
@@ -156,7 +162,7 @@ export function registerBenchmarkWorkspaceRunnables(
 		...runnables,
 		datatables: runnables.datatables ? structuredClone(runnables.datatables) : undefined
 	})
-	// Seed any fixture jobs so list_runs / get_job_logs have data to return.
+	// Seed any fixture jobs so list_runs / get_run have data to return.
 	for (const seed of runnables.jobs ?? []) {
 		createBenchmarkCompletedJob({
 			workspace,
@@ -166,7 +172,9 @@ export function registerBenchmarkWorkspaceRunnables(
 			scriptPath: seed.scriptPath,
 			createdBy: seed.createdBy,
 			label: seed.label,
-			logs: seed.logs
+			logs: seed.logs,
+			args: seed.args,
+			result: seed.result
 		})
 	}
 }
@@ -481,6 +489,33 @@ export function getBenchmarkJobLogs(workspace: string, jobId: string): string {
 	return job.logs ?? ''
 }
 
+/**
+ * Mirror `JobService.getFlowAllResults`, which get_run calls for the execution
+ * tree. Fixture jobs are single runs with no steps, so only the root entry.
+ */
+export function getBenchmarkFlowAllResults(workspace: string, jobId: string) {
+	const job = getBenchmarkCompletedJob(workspace, jobId)
+	if (!job) {
+		throw new Error(`Job "${jobId}" not found in benchmark workspace`)
+	}
+	return {
+		entries: [
+			{
+				job_id: jobId,
+				label: 'Flow',
+				kind: job.job_kind ?? 'script',
+				depth: 0,
+				sibling_index: 1,
+				sibling_count: 1,
+				status: job.success ? 'success' : 'failure',
+				success: job.success
+			}
+		],
+		truncated: false,
+		scope_filtered: false
+	}
+}
+
 // ============= Drafts (per-user, DB-backed in production) =============
 
 /**
@@ -640,6 +675,27 @@ export function listBenchmarkDatatables(workspace: string): DataTableTables[] | 
 			Object.entries(datatable.schemas).map(([schema, tables]) => [schema, Object.keys(tables)])
 		)
 	}))
+}
+
+// ============= DuckLake catalogs and declared metrics =============
+
+/** Seeded DuckLake names, or `null` for a non-benchmark workspace. */
+export function listBenchmarkDucklakes(workspace: string): string[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	return runnables ? (runnables.ducklakes ?? []) : null
+}
+
+/**
+ * Seeded metric declarations, or `null` for a non-benchmark workspace.
+ *
+ * The `table` / `path_prefix` filters are ignored: which rows a filter selects is
+ * `canonical_table_path`'s business and is pinned by `ducklakeTools.test.ts`.
+ * Re-deriving it here would give the eval its own copy of that spec to drift from,
+ * and the case this serves measures whether the model reaches for the tool at all.
+ */
+export function listBenchmarkDataMetrics(workspace: string): DataMetric[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	return runnables ? (runnables.dataMetrics ?? []) : null
 }
 
 export function getBenchmarkDatatableSchema(input: {
