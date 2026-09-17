@@ -1395,14 +1395,8 @@ pub async fn sync_global_settings_declarative(
     crate::global_settings::parse_allowed_origins_setting(desired.get(origins_key))
         .map_err(|e| anyhow::anyhow!("{origins_key}: {e}"))?;
 
-    let diff = diff_global_settings(current, desired, ApplyMode::Replace);
-    let external_pg_key = crate::global_settings::EXTERNAL_INSTANCE_PG_SETTING;
-    if diff.deletes.iter().any(|k| k == external_pg_key) {
-        crate::external_instance_pg::check_external_instance_pg_write(db, None).await?;
-    }
-    if let Some(value) = diff.upserts.get(external_pg_key) {
-        crate::external_instance_pg::check_external_instance_pg_write(db, Some(value)).await?;
-    }
+    let mut diff = diff_global_settings(current, desired, ApplyMode::Replace);
+    crate::external_instance_pg::write_external_instance_pg_from_diff(db, &mut diff).await?;
     apply_settings_diff(db, &diff).await?;
 
     Ok(())
