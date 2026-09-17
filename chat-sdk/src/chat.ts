@@ -382,16 +382,21 @@ class ChatImpl implements Chat {
           tool: { ...existing.tool!, ...toolPatch }
         }
       } else {
+        // Thinking that produced no text led to this call, and is stored on its row.
+        const a = turn.assistantId ? messages.findIndex((m) => m.id === turn.assistantId) : -1
+        const reasoning = a >= 0 && messages[a].content === '' ? messages.splice(a, 1)[0].reasoning : undefined
         messages.push({
           id: `pending-${randomId()}`,
           role: 'tool',
           content: content ?? '',
+          reasoning,
           success: success ?? true,
           createdAt: now(),
           pending: true,
           tool: { callId, name, status: 'running', ...toolPatch }
         })
       }
+      turn.assistantId = undefined
     }
     const appendAssistant = (text: string, reasoning: string) => {
       const i = turn.assistantId
@@ -426,17 +431,14 @@ class ChatImpl implements Chat {
         case 'reasoning_token_delta':
           appendAssistant('', event.content)
           break
+        // A call completes the round's text: text after it is a new message.
         case 'tool_call':
-          // The round's text is complete; text after the tool result is a new message.
-          turn.assistantId = undefined
           upsertTool(event.call_id, event.function_name, { status: 'running' })
           break
         case 'tool_call_arguments':
-          turn.assistantId = undefined
           upsertTool(event.call_id, event.function_name, { arguments: event.arguments })
           break
         case 'tool_execution':
-          turn.assistantId = undefined
           upsertTool(event.call_id, event.function_name, { status: 'running' })
           break
         case 'tool_result':
@@ -650,22 +652,54 @@ class ChatImpl implements Chat {
     for (const row of rows.map(fromRow)) {
       if (known.has(row.id)) continue
       known.add(row.id)
-      const i = messages.findIndex(
+      let i = messages.findIndex(
         (m) =>
           m.seq === undefined &&
           m.role === row.role &&
           (m.content === row.content || (row.tool !== undefined && m.tool?.name === row.tool.name))
       )
+      // A structured answer streams as the call of the structured-output tool, whose
+      // arguments are the answer's text: its row replaces that call. Only past the newest
+      // user message, where a stopped turn's identical call cannot be.
+      if (i < 0 && row.role === 'assistant') {
+        let j = messages.length - 1
+        while (j >= 0 && messages[j].role !== 'user') {
+          const m = messages[j]
+          if (m.seq === undefined && m.role === 'tool' && m.tool?.arguments === row.content) i = j
+          j--
+        }
+      }
       if (i >= 0) {
         const m = messages[i]
         messages[i] = {
           ...row,
           id: m.id,
           reasoning: m.reasoning ?? row.reasoning,
-          tool: m.tool ? { ...m.tool, status: row.tool?.status ?? m.tool.status } : row.tool
+          // The stream's call wins where it has a value; a stream cut short leaves gaps the row fills.
+          tool:
+            row.role === 'tool' && m.tool
+              ? {
+                  ...m.tool,
+                  arguments: m.tool.arguments ?? row.tool?.arguments,
+                  result: m.tool.result ?? row.tool?.result,
+                  status: row.tool?.status ?? m.tool.status
+                }
+              : row.tool
         }
       } else {
-        messages.push(row)
+        // A tool row nothing streamed, such as a provider-native web search, goes where a
+        // reload puts it: after the last message of a lower `seq`, before the streamed answer.
+        // Any other row closes the turn, a failure included, and stays last: above a streamed
+        // message that never got a row, it would hide the turn's failure.
+        let at = messages.length
+        for (let j = messages.length - 1; row.role === 'tool' && j >= 0; j--) {
+          const seq = messages[j].seq
+          if (seq !== undefined && seq < row.seq!) {
+            at = j + 1
+            break
+          }
+        }
+        messages.splice(at, 0, row)
       }
     }
     this.#set({ messages })
@@ -763,7 +797,19 @@ function fromRow(row: FlowConversationMessage): ChatMessage {
     stepName: row.step_name ?? undefined,
     pending: false,
     seq: row.created_seq,
-    tool: toolName ? { name: toolName, status: success ? 'success' : 'error' } : undefined
+    reasoning: row.reasoning ?? undefined,
+    attachments: row.attachments ?? undefined,
+    // The call the row carries: the model's arguments and what the model got back. For a
+    // failed tool the result is what it failed with, and the row's text names the tool
+    // rather than the reason.
+    tool: toolName
+      ? {
+          name: toolName,
+          status: success ? 'success' : 'error',
+          arguments: row.tool_arguments ?? undefined,
+          result: row.tool_result ?? undefined
+        }
+      : undefined
   }
 }
 

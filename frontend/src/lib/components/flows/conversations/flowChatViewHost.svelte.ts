@@ -50,17 +50,6 @@ function parseToolPayload(raw: string | undefined): unknown {
 }
 
 /**
- * A failed tool's result as the line the card shows for it: the worker stores what the
- * tool failed with, a string for the failures it words itself and a structured error for
- * one a job reported. Anything else says nothing about the failure.
- */
-function asErrorText(result: unknown): string | undefined {
-	if (typeof result === 'string') return result
-	const message = (result as any)?.error?.message ?? (result as any)?.message
-	return typeof message === 'string' ? message : undefined
-}
-
-/**
  * Whether the turn the user message at `index` started failed: its last row before the
  * next user message reports `success: false`. The last row, not any row: a tool call can
  * fail and the agent still answer, and that turn completed.
@@ -104,39 +93,84 @@ export type DisplayLookups = {
 	revealed?: (message: ChatMessage) => Revealed | undefined
 }
 
+/**
+ * What a failed tool call returned, as the card's error: the card shows the error in place of
+ * the result. A job failure is stored as `{ message, name, stack }`; an MCP failure as plain text.
+ */
+function toolErrorText(result: unknown): string | undefined {
+	if (typeof result === 'string') return result || undefined
+	if (result && typeof result === 'object') {
+		const message = (result as { message?: unknown }).message
+		return typeof message === 'string' ? message : JSON.stringify(result, null, 2)
+	}
+	return undefined
+}
+
+/** The name the worker gives the structured-output tool: suffixed when an agent tool already has it. */
+const STRUCTURED_OUTPUT_CALL = /^structured_output(_\d+)?$/
+
+/**
+ * `busy`: the latest turn is still running, so a failed tool call is not yet its outcome.
+ * `stopped`: ids of the user messages of the turns the reader stopped, as message id or row id.
+ * A stopped turn never offers Retry, though Stop leaves its failed tool row or the cancelled
+ * flow's failure as its last message.
+ */
 export function toDisplayMessages(
 	messages: readonly ChatMessage[],
+	busy = false,
+	stopped: ReadonlySet<string> = new Set(),
 	lookups: DisplayLookups = {}
 ): DisplayMessage[] {
 	let userIndex = 0
 	const stepNames = showsStepNames(messages)
-	return messages.map((message, i): DisplayMessage => {
+	let latestUser = -1
+	for (let i = messages.length - 1; i >= 0 && latestUser < 0; i--) {
+		if (messages[i].role === 'user') latestUser = i
+	}
+	return messages.flatMap((message, i): DisplayMessage[] => {
 		switch (message.role) {
 			case 'user': {
+				const index = userIndex++
+				const settled =
+					!(busy && i === latestUser) &&
+					!stopped.has(message.id) &&
+					!(message.serverId && stopped.has(message.serverId))
 				const { images, contextElements } = attachmentLanes(lookups.workspace, message.attachments)
-				return {
-					role: 'user',
-					index: userIndex++,
-					content: message.content,
-					// Drives the shared Retry button.
-					error: turnFailed(messages, i) || undefined,
-					images: images.length > 0 ? images : undefined,
-					contextElements: contextElements.length > 0 ? contextElements : undefined
-				}
+				return [
+					{
+						role: 'user',
+						index,
+						content: message.content,
+						// Drives the shared Retry button.
+						error: (settled && turnFailed(messages, i)) || undefined,
+						images: images.length > 0 ? images : undefined,
+						contextElements: contextElements.length > 0 ? contextElements : undefined
+					}
+				]
 			}
 			case 'tool': {
-				const failed = message.success === false
 				// The model's call and what the tool sent back, as the stream carried them or the
 				// worker stored them on the row. A row stored without them shows its name and job.
 				const toolName = message.tool?.name
 				const parameters = parseToolPayload(message.tool?.arguments)
 				const result = parseToolPayload(message.tool?.result)
-				return {
+				const failed = message.success === false
+				// A call the turn finished without, stopped or lost before its row was written. The
+				// call a structured answer streams as never gets a result of its own, the answer
+				// being the turn's text, so it is not one.
+				const unfinished =
+					message.tool &&
+					!message.pending &&
+					!message.content &&
+					!STRUCTURED_OUTPUT_CALL.test(message.tool.name)
+						? `${message.tool.name} did not finish`
+						: undefined
+				const call: DisplayMessage = {
 					role: 'tool',
 					tool_call_id: message.id,
 					// The card's header is the row's text, which the server only words once the
 					// tool has returned; until then the row says what is running.
-					content: message.content || (toolName ? `Running ${toolName}` : ''),
+					content: message.content || unfinished || (toolName ? `Running ${toolName}` : ''),
 					// Withheld for the copilot's two plan-mode names: `toolName` is what makes
 					// ToolExecutionDisplay render a plan card, and an agent tool that happened to
 					// share one would silently become one.
@@ -144,27 +178,45 @@ export function toDisplayMessages(
 					parameters,
 					result,
 					showDetails: parameters !== undefined || result !== undefined,
-					// What the tool failed with, from its result, else the row's own sentence.
-					error: failed ? (asErrorText(result) ?? message.content) : undefined,
+					error: failed ? (toolErrorText(result) ?? message.content) : unfinished,
 					isLoading: message.pending && message.tool?.status === 'running',
 					jobId: message.jobId
 				}
+				// The tool card has no thinking section: the thinking that led to the call reads
+				// as a card of its own, just before it.
+				return message.reasoning
+					? [
+							{
+								role: 'assistant',
+								content: '',
+								reasoning: message.reasoning,
+								stepName: stepNames ? message.stepName : undefined,
+								jobId: message.jobId,
+								createdAt: message.createdAt
+							},
+							call
+						]
+					: [call]
 			}
 			default: {
 				// The pacing's prefix while the message streams; the whole text once it has
 				// settled, or the turn was stopped.
 				const revealed = message.pending ? lookups.revealed?.(message) : undefined
-				return {
-					role: 'assistant',
-					content: revealed ? message.content.slice(0, revealed.content) : message.content,
-					// Only the message a turn is still writing: a finalized reasoning-only
-					// message must not look in progress.
-					streaming: message.pending || undefined,
-					reasoning: revealed ? message.reasoning?.slice(0, revealed.reasoning) : message.reasoning,
-					stepName: stepNames ? message.stepName : undefined,
-					jobId: message.jobId,
-					createdAt: message.createdAt
-				}
+				return [
+					{
+						role: 'assistant',
+						content: revealed ? message.content.slice(0, revealed.content) : message.content,
+						// Only the message a turn is still writing: a finalized reasoning-only
+						// message must not look in progress.
+						streaming: message.pending || undefined,
+						reasoning: revealed
+							? message.reasoning?.slice(0, revealed.reasoning)
+							: message.reasoning,
+						stepName: stepNames ? message.stepName : undefined,
+						jobId: message.jobId,
+						createdAt: message.createdAt
+					}
+				]
 			}
 		}
 	})
@@ -218,6 +270,12 @@ export class FlowChatViewHost implements ChatViewHost {
 		const previous = this.#state
 		this.#state = state
 		this.#paceReveals(state.messages)
+		const landed = state.messages.filter(
+			(m) => m.serverId && this.#stoppedTurns.has(m.id) && !this.#stoppedTurns.has(m.serverId)
+		)
+		if (landed.length > 0) {
+			this.#stoppedTurns = new Set([...this.#stoppedTurns, ...landed.map((m) => m.serverId!)])
+		}
 		if (previous.conversationId !== state.conversationId) {
 			// A conversation opens at its end, whatever the reader was doing in the last one.
 			this.#automaticScroll = true
@@ -299,11 +357,16 @@ export class FlowChatViewHost implements ChatViewHost {
 
 	// Transcript
 	displayMessages = $derived.by(() =>
-		toDisplayMessages(this.#state.messages, {
+		toDisplayMessages(this.#state.messages, isBusy(this.#state.status), this.#stoppedTurns, {
 			workspace: this.#options.workspace?.(),
 			revealed: (message) => this.#revealed[message.id]
 		})
 	)
+	/** The user message of each turn stopped in this view, by message id and, once the chat has
+	 * read its row, row id: a reopened conversation or an older page rebuilds messages from rows,
+	 * so a turn left before its row was read is not recognised there. Only this session knows;
+	 * a reload shows the stopped turn as its rows left it. */
+	#stoppedTurns = $state.raw<ReadonlySet<string>>(new Set())
 	get messages(): readonly unknown[] {
 		return this.#state.messages
 	}
@@ -375,6 +438,13 @@ export class FlowChatViewHost implements ChatViewHost {
 		// Stop means stop: what was typed during the run goes back to the composer rather
 		// than waiting there to go out after some later turn settles.
 		this.dequeueMessage()
+		const { messages, status } = this.#state
+		const turn = isBusy(status) ? [...messages].reverse().find((m) => m.role === 'user') : undefined
+		if (turn) {
+			this.#stoppedTurns = new Set(
+				[...this.#stoppedTurns, turn.id, turn.serverId].filter((id) => id !== undefined)
+			)
+		}
 		void this.#chat.stop()
 	}
 	// Typed off the interface: a Svelte component's own type resolves differently
@@ -421,13 +491,16 @@ export class FlowChatViewHost implements ChatViewHost {
 	 * `loading`, which renders Stop: there is no run yet to stop. */
 	#readingReplayArgs = false
 	/**
-	 * Run the turn at this position again with the arguments its job ran with, which are the
-	 * ones its row shows, not the composer's current inputs (`inputsShownInComposer` aside).
-	 * A purged job shows nothing on the row either, so it falls back to the current inputs.
+	 * Run the turn at this position again with the arguments its job ran with, not the
+	 * composer's current inputs (`inputsShownInComposer` aside). The position is in
+	 * `displayMessages`, which holds more entries than the chat's messages. A purged job falls
+	 * back to the current inputs.
 	 */
 	retryRequest = async (messageIndex: number) => {
-		const message = this.#state.messages[messageIndex]
-		if (!message || message.role !== 'user' || this.loading || this.#readingReplayArgs) return
+		const shown = this.displayMessages[messageIndex]
+		if (!shown || shown.role !== 'user' || this.loading || this.#readingReplayArgs) return
+		const message = this.#state.messages.filter((m) => m.role === 'user')[shown.index]
+		if (!message) return
 		const conversationId = this.#state.conversationId
 		const workspace = this.#options.workspace?.()
 		let replayInputs: Record<string, any> | undefined

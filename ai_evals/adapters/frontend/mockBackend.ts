@@ -865,6 +865,29 @@ export function runBenchmarkFlowByPath(input: {
 	})
 }
 
+/**
+ * Mirror `JobService.runFlowPreview` for benchmark workspaces, including the server's
+ * refusal of a chat-enabled flow run that names no conversation (`memory_id`).
+ */
+export function runBenchmarkFlowPreview(input: {
+	workspace: string
+	memoryId?: string
+	requestBody?: { path?: string; value?: { chat_input_enabled?: boolean }; args?: unknown }
+}): string {
+	if (input.requestBody?.value?.chat_input_enabled && !input.memoryId) {
+		throw new Error('Bad request: memory_id is required for chat-enabled flows')
+	}
+	const args = (input.requestBody?.args ?? {}) as Record<string, unknown>
+	return createBenchmarkCompletedJob({
+		workspace: input.workspace,
+		jobKind: 'flowpreview',
+		success: true,
+		args,
+		result: { path: input.requestBody?.path, args, mocked: true },
+		logs: 'Mock benchmark flow preview completed successfully.'
+	})
+}
+
 export function previewBenchmarkSchedule(input: {
 	requestBody?: Record<string, unknown>
 }): Record<string, unknown> {
