@@ -66,6 +66,7 @@ mod ce {
         _db: &DB,
         _dbname: &str,
         _tag: &str,
+        _for_workspace: Option<&str>,
     ) -> Result<()> {
         Err(unavailable())
     }
@@ -73,7 +74,7 @@ mod ce {
     pub(crate) async fn drop_external_instance_database_unchecked(
         _db: &DB,
         _dbname: &str,
-        _usage_allowed_in: Option<&str>,
+        _exempt: Option<(&str, &str)>,
     ) -> Result<()> {
         Err(unavailable())
     }

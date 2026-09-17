@@ -130,8 +130,9 @@ pub async fn external_instance_databases(db: &DB) -> Result<BTreeMap<String, Cus
 }
 
 /// The workspaces whose data tables or Ducklake catalogs name each database on the external cluster,
-/// and the forks whose Ducklake namespaces there are still waiting to be cleaned up: those rows
-/// outlive a settings change, and cleanup cannot drop a namespace in a database that is gone.
+/// and the forks whose Ducklake metadata schemas there are still waiting to be dropped: those rows
+/// outlive a settings change, and cleanup cannot drop a schema in a database that is gone. A row
+/// whose schema is already dropped only waits on object storage, which needs no database.
 ///
 /// Authorization: reads every workspace's settings and checks nothing. Callers MUST be superadmin
 /// or an internal lifecycle path.
@@ -161,7 +162,7 @@ pub async fn external_instance_database_usages<'c>(
          UNION ALL
          SELECT workspace_id, substring(catalog FROM length('external_instance:') + 1)
          FROM fork_ducklake_namespace
-         WHERE catalog LIKE 'external\\_instance:%'",
+         WHERE catalog LIKE 'external\\_instance:%' AND NOT schema_dropped",
     )
     .fetch_all(db)
     .await?;
@@ -246,27 +247,30 @@ pub async fn create_external_instance_database_unchecked(
     db: &DB,
     dbname: &str,
     tag: &str,
+    for_workspace: Option<&str>,
 ) -> Result<()> {
-    crate::external_instance_pg_oss::create_external_instance_database_unchecked(db, dbname, tag)
-        .await
+    crate::external_instance_pg_oss::create_external_instance_database_unchecked(
+        db,
+        dbname,
+        tag,
+        for_workspace,
+    )
+    .await
 }
 
 /// Drop `dbname` from the external cluster: only a database Windmill registered creating, and still
-/// carries the mark it set there. Refused while a data table names it, except one in
-/// `usage_allowed_in`: the fork whose own copy is being cleaned up.
+/// carries the mark it set there. Refused while anything uses it
+/// ([`crate::workspaces::managed_database_uses`]), except the `exempt` data table entry: the fork
+/// copy being cleaned up.
 ///
 /// Authorization: checks nothing. Callers MUST be superadmin, or be deleting the fork that owns
 /// this `wm_fork_` database.
 pub async fn drop_external_instance_database_unchecked(
     db: &DB,
     dbname: &str,
-    usage_allowed_in: Option<&str>,
+    exempt: Option<(&str, &str)>,
 ) -> Result<()> {
-    crate::external_instance_pg_oss::drop_external_instance_database_unchecked(
-        db,
-        dbname,
-        usage_allowed_in,
-    )
+    crate::external_instance_pg_oss::drop_external_instance_database_unchecked(db, dbname, exempt)
     .await
 }
 
