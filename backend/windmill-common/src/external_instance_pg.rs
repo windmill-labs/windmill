@@ -129,7 +129,7 @@ pub async fn external_instance_databases(db: &DB) -> Result<BTreeMap<String, Cus
     Ok(read_external_instance_pg_state(db).await?.databases)
 }
 
-/// The workspaces whose data tables name each database on the external cluster.
+/// The workspaces whose data tables or Ducklake catalogs name each database on the external cluster.
 pub async fn external_instance_database_usages<'c>(
     db: impl sqlx::PgExecutor<'c>,
 ) -> Result<BTreeMap<String, BTreeSet<String>>> {
@@ -142,7 +142,17 @@ pub async fn external_instance_database_usages<'c>(
                  ELSE '{}'::jsonb END
          ) AS dt(k, entry)
          WHERE entry->'database'->>'resource_type' = 'external_instance'
-           AND entry->'database'->>'resource_path' IS NOT NULL",
+           AND entry->'database'->>'resource_path' IS NOT NULL
+         UNION ALL
+         SELECT ws.workspace_id, entry->'catalog'->>'resource_path'
+         FROM workspace_settings ws
+         CROSS JOIN LATERAL jsonb_each(
+             CASE WHEN jsonb_typeof(ws.ducklake->'ducklakes') = 'object'
+                 THEN ws.ducklake->'ducklakes'
+                 ELSE '{}'::jsonb END
+         ) AS dl(k, entry)
+         WHERE entry->'catalog'->>'resource_type' = 'external_instance'
+           AND entry->'catalog'->>'resource_path' IS NOT NULL",
     )
     .fetch_all(db)
     .await?;
@@ -173,7 +183,7 @@ pub async fn ensure_external_instance_pg_removable(db: &DB) -> Result<()> {
         .join(", ");
     Err(Error::BadRequest(format!(
         "The external instance cluster still holds databases in use ({names}). Drop them and \
-         repoint the data tables using them before removing {EXTERNAL_INSTANCE_PG_SETTING}."
+         repoint the data tables and Ducklake catalogs using them before removing {EXTERNAL_INSTANCE_PG_SETTING}."
     )))
 }
 

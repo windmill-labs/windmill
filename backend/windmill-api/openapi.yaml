@@ -36063,6 +36063,7 @@ components:
                       - postgresql
                       - mysql
                       - instance
+                      - external_instance
                   resource_path:
                     type: string
                 required:

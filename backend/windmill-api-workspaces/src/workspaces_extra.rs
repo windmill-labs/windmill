@@ -1795,7 +1795,17 @@ async fn resolve_fork_catalog_pg(
             "ducklake://{ducklake_name}: malformed registry catalog identity `{catalog}`"
         ))
     })?;
-    let catalog_resource = if resource_type == "instance" {
+    let catalog_resource = if resource_type == "external_instance" {
+        serde_json::to_value(
+            windmill_common::external_instance_pg::external_instance_connection_unchecked(
+                db,
+                resource_path,
+                false,
+            )
+            .await?,
+        )
+        .map_err(|e| Error::internal_err(format!("serializing pg creds: {e}")))?
+    } else if resource_type == "instance" {
         let mut pg_creds = windmill_common::PgDatabase::parse_uri(
             &windmill_common::get_database_url().await?.as_str().await,
         )?;

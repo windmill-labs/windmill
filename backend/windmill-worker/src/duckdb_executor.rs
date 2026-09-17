@@ -2391,7 +2391,9 @@ async fn transform_attach_ducklake(
         format!(", {}", user_extra_args)
     };
     let db_type = match ducklake.catalog.resource_type {
-        DucklakeCatalogResourceType::Instance => "postgres",
+        DucklakeCatalogResourceType::Instance | DucklakeCatalogResourceType::ExternalInstance => {
+            "postgres"
+        }
         _ => ducklake.catalog.resource_type.as_ref(),
     };
 
@@ -2507,7 +2509,8 @@ fn fork_defer_statements(
             hidden_passwords.lock().unwrap().push(pwd.to_string());
         }
         let db_type = match a.catalog.resource_type {
-            DucklakeCatalogResourceType::Instance => "postgres",
+            DucklakeCatalogResourceType::Instance
+            | DucklakeCatalogResourceType::ExternalInstance => "postgres",
             _ => a.catalog.resource_type.as_ref(),
         };
         stmts.push(get_attach_db_install_str(db_type)?.to_string());
