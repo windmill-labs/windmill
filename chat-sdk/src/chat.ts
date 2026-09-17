@@ -261,9 +261,12 @@ class ChatImpl implements Chat {
     } else {
       conversations = this.#state.history === 'local' ? this.#local.listConversations() : []
     }
-    // Another kind, or another flow path, was asked for while this list was on its way: its
-    // rows are not the listing any more, whichever response lands last.
-    if (kind !== this.#conversationKind || flowPath !== this.#flowPath) return conversations
+    // Another kind was asked for while this list was on its way: its rows are not the listing
+    // any more, whichever response lands last.
+    if (kind !== this.#conversationKind) return conversations
+    // The flow was renamed meanwhile, which callers cannot see: they get the listing as it
+    // stands rather than the old path's rows.
+    if (flowPath !== this.#flowPath) return page === 1 ? this.#state.conversations : []
     const known = new Set(this.#state.conversations.map((c) => c.id))
     this.#set({
       conversations:

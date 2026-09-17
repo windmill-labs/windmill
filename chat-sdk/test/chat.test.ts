@@ -572,7 +572,8 @@ describe('createChat with server history', () => {
     const slow = chat.loadConversations()
     chat.setFlowPath('f/chat/renamed')
     await chat.loadConversations()
-    await slow
+    // What the late response hands its caller too: a list loader shows these rows.
+    expect((await slow).map((c) => c.id)).toEqual(['renamed'])
     expect(chat.getState().conversations.map((c) => c.id)).toEqual(['renamed'])
   })
 
