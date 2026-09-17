@@ -684,8 +684,10 @@
 		[() => viewMode, () => databaseKey, () => colDefs],
 		async ([mode, key, defs], _prev, { data, signal }) => {
 			// Re-read only when the database itself was reloaded: toggling back to
-			// the diagram must not queue the query again.
-			if (mode !== 'diagram' || (data?.databaseKey === key && data?.defs === defs)) return data
+			// the diagram must not queue the query again. A read that failed is not
+			// an answer about this database, so leaving and coming back retries it.
+			const answered = data?.databaseKey === key && data?.defs === defs && !data.failed
+			if (mode !== 'diagram' || answered) return data
 			relationsError = undefined
 			let read: DbRelation[] = []
 			let error: string | undefined
@@ -700,7 +702,7 @@
 			// database's tables with this one's relations.
 			if (signal.aborted) throw new DOMException('Superseded', 'AbortError')
 			relationsError = error
-			return { databaseKey: key, defs, relations: read }
+			return { databaseKey: key, defs, relations: read, failed: error !== undefined }
 		}
 	)
 	// Relations are shown only alongside the database they were read from, so a
