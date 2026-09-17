@@ -130,8 +130,9 @@ pub async fn external_instance_databases(db: &DB) -> Result<BTreeMap<String, Cus
 }
 
 /// The workspaces whose data tables or Ducklake catalogs name each database on the external cluster,
-/// and the forks whose Ducklake namespaces there are still waiting to be cleaned up: those rows
-/// outlive a settings change, and cleanup cannot drop a namespace in a database that is gone.
+/// and the forks whose Ducklake metadata schemas there are still waiting to be dropped: those rows
+/// outlive a settings change, and cleanup cannot drop a schema in a database that is gone. A row
+/// whose schema is already dropped only waits on object storage, which needs no database.
 ///
 /// Authorization: reads every workspace's settings and checks nothing. Callers MUST be superadmin
 /// or an internal lifecycle path.
@@ -161,7 +162,7 @@ pub async fn external_instance_database_usages<'c>(
          UNION ALL
          SELECT workspace_id, substring(catalog FROM length('external_instance:') + 1)
          FROM fork_ducklake_namespace
-         WHERE catalog LIKE 'external\\_instance:%'",
+         WHERE catalog LIKE 'external\\_instance:%' AND NOT schema_dropped",
     )
     .fetch_all(db)
     .await?;
