@@ -383,4 +383,22 @@ describe('sendMessage with attachments', () => {
     releaseRun(text('job-1'))
     await sending
   })
+
+  test('an explicit mediaType wins over the type a data URL declares', async () => {
+    const { fetch, calls } = fetchMock(upload, run, answer)
+    const chat = createChat(options(fetch))
+    await chat.sendMessage('read this', {
+      attachments: [
+        {
+          name: 'contract',
+          data: `data:application/octet-stream;base64,${btoa('%PDF')}`,
+          mediaType: 'application/pdf'
+        }
+      ],
+      attachmentsInput: { name: 'files', multiple: true }
+    })
+    const call = uploads(calls)[0]
+    expect(call.url.searchParams.get('file_key')).toMatch(/\/0\/contract\.pdf$/)
+    expect(call.url.searchParams.get('content_type')).toBe('application/pdf')
+  })
 })

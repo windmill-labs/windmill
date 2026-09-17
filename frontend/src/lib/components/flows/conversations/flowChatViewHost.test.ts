@@ -381,6 +381,35 @@ describe('FlowChatViewHost', () => {
 		host.dispose()
 	})
 
+	// Stop settles the send before the cancelled run's failure row is synced, so the turn only
+	// becomes retryable after the host has seen it settle.
+	it('keeps the files of a stopped turn for Retry', async () => {
+		const { chat, set } = fakeChat(idleState({ messages: [] }))
+		let settle = () => {}
+		chat.sendMessage.mockImplementationOnce(() => {
+			set({ messages: [message({ id: 'u1', role: 'user', content: 'read', pending: true })] })
+			return new Promise<void>((resolve) => (settle = resolve))
+		})
+		chat.sendMessage.mockImplementationOnce(async () => {})
+		const host = new FlowChatViewHost(chat, { attachmentsTarget: () => listInput })
+		const sending = host.sendRequest({ instructions: 'read', blobs: [pdf] })
+		host.cancel()
+		set({ messages: [message({ id: 'u1', role: 'user', content: 'read' })] })
+		settle()
+		await sending
+		set({
+			messages: [
+				message({ id: 'u1', role: 'user', content: 'read' }),
+				message({ role: 'assistant', content: 'cancelled', success: false })
+			]
+		})
+		host.retryRequest(0)
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		const [, options] = chat.sendMessage.mock.calls[1] as any
+		expect(options.attachments.map((a: any) => a.name)).toEqual(['contract.pdf'])
+		host.dispose()
+	})
+
 	it('lets go of the files of a turn that succeeded', async () => {
 		const { chat, set } = fakeChat(idleState({ messages: [] }))
 		chat.sendMessage.mockImplementationOnce(async () => {

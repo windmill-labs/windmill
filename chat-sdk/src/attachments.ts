@@ -46,13 +46,13 @@ export function storedAttachmentName(filename: string, mediaType: string): strin
 
 /** The bytes of an attachment as a Blob carrying its media type. */
 export function attachmentBlob(attachment: AttachmentUpload): Blob {
-  const data = attachment.data
-  if (typeof data !== 'string') {
-    return attachment.mediaType && attachment.mediaType !== data.type
-      ? new Blob([data], { type: attachment.mediaType })
-      : data
-  }
-  return dataUrlToBlob(data, attachment.mediaType ?? 'application/octet-stream')
+  const data =
+    typeof attachment.data === 'string'
+      ? dataUrlToBlob(attachment.data, 'application/octet-stream')
+      : attachment.data
+  return attachment.mediaType && attachment.mediaType !== data.type
+    ? new Blob([data], { type: attachment.mediaType })
+    : data
 }
 
 function dataUrlToBlob(dataUrl: string, fallbackType: string): Blob {

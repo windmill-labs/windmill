@@ -173,6 +173,7 @@ export class FlowChatViewHost implements ChatViewHost {
 			this.#automaticScroll = true
 			// A conversation reopened later comes back from the server under other message ids.
 			this.#sentAttachments.clear()
+			this.#stoppedSentIds.clear()
 			// The queue was typed into the conversation that just went away; a message sent
 			// after the switch would ride out of the wrong one, so it goes back to the composer.
 			this.dequeueMessage()
@@ -292,6 +293,7 @@ export class FlowChatViewHost implements ChatViewHost {
 			last?.role === 'user' && last.pending && last.content === text ? last.id : undefined
 		if (sentId && (images.length > 0 || blobs.length > 0)) {
 			this.#sentAttachments.set(sentId, { images, blobs })
+			this.#inFlightSentId = sentId
 		}
 		const turn = sending.catch((e) => {
 			if (sentId) this.#sentAttachments.delete(sentId)
@@ -310,19 +312,26 @@ export class FlowChatViewHost implements ChatViewHost {
 		})
 		this.#turnDone = turn
 		await turn
-		// The files are kept only for a turn that failed, the one Retry is offered on: a base64
-		// payload per sent file would otherwise pile up for as long as the panel lives.
+		// The files are kept only for a turn Retry can be offered on: one that failed, or one
+		// stopped, whose cancelled run is synced as a failure only after the send settles. A
+		// base64 payload per sent file would otherwise pile up for as long as the panel lives.
 		if (sentId) {
+			if (this.#inFlightSentId === sentId) this.#inFlightSentId = undefined
+			const stopped = this.#stoppedSentIds.delete(sentId)
 			const index = this.#state.messages.findIndex((m) => m.id === sentId)
-			if (index === -1 || !turnFailed(this.#state.messages, index)) {
+			if (!stopped && (index === -1 || !turnFailed(this.#state.messages, index))) {
 				this.#sentAttachments.delete(sentId)
 			}
 		}
 		return true
 	}
+	/** The user message of the send still awaiting its turn, when it carried files. */
+	#inFlightSentId: string | undefined = undefined
+	#stoppedSentIds = new Set<string>()
 	/** Settles when the chat has released the last turn this host started. */
 	#turnDone: Promise<unknown> = Promise.resolve()
 	cancel = () => {
+		if (this.#inFlightSentId) this.#stoppedSentIds.add(this.#inFlightSentId)
 		// Stop means stop: what was typed during the run goes back to the composer rather
 		// than waiting there to go out after some later turn settles.
 		this.dequeueMessage()
