@@ -130,7 +130,7 @@
 		 *  surface without a graph — the agent editor, which addresses one tool at a time — would
 		 *  offer a row whose click lands nowhere. */
 		noToolNavigation?: boolean
-		/** See `FlowCardHeader`. Only passed where selecting an agent opens it. */
+		/** See `FlowCardHeader`. */
 		agentTrail?: Pick<FlowModule, 'id' | 'summary'>[]
 		toolDescription?: string | undefined
 		siblingToolNames?: string[]

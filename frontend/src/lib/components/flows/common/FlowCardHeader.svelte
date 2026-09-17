@@ -41,7 +41,8 @@
 		children?: import('svelte').Snippet
 		action?: import('svelte').Snippet
 		/** For an agent tool, the agents it sits under, shown above the header as the way back up:
-		 *  a nested agent's tools have no graph node to reach them from. */
+		 *  a nested agent's tools have no graph node to reach them from. Each crumb selects its agent,
+		 *  so pass it only where selecting an agent opens it (not in the saved-agent editor). */
 		agentTrail?: Pick<FlowModule, 'id' | 'summary'>[]
 		isAgentTool?: boolean
 		siblingToolNames?: string[]
