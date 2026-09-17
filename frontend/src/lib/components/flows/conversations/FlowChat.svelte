@@ -32,7 +32,7 @@
 		identity?: string
 		hideSidebar?: boolean
 		inputSchema?: Record<string, any>
-		/** The flow's modules, which say which of a tool call's arguments the model supplied. */
+		/** The flow's modules, read for the provider wiring of its AI agent steps. */
 		flowModules?: FlowModule[]
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
@@ -132,9 +132,9 @@
 					{chat}
 					{deploymentInProgress}
 					{additionalInputsSchema}
+					{flowModules}
 					{path}
 					{identity}
-					{flowModules}
 					{workspace}
 					{description}
 					{wideLayout}
