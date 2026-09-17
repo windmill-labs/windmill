@@ -48,7 +48,24 @@ _Avoid_: thread, session (that names an AI session, a different thing), chat (th
 One question and the answer to it: the run the question started, the handle that stops it,
 and the rows it is writing. At most one per conversation, and the chat is held for its whole
 length — from the moment the question takes the chat, before it has a job, until it is ended.
+The server holds the same rule: a question sent to a conversation whose turn is still running
+is refused, whoever sends it. Several conversations of one flow can each have a turn running.
 _Avoid_: request, exchange, message round
+
+**Running turn**:
+A turn whose run has not finished. Which conversations have one is the server's to say, so a
+chat opened after the turn started — a reload, another tab — still sees it and follows it.
+_Avoid_: busy, active, in flight
+
+**Queued message**:
+A question typed into a conversation while its turn runs, sent when that turn ends answered.
+At most one per conversation; typing another adds to it.
+_Avoid_: pending message (a pending message is one already sent and not yet confirmed)
+
+**Unread**:
+The answers that arrived in a conversation while it was not the one shown. Counted per open
+chat and forgotten on reload.
+_Avoid_: new messages, notifications
 
 **Transcript**:
 The rows a conversation's chat holds. Not the conversation: it is the newest page plus

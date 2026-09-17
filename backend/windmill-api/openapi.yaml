@@ -14923,6 +14923,11 @@ paths:
               schema:
                 type: string
                 format: uuid
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run/fv/{version}:
     post:
@@ -15473,6 +15478,11 @@ paths:
               schema:
                 type: string
                 format: uuid
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run_wait_result/preview_flow:
     post:
@@ -28363,6 +28373,23 @@ components:
         is_test:
           type: boolean
           description: Started from the flow editor's test panel rather than a deployed run
+        running_turn:
+          type: object
+          nullable: true
+          description: >-
+            The turn the conversation is still answering, set by the list endpoint: its
+            newest user message, while the flow run it started is queued or running. A
+            run into this conversation is refused with 409 until the turn ends.
+          required: [job_id, user_seq]
+          properties:
+            job_id:
+              type: string
+              format: uuid
+              description: The flow run of the turn
+            user_seq:
+              type: integer
+              format: int64
+              description: created_seq of the user message that started the turn
 
     FlowConversationMessage:
       type: object

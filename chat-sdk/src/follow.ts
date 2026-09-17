@@ -1,8 +1,12 @@
-import type { WindmillChatApi } from './api'
+import { WindmillApiError, type WindmillChatApi } from './api'
 import { createStreamEventParser, type AgentStreamEvent } from './stream'
-import { abortError, sleep } from './utils'
+import { abortError, isAbortError, sleep } from './utils'
 
 const RECONNECT_DELAY_MS = 300
+const MAX_RECONNECT_DELAY_MS = 5000
+/** Consecutive failed connections before the job is polled instead. */
+const MAX_CONNECTION_FAILURES = 3
+const RESULT_POLL_MS = 2000
 
 export type FollowEvent =
   /** Agent events decoded from the job's result stream; empty when a chunk ended mid-line. */
@@ -18,6 +22,10 @@ export type FollowEvent =
  * The offset indexes the stream of one sub-job (`flow_stream_job_id`, the flow's
  * streaming step). A retried step gets a new one, so when the id changes the
  * offset is dropped and the connection reopened from that sub-job's start.
+ *
+ * A connection that fails (a proxy restarting, the network dropping) is retried with
+ * backoff. The run is still going, so after a few failures in a row the job's result is
+ * polled instead: the rest of the answer is not streamed, but the turn still ends.
  */
 export async function* followJob(
   api: WindmillChatApi,
@@ -27,45 +35,76 @@ export async function* followJob(
   let parser = createStreamEventParser()
   let offset = options.streamOffset
   let streamJobId: string | undefined
-  while (true) {
+  let failures = 0
+  while (failures < MAX_CONNECTION_FAILURES) {
     let reopen = false
-    for await (const update of api.streamJob(jobId, { streamOffset: offset, signal: options.signal })) {
-      if (update.type === 'ping') continue
-      if (update.type === 'timeout') {
-        reopen = true
-        break
-      }
-      if (update.type === 'error') throw new Error(update.error)
-      if (update.type === 'notfound') throw new Error(`Job ${jobId} not found`)
-      if (update.flow_stream_job_id && update.flow_stream_job_id !== streamJobId) {
-        const switched = streamJobId !== undefined && offset !== undefined
-        streamJobId = update.flow_stream_job_id
-        if (switched) {
-          // This connection skipped the new sub-job's first chunks: start it over.
-          offset = undefined
-          options.onOffset?.(undefined)
-          parser = createStreamEventParser()
+    try {
+      for await (const update of api.streamJob(jobId, { streamOffset: offset, signal: options.signal })) {
+        failures = 0
+        if (update.type === 'ping') continue
+        if (update.type === 'timeout') {
           reopen = true
           break
         }
+        if (update.type === 'error') throw new Error(update.error)
+        if (update.type === 'notfound') throw new Error(`Job ${jobId} not found`)
+        if (update.flow_stream_job_id && update.flow_stream_job_id !== streamJobId) {
+          const switched = streamJobId !== undefined && offset !== undefined
+          streamJobId = update.flow_stream_job_id
+          if (switched) {
+            // This connection skipped the new sub-job's first chunks: start it over.
+            offset = undefined
+            options.onOffset?.(undefined)
+            parser = createStreamEventParser()
+            reopen = true
+            break
+          }
+        }
+        if (update.stream_offset !== undefined) {
+          offset = update.stream_offset
+          options.onOffset?.(offset)
+        }
+        if (update.new_result_stream) {
+          yield { type: 'stream', events: parser.push(update.new_result_stream) }
+        }
+        if (update.completed) {
+          const rest = parser.flush()
+          if (rest.length > 0) yield { type: 'stream', events: rest }
+          yield { type: 'completed', result: update.only_result }
+          return
+        }
       }
-      if (update.stream_offset !== undefined) {
-        offset = update.stream_offset
-        options.onOffset?.(offset)
-      }
-      if (update.new_result_stream) {
-        yield { type: 'stream', events: parser.push(update.new_result_stream) }
-      }
-      if (update.completed) {
-        const rest = parser.flush()
-        if (rest.length > 0) yield { type: 'stream', events: rest }
-        yield { type: 'completed', result: update.only_result }
-        return
-      }
+    } catch (e) {
+      if (options.signal?.aborted || isAbortError(e) || !isConnectionFailure(e)) throw e
+      failures++
+      if (failures >= MAX_CONNECTION_FAILURES) break
+      await sleep(Math.min(RECONNECT_DELAY_MS * 2 ** failures, MAX_RECONNECT_DELAY_MS), options.signal)
+      continue
     }
     if (options.signal?.aborted) throw abortError()
     // The server closes the connection after its timeout; a dropped connection looks
     // the same minus the event. Either way the offset lets the next one resume.
     if (!reopen) await sleep(RECONNECT_DELAY_MS, options.signal)
   }
+  while (true) {
+    await sleep(RESULT_POLL_MS, options.signal)
+    try {
+      const { completed, result } = await api.getCompletedResult(jobId, options.signal)
+      if (completed) {
+        yield { type: 'completed', result }
+        return
+      }
+    } catch (e) {
+      if (options.signal?.aborted || isAbortError(e) || !isConnectionFailure(e)) throw e
+    }
+  }
+}
+
+/**
+ * A failure that says nothing about the job: the request never reached Windmill, or a
+ * gateway in front of it answered. A 4xx from Windmill itself (not found, refused) does.
+ */
+function isConnectionFailure(e: unknown): boolean {
+  if (e instanceof WindmillApiError) return e.status >= 500 || e.status === 0
+  return e instanceof TypeError
 }

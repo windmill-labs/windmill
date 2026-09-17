@@ -1,3 +1,5 @@
+import type { RunningTurn } from './api'
+
 export type ChatRole = 'user' | 'assistant' | 'tool' | 'system'
 
 /**
@@ -57,6 +59,11 @@ export interface Conversation {
    * server has listed the conversation; unset for one only this client has seen.
    */
   isTest?: boolean
+  /**
+   * The turn the conversation was still answering when the server listed it: started in
+   * another tab, or before this chat was created. Pass it to `resumeTurn` to follow it.
+   */
+  runningTurn?: RunningTurn
 }
 
 export interface ChatState {
@@ -127,8 +134,20 @@ export interface Chat {
   getState(): ChatState
   /** Calls `listener` now and on every change; returns the unsubscribe function (Svelte store contract). */
   subscribe(listener: (state: ChatState) => void): () => void
-  /** Sends a message in the current conversation, starting one when there is none. Resolves when the answer is complete. */
+  /**
+   * Sends a message in the current conversation, starting one when there is none. Resolves
+   * when the answer is complete. Rejects with `TurnRunningError`, and shows nothing of the
+   * message, when the conversation is still answering one sent elsewhere: follow that turn
+   * with `resumeTurn`, then send again.
+   */
   sendMessage(text: string, options?: { inputs?: Record<string, unknown> }): Promise<void>
+  /**
+   * Follows a turn of the current conversation that this chat did not start, as named by
+   * `Conversation.runningTurn` or a `TurnRunningError`: its answer streams into `messages`
+   * from the start and the turn finishes like one sent here. Server history only; resolves
+   * when the answer is complete, at once when a turn is already being followed.
+   */
+  resumeTurn(turn: RunningTurn): Promise<void>
   /** Stops following the answer and asks Windmill to cancel the run. */
   stop(): Promise<void>
   newConversation(): void

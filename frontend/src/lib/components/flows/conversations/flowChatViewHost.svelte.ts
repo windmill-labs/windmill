@@ -1,4 +1,11 @@
-import type { Chat, ChatMessage, ChatState } from 'windmill-chat'
+import {
+	TurnRunningError,
+	type Chat,
+	type ChatMessage,
+	type ChatState,
+	type RunningTurn
+} from 'windmill-chat'
+import { isBusy, lastTurnFailed, turnFailed } from './flowChatPool'
 import type {
 	ChatSendRequestOptions,
 	ChatViewHost
@@ -22,10 +29,6 @@ export type FlowChatViewHostOptions = {
 	sendDisabled?: () => boolean
 }
 
-function isBusy(status: ChatState['status']): boolean {
-	return status === 'submitted' || status === 'streaming'
-}
-
 /** A tool's arguments or result as the card shows them: parsed where the string is JSON. */
 function parseToolPayload(raw: string | undefined): unknown {
 	if (raw === undefined || raw === '') return undefined
@@ -34,29 +37,6 @@ function parseToolPayload(raw: string | undefined): unknown {
 	} catch {
 		return raw
 	}
-}
-
-/**
- * Whether the turn the user message at `index` started failed: its last row before the
- * next user message reports `success: false`. The last row, not any row: a tool call can
- * fail and the agent still answer, and that turn completed.
- */
-export function turnFailed(messages: readonly ChatMessage[], index: number): boolean {
-	let last: ChatMessage | undefined
-	for (let i = index + 1; i < messages.length; i++) {
-		const message = messages[i]
-		if (message.role === 'user') break
-		last = message
-	}
-	return last?.success === false
-}
-
-/** Whether the latest turn failed, per `turnFailed`. False before any turn. */
-function lastTurnFailed(messages: readonly ChatMessage[]): boolean {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		if (messages[i].role === 'user') return turnFailed(messages, i)
-	}
-	return false
 }
 
 export function toDisplayMessages(messages: readonly ChatMessage[]): DisplayMessage[] {
@@ -114,7 +94,8 @@ export function toDisplayMessages(messages: readonly ChatMessage[]): DisplayMess
  * makes, so what it can offer is what the SDK's `Chat` can: a message in, an answer
  * streamed back, Stop. Every copilot-only field is answered with "no" (see ChatViewHost).
  *
- * The host owns its subscription to the chat, so a panel swapping chats mounts a new one.
+ * One host per conversation, living as long as its chat: it outlasts the panel showing it,
+ * so a message queued in a conversation still goes out once the reader has moved on.
  */
 export class FlowChatViewHost implements ChatViewHost {
 	#chat: Chat
@@ -127,6 +108,17 @@ export class FlowChatViewHost implements ChatViewHost {
 		this.#options = options
 		this.#state = chat.getState()
 		this.#unsubscribe = chat.subscribe((state) => this.#onState(state))
+	}
+
+	/** Set by the panel showing this conversation; a message queued here is sent with what
+	 * the last panel to show it read. */
+	setOptions(options: FlowChatViewHostOptions) {
+		this.#options = options
+	}
+
+	/** Follows a turn this chat did not start, so what is queued behind it waits for it. */
+	resumeTurn = (turn: RunningTurn) => {
+		this.#turnDone = this.#chat.resumeTurn(turn)
 	}
 
 	#disposed = false
@@ -212,16 +204,25 @@ export class FlowChatViewHost implements ChatViewHost {
 		}
 		if (this.#options.sendDisabled?.()) {
 			// Refused, not dropped: the text waits in the composer for sending to reopen.
-			this.#aiChatInput?.prependText(text)
+			this.#returnText(text)
 			return false
 		}
 		this.#automaticScroll = true
 		// A run that fails is reported through the chat's `onError` and as a failed message;
 		// the promise itself only rejects when the chat refuses the turn outright, and the
-		// text is then handed back rather than dropped.
+		// text is then handed back rather than dropped. Refused because the conversation is
+		// still answering a message sent elsewhere: that turn is followed here, and this one
+		// waits behind it as if it had been typed during it.
 		const turn = this.#chat
 			.sendMessage(text, { inputs: this.#options.additionalInputs?.() })
-			.catch(() => this.#aiChatInput?.prependText(text))
+			.catch((e) => {
+				if (e instanceof TurnRunningError && !this.#disposed) {
+					this.queueMessage(text)
+					this.resumeTurn(e.turn)
+				} else {
+					this.#returnText(text)
+				}
+			})
 		this.#turnDone = turn
 		await turn
 		return true
@@ -239,6 +240,16 @@ export class FlowChatViewHost implements ChatViewHost {
 	#aiChatInput: Parameters<ChatViewHost['setAiChatInput']>[0] = null
 	setAiChatInput: ChatViewHost['setAiChatInput'] = (aiChatInput) => {
 		this.#aiChatInput = aiChatInput
+		if (aiChatInput && this.#returned) {
+			aiChatInput.prependText(this.#returned)
+			this.#returned = ''
+		}
+	}
+	/** Text handed back while no composer shows this conversation, for the next one that does. */
+	#returned = ''
+	#returnText(text: string) {
+		if (this.#aiChatInput) this.#aiChatInput.prependText(text)
+		else this.#returned = this.#returned ? `${this.#returned}\n${text}` : text
 	}
 
 	// One message typed while the turn runs, sent whole once it settles. Enter again
@@ -260,7 +271,7 @@ export class FlowChatViewHost implements ChatViewHost {
 		const text = this.#queued
 		if (!text) return
 		this.#queued = ''
-		this.#aiChatInput?.prependText(text)
+		this.#returnText(text)
 	}
 	flushQueuedMessage = () => {
 		const text = this.#queued

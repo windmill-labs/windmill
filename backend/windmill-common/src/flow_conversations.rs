@@ -65,7 +65,9 @@ pub async fn get_or_create_conversation_with_id(
     is_test: bool,
 ) -> Result<FlowConversation> {
     if let Some(existing) = lock_conversation(tx, w_id, conversation_id).await? {
-        return same_kind(existing, is_test);
+        let existing = same_kind(existing, is_test)?;
+        refuse_running_turn(tx, conversation_id).await?;
+        return Ok(existing);
     }
 
     // Truncate title to 25 characters max
@@ -100,7 +102,70 @@ pub async fn get_or_create_conversation_with_id(
                 "conversation {conversation_id} belongs to another workspace"
             ))
         })?;
-    same_kind(existing, is_test)
+    let existing = same_kind(existing, is_test)?;
+    refuse_running_turn(tx, conversation_id).await?;
+    Ok(existing)
+}
+
+/// The turn a conversation is still answering: its newest user message, while the flow run
+/// that message started is still queued or running.
+#[derive(Serialize, Debug, Clone, Copy)]
+pub struct RunningTurn {
+    pub job_id: Uuid,
+    /// `created_seq` of the user message that started the turn.
+    pub user_seq: i64,
+}
+
+/// One running turn per conversation holds its agent memory; a second run would write the
+/// same memory concurrently. Checked under the conversation's row lock, so two runs sent at
+/// once cannot both pass: the second waits, then sees the first's message and queued job.
+async fn refuse_running_turn(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    conversation_id: Uuid,
+) -> Result<()> {
+    let Some(turn) = running_turns(&mut **tx, &[conversation_id])
+        .await?
+        .remove(&conversation_id)
+    else {
+        return Ok(());
+    };
+    // A JSON body, so a chat client can follow the running turn instead of failing.
+    Err(crate::error::Error::Generic(
+        axum::http::StatusCode::CONFLICT,
+        serde_json::json!({
+            "error": "this conversation is still answering a message; wait for it to finish or stop it before sending another",
+            "running_turn": turn,
+        })
+        .to_string(),
+    ))
+}
+
+pub async fn running_turns<'e, E: sqlx::PgExecutor<'e>>(
+    executor: E,
+    conversation_ids: &[Uuid],
+) -> Result<std::collections::HashMap<Uuid, RunningTurn>> {
+    let rows = sqlx::query_as::<_, (Uuid, Uuid, i64)>(
+        "SELECT c.id, u.job_id, u.created_seq
+         FROM unnest($1::uuid[]) AS c(id)
+         CROSS JOIN LATERAL (
+             SELECT job_id, created_seq
+             FROM flow_conversation_message
+             WHERE conversation_id = c.id AND message_type = 'user'
+             ORDER BY created_seq DESC
+             LIMIT 1
+         ) u
+         WHERE u.job_id IS NOT NULL
+           AND EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = u.job_id)",
+    )
+    .bind(conversation_ids)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(conversation_id, job_id, user_seq)| {
+            (conversation_id, RunningTurn { job_id, user_seq })
+        })
+        .collect())
 }
 
 /// `memory_id` is the caller's to choose, so a preview run could name a deployed

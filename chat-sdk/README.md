@@ -233,6 +233,23 @@ own (`'deployed'`, the server's default) or both (`'all'`); each `Conversation` 
 stops following the current answer; the flow keeps running and, with server history,
 its answer is there when you come back.
 
+A conversation answers one message at a time, and Windmill enforces it: a message sent
+while its previous turn still runs (from another tab, or before a reload) is refused.
+`sendMessage` then rejects with a `TurnRunningError` and shows nothing of the message.
+With server history, a listed `Conversation` also carries `runningTurn` while it is
+answering. Either way, `resumeTurn(turn)` follows that turn in the selected
+conversation: its answer streams in from the start and the turn finishes as if it had
+been sent here, after which the message can be sent again.
+
+```ts
+await chat.selectConversation(id)
+const running = chat.getState().conversations.find((c) => c.id === id)?.runningTurn
+if (running) await chat.resumeTurn(running)
+```
+
+A dropped connection to the answer is retried; when it keeps failing, the chat stops
+streaming and waits for the flow's result instead, so the turn still ends.
+
 ## History
 
 Windmill stores every conversation of a chat-mode flow, and each Windmill user sees
