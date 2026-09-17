@@ -159,3 +159,20 @@ async fn a_run_on_behalf_of_an_identity_stays_when_the_new_version_names_none(
     assert_eq!(hash, 3001);
     Ok(())
 }
+
+/// The new version's tag is checked against the identity the next run uses, as a by-path run of
+/// it would be: a non-superadmin cannot reach a tag outside the workspace's custom tags this way.
+#[sqlx::test(fixtures("base"))]
+async fn a_new_version_with_a_tag_unavailable_to_the_run_leaves_it_on_its_version(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    insert_version(&db, 5001, 60.0, None, None, None).await?;
+    insert_version(&db, 5002, 0.0, None, Some(true), Some("u/test-user-2")).await?;
+    sqlx::query("UPDATE script SET tag = 'perpetual-switch-unlisted' WHERE hash = 5002")
+        .execute(&db)
+        .await?;
+
+    let (hash, _, _) = next_run_after_run_of(&db, 5001).await?;
+    assert_eq!(hash, 5001);
+    Ok(())
+}
