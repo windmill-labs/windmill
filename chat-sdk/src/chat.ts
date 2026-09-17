@@ -680,11 +680,12 @@ class ChatImpl implements Chat {
               : row.tool
         }
       } else {
-        // A row nothing streamed, such as a provider-native web search, goes where a reload
-        // puts it: after the last message of a lower `seq`, before streamed messages whose
-        // rows come after it. Appending would show it after the answer until the next reload.
+        // A tool row nothing streamed, such as a provider-native web search, goes where a
+        // reload puts it: after the last message of a lower `seq`, before the streamed answer.
+        // Any other row closes the turn, a failure included, and stays last: above a streamed
+        // message that never got a row, it would hide the turn's failure.
         let at = messages.length
-        for (let j = messages.length - 1; j >= 0; j--) {
+        for (let j = messages.length - 1; row.role === 'tool' && j >= 0; j--) {
           const seq = messages[j].seq
           if (seq !== undefined && seq < row.seq!) {
             at = j + 1

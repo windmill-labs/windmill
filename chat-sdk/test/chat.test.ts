@@ -403,6 +403,37 @@ describe('createChat with server history', () => {
     ])
   })
 
+  test('a failure row stays after streamed text that never got a row', async () => {
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([
+              {
+                type: 'update',
+                new_result_stream: ndjson({ type: 'token_delta', content: 'Let me look' }),
+                stream_offset: 1,
+                completed: true,
+                only_result: { error: { name: 'ExecutionErr', message: 'boom' } }
+              }
+            ])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json([messageRow(91, 'user', 'hi'), messageRow(92, 'assistant', 'boom', { job_id: 'step-1', success: false })])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('hi')
+    const messages = chat.getState().messages
+    expect(messages.map((m) => [m.content, m.success])).toEqual([
+      ['hi', true],
+      ['Let me look', true],
+      ['boom', false]
+    ])
+  })
+
   test('keeps the streamed answer until its row lands, even when a tool row lands first', async () => {
     let messageFetches = 0
     const { fetch } = fetchMock(
