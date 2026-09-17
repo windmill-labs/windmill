@@ -33,7 +33,7 @@ use windmill_common::{
     client::AuthedClient,
     db::DB,
     error::Error,
-    flow_conversations::MessageType,
+    flow_conversations::{MessageExtras, MessageType},
     flow_status::AgentAction,
     flows::FlowModuleValue,
     worker::{to_raw_value, Connection},
@@ -74,6 +74,9 @@ pub struct ToolExecutionContext<'a> {
     pub stream_event_processor: Option<&'a StreamEventProcessor>,
     pub flow_context: &'a mut FlowContext,
     pub omit_output_from_conversation: bool,
+    /// The thinking that led to this round's calls, stored on the first tool row written.
+    /// None when the round wrote text, whose row carries it.
+    pub reasoning: Option<String>,
     pub previous_result: &'a Option<Box<RawValue>>,
     pub id_context: &'a Option<crate::js_eval::IdContext>,
 
@@ -235,9 +238,24 @@ async fn execute_mcp_tool_call(
                 update_flow_status_module_with_actions_success(ctx.db, parent_job, true).await?;
             }
 
-            // Add tool message to conversation if chat_input_enabled
+            // An MCP tool runs inside the agent's job, whose result holds every call of the
+            // turn and nothing tying one of them to this row: same job id for all of them,
+            // no call id on the row. Kept here so the card shows this call — and the row
+            // names that job, so retention sweeps it with every other row of the turn.
             let content = format!("Used {} tool", tool_call.function.name);
-            add_tool_message_to_chat(ctx, None, &content, true).await;
+            let agent_job_id = ctx.job.id;
+            add_tool_message_to_chat(
+                ctx,
+                Some(agent_job_id),
+                &content,
+                true,
+                Some(MessageExtras {
+                    tool_arguments: Some(tool_call.function.arguments.clone()),
+                    tool_result: Some(result_str),
+                    ..Default::default()
+                }),
+            )
+            .await;
         }
         Err(e) => {
             let error_msg = format!("MCP tool error: {}", e);
@@ -271,8 +289,23 @@ async fn execute_mcp_tool_call(
                 update_flow_status_module_with_actions_success(ctx.db, parent_job, false).await?;
             }
 
-            // Add tool message to conversation if chat_input_enabled
-            add_tool_message_to_chat(ctx, None, &error_msg, false).await;
+            // Add tool message to conversation if chat_input_enabled. The row is worded from
+            // the tool, like every other tool row, and the error it failed with is its result
+            // — the one field a call that produced nothing else still has something to put in.
+            let agent_job_id = ctx.job.id;
+            let content = format!("Error executing {}", tool_name);
+            add_tool_message_to_chat(
+                ctx,
+                Some(agent_job_id),
+                &content,
+                false,
+                Some(MessageExtras {
+                    tool_arguments: Some(tool_call.function.arguments.clone()),
+                    tool_result: Some(error_msg.clone()),
+                    ..Default::default()
+                }),
+            )
+            .await;
         }
     }
 
@@ -680,8 +713,8 @@ async fn handle_tool_execution_error(
         update_flow_status_module_with_actions_success(ctx.db, parent_job, false).await?;
     }
 
-    // Add tool message to conversation if chat_input_enabled (error case)
-    add_tool_message_to_chat(ctx, Some(job_id), &error_message, false).await;
+    let (content, extras) = windmill_tool_row(tool_call, false, &error_message);
+    add_tool_message_to_chat(ctx, Some(job_id), &content, false, Some(extras)).await;
 
     Ok(())
 }
@@ -782,13 +815,17 @@ async fn handle_tool_execution_success(
         ..Default::default()
     });
 
-    // Stream tool result (success case)
+    let (content, extras) = windmill_tool_row(tool_call, success, &tool_result);
+
+    // The job ran; whether it ran successfully is `success`, and the row stored below is
+    // worded from it. The stream has to carry the same value, or the card the reader watches
+    // and the row that replaces it describe the same call differently.
     if let Some(stream_event_processor) = ctx.stream_event_processor {
         let tool_result_event = StreamingEvent::ToolResult {
             call_id: tool_call.id.clone(),
             function_name: tool_call.function.name.clone(),
             result: tool_result,
-            success: true,
+            success,
         };
         stream_event_processor
             .send(tool_result_event, final_events_str)
@@ -799,28 +836,56 @@ async fn handle_tool_execution_success(
         update_flow_status_module_with_actions_success(ctx.db, parent_job, success).await?;
     }
 
-    // Add tool message to conversation if chat_input_enabled
+    add_tool_message_to_chat(ctx, Some(job_id), &content, success, Some(extras)).await;
+
+    Ok(())
+}
+
+/// A Windmill tool's conversation row: worded from the tool, carrying the model's call and
+/// the exact text the model got back, the same text agent memory keeps for that tool
+/// message, so a card needs no job fetch. The call is the model's arguments, not the job's
+/// args: the step's input transforms add inputs the model never wrote.
+fn windmill_tool_row(
+    tool_call: &OpenAIToolCall,
+    success: bool,
+    sent_to_model: &str,
+) -> (String, MessageExtras) {
     let content = if success {
         format!("Used {} tool", tool_call.function.name)
     } else {
         format!("Error executing {}", tool_call.function.name)
     };
-
-    add_tool_message_to_chat(ctx, Some(job_id), &content, success).await;
-
-    Ok(())
+    let extras = MessageExtras {
+        tool_arguments: Some(tool_call.function.arguments.clone()),
+        tool_result: Some(sent_to_model.to_string()),
+        ..Default::default()
+    };
+    (content, extras)
 }
 
 /// Add tool message to conversation if chat is enabled
 async fn add_tool_message_to_chat(
     ctx: &mut ToolExecutionContext<'_>,
+    // The job this row belongs to: the tool's own where it has one, else the agent's, which
+    // is the job it ran inside. Every row names one so that retention collects the whole
+    // turn — `delete_jobs` removes messages by `job_id = ANY(..)` (there is no FK on the
+    // column; `drop_v2_job_side_table_cascades` dropped it), and a row naming no job would
+    // survive every purge and leave a conversation that can never become empty.
     tool_job_id: Option<Uuid>,
     content: &str,
     success: bool,
+    // The model's call and what it got back; every tool row carries both.
+    extras: Option<MessageExtras>,
 ) {
     if ctx.omit_output_from_conversation {
         return;
     }
+    let extras = match ctx.reasoning.take() {
+        Some(reasoning) => {
+            Some(MessageExtras { reasoning: Some(reasoning), ..extras.unwrap_or_default() })
+        }
+        None => extras,
+    };
 
     let chat_enabled = ctx
         .flow_context
@@ -835,41 +900,74 @@ async fn add_tool_message_to_chat(
             .as_ref()
             .and_then(|fs| fs.memory_id)
         {
-            let db_clone = ctx.db.clone();
             let effective_step_id = ctx
                 .flow_step_id_override
                 .or(ctx.job.flow_step_id.as_deref());
             let step_name = get_step_name_from_flow(ctx.summary.as_deref(), effective_step_id);
-            let content = content.to_string();
 
-            // Spawn task because we do not need to wait for the result
-            tokio::spawn(async move {
-                if let Err(e) = add_message_to_conversation(
-                    &db_clone,
-                    &memory_id,
-                    tool_job_id,
-                    &content,
-                    MessageType::Tool,
-                    &step_name,
-                    success,
-                )
-                .await
-                {
-                    tracing::warn!(
-                        "Failed to add tool message to conversation {}: {}",
-                        memory_id,
-                        e
-                    );
-                }
-            });
+            // Awaited, not spawned: `created_seq` is the transcript's order, so a round's rows
+            // must commit in the order of its calls. Calls run one after another; running them
+            // in parallel would need their rows written in call order all the same.
+            if let Err(e) = add_message_to_conversation(
+                ctx.db,
+                &memory_id,
+                tool_job_id,
+                content,
+                MessageType::Tool,
+                &step_name,
+                success,
+                extras.as_ref(),
+            )
+            .await
+            {
+                tracing::warn!(
+                    "Failed to add tool message to conversation {}: {}",
+                    memory_id,
+                    e
+                );
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::extract_ai_agent_output;
+    use super::{extract_ai_agent_output, windmill_tool_row};
     use serde_json::value::RawValue;
+    use windmill_ai::ai_types::{OpenAIFunction, OpenAIToolCall};
+
+    #[test]
+    fn a_windmill_tool_row_carries_the_models_call_and_what_it_got_back() {
+        let tool_call = OpenAIToolCall {
+            id: "call_1".to_string(),
+            function: OpenAIFunction {
+                name: "get_price".to_string(),
+                arguments: r#"{"item":"widget"}"#.to_string(),
+            },
+            r#type: "function".to_string(),
+            extra_content: None,
+        };
+
+        let (content, extras) = windmill_tool_row(&tool_call, true, r#"{"price":42}"#);
+        assert_eq!(content, "Used get_price tool");
+        assert_eq!(
+            extras.tool_arguments.as_deref(),
+            Some(r#"{"item":"widget"}"#)
+        );
+        assert_eq!(extras.tool_result.as_deref(), Some(r#"{"price":42}"#));
+
+        let (content, extras) =
+            windmill_tool_row(&tool_call, false, "Error running tool: ExecutionErr: boom");
+        assert_eq!(content, "Error executing get_price");
+        assert_eq!(
+            extras.tool_arguments.as_deref(),
+            Some(r#"{"item":"widget"}"#)
+        );
+        assert_eq!(
+            extras.tool_result.as_deref(),
+            Some("Error running tool: ExecutionErr: boom")
+        );
+    }
 
     #[test]
     fn extracts_only_the_output_of_an_agent_result() {
