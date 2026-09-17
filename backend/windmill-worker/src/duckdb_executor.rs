@@ -2718,6 +2718,11 @@ fn pg_secret_attach_statements(db_resource: Value, alias_name: &str) -> Result<V
             esc(res.password.as_deref().unwrap_or("")),
         ),
         format!("ATTACH 'sslmode={sslmode}' AS {alias_name} (TYPE postgres, SECRET {secret_name});"),
+        // The attachment keeps its own resolved connection string, so the secret is dead weight
+        // once attached — and a live one is a credential the script's own statements can name: an
+        // `ATTACH 'dbname=<other>' (TYPE postgres, SECRET …)` would reach a database nobody
+        // authorized this job for, as this role.
+        format!("DROP TEMPORARY SECRET {secret_name};"),
     ])
 }
 
@@ -3945,6 +3950,8 @@ mod tests {
             stmts[3],
             format!("ATTACH 'sslmode=require' AS dt (TYPE postgres, SECRET {secret_name});")
         );
+        assert_eq!(stmts[4], format!("DROP TEMPORARY SECRET {secret_name};"));
+        assert_eq!(stmts.len(), 5);
     }
 
     #[test]

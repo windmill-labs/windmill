@@ -1572,11 +1572,13 @@ pub async fn ensure_instance_db_grant_options_unchecked(
 }
 
 /// Create a custom instance database: CREATE DATABASE, grant permissions, register in global_settings.
-/// The `tag` is stored in global_settings metadata (e.g. "datatable" or "ducklake").
+/// The `tag` is stored in global_settings metadata (e.g. "datatable" or "ducklake"). `for_workspace`
+/// is the workspace a member creates a fork copy for; see [`ensure_fork_database_available_to`].
 pub async fn create_custom_instance_database(
     db: &DB,
     dbname: &str,
     tag: &str,
+    for_workspace: Option<&str>,
 ) -> error::Result<()> {
     let dbname = dbname.trim();
     validate_dbname(dbname)?;
@@ -1630,7 +1632,8 @@ pub async fn create_custom_instance_database(
         },
         "success": true,
         "error": null,
-        "tag": tag
+        "tag": tag,
+        "workspace_id": for_workspace,
     });
     sqlx::query!(
         r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
@@ -1647,6 +1650,44 @@ pub async fn create_custom_instance_database(
     }
 
     tracing::info!("Created custom instance database '{}'", dbname);
+    Ok(())
+}
+
+/// Refuse a workspace member writing a fork copy into, or pointing a fork at, the instance database
+/// `dbname`, unless `w_id` created it for that ([`create_custom_instance_database`]) and nothing uses
+/// it yet. The `wm_fork_` prefix is no authorization: every instance database answers to the same
+/// `custom_instance_user`, so a name is all it takes to reach another workspace's copy.
+pub async fn ensure_fork_database_available_to(
+    db: &DB,
+    dbname: &str,
+    w_id: &str,
+) -> error::Result<()> {
+    let created_for = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT value->'databases'->$1->>'workspace_id' FROM global_settings
+         WHERE name = 'custom_instance_pg_databases'",
+    )
+    .bind(dbname)
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    if created_for.as_deref() != Some(w_id) {
+        return Err(Error::BadRequest(format!(
+            "Database '{dbname}' was not created for a fork of workspace '{w_id}'"
+        )));
+    }
+    let uses = workspaces::managed_database_uses(
+        &mut *db.acquire().await?,
+        workspaces::DataTableCatalogResourceType::Instance,
+        dbname,
+        None,
+    )
+    .await?;
+    if !uses.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "Database '{dbname}' is already in use: {}",
+            uses.join(", ")
+        )));
+    }
     Ok(())
 }
 

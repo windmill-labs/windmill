@@ -1471,6 +1471,73 @@ pub struct GoverningDatatable {
     pub datatable: DataTable,
 }
 
+/// Everything still using the Windmill-managed database `dbname`, one description per use: data
+/// table entries naming it, fork entries pointing at those, Ducklake catalogs on it, and fork
+/// Ducklake metadata schemas there that cleanup has not dropped yet. `exempt` is the one data table
+/// entry, `(workspace_id, name)`, the caller is about to stop using it through; pointers at that
+/// entry still count, since dropping the database would leave them resolving to nothing.
+///
+/// Authorization: reads every workspace's settings and checks nothing. Callers MUST only turn the
+/// answer into a refusal for someone allowed to administer `dbname`.
+pub async fn managed_database_uses(
+    conn: &mut sqlx::PgConnection,
+    kind: DataTableCatalogResourceType,
+    dbname: &str,
+    exempt: Option<(&str, &str)>,
+) -> Result<Vec<String>> {
+    let (exempt_workspace, exempt_name) = exempt.unzip();
+    Ok(sqlx::query_scalar::<_, String>(
+        "WITH entries AS (
+             SELECT ws.workspace_id::text AS workspace_id, dt.key AS name, dt.value
+             FROM workspace_settings ws
+             CROSS JOIN LATERAL jsonb_each(
+                 CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'
+                     THEN ws.datatable->'datatables' ELSE '{}'::jsonb END) dt
+         ), naming AS (
+             SELECT workspace_id, name FROM entries
+             WHERE value->'database'->>'resource_type' = $1
+               AND value->'database'->>'resource_path' = $2
+         )
+         SELECT format('data table ''%s'' in workspace ''%s''', name, workspace_id) FROM naming
+         WHERE $3::text IS NULL OR NOT (workspace_id = $3 AND name = $4)
+         UNION ALL
+         SELECT format('data table ''%s'' in workspace ''%s'', which points at the one in ''%s''',
+                       e.name, e.workspace_id, n.workspace_id)
+         FROM entries e JOIN naming n
+           ON e.value->'reference'->>'workspace_id' = n.workspace_id
+          AND e.value->'reference'->>'datatable' = n.name
+         UNION ALL
+         SELECT format('Ducklake ''%s'' in workspace ''%s''', dl.key, ws.workspace_id)
+         FROM workspace_settings ws
+         CROSS JOIN LATERAL jsonb_each(
+             CASE WHEN jsonb_typeof(ws.ducklake->'ducklakes') = 'object'
+                 THEN ws.ducklake->'ducklakes' ELSE '{}'::jsonb END) dl
+         WHERE dl.value->'catalog'->>'resource_type' = $1
+           AND dl.value->'catalog'->>'resource_path' = $2
+         UNION ALL
+         SELECT format('the Ducklake namespace of fork ''%s'', not cleaned up yet', workspace_id)
+         FROM fork_ducklake_namespace
+         WHERE catalog = $1 || ':' || $2 AND NOT schema_dropped
+         ORDER BY 1",
+    )
+    .bind(kind.as_ref())
+    .bind(dbname)
+    .bind(exempt_workspace)
+    .bind(exempt_name)
+    .fetch_all(&mut *conn)
+    .await?)
+}
+
+/// Held by fork cleanup of `w_id`'s data tables and by forking `w_id`, which can hand the new fork
+/// pointers at them, so a pointer cannot appear between cleanup's check and its drop.
+pub async fn lock_fork_datatables(conn: &mut sqlx::PgConnection, w_id: &str) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('fork_datatables:' || $1))")
+        .bind(w_id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
 impl GoverningDatatable {
     /// Backed by the Windmill instance's own Postgres, which is the only substrate data table
     /// roles apply to.
@@ -1520,6 +1587,96 @@ pub async fn resolve_governing_datatable(
         "Data table '{name}' points at another data table through more than \
          {DATATABLE_REFERENCE_MAX_DEPTH} hops; the chain is likely a loop"
     )))
+}
+
+/// Every entry of a workspace resolved as [`resolve_governing_datatable`] resolves one, in stored
+/// order, reading the settings rows one pointer hop at a time rather than once per entry. An entry
+/// that does not resolve — malformed, a dangling pointer, a loop — is left out. Same authorization
+/// contract as the single resolution: it checks nothing.
+pub async fn resolve_workspace_governing_datatables(
+    db: &DB,
+    w_id: &str,
+) -> Result<Vec<(String, GoverningDatatable)>> {
+    type Entries =
+        std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>;
+    async fn load(db: &DB, workspaces: &[String], entries: &mut Entries) -> Result<Vec<String>> {
+        let rows: Vec<(String, String, serde_json::Value)> = sqlx::query_as(
+            "SELECT ws.workspace_id, dt.key, dt.value FROM workspace_settings ws
+             CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
+             WHERE ws.workspace_id = ANY($1)",
+        )
+        .bind(workspaces)
+        .fetch_all(db)
+        .await?;
+        for ws in workspaces {
+            entries.entry(ws.clone()).or_default();
+        }
+        let mut keys = Vec::with_capacity(rows.len());
+        for (ws, key, value) in rows {
+            keys.push(key.clone());
+            entries.entry(ws).or_default().insert(key, value);
+        }
+        Ok(keys)
+    }
+
+    let mut entries = Entries::new();
+    let listed = load(db, &[w_id.to_string()], &mut entries).await?;
+    // (index into `listed`, workspace, entry name) still to be followed.
+    let mut cursors: Vec<(usize, String, String)> = listed
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (i, w_id.to_string(), name.clone()))
+        .collect();
+    let mut resolved: Vec<(usize, GoverningDatatable)> = vec![];
+
+    for _ in 0..DATATABLE_REFERENCE_MAX_DEPTH {
+        let mut next = vec![];
+        for (i, ws, name) in cursors.drain(..) {
+            let Some(value) = entries
+                .get(&ws)
+                .and_then(|m| m.get(&name))
+                .filter(|v| !v.is_null())
+            else {
+                continue;
+            };
+            let Ok(datatable) = serde_json::from_value::<DataTable>(value.clone()) else {
+                continue;
+            };
+            if validate_datatable_shape(&name, &datatable).is_err() {
+                continue;
+            }
+            match &datatable.reference {
+                None => {
+                    resolved.push((i, GoverningDatatable { workspace_id: ws, name, datatable }))
+                }
+                Some(reference) => next.push((
+                    i,
+                    reference.workspace_id.clone(),
+                    reference.datatable.clone(),
+                )),
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        let to_load: Vec<String> = next
+            .iter()
+            .map(|(_, ws, _)| ws.clone())
+            .filter(|ws| !entries.contains_key(ws))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        if !to_load.is_empty() {
+            load(db, &to_load, &mut entries).await?;
+        }
+        cursors = next;
+    }
+
+    resolved.sort_by_key(|(i, _)| *i);
+    Ok(resolved
+        .into_iter()
+        .map(|(i, governing)| (listed[i].clone(), governing))
+        .collect())
 }
 
 /// Build the `admin` connection for a governing entry: `custom_instance_user` for an instance
@@ -1879,6 +2036,10 @@ pub fn strip_datatable_permissions(
 /// looked up first, so `sales?role=x` never reaches a different entry than the one stored so.
 /// When `sales` is stored too, the reference means either one, and is refused rather than
 /// resolved to whichever is looked up first.
+///
+/// Authorization: checks nothing, and its answer reveals whether `w_id` stores that exact name.
+/// Callers MUST already act for `w_id` — a job of it, or a caller authenticated into it — and
+/// MUST still pass the name to [`get_datatable_resource_from_db`] or an admin-access check.
 pub async fn parse_datatable_ref_for(
     db: &DB,
     w_id: &str,
