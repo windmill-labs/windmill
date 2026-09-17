@@ -976,18 +976,33 @@ fn six_fields_hint(schedule_str: &str, version: Option<&str>, seconds_required: 
 }
 
 impl ScheduleType {
+    /// `NotFound` means the expression has no run left (an expired year, an impossible
+    /// date), and schedule pushes disable the schedule on it. Every other error must stay
+    /// transient: croner fails across a DST jump longer than an hour (Antarctica/Troll)
+    /// and succeeds again once the jump has passed.
     pub fn find_next(
         &self,
         starting_from: &chrono::DateTime<chrono_tz::Tz>,
-    ) -> chrono::DateTime<chrono_tz::Tz> {
+    ) -> Result<chrono::DateTime<chrono_tz::Tz>> {
+        let no_run_left = || {
+            Error::NotFound(format!(
+                "cron: the schedule has no run left after {}",
+                starting_from.format("%Y-%m-%d %H:%M:%S %Z")
+            ))
+        };
         match self {
             ScheduleType::Croner(croner_schedule) => croner_schedule
                 .find_next_occurrence(starting_from, false)
-                .expect("cron: a schedule should have a next event"),
-            ScheduleType::Cron(schedule) => schedule
-                .after(starting_from)
-                .next()
-                .expect("cron: a schedule should have a next event"),
+                .map_err(|e| match e {
+                    croner::errors::CronError::TimeSearchLimitExceeded => no_run_left(),
+                    e => Error::internal_err(format!(
+                        "cron: could not compute the run after {}: {e}",
+                        starting_from.format("%Y-%m-%d %H:%M:%S %Z")
+                    )),
+                }),
+            ScheduleType::Cron(schedule) => {
+                schedule.after(starting_from).next().ok_or_else(no_run_left)
+            }
         }
     }
 
@@ -1707,6 +1722,22 @@ mod tests {
             .expect("invalid cron must be rejected")
             .to_string();
         assert!(!err.contains("6 fields"), "{err}");
+    }
+
+    #[test]
+    fn find_next_reports_only_a_cron_with_no_run_left_as_not_found() {
+        use chrono::TimeZone;
+        let troll: chrono_tz::Tz = "Antarctica/Troll".parse().unwrap();
+        // Troll's clocks jump from 01:00 to 03:00 on the last Sunday of March.
+        let before_jump = troll.with_ymd_and_hms(2027, 3, 28, 0, 30, 0).unwrap();
+
+        let expired = ScheduleType::from_str("0 0 9 1 1 * 2026", Some("v1"), true).unwrap();
+        let err = expired.find_next(&before_jump).unwrap_err();
+        assert!(matches!(err, Error::NotFound(_)), "{err}");
+
+        let across_jump = ScheduleType::from_str("0 30 1 * * *", Some("v2"), true).unwrap();
+        let err = across_jump.find_next(&before_jump).unwrap_err();
+        assert!(!matches!(err, Error::NotFound(_)), "{err}");
     }
 
     /// A worker that restarts must land on the exact same name to reclaim its `worker_ping`
