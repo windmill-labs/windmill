@@ -69,7 +69,7 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    insert_concurrency_key_capped, interpolate_args,
+    insert_concurrency_key_capped, interpolate_args, render_tag_path,
     report_error_to_workspace_handler_or_critical_side_channel, tag_reads_args,
     tag_reads_flow_expr, try_schedule_next_job, CanceledBy, FlowRunners, MiniCompletedJob,
     MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError, RE_FLOW_EXPR_TAG,
@@ -3114,9 +3114,8 @@ fn resolve_flow_step_tag(
     }
 }
 
-/// Resolves each `$flow_expr[root.path]` of a step tag by reading `path` from `results` (keyed by
-/// step id), `flow_input` or `flow_env`. As for `$args[...]`, a path that reaches nothing renders
-/// empty, a string renders bare and any other value as its JSON text.
+/// Resolves each `$flow_expr[root.key.path]` of a step tag by reading `key.path` from `results`
+/// (where `key` is a step id), `flow_input` or `flow_env`, rendered as `$args[key.path]` would be.
 async fn interpolate_flow_expr_tag(
     tag: &str,
     db: &DB,
@@ -3139,61 +3138,40 @@ async fn interpolate_flow_expr_tag(
         if rendered.contains_key(path) {
             continue;
         }
-        let mut segments = path.split('.');
-        let root = segments.next().unwrap_or_default();
-        let segments = segments.collect::<Vec<_>>();
-        let value = match (root, segments.split_first()) {
-            ("flow_input", _) => read_flow_expr_path(Some(flow_input), &segments),
-            ("flow_env", _) => read_flow_expr_path(flow_env, &segments),
-            ("results", Some((step_id, rest))) => {
-                match windmill_queue::get_result_by_id(
-                    db.clone(),
-                    flow_job.workspace_id.clone(),
-                    flow_job.id,
-                    step_id.to_string(),
-                    (!rest.is_empty()).then(|| rest.join(".")),
-                )
-                .await
-                {
-                    Ok(result) => serde_json::from_str(result.get()).unwrap_or_default(),
-                    Err(Error::NotFound(_)) => Value::Null,
-                    Err(e) => {
-                        return Err(Error::ExecutionErr(format!(
-                            "Could not resolve the step tag `{tag}`: {e}"
-                        )))
-                    }
+        let (root, key_path) = path.split_once('.').unwrap_or((path, ""));
+        let (key, rest) = key_path.split_once('.').unwrap_or((key_path, ""));
+        if key.is_empty() || !matches!(root, "results" | "flow_input" | "flow_env") {
+            return Err(Error::ExecutionErr(format!(
+                "Could not resolve the step tag `{tag}`: `{path}` must start with \
+                 `results.<step_id>`, `flow_input.<key>` or `flow_env.<key>`"
+            )));
+        }
+        let value = match root {
+            "flow_input" => render_tag_path(flow_input.get(key).map(|x| &**x), rest),
+            "flow_env" => render_tag_path(flow_env.and_then(|e| e.get(key)).map(|x| &**x), rest),
+            _ => match windmill_queue::get_result_by_id(
+                db.clone(),
+                flow_job.workspace_id.clone(),
+                flow_job.id,
+                key.to_string(),
+                None,
+            )
+            .await
+            {
+                Ok(result) => render_tag_path(Some(&*result), rest),
+                Err(Error::NotFound(_)) => String::new(),
+                Err(e) => {
+                    return Err(Error::ExecutionErr(format!(
+                        "Could not resolve the step tag `{tag}`: {e}"
+                    )))
                 }
-            }
-            _ => {
-                return Err(Error::ExecutionErr(format!(
-                    "Could not resolve the step tag `{tag}`: `{path}` must start with \
-                     `results.<step_id>`, `flow_input` or `flow_env`"
-                )))
-            }
-        };
-        let value = match value {
-            Value::String(s) => s,
-            Value::Null => String::new(),
-            v => v.to_string(),
+            },
         };
         rendered.insert(path, value);
     }
     Ok(RE_FLOW_EXPR_TAG
         .replace_all(tag, |cap: &regex::Captures| rendered[&cap[1]].clone())
         .into_owned())
-}
-
-fn read_flow_expr_path(map: Option<&HashMap<String, Box<RawValue>>>, segments: &[&str]) -> Value {
-    let Some((key, rest)) = segments.split_first() else {
-        return Value::Null;
-    };
-    map.and_then(|m| m.get(*key))
-        .and_then(|raw| serde_json::from_str::<Value>(raw.get()).ok())
-        .and_then(|v| {
-            v.pointer(&rest.iter().map(|s| format!("/{s}")).collect::<String>())
-                .cloned()
-        })
-        .unwrap_or_default()
 }
 
 #[cfg(test)]
