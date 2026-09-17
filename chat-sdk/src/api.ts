@@ -1,4 +1,4 @@
-import type { FetchLike, TokenSource } from './types'
+import type { ChatAttachment, FetchLike, TokenSource } from './types'
 
 export interface WindmillChatApiOptions {
   baseUrl: string
@@ -46,6 +46,8 @@ export interface FlowConversationMessage {
   tool_result?: string | null
   /** On an answer, the thinking that produced it; on a tool row, the thinking that led to the call. */
   reasoning?: string | null
+  /** The files a user message carried, as object-storage references. */
+  attachments?: ChatAttachment[] | null
 }
 
 export type JobUpdateEvent =
@@ -162,6 +164,17 @@ export class WindmillChatApi {
       signal
     })
     return (await res.json()) as FlowJobStatus
+  }
+
+  /**
+   * Where a message's attachment downloads from. The endpoint authenticates like every other
+   * request: a consumer holding a token must fetch it with that token, not put the URL in an
+   * `img src`, which would send only the Windmill session cookie.
+   */
+  attachmentUrl(attachment: ChatAttachment): string {
+    const query = new URLSearchParams({ file_key: attachment.s3 })
+    if (attachment.storage) query.set('storage', attachment.storage)
+    return `${this.#baseUrl}/api/w/${encodeURIComponent(this.#workspace)}/job_helpers/download_s3_file?${query}`
   }
 
   async cancelJob(jobId: string, reason = 'Stopped from the chat'): Promise<void> {

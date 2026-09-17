@@ -327,12 +327,14 @@ describe('createChat with server history', () => {
     expect(messagesCall.headers.authorization).toBeUndefined()
   })
 
-  test('a persisted row brings back its reasoning and the call an MCP tool row carries', async () => {
+  test('a persisted row brings back its attachments, reasoning and the call an MCP tool row carries', async () => {
     const { fetch } = fetchMock(
       (c) =>
         c.method === 'GET' && c.url.pathname === '/api/w/ws/flow_conversations/conv-1/messages'
           ? json([
-              messageRow(1, 'user', 'hi'),
+              messageRow(1, 'user', 'hi', {
+                attachments: [{ input: 'files', s3: 'chat/a.png', storage: 'secondary', filename: 'a.png' }]
+              }),
               messageRow(2, 'tool', 'Used lookup tool', {
                 job_id: 'agent-job',
                 tool_arguments: '{"q":1}',
@@ -352,7 +354,9 @@ describe('createChat with server history', () => {
     const chat = createChat(options({ history: 'server' }, fetch))
     await chat.selectConversation('conv-1')
 
-    const [, used, failed, answer, plain] = chat.getState().messages
+    const [user, used, failed, answer, plain] = chat.getState().messages
+    expect(user.attachments).toEqual([{ input: 'files', s3: 'chat/a.png', storage: 'secondary', filename: 'a.png' }])
+    expect(answer.attachments).toBeUndefined()
     expect(used.tool).toEqual({ name: 'lookup', status: 'success', arguments: '{"q":1}', result: '42' })
     expect(failed.tool).toEqual({ name: 'lookup', status: 'error', arguments: '{"q":2}', result: 'MCP tool error: boom' })
     expect(answer.reasoning).toBe('hmm')

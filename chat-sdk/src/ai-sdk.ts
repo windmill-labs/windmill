@@ -107,6 +107,7 @@ export function createWindmillChatTransport<UI_MESSAGE extends UIMessage = UIMes
           pending: false,
           seq: row.created_seq,
           reasoning: row.reasoning ?? undefined,
+          attachments: row.attachments ?? undefined,
           tool: toolFromRow(row)
         }))
       ) as UI_MESSAGE[]
