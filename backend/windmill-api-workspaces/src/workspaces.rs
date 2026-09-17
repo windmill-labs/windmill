@@ -2205,17 +2205,15 @@ async fn list_datatables(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<DataTableListItem>> {
-    let names = list_datatable_names(&db, &w_id).await?;
+    // A pointer entry owns no database, so what it resolves to is the only truthful answer here.
+    // One that resolves to nothing — a pointer whose workspace was deleted — is dropped rather than
+    // listed with a database it does not have; what happened is named where it is actionable
+    // instead: by the delete that stranded it, and by any attempt to use it.
+    let resolved =
+        windmill_common::workspaces::resolve_workspace_governing_datatables(&db, &w_id).await?;
 
-    let mut items = Vec::with_capacity(names.len());
-    for name in names {
-        // A pointer entry owns no database, so what it resolves to is the only truthful answer
-        // here. One that resolves to nothing — a pointer whose workspace was deleted — is dropped
-        // rather than listed with a database it does not have; what happened is named where it is
-        // actionable instead: by the delete that stranded it, and by any attempt to use it.
-        let Ok(governing) = resolve_governing_datatable(&db, &w_id, &name).await else {
-            continue;
-        };
+    let mut items = Vec::with_capacity(resolved.len());
+    for (name, governing) in resolved {
         let database = governing
             .datatable
             .database
@@ -3545,11 +3543,17 @@ async fn create_pg_database(
             &db,
             &req.target_dbname,
             "datatable",
+            Some(&w_id),
         )
         .await?;
     } else if source_kind == Some(DataTableCatalogResourceType::Instance) {
-        windmill_common::create_custom_instance_database(&db, &req.target_dbname, "datatable")
-            .await?;
+        windmill_common::create_custom_instance_database(
+            &db,
+            &req.target_dbname,
+            "datatable",
+            Some(&w_id),
+        )
+        .await?;
     } else {
         let source_pg =
             resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
@@ -3702,6 +3706,15 @@ async fn import_pg_database(
                     "Non-superadmin users can only override target dbname with names starting with 'wm_fork_'"
                         .to_string(),
                 ));
+            }
+            if let Some(kind) = managed_datatable_source_kind(&db, &w_id, &req.target).await? {
+                windmill_common::ensure_fork_database_available_to(
+                    &db,
+                    kind,
+                    override_dbname,
+                    &w_id,
+                )
+                .await?;
             }
         }
         target_pg.dbname = override_dbname.clone();
@@ -8335,6 +8348,17 @@ async fn apply_forked_datatable(
         )
         .await?;
     }
+    if database.resource_type.is_windmill_managed()
+        && !windmill_api_auth::is_super_admin_authed(db, authed).await?
+    {
+        windmill_common::ensure_fork_database_available_to(
+            db,
+            database.resource_type,
+            &fdt.new_dbname,
+            parent_w_id,
+        )
+        .await?;
+    }
     if database.resource_type.is_windmill_managed() {
         // The whole `database` object, not just its `resource_path`: a pointer entry has none to
         // patch. `reference` goes with it — exactly one of the two may be set. The copy was created
@@ -8798,6 +8822,14 @@ async fn create_workspace_fork(
     .execute(&mut *tx)
     .await?;
 
+    // The pointers this fork writes to the parent's data tables stay invisible until it commits, so
+    // a rename of one of them cannot carry them. Holding the parent's settings row makes such a
+    // rename wait for this commit, and makes the copy below read one that committed first.
+    sqlx::query("SELECT 1 FROM workspace_settings WHERE workspace_id = $1 FOR SHARE")
+        .bind(&parent_workspace_id)
+        .execute(&mut *tx)
+        .await?;
+
     // Clone all data from the parent workspace using Rust implementation
     if let Err(e) =
         clone_workspace_data(&mut tx, &db, &parent_workspace_id, &forked_id, &authed).await
@@ -8833,6 +8865,9 @@ async fn create_workspace_fork(
     // re-enables in the fork, with parent-conflict warnings on enable.
     clone_triggers_and_schedules(&mut tx, &parent_workspace_id, &forked_id).await?;
 
+    // Before the external cluster's lifecycle lock, which finalizing an external copy takes: fork
+    // cleanup takes the two in this order.
+    windmill_common::workspaces::lock_fork_datatables(&mut tx, &parent_workspace_id).await?;
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {
         apply_forked_datatable(&db, &mut tx, &authed, &parent_workspace_id, &forked_id, fdt)
