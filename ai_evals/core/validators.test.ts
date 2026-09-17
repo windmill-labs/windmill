@@ -405,14 +405,14 @@ describe("validateToolExpectations", () => {
           assistantMessageCount: 1,
           toolCallCount: ids.length,
           toolsUsed: ["test_run_flow"],
-          toolCallDetails: ids.map((conversation_id) => ({
+          toolCallDetails: ids.map((memory_id) => ({
             name: "test_run_flow",
-            arguments: { path: "f/chat", conversation_id },
+            arguments: { path: "f/chat", memory_id },
           })),
           skillsInvoked: [],
         },
         toolExpect: {
-          toolCallArgs: [{ tool: "test_run_flow", field: "conversation_id", sharedByAtLeast: 2 }],
+          toolCallArgs: [{ tool: "test_run_flow", field: "memory_id", sharedByAtLeast: 2 }],
         },
       }).find((c) => c.name.includes("is shared by at least 2 calls"))?.passed;
 

@@ -2176,7 +2176,7 @@
     # turn's history when both test runs name the same conversation.
     toolCallArgs:
       - tool: test_run_flow
-        field: conversation_id
+        field: memory_id
         sharedByAtLeast: 2
     forbiddenToolsUsed:
       - run_flow

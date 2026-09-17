@@ -937,14 +937,14 @@ const testRunFlowSchema = z.object({
 	args: testRunArgsSchema,
 	// A refinement rather than z.guid(): that emits `format`/`pattern` into the tool schema,
 	// which some providers' function-schema subsets reject.
-	conversation_id: z
+	memory_id: z
 		.string()
 		.refine((value) => z.guid().safeParse(value).success, {
-			message: 'conversation_id must be a UUID'
+			message: 'memory_id must be a UUID'
 		})
 		.optional()
 		.describe(
-			'Chat-mode flows only. A UUID naming the conversation this turn belongs to: reuse the same one across calls to test memory and follow-ups, and omit it for a one-off turn in a conversation of its own. Generate the UUID yourself so you can pass it again.'
+			'Chat-mode flows only. A UUID naming the conversation this turn belongs to, whose memory the agent steps read: reuse the same one across calls to test memory and follow-ups, and omit it for a one-off turn in a conversation of its own. Generate the UUID yourself so you can pass it again.'
 		),
 	background: backgroundArgSchema,
 	wait_seconds: waitSecondsArgSchema
@@ -4403,12 +4403,12 @@ type WriteDraftCtx = {
 export type SessionToolHelpers = { sessionId?: string }
 
 export type GlobalToolHelpers = SessionToolHelpers & {
-	/** Runs the flow editor mounted on `storagePath`, if one is. `conversationId` names the
+	/** Runs the flow editor mounted on `storagePath`, if one is. `memoryId` names the
 	 * chat-mode conversation the turn belongs to. */
 	testActiveFlow?: (
 		storagePath: string,
 		args?: Record<string, any>,
-		conversationId?: string
+		memoryId?: string
 	) => Promise<string | undefined>
 	attachedFiles?: AttachedFilesStore
 	// Read/write the user-level Global instructions. `setUserInstructions` persists the
@@ -4446,17 +4446,14 @@ function operatingWorkspaceFromHelpers(helpers: unknown): string | undefined {
 function liveFlowTestHookFromCtx(
 	ctx: { workspace: string; helpers?: unknown },
 	path: string
-):
-	| ((args?: Record<string, any>, conversationId?: string) => Promise<string | undefined>)
-	| undefined {
+): ((args?: Record<string, any>, memoryId?: string) => Promise<string | undefined>) | undefined {
 	const activeEditor = getActiveGlobalEditorContext(ctx.workspace)
 	if (activeEditor?.type !== 'flow' || activeEditor.path !== path) {
 		return undefined
 	}
 	const testActiveFlow = (ctx.helpers as GlobalToolHelpers | undefined)?.testActiveFlow
 	return (
-		testActiveFlow &&
-		((args, conversationId) => testActiveFlow(activeEditor.storagePath, args, conversationId))
+		testActiveFlow && ((args, memoryId) => testActiveFlow(activeEditor.storagePath, args, memoryId))
 	)
 }
 
@@ -5947,17 +5944,14 @@ async function testRunFlowByPath(
 				// An open editor runs its own in-memory flow and paints the run in its graph.
 				// Resolved here rather than before the form: the form waits as long as the user
 				// does, and the editor on screen when they press Run is the one it belongs in.
-				const jobId = await liveFlowTestHookFromCtx(ctx, args.path)?.(
-					submitted,
-					args.conversation_id
-				)
+				const jobId = await liveFlowTestHookFromCtx(ctx, args.path)?.(submitted, args.memory_id)
 				if (jobId) {
 					return jobId
 				}
 				const value = flowDraftValueForPreview(flow.flow)
 				return JobService.runFlowPreview({
 					workspace,
-					memoryId: args.conversation_id ?? chatMemoryId(value),
+					memoryId: args.memory_id ?? chatMemoryId(value),
 					requestBody: {
 						path: args.path,
 						value,

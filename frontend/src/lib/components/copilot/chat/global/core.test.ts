@@ -5240,8 +5240,8 @@ describe('global AI tools', () => {
 		)
 
 		// What the form submitted, not what the model proposed: the editor runs the flow, but
-		// the arguments are the user's. The third argument is the chat-mode conversation id,
-		// which only `test_run_flow`'s own `conversation_id` supplies.
+		// the arguments are the user's. The third argument is the chat-mode memory id,
+		// which only `test_run_flow`'s own `memory_id` supplies.
 		expect(testActiveFlow).toHaveBeenCalledWith(
 			'u/admin/live_flow_storage',
 			{ name: 'Grace' },
@@ -5254,7 +5254,7 @@ describe('global AI tools', () => {
 
 	// A chat flow only shows its memory across turns, so the model has to be able to name
 	// the conversation it is continuing rather than getting a fresh one every call.
-	it('test_run_flow passes the conversation id it was given to the live editor hook', async () => {
+	it('test_run_flow passes the memory id it was given to the live editor hook', async () => {
 		seedBackendDraft(
 			'flow',
 			'',
@@ -5284,7 +5284,7 @@ describe('global AI tools', () => {
 				{
 					path: 'u/admin/live_chat_flow',
 					args: { user_message: 'hi' },
-					conversation_id: '550e8400-e29b-41d4-a716-446655440000'
+					memory_id: '550e8400-e29b-41d4-a716-446655440000'
 				},
 				toolCallbacks,
 				{ testActiveFlow }
