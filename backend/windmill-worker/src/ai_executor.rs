@@ -26,6 +26,10 @@ use windmill_ai::{
     image_handler::upload_image_to_s3,
     providers::{
         create_chat_completions_query_builder, create_query_builder, is_chat_completions_only,
+        openai::{
+            is_reasoning_summary_unavailable, rejects_reasoning_summary,
+            remember_reasoning_summary_unavailable,
+        },
         remember_chat_completions_only,
     },
     proxy::{
@@ -1211,6 +1215,7 @@ pub async fn run_agent(
     *has_stream = user_wants_streaming && is_text_output;
 
     let mut final_events_str = String::new();
+    let mut final_reasoning = String::new();
 
     // Always create a StreamEventProcessor for text output (use silent mode if user doesn't want streaming)
     let stream_event_processor = if is_text_output {
@@ -1299,6 +1304,10 @@ pub async fn run_agent(
                 attachments: args.user_attachments.as_deref(),
                 has_websearch,
                 prompt_cache_key: include_prompt_cache_key.then_some(prompt_cache_key.as_str()),
+                reasoning_summary: !is_reasoning_summary_unavailable(
+                    &credentials,
+                    args.provider.get_model(),
+                ),
             };
 
             // A worker cannot run the client credentials exchange, so an OAuth resource
@@ -1349,7 +1358,8 @@ pub async fn run_agent(
 
             // An endpoint can reject the request shape rather than the model:
             // `stream_options` and `prompt_cache_key`, which not every OpenAI-compatible
-            // gateway accepts, and the route itself, when an Azure resource is outside
+            // gateway accepts, a reasoning summary, which OpenAI refuses to unverified
+            // organizations, and the route itself, when an Azure resource is outside
             // the Responses API's model/region matrix. Each is retried once with that
             // part dropped.
             // Set where the route is found to be absent, and read once the fallback has
@@ -1406,6 +1416,9 @@ pub async fn run_agent(
                             && status.as_u16() == 400
                             && text.contains("prompt_cache_key");
 
+                        let summary_refused = build_args.reasoning_summary
+                            && rejects_reasoning_summary(status.as_u16(), &text);
+
                         // Only the first call of the step may re-route: an endpoint that
                         // does not serve this API rejects that one already, whereas a
                         // rejection once the conversation is under way is about the
@@ -1429,6 +1442,15 @@ pub async fn run_agent(
                             );
                             include_prompt_cache_key = false;
                             build_args.prompt_cache_key = None;
+                        } else if summary_refused {
+                            tracing::info!(
+                                "Retrying request without the reasoning summary the endpoint refused"
+                            );
+                            remember_reasoning_summary_unavailable(
+                                &credentials,
+                                args.provider.get_model(),
+                            );
+                            build_args.reasoning_summary = false;
                         } else if route_unserved {
                             tracing::info!(
                                 "Endpoint rejected the request ({}), falling back to chat/completions",
@@ -1463,6 +1485,7 @@ pub async fn run_agent(
         match parsed {
             ParsedResponse::Text {
                 content: response_content,
+                reasoning: response_reasoning,
                 tool_calls,
                 events_str,
                 annotations,
@@ -1479,6 +1502,7 @@ pub async fn run_agent(
                 if let Some(events_str) = events_str {
                     final_events_str.push_str(&events_str);
                 }
+                append_reasoning(&mut final_reasoning, response_reasoning.as_deref());
 
                 // Add websearch tool message if websearch was used
                 if used_websearch {
@@ -1801,6 +1825,7 @@ pub async fn run_agent(
         } else {
             None
         },
+        reasoning: (!final_reasoning.is_empty()).then_some(final_reasoning),
         usage: if final_usage.as_ref().map(|u| u.is_empty()).unwrap_or(true) {
             None
         } else {
@@ -1820,6 +1845,19 @@ fn streaming_requested(streaming: Option<bool>) -> bool {
     streaming.unwrap_or(true)
 }
 
+/// Add one iteration's thinking to the step's. Every iteration thinks, and a tool-call
+/// iteration's thinking is what led to the call, so the result keeps all of them in order,
+/// blank-line separated, rather than only the answering turn's.
+fn append_reasoning(accumulated: &mut String, reasoning: Option<&str>) {
+    let Some(reasoning) = reasoning.map(str::trim).filter(|r| !r.is_empty()) else {
+        return;
+    };
+    if !accumulated.is_empty() {
+        accumulated.push_str("\n\n");
+    }
+    accumulated.push_str(reasoning);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1830,6 +1868,16 @@ mod tests {
             content: Some(OpenAIContent::Text(content.to_string())),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn reasoning_keeps_every_iteration_in_order() {
+        let mut acc = String::new();
+        append_reasoning(&mut acc, Some("I need both cities.\n\n"));
+        append_reasoning(&mut acc, None);
+        append_reasoning(&mut acc, Some("   "));
+        append_reasoning(&mut acc, Some("Paris is closer."));
+        assert_eq!(acc, "I need both cities.\n\nParis is closer.");
     }
 
     #[test]

@@ -1,6 +1,7 @@
 import { sveltekit } from '@sveltejs/kit/vite'
 import { existsSync, readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
+import { searchForWorkspaceRoot } from 'vite'
 import mkcert from 'vite-plugin-mkcert'
 
 const file = fileURLToPath(new URL('package.json', import.meta.url))
@@ -205,6 +206,13 @@ const config = {
 		],
 		port: parseInt(process.env.FRONTEND_PORT) || 3000,
 		cors: { origin: '*' },
+		// `windmill-chat` (svelte.config.js alias) lives outside the frontend root.
+		fs: {
+			allow: [
+				searchForWorkspaceRoot(process.cwd()),
+				fileURLToPath(new URL('../chat-sdk', import.meta.url))
+			]
+		},
 		proxy: {
 			'^/\\.well-known/.*': {
 				target: remoteUrl,

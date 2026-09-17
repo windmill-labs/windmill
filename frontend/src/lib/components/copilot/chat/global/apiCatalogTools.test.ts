@@ -50,6 +50,18 @@ const CATALOG = [
 		}
 	},
 	{
+		name: 'getJobUpdates',
+		description: 'Get job updates',
+		instructions: '',
+		path: '/w/{workspace}/jobs_u/getupdate/{id}',
+		method: 'GET',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' }, id: { type: 'string' } },
+			required: ['workspace', 'id']
+		}
+	},
+	{
 		name: 'getJob',
 		description: 'Get job details',
 		instructions: '',
@@ -217,6 +229,9 @@ describe('call_api_get', () => {
 		const mutating = await run('call_api_get', { name: 'cancelQueuedJob' })
 		expect(mutating.error).toContain('call_api_endpoint')
 
+		const job = await run('call_api_get', { name: 'getJob' })
+		expect(job.error).toContain('get_run')
+
 		const deleting = await run('call_api_endpoint', { name: 'deleteSchedule' })
 		expect(deleting.error).toContain('delete_workspace_item')
 
@@ -285,7 +300,7 @@ describe('call_api_get', () => {
 	})
 
 	it('returns the endpoint schema when a required path param is missing', async () => {
-		const result = await run('call_api_get', { name: 'getJob' })
+		const result = await run('call_api_get', { name: 'getJobUpdates' })
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('id')
 		expect(result.schema.path_params_schema.required).toContain('id')

@@ -868,7 +868,7 @@ pub async fn install_bun_lockfile(
             if quiet { Some(&mut quiet_buf) } else { None },
             None,
         )
-        .warn_after_seconds(10)
+        .warn_after_seconds_for(10, "bun install")
         .await;
         if quiet && result.is_err() {
             // On failure, flush suppressed install output so the user can diagnose
@@ -1131,9 +1131,12 @@ pub async fn generate_bun_bundle(
             None,
             None,
         )
+        .warn_after_seconds_for(60, "bun build")
         .await?;
     } else {
-        let output = Box::into_pin(child_process.wait_with_output()).await?;
+        let output = Box::into_pin(child_process.wait_with_output())
+            .warn_after_seconds_for(60, "bun build")
+            .await?;
         if !output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1278,7 +1281,12 @@ async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCode
                 let dirs_splitted = bun_cache_path.split("/").collect_vec();
                 std::fs::create_dir_all(dirs_splitted[..dirs_splitted.len() - 1].join("/"))?;
 
-                let bytes = attempt_fetch_bytes(os, &path).await?;
+                let bytes = crate::global_cache::bounded_cache_io(
+                    "downloading",
+                    &path,
+                    attempt_fetch_bytes(os, &path),
+                )
+                .await?;
                 tracing::info!("loading {bun_cache_path} from object store");
 
                 windmill_common::worker::atomic_write_file_bytes(
@@ -1396,7 +1404,9 @@ pub async fn prebundle_bun_script(
 
     ensure_bundle_output_exists(&origin)?;
 
-    save_cache(&local_path, &remote_path, &origin, false).await?;
+    save_cache(&local_path, &remote_path, &origin, false)
+        .warn_after_seconds_for(60, "bundle cache save")
+        .await?;
 
     Ok(())
 }
@@ -1667,7 +1677,9 @@ pub async fn handle_bun_job(
             }
         };
 
-        let (cache, logs) = crate::global_cache::load_cache(&local_path, &remote_path, false).await;
+        let (cache, logs) = crate::global_cache::load_cache(&local_path, &remote_path, false)
+            .warn_after_seconds_for(60, "bundle cache load")
+            .await;
         (cache, logs, local_path, remote_path)
     } else {
         (false, "".to_string(), "".to_string(), "".to_string())
@@ -2293,7 +2305,10 @@ try {{
             let bundle_path = format!("{job_dir}/main.js");
             ensure_bundle_output_exists(&bundle_path)?;
             if !local_path.is_empty() {
-                match save_cache(&local_path, &remote_path, &bundle_path, false).await {
+                match save_cache(&local_path, &remote_path, &bundle_path, false)
+                    .warn_after_seconds_for(60, "bundle cache save")
+                    .await
+                {
                     Err(e) => {
                         let em = format!("could not save {local_path} to bundle cache: {e:?}");
                         tracing::error!(em)
@@ -2859,15 +2874,17 @@ pub async fn handle_wac_v2_output(
                 .collect();
 
             // Resolve job_payload once (same for all children since they re-run
-            // the parent script)
+            // the parent script). The step's cache setting is for the workflow's
+            // result; a task is cached only through its own `cache_ttl` option,
+            // under a key of its own (see `cached_result_path`).
             let job_payload_template = match job.kind {
                 JobKind::Script => {
                     if let Some(hash) = job.runnable_id {
                         Ok(JobPayload::ScriptHash {
                             hash,
                             path: job.runnable_path.clone().unwrap_or_default(),
-                            cache_ttl: job.cache_ttl,
-                            cache_ignore_s3_path: job.cache_ignore_s3_path,
+                            cache_ttl: None,
+                            cache_ignore_s3_path: None,
                             dedicated_worker: None,
                             language: job.script_lang.unwrap_or(ScriptLang::Bun),
                             priority: job.priority,
@@ -2879,6 +2896,27 @@ pub async fn handle_wac_v2_output(
                     } else {
                         Err(error::Error::internal_err(
                             "WAC v2 Script job missing runnable_id".to_string(),
+                        ))
+                    }
+                }
+                // A deployed flow runs an inline step as the `flow_node` its deploy
+                // rewrote it into; the child re-runs that node the way a `Script`
+                // child re-runs its hash, so `runnable_id` (the checkpoint's source
+                // hash) stays the same across parent and children.
+                JobKind::FlowScript => {
+                    if let Some(id) = job.runnable_id {
+                        Ok(JobPayload::FlowScript {
+                            id: windmill_common::flows::FlowNodeId(id.0),
+                            path: job.runnable_path.clone().unwrap_or_default(),
+                            language: job.script_lang.unwrap_or(ScriptLang::Bun),
+                            cache_ttl: None,
+                            cache_ignore_s3_path: None,
+                            dedicated_worker: None,
+                            concurrency_settings: ConcurrencySettings::default(),
+                        })
+                    } else {
+                        Err(error::Error::internal_err(
+                            "WAC v2 FlowScript job missing runnable_id".to_string(),
                         ))
                     }
                 }
@@ -2897,8 +2935,8 @@ pub async fn handle_wac_v2_output(
                         hash: None,
                         language: job.script_lang.unwrap_or(ScriptLang::Bun),
                         lock: lock,
-                        cache_ttl: job.cache_ttl,
-                        cache_ignore_s3_path: job.cache_ignore_s3_path,
+                        cache_ttl: None,
+                        cache_ignore_s3_path: None,
                         dedicated_worker: None,
                         concurrency_settings: ConcurrencySettingsWithCustom::default(),
                         debouncing_settings: DebouncingSettings::default(),
@@ -2997,6 +3035,12 @@ pub async fn handle_wac_v2_output(
             let mut pushed_ids: Vec<Uuid> = Vec::with_capacity(num_steps);
             let push_result: error::Result<()> = async {
                 for (step, (_, child_uuid)) in steps.iter().zip(job_ids.iter()) {
+                    // A task with a runnable of its own (a deployed script or flow) queues
+                    // at that runnable's priority; any other task is the parent's code and
+                    // queues at the parent's.
+                    let own_runnable = matches!(step.dispatch_type.as_str(), "script" | "flow")
+                        && !step.script.starts_with("./");
+
                     // Resolve job payload based on dispatch_type
                     let (job_payload, child_args, is_external, on_behalf_of) =
                         match step.dispatch_type.as_str() {
@@ -3010,8 +3054,8 @@ pub async fn handle_wac_v2_output(
                                     hash: None,
                                     language: module.language,
                                     lock: module.lock,
-                                    cache_ttl: job.cache_ttl,
-                                    cache_ignore_s3_path: job.cache_ignore_s3_path,
+                                    cache_ttl: None,
+                                    cache_ignore_s3_path: None,
                                     dedicated_worker: None,
                                     concurrency_settings: ConcurrencySettingsWithCustom::default(),
                                     debouncing_settings: DebouncingSettings::default(),
@@ -3095,7 +3139,8 @@ pub async fn handle_wac_v2_output(
                     let mut job_payload = job_payload;
                     if let Some(cache_ttl) = step.cache_ttl {
                         match &mut job_payload {
-                            JobPayload::ScriptHash { cache_ttl: ref mut ct, .. } => {
+                            JobPayload::ScriptHash { cache_ttl: ref mut ct, .. }
+                            | JobPayload::FlowScript { cache_ttl: ref mut ct, .. } => {
                                 *ct = Some(cache_ttl)
                             }
                             JobPayload::Code(ref mut code) => code.cache_ttl = Some(cache_ttl),
@@ -3107,7 +3152,8 @@ pub async fn handle_wac_v2_output(
                         || step.concurrency_time_window_s.is_some()
                     {
                         match &mut job_payload {
-                            JobPayload::ScriptHash { concurrency_settings: ref mut cs, .. } => {
+                            JobPayload::ScriptHash { concurrency_settings: ref mut cs, .. }
+                            | JobPayload::FlowScript { concurrency_settings: ref mut cs, .. } => {
                                 if let Some(limit) = step.concurrent_limit {
                                     cs.concurrent_limit = Some(limit);
                                 }
@@ -3173,13 +3219,14 @@ pub async fn handle_wac_v2_output(
                         job.visible_to_owner,
                         step.tag.clone().or_else(|| Some(job.tag.clone())),
                         step.timeout.or(job.timeout),
-                        None,          // flow_step_id
-                        step.priority, // priority_override
-                        None,          // authed
-                        false,         // running
-                        None,          // end_user_email
-                        None,          // trigger
-                        None,          // suspended_mode
+                        None, // flow_step_id
+                        step.priority
+                            .or(if own_runnable { None } else { job.priority }),
+                        None,  // authed
+                        false, // running
+                        None,  // end_user_email
+                        None,  // trigger
+                        None,  // suspended_mode
                     )
                     .await?;
 

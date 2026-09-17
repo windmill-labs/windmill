@@ -63,6 +63,29 @@ describe('useWindmillChat', () => {
     void hook.sendMessage('hi', { inputs: { extra: true } }).catch(() => {})
     await new Promise((r) => setTimeout(r, 20))
     expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ docId: 'second', extra: true, user_message: 'hi' })
+    hook.chat.destroy()
+    // A key the latest render no longer passes is gone from the next message.
+    const cleared = render({ ...base, fetch, token: 'tok', inputs: {} })
+    void cleared.sendMessage('again').catch(() => {})
+    await new Promise((r) => setTimeout(r, 20))
+    expect(calls.filter((c) => c.method === 'POST')[1]?.body).toEqual({ user_message: 'again' })
+    unmount()
+  })
+
+  test('the latest render’s run callback starts the next turn', async () => {
+    const { render, unmount } = mountHook()
+    const started: string[] = []
+    const runner = (name: string) => async () => {
+      started.push(name)
+      throw new Error('stop here')
+    }
+    const first = render({ ...base, token: 'tok', run: runner('first') })
+    const second = render({ ...base, token: 'tok', run: runner('second') })
+    expect(second.chat).toBe(first.chat)
+    await act(() => second.sendMessage('hi').catch(() => {}))
+    expect(started).toEqual(['second'])
+    // Dropping the runner means the deployed flow again: a different chat.
+    expect(render({ ...base, token: 'tok' }).chat).not.toBe(first.chat)
     unmount()
   })
 

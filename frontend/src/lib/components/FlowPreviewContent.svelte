@@ -44,7 +44,6 @@
 	import FlowRestartButton from './FlowRestartButton.svelte'
 	import { useNestedRestartState } from './useNestedRestartState.svelte'
 	import { buildFlowRecording, downloadRecordingJson } from './recording/runRecording'
-	import { agentStreamingEnabled } from './flows/agentFormFields'
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -160,13 +159,6 @@
 	}
 
 	let loadingHistory = $state(false)
-
-	let shouldUseStreaming = $derived.by(() => {
-		const modules = flowStore.val.value?.modules
-		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		if (lastModule?.value?.type !== 'aiagent') return false
-		return agentStreamingEnabled(lastModule.value)
-	})
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		if (previewMode === 'whole') {
@@ -470,7 +462,6 @@
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex flex-row justify-center w-full mb-6">
 					<FlowChat
-						useStreaming={shouldUseStreaming}
 						onRunFlow={async (userMessage, conversationId, additionalInputs) => {
 							await runPreview(
 								{ user_message: userMessage, ...(additionalInputs ?? {}) },
@@ -482,6 +473,7 @@
 						hideSidebar={true}
 						path={$pathStore}
 						inputSchema={flowStore.val.schema}
+						flowModules={flowStore.val.value?.modules}
 					/>
 				</div>
 			{:else}

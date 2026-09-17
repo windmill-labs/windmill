@@ -114,6 +114,63 @@ describe('createChat with local history', () => {
     ])
   })
 
+  test('a custom run replaces the deployed flow call and still follows the job', async () => {
+    const { fetch, calls } = fetchMock((c) =>
+      c.url.pathname === streamPath
+        ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'from preview' } }])
+        : undefined
+    )
+    const seen: unknown[] = []
+    const chat = createChat(
+      options(
+        {
+          token: 'tok',
+          inputs: { tone: 'kind' },
+          run: async (args, turn) => {
+            seen.push({ args, conversationId: turn.conversationId, aborted: turn.signal.aborted })
+            return 'job-1'
+          }
+        },
+        fetch
+      )
+    )
+    await chat.sendMessage('hi')
+    expect(seen).toEqual([{ args: { tone: 'kind', user_message: 'hi' }, conversationId: chat.getState().conversationId, aborted: false }])
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0)
+    expect(chat.getState().messages.map((m) => m.content)).toEqual(['hi', 'from preview'])
+  })
+
+  test('re-attaches from the start when the streaming step is retried under a new sub-job', async () => {
+    let streams = 0
+    const { fetch, calls } = fetchMock(run, (c) => {
+      if (c.url.pathname !== streamPath) return undefined
+      streams++
+      if (streams === 1) {
+        return sse([
+          { type: 'update', new_result_stream: ndjson({ type: 'token_delta', content: 'first try ' }), stream_offset: 1, flow_stream_job_id: 'agent-1' },
+          // The retried step streams under a new sub-job; the offset above indexes the old one.
+          { type: 'update', new_result_stream: ndjson({ type: 'token_delta', content: 'y ' }), stream_offset: 2, flow_stream_job_id: 'agent-2' }
+        ])
+      }
+      return sse([
+        {
+          type: 'update',
+          new_result_stream: ndjson({ type: 'token_delta', content: 'second try' }),
+          stream_offset: 1,
+          flow_stream_job_id: 'agent-2',
+          completed: true,
+          only_result: 'second try'
+        }
+      ])
+    })
+    const chat = createChat(options({ token: 'tok' }, fetch))
+    await chat.sendMessage('hi')
+    const streamCalls = calls.filter((c) => c.url.pathname === streamPath)
+    expect(streamCalls).toHaveLength(2)
+    expect(streamCalls[1].url.searchParams.get('stream_offset')).toBeNull()
+    expect(chat.getState().messages.map((m) => m.content)).toEqual(['hi', 'first try second try'])
+  })
+
   test('resumes after a stream timeout from the last offset without re-running the flow', async () => {
     let streamCalls = 0
     const { fetch, calls } = fetchMock(run, (c) => {
@@ -441,6 +498,100 @@ describe('createChat with server history', () => {
       ['user', 'hi', 'row-51'],
       ['assistant', 'From a script', 'row-52']
     ])
+  })
+
+  test('an earlier round of a non-streaming agent is not its answer', async () => {
+    let reads = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { output: 'Final answer', messages: [] } }])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-1')
+          ? json({ flow_status: { modules: [{ job: 'step-1', agent_actions: [{ type: 'tool_call', job_id: 'tool-1' }, { type: 'message' }] }] } })
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json(
+              ++reads === 1
+                ? [messageRow(91, 'user', 'hi'), messageRow(92, 'assistant', 'Let me check', { job_id: 'step-1' }), messageRow(93, 'tool', 'Used lookup tool', { job_id: 'tool-1' })]
+                : [messageRow(94, 'assistant', 'Final answer', { job_id: 'step-1' })]
+            )
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('hi')
+    expect(reads).toBe(2)
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.serverId])).toEqual([
+      ['user', 'hi', 'row-91'],
+      ['assistant', 'Let me check', 'row-92'],
+      ['tool', 'Used lookup tool', 'row-93'],
+      ['assistant', 'Final answer', 'row-94']
+    ])
+  })
+
+  test('an answer persisted in another shape than the flow result is still the answer', async () => {
+    // An image agent returns the S3 object and persists it with a type marker.
+    let reads = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { s3: 'agent/img.png' } }])
+          : undefined,
+      (c) => (c.url.pathname.endsWith('/jobs_u/get/job-1') ? json({ flow_status: { modules: [{ job: 'step-1' }] } }) : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json(++reads === 1 ? [messageRow(71, 'user', 'draw'), messageRow(72, 'assistant', '{"s3":"agent/img.png","type":"windmill_s3_object"}', { job_id: 'step-1' })] : [])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('draw')
+    expect(reads).toBe(1)
+    expect(chat.getState().messages.map((m) => [m.role, m.content])).toEqual([
+      ['user', 'draw'],
+      ['assistant', '{"s3":"agent/img.png","type":"windmill_s3_object"}']
+    ])
+  })
+
+  test('a tool row without a job (an MCP call) still separates a round from the answer', async () => {
+    let reads = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { output: 'Final answer', messages: [] } }])
+          : undefined,
+      (c) => (c.url.pathname.endsWith('/jobs_u/get/job-1') ? json({ flow_status: { modules: [{ job: 'step-1', agent_actions: [{ type: 'mcp_tool_call' }, { type: 'message' }] }] } }) : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json(
+              ++reads === 1
+                ? [messageRow(81, 'user', 'hi'), messageRow(82, 'assistant', 'Let me check', { job_id: 'step-1' }), messageRow(83, 'tool', 'Used search tool', { job_id: null })]
+                : [messageRow(84, 'assistant', 'Final answer', { job_id: 'step-1' })]
+            )
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('hi')
+    expect(reads).toBe(2)
+    expect(chat.getState().messages.map((m) => m.content)).toEqual(['hi', 'Let me check', 'Used search tool', 'Final answer'])
+  })
+
+  test('the stream asks for a server poll interval only when one is set', async () => {
+    const answer: Route = (c) =>
+      c.url.pathname === streamPath ? sse([{ type: 'update', completed: true, only_result: 'ok' }]) : undefined
+    const plain = fetchMock(run, answer)
+    await createChat(options({ token: 'tok' }, plain.fetch)).sendMessage('hi')
+    expect(plain.calls.find((c) => c.url.pathname === streamPath)!.url.searchParams.has('poll_delay_ms')).toBe(false)
+    const fast = fetchMock(run, answer)
+    await createChat(options({ token: 'tok', pollDelayMs: 50 }, fast.fetch)).sendMessage('hi')
+    expect(fast.calls.find((c) => c.url.pathname === streamPath)!.url.searchParams.get('poll_delay_ms')).toBe('50')
   })
 
   test('a tool row alone is not the answer of a turn that streamed no text', async () => {

@@ -69,6 +69,10 @@ mod ai;
 #[cfg(feature = "private")]
 mod ai_free_tier_ee;
 mod ai_free_tier_oss;
+#[cfg(feature = "parquet")]
+mod ai_sessions;
+#[cfg(feature = "parquet")]
+pub use ai_sessions::sweep_expired_ai_session_backups;
 mod ai_shared_artifacts;
 mod apps;
 mod apps_raw_bundle;

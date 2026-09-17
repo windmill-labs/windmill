@@ -92,6 +92,7 @@
 	import { parsePreviewItemRoute } from '$lib/components/sessions/previewPaths'
 	import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
+	import { restoreSessionBackups } from '$lib/components/sessions/sessionMirror.svelte'
 	import { currentWorkspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 	import WorkspaceScopeHeader from '$lib/components/sidebar/WorkspaceScopeHeader.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
@@ -658,8 +659,11 @@
 		}
 	}
 
-	function openSearchModal(text?: string): void {
-		globalSearchModal?.openSearchWithPrefilledText(text)
+	function openSearchModal(
+		text?: string,
+		stack?: import('$lib/components/common/overlayHost.svelte').OverlayStack
+	): void {
+		globalSearchModal?.openSearchWithPrefilledText(text, stack)
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)
@@ -724,6 +728,16 @@
 	$effect(() => {
 		$workspaceStore
 		untrack(() => updateUserStore($workspaceStore))
+	})
+	// Bring back the AI sessions this browser lacks for the workspace family in view, once
+	// the local list is known (so nothing it has is fetched again) and the memberships have
+	// resolved (the family is derived from them).
+	$effect(() => {
+		const ws = $workspaceStore
+		const ready = sessionState.hydrated && $usersWorkspaceStore !== undefined
+		if (globalAiEnabled && ready && ws && !$userStore?.operator) {
+			untrack(() => restoreSessionBackups(ws))
+		}
 	})
 	// While a fork is reachable, mirror its parent linkage to localStorage so a
 	// later reload landing on a now-deleted fork can return to the parent (see
@@ -1504,8 +1518,12 @@
 		}
 	}
 
+	/* No forwards fill: a filled animation keeps `transform` animated after it ends, which makes
+	   the rail the containing block for every `position: fixed` descendant — the confirmation
+	   dialogs opened from the settings menu would be confined to the rail's column. The `to`
+	   keyframe equals the rail's resting style, so nothing changes visually when the fill drops. */
 	:global(#sidebar.wm-sidebar-in) {
-		animation: wm-sidebar-in 500ms ease-out both;
+		animation: wm-sidebar-in 500ms ease-out;
 	}
 
 	@media (prefers-reduced-motion: reduce) {

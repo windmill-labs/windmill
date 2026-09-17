@@ -654,6 +654,16 @@ pub struct ResultMetadata {
     pub wm_failure: Option<String>,
 }
 
+/// Parses a marker struct out of a job result, which only an object can carry.
+/// A derived `Deserialize` also accepts an array, filling fields by position, so
+/// without the check a result like `[[], "boom"]` reads as `wm_failure: "boom"`.
+pub fn parse_result_object<T: serde::de::DeserializeOwned>(result: &str) -> Option<T> {
+    if !result.trim_start().starts_with('{') {
+        return None;
+    }
+    serde_json::from_str(result).ok()
+}
+
 /// Sentinel `error.name` we inject into a result when retagging a successful
 /// run as a failure due to `wm_failure`. Used downstream to detect that
 /// the result is already in the standard `{ error: { name, message }, ... }`
@@ -674,8 +684,7 @@ pub fn is_pre_shaped_wm_failure_result(result: &str) -> bool {
     struct NameOnly {
         name: String,
     }
-    serde_json::from_str::<Marker>(result)
-        .ok()
+    parse_result_object::<Marker>(result)
         .and_then(|m| m.error)
         .map(|e| e.name == MANUAL_FAILURE_ERROR_NAME)
         .unwrap_or(false)
@@ -721,7 +730,7 @@ impl ValidableJson for Box<RawValue> {
     }
 
     fn result_metadata(&self) -> ResultMetadata {
-        serde_json::from_str::<ResultMetadata>(self.get()).unwrap_or_default()
+        parse_result_object::<ResultMetadata>(self.get()).unwrap_or_default()
     }
 
     fn size(&self) -> usize {
@@ -774,6 +783,10 @@ impl ValidableJson for serde_json::Value {
     }
 
     fn result_metadata(&self) -> ResultMetadata {
+        // An array would decode positionally, see `parse_result_object`.
+        if !self.is_object() {
+            return ResultMetadata::default();
+        }
         serde_json::from_value::<ResultMetadata>(self.clone()).unwrap_or_default()
     }
 
@@ -7874,5 +7887,38 @@ mod git_sync_concurrency_key_tests {
         let b = git_sync_concurrency_key(ws, Some(format!("u/user/b{long}")), 0);
         assert_ne!(a, b);
         assert!(a.len() <= 255 && b.len() <= 255);
+    }
+}
+
+#[cfg(test)]
+mod result_metadata_tests {
+    use super::{ResultMetadata, ValidableJson};
+    use serde_json::value::RawValue;
+
+    fn from_raw(json: &str) -> ResultMetadata {
+        RawValue::from_string(json.to_string())
+            .unwrap()
+            .result_metadata()
+    }
+
+    fn from_value(json: &str) -> ResultMetadata {
+        serde_json::from_str::<serde_json::Value>(json)
+            .unwrap()
+            .result_metadata()
+    }
+
+    #[test]
+    fn array_result_carries_no_markers() {
+        for json in [r#"[["label"], "boom"]"#, r#"[null, "boom"]"#] {
+            for meta in [from_raw(json), from_value(json)] {
+                assert!(
+                    meta.wm_labels.is_none() && meta.wm_failure.is_none(),
+                    "{json}"
+                );
+            }
+        }
+        let meta = from_raw(r#"{"wm_labels": ["label"], "wm_failure": "boom"}"#);
+        assert_eq!(meta.wm_labels, Some(vec!["label".to_string()]));
+        assert_eq!(meta.wm_failure.as_deref(), Some("boom"));
     }
 }

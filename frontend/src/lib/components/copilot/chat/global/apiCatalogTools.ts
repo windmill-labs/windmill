@@ -60,7 +60,8 @@ const COVERED_ENDPOINTS: Record<string, string> = {
 	listJobs: 'list_runs',
 	listWorkers: 'list_workers',
 	listDataMetrics: 'list_data_metrics',
-	getJobLogs: 'get_job_logs',
+	getJob: 'get_run',
+	getJobLogs: 'get_run',
 	runScriptPreviewAndWaitResult: 'test_run_script'
 }
 

@@ -4608,6 +4608,14 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # it grows with both the width of the fan-out and \`\`attempts\`\`. Retries with
 # no \`\`delay\`\` all go out in a single round.
 # 
+# \`\`cache_ttl\`\` serves a previous result of the task for that many seconds
+# instead of running it again. A task is keyed on its step key (its name and
+# call order) and the workflow's input, not on the arguments it is called
+# with, so cache one only when whether it runs, and what it receives, follow
+# from the workflow's input alone. A \`\`task_script\`\` target is keyed on the
+# arguments it is called with. It has no effect on a \`\`task_flow\`\` target,
+# which keeps its flow's own cache policy.
+# 
 # Usage::
 # 
 #     @task
@@ -5268,9 +5276,60 @@ tool, \`websearch\` for web search.
 }
 \`\`\`
 
-- \`provider\` is a static object, not a bare resource string: \`{ "kind": <provider kind>,
+- \`provider\` is an object, not a bare resource string: \`{ "kind": <provider kind>,
   "resource": "$res:<path>", "model": <model id> }\`. Required unless the module links to a saved
-  agent through \`value.agent\`
+  agent through \`value.agent\`. Static is right for a flow run from a form; a chat flow wires its
+  fields to flow inputs instead — see below
+
+### Chat-Mode Flows
+
+A flow with \`value.chat_input_enabled: true\` is run from a chat instead of a form: the composer
+sends one message per turn and renders the conversation. It needs a required \`user_message\` string
+input, read by the agent. Any other flow input the composer does not edit itself is asked for
+under Configure inputs.
+
+**A static \`provider\` gives a chat that cannot change its model.** Feed it from flow inputs
+instead, either way round: one input carrying the whole object (\`"expr": "flow_input.model_config"\`)
+makes every field editable, or wire it field by field to fix some and expose others. A field the
+chat can write becomes a control in the composer — a provider picker, a model list, a thinking
+control — and a field left static is fixed, with no control drawn for it. \`kind\` is the one
+exception: the composer writes it only together with \`resource\`, since a provider is picked as a
+pair, so a \`kind\` input wired on its own stays askable under Configure inputs and nothing the run
+needs becomes unreachable.
+
+\`\`\`json
+{
+  "id": "chat_agent",
+  "value": {
+    "type": "aiagent",
+    "input_transforms": {
+      "provider": {
+        "type": "javascript",
+        "expr": "({ kind: 'anthropic', resource: '$res:f/ai/claude', model: flow_input.model, reasoning_effort: flow_input.thinking })"
+      },
+      "user_message": { "type": "javascript", "expr": "flow_input.user_message" },
+      "user_attachments": { "type": "javascript", "expr": "flow_input.files" },
+      "memory": { "type": "static", "value": { "kind": "auto", "context_length": 10 } },
+      "streaming": { "type": "static", "value": true },
+      "output_type": { "type": "static", "value": "text" }
+    },
+    "tools": []
+  }
+}
+\`\`\`
+
+- Wiring field by field means one object literal whose values are literals or bare \`flow_input.x\`
+  references. A spread, a call or a computed key leaves the composer unable to tell which input
+  feeds which field, so it offers no control at all — a bare \`flow_input.x\` for the whole object
+  is read instead as that one input carrying every field
+- \`memory\` is what lets the agent see earlier turns; without it every message starts from nothing
+- \`streaming\` on makes the answer and its thinking appear token by token instead of all at once
+- \`user_attachments\` points at a flow input typed as an array of s3 objects
+  (\`{ "type": "array", "items": { "type": "object", "resourceType": "s3object" } }\`), so files
+  sent with a message reach the agent
+- Running one needs a \`memory_id\` **query parameter** — not a flow argument — naming the
+  conversation the turn belongs to: a fresh UUID starts one, reusing a UUID continues it. The chat
+  supplies it itself; a run driven any other way has to pass it or the server refuses the job
 
 ### Tool Naming Rules
 
@@ -6012,8 +6071,8 @@ export async function main(user_id: string) {
   const users = await sql\`SELECT * FROM users WHERE active = \${true}\`.fetch();
 
   // Insert/Update
-  await sql\`INSERT INTO users (name, email) VALUES (\${name}, \${email})\`;
-  await sql\`UPDATE users SET name = \${newName} WHERE id = \${user_id}\`;
+  await sql\`INSERT INTO users (name, email) VALUES (\${name}, \${email})\`.execute();
+  await sql\`UPDATE users SET name = \${newName} WHERE id = \${user_id}\`.execute();
 
   return user;
 }
@@ -6032,8 +6091,8 @@ def main(user_id: str):
     users = db.query('SELECT * FROM users WHERE active = $1', True).fetch()
 
     # Insert/Update
-    db.query('INSERT INTO users (name, email) VALUES ($1, $2)', name, email)
-    db.query('UPDATE users SET name = $1 WHERE id = $2', new_name, user_id)
+    db.query('INSERT INTO users (name, email) VALUES ($1, $2)', name, email).execute()
+    db.query('UPDATE users SET name = $1 WHERE id = $2', new_name, user_id).execute()
 
     return user
 \`\`\`
@@ -6042,13 +6101,14 @@ def main(user_id: str):
 
 1. **Check existing tables** before creating new ones — reuse beats schema growth.
 2. **Use parameterized queries** — never concatenate user input into SQL.
-3. **Keep runnables focused** — one function per runnable; small surface area.
-4. **Use descriptive keys** — \`get_user\`, not \`a\`.
-5. **Always whitelist tables** — adding a runnable that queries a new table requires the table to be in \`data.tables\` first.
-6. **Mark sensitive UI with \`data-wm-no-record\`** — it is what keeps that data out of a recorded demo; passwords are handled for you.
-7. **Reach for \`backendAsync\` + \`waitJob\`** for long work — never a hand-written job-polling runnable.
-8. **Deploy what a path runnable points at** — a path runnable aimed at a draft fails at runtime; tell the user what needs deploying.
-9. **Use \`windmill-chat\` for a chat over a chat-mode flow** — never a runnable that runs the flow and polls its stream.
+3. **Terminate every datatable statement** — the tagged template and \`db.query(...)\` only build a statement. It runs when you call \`fetch\` / \`fetchOne\` / \`fetchOneScalar\` / \`execute\` (\`fetch\` / \`fetch_one\` / \`fetch_one_scalar\` / \`execute\` in Python). An INSERT or UPDATE without one writes nothing and raises nothing. Awaiting the statement itself is a no-op — it is not a promise.
+4. **Keep runnables focused** — one function per runnable; small surface area.
+5. **Use descriptive keys** — \`get_user\`, not \`a\`.
+6. **Always whitelist tables** — adding a runnable that queries a new table requires the table to be in \`data.tables\` first.
+7. **Mark sensitive UI with \`data-wm-no-record\`** — it is what keeps that data out of a recorded demo; passwords are handled for you.
+8. **Reach for \`backendAsync\` + \`waitJob\`** for long work — never a hand-written job-polling runnable.
+9. **Deploy what a path runnable points at** — a path runnable aimed at a draft fails at runtime; tell the user what needs deploying.
+10. **Use \`windmill-chat\` for a chat over a chat-mode flow** — never a runnable that runs the flow and polls its stream.
 `,
   "triggers": `---
 name: triggers
@@ -6741,6 +6801,13 @@ export interface TaskRetry {
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
+  /** Seconds during which a previous result of this task is served instead of
+  *  running it again. A task written inline in the workflow is keyed on its
+  *  step key (its name and call order) and the workflow's input, not on the
+  *  arguments it is called with, so cache one only when whether it runs, and
+  *  what it receives, follow from the workflow's input alone. A \`taskScript\`
+  *  target is keyed on the arguments it is called with. It has no effect on a
+  *  \`taskFlow\` target, which keeps its flow's own cache policy. */
   cache_ttl?: number;
   priority?: number;
   concurrency_limit?: number;
@@ -6931,6 +6998,14 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 # retries is the sum of every backoff pending in it, not the longest one, and
 # it grows with both the width of the fan-out and \`\`attempts\`\`. Retries with
 # no \`\`delay\`\` all go out in a single round.
+#
+# \`\`cache_ttl\`\` serves a previous result of the task for that many seconds
+# instead of running it again. A task is keyed on its step key (its name and
+# call order) and the workflow's input, not on the arguments it is called
+# with, so cache one only when whether it runs, and what it receives, follow
+# from the workflow's input alone. A \`\`task_script\`\` target is keyed on the
+# arguments it is called with. It has no effect on a \`\`task_flow\`\` target,
+# which keeps its flow's own cache policy.
 #
 # Usage::
 #

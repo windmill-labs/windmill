@@ -62,6 +62,7 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkDatatableSchema,
 		getBenchmarkDraftForUser,
 		getBenchmarkFlowByPath,
+		getBenchmarkFlowAllResults,
 		getBenchmarkJobLogs,
 		getBenchmarkOwnDraft,
 		getBenchmarkScriptByHash,
@@ -327,7 +328,11 @@ vi.mock('$lib/gen', async () => {
 			getJobLogs: async (data: { workspace: string; id: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? getBenchmarkJobLogs(data.workspace, data.id)
-					: actual.JobService.getJobLogs(data)
+					: actual.JobService.getJobLogs(data),
+			getFlowAllResults: async (data: { workspace: string; id: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkFlowAllResults(data.workspace, data.id)
+					: actual.JobService.getFlowAllResults(data)
 		}),
 		WorkspaceService: wrapService(actual.WorkspaceService, {
 			getCopilotInfo: async (data: { workspace: string }) =>

@@ -112,12 +112,11 @@ export function agentDraftDeployRefusal(
 	if (blocked) {
 		return blocked
 	}
-	// Renaming is not the agent editor's to do: moving the resource leaves every step that links to
-	// it naming a path that no longer exists, and reconciling those is a feature of its own. A
-	// renamed path can still reach here, the generic editor writing the same draft row and offering
-	// a path field, so refuse it rather than performing half of a rename.
+	// A rename is the agent editor's to deploy: it repoints the steps of the flow it was opened from.
+	// Deployed from anywhere that names the path it writes to (a flow's deploy dialog, which lists the
+	// agent under the path the flow links), it would move the agent out from under that flow.
 	if (currentPath && state.path !== currentPath) {
-		return `This draft renames the agent to ${state.path}. Deploy it from the resource editor instead.`
+		return `This draft renames the agent to ${state.path}. Deploy it from the agent editor instead.`
 	}
 	// Only a draft naming another type: the load refuses a resource that is not an agent, while a
 	// draft the generic resource editor wrote names no type at all and inherits the loaded one.
@@ -132,6 +131,9 @@ export function agentDraftDeployRefusal(
  * persisted draft row: the form stays editable while a deploy is in flight. Surfaces that deploy
  * the row itself go through `deployDraft` instead.
  *
+ * `fromPath` is the path the editor loaded; `state.path` differs from it when the draft renames the
+ * agent, and the update then moves the resource there.
+ *
  * `notAnAgent` separates the one failure that invalidates the caller's whole view of the path, its
  * holding something else now, from a write that merely failed.
  */
@@ -139,6 +141,7 @@ type AgentWriteResult = { ok: true } | { ok: false; error: string; notAnAgent?: 
 
 async function writeAgentResource(
 	workspace: string,
+	fromPath: string,
 	state: AgentResourceState,
 	noDeployed: boolean
 ): Promise<AgentWriteResult> {
@@ -161,12 +164,12 @@ async function writeAgentResource(
 			// its own: were the path deleted and recreated as something else meanwhile, this write
 			// would put an agent config inside that resource. Reading it again narrows the window to
 			// the request rather than to however long the editor or the dialog stayed open.
-			const current = await ResourceService.getResource({ workspace, path: state.path })
-			const refused = agentEditorRefusal(state.path, current.resource_type)
+			const current = await ResourceService.getResource({ workspace, path: fromPath })
+			const refused = agentEditorRefusal(fromPath, current.resource_type)
 			if (refused) {
 				return { ok: false, error: refused, notAnAgent: true }
 			}
-			await ResourceService.updateResource({ workspace, path: state.path, requestBody: body })
+			await ResourceService.updateResource({ workspace, path: fromPath, requestBody: body })
 		}
 	} catch (err) {
 		return { ok: false, error: `Could not save agent: ${err}` }
@@ -193,8 +196,9 @@ export interface AgentDraftHandle {
 	/** Why this path cannot be edited here, if it cannot. Render it instead of the form. */
 	readonly refusal: string | undefined
 	readonly sync: TriggerDraftSync
-	/** Write the current state to the resource and drop the draft. */
-	deploy: () => Promise<boolean>
+	/** Write the current state to the resource and drop the draft. Resolves to the path written,
+	 *  which differs from the one loaded when the draft renames the agent, or undefined on failure. */
+	deploy: () => Promise<string | undefined>
 }
 
 /**
@@ -333,21 +337,23 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		})
 	})
 
-	async function deploy(): Promise<boolean> {
+	async function deploy(): Promise<string | undefined> {
 		const ws = opts.workspace()
+		const fromPath = opts.path()
 		const s = state
-		if (!ws || !s) return false
-		const refused = agentDraftDeployRefusal(s, opts.path())
+		if (!ws || !fromPath || !s) return undefined
+		// No path to hold the draft to: renaming is this editor's to deploy.
+		const refused = agentDraftDeployRefusal(s, undefined)
 		if (refused) {
 			sendUserToast(refused, true)
-			return false
+			return undefined
 		}
 		// The form stays editable while the request is in flight, so everything below works from a
 		// snapshot taken now. Adopting the live state as `deployed` afterwards would count an edit
 		// made during the request as saved, and the banner would clear on a value the server never
 		// received; against the snapshot it stays a draft, which is what it is.
 		const submitted = structuredClone($state.snapshot(s)) as AgentResourceState
-		const written = await writeAgentResource(ws, submitted, noDeployed)
+		const written = await writeAgentResource(ws, fromPath, submitted, noDeployed)
 		if (!written.ok) {
 			// A path that is no longer an agent tears this editor down; anything else is a plain error
 			// the user can retry from the form as it stands.
@@ -356,29 +362,31 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 			} else {
 				sendUserToast(written.error, true)
 			}
-			return false
+			return undefined
 		}
 		// The counter the step card's write-back used to report, from the surface that now owns the
 		// write: a deploy here reaches every flow linking this agent.
 		logReusableAgentUsage(noDeployed ? 'saved' : 'updated')
 		deployed = submitted
 		noDeployed = false
+		const renamed = submitted.path !== fromPath
 		// Only when the form still holds exactly what was sent. `discard` resets the handle's cell to
 		// what it is given, and the apply-effect copies that back over the form: against an edit made
 		// while the request was in flight that would erase it, draft and all. Such an edit is a real
-		// unsaved change over the version just deployed, so it keeps its draft and its banner.
-		if (!deepEqual($state.snapshot(state), submitted)) {
+		// unsaved change over the version just deployed, so it keeps its draft and its banner. Not
+		// after a rename: the draft is keyed on a path that no longer names the agent.
+		if (!renamed && !deepEqual($state.snapshot(state), submitted)) {
 			sendUserToast(`Saved agent ${submitted.path}. Later edits are still unsaved`)
 			loadedFor = `${ws}:${submitted.path}`
-			return true
+			return submitted.path
 		}
 		// `discard`, not `remove`: it resets the handle's cell to what was just saved, so the
 		// apply-effect cannot bounce the form back to the now-stale draft.
-		sync.discard(opts.path()!, submitted)
+		sync.discard(fromPath, submitted)
 		// A rename moves the row, so the next load must not reuse the old key.
 		loadedFor = `${ws}:${submitted.path}`
-		sendUserToast(`Saved agent ${submitted.path}`)
-		return true
+		sendUserToast(renamed ? `Renamed agent to ${submitted.path}` : `Saved agent ${submitted.path}`)
+		return submitted.path
 	}
 
 	return {
