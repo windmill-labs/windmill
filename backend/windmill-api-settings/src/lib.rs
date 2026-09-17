@@ -893,6 +893,14 @@ pub async fn set_global_setting_internal(
         )));
     }
 
+    if key == EXTERNAL_INSTANCE_PG_SETTING {
+        return windmill_common::external_instance_pg::write_external_instance_pg_setting(
+            db,
+            Some(&value),
+        )
+        .await;
+    }
+
     run_setting_pre_write_hook(db, &key, &value).await?;
 
     match value {
@@ -954,13 +962,6 @@ async fn run_setting_pre_write_hook(
     value: &serde_json::Value,
 ) -> error::Result<()> {
     match key {
-        EXTERNAL_INSTANCE_PG_SETTING => {
-            windmill_common::external_instance_pg::check_external_instance_pg_write(
-                db,
-                Some(value),
-            )
-            .await?;
-        }
         // The instance AI config is written as an untyped blob through this generic
         // endpoint, so it never passes the typed check the workspace handler applies.
         // Rates that reach a cost total unbounded would make it negative or infinite.
@@ -1281,7 +1282,7 @@ async fn set_instance_config(
     let desired_map = desired.global_settings.to_settings_map();
     if !desired_map.is_empty() {
         let current_map = current.global_settings.to_settings_map();
-        let settings_diff =
+        let mut settings_diff =
             instance_config::diff_global_settings(&current_map, &desired_map, ApplyMode::Merge);
         let ai_config_changed = settings_diff
             .upserts
@@ -1310,16 +1311,15 @@ async fn set_instance_config(
         }
 
         for (key, value) in &settings_diff.upserts {
-            run_setting_pre_write_hook(&db, key, value).await?;
+            if key != EXTERNAL_INSTANCE_PG_SETTING {
+                run_setting_pre_write_hook(&db, key, value).await?;
+            }
         }
-        if settings_diff
-            .deletes
-            .iter()
-            .any(|k| k == EXTERNAL_INSTANCE_PG_SETTING)
-        {
-            windmill_common::external_instance_pg::check_external_instance_pg_write(&db, None)
-                .await?;
-        }
+        windmill_common::external_instance_pg::write_external_instance_pg_from_diff(
+            &db,
+            &mut settings_diff,
+        )
+        .await?;
 
         instance_config::apply_settings_diff(&db, &settings_diff)
             .await

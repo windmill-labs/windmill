@@ -281,23 +281,73 @@ pub async fn ensure_external_instance_database_registered(
     )))
 }
 
-/// Check a write to [`EXTERNAL_INSTANCE_PG_SETTING`] before it happens: `None`, null or an empty
-/// string unsets it. Every writer of global settings calls this, the per-key and bulk endpoints
-/// as well as the declarative sync.
-pub async fn check_external_instance_pg_write(
+/// Write [`EXTERNAL_INSTANCE_PG_SETTING`]: `None`, null or an empty string unsets it. Every writer
+/// of global settings goes through this for that key — the per-key and bulk endpoints as well as
+/// the declarative sync — instead of writing the row itself.
+///
+/// The checks and the write share one transaction holding [`lock_external_instance_pg_state`]. A
+/// check taken outside it could pass while a database create still reads the old cluster, which
+/// would then register a database there after the setting names another one.
+///
+/// Authorization: checks nothing. Callers MUST be superadmin.
+pub async fn write_external_instance_pg_setting(
     db: &DB,
     value: Option<&serde_json::Value>,
 ) -> Result<()> {
+    let value = match value {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => None,
+        Some(value) => Some(value),
+    };
+    let mut tx = db.begin().await?;
+    lock_external_instance_pg_state(&mut tx).await?;
     match value {
-        None | Some(serde_json::Value::Null) => ensure_external_instance_pg_removable(db).await,
-        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {
-            ensure_external_instance_pg_removable(db).await
+        None => {
+            ensure_external_instance_pg_removable(db).await?;
+            sqlx::query("DELETE FROM global_settings WHERE name = $1")
+                .bind(EXTERNAL_INSTANCE_PG_SETTING)
+                .execute(&mut *tx)
+                .await?;
         }
         Some(value) => {
             crate::external_instance_pg_oss::validate_external_instance_pg_setting(value)?;
-            ensure_external_instance_pg_not_repointed(db, value).await
+            ensure_external_instance_pg_not_repointed(db, value).await?;
+            sqlx::query(
+                "INSERT INTO global_settings (name, value) VALUES ($1, $2)
+                 ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+            )
+            .bind(EXTERNAL_INSTANCE_PG_SETTING)
+            .bind(value)
+            .execute(&mut *tx)
+            .await?;
         }
     }
+    tx.commit().await?;
+    tracing::info!(
+        "{} global setting {EXTERNAL_INSTANCE_PG_SETTING}",
+        if value.is_some() { "Set" } else { "Unset" }
+    );
+    Ok(())
+}
+
+/// [`write_external_instance_pg_setting`] for a settings diff: writes the key if the diff touches
+/// it, and takes it out of the diff so the generic apply does not write it again.
+pub async fn write_external_instance_pg_from_diff(
+    db: &DB,
+    diff: &mut crate::instance_config::SettingsDiff,
+) -> Result<()> {
+    if let Some(value) = diff.upserts.remove(EXTERNAL_INSTANCE_PG_SETTING) {
+        write_external_instance_pg_setting(db, Some(&value)).await?;
+    }
+    if let Some(i) = diff
+        .deletes
+        .iter()
+        .position(|k| k == EXTERNAL_INSTANCE_PG_SETTING)
+    {
+        diff.deletes.remove(i);
+        write_external_instance_pg_setting(db, None).await?;
+    }
+    Ok(())
 }
 
 /// Refuse pointing the setting at another host or port while databases live on the current one.
