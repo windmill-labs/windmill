@@ -34090,6 +34090,9 @@ components:
           items:
             type: string
           description: Workspaces that reference this database via a ducklake catalog or datatable database with resource_type 'instance'. Computed at request time, not persisted.
+        workspace_id:
+          type: string
+          description: The workspace a member created this database for as a fork copy. Only that workspace can import into it or point a fork at it.
 
     NewSqsTrigger:
       type: object
