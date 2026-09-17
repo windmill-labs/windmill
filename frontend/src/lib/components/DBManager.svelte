@@ -178,13 +178,21 @@
 
 	// The tables drawn on the diagram. Kept apart from `selectedTables` so that
 	// checking a table to see it in the diagram can never add it to whatever the
-	// caller's multi-select is collecting.
-	let diagramTables = $state<SelectedTable[]>([])
+	// caller's multi-select is collecting, and scoped to the database it was made
+	// against: the manager is not remounted on every database change, and one
+	// database's table names mean nothing in another's diagram.
+	let diagramSelection = $state<{ databaseKey: string | undefined; tables: SelectedTable[] }>({
+		databaseKey: undefined,
+		tables: []
+	})
+	let diagramTables = $derived(
+		diagramSelection.databaseKey === databaseKey ? diagramSelection.tables : []
+	)
 
 	let checkedTables = $derived(viewMode === 'diagram' ? diagramTables : selectedTables)
 
 	function setCheckedTables(tables: SelectedTable[]) {
-		if (viewMode === 'diagram') diagramTables = tables
+		if (viewMode === 'diagram') diagramSelection = { databaseKey, tables }
 		else selectedTables = tables
 	}
 
@@ -715,27 +723,33 @@
 
 	// Opening the diagram on an empty canvas would make it look broken, so the
 	// current schema is drawn to start with — unless it is big enough that drawing
-	// all of it is a choice the user should make. Once per entry into the mode:
-	// re-running it would refill a selection the user has just emptied.
+	// all of it is a choice the user should make. Once per database per entry into
+	// the mode: re-running it would refill a selection the user has just emptied,
+	// and a database arriving under the diagram gets its own first draw. Boxed to
+	// tell "not yet" apart from a database with no key of its own.
 	const DIAGRAM_AUTOSELECT_LIMIT = 40
-	let autoSelected = false
+	let autoSelectedFor: { key: string | undefined } | undefined
 	$effect(() => {
+		const key = databaseKey
 		if (viewMode !== 'diagram') {
-			autoSelected = false
+			autoSelectedFor = undefined
 			return
 		}
-		if (autoSelected) return
-		autoSelected = true
+		if (autoSelectedFor?.key === key) return
+		autoSelectedFor = { key }
 		untrack(() => {
 			const schemaKey = selected.schemaKey
 			if (!schemaKey || diagramTables.length) return
 			const tables = Object.keys(dbSchema.schema[schemaKey] ?? {})
 			if (!tables.length || tables.length > DIAGRAM_AUTOSELECT_LIMIT) return
-			diagramTables = tables.map((table) => ({
-				datatable: currentDatatable,
-				schema: schemaKey,
-				table
-			}))
+			diagramSelection = {
+				databaseKey: key,
+				tables: tables.map((table) => ({
+					datatable: currentDatatable,
+					schema: schemaKey,
+					table
+				}))
+			}
 		})
 	})
 
