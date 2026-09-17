@@ -110,6 +110,15 @@ describe('toDisplayMessages', () => {
 			error: 'search did not finish',
 			isLoading: false
 		})
+
+		const structured = toDisplayMessages([
+			message({ role: 'user', content: 'hi' }),
+			message({
+				role: 'tool',
+				tool: { name: 'structured_output', status: 'running', arguments: '{"n":1}' }
+			})
+		])
+		expect(structured[1]).toMatchObject({ content: 'Running structured_output', error: undefined })
 	})
 
 	it('shows the thinking that led to a call as its own card, and retries by transcript position', async () => {

@@ -59,6 +59,9 @@ function lastTurnFailed(messages: readonly ChatMessage[]): boolean {
 	return false
 }
 
+/** The name the worker gives the structured-output tool: suffixed when an agent tool already has it. */
+const STRUCTURED_OUTPUT_CALL = /^structured_output(_\d+)?$/
+
 export function toDisplayMessages(messages: readonly ChatMessage[]): DisplayMessage[] {
 	let userIndex = 0
 	return messages.flatMap((message, i): DisplayMessage[] => {
@@ -77,9 +80,14 @@ export function toDisplayMessages(messages: readonly ChatMessage[]): DisplayMess
 				const parameters = parseToolPayload(message.tool?.arguments)
 				const result = parseToolPayload(message.tool?.result)
 				const failed = message.success === false
-				// A call the turn finished without, stopped or lost before its row was written.
+				// A call the turn finished without, stopped or lost before its row was written. The
+				// call a structured answer streams as never gets a result of its own, the answer
+				// being the turn's text, so it is not one.
 				const unfinished =
-					message.tool && !message.pending && !message.content
+					message.tool &&
+					!message.pending &&
+					!message.content &&
+					!STRUCTURED_OUTPUT_CALL.test(message.tool.name)
 						? `${message.tool.name} did not finish`
 						: undefined
 				const call: DisplayMessage = {
