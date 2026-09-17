@@ -8,6 +8,7 @@
 	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
 	import {
 		clearPageDrawerAnchor,
+		handOffPageDrawer,
 		pageDrawerSessionSource,
 		setPageDrawerAnchor
 	} from './sessions/pageDrawerSession'
@@ -38,7 +39,18 @@
 	// The "current" workspace this editor defaults New/Edit actions to. Session
 	// editors pass their acting workspace so secrets are created/updated there
 	// rather than in the navigation workspace.
-	let { workspace = undefined }: { workspace?: string } = $props()
+	let {
+		workspace = undefined,
+		inline = false,
+		onSaved = undefined
+	}: {
+		workspace?: string
+		/** Render in place, filling the parent, with no drawer or close button — for a host
+		 * that gives the editor a whole pane. */
+		inline?: boolean
+		/** Fires once a save lands, with the path the variable now lives at. */
+		onSaved?: (path: string) => void
+	} = $props()
 	// Sole ambient read in this file: the acting workspace is an input, and only its
 	// default comes from the navigation store.
 	let curWs = $derived(workspace ?? $workspaceStore)
@@ -233,6 +245,7 @@
 	}
 
 	export function editVariable(edit_path: string): void {
+		if (handOffPageDrawer(VARIABLES_PATH, edit_path)) return
 		reset()
 		editPath = edit_path
 		selected = curWs!
@@ -256,6 +269,7 @@
 
 	async function save(): Promise<void> {
 		const dirty = dirtyWorkspaces
+		const savedPath = current?.path ?? editPath ?? ''
 		try {
 			for (const ws of dirty) {
 				const s = states[ws].draft!
@@ -303,6 +317,7 @@
 			}
 			sendUserToast(edit ? `Updated variable in ${dirty.length} workspace(s)` : `Created variable`)
 			dispatch('create')
+			onSaved?.(savedPath)
 			drawer?.closeDrawer()
 		} catch (err) {
 			sendUserToast(`Could not save variable: ${err.body}`, true)
@@ -310,11 +325,21 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="50rem" on:close={() => clearPageDrawerAnchor(VARIABLES_PATH)}>
+{#if inline}
+	{@render content()}
+{:else}
+	<Drawer bind:this={drawer} size="50rem" on:close={() => clearPageDrawerAnchor(VARIABLES_PATH)}>
+		{@render content()}
+	</Drawer>
+{/if}
+
+{#snippet content()}
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
 		bannerReserved={edit}
-		on:close={drawer?.closeDrawer}
+		hideClose={inline}
+		fullScreen={!inline}
+		on:close={() => drawer?.closeDrawer()}
 	>
 		{#snippet banner()}
 			<LocalDraftBanner
@@ -382,4 +407,4 @@
 			</Button>
 		{/snippet}
 	</DrawerContent>
-</Drawer>
+{/snippet}

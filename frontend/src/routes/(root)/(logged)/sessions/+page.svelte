@@ -59,14 +59,18 @@
 		artifactKey,
 		itemDisplayName,
 		matchPreviewPage,
+		pageItemUrl,
 		pageKey,
 		parseArtifactRoute,
+		parsePageItemRoute,
+		type PageItemRef,
 		parseRunFormRoute,
 		parsePreviewItemRoute,
 		previewLocationLabel,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import { toolReloadEffect, tabsToReload } from '$lib/components/sessions/previewReload'
+	import { pageItemForListPath } from '$lib/components/sessions/previewPaths'
 	import {
 		leafKeyFor,
 		loadKind,
@@ -103,7 +107,8 @@
 				() => import('$lib/components/sessions/ScriptEditorView.svelte'),
 				() => import('$lib/components/sessions/FlowEditorView.svelte'),
 				() => import('$lib/components/sessions/RawAppEditorView.svelte'),
-				() => import('$lib/components/sessions/PipelineEditorView.svelte')
+				() => import('$lib/components/sessions/PipelineEditorView.svelte'),
+				() => import('$lib/components/sessions/PageItemEditorView.svelte')
 			]
 			for (const load of loaders) {
 				if (disposed) return
@@ -562,15 +567,17 @@
 	// Base-stripped list-page paths (e.g. `/schedules`) a chat round touched since
 	// the last flush — see toolReloadEffect for how tools map to pages.
 	let pendingPages = new Set<string>()
+	// The page items those tools named, as tab urls.
+	let pendingItems = new Set<string>()
 
 	// Reload the mounted list-page tabs a chat round changed, across all warm
 	// sessions (a hidden preview would otherwise show pre-mutation content on
 	// return). tabsToReload picks only the tabs whose page is in `pages`.
-	function reloadTabs(pages: Set<string>) {
+	function reloadTabs(pages: Set<string>, items: Set<string>) {
 		for (const s of warmSessions) {
 			const owner = getRuntime(s.id)?.previewTabs
 			if (!owner) continue
-			for (const tab of tabsToReload(owner.tabs, pages)) {
+			for (const tab of tabsToReload(owner.tabs, pages, items)) {
 				const key = tabKey(s.id, tab.id)
 				if (mountedTabKeys.has(key)) tabHosts[key]?.reload()
 			}
@@ -578,21 +585,25 @@
 	}
 	function flushReload() {
 		const pages = pendingPages
+		const items = pendingItems
 		pendingPages = new Set()
-		reloadTabs(pages)
+		pendingItems = new Set()
+		reloadTabs(pages, items)
 	}
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
 		setToolCompletionListener((name, args) => {
-			const { pages } = toolReloadEffect(name, args)
+			const { pages, items } = toolReloadEffect(name, args)
 			if (pages.length === 0) return
 			for (const p of pages) pendingPages.add(p)
+			for (const item of items) pendingItems.add(pageItemUrl(item))
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)
 		})
 		return () => {
 			clearTimeout(reloadHandle)
 			pendingPages = new Set()
+			pendingItems = new Set()
 			setToolCompletionListener(undefined)
 		}
 	})
@@ -608,6 +619,22 @@
 			const target = previewTargetForSessionTarget(action.previewKind, action.path)
 			if (!target) return
 			o.open(target)
+		})
+	})
+	// Variables, resources, schedules and triggers the chat links to open as tabs of their
+	// own here, rather than in the drawers the layout opens them in elsewhere.
+	$effect(() => {
+		return registerToolDisplayActionHandler('open_created_resource', (action) => {
+			if (action.type !== 'open_created_resource') return
+			const ref: PageItemRef | undefined =
+				action.resource === 'trigger'
+					? action.triggerKind && {
+							kind: 'trigger',
+							triggerKind: action.triggerKind,
+							path: action.path
+						}
+					: { kind: action.resource, path: action.path }
+			if (ref) owner?.open({ type: 'pageitem', ref })
 		})
 	})
 
@@ -745,7 +772,8 @@
 		const path =
 			tab.friendlyPath ??
 			listedItemFor(tab, workspace)?.draftPath ??
-			parsePreviewItemRoute(tab.loc)?.itemPath
+			parsePreviewItemRoute(tab.loc)?.itemPath ??
+			parsePageItemRoute(tab.loc)?.path
 		return path && path !== label ? `${label}\n${path}` : label
 	}
 
@@ -783,6 +811,14 @@
 						? { kind: 'app', raw_app: true, path: d.path, summary: '' }
 						: { kind: d.kind, path: d.path, summary: '' }
 				owner?.navigate({ type: 'item', item })
+				return
+			}
+			// A row opened on a list page inside a preview tab: its editor opens as a tab of its
+			// own, leaving the list where it is.
+			if (d.type === 'wm.session.openPageItem') {
+				if (typeof d.pagePath !== 'string' || typeof d.path !== 'string') return
+				const ref = pageItemForListPath(d.pagePath, d.path)
+				if (ref) owner?.open({ type: 'pageitem', ref })
 				return
 			}
 			// A job clicked inside a preview tab: open the run detail in a NEW tab so the

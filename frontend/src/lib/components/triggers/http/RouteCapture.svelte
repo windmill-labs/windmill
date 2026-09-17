@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import Label from '$lib/components/Label.svelte'
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
 	import { bash } from 'svelte-highlight/languages'
@@ -32,9 +33,11 @@
 		isFlow = false,
 		captureLoading = false
 	}: Props = $props()
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let captureURL = $derived(
-		`${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
+		`${location.origin}${base}/api/w/${wsId}/capture_u/http/${
 			captureInfo?.isFlow ? 'flow' : 'script'
 		}/${captureInfo?.path.replaceAll('/', '.')}/${route_path ?? ''}`
 	)

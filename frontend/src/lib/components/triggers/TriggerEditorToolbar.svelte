@@ -14,6 +14,7 @@
 	import { pageDrawerSessionSource } from '../sessions/pageDrawerSession'
 	import { page } from '$app/state'
 	import { workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import TriggerHistoryButton from './TriggerHistoryButton.svelte'
 
 	interface Props {
@@ -62,6 +63,8 @@
 		triggerPath,
 		triggerKind
 	}: Props = $props()
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
 
@@ -79,7 +82,7 @@
 			? pageDrawerSessionSource(
 					triggerPagePath,
 					trigger?.isDraft ? undefined : triggerPath || trigger?.path,
-					$workspaceStore ?? undefined
+					wsId ?? undefined
 				)
 			: undefined
 	)

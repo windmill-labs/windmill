@@ -5,6 +5,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { HttpTriggerService, SettingService } from '$lib/gen'
 	// import { page } from '$app/state'
 	import { getHttpRoute } from './utils'
@@ -41,6 +42,8 @@
 		isDraftOnly = true,
 		showTestingBadge = false
 	}: Props = $props()
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let validateTimeout: number | undefined = undefined
 
@@ -74,7 +77,7 @@
 		workspaced_route: boolean
 	) {
 		return await HttpTriggerService.existsRoute({
-			workspace: $workspaceStore!,
+			workspace: wsId!,
 			requestBody: {
 				route_path,
 				http_method: method,
@@ -95,7 +98,7 @@
 		isValid = routeError === ''
 	})
 
-	let fullRoute = $derived(getHttpRoute('r', route_path, workspaced_route, $workspaceStore ?? ''))
+	let fullRoute = $derived(getHttpRoute('r', route_path, workspaced_route, wsId ?? ''))
 
 	$effect.pre(() => {
 		!http_method && (http_method = 'post')

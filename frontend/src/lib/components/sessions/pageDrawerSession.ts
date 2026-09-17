@@ -20,6 +20,7 @@ import {
 	type TriggerKind
 } from './previewPaths'
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
+import { isSessionPreviewFrame } from './sessionMode.svelte'
 
 // The draft each page's drawer edits. The preview loads the page in its own
 // document and reads the draft back from the server, so opening a session has to
@@ -85,6 +86,34 @@ export function setPageDrawerAnchor(pagePath: string, itemPath: string | undefin
 	const anchor = `#${drawerHashFor(pagePath, itemPath)}`
 	if (hash === anchor) return
 	history.replaceState(history.state, '', `${pathname}${search}${anchor}`)
+}
+
+/**
+ * Inside a session preview frame, hand a list page row up to the session, which edits it in
+ * a tab of its own. True when handed off: the caller must then not open its drawer. False
+ * off that page, and outside a preview frame, where the drawer is how the row is edited.
+ */
+export function handOffPageDrawer(pagePath: string, itemPath: string | undefined): boolean {
+	if (!itemPath || !isSessionPreviewFrame()) return false
+	if (stripBase(window.location.pathname) !== pagePath) return false
+	try {
+		window.parent.postMessage(
+			{ type: 'wm.session.openPageItem', pagePath, path: itemPath },
+			window.location.origin
+		)
+	} catch {
+		return false
+	}
+	// A frame left on a row's hash claims a row nobody has open here, and reopens its tab on
+	// every reload. Not through the router: these pages open their drawer from the hash. Once
+	// more after the event: a row link's `href="#<path>"` lands after its click handler.
+	const dropAnchor = () => {
+		const { pathname, search, hash } = window.location
+		if (hash) history.replaceState(history.state, '', `${pathname}${search}`)
+	}
+	dropAnchor()
+	setTimeout(dropAnchor, 0)
+	return true
 }
 
 /**

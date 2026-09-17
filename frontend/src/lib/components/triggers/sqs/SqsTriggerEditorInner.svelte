@@ -2,6 +2,7 @@
 	import { Alert, Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
+		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
@@ -41,6 +42,8 @@
 
 	interface Props {
 		useDrawer?: boolean
+		/** With `useDrawer`, render the drawer's content in place, filling the parent, with no drawer or close button. */
+		inline?: boolean
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		hideTooltips?: boolean
@@ -59,6 +62,7 @@
 
 	let {
 		useDrawer = true,
+		inline = false,
 		description = undefined,
 		hideTarget = false,
 		hideTooltips = false,
@@ -136,6 +140,7 @@
 		defaultConfig?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
+		if (handOffPageDrawer(TRIGGER_PAGES.sqs.path, ePath)) return
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -370,36 +375,44 @@
 	/>
 {/if}
 
-{#if useDrawer}
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit SQS trigger ${initialPath}`
+				: `SQS trigger ${initialPath}`
+			: 'New SQS trigger'}
+		on:close={() => drawer?.closeDrawer()}
+	>
+		{#snippet actions()}
+			{@render actionsSnippet()}
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render config()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
 	<Drawer
 		size="800px"
 		bind:this={drawer}
 		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.sqs.path)}
 	>
-		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
-			title={edit
-				? can_write
-					? `Edit SQS trigger ${initialPath}`
-					: `SQS trigger ${initialPath}`
-				: 'New SQS trigger'}
-			on:close={drawer.closeDrawer}
-		>
-			{#snippet actions()}
-				{@render actionsSnippet()}
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render config()}
-		</DrawerContent>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'SQS trigger' : ''} headerClass="grow min-w-0 h-[30px]">

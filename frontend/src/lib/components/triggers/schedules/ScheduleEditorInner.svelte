@@ -2,6 +2,7 @@
 	import { Alert, Badge, Button, ButtonType, Tab, Tabs } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
+		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
@@ -54,6 +55,7 @@
 
 	let {
 		useDrawer = true,
+		inline = false,
 		hideTarget = false,
 		docDescription = undefined,
 		allowDraft = false,
@@ -178,6 +180,7 @@
 		defaultCfg?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
+		if (handOffPageDrawer(SCHEDULES_PATH, ePath)) return
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -1420,34 +1423,42 @@
 	</div>
 {/snippet}
 
-{#if useDrawer}
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit schedule ${initialPath}`
+				: `View schedule ${initialPath}`
+			: 'New schedule'}
+		on:close={() => drawer?.closeDrawer()}
+	>
+		{#snippet actions()}
+			<div class="flex flex-row gap-4 items-center">
+				{@render saveButton()}
+			</div>
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render content()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
 	<Drawer size="900px" bind:this={drawer} on:close={() => clearPageDrawerAnchor(SCHEDULES_PATH)}>
-		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
-			title={edit
-				? can_write
-					? `Edit schedule ${initialPath}`
-					: `View schedule ${initialPath}`
-				: 'New schedule'}
-			on:close={drawer.closeDrawer}
-		>
-			{#snippet actions()}
-				<div class="flex flex-row gap-4 items-center">
-					{@render saveButton()}
-				</div>
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render content()}
-		</DrawerContent>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'Schedule' : ''} headerClass="grow min-w-0 h-[30px]">

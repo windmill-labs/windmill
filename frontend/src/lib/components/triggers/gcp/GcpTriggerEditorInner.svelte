@@ -2,6 +2,7 @@
 	import { Alert, Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
+		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
@@ -90,6 +91,7 @@
 	let loadedUsesDefaultCredentials = $state(false)
 	let {
 		useDrawer = true,
+		inline = false,
 		description = undefined,
 		hideTarget = false,
 		hideTooltips = false,
@@ -106,6 +108,8 @@
 		cloudDisabled = false
 	}: {
 		useDrawer?: boolean
+		/** With `useDrawer`, render the drawer's content in place, filling the parent, with no drawer or close button. */
+		inline?: boolean
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		hideTooltips?: boolean
@@ -147,6 +151,7 @@
 		defaultValues?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
+		if (handOffPageDrawer(TRIGGER_PAGES.gcp.path, ePath)) return
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -405,36 +410,44 @@
 	/>
 {/if}
 
-{#if useDrawer}
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit GCP Pub/Sub trigger ${initialPath}`
+				: `GCP Pub/Sub trigger ${initialPath}`
+			: 'New GCP Pub/Sub trigger'}
+		on:close={drawer?.closeDrawer}
+	>
+		{#snippet actions()}
+			{@render actionsButtons()}
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render config()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
 	<Drawer
 		size="800px"
 		bind:this={drawer}
 		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.gcp.path)}
 	>
-		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
-			title={edit
-				? can_write
-					? `Edit GCP Pub/Sub trigger ${initialPath}`
-					: `GCP Pub/Sub trigger ${initialPath}`
-				: 'New GCP Pub/Sub trigger'}
-			on:close={drawer?.closeDrawer}
-		>
-			{#snippet actions()}
-				{@render actionsButtons()}
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render config()}
-		</DrawerContent>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'GCP Pub/Sub trigger' : ''} headerClass="grow min-w-0 h-[30px]">

@@ -2,6 +2,7 @@
 	import { Alert, Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
+		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
@@ -9,6 +10,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
@@ -79,6 +81,7 @@
 
 	let {
 		useDrawer = true,
+		inline = false,
 		description = undefined,
 		hideTarget = false,
 		hideTooltips = false,
@@ -95,6 +98,8 @@
 		cloudDisabled = false
 	}: {
 		useDrawer?: boolean
+		/** With `useDrawer`, render the drawer's content in place, filling the parent, with no drawer or close button. */
+		inline?: boolean
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		hideTooltips?: boolean
@@ -110,6 +115,8 @@
 		onReset?: () => void
 		cloudDisabled?: boolean
 	} = $props()
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let hasChanged = $derived(!deepEqual(getAzureConfig(), originalConfig ?? {}))
 	const azureConfig = $derived.by(getAzureConfig)
@@ -117,7 +124,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_azure',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => azureConfig,
 		applyCfg: loadTriggerConfig,
@@ -133,6 +140,7 @@
 		isFlow: boolean,
 		defaultValues?: Record<string, any>
 	) {
+		if (handOffPageDrawer(TRIGGER_PAGES.azure.path, ePath)) return
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -205,7 +213,7 @@
 		}
 		try {
 			const s = await AzureTriggerService.getAzureTrigger({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				path: initialPath,
 				getDraft: true
 			})
@@ -253,7 +261,7 @@
 			initialPath,
 			cfg,
 			edit,
-			$workspaceStore!,
+			wsId!,
 			usedTriggerKinds
 		)
 		if (isSaved) {
@@ -309,7 +317,7 @@
 				(force) =>
 					AzureTriggerService.setAzureTriggerMode({
 						path: initialPath,
-						workspace: $workspaceStore ?? '',
+						workspace: wsId ?? '',
 						requestBody: { mode: newMode, force }
 					}),
 				'Azure trigger'
@@ -353,36 +361,44 @@
 	/>
 {/if}
 
-{#if useDrawer}
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit Azure trigger ${initialPath}`
+				: `Azure trigger ${initialPath}`
+			: 'New Azure trigger'}
+		on:close={drawer?.closeDrawer}
+	>
+		{#snippet actions()}
+			{@render actionsButtons()}
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render config()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
 	<Drawer
 		size="800px"
 		bind:this={drawer}
 		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.azure.path)}
 	>
-		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
-			title={edit
-				? can_write
-					? `Edit Azure trigger ${initialPath}`
-					: `Azure trigger ${initialPath}`
-				: 'New Azure trigger'}
-			on:close={drawer?.closeDrawer}
-		>
-			{#snippet actions()}
-				{@render actionsButtons()}
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render config()}
-		</DrawerContent>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section

@@ -2,6 +2,7 @@
 	import { Alert, Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
+		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
@@ -25,6 +26,7 @@
 		type TriggerMode
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, emptySchema, emptyString, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
@@ -56,6 +58,8 @@
 
 	interface Props {
 		useDrawer?: boolean
+		/** With `useDrawer`, render the drawer's content in place, filling the parent, with no drawer or close button. */
+		inline?: boolean
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		hideTooltips?: boolean
@@ -75,6 +79,7 @@
 
 	let {
 		useDrawer = true,
+		inline = false,
 		description = undefined,
 		hideTarget = false,
 		hideTooltips = false,
@@ -90,6 +95,8 @@
 		onReset = undefined,
 		cloudDisabled = false
 	}: Props = $props()
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let drawer: Drawer | undefined = $state()
 	let is_flow: boolean = $state(false)
@@ -139,7 +146,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_websocket',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => websocketCfg,
 		applyCfg: loadTriggerConfig,
@@ -179,6 +186,7 @@
 		isFlow: boolean,
 		defaultConfig?: Record<string, any>
 	) {
+		if (handOffPageDrawer(TRIGGER_PAGES.websocket.path, ePath)) return
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -320,7 +328,7 @@
 			return { overlay: undefined, noDeployed: false }
 		}
 		const s = await WebsocketTriggerService.getWebsocketTrigger({
-			workspace: $workspaceStore!,
+			workspace: wsId!,
 			path: initialPath,
 			getDraft: true
 		})
@@ -348,8 +356,8 @@
 			try {
 				let schema: Schema | undefined = emptySchema()
 				let scriptOrFlow: Script | Flow = is_flow
-					? await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
-					: await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path })
+					? await FlowService.getFlowByPath({ workspace: wsId!, path })
+					: await ScriptService.getScriptByPath({ workspace: wsId!, path })
 				schema = scriptOrFlow.schema as Schema
 				if (schema && schema.properties) {
 					initialMessageRunnableSchemas[(is_flow ? 'flow/' : '') + path] = schema
@@ -380,7 +388,7 @@
 			initialPath,
 			saveCfg,
 			edit,
-			$workspaceStore!,
+			wsId!,
 			usedTriggerKinds
 		)
 		if (isSaved) {
@@ -412,7 +420,7 @@
 				(force) =>
 					WebsocketTriggerService.setWebsocketTriggerMode({
 						path: initialPath,
-						workspace: $workspaceStore ?? '',
+						workspace: wsId ?? '',
 						requestBody: { mode: newMode, force }
 					}),
 				'websocket trigger'
@@ -458,36 +466,44 @@
 	/>
 {/if}
 
-{#if useDrawer}
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit WebSocket trigger ${initialPath}`
+				: `WebSocket trigger ${initialPath}`
+			: 'New WebSocket trigger'}
+		on:close={() => drawer?.closeDrawer()}
+	>
+		{#snippet actions()}
+			{@render actionsButtons()}
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render config()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
 	<Drawer
 		size="800px"
 		bind:this={drawer}
 		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.websocket.path)}
 	>
-		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
-			title={edit
-				? can_write
-					? `Edit WebSocket trigger ${initialPath}`
-					: `WebSocket trigger ${initialPath}`
-				: 'New WebSocket trigger'}
-			on:close={drawer.closeDrawer}
-		>
-			{#snippet actions()}
-				{@render actionsButtons()}
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render config()}
-		</DrawerContent>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'WebSocket trigger' : ''} headerClass="grow min-w-0 h-[30px]">

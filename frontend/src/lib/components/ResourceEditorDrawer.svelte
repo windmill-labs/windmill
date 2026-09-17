@@ -12,6 +12,7 @@
 	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
 	import {
 		clearPageDrawerAnchor,
+		handOffPageDrawer,
 		pageDrawerSessionSource,
 		setPageDrawerAnchor
 	} from './sessions/pageDrawerSession'
@@ -24,6 +25,7 @@
 	let {
 		workspace = undefined,
 		disableChatOffset = false,
+		inline = false,
 		onRestored = undefined,
 		onSaved = undefined
 	}: {
@@ -31,6 +33,10 @@
 		 * once, at `effectiveWorkspace`, and nowhere else in this file. */
 		workspace?: string
 		disableChatOffset?: boolean
+		/** Render in place, filling the parent, with no drawer or close button — for a host
+		 * that gives the editor a whole pane. Saving and restoring then leave it open: the
+		 * host remounts it on what was written. */
+		inline?: boolean
 		onRestored?: () => void
 		/** Fires after Save has written, for a caller showing state derived from the
 		 * resource — `onRestored` only covers restoring an old version. */
@@ -85,6 +91,7 @@
 	 *  dedicated editor elsewhere: the generic form would render its configuration field by field,
 	 *  and materialize a default into every one the value leaves out. */
 	export async function initEdit(p: string, opts?: { json?: boolean }): Promise<void> {
+		if (handOffPageDrawer(RESOURCES_PATH, p)) return
 		// A `close({ keepAnchor })` on an already-closed drawer emits no close event, so the flag
 		// would still be standing when the next drawer session ends and would swallow that one's
 		// anchor clear. Every session starts having to clear its own.
@@ -126,22 +133,35 @@
 	)
 </script>
 
-<Drawer
-	bind:this={drawer}
-	size="50rem"
-	{disableChatOffset}
-	on:close={() => {
-		if (keepAnchorOnClose) {
-			keepAnchorOnClose = false
-			return
-		}
-		clearPageDrawerAnchor(RESOURCES_PATH)
-	}}
->
+{#if inline}
+	<!-- ResourceEditor reads its path once, at mount — a drawer mounts it only when opened. -->
+	{#if path !== undefined || resource_type !== undefined}
+		{@render content()}
+	{/if}
+{:else}
+	<Drawer
+		bind:this={drawer}
+		size="50rem"
+		{disableChatOffset}
+		on:close={() => {
+			if (keepAnchorOnClose) {
+				keepAnchorOnClose = false
+				return
+			}
+			clearPageDrawerAnchor(RESOURCES_PATH)
+		}}
+	>
+		{@render content()}
+	</Drawer>
+{/if}
+
+{#snippet content()}
 	<DrawerContent
 		title={mode == 'edit' ? 'Edit ' + path : addResourceTitle(resource_type)}
 		bannerReserved={mode == 'edit'}
-		on:close={drawer?.closeDrawer}
+		hideClose={inline}
+		fullScreen={!inline}
+		on:close={() => drawer?.closeDrawer()}
 	>
 		{#snippet titleExtra()}
 			{#if mode == 'new' && resource_type}
@@ -212,7 +232,7 @@
 			</Button>
 		{/snippet}
 	</DrawerContent>
-</Drawer>
+{/snippet}
 
 <Drawer bind:this={historyDrawer} size="1200px">
 	<DrawerContent title="Versions History" on:close={historyDrawer?.closeDrawer} noPadding>

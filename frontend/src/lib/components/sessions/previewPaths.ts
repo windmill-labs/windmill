@@ -48,6 +48,76 @@ export const TRIGGER_PAGES: Record<TriggerKind, { path: string; label: string; e
 	email: { path: '/email_triggers', label: 'Email triggers' }
 }
 
+/** A workspace item edited from its list page rather than at an editor route: a variable,
+ * resource, schedule or trigger. A session hosts each in a tab of its own. */
+export type PageItemRef =
+	| { kind: 'variable' | 'resource' | 'schedule'; path: string }
+	| { kind: 'trigger'; triggerKind: TriggerKind; path: string }
+
+/** The list page a page item is edited from. */
+export function pageItemListPath(ref: PageItemRef): string {
+	switch (ref.kind) {
+		case 'variable':
+			return VARIABLES_PATH
+		case 'resource':
+			return RESOURCES_PATH
+		case 'schedule':
+			return SCHEDULES_PATH
+		case 'trigger':
+			return TRIGGER_PAGES[ref.triggerKind].path
+	}
+}
+
+/** The page item a list page's row names, or undefined for a page that lists none. */
+export function pageItemForListPath(pagePath: string, path: string): PageItemRef | undefined {
+	const clean = stripBase(pagePath)
+	if (clean === VARIABLES_PATH) return { kind: 'variable', path }
+	if (clean === RESOURCES_PATH) return { kind: 'resource', path }
+	if (clean === SCHEDULES_PATH) return { kind: 'schedule', path }
+	const trigger = Object.entries(TRIGGER_PAGES).find(([, p]) => p.path === clean)
+	return trigger ? { kind: 'trigger', triggerKind: trigger[0] as TriggerKind, path } : undefined
+}
+
+const PAGE_ITEM_ROUTE = /^pageitem:(variable|resource|schedule|trigger\.([a-z]+))\/([^?#]+)$/
+
+// A scheme rather than a path, like artifacts: the tab mounts the item's editor in process,
+// so there is no page a frame could load. The path is encoded whole, so its slashes cannot
+// be read as part of the scheme.
+export function pageItemUrl(ref: PageItemRef): string {
+	const kind = ref.kind === 'trigger' ? `trigger.${ref.triggerKind}` : ref.kind
+	return `pageitem:${kind}/${encodeURIComponent(ref.path)}`
+}
+
+export function parsePageItemRoute(url: string): PageItemRef | null {
+	const m = url.match(PAGE_ITEM_ROUTE)
+	if (!m) return null
+	let path: string
+	try {
+		path = decodeURIComponent(m[3])
+	} catch {
+		return null
+	}
+	if (m[2] !== undefined) {
+		if (!(m[2] in TRIGGER_PAGES)) return null
+		return { kind: 'trigger', triggerKind: m[2] as TriggerKind, path }
+	}
+	return { kind: m[1] as 'variable' | 'resource' | 'schedule', path }
+}
+
+/** Singular human name of a page item's kind, e.g. "Kafka trigger". */
+export function pageItemKindLabel(ref: PageItemRef): string {
+	switch (ref.kind) {
+		case 'variable':
+			return 'Variable'
+		case 'resource':
+			return 'Resource'
+		case 'schedule':
+			return 'Schedule'
+		case 'trigger':
+			return TRIGGER_PAGES[ref.triggerKind].label.replace(/s$/, '')
+	}
+}
+
 /** Label a trigger list page from its (base-stripped) pathname, or undefined. */
 export function triggerLabelForPath(path: string): string | undefined {
 	const clean = stripBase(path)

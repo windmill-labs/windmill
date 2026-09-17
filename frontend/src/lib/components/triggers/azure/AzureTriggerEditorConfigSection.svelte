@@ -11,6 +11,7 @@
 	import { AzureTriggerService } from '$lib/gen'
 	import { emptyStringTrimmed } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { RefreshCw } from 'lucide-svelte'
 
 	interface Props {
@@ -38,6 +39,8 @@
 		event_type_filters = $bindable(),
 		path = ''
 	}: Props = $props()
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	type Edition = 'basic' | 'namespace'
 	type Delivery = 'push' | 'pull'
@@ -64,8 +67,8 @@
 	})
 
 	$effect(() => {
-		if (emptyStringTrimmed(subscription_name) && !emptyStringTrimmed(path) && $workspaceStore) {
-			const generated = `windmill-${$workspaceStore}-${path.replaceAll(/[^A-Za-z0-9-]/g, '-')}`
+		if (emptyStringTrimmed(subscription_name) && !emptyStringTrimmed(path) && wsId) {
+			const generated = `windmill-${wsId}-${path.replaceAll(/[^A-Za-z0-9-]/g, '-')}`
 			subscription_name = generated.slice(0, 50)
 		}
 	})
@@ -90,7 +93,7 @@
 	let scopeError = $state<string | undefined>(undefined)
 
 	async function loadScopeResources() {
-		if (!$workspaceStore || emptyStringTrimmed(azure_resource_path)) {
+		if (!wsId || emptyStringTrimmed(azure_resource_path)) {
 			scopeResources = []
 			return
 		}
@@ -99,11 +102,11 @@
 		try {
 			const result = is_namespace
 				? await AzureTriggerService.listAzureNamespaces({
-						workspace: $workspaceStore,
+						workspace: wsId,
 						path: azure_resource_path
 					})
 				: await AzureTriggerService.listAzureBasicTopics({
-						workspace: $workspaceStore,
+						workspace: wsId,
 						path: azure_resource_path
 					})
 			scopeResources = result
@@ -143,7 +146,7 @@
 	async function loadTopics() {
 		if (
 			!is_namespace ||
-			!$workspaceStore ||
+			!wsId ||
 			emptyStringTrimmed(azure_resource_path) ||
 			emptyStringTrimmed(scope_resource_id)
 		) {
@@ -154,7 +157,7 @@
 		topicsError = undefined
 		try {
 			const result = await AzureTriggerService.listAzureNamespaceTopics({
-				workspace: $workspaceStore,
+				workspace: wsId,
 				path: azure_resource_path,
 				requestBody: { scope_resource_id }
 			})
