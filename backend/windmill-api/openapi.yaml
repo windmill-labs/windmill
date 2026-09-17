@@ -28402,6 +28402,50 @@ components:
         success:
           type: boolean
           description: Whether the message is a success
+        tool_arguments:
+          type: string
+          nullable: true
+          description: >-
+            On a tool row, the arguments the model wrote for the call. For a script, flow or
+            AI agent tool these exclude the inputs its step wires in, which only the tool's
+            job holds. Null for a provider-native web search, whose query the provider does
+            not return.
+        tool_result:
+          type: string
+          nullable: true
+          description: >-
+            On a tool row, the text the model got back from the call, or what the call
+            failed with — the row's own text names the tool rather than the reason. For a
+            provider-native web search, its citations.
+        reasoning:
+          type: string
+          nullable: true
+          description: >-
+            On an answer, the thinking that produced it; on a tool row, the thinking that
+            led to the call. Each round's thinking is on one row. The agent job's result
+            keeps the turn's thinking as a single string.
+        attachments:
+          type: array
+          nullable: true
+          description: >-
+            The files a user message carried, as object-storage references: every flow
+            input other than user_message that held one or a list of them, at most 20. Never
+            file bytes or a presigned URL.
+          items:
+            type: object
+            required: [input, s3]
+            properties:
+              input:
+                type: string
+                description: The flow input that held the file
+              s3:
+                type: string
+                description: The file's key in object storage
+              storage:
+                type: string
+                description: The secondary storage holding the file, absent for the primary one
+              filename:
+                type: string
 
     EndpointTool:
       type: object
