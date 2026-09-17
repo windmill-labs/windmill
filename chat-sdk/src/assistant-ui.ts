@@ -100,7 +100,8 @@ export function toThreadMessage(turn: WindmillTurn): ThreadMessageLike {
         toolName: m.tool?.name ?? 'tool',
         args: (isJsonObject(args) ? args : args === undefined ? {} : { input: args }) as ToolCallArgs,
         argsText: m.tool?.arguments ?? '',
-        result: m.tool?.status === 'running' ? undefined : (parseJsonOr(m.tool?.result) ?? m.content),
+        result:
+          m.tool?.status === 'running' ? undefined : m.tool?.result !== undefined ? parseJsonOr(m.tool.result) : m.content,
         isError: m.tool?.status === 'error'
       })
       continue

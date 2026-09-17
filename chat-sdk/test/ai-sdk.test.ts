@@ -195,4 +195,11 @@ describe('toUIMessages', () => {
     expect(ui[1].parts[0]).toMatchObject({ toolCallId: 'c1', toolName: 'lookup', state: 'output-available', input: { q: 1 }, output: 42 })
     expect(ui[3].parts[0]).toMatchObject({ state: 'output-error', errorText: 'Error executing lookup' })
   })
+
+  test('keeps a stored JSON null result rather than the row text', () => {
+    const ui = toUIMessages([
+      { success: true, createdAt: '2026-01-01T00:00:00Z', pending: false, id: 't1', role: 'tool', content: 'Used notify tool', tool: { callId: 'c1', name: 'notify', status: 'success', arguments: '{}', result: 'null' } }
+    ])
+    expect(ui[0].parts[0]).toMatchObject({ type: 'dynamic-tool', state: 'output-available', output: null })
+  })
 })

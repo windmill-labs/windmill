@@ -338,7 +338,7 @@ export function toUIMessages(messages: ChatMessage[]): UIMessage[] {
       const input = parseJsonOr(m.tool?.arguments)
       target.parts.push(
         m.success
-          ? { type: 'dynamic-tool', toolName, toolCallId, state: 'output-available', input, output: parseJsonOr(m.tool?.result) ?? m.content }
+          ? { type: 'dynamic-tool', toolName, toolCallId, state: 'output-available', input, output: m.tool?.result !== undefined ? parseJsonOr(m.tool.result) : m.content }
           : { type: 'dynamic-tool', toolName, toolCallId, state: 'output-error', input, errorText: m.tool?.result ?? m.content }
       )
       continue
