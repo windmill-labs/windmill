@@ -13,6 +13,8 @@
 		loading: boolean
 		filename?: string | undefined
 		jobId?: string | undefined
+		/** Identifies the run, which `jobId` cannot on the replay page. */
+		runKey?: string | undefined
 		tag?: string | undefined
 		workspaceId?: string | undefined
 		refreshLog?: boolean
@@ -29,6 +31,7 @@
 		loading,
 		filename = undefined,
 		jobId = undefined,
+		runKey = undefined,
 		tag = undefined,
 		workspaceId = undefined,
 		downloadLogs = true,
@@ -50,7 +53,15 @@
 				: 'max-h-80'} overflow-auto rounded-md grow min-h-0 border bg-surface-tertiary p-2"
 		>
 			{#if result !== undefined || result_stream !== undefined}
-				<DisplayResult {workspaceId} {jobId} {filename} {result} {result_stream} growVertical />
+				<DisplayResult
+					{workspaceId}
+					{jobId}
+					{runKey}
+					{filename}
+					{result}
+					{result_stream}
+					growVertical
+				/>
 			{:else if loading}
 				<Loader2 class="animate-spin" />
 			{:else}

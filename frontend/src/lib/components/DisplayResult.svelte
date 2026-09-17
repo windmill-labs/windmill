@@ -119,6 +119,12 @@
 		filename?: string | undefined
 		disableExpand?: boolean
 		jobId?: string | undefined
+		/**
+		 * Which run this result belongs to. Separate from `jobId`, which the replay
+		 * page withholds so nothing fetches: the agent views still have to tell one
+		 * run from the next, or a second one continues the first one's fold.
+		 */
+		runKey?: string | undefined
 		workspaceId?: string | undefined
 		hideAsJson?: boolean
 		noControls?: boolean
@@ -144,6 +150,7 @@
 		filename = undefined,
 		disableExpand = false,
 		jobId = undefined,
+		runKey = undefined,
 		workspaceId = undefined,
 		hideAsJson = false,
 		noControls = false,
@@ -764,7 +771,7 @@
 		{#if isAgentStream(result_stream)}
 			<!-- An agent streams one JSON event per line, so the raw stream is a wall of
 			     event objects rather than the answer being written. -->
-			<AgentStreamDisplay raw={result_stream} streamKey={jobId} />
+			<AgentStreamDisplay raw={result_stream} streamKey={runKey ?? jobId} />
 		{:else}
 			<ResultStreamDisplay {result_stream} />
 		{/if}
@@ -1278,7 +1285,7 @@
 				{:else if !forceJson && resultKind === 'aiagent'}
 					{@const agentResult = parseAgentResult(result)}
 					{#if agentResult}
-						<AgentResultDisplay result={agentResult} {workspaceId} runKey={jobId}>
+						<AgentResultDisplay result={agentResult} {workspaceId} runKey={runKey ?? jobId}>
 							{#snippet structuredOutput(output)}
 								<DisplayResult
 									noControls

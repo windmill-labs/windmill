@@ -2120,6 +2120,7 @@
 														tagLabel={customUi?.tagLabel}
 														workspaceId={isReplay ? undefined : job?.workspace_id}
 														jobId={isReplay ? undefined : job?.id}
+														runKey={job?.id}
 														filename={job.id}
 														loading={job['running']}
 														tag={job?.tag}
@@ -2226,6 +2227,7 @@
 																tagLabel={customUi?.tagLabel}
 																workspaceId={isReplay ? undefined : job?.workspace_id}
 																jobId={isReplay ? undefined : node.job_id}
+																runKey={node.job_id}
 																loading={node.type != 'Success' && node.type != 'Failure'}
 																waitingForExecutor={node.type == 'WaitingForExecutor'}
 																refreshLog={node.type == 'InProgress'}
