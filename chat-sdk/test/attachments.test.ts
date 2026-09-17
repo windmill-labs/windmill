@@ -284,6 +284,8 @@ describe('sendMessage with attachments', () => {
         attachmentsInput: { name: 'files', multiple: true }
       })
     ).rejects.toThrow('quota exceeded')
+    // The upload still in flight when the other failed was told to stop.
+    expect(uploads(calls)[0].signal?.aborted).toBe(true)
     expect(calls.filter((c) => c.method === 'DELETE')).toEqual([])
     expect(runs(calls)).toHaveLength(0)
   })
