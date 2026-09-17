@@ -18,12 +18,7 @@ import {
 import { JobService, type FlowModule } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { ToolCallStore, type ToolCallDetails } from './toolCallContext.svelte'
-import {
-	argsToMessageInputs,
-	attachmentsToMessageInputs,
-	MessageInputsStore,
-	type MessageInputs
-} from './messageInputContext.svelte'
+import { attachmentLanes } from './messageAttachments'
 
 export type FlowChatViewHostOptions = {
 	/** The flow inputs sent next to `user_message` with every turn. */
@@ -36,11 +31,8 @@ export type FlowChatViewHostOptions = {
 	sendDisabled?: () => boolean
 	/** The flow's modules, which say which of a tool job's arguments the model supplied. */
 	flowModules?: () => FlowModule[] | undefined
-	/** The flow's input schema, which says which of a run's arguments are secret. */
-	inputsSchema?: () => { properties?: Record<string, any> } | undefined
 	/** Flow inputs edited by a control beside the composer rather than the Inputs modal. No
-	 * surface has one yet. A message does not repeat them as chips, and a retry takes their
-	 * current value rather than the failed turn's. */
+	 * surface has one yet. A retry takes their current value rather than the failed turn's. */
 	inputsShownInComposer?: () => string[]
 	/** Injectables for tests: the clock and scheduler behind the typewriter pacing. */
 	revealOptions?: Pick<TypewriterRevealOptions, 'instant' | 'now' | 'schedule' | 'cancel'>
@@ -108,14 +100,13 @@ export function showsStepNames(messages: readonly ChatMessage[]): boolean {
 export type Revealed = { content: number; reasoning: number }
 
 const EMPTY_TOOL_CALL: ToolCallDetails = {}
-const EMPTY_INPUTS: MessageInputs = { images: [], contextElements: [] }
 
 /** What a display row can only learn beyond the message itself. Every lookup is optional. */
 export type DisplayLookups = {
+	/** The workspace an attachment's download link points into. */
+	workspace?: string
 	/** A tool row's call, from the job it names. */
 	toolCall?: (jobId: string | undefined) => ToolCallDetails
-	/** What a user row ran with. */
-	inputs?: (message: ChatMessage) => MessageInputs
 	/** How much of a pending assistant row the pacing has put on screen. */
 	revealed?: (message: ChatMessage) => Revealed | undefined
 }
@@ -129,7 +120,7 @@ export function toDisplayMessages(
 	return messages.map((message, i): DisplayMessage => {
 		switch (message.role) {
 			case 'user': {
-				const { images, contextElements } = lookups.inputs?.(message) ?? EMPTY_INPUTS
+				const { images, contextElements } = attachmentLanes(lookups.workspace, message.attachments)
 				return {
 					role: 'user',
 					index: userIndex++,
@@ -321,16 +312,6 @@ export class FlowChatViewHost implements ChatViewHost {
 		delete this.#revealed[id]
 	}
 
-	// The inputs each send went out with, by the id of the user row the chat appended for it.
-	// Every send records: a row with no entry falls to the job lane once it is named, and
-	// renders empty for a round trip spent fetching what this tab just sent.
-	#sentInputs = $state<Record<string, MessageInputs>>({})
-
-	#messageInputs = new MessageInputsStore(
-		() => this.#options.workspace?.(),
-		() => this.#options.inputsSchema?.(),
-		() => new Set(this.#options.inputsShownInComposer?.() ?? [])
-	)
 	#toolCalls = new ToolCallStore(
 		() => this.#options.workspace?.(),
 		() => this.#options.flowModules?.()
@@ -339,12 +320,8 @@ export class FlowChatViewHost implements ChatViewHost {
 	// Transcript
 	displayMessages = $derived.by(() =>
 		toDisplayMessages(this.#state.messages, {
+			workspace: this.#options.workspace?.(),
 			toolCall: (jobId) => this.#toolCalls.get(jobId),
-			// What this tab sent wins wherever it has it, and the job answers for the rest: a
-			// row read back from the server on a later visit, a conversation reopened.
-			inputs: (message) =>
-				this.#sentInputs[message.id] ??
-				(message.jobId ? this.#messageInputs.get(message.jobId) : EMPTY_INPUTS),
 			revealed: (message) => this.#revealed[message.id]
 		})
 	)
@@ -403,7 +380,6 @@ export class FlowChatViewHost implements ChatViewHost {
 		}
 		this.#automaticScroll = true
 		const inputs = replayInputs ?? this.#options.additionalInputs?.()
-		const before = this.#state.messages.length
 		// A run that fails is reported through the chat's `onError` and as a failed message;
 		// the promise itself only rejects when the chat refuses the turn outright, and the
 		// text is then handed back rather than dropped.
@@ -411,48 +387,8 @@ export class FlowChatViewHost implements ChatViewHost {
 			.sendMessage(text, { inputs })
 			.catch(() => this.#aiChatInput?.prependText(text))
 		this.#turnDone = turn
-		// The chat appends the user row before it awaits anything, so the row it added for
-		// this send is the last one now, and its inputs are recorded against it.
-		const added = this.#state.messages[before]
-		if (added?.role === 'user' && added.pending && this.#state.messages.length === before + 1) {
-			this.#recordSentInputs(added.id, inputs, options.images ?? [])
-		}
 		await turn
 		return true
-	}
-
-	/**
-	 * The chips a row shows for the turn just sent, through the same split a job's
-	 * arguments get, so the row looks the same before and after a reload. Images the
-	 * composer attached are described from what was attached: their data URLs are still
-	 * in hand and render with no fetch.
-	 */
-	#recordSentInputs(
-		rowId: string,
-		inputs: Record<string, any> | undefined,
-		images: AttachedImage[]
-	) {
-		const workspace = this.#options.workspace?.()
-		// Without one there is no way to build a file's link, so the job lane answers instead.
-		if (!workspace) return
-		const fromArgs = argsToMessageInputs(
-			workspace,
-			inputs,
-			this.#options.inputsSchema?.(),
-			new Set(this.#options.inputsShownInComposer?.() ?? [])
-		)
-		const attached = attachmentsToMessageInputs(images, [])
-		// Entries for rows the transcript still holds, so a long session does not keep every
-		// turn it ever sent.
-		const live = new Set(this.#state.messages.map((m) => m.id))
-		const kept = Object.fromEntries(Object.entries(this.#sentInputs).filter(([id]) => live.has(id)))
-		this.#sentInputs = {
-			...kept,
-			[rowId]: {
-				images: [...attached.images, ...fromArgs.images],
-				contextElements: [...attached.contextElements, ...fromArgs.contextElements]
-			}
-		}
 	}
 	/** Settles when the chat has released the last turn this host started. */
 	#turnDone: Promise<unknown> = Promise.resolve()

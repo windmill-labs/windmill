@@ -109,7 +109,6 @@
 				additionalInputsSchema ? (loadInputsFromStorage() ?? additionalInputsValues) : undefined,
 			workspace: () => workspace,
 			sendDisabled: () => deploymentInProgress,
-			inputsSchema: () => additionalInputsSchema,
 			flowModules: () => flowModules
 		}
 	)

@@ -70,23 +70,7 @@ function fakeChat(initial: ChatState = idleState()) {
 		setFlowPath: vi.fn(),
 		destroy: vi.fn()
 	} satisfies Chat
-	/** What the real chat does first thing in `sendMessage`: the user row lands before any await. */
-	const appendUserRowOnSend = () =>
-		chat.sendMessage.mockImplementation(async (text: string) => {
-			set({
-				messages: [
-					...state.messages,
-					message({
-						role: 'user',
-						id: `pending-${state.messages.length}`,
-						content: text,
-						pending: true
-					})
-				],
-				status: 'submitted'
-			})
-		})
-	return { chat, set, appendUserRowOnSend }
+	return { chat, set }
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -231,20 +215,25 @@ describe('toDisplayMessages', () => {
 		])
 	})
 
-	it('shows a user row what it ran with', () => {
+	it('shows the files a user message carried, read from the message itself', () => {
 		const display = toDisplayMessages(
-			[message({ role: 'user', content: 'go', jobId: 'flow-job' })],
-			{
-				inputs: () => ({
-					images: [
-						{ dataUrl: 'data:image/png;base64,x', mediaType: 'image/png', name: 'shot.png' }
-					],
-					contextElements: []
+			[
+				message({
+					role: 'user',
+					content: 'go',
+					attachments: [
+						{ input: 'user_attachments', s3: 'chat/u1/shot.png' },
+						{ input: 'user_attachments', s3: 'chat/u1/notes.pdf' }
+					]
 				})
-			}
+			],
+			{ workspace: 'ws' }
 		)
-		expect(display[0]).toMatchObject({ role: 'user', images: [{ name: 'shot.png' }] })
-		expect((display[0] as any).contextElements).toBeUndefined()
+		expect(display[0]).toMatchObject({
+			role: 'user',
+			images: [{ name: 'shot.png' }],
+			contextElements: [{ title: 'notes.pdf' }]
+		})
 	})
 })
 
@@ -260,25 +249,6 @@ describe('FlowChatViewHost', () => {
 		expect(host.loading).toBe(true)
 		set({ status: 'idle' })
 		expect(host.loading).toBe(false)
-		host.dispose()
-	})
-
-	it('shows the turn just sent the inputs it went out with, before its job is known', async () => {
-		const { chat, appendUserRowOnSend } = fakeChat()
-		appendUserRowOnSend()
-		const host = new FlowChatViewHost(chat, {
-			workspace: () => 'ws',
-			additionalInputs: () => ({ tone: 'brief', token: 'hunter2' }),
-			inputsSchema: () => ({ properties: { token: { type: 'string', password: true } } })
-		})
-		await host.sendRequest({ instructions: 'hello' })
-		const [row] = host.displayMessages
-		expect(row.role).toBe('user')
-		expect((row as any).contextElements.map((c: any) => [c.title, c.content])).toEqual([
-			['tone', 'brief'],
-			['token', '<hidden>']
-		])
-		expect(getJobArgs).not.toHaveBeenCalled()
 		host.dispose()
 	})
 
