@@ -473,6 +473,12 @@
 		current.path = npath
 	}
 
+	/** The path the resource has in `ws`: after a save, the one it was saved under. Each
+	 * workspace-specific version keeps its own, so the selected one says nothing about `ws`. */
+	export function pathIn(ws: string): string | undefined {
+		return initialStates[ws]?.path
+	}
+
 	/** Whether the write landed. It toasts its own failure, so most callers ignore this;
 	 * one that follows the save with bookkeeping of its own has to know not to. */
 	export async function save(): Promise<boolean> {

@@ -245,13 +245,13 @@ describe('page item tabs', () => {
 		const snap = hydratePreviewTabs({
 			previewTabs: [
 				{ id: 'a', url: '/schedules#u/me/daily', loc: '/schedules?path=u#u/me/daily' },
-				// A drawer opened inside the frame, with the command still on the list.
+				// A drawer opened inside the frame: the command is still the bare list.
 				{ id: 'b', url: '/variables', loc: '/variables#u/me/token' }
 			]
 		})
 		expect(snap.tabs).toEqual([
 			{ id: 'a', url: 'pageitem:schedule/u%2Fme%2Fdaily', loc: 'pageitem:schedule/u%2Fme%2Fdaily' },
-			{ id: 'b', url: '/variables', loc: '/variables' }
+			{ id: 'b', url: 'pageitem:variable/u%2Fme%2Ftoken', loc: 'pageitem:variable/u%2Fme%2Ftoken' }
 		])
 	})
 })

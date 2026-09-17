@@ -144,7 +144,9 @@
 					bind:this={resourceEditor}
 					inline
 					workspace={workspaceId}
-					on:refresh={(e) => onSaved(typeof e.detail === 'string' ? e.detail : undefined)}
+					onSaved={(path) => {
+						if (path !== undefined) onSaved(path)
+					}}
 					onRestored={() => savedNonce++}
 				/>
 			{:else if triggerKey}

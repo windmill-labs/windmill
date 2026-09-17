@@ -41,8 +41,9 @@
 		inline?: boolean
 		onRestored?: () => void
 		/** Fires after Save has written, for a caller showing state derived from the
-		 * resource — `onRestored` only covers restoring an old version. */
-		onSaved?: () => void
+		 * resource — `onRestored` only covers restoring an old version. `path` is where the
+		 * resource now lives in this drawer's workspace, undefined when the save failed. */
+		onSaved?: (path: string | undefined) => void
 	} = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -53,7 +54,8 @@
 
 	let resourceEditor:
 		| {
-				save: () => void
+				save: () => Promise<boolean>
+				pathIn: (ws: string) => string | undefined
 				localDraftDeployed: () => unknown
 				localDraftCurrent: () => unknown
 				discardLocalDraft: () => void
@@ -223,10 +225,10 @@
 					// Closed before the write is awaited, the way it always was: `save()` toasts its
 					// own failures and never rejects, so waiting would only add visible lag to every
 					// caller of this drawer. `onSaved` still fires after the write lands.
-					const saved = resourceEditor?.save()
+					const editor = resourceEditor
+					const saved = editor?.save()
 					drawer?.closeDrawer()
-					await saved
-					onSaved?.()
+					onSaved?.((await saved) ? editor?.pathIn(effectiveWorkspace) : undefined)
 				}}
 				disabled={!canSave}
 			>

@@ -210,11 +210,11 @@ export function hydratePreviewTabs(session: {
 		seen.add(t.id)
 		// Rebuilt field-by-field so stray properties on old saved records (e.g. the
 		// retired `pinned` flag) don't survive hydration and get persisted back.
-		// A list page saved with a row's drawer open comes back as that row's own tab.
-		const url = pageItemLocation(t.url)
+		// A list page saved with a row's drawer open comes back as that row's own tab, whether the
+		// row was asked for (`url`) or opened inside the frame (only its observed `loc` says so).
 		const loc = t.loc || t.url
-		const stale = parsePageItemRoute(url) || pageItemLocation(loc) !== loc
-		tabs.push({ id: t.id, url, loc: stale ? url : loc })
+		const item = [t.url, loc].map(pageItemLocation).find((u) => parsePageItemRoute(u))
+		tabs.push(item ? { id: t.id, url: item, loc: item } : { id: t.id, url: t.url, loc })
 	}
 	if (tabs.length > 0) {
 		const wantActive = session.activePreviewTabId

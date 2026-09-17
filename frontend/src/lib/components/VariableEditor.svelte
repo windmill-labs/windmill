@@ -50,7 +50,8 @@
 		/** Render in place, filling the parent, with no drawer or close button — for a host
 		 * that gives the editor a whole pane. */
 		inline?: boolean
-		/** Fires once a save lands, with the path the variable now lives at. */
+		/** Fires once a save lands, with the path the variable now lives at in `workspace` —
+		 * not in the workspace-specific version selected, which can be another's. */
 		onSaved?: (path: string) => void
 	} = $props()
 	// Sole ambient read in this file: the acting workspace is an input, and only its
@@ -271,7 +272,7 @@
 
 	async function save(): Promise<void> {
 		const dirty = dirtyWorkspaces
-		const savedPath = current?.path ?? editPath ?? ''
+		const savedPath = (curWs ? states[curWs]?.draft?.path : undefined) ?? editPath ?? ''
 		try {
 			for (const ws of dirty) {
 				const s = states[ws].draft!
