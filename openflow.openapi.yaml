@@ -533,9 +533,30 @@ components:
       required:
         - kind
 
+    MemoryWindow:
+      type: object
+      description: |
+        Keeps the most recent messages of the memory named by the run's memory id (or the step's
+        `memory_id`). Without a memory id the agent runs without memory.
+      properties:
+        kind:
+          type: string
+          enum:
+            - window
+        context_length:
+          type: integer
+          description: Number of most recent messages to load and store. 0 turns memory off.
+      required:
+        - kind
+        - context_length
+
     MemoryAuto:
       type: object
-      description: Automatic context management
+      deprecated: true
+      description: |
+        Deprecated, still read as it was written: the run's memory id, else the `memory_id` here.
+        The step's own `memory_id` is not read while this kind is set; switch the kind to `window`
+        to use it. Without a `context_length`, or with 0, it is `off` and reads `previous_messages`.
       properties:
         kind:
           type: string
@@ -568,7 +589,8 @@ components:
 
     MemoryManual:
       type: object
-      description: Explicit message history
+      deprecated: true
+      description: Deprecated, still read as it was written. Move the step to `off` with `previous_messages` instead.
       properties:
         kind:
           type: string
@@ -583,15 +605,17 @@ components:
         - messages
 
     MemoryConfig:
-      description: Conversation memory configuration
+      description: Managed memory, stored by Windmill and replayed with each request. The memory is named by a memory id, see `memory_id`. While it is off, a step can supply its history in `previous_messages`.
       oneOf:
         - $ref: '#/components/schemas/MemoryOff'
+        - $ref: '#/components/schemas/MemoryWindow'
         - $ref: '#/components/schemas/MemoryAuto'
         - $ref: '#/components/schemas/MemoryManual'
       discriminator:
         propertyName: kind
         mapping:
           'off': '#/components/schemas/MemoryOff'
+          window: '#/components/schemas/MemoryWindow'
           auto: '#/components/schemas/MemoryAuto'
           manual: '#/components/schemas/MemoryManual'
 
@@ -1041,7 +1065,10 @@ components:
             user_message:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
-              description: The user's prompt/message to the AI agent. Supports variable interpolation with flow.input syntax.
+              description: |
+                The user's prompt/message to the AI agent. Supports variable interpolation with
+                flow.input syntax. Required unless memory is off and `previous_messages` supplies
+                the prompt; image output always needs it.
             system_prompt:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
@@ -1054,6 +1081,24 @@ components:
                 Streaming events include: token_delta, reasoning_token_delta, tool_call, tool_call_arguments, tool_execution, tool_result
             memory:
               $ref: '#/components/schemas/MemoryTransform'
+            memory_id:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                String. Names the memory this step reads and writes, overriding the memory id the run
+                was started with (the chat conversation, an app chat session or the `memory_id` run
+                parameter). Leave unset to use the run's memory id. A fixed value shares one memory
+                across every run; an expression such as `flow_input.customer_id` keeps one memory per
+                key. When it evaluates to an empty value the agent runs without memory. Read only
+                while `memory` is `window`: it is ignored when memory is off, and an older `auto` or
+                `manual` memory reads neither history input.
+            previous_messages:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Array of MemoryMessage. History supplied by the flow, sent between the system prompt
+                and the user message. Read only while `memory` is off or absent: managed memory
+                ignores it, and an older `auto` or `manual` memory reads neither history input.
             output_schema:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
@@ -1102,9 +1147,8 @@ components:
                 Number. Limits how many times the agent can loop through reasoning and tool use.
                 Range: 1-1000.
           # Only the flow-local inputs are always present: a step linked to an `ai_agent` resource
-          # (see `agent`) keeps just those and takes provider/output_type from the resource.
-          required:
-            - user_message
+          # (see `agent`) keeps just those and takes provider/output_type from the resource. Even
+          # `user_message` may be absent, when memory is off and `previous_messages` is the prompt.
         tools:
           type: array
           description: Array of tools the agent can use. The agent decides which tools to call based on the task
@@ -1127,7 +1171,7 @@ components:
             Path of a reusable `ai_agent` resource (hybrid linking). When set, the agent brain
             config (provider/model/system prompt/etc.) and tool set are resolved at runtime from
             that resource; the module's input_transforms then only carry the flow-local inputs
-            (user_message/user_attachments/enabled_tools).
+            (user_message, user_attachments, enabled_tools and the history inputs memory_id and previous_messages).
         tool_inputs:
           type: object
           description: |

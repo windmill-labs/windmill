@@ -154,6 +154,8 @@ pub async fn get_flow_job_runnable_and_raw_flow(
 pub struct FlowContext {
     pub flow_inputs: Option<HashMap<String, Box<RawValue>>>,
     pub flow_status: Option<windmill_common::flow_status::FlowStatus>,
+    /// Path of the flow the run started from, which scopes a string memory id.
+    pub flow_path: Option<String>,
 }
 
 /// Get flow context (chat settings + args + flow_status) from root flow's job data
@@ -171,7 +173,8 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
         r#"
         SELECT
             j.args as "args: Json<HashMap<String, Box<RawValue>>>",
-            js.flow_status as "flow_status: Json<windmill_common::flow_status::FlowStatus>"
+            js.flow_status as "flow_status: Json<windmill_common::flow_status::FlowStatus>",
+            j.runnable_path
         FROM v2_job_status js
         INNER JOIN v2_job j ON j.id = js.id
         WHERE js.id = $1
@@ -184,6 +187,7 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
         Ok(Some(row)) => FlowContext {
             flow_inputs: row.args.map(|j| j.0),
             flow_status: row.flow_status.map(|j| j.0),
+            flow_path: row.runnable_path,
         },
         Ok(None) => {
             tracing::warn!(
