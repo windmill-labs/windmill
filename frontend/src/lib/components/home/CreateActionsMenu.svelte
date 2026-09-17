@@ -362,6 +362,16 @@
 		// only persist the non-default (hidden) state, so a cleared key means "shown"
 		storeLocalSetting(SHOW_DOC_SETTING, value ? undefined : 'false')
 	}
+	// The pointer crosses the gutter outside the menu on its way into the Workflow-as-Code
+	// submenu, so leaving the menu keeps the panel while that submenu is open; it clears
+	// once the submenu closes with neither pointer nor focus left on the menu.
+	let menuEl: HTMLDivElement | undefined = $state(undefined)
+	$effect(() => {
+		if ($wacSubOpen || !menuEl) return
+		if (!menuEl.matches(':hover') && !menuEl.contains(document.activeElement)) {
+			activeKey = undefined
+		}
+	})
 	let active = $derived(allOptions.find((o) => o.key === activeKey))
 	let activeAc = $derived(active ? accentClasses[active.accent] : undefined)
 
@@ -438,7 +448,10 @@
 		data-arrow-loop
 		class="z-[6000] flex flex-row justify-end pointer-events-none focus:outline-none"
 		style={showDoc ? 'width: 780px;' : ''}
-		onpointerleave={() => (activeKey = undefined)}
+		bind:this={menuEl}
+		onpointerleave={() => {
+			if (!$wacSubOpen) activeKey = undefined
+		}}
 	>
 		<div
 			class="pointer-events-auto flex flex-row rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl {showDoc &&
@@ -530,7 +543,7 @@
 							<div
 								use:melt={$wacSubMenu}
 								use:hugViewportRight
-								class="z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+								class="pointer-events-auto z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
 							>
 								{#each option.variants ?? [] as variant (variant.label)}
 									{@const VariantIcon = variant.icon}
@@ -580,7 +593,7 @@
 					<div
 						use:melt={$importSubMenu}
 						use:hugViewportRight
-						class="z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+						class="pointer-events-auto z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
 					>
 						{#each importActions as action, i (action.label)}
 							<button
