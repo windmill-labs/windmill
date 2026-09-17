@@ -235,11 +235,10 @@ export const LEGACY_MEMORY_VARIANTS: Record<string, any> = {
 export function memoryPropertyFor(property: any, value: any, chatInputEnabled = false): any {
 	let legacy = value?.kind ? LEGACY_MEMORY_VARIANTS[value.kind] : undefined
 	if (!legacy || !property?.oneOf) return property
-	// The form fills an empty string field with `''` when it opens, so the baked id field is only
-	// offered to a value saved with the key. Keyed on presence rather than content, or clearing the
-	// id to retype it would remove the field mid-edit. A chat flow runs on the conversation id and
-	// drops the baked one on save, so the field is not offered there; the nested form then removes
-	// the key from the value on open, as the hidden field did before.
+	// The baked id field is offered only to a value saved with the key (by presence, not content,
+	// or clearing it to retype would remove the field mid-edit), and never in a chat flow, which
+	// runs on the conversation id and drops it on save; there the nested form removes the key on
+	// open, as the hidden field did before.
 	if (value.kind === 'auto' && (chatInputEnabled || !('memory_id' in value))) {
 		const { memory_id: _, ...properties } = legacy.properties
 		legacy = { ...legacy, properties }

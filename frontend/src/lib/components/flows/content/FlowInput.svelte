@@ -683,10 +683,12 @@
 				// `off` is the first oneOf variant of the memory field, so a step added by hand
 				// carries it without anyone choosing it — and an agent that forgets every turn
 				// makes the chat a series of unrelated questions. Overwritten rather than left
-				// alone; the toast below says it happened. A step supplying its own previous
-				// messages has chosen its history, which managed memory would stop reading.
+				// alone; the toast below says it happened. A step supplying its own history, as
+				// previous messages or a legacy manual list, has chosen it and is left alone.
 				const memoryIsOff = (transform: InputTransform | undefined) =>
-					transform?.type === 'static' && (transform.value as any)?.kind === 'off'
+					transform?.type === 'static' &&
+					(transform.value as any)?.kind !== 'manual' &&
+					!keepsManagedMemory(transform.value)
 				const messages = value.input_transforms['previous_messages']
 				const suppliesHistory =
 					!isUnconfigured(messages) &&

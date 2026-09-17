@@ -19,6 +19,7 @@
 	import DynamicInputHelpBox from './flows/content/DynamicInputHelpBox.svelte'
 	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
 	import { codeToStaticTemplate, getDefaultExpr } from './flows/utils.svelte'
+	import { keepsManagedMemory } from './flows/agentFormFields'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { Button, ButtonType } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -1004,7 +1005,7 @@
 									{chatInputEnabled}
 									oneOfLockedReason={chatInputEnabled &&
 									arg?.type === 'static' &&
-									(arg.value as any)?.kind !== 'off'
+									keepsManagedMemory(arg.value)
 										? schema.properties[argName]?.lockOneOfWhenChatEnabled
 										: undefined}
 									otherArgs={Object.fromEntries(

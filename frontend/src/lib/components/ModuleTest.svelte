@@ -171,13 +171,10 @@
 			}
 			const agentVal = draft ? inlineAgentDraft(val, draft.args) : val
 
-			// `args` is built from the whole AI agent schema whatever the step is, so on a linked step
-			// it carries every brain key as undefined even though the form renders only the flow-local
-			// ones (`flowLocalAgentSchema`). Overlaying those would shadow the brain the draft just
-			// supplied with nothing, so an inlined step takes only the inputs its form actually offers.
-			// A history input left blank here is unset, as a blank static value is on the step: sent as an
-			// expression that evaluates to nothing it would read as a memory id set to empty, and left to
-			// the step's own transform it would reuse a value the author just cleared.
+			// `args` spans the whole AI agent schema, so on a linked step it carries every brain key as
+			// undefined; overlaying those would shadow the draft's brain, so an inlined step takes only
+			// the inputs its form offers. A blank history input is unset, as on the step: an expression
+			// evaluating to nothing reads as an empty memory id, and the step's transform is stale.
 			const isBlank = (v: unknown) => v == undefined || v === '' || (Array.isArray(v) && !v.length)
 			const formKeys = (
 				draft ? (AGENT_FLOW_LOCAL_KEYS as readonly string[]) : Object.keys(args)
