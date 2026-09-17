@@ -22,8 +22,7 @@
 		type Retry,
 		type TriggerMode
 	} from '$lib/gen'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { usedTriggerKinds, userStore } from '$lib/stores'
 	import {
 		canWrite,
 		capitalize,
@@ -78,6 +77,7 @@
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	let {
 		useDrawer = true,
@@ -96,8 +96,8 @@
 		trigger = undefined,
 		customSaveBehavior = undefined
 	} = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	// Form data state
 	let initialPath = $state('')

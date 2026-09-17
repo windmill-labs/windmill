@@ -33,15 +33,13 @@
 	import { Button, ButtonType } from '$lib/components/common'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { VolumeService } from '$lib/gen'
-	import {
-		globalDbManagerDrawer,
-		globalS3FilePickerExplorer,
-		userStore,
-		workspaceStore
-	} from '$lib/stores'
+	import { globalDbManagerDrawer, globalS3FilePickerExplorer, userStore } from '$lib/stores'
 	import { isS3Uri } from '$lib/utils'
 	import { Database, File, HardDriveIcon } from 'lucide-svelte'
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const {
 		asset,
@@ -69,7 +67,7 @@
 	} = $props()
 
 	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 	const assetUri = $derived(formatAsset(asset))
 	// Contexts with a select/upload flow pass their own picker; everything else
 	// (e.g. the resources list) falls back to the global read-only explorer.

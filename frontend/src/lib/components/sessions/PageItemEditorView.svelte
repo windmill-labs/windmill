@@ -5,7 +5,7 @@
 	import { ResourceService } from '$lib/gen'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
-	import { setTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { TRIGGER_PAGES, type PageItemRef, type TriggerKind } from './previewPaths'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 
@@ -29,9 +29,7 @@
 		'aiChatManager',
 		untrack(() => runtime.manager)
 	)
-	// A session acts on its (possibly forked) workspace without switching the navigation
-	// store, and the trigger editors read theirs from this seam.
-	setTriggerWorkspace(() => workspaceId)
+	setOperatingWorkspace(() => workspaceId)
 
 	type TriggerEditorHandle = { openEdit: (path: string, isFlow: boolean) => Promise<void> }
 	type EditorModule = { default: any }

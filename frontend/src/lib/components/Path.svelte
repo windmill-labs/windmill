@@ -26,7 +26,7 @@
 		AzureTriggerService,
 		EmailTriggerService
 	} from '$lib/gen'
-	import { superadmin, userStore, workspaceStore, type UserExt } from '$lib/stores'
+	import { superadmin, userStore, type UserExt } from '$lib/stores'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { Alert, Button } from './common'
@@ -45,6 +45,9 @@
 	import Select from './select/Select.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import InputError from './InputError.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type PathKind =
 		| 'resource'
@@ -81,10 +84,8 @@
 		disableEditing?: boolean
 		size?: 'sm' | 'md'
 		drawerOffset?: number
-		/** Workspace the folder list and path-existence checks run against.
-		 *  Defaults to the navigation `$workspaceStore`; pass the session's acting
-		 *  workspace when the editor operates on a workspace other than the one the
-		 *  top nav points at (see the sessions preview / dev-workspace flows). */
+		/** Workspace the folder list and path-existence checks run against. Defaults to the
+		 *  operating workspace (see `useOperatingWorkspace`). */
 		workspaceOverride?: string
 		/** The user acting in `workspaceOverride`, for the owner suggestion and the folder
 		 *  write flags. Omit it to stand in the navigation `$userStore`, who is a member of
@@ -121,7 +122,7 @@
 		warnOnRename = true
 	}: Props = $props()
 
-	let ws = $derived(workspaceOverride ?? $workspaceStore)
+	let ws = $derived(workspaceOverride ?? $operatingWorkspace)
 	// Sole place this component falls back to the ambient user, and only for a caller that
 	// passed none; everything below reads `user`, so a caller acting on another workspace is
 	// never mixed with the navigation user's memberships.

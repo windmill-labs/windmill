@@ -8,7 +8,7 @@
 		getTemplatePath,
 		saveNativeTriggerFromCfg
 	} from './utils'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { usedTriggerKinds, userStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { Button } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -27,6 +27,9 @@
 	import { deepEqual } from 'fast-equals'
 	import type { Snippet } from 'svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		service: NativeServiceName
@@ -204,7 +207,7 @@
 
 		try {
 			const fullTrigger = await NativeTriggerService.getNativeTrigger({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				serviceName: service,
 				externalId: externalIdOrPath
 			})
@@ -308,7 +311,7 @@
 		enabled = next
 		try {
 			await NativeTriggerService.setNativeTriggerEnabled({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				serviceName: service,
 				externalId,
 				requestBody: { enabled: next }
@@ -335,7 +338,7 @@
 			// before anything can pause it again.
 			isRecreate ? { ...saveCfg, enabled } : saveCfg,
 			!isNew,
-			$workspaceStore!,
+			$operatingWorkspace!,
 			usedTriggerKinds
 		)
 		if (newExternalId) {
@@ -345,7 +348,7 @@
 				if (isRecreate && oldExternalIdToDelete) {
 					try {
 						await NativeTriggerService.deleteNativeTrigger({
-							workspace: $workspaceStore!,
+							workspace: $operatingWorkspace!,
 							serviceName: service,
 							externalId: oldExternalIdToDelete
 						})

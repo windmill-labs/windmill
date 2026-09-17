@@ -30,7 +30,7 @@
 		type Schedule,
 		type ErrorHandler
 	} from '$lib/gen'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
 	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
@@ -50,8 +50,8 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { useActingUser } from '$lib/actingUser.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	let {
 		useDrawer = true,
@@ -138,8 +138,8 @@
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
 
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 	// `undefined` while the lookup is in flight or after it failed; the checks below then
 	// refuse rather than fall back to rights that belong to another workspace.
 	const acting = useActingUser(() => wsId)
@@ -159,9 +159,9 @@
 				emptyString(errorHandlerExtraArgs['channel'])) ||
 			!can_write
 	)
-	// Carry the acting workspace onto "create from template" routes when a
-	// session override is set, so the script is created in the session workspace.
-	const wsParam = $derived(triggerWs?.() ? `&workspace=${encodeURIComponent(wsId!)}` : '')
+	// Carry the acting workspace onto "create from template" routes, so the script is created
+	// in the workspace this schedule lives in.
+	const wsParam = $derived(wsId ? `&workspace=${encodeURIComponent(wsId)}` : '')
 	const scheduleCfg = $derived.by(getScheduleCfg)
 
 	const draftSync = useTriggerDraftSync({

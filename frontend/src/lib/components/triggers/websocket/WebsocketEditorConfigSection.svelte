@@ -8,10 +8,9 @@
 	import { sendUserToast } from '$lib/utils'
 	import type { Schema } from '$lib/common'
 	import { FlowService, ScriptService, type Flow, type Script } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import TestingBadge from '$lib/components/triggers/testingBadge.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		url: string | undefined
@@ -32,8 +31,8 @@
 		isValid = $bindable(false),
 		showTestingBadge = false
 	}: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	let areRunnableArgsValid: boolean = $state(true)
 

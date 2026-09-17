@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore, userStore, enterpriseLicense } from '$lib/stores'
+	import { userStore, enterpriseLicense } from '$lib/stores'
 	import { GitSyncService, type GitlabProject } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Popover from './meltComponents/Popover.svelte'
@@ -8,6 +8,9 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import Select from './select/Select.svelte'
 	import { GitBranch, Gitlab, Loader2 } from 'lucide-svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		resourceType: string
@@ -30,7 +33,7 @@
 		onArgsUpdate
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let baseUrl = $state('https://gitlab.com')
 	let token = $state('')

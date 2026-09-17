@@ -4,8 +4,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { userStore } from '$lib/stores'
 	import { HttpTriggerService, SettingService } from '$lib/gen'
 	// import { page } from '$app/state'
 	import { getHttpRoute } from './utils'
@@ -14,6 +13,7 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import { untrack } from 'svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		initialTriggerPath?: string | undefined
@@ -42,8 +42,8 @@
 		isDraftOnly = true,
 		showTestingBadge = false
 	}: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	let validateTimeout: number | undefined = undefined
 

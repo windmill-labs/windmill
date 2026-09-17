@@ -31,7 +31,7 @@
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { base } from '$lib/base'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
 	import { classNames, emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
@@ -61,6 +61,9 @@
 	import SmtpConfigurationStatus from './common/smtp/SmtpConfigurationStatus.svelte'
 	import { SettingService } from '$lib/gen'
 	import { isSmtpSettingsValid } from './instanceSettings/SmtpSettings.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const slackRecoveryHandler = hubPaths.slackRecoveryHandler
 	const slackHandlerScriptPath = hubPaths.slackErrorHandler
@@ -81,9 +84,8 @@
 		customHandlerKind?: 'flow' | 'script'
 		customTabTooltip?: import('svelte').Snippet
 		noMargin?: boolean
-		/** Workspace for handler lookup / settings / test jobs. Defaults to the
-		 * nav `$workspaceStore`; a trigger editor in a forked session passes its
-		 * acting workspace so the handler is resolved and saved there. */
+		/** Workspace for handler lookup / settings / test jobs. Defaults to the operating
+		 * workspace (see `useOperatingWorkspace`). */
 		workspace?: string
 		/** Offer the instance critical alert channels as a destination. Workspace-level
 		 * error handling only: schedules and triggers have no such setting. */
@@ -106,7 +108,7 @@
 		showInstanceAlerts = false
 	}: Props = $props()
 
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore)
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace)
 	// Carry the acting workspace onto the "create from template" route when an
 	// explicit override is set, so a forked session creates the handler script
 	// there. `customScriptTemplate` already has a query string (`?hub=…`).

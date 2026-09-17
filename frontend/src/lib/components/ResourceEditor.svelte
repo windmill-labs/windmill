@@ -9,7 +9,6 @@
 	} from '$lib/gen'
 	import { canWrite } from '$lib/utils'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
@@ -22,6 +21,9 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { onUserInput } from '$lib/userDraftEditGate'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		canSave?: boolean
@@ -74,7 +76,7 @@
 
 	// Sole ambient read in this file: the acting workspace is an input, and only its
 	// default comes from the navigation store.
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
 	// Fallback to `effectiveWorkspace` insulates against reactify-style
 	// parents that re-spread props without `selected` — otherwise it
 	// transiently resets and the form below remounts on every keystroke.

@@ -15,8 +15,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { base } from '$lib/base'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { userStore } from '$lib/stores'
 
 	import { Button, Url } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -25,11 +24,12 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	// Declared before `DEFAULT_PUSH_CONFIG` / the `base_endpoint` prop default,
 	// which call `getBaseUrl()` (a `wsId` reader) during component init.
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	let topic_items: string[] = $state([])
 	let subscription_items: string[] = $state([])
@@ -274,7 +274,10 @@
 							     travel as `?project_id=`, dirty the config, and reach the column as a
 							     value `empty_as_none` does not trim away. -->
 							<TextInput
-								bind:value={() => project_id ?? '', (v) => (project_id = emptyStringTrimmed(v) ? undefined : v)}
+								bind:value={
+									() => project_id ?? '',
+									(v) => (project_id = emptyStringTrimmed(v) ? undefined : v)
+								}
 								inputProps={{
 									placeholder: 'my-gcp-project',
 									disabled: !can_write,

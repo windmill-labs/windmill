@@ -10,7 +10,6 @@
 		Trash,
 		MoveRight
 	} from 'lucide-svelte'
-	import { workspaceStore } from '$lib/stores'
 	import {
 		CancelablePromise,
 		HelpersService,
@@ -48,6 +47,9 @@
 	import FileUploadModal from './common/fileUpload/FileUploadModal.svelte'
 	import S3FilePreview from './S3FilePreview.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let deletionModalOpen = $state(false)
 	let fileDeletionInProgress = $state(false)
@@ -137,7 +139,7 @@
 		testConnectionRequest = HelpersService.datasetStorageTestConnection
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let rootPath = $state(initialRootPath)
 	let rootPathNestingLevel = $derived(1 * (rootPath.split('/').length - 1))

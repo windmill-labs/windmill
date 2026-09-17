@@ -2,8 +2,7 @@
 	import { Alert } from '$lib/components/common'
 	import Required from '$lib/components/Required.svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { userStore } from '$lib/stores'
 	// import { page } from '$app/state'
 	import { getEmailAddress, getEmailDomain } from './utils'
 	import { isCloudHosted } from '$lib/cloud'
@@ -12,6 +11,7 @@
 	import { untrack } from 'svelte'
 	import { EmailTriggerService } from '$lib/gen'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	interface Props {
 		initialTriggerPath?: string | undefined
 		dirtyLocalPart?: boolean
@@ -35,8 +35,8 @@
 		isDraftOnly = true,
 		showTestingBadge = false
 	}: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	let validateTimeout: number | undefined = undefined
 

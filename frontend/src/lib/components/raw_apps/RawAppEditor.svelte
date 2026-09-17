@@ -15,7 +15,7 @@
 	// import { addWmillClient } from './utils'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { setRawAppOperatingWorkspace } from './rawAppWorkspace'
+	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import {
 		WMILL_TS_PATH,
@@ -210,9 +210,8 @@
 	// embedded in a session preview (autosaveWorkspace), else the navigation
 	// workspace. Deploy/save/background-runner must target it, not $workspaceStore.
 	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
-	// Expose it to the sidebar sub-components (inline scripts, datatable/shared-UI
-	// drawers, DB selector) so their lookups target the app's workspace too.
-	setRawAppOperatingWorkspace(() => opWorkspace)
+	// Everything under the editor acts on it too (see operatingWorkspace.svelte.ts).
+	setOperatingWorkspace(() => opWorkspace)
 
 	// The path autosaves land on, which is what the session preview loads the app by.
 	const draftStoragePath = $derived(autosavePath ?? liveEditorDraftStoragePath)

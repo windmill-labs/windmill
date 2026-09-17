@@ -8,7 +8,7 @@
 	import Path from './Path.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 	import Required from './Required.svelte'
-	import { workspaceStore, type UserExt } from '$lib/stores'
+	import { type UserExt } from '$lib/stores'
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import FilesetEditor from './FilesetEditor.svelte'
@@ -25,6 +25,9 @@
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
 	import Label from './Label.svelte'
 	import ResourcePathHint from './ResourcePathHint.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		path: string
@@ -84,7 +87,7 @@
 		onCredentialStored
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let editDescription = $state(false)
 	let rawCode: string | undefined = $state(undefined)

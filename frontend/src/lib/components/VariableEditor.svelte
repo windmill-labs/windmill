@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { VariableService, WorkspaceService } from '$lib/gen'
 	import { createEventDispatcher, untrack } from 'svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -26,6 +25,9 @@
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const dispatch = createEventDispatcher()
 
@@ -53,7 +55,7 @@
 	} = $props()
 	// Sole ambient read in this file: the acting workspace is an input, and only its
 	// default comes from the navigation store.
-	let curWs = $derived(workspace ?? $workspaceStore)
+	let curWs = $derived(workspace ?? $operatingWorkspace)
 
 	let editPath: string | undefined = $state(undefined)
 

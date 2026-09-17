@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { ScriptService, FlowService, type Script, AppService } from '$lib/gen'
 
-	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import { createEventDispatcher, untrack } from 'svelte'
 
@@ -18,6 +17,9 @@
 	import FlowIcon from './home/FlowIcon.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { truncate } from '$lib/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		initialPath?: string | undefined
@@ -30,9 +32,8 @@
 		allowEdit?: boolean
 		allowView?: boolean
 		clearable?: boolean
-		/** Workspace to list runnables from. Defaults to the navigation
-		 * `$workspaceStore`; pass the session's acting workspace so a forked
-		 * session lists its own scripts/flows/apps rather than the parent's. */
+		/** Workspace to list runnables from. Defaults to the operating workspace (see
+		 * `useOperatingWorkspace`). */
 		workspace?: string
 	}
 
@@ -50,7 +51,7 @@
 		workspace = undefined
 	}: Props = $props()
 
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore)
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace)
 	// Only carry the workspace onto Edit/View routes when an explicit override
 	// was passed, so existing callers' links are unchanged.
 	let wsParam = $derived(workspace ? `?workspace=${encodeURIComponent(workspace)}` : '')

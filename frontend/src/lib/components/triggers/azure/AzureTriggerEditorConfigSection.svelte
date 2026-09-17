@@ -10,8 +10,7 @@
 	import type { AzureMode, AzureArmResource } from '$lib/gen'
 	import { AzureTriggerService } from '$lib/gen'
 	import { emptyStringTrimmed } from '$lib/utils'
-	import { workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { RefreshCw } from 'lucide-svelte'
 
 	interface Props {
@@ -39,8 +38,8 @@
 		event_type_filters = $bindable(),
 		path = ''
 	}: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	type Edition = 'basic' | 'namespace'
 	type Delivery = 'push' | 'pull'

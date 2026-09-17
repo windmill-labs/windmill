@@ -13,11 +13,11 @@
 	import { fieldTypeToTsType } from '../apps/utils'
 	import type { InputType } from '../apps/inputType'
 	import Select from '$lib/components/select/Select.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
+	import { userStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
-	const getOpWs = getRawAppOperatingWorkspace()
-	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	let opWs = $derived($operatingWorkspace)
 
 	// Build ctx properties with current user's actual values
 	let ctxProperties = $derived([

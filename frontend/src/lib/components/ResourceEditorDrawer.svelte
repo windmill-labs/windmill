@@ -5,7 +5,6 @@
 
 	import { History, Loader2, Save } from 'lucide-svelte'
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { isOwner } from '$lib/utils'
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
@@ -21,6 +20,9 @@
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { addResourceTitle } from './resourceTypeDisplay'
 	import { loadResourceTypeDisplayName } from './displayNameLoaders'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let {
 		workspace = undefined,
@@ -64,7 +66,7 @@
 	let selected: string | undefined = $state(undefined)
 	let viewJsonSchema = $state(false)
 
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
 	// The editor renders whichever workspace-specific variant `selected` points at, so history has
 	// to follow it too — otherwise a restore would write over the variant the user is not looking at.
 	let historyWorkspace = $derived(selected ?? effectiveWorkspace)

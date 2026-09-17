@@ -24,7 +24,7 @@
 	import EmailTriggerEditor from '$lib/components/triggers/email/EmailTriggerEditor.svelte'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import WebhookEditor from '$lib/components/triggers/webhook/WebhookEditor.svelte'
-	import { setTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	// Owns the native-trigger drawer wiring for the pipeline canvas: the nine
 	// editor instances, the create/edit dispatch by kind, and the delete
@@ -40,9 +40,8 @@
 	type Props = { onUpdate: () => void; mountTriggerEditors: boolean; workspace?: string }
 	let { onUpdate, mountTriggerEditors, workspace: triggerWorkspace }: Props = $props()
 
-	// Register the trigger-workspace resolver for the whole editor subtree (the
-	// nine editors + the delete handler below). See triggerWorkspace.ts.
-	setTriggerWorkspace(() => triggerWorkspace ?? $workspaceStore)
+	// The nine editors below act on this workspace (see operatingWorkspace.svelte.ts).
+	setOperatingWorkspace(() => triggerWorkspace)
 
 	let kafkaEditor: KafkaTriggerEditor | undefined = $state()
 	let mqttEditor: MqttTriggerEditor | undefined = $state()
