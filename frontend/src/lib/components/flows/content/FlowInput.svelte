@@ -851,6 +851,7 @@
 							path={$pathStore}
 							conversationKind="test"
 							inputSchema={flowStore.val.schema}
+							flowModules={flowStore.val.value?.modules}
 						/>
 					</div>
 				</div>
