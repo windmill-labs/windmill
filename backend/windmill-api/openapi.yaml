@@ -1688,13 +1688,19 @@ paths:
 
   /settings/datatable_roles:
     get:
-      summary: list the instance's data table roles
+      summary: list the data table roles of one Windmill-managed Postgres cluster
       operationId: listInstanceDatatableRoles
       tags:
         - setting
+      parameters:
+        - in: query
+          name: cluster
+          required: false
+          schema:
+            $ref: "#/components/schemas/DatatableRoleCluster"
       responses:
         "200":
-          description: the instance role catalog
+          description: the cluster's role catalog
           content:
             application/json:
               schema:
@@ -1702,7 +1708,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/InstanceDatatableRole"
     post:
-      summary: create a data table role on the instance's Postgres cluster
+      summary: create a data table role on a Windmill-managed Postgres cluster
       operationId: createInstanceDatatableRole
       tags:
         - setting
@@ -1716,6 +1722,8 @@ paths:
               properties:
                 name:
                   type: string
+                cluster:
+                  $ref: "#/components/schemas/DatatableRoleCluster"
       responses:
         "200":
           description: the created role
@@ -33757,9 +33765,17 @@ components:
         last_setup:
           $ref: "#/components/schemas/ExternalInstancePgSetupReport"
 
+    DatatableRoleCluster:
+      type: string
+      description: >-
+        The Windmill-managed Postgres cluster a data table role is a login on: Windmill's own
+        (behind `instance` data tables) or the external instance cluster (behind
+        `external_instance` ones). Defaults to `instance`.
+      enum: [instance, external_instance]
+
     InstanceDatatableRole:
       type: object
-      required: [id, name, enabled]
+      required: [id, name, enabled, cluster]
       properties:
         id:
           type: string
@@ -33767,6 +33783,8 @@ components:
           type: string
         enabled:
           type: boolean
+        cluster:
+          $ref: "#/components/schemas/DatatableRoleCluster"
 
     DatatableRoleTenants:
       type: object
@@ -33788,8 +33806,10 @@ components:
         supported:
           type: boolean
           description: >-
-            Whether this data table can be put under roles at all. Only one backed by the
-            instance database can: a role is a login on that cluster.
+            Whether this data table can be put under roles at all. Only one on a database Windmill
+            manages can: a role is a login on that database's cluster.
+        cluster:
+          $ref: "#/components/schemas/DatatableRoleCluster"
         permissioned:
           type: boolean
         default_role:

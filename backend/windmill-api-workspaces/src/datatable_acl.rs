@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-//! Ownership and grants on the objects of an instance data table.
+//! Ownership and grants on the objects of a data table on a cluster Windmill manages.
 //!
 //! [`datatable_permissions`](crate::datatable_permissions) decides who may connect as which role;
 //! this decides what each role may then touch. Every change is a real `GRANT`, `REVOKE`,
@@ -33,7 +33,7 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::datatable_roles::{
     lock_role_catalog, quote_ident, read_role_catalog, read_role_catalog_tx, DatatableRoleCatalog,
-    ADMIN_DATATABLE_ROLE, CUSTOM_INSTANCE_USER,
+    DatatableRoleCluster, ADMIN_DATATABLE_ROLE, CUSTOM_INSTANCE_USER,
 };
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
 use windmill_common::workspaces::{resolve_governing_datatable, DataTable, GoverningDatatable};
@@ -295,22 +295,22 @@ fn role_names(catalog: &DatatableRoleCatalog) -> Vec<String> {
     names
 }
 
-fn ensure_instance(governing: &GoverningDatatable) -> Result<()> {
-    if governing.is_instance() {
-        return Ok(());
-    }
-    Err(Error::BadRequest(format!(
-        "Data table '{}' is backed by a Postgres resource, so its access is managed on that \
-         server directly. Only a data table on the Windmill instance's own database has data \
-         table roles to grant to.",
-        governing.name
-    )))
+/// The cluster whose roles the data table's grants name.
+fn ensure_managed(governing: &GoverningDatatable) -> Result<DatatableRoleCluster> {
+    governing.role_cluster().ok_or_else(|| {
+        Error::BadRequest(format!(
+            "Data table '{}' is backed by a Postgres resource, so its access is managed on that \
+             server directly. Only a data table on a database Windmill manages has data table \
+             roles to grant to.",
+            governing.name
+        ))
+    })
 }
 
 /// The data table's `admin` connection, and the notices Postgres sends on it.
 ///
-/// Authorization: connects as `custom_instance_user` with the instance's own credentials and checks
-/// nothing. Callers MUST have authorized the request first — a request about to be refused must
+/// Authorization: connects as `custom_instance_user` with the cluster's stored credentials and
+/// checks nothing. Callers MUST have authorized the request first — a request about to be refused must
 /// not get as far as this connection.
 async fn connect_as_admin_unchecked(
     db: &DB,
@@ -320,21 +320,33 @@ async fn connect_as_admin_unchecked(
     mpsc::UnboundedReceiver<DbError>,
     String,
 )> {
-    ensure_instance(governing)?;
+    let cluster = ensure_managed(governing)?;
     // Built from the authorized entry, never by resolving the settings again: a save in between
     // could point the entry at a resource on another server and back, and this connection would
     // then alter a database the later checks of the entry never see.
-    let mut pg = PgDatabase::parse_uri(&windmill_common::get_database_url().await?.as_str().await)?;
-    pg.dbname = governing
+    let dbname = governing
         .datatable
         .database
         .as_ref()
         .expect("a governing entry owns a database")
         .resource_path
         .clone();
-    pg.user = Some(CUSTOM_INSTANCE_USER.to_string());
-    pg.password = Some(windmill_common::utils::get_custom_pg_instance_password(db).await?);
-    let dbname = pg.dbname.clone();
+    let pg = match cluster {
+        DatatableRoleCluster::Instance => {
+            let mut pg =
+                PgDatabase::parse_uri(&windmill_common::get_database_url().await?.as_str().await)?;
+            pg.dbname = dbname.clone();
+            pg.user = Some(CUSTOM_INSTANCE_USER.to_string());
+            pg.password = Some(windmill_common::utils::get_custom_pg_instance_password(db).await?);
+            pg
+        }
+        DatatableRoleCluster::ExternalInstance => {
+            windmill_common::external_instance_pg::external_instance_connection_unchecked(
+                db, &dbname, false,
+            )
+            .await?
+        }
+    };
     let (client, mut connection) = pg.connect(Some(db)).await?;
     // Unbounded: the driver must never wait on the receiver, which only drains once the statement
     // the driver is carrying has completed.
@@ -1020,12 +1032,12 @@ async fn get_datatable_acl(
     let target: AclTarget = query.try_into()?;
     let governing = resolve_governing_datatable(&db, &w_id, &datatable_name).await?;
     ensure_reaches_governing_datatable(&db, &w_id, &datatable_name, &governing, &authed).await?;
-    ensure_instance(&governing)?;
+    let cluster = ensure_managed(&governing)?;
     let editable = ensure_governs_datatable(&db, &authed, &w_id, &governing)
         .await
         .is_ok();
     let roles = if editable {
-        role_names(&read_role_catalog(&db).await?)
+        role_names(&read_role_catalog(&db, cluster).await?)
     } else {
         vec![]
     };
@@ -1310,7 +1322,7 @@ async fn authorize_acl_change(
 ) -> Result<GoverningDatatable> {
     let governing = resolve_governing_datatable(db, w_id, datatable_name).await?;
     ensure_governs_datatable(db, authed, w_id, &governing).await?;
-    ensure_instance(&governing)?;
+    ensure_managed(&governing)?;
     Ok(governing)
 }
 
@@ -1320,8 +1332,14 @@ static APPLY_SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1)
 /// provisioned before data table roles gave `custom_instance_user` none. Adds that option to its
 /// database and `public` privileges, and nothing else: default privileges are left alone, since a
 /// schema's change of owner is planned against them. Best-effort, as a grant it fails to enable is
-/// refused when it runs.
-async fn ensure_grant_options(client: &tokio_postgres::Client, db: &DB, dbname: &str) {
+/// refused when it runs. An external instance database was created with the options, so one
+/// missing there is someone's deliberate revoke and is left alone.
+async fn ensure_grant_options(
+    client: &tokio_postgres::Client,
+    db: &DB,
+    cluster: DatatableRoleCluster,
+    dbname: &str,
+) {
     let held = client
         .query_one(
             "SELECT has_database_privilege(current_database(), 'CONNECT WITH GRANT OPTION')
@@ -1333,7 +1351,7 @@ async fn ensure_grant_options(client: &tokio_postgres::Client, db: &DB, dbname: 
         )
         .await
         .is_ok_and(|row| row.get::<_, bool>(0));
-    if held {
+    if held || cluster != DatatableRoleCluster::Instance {
         return;
     }
     if let Err(e) = grant_options_as_server(db, dbname).await {
@@ -1559,7 +1577,8 @@ async fn plan_datatable_acl(
 ) -> JsonResult<AclPlan> {
     crate::datatable_acl_oss::ensure_datatable_acl_available()?;
     let governing = authorize_acl_change(&db, &authed, &w_id, &datatable_name).await?;
-    let catalog = read_role_catalog(&db).await?;
+    let cluster = ensure_managed(&governing)?;
+    let catalog = read_role_catalog(&db, cluster).await?;
     let (client, _notices, dbname) = connect_as_admin_unchecked(&db, &governing).await?;
     Ok(Json(
         build_plan(&client, &dbname, &catalog, &req.target, &req.change).await?,
@@ -1583,6 +1602,7 @@ async fn apply_datatable_acl(
     // connection could wait forever on a pool that concurrent applies, queued on the same locks,
     // have exhausted.
     let governing = authorize_acl_change(&db, &authed, &w_id, &datatable_name).await?;
+    let cluster = ensure_managed(&governing)?;
     // Applies queue on an instance-wide lock while each holds a direct connection to the instance's
     // Postgres; unbounded, the queue alone could exhaust its connection limit. One at a time per
     // server, and the ones waiting hold no connection at all.
@@ -1591,7 +1611,7 @@ async fn apply_datatable_acl(
         .await
         .map_err(|e| Error::internal_err(format!("ACL apply slot closed: {e}")))?;
     let (mut client, mut notices, dbname) = connect_as_admin_unchecked(&db, &governing).await?;
-    ensure_grant_options(&client, &db, &dbname).await;
+    ensure_grant_options(&client, &db, cluster, &dbname).await;
 
     // Held until the change is committed: a role renamed or dropped meanwhile would change what
     // the plan names, and a settings save could move the entry onto another database. Taken in the
@@ -1606,7 +1626,7 @@ async fn apply_datatable_acl(
     .fetch_optional(&mut *tx)
     .await?
     .flatten();
-    let catalog = read_role_catalog_tx(&mut tx).await?;
+    let catalog = read_role_catalog_tx(&mut tx, cluster).await?;
 
     let plan = build_plan(&client, &dbname, &catalog, &req.target, &req.change).await?;
     if !entry_unchanged(&governing, entry_now) || &plan.statements != confirmed {
