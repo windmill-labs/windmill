@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import type { NativeTriggerKind } from './types'
@@ -25,6 +24,9 @@
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import WebhookEditor from '$lib/components/triggers/webhook/WebhookEditor.svelte'
 	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	// Owns the native-trigger drawer wiring for the pipeline canvas: the nine
 	// editor instances, the create/edit dispatch by kind, and the delete
@@ -126,7 +128,7 @@
 	}
 
 	async function confirmDeleteAttachedTrigger() {
-		const workspace = triggerWorkspace ?? $workspaceStore
+		const workspace = triggerWorkspace ?? $operatingWorkspace
 		if (!triggerDeleteTarget || !workspace) return
 		const { kind, path: triggerPath } = triggerDeleteTarget
 		triggerDeleteLoading = true

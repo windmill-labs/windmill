@@ -43,7 +43,10 @@
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let initialPath = $state('')
@@ -126,6 +129,7 @@
 		cloudDisabled?: boolean
 	} = $props()
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
 	let hasChanged = $derived(!deepEqual(getGcpConfig(), originalConfig ?? {}))
@@ -557,7 +561,9 @@
 									variant="default"
 									unifiedSize="md"
 									disabled={!can_write}
-									href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F19796'}
+									href={operatingHref(
+										itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F19796'
+									)}
 									target="_blank">Create from template</Button
 								>
 							{/if}

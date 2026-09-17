@@ -15,7 +15,10 @@
 	} from '$lib/components/workspacePicker'
 	import BreadcrumbSegment from '$lib/components/BreadcrumbSegment.svelte'
 	import { isOwner } from '$lib/utils'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		summary?: string
@@ -47,9 +50,8 @@
 		 * dropped, leaving only the summary. Used by the condensed session-
 		 * preview top bar to save vertical room. */
 		hidePath?: boolean
-		/** Workspace whose items the breadcrumb picker lists. Session live
-		 * editors pass their acting workspace so the picker isn't scoped to the
-		 * navigation workspace; falls back to $workspaceStore in the picker. */
+		/** Workspace whose items the breadcrumb picker lists; defaults to the operating
+		 * workspace (see `useOperatingWorkspace`). */
 		workspaceId?: string
 	}
 
@@ -116,7 +118,7 @@
 	// Treat an empty path as ownable so the pen popover lets a user pick the
 	// path for a brand-new item. `Path.reset()` then synthesizes a default
 	// under their own user/folder scope.
-	let own = $derived(!path || isOwner(path, $userStore, $workspaceStore))
+	let own = $derived(!path || isOwner(path, $userStore, $operatingWorkspace))
 
 	// Virtual entry for the picker: surfaces the currently-edited item at its
 	// live path (which may differ from `savedPath` mid-rename, so the picker

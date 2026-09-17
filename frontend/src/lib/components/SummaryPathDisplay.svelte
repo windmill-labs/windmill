@@ -4,13 +4,16 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
 	import Label from './Label.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 	import InheritedLabels from './InheritedLabels.svelte'
 	import Badge from './common/badge/Badge.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		summary?: string
@@ -47,10 +50,10 @@
 			editSummary = summary ?? ''
 			editPath = path ?? ''
 			labelsDirty = false
-			own = isOwner(path ?? '', $userStore, $workspaceStore)
+			own = isOwner(path ?? '', $userStore, $operatingWorkspace)
 			onBehalfOfEmail = undefined
-			if (kind === 'flow' && $workspaceStore && path) {
-				checkFlowOnBehalfOf($workspaceStore, path).then((email) => {
+			if (kind === 'flow' && $operatingWorkspace && path) {
+				checkFlowOnBehalfOf($operatingWorkspace, path).then((email) => {
 					onBehalfOfEmail = email
 				})
 			}
@@ -63,7 +66,7 @@
 
 		try {
 			await updateItemPathAndSummary({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				kind,
 				initialPath,
 				newPath,

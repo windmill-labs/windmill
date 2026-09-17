@@ -40,7 +40,10 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let initialPath = $state('')
@@ -116,6 +119,7 @@
 		cloudDisabled?: boolean
 	} = $props()
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
 	let hasChanged = $derived(!deepEqual(getAzureConfig(), originalConfig ?? {}))
@@ -508,7 +512,9 @@
 								variant="default"
 								unifiedSize="md"
 								disabled={!can_write}
-								href={itemKind === 'flow' ? '/flows/add?hub=81' : '/scripts/add?hub=hub%2F28214'}
+								href={operatingHref(
+									itemKind === 'flow' ? '/flows/add?hub=81' : '/scripts/add?hub=hub%2F28214'
+								)}
 								target="_blank">Create from template</Button
 							>
 						{/if}

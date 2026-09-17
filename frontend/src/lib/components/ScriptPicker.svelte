@@ -52,9 +52,10 @@
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace)
-	// Only carry the workspace onto Edit/View routes when an explicit override
-	// was passed, so existing callers' links are unchanged.
-	let wsParam = $derived(workspace ? `?workspace=${encodeURIComponent(workspace)}` : '')
+	// Edit/View routes open in the workspace listed here, not wherever the tab lands.
+	let wsParam = $derived(
+		effectiveWorkspace ? `?workspace=${encodeURIComponent(effectiveWorkspace)}` : ''
+	)
 
 	let items: { value: string; label: string }[] = $state([])
 	let drawerViewer: Drawer | undefined = $state()

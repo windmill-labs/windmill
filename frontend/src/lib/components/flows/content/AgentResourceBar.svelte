@@ -5,7 +5,6 @@
 	import Path from '$lib/components/Path.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { Bot, ChevronDown, ChevronUp, Save, Unlink, Pencil } from 'lucide-svelte'
 	import {
@@ -44,6 +43,9 @@
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
 	import { resource } from 'runed'
 	import { untrack } from 'svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let {
 		agent = $bindable(),
@@ -63,7 +65,7 @@
 		toolInputs: Record<string, Record<string, InputTransform>>
 		moduleId: string
 		// The workspace the flow editor operates on (differs from the nav workspace in session/fork
-		// editors). All resource reads/writes must target it, not $workspaceStore.
+		// editors). All resource reads/writes must target it, not the navigation workspace.
 		opWorkspace?: string
 		// Scope for the linked-agent tools store (the flow path); must match what the graph reads.
 		flowPath?: string
@@ -78,7 +80,7 @@
 		linkedMemory?: { memory: unknown } | undefined
 	} = $props()
 
-	let ws = $derived(opWorkspace ?? $workspaceStore)
+	let ws = $derived(opWorkspace ?? $operatingWorkspace)
 
 	// How many times the linked agent has been written, from anywhere: this card's own save, or a
 	// deploy from the agent editor mounted alongside it. Both reads below key on it, so neither

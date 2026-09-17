@@ -11,7 +11,6 @@
 		Keyboard
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
-	import { workspaceStore } from '$lib/stores'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import LogViewer from './LogViewer.svelte'
 	import FlowLogViewer from './FlowLogViewer.svelte'
@@ -26,6 +25,9 @@
 	import { Tooltip } from './meltComponents'
 	import FlowTimelineBar from './FlowTimelineBar.svelte'
 	import { getActiveReplay } from './recording/replay.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type RootJobData = Partial<Job>
 
@@ -98,7 +100,7 @@
 
 	function getJobLink(jobId: string | undefined): string {
 		if (!jobId) return ''
-		return `${base}/run/${jobId}?workspace=${workspaceId ?? $workspaceStore}`
+		return `${base}/run/${jobId}?workspace=${workspaceId ?? $operatingWorkspace}`
 	}
 
 	function getStatusColor(status: FlowStatusModule['type'] | undefined): string {

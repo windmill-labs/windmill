@@ -13,7 +13,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import { ExternalLink, ListFilter, ChevronDown, Share2, Link, Copy } from 'lucide-svelte'
 	import JobStatus from '$lib/components/JobStatus.svelte'
@@ -31,6 +31,9 @@
 	import { flowPathToHref } from '$lib/scripts'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		job: Job
@@ -79,7 +82,7 @@
 		}
 		togglingResolution = true
 		try {
-			const workspace = job.workspace_id ?? $workspaceStore ?? ''
+			const workspace = job.workspace_id ?? $operatingWorkspace ?? ''
 			const affected = resolve
 				? await JobService.resolveCompletedJobs({
 						workspace,
@@ -296,7 +299,7 @@
 				Triggered by
 			{/if}
 			<a
-				href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}
+				href={`${base}/run/${job.parent_job}?workspace=${$operatingWorkspace}`}
 				target="_blank"
 				rel="noopener noreferrer"
 				class="flex items-center gap-1"
@@ -418,7 +421,7 @@
 					{#each expandedFields as config}
 						{@const displayValue = getDisplayValue(config, job)}
 						{@const fullValue = getFullValue(config, job)}
-						{@const href = config.getHref?.(job, $workspaceStore || '')}
+						{@const href = config.getHref?.(job, $operatingWorkspace || '')}
 
 						<div class="flex items-baseline gap-1 text-xs">
 							<span class="text-secondary flex-shrink-0">{config.label}</span>
@@ -585,7 +588,7 @@
 						{#each fields as config}
 							{@const displayValue = getDisplayValue(config, job)}
 							{@const fullValue = getFullValue(config, job)}
-							{@const href = config.getHref?.(job, $workspaceStore || '')}
+							{@const href = config.getHref?.(job, $operatingWorkspace || '')}
 
 							<div class="flex items-baseline gap-3 text-xs">
 								<span class="text-secondary min-w-[110px] flex-shrink-0">
@@ -638,7 +641,7 @@
 							{#each fields as config (config.field)}
 								{@const displayValue = getDisplayValue(config, job)}
 								{@const fullValue = getFullValue(config, job)}
-								{@const href = config.getHref?.(job, $workspaceStore || '')}
+								{@const href = config.getHref?.(job, $operatingWorkspace || '')}
 
 								<!-- Field -->
 								<div class="flex items-baseline gap-1 text-xs min-w-0">
@@ -686,7 +689,7 @@
 							{#each expandedFields as config}
 								{@const displayValue = getDisplayValue(config, job)}
 								{@const fullValue = getFullValue(config, job)}
-								{@const href = config.getHref?.(job, $workspaceStore || '')}
+								{@const href = config.getHref?.(job, $operatingWorkspace || '')}
 
 								<div class="flex items-baseline gap-3 text-xs">
 									<span class="text-secondary min-w-[110px] flex-shrink-0">

@@ -7,11 +7,13 @@
 		type FlowStatusModule,
 		type Job
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import FlowLogViewerWrapper from './FlowLogViewerWrapper.svelte'
 	import { z } from 'zod'
 	import { untrack } from 'svelte'
 	import type { AgentTool } from './flows/agentToolUtils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type AgentActionWithContent = NonNullable<FlowStatusModule['agent_actions']>[number] & {
 		content?: unknown
@@ -81,7 +83,7 @@
 				if (!job || job.type !== 'CompletedJob') {
 					job = await JobService.getJob({
 						id: toolCall.job_id,
-						workspace: workspaceId ?? $workspaceStore!
+						workspace: workspaceId ?? $operatingWorkspace!
 					})
 				}
 				states[idx.toString()] = {
@@ -186,50 +188,49 @@
 		job = {
 			...agentJob,
 			raw_flow: {
-				modules: agentActions
-					.map((toolCall, idx) => {
-						if (toolCall.type === 'message') {
-							return {
-								id: idx.toString(),
-								value: {
-									type: 'identity' as const
-								}
+				modules: agentActions.map((toolCall, idx) => {
+					if (toolCall.type === 'message') {
+						return {
+							id: idx.toString(),
+							value: {
+								type: 'identity' as const
 							}
-						} else if (toolCall.type === 'mcp_tool_call') {
-							return {
-								id: idx.toString(),
-								value: {
-									type: 'identity' as const
-								},
-								summary: toolCall.function_name,
-								arguments: toolCall.arguments
-							}
-						} else if (toolCall.type === 'web_search') {
-							return {
-								id: idx.toString(),
-								value: {
-									type: 'identity' as const
-								},
-								summary: 'Web Search'
-							}
-						} else {
-							const module = tools.find((m) => m.summary === toolCall.function_name)
-							// A definition can be missing for a call that did run: the tool was renamed or
-							// removed since, or it belongs to a linked agent whose resource is no longer
-							// readable. Keep the recorded call — its args, logs and result come from the
-							// child job — rather than dropping it from the history.
-							return module
-								? ({
-										...module,
-										id: idx.toString()
-									} as FlowModule)
-								: ({
-										id: idx.toString(),
-										value: { type: 'identity' as const },
-										summary: toolCall.function_name
-									} as FlowModule)
 						}
-					})
+					} else if (toolCall.type === 'mcp_tool_call') {
+						return {
+							id: idx.toString(),
+							value: {
+								type: 'identity' as const
+							},
+							summary: toolCall.function_name,
+							arguments: toolCall.arguments
+						}
+					} else if (toolCall.type === 'web_search') {
+						return {
+							id: idx.toString(),
+							value: {
+								type: 'identity' as const
+							},
+							summary: 'Web Search'
+						}
+					} else {
+						const module = tools.find((m) => m.summary === toolCall.function_name)
+						// A definition can be missing for a call that did run: the tool was renamed or
+						// removed since, or it belongs to a linked agent whose resource is no longer
+						// readable. Keep the recorded call — its args, logs and result come from the
+						// child job — rather than dropping it from the history.
+						return module
+							? ({
+									...module,
+									id: idx.toString()
+								} as FlowModule)
+							: ({
+									id: idx.toString(),
+									value: { type: 'identity' as const },
+									summary: toolCall.function_name
+								} as FlowModule)
+					}
+				})
 			}
 		}
 	}

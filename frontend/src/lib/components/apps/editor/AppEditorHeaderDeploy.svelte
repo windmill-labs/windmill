@@ -2,7 +2,7 @@
 	import { Alert } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { Loader2 } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -26,6 +26,9 @@
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { FRONTEND_SDK_SCOPES } from '$lib/components/raw_apps/sdkScopes'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspaceStore = useOperatingWorkspace()
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 
@@ -74,14 +77,12 @@
 		 *  (`/secret_of/...` 404s with no `app` row) and renders a placeholder
 		 *  instead of the eternally-spinning link. */
 		newApp?: boolean
-		/** Workspace the app is deployed to — the session's acting workspace when
-		 *  embedded in a session preview, else the navigation `$workspaceStore`.
-		 *  The secret-URL / custom-path / folder / on-behalf-of lookups must target
-		 *  it, not `$workspaceStore` (which stays on the nav workspace in a session). */
+		/** Workspace the app is deployed to. The secret-URL / custom-path / folder /
+		 *  on-behalf-of lookups target it; defaults to the operating workspace. */
 		operatingWorkspace?: string
 	} = $props()
 
-	const opWs = $derived(operatingWorkspace ?? $workspaceStore)
+	const opWs = $derived(operatingWorkspace ?? $operatingWorkspaceStore)
 
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
 	// Admins always pass the backend check. For everyone else, fail closed

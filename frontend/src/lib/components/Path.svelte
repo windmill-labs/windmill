@@ -45,9 +45,13 @@
 	import Select from './select/Select.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import InputError from './InputError.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingHref = useOperatingWorkspaceHref()
 
 	type PathKind =
 		| 'resource'
@@ -613,13 +617,13 @@
 					<Tooltip>
 						<ul>
 							{#each scripts || [] as path}
-								<li><a target="_blank" href="/scripts/edit/{path}">{path}</a></li>
+								<li><a target="_blank" href={operatingHref(`/scripts/edit/${path}`)}>{path}</a></li>
 							{/each}
 							{#each flows || [] as path}
-								<li><a target="_blank" href="/flows/edit/{path}">{path}</a></li>
+								<li><a target="_blank" href={operatingHref(`/flows/edit/${path}`)}>{path}</a></li>
 							{/each}
 							{#each apps || [] as path}
-								<li><a target="_blank" href="/apps/edit/{path}">{path}</a></li>
+								<li><a target="_blank" href={operatingHref(`/apps/edit/${path}`)}>{path}</a></li>
 							{/each}
 						</ul>
 					</Tooltip>
@@ -633,21 +637,33 @@
 						<ul class="list-disc">
 							{#each scripts || [] as scriptPath}
 								<li>
-									<a href={`/scripts/edit/${scriptPath}`} class="text-blue-400" target="_blank">
+									<a
+										href={operatingHref(`/scripts/edit/${scriptPath}`)}
+										class="text-blue-400"
+										target="_blank"
+									>
 										{scriptPath}
 									</a>
 								</li>
 							{/each}
 							{#each flows || [] as flowPath}
 								<li>
-									<a href={`/flows/edit/${flowPath}`} class="text-blue-400" target="_blank">
+									<a
+										href={operatingHref(`/flows/edit/${flowPath}`)}
+										class="text-blue-400"
+										target="_blank"
+									>
 										{flowPath}
 									</a>
 								</li>
 							{/each}
 							{#each apps || [] as appPath}
 								<li>
-									<a href={`/apps/edit/${appPath}`} class="text-blue-400" target="_blank">
+									<a
+										href={operatingHref(`/apps/edit/${appPath}`)}
+										class="text-blue-400"
+										target="_blank"
+									>
 										{appPath}
 									</a>
 								</li>

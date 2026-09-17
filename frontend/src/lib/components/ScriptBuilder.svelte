@@ -30,6 +30,7 @@
 		workerTags,
 		workspaceStore
 	} from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import {
 		emptySchema,
 		emptyString,
@@ -189,7 +190,8 @@
 	// (forked) workspace, so an embedded editor acts on the session's fork rather
 	// than the navigation workspace ($workspaceStore, which stays put). indicatorPath
 	// is the matching draft path (URL path full-page, session target in preview).
-	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	const indicatorPath = $derived(autosavePath ?? userDraftPath)
 
 	// The shared `workerTags` store caches tags for the navigation workspace. A

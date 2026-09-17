@@ -77,7 +77,10 @@
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	let {
 		useDrawer = true,
@@ -97,6 +100,7 @@
 		customSaveBehavior = undefined
 	} = $props()
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
 	// Form data state
@@ -763,9 +767,9 @@
 										<Button
 											variant="default"
 											size="lg"
-											href={itemKind === 'flow'
-												? '/flows/add?hub=62'
-												: '/scripts/add?hub=hub%2F19669'}
+											href={operatingHref(
+												itemKind === 'flow' ? '/flows/add?hub=62' : '/scripts/add?hub=hub%2F19669'
+											)}
 											target="_blank">Create from template</Button
 										>
 									{/if}
@@ -975,13 +979,11 @@
 														disabled={emptyString(variable_path) || !can_write}
 														variant="default"
 														size="xs"
-														href={itemKind === 'flow'
-															? `/flows/add?${SECRET_KEY_PATH}=${encodeURIComponent(variable_path)}&hub=${
-																	HubFlow.SIGNATURE_TEMPLATE
-																}`
-															: `/scripts/add?${SECRET_KEY_PATH}=${encodeURIComponent(
-																	variable_path
-																)}&hub=hub%2F${HUB_SCRIPT_ID}`}
+														href={operatingHref(
+															itemKind === 'flow'
+																? `/flows/add?${SECRET_KEY_PATH}=${encodeURIComponent(variable_path)}&hub=${HubFlow.SIGNATURE_TEMPLATE}`
+																: `/scripts/add?${SECRET_KEY_PATH}=${encodeURIComponent(variable_path)}&hub=hub%2F${HUB_SCRIPT_ID}`
+														)}
 														target="_blank">Create from template</Button
 													>
 												</div>

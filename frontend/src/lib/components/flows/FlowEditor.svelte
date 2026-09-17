@@ -40,14 +40,17 @@
 	import FlowPanelPlacementPicker from './common/FlowPanelPlacementPicker.svelte'
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	const { flowStore, selectionManager, pathStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	// Flow paths repeat across workspaces, and a session keeps every tab it has visited alive, so two
 	// editors can hold the same path at once. Both halves are needed to tell them apart.
-	let editorWorkspace = $derived(opWorkspace?.() ?? $workspaceStore)
+	let editorWorkspace = $derived(opWorkspace?.() ?? $operatingWorkspace)
 	function targetWorkspace(t: AgentEditorTarget): string | undefined {
-		return t.workspace ?? $workspaceStore
+		return t.workspace ?? $operatingWorkspace
 	}
 
 	const sessionScopedManager = getContext<AIChatManager>('aiChatManager')

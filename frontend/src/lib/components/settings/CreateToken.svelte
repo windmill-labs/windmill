@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
+	import { userWorkspaces, type UserWorkspace } from '$lib/stores'
 	import { Button } from '../common'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
@@ -10,6 +10,9 @@
 
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		showMcpMode?: boolean
@@ -70,7 +73,7 @@
 	function enterMcpMode() {
 		mcpCreationMode = true
 		newTokenExpiration = undefined
-		newTokenWorkspace = defaultNewTokenWorkspace ?? $workspaceStore
+		newTokenWorkspace = defaultNewTokenWorkspace ?? $operatingWorkspace
 		newToken = undefined
 		newMcpToken = undefined
 		readOnly = false
@@ -106,7 +109,7 @@
 			const workspaceId = isAllWorkspaces
 				? undefined
 				: mcpMode
-					? newTokenWorkspace || $workspaceStore
+					? newTokenWorkspace || $operatingWorkspace
 					: newTokenWorkspace
 
 			const createdToken = await UserService.createToken({
@@ -136,13 +139,13 @@
 		}
 	}
 
-	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
+	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $operatingWorkspace))
 	const isAllWorkspaces = $derived(newTokenWorkspace === ALL_WORKSPACES)
 	// The workspace used to browse scripts/flows/endpoints in the scope picker.
 	// For an all-workspaces token there is no single workspace, so fall back to
 	// the current one just for populating the endpoint list.
 	const scopeWorkspaceId = $derived(
-		isAllWorkspaces ? $workspaceStore || '' : newTokenWorkspace || $workspaceStore || ''
+		isAllWorkspaces ? $operatingWorkspace || '' : newTokenWorkspace || $operatingWorkspace || ''
 	)
 	const mcpBaseUrl = $derived(
 		isAllWorkspaces

@@ -38,7 +38,10 @@
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	let {
 		useDrawer = true,
@@ -58,6 +61,7 @@
 		customSaveBehavior = undefined
 	} = $props()
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
 	// Form data state
@@ -419,7 +423,9 @@
 									btnClasses="ml-4"
 									variant="accent"
 									size="xs"
-									href={itemKind === 'flow' ? '/flows/add?hub=72' : '/scripts/add?hub=hub%2F19813'}
+									href={operatingHref(
+										itemKind === 'flow' ? '/flows/add?hub=72' : '/scripts/add?hub=hub%2F19813'
+									)}
 									target="_blank">Create from template</Button
 								>
 							{/if}

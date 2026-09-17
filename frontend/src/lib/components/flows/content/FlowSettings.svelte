@@ -8,7 +8,7 @@
 	import { Alert, Button, SecondsInput } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -31,6 +31,9 @@
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { modulesWithRetryOrSleep, SAME_WORKER_INCOMPATIBLE_MSG } from '../utils.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		noEditor: boolean
@@ -475,7 +478,7 @@
 					/>
 					{#if flowStore.val.on_behalf_of_email && canPreserve}
 						&rarr; <OnBehalfOfSelector
-							targetWorkspace={opWorkspace?.() ?? $workspaceStore ?? ''}
+							targetWorkspace={opWorkspace?.() ?? $operatingWorkspace ?? ''}
 							targetValue={$savedOnBehalfOfEmail}
 							selected={onBehalfOfChoice}
 							onSelect={(choice, details) => {

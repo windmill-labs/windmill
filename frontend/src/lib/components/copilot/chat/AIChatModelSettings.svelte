@@ -11,8 +11,7 @@
 		COPILOT_SESSION_MODEL_SETTING_NAME,
 		COPILOT_SESSION_PROVIDER_SETTING_NAME,
 		COPILOT_SESSION_REASONING_SETTING_NAME,
-		userStore,
-		workspaceStore
+		userStore
 	} from '$lib/stores'
 	import { storeLocalSetting, type Item } from '$lib/utils'
 	import {
@@ -33,6 +32,9 @@
 		REASONING_OFF,
 		type ReasoningProviderModel
 	} from '../reasoningRegistry'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let {
 		/** Whether this dropdown carries the custom-prompt entries. Off where the surface
@@ -130,7 +132,7 @@
 		if (!isAdmin) {
 			initialPrompt = $copilotInfo.customPrompts?.[activeMode] ?? ''
 		} else {
-			const workspace = $workspaceStore
+			const workspace = $operatingWorkspace
 			try {
 				const settings = workspace ? await WorkspaceService.getSettings({ workspace }) : undefined
 				const providers = settings?.ai_config?.providers ?? {}
@@ -165,7 +167,7 @@
 			return
 		}
 
-		const workspace = $workspaceStore
+		const workspace = $operatingWorkspace
 		if (!workspace) return
 		try {
 			// Saving prompts requires a full ai_config round-trip; fetch the current

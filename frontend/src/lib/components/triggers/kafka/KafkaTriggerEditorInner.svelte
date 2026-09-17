@@ -37,7 +37,10 @@
 	import type { FilterNode } from '../filters'
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -78,6 +81,7 @@
 		onReset = undefined
 	}: Props = $props()
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
 	let drawer: Drawer | undefined = $state()
@@ -567,7 +571,9 @@
 									variant="accent"
 									size="xs"
 									disabled={!can_write}
-									href={itemKind === 'flow' ? '/flows/add?hub=65' : '/scripts/add?hub=hub%2F19659'}
+									href={operatingHref(
+										itemKind === 'flow' ? '/flows/add?hub=65' : '/scripts/add?hub=hub%2F19659'
+									)}
 									target="_blank">Create from template</Button
 								>
 							{/if}

@@ -17,13 +17,7 @@
 		linkedAgentToolsVersion,
 		migrateLinkedAgentToolsScope
 	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
-	import {
-		enterpriseLicense,
-		userStore,
-		userWorkspaces,
-		workspaceStore,
-		usedTriggerKinds
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, usedTriggerKinds } from '$lib/stores'
 	import {
 		generateRandomString,
 		orderedJsonStringify,
@@ -111,6 +105,9 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let {
 		initialPath = $bindable(''),
@@ -158,9 +155,9 @@
 	// and the AutosaveIndicator all target it. Falls back to the global store, so
 	// the full-page editor is unchanged; the sessions preview overrides it to the
 	// session's (forked) workspace, so an embedded editor acts on the session's
-	// fork rather than the navigation workspace ($workspaceStore, which stays put).
+	// fork rather than the navigation workspace (`workspaceStore`, which stays put).
 	// indicatorPath is the matching draft path.
-	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
 	let initialPathStore = writable(initialPath)

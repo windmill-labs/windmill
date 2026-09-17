@@ -46,7 +46,10 @@
 	import { deepEqual } from 'fast-equals'
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -87,6 +90,7 @@
 		cloudDisabled = false
 	}: Props = $props()
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
 	let mqtt_resource_path: string = $state('')
@@ -541,7 +545,9 @@
 									variant="accent"
 									size="xs"
 									disabled={!can_write}
-									href={itemKind === 'flow' ? '/flows/add?hub=61' : '/scripts/add?hub=hub%2F19655'}
+									href={operatingHref(
+										itemKind === 'flow' ? '/flows/add?hub=61' : '/scripts/add?hub=hub%2F19655'
+									)}
 									target="_blank"
 								>
 									Create from template

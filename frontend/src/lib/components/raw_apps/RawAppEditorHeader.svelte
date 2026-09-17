@@ -13,7 +13,7 @@
 		type OpenInSessionSource
 	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
-	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces } from '$lib/stores'
 	import {
 		Bug,
 		DiffIcon,
@@ -65,7 +65,7 @@
 	// In a session pane the editor does NOT own the localStorage draft — the
 	// session runtime does, keyed by the session's (fork) workspace. So the
 	// `if (!inSessionPane) UserDraft.remove(...)` guards below skip the editor's
-	// own removal (it would target the wrong, main-`$workspaceStore` key). The
+	// own removal (it would target the wrong, navigation-workspace key). The
 	// session-side equivalent is RawAppEditorView's `onDeploy` →
 	// `runtime.syncPreviewWithDeployed`, which discards the fork draft + reloads
 	// the preview to the deployed version.
@@ -74,6 +74,9 @@
 	import type { RawAppData } from './dataTableRefUtils'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	// async function hash(message) {
 	// 	try {
@@ -143,7 +146,7 @@
 		/** Indicator-only overrides for the sessions preview: the AutosaveIndicator
 		 *  watches the session's (workspace, path) so it renders + animates on the
 		 *  key SessionEditorTarget saves under. Undefined on the full-page editor →
-		 *  falls back to `$workspaceStore`/`liveEditorDraftStoragePath`. */
+		 *  falls back to the operating workspace/`liveEditorDraftStoragePath`. */
 		autosaveWorkspace?: string
 		autosavePath?: string
 		// Fired after a successful deploy; lets the session preview reload.
@@ -218,7 +221,7 @@
 
 	// The AutosaveIndicator watches these; in the sessions preview they're the
 	// session's (workspace, path), else the full-page editor's own values.
-	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
 	$effect(() => {
@@ -343,9 +346,9 @@
 			// `path` orphaned the real draft row. Bracketed + flushed:
 			// RawAppEditor stays mounted through the post-deploy navigation
 			// and its mirror would otherwise displace the queued delete.
-			if (!inSessionPane && $workspaceStore) {
+			if (!inSessionPane && $operatingWorkspace) {
 				discardDraftAfterDeploy({
-					workspace: $workspaceStore,
+					workspace: $operatingWorkspace,
 					itemKind: 'raw_app',
 					path: appPath
 				})
@@ -467,9 +470,9 @@
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
 		// Bracketed + flushed (see createApp).
-		if (!inSessionPane && $workspaceStore) {
+		if (!inSessionPane && $operatingWorkspace) {
 			discardDraftAfterDeploy({
-				workspace: $workspaceStore,
+				workspace: $operatingWorkspace,
 				itemKind: 'raw_app',
 				path: appPath
 			})

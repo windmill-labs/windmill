@@ -109,12 +109,11 @@
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace)
-	// Carry the acting workspace onto the "create from template" route when an
-	// explicit override is set, so a forked session creates the handler script
-	// there. `customScriptTemplate` already has a query string (`?hub=…`).
+	// Carry the workspace onto the "create from template" route, so the handler script is
+	// created where this handler is saved. `customScriptTemplate` already has a query string.
 	let templateHref = $derived(
-		workspace
-			? `${customScriptTemplate}&workspace=${encodeURIComponent(workspace)}`
+		effectiveWorkspace
+			? `${customScriptTemplate}&workspace=${encodeURIComponent(effectiveWorkspace)}`
 			: customScriptTemplate
 	)
 

@@ -13,7 +13,6 @@ standalone editor autosaves and surfacing those in the breadcrumb picker
 would be surprising.
 -->
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import { untrack } from 'svelte'
 	import {
@@ -31,6 +30,9 @@ would be surprising.
 	} from '$lib/components/copilot/chat/global/userDraftAdapter'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { resource } from 'runed'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type Kind = WorkspaceItemKind
 	type ScopeKind = Kind | 'all'
@@ -51,9 +53,8 @@ would be surprising.
 		externalFilter?: string
 		autoFocus?: boolean
 		flush?: boolean
-		// Load items and drafts from this workspace instead of the navigation
-		// workspace. Set by session live editors, whose acting workspace can
-		// differ from $workspaceStore; falls back to $workspaceStore otherwise.
+		// Load items and drafts from this workspace; defaults to the operating workspace
+		// (see `useOperatingWorkspace`).
 		workspaceId?: string
 	}
 
@@ -69,7 +70,7 @@ would be surprising.
 		workspaceId
 	}: Props = $props()
 
-	const effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
+	const effectiveWorkspace = $derived(workspaceId ?? $operatingWorkspace)
 
 	let inner = $state<DrillPickerHandle | undefined>(undefined)
 

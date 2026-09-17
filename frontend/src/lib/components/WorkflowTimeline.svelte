@@ -9,11 +9,14 @@
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import { CheckCircle2, XCircle } from 'lucide-svelte'
 	import { JobService, type Job, type WorkflowStatus } from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { Button } from '$lib/components/common'
 	import { Alert } from '$lib/components/common'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		flow_status: Record<string, WorkflowStatus>
@@ -97,7 +100,7 @@
 	}
 
 	async function fetchChildJob(id: string) {
-		const ws = $workspaceStore
+		const ws = $operatingWorkspace
 		if (!ws) return
 		loadingJobs[id] = true
 		try {
@@ -126,7 +129,7 @@
 	let approvalFormArgs: Record<string, Record<string, any>> = $state({})
 
 	async function handleApprove(key: string, formSchema: any) {
-		const ws = $workspaceStore
+		const ws = $operatingWorkspace
 		if (!ws || !jobId) return
 		approvalLoading[key] = true
 		try {
@@ -147,7 +150,7 @@
 
 	let cancelLoading = $state(false)
 	async function handleCancel() {
-		const ws = $workspaceStore
+		const ws = $operatingWorkspace
 		if (!ws || !jobId) return
 		cancelLoading = true
 		try {

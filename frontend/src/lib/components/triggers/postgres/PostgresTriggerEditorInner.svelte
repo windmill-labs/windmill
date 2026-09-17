@@ -54,7 +54,10 @@
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import { capitalize } from '$lib/utils'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -95,6 +98,7 @@
 		onReset = undefined
 	}: Props = $props()
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -498,7 +502,7 @@
 					postgres_resource_path
 				}
 			})
-			window.open(`${base}/scripts/add?id=${templateId}`)
+			window.open(operatingHref(`${base}/scripts/add?id=${templateId}`))
 			loading = false
 		} catch (error) {
 			loading = false

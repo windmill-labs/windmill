@@ -7,13 +7,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import FlowScriptPickerQuick from '../pickers/FlowScriptPickerQuick.svelte'
 	import { defaultScriptLanguages, processInlineLangs } from '$lib/scripts'
-	import {
-		defaultScripts,
-		enterpriseLicense,
-		hubBaseUrlStore,
-		userStore,
-		workspaceStore
-	} from '$lib/stores'
+	import { defaultScripts, enterpriseLicense, hubBaseUrlStore, userStore } from '$lib/stores'
 	import type { SupportedLanguage } from '$lib/common'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
@@ -34,6 +28,9 @@
 		canHaveApproval,
 		canHaveFailure
 	} from '$lib/script_helpers'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const dispatch = createEventDispatcher()
 
@@ -65,8 +62,8 @@
 		refreshCount = 0
 	}: Props = $props()
 
-	if ($workspaceStore && cachedOwners?.[$workspaceStore]) {
-		owners = cachedOwners[$workspaceStore]
+	if ($operatingWorkspace && cachedOwners?.[$operatingWorkspace]) {
+		owners = cachedOwners[$operatingWorkspace]
 	}
 	type HubCompletion = {
 		path: string
@@ -494,7 +491,7 @@
 					bind:owners={
 						() => owners,
 						(v) => {
-							$workspaceStore && (cachedOwners[$workspaceStore] = v)
+							$operatingWorkspace && (cachedOwners[$operatingWorkspace] = v)
 							owners = v
 						}
 					}

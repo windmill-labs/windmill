@@ -14,7 +14,6 @@
 
 	// import { addWmillClient } from './utils'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import {
@@ -73,6 +72,9 @@
 		DEFAULT_DATA
 	} from './dataTableRefUtils'
 	import { randomUUID } from '$lib/utils/uuid'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		files?: Record<string, string>
@@ -208,8 +210,8 @@
 
 	// Workspace this editor operates on: the session's acting workspace when
 	// embedded in a session preview (autosaveWorkspace), else the navigation
-	// workspace. Deploy/save/background-runner must target it, not $workspaceStore.
-	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	// workspace. Deploy/save/background-runner must target it, not the navigation one.
+	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	// Everything under the editor acts on it too (see operatingWorkspace.svelte.ts).
 	setOperatingWorkspace(() => opWorkspace)
 

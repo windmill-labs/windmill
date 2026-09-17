@@ -32,7 +32,10 @@
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -74,6 +77,7 @@
 		onReset = undefined
 	}: Props = $props()
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -535,7 +539,9 @@
 									btnClasses="ml-4"
 									variant="accent"
 									size="xs"
-									href={itemKind === 'flow' ? '/flows/add?hub=66' : '/scripts/add?hub=hub%2F19663'}
+									href={operatingHref(
+										itemKind === 'flow' ? '/flows/add?hub=66' : '/scripts/add?hub=hub%2F19663'
+									)}
 									target="_blank"
 								>
 									Create from template
