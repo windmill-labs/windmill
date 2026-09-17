@@ -160,16 +160,6 @@
 
 	let loadingHistory = $state(false)
 
-	let shouldUseStreaming = $derived.by(() => {
-		const modules = flowStore.val.value?.modules
-		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		return (
-			lastModule?.value?.type === 'aiagent' &&
-			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
-			lastModule?.value?.input_transforms?.streaming?.value === true
-		)
-	})
-
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		if (previewMode === 'whole') {
 			return flowStore.val
@@ -472,7 +462,6 @@
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex flex-row justify-center w-full mb-6">
 					<FlowChat
-						useStreaming={shouldUseStreaming}
 						onRunFlow={async (userMessage, conversationId, additionalInputs) => {
 							await runPreview(
 								{ user_message: userMessage, ...(additionalInputs ?? {}) },
@@ -481,9 +470,10 @@
 							)
 							return jobId ?? ''
 						}}
-						hideSidebar={true}
+						conversationKind="test"
 						path={$pathStore}
 						inputSchema={flowStore.val.schema}
+						flowModules={flowStore.val.value?.modules}
 					/>
 				</div>
 			{:else}

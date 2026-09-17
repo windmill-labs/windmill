@@ -41,6 +41,12 @@ export function warnStderr(msg: unknown) {
   console.error(`\x1b[33m${String(msg)}\x1b[39m`);
 }
 
+// A notice that must reach a log even in silent (`--json-output`) mode:
+// stderr keeps stdout parseable, and a job that runs the CLI records both.
+export function warnAlways(msg: unknown) {
+  console.error(`\x1b[33m${String(msg)}\x1b[39m`);
+}
+
 export function error(msg: unknown) {
   console.error(`\x1b[31m${String(msg)}\x1b[39m`);
 }

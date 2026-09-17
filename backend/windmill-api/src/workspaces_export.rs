@@ -149,9 +149,7 @@ async fn derive_email(
     if let Some(hit) = cache.get(permissioned_as) {
         return Ok(Some(hit.clone()));
     }
-    // Uncached: the address goes into an archive a client redeploys from, and the write path
-    // validates the pair it sends back against an uncached lookup. The memo above still holds
-    // this to one query per distinct principal per export.
+    // The memo above holds this to one query per distinct principal per export.
     let email =
         windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
             .await?;
@@ -346,7 +344,7 @@ pub(crate) struct ArchiveQueryParams {
     default_ts: Option<String>,
     /// Settings format version: "v1" (default) returns legacy flat format, "v2" returns grouped format
     settings_version: Option<String>,
-    /// Opt-in: include `extra_perms` on flow / script / app rows. Default `false`
+    /// Opt-in: include `extra_perms` on script / flow / app / variable rows. Default `false`
     /// so cross-workspace tarball imports do not carry over ACLs referring to
     /// identities that may not exist in the target workspace. `wmill sync pull`
     /// passes `true` to surface ACLs in the git-tracked yaml.
@@ -365,8 +363,8 @@ pub(crate) struct ArchiveQueryParams {
 ///                      pre-existing serialization for folders and groups so
 ///                      no customer sees a one-time noisy diff on upgrade.
 /// * `KeepIfNonEmpty` — keep when there is at least one entry, drop when `{}`
-///                      or null. New surface for flow / script / app, which
-///                      never carried ACLs in source before this change.
+///                      or null. New surface for script / flow / app / variable,
+///                      which never carried ACLs in source before this change.
 #[derive(Clone, Copy)]
 pub enum ExtraPermsBehavior {
     Drop,
@@ -665,7 +663,7 @@ pub(crate) async fn tarball_workspace(
         check_scopes(&authed, || "variables:read".to_string())?;
     }
 
-    // Opt-in behavior for surfacing per-resource ACLs on flow/app rows.
+    // Opt-in behavior for surfacing per-resource ACLs on script/flow/app/variable rows.
     // Folder and group rows have always carried `extra_perms` in source and
     // continue to do so unconditionally (`KeepEvenEmpty`) so existing
     // customer git repos see no one-time noisy diff.
@@ -926,7 +924,7 @@ pub(crate) async fn tarball_workspace(
     if !skip_resource_types.unwrap_or(false) {
         let resource_types = sqlx::query_as!(
             ResourceType,
-            "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset FROM resource_type WHERE workspace_id = $1",
+            "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name FROM resource_type WHERE workspace_id = $1",
             &w_id
         )
         .fetch_all(&mut *tx)
@@ -1002,8 +1000,7 @@ pub(crate) async fn tarball_workspace(
                     Error::internal_err(format!("Error decrypting variable {}: {}", var.path, e))
                 })?);
             }
-            let var_str =
-                &to_string_without_metadata(&var, ExtraPermsBehavior::Drop, None).unwrap();
+            let var_str = &to_string_without_metadata(&var, new_kinds_extra_perms, None).unwrap();
             archive
                 .write_to_archive(&var_str, &format!("{}.variable.json", var.path))
                 .await?;
@@ -1435,9 +1432,11 @@ pub(crate) async fn tarball_workspace(
                 // Native triggers (Nextcloud, Google Drive, GitHub) are never
                 // cloned into a fork — a fork only has one if its owner created
                 // it there, so it's always "fork-only" and keeps its own mode.
-                // No parent-value substitution applies; we only strip the
-                // webhook token hash.
-                let native_ignore_keys = vec!["webhook_token_hash"];
+                // No parent-value substitution applies; we strip the webhook
+                // token hash, and `enabled`, which is operational state a sync
+                // deliberately does not carry — whether a trigger is paused
+                // belongs to the workspace it runs in, not to the code.
+                let native_ignore_keys = vec!["webhook_token_hash", "enabled"];
 
                 for trigger in native_triggers {
                     let trigger_str = &to_string_without_metadata(
@@ -1587,10 +1586,11 @@ pub(crate) async fn tarball_workspace(
         .await?;
 
         // Use v2 format only if explicitly requested, otherwise use v1 (legacy) for backward compatibility
-        // Server-owned auto-pull state (the HMAC webhook secret + hook id/error and
-        // the synced-sha / last-pull status) must never leave the server: keep it out
-        // of export archives and synced repos, and don't let a re-imported workspace
-        // inherit another install's hook/sync state. Mirrors the GET-settings redaction.
+        // Server-owned state (the HMAC webhook secret + hook id/error, the
+        // synced-sha / last-pull status, the admin automatic pulls run as, and what
+        // the credential check observed) must never leave the server: keep it out of
+        // export archives and synced repos, and don't let a re-imported workspace
+        // inherit another install's hook/sync state or pull identity.
         fn redact_git_sync_for_export(git_sync: Option<Value>) -> Option<Value> {
             let mut git_sync = git_sync?;
             if let Some(repos) = git_sync
@@ -1607,9 +1607,17 @@ pub(crate) async fn tarball_workspace(
                             "webhook_error",
                             "last_synced_sha",
                             "last_pull_status",
+                            "enabled_by",
                         ] {
                             auto_pull.remove(field);
                         }
+                    }
+                    // What this install observed about its own credential: a token
+                    // id and expiry, and a `checked_at` that moves on its own.
+                    // None of it describes the workspace, and in a git-synced
+                    // `wmill.yaml` it would churn the file for no reason.
+                    if let Some(repo) = repo.as_object_mut() {
+                        repo.remove("credential");
                     }
                 }
             }

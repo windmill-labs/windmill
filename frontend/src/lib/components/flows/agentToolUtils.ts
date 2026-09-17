@@ -3,6 +3,12 @@ import { loadStoredConfig } from '../aiProviderStorage'
 import { AI_AGENT_SCHEMA } from './flowInfers'
 import { forbiddenIds } from './idUtils'
 
+/** What every websearch entry is named by, mirroring `WEBSEARCH_ENABLED_NAME` in `ai_executor.rs`.
+ *  Reserved rather than merely conventional: `getToolNameError` refuses it to a flow module tool,
+ *  as the worker does, or that tool would answer to the same name and be switched on with web
+ *  search. */
+export const WEBSEARCH_ENABLED_NAME = '__wm_web_search'
+
 /**
  * A tool's `summary` is the name the LLM sees, and the worker rejects any name that does not match
  * `^[a-zA-Z0-9_]+$` (`ai_executor.rs`), so an unvalidated name fails on every run of the flow.
@@ -21,10 +27,15 @@ export function getToolNameError(
 	if (kind === 'mcp') {
 		return name.length > 0 ? undefined : 'Tool name must not be empty'
 	}
+	// Ahead of the pattern, which an empty name also fails: "must only contain letters" reads as a
+	// complaint about characters that are not there.
+	if (name.length === 0) {
+		return 'Tool name must not be empty'
+	}
 	if (!/^[a-zA-Z0-9_]+$/.test(name)) {
 		return 'Tool name must only contain letters, numbers and underscores'
 	}
-	if (forbiddenIds.includes(name)) {
+	if (forbiddenIds.includes(name) || name === WEBSEARCH_ENABLED_NAME) {
 		return `'${name}' is a reserved name`
 	}
 	if (siblingNames && siblingNames.filter((n) => n === name).length > 1) {
@@ -60,6 +71,9 @@ export type WebsearchTool = AgentTool & {
  * Type guard to check if a tool is a FlowModule tool
  */
 export function isFlowModuleTool(tool: AgentTool): tool is FlowModuleTool {
+	// `value` must be there, not merely lack a `tool_type`: the tool list is JSON-authored, and an
+	// entry without one is not a flowmodule tool for the callers that go on to read its script.
+	if (tool?.value == undefined) return false
 	return tool.value.tool_type === undefined || tool.value.tool_type === 'flowmodule'
 }
 
@@ -67,14 +81,48 @@ export function isFlowModuleTool(tool: AgentTool): tool is FlowModuleTool {
  * Type guard to check if a tool is an MCP tool
  */
 export function isMcpTool(tool: AgentTool): tool is McpTool {
-	return tool.value.tool_type === 'mcp'
+	return tool?.value?.tool_type === 'mcp'
 }
 
 /**
  * Type guard to check if a tool is a Websearch tool
  */
 export function isWebsearchTool(tool: AgentTool): tool is WebsearchTool {
-	return tool.value.tool_type === 'websearch'
+	return tool?.value?.tool_type === 'websearch'
+}
+
+/** The only input a nested agent used as a tool has the calling agent fill: the rest is its own
+ *  configuration, not something to generate. Mirrors the server, which offers such a tool a schema
+ *  of `{user_message}` and nothing else (`AI_AGENT_TOOL_SCHEMA` in `ai_executor.rs`); anything else
+ *  left AI-filled here is dropped from that schema and never reaches the model. */
+export const AI_AGENT_TOOL_AI_KEYS = ['user_message']
+
+/** What a tool is called wherever it is named: its own name, else what it points at. Never its id,
+ *  which is internal. Undefined when it has nothing to be called yet — an MCP tool with no server
+ *  picked is unnamed rather than misnamed, so each surface words that for itself. */
+export function toolDisplayName(tool: AgentTool): string | undefined {
+	const value = tool?.value as Record<string, any>
+	return tool?.summary || value?.path || value?.resource_path || undefined
+}
+
+/** The name `enabled_tools` holds a tool by: the name the model is shown, except for an entry the
+ *  model is shown nothing of, which is named by whatever identifies it instead. An MCP server is
+ *  named by the resource it points at, and web search by `WEBSEARCH_ENABLED_NAME`, since either
+ *  summary is a label something else may share and naming one would enable both.
+ *
+ *  The MCP path is offered bare. It is stored with the `$res:` it was authored with, and an
+ *  `enabled_tools` entry carrying that prefix is resolved to the resource's own value before the
+ *  step runs, reaching the worker as an object where a name is expected. Mirrors
+ *  `tool_enabled_name` in `ai_executor.rs`. */
+export function toolEnabledName(tool: AgentTool): string | undefined {
+	const value = tool?.value as Record<string, any>
+	if (value?.tool_type === 'mcp') {
+		return (value?.resource_path as string | undefined)?.replace(/^\$res:/, '') || undefined
+	}
+	if (value?.tool_type === 'websearch') {
+		return WEBSEARCH_ENABLED_NAME
+	}
+	return toolDisplayName(tool)
 }
 
 /**

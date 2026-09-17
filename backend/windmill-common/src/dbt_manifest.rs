@@ -8,9 +8,11 @@
 //! Two things this module is deliberate about:
 //!
 //! * **Asset identity is the physical relation.** A model becomes
-//!   `dbt://<warehouse>/<schema>/<name>`: the scheme names dbt, which is the
-//!   only thing that creates one, but the PATH is the relation and never dbt's
-//!   own `unique_id`. Two projects meet at a handoff — one materializes a mart,
+//!   `dbt://<warehouse>/<schema>/<name>`: the scheme names the namespace dbt
+//!   made — it is the only thing that DERIVES one, while any other language can
+//!   declare a write to one (decision 25) — but the PATH is the relation and
+//!   never dbt's own `unique_id`. Two projects meet at a handoff — one
+//!   materializes a mart,
 //!   the next declares it a `source` — where `model.a.orders` and
 //!   `source.b.analytics.orders` differ but the relation does not, so keying on
 //!   the node id would leave each project an island; a native script reading the
@@ -33,8 +35,8 @@
 //! Every `pub` mutator in this module — the manifest ones
 //! (`replace_dbt_manifest`, `clear_dbt_manifest_version`,
 //! `clear_dbt_editor_graphs`),
-//! the snapshot sweep, and the retry-state ones (`move_dbt_run_state`,
-//! `clear_dbt_run_state`, `clear_dbt_run_state_if_path_retired`) — takes the
+//! the snapshot sweep, and the script-state ones (`move_dbt_script_state`,
+//! `clear_dbt_script_state`, `clear_dbt_script_state_if_path_retired`) — takes the
 //! workspace and the script to act on as plain arguments and enforces nothing:
 //! **the caller must already have verified write access to that script**,
 //! exactly like the sibling `assets::replace_static_asset_usage` each is called
@@ -188,6 +190,19 @@ fn graph_digest(ingested: &IngestedManifest, relation_root: &str) -> String {
             .unwrap_or_default()
             .as_bytes(),
     );
+    // Only when there are any, so a project that never asked for the analysis
+    // pass keeps the digest it already has. Hashing an empty section
+    // unconditionally would change every stored digest at once, and every
+    // dynamic run would then store a full snapshot until its script is
+    // redeployed — which reads exactly like the suppression above never working.
+    if !ingested.column_edges.is_empty() {
+        h.update(b"\0");
+        h.update(
+            serde_json::to_string(&ingested.column_edges)
+                .unwrap_or_default()
+                .as_bytes(),
+        );
+    }
     format!("{:x}", h.finalize())
 }
 
@@ -297,6 +312,14 @@ pub async fn prune_dbt_run_graphs(
     )
     .execute(db)
     .await?;
+    sqlx::query!(
+        "DELETE FROM dbt_column_edge
+          WHERE job_id <> '00000000-0000-0000-0000-000000000000'
+            AND ingested_at < now() - make_interval(days => $1)",
+        RUN_GRAPH_RETENTION_DAYS,
+    )
+    .execute(db)
+    .await?;
     // In ONE transaction with the orphan sweep: a restart in the gap leaves graph
     // rows whose marker is gone, and since the sweep runs only when a marker went,
     // every later call computes `retired == 0` and skips them for good.
@@ -325,7 +348,7 @@ pub async fn prune_dbt_run_graphs(
     // partial index here — all of them `WHERE job_id <> DEPLOYED` — and past the
     // keep-count is rare, so the ordinary run should pay for neither.
     if retired > 0 {
-        for table in ["dbt_node", "dbt_edge"] {
+        for table in ["dbt_node", "dbt_edge", "dbt_column_edge"] {
             sqlx::query(&format!(
                 "DELETE FROM {table} t
                   WHERE t.workspace_id = $1 AND t.script_path = $2
@@ -381,11 +404,57 @@ pub struct IngestedNode {
     pub severity: Option<String>,
     pub attached_node: Option<String>,
     pub columns: Option<serde_json::Value>,
+    /// The node's real columns, typed and ordered — `[{"name": …, "type": …}]`,
+    /// from the engine's static analysis. `None` when the project did not ask
+    /// for it or the engine wrote none. Beside `columns` rather than merged into
+    /// it: that one is what the author DECLARED, and stays that.
+    ///
+    /// Skipped when absent, unlike its neighbours, because `graph_digest`
+    /// serializes these nodes: emitting `"column_schema":null` would change
+    /// every stored digest at once, and every dynamic run of a project that
+    /// never asked for the pass would store a full snapshot until its script is
+    /// redeployed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column_schema: Option<serde_json::Value>,
     pub freshness: Option<serde_json::Value>,
     /// The transform itself, for the graph to render. The copy taken at
     /// deploy: the file itself is in the script's module bundle.
     pub raw_code: Option<String>,
     pub original_file_path: Option<String>,
+}
+
+/// One column-to-column edge of the ingested graph.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[serde(default)]
+pub struct IngestedColumnEdge {
+    pub parent_unique_id: String,
+    pub parent_column: String,
+    pub child_unique_id: String,
+    pub child_column: String,
+    /// dbt's own word: `copy`, `mod` or `scan`. Kept verbatim — the engine's own
+    /// reader maps those three and passes anything else through, so the set is
+    /// open.
+    pub lineage_kind: String,
+}
+
+/// One column of a node, as the engine's static analysis resolved it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexedColumn {
+    pub name: String,
+    /// The declared type where `schema.yml` gives one, else the inferred one.
+    /// Empty when neither is known; the column still belongs to the relation, so
+    /// only the type is left out.
+    pub column_type: String,
+    /// Position in the relation, which is the order the panel lists them in.
+    pub index: i64,
+}
+
+/// What one `--write-index` pass produced: the column edges of the whole
+/// project and the real column schema per node.
+#[derive(Debug, Default)]
+pub struct ColumnIndex {
+    pub edges: Vec<IngestedColumnEdge>,
+    pub columns: HashMap<String, Vec<IndexedColumn>>,
 }
 
 // Serde: an agent worker cannot write these tables directly, so it posts the
@@ -398,11 +467,96 @@ pub struct IngestedNode {
 pub struct IngestedManifest {
     pub nodes: Vec<IngestedNode>,
     pub edges: Vec<(String, String)>,
+    /// Column-to-column lineage, when the project asked for it and the engine
+    /// produced it. Empty is the normal case — see `attach_column_index`.
+    pub column_edges: Vec<IngestedColumnEdge>,
     /// The `asset` rows the owning script produces (models) and consumes
     /// (sources) — what the lineage graph is drawn from.
     pub assets: Vec<AssetWithAltAccessType>,
     pub dbt_version: String,
     pub adapter_type: String,
+}
+
+/// The most column edges one graph stores.
+///
+/// A `scan` edge — the column was read to produce the row, not the value — is
+/// emitted from every join key and every predicate column to every output
+/// column, so one wide model over a multi-column join contributes columns times
+/// predicates edges on its own. The cap is what keeps a project shaped like that
+/// from turning one deploy into a multi-million-row insert; past it the lineage
+/// is truncated and the rest of the graph is unaffected.
+pub const MAX_COLUMN_EDGES: usize = 200_000;
+
+/// Whether the value travelled along this edge, as opposed to the column merely
+/// being read to produce the row.
+///
+/// A `scan` edge reaches every output column of its model, so it is most of what
+/// a wide project's index holds and the first thing `MAX_COLUMN_EDGES` gives up.
+/// It is still stored, for a view that wants indirect influence.
+pub fn is_direct(lineage_kind: &str) -> bool {
+    matches!(lineage_kind, "copy" | "mod")
+}
+
+impl IngestedManifest {
+    /// Fold one `--write-index` pass into the graph.
+    ///
+    /// Both halves are scoped to the nodes this graph already kept: the index
+    /// describes the whole project, while the graph describes what this script's
+    /// selection builds plus the parents anchoring its edges, and an edge whose
+    /// endpoint is absent has nothing to draw.
+    pub fn attach_column_index(&mut self, index: ColumnIndex) {
+        let kept: std::collections::HashSet<&str> =
+            self.nodes.iter().map(|n| n.unique_id.as_str()).collect();
+        let mut edges: Vec<IngestedColumnEdge> = index
+            .edges
+            .into_iter()
+            .filter(|e| {
+                kept.contains(e.parent_unique_id.as_str())
+                    && kept.contains(e.child_unique_id.as_str())
+            })
+            .collect();
+        // Sorted and deduplicated for the digest, which decides whether a run
+        // stores a snapshot at all: parquet row order is the engine's and two
+        // passes over one project must not read as two different graphs.
+        //
+        // Direct kinds first, so what the truncation below gives up is `scan` —
+        // the bulk of a wide project's lineage, and the kind that says the column
+        // was read to produce the row rather than the value. The
+        // worker's reader already applies this order while decoding, because the
+        // memory bound has to; repeating it here is what makes the ordering a
+        // property of the manifest rather than of one caller's reader, and it is
+        // the only ordering an index assembled some other way would get.
+        edges.sort_by(|a, b| {
+            is_direct(&b.lineage_kind)
+                .cmp(&is_direct(&a.lineage_kind))
+                .then_with(|| a.cmp(b))
+        });
+        edges.dedup();
+        edges.truncate(MAX_COLUMN_EDGES);
+        self.column_edges = edges;
+
+        let mut columns = index.columns;
+        for node in self.nodes.iter_mut() {
+            let Some(mut cols) = columns.remove(&node.unique_id) else {
+                continue;
+            };
+            if cols.is_empty() {
+                continue;
+            }
+            cols.sort_by_key(|c| c.index);
+            node.column_schema = Some(serde_json::Value::Array(
+                cols.into_iter()
+                    // A column the analysis typed as nothing still belongs in
+                    // the list — that it exists is the half `manifest.json`
+                    // could not answer.
+                    .map(|c| match c.column_type.is_empty() {
+                        true => serde_json::json!({ "name": c.name }),
+                        false => serde_json::json!({ "name": c.name, "type": c.column_type }),
+                    })
+                    .collect(),
+            ));
+        }
+    }
 }
 
 /// dbt's `materialized` mapped onto Windmill's write strategy.
@@ -655,6 +809,9 @@ pub fn ingest_manifest(
                     .map(|(k, v)| (k.clone(), v.description.clone().unwrap_or_default()))
                     .collect::<BTreeMap<_, _>>())
             }),
+            // Filled by `attach_column_index` when the project asked for it:
+            // the manifest carries declared columns only.
+            column_schema: None,
             freshness: node.freshness.clone(),
             // The transform the graph renders. Capped: a project can hold
             // thousands of models and this is duplicated per deploy, so a
@@ -826,6 +983,16 @@ pub async fn replace_dbt_manifest(
     )
     .execute(&mut **tx)
     .await?;
+    sqlx::query!(
+        "DELETE FROM dbt_column_edge WHERE workspace_id = $1 AND script_path = $2
+           AND script_hash = $3 AND job_id = $4",
+        workspace_id,
+        script_path,
+        script_hash,
+        job_id
+    )
+    .execute(&mut **tx)
+    .await?;
     // The marker, before the rows: a graph with no nodes at all is a legitimate
     // answer for a dynamic run that disabled every model, and the reader must be
     // able to tell it from a run that stored nothing.
@@ -881,7 +1048,7 @@ async fn insert_graph_rows(
             "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id, \
              resource_type, name, asset_path, materialized, materialize_strategy, unique_key, \
              tags, description, test_kind, test_column, test_args, severity, attached_node, \
-             columns, freshness, raw_code, original_file_path) ",
+             columns, column_schema, freshness, raw_code, original_file_path) ",
         );
         q.push_values(chunk, |mut b, n| {
             b.push_bind(workspace_id)
@@ -903,6 +1070,7 @@ async fn insert_graph_rows(
                 .push_bind(&n.severity)
                 .push_bind(&n.attached_node)
                 .push_bind(&n.columns)
+                .push_bind(&n.column_schema)
                 .push_bind(&n.freshness)
                 .push_bind(&n.raw_code)
                 .push_bind(&n.original_file_path);
@@ -922,6 +1090,26 @@ async fn insert_graph_rows(
                 .push_bind(job_id)
                 .push_bind(parent)
                 .push_bind(child);
+        });
+        q.push(" ON CONFLICT DO NOTHING");
+        q.build().execute(&mut **tx).await?;
+    }
+
+    for chunk in ingested.column_edges.chunks(COLUMN_EDGE_INSERT_CHUNK) {
+        let mut q = sqlx::QueryBuilder::new(
+            "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id, \
+             parent_unique_id, parent_column, child_unique_id, child_column, lineage_kind) ",
+        );
+        q.push_values(chunk, |mut b, e| {
+            b.push_bind(workspace_id)
+                .push_bind(script_path)
+                .push_bind(script_hash)
+                .push_bind(job_id)
+                .push_bind(&e.parent_unique_id)
+                .push_bind(&e.parent_column)
+                .push_bind(&e.child_unique_id)
+                .push_bind(&e.child_column)
+                .push_bind(&e.lineage_kind);
         });
         q.push(" ON CONFLICT DO NOTHING");
         q.build().execute(&mut **tx).await?;
@@ -966,7 +1154,7 @@ pub async fn replace_dbt_editor_graph(
 ) -> Result<()> {
     // By job alone, so re-executing one — a zombie recovered onto another
     // worker — replaces its rows rather than colliding with them.
-    for table in ["dbt_node", "dbt_edge", "dbt_graph_snapshot"] {
+    for table in ["dbt_node", "dbt_edge", "dbt_column_edge", "dbt_graph_snapshot"] {
         sqlx::query(&format!(
             "DELETE FROM {table} WHERE workspace_id = $1 AND job_id = $2 AND script_hash IS NULL"
         ))
@@ -1016,7 +1204,7 @@ pub async fn replace_dbt_editor_graph(
     .fetch_all(&mut **tx)
     .await?;
     if !retired.is_empty() {
-        for table in ["dbt_node", "dbt_edge"] {
+        for table in ["dbt_node", "dbt_edge", "dbt_column_edge"] {
             sqlx::query(&format!(
                 "DELETE FROM {table} WHERE workspace_id = $1 AND job_id = ANY($2) \
                    AND script_hash IS NULL"
@@ -1035,6 +1223,8 @@ pub async fn replace_dbt_editor_graph(
 const NODE_INSERT_CHUNK: usize = 2000;
 /// Six columns, so the same ceiling allows far more.
 const EDGE_INSERT_CHUNK: usize = 8000;
+/// Nine columns, and by far the most numerous rows of the three.
+const COLUMN_EDGE_INSERT_CHUNK: usize = 6000;
 
 /// Clear one VERSION's graph: the delete-by-hash route, which only soft-deletes
 /// its `script` row and so fires no cascade, and the ingest that finds no
@@ -1064,6 +1254,15 @@ pub async fn clear_dbt_manifest_version(
     .await?;
     sqlx::query!(
         "DELETE FROM dbt_edge WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3",
+        workspace_id,
+        script_path,
+        script_hash
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM dbt_column_edge
+          WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3",
         workspace_id,
         script_path,
         script_hash
@@ -1105,7 +1304,7 @@ pub async fn clear_dbt_editor_graphs(
     workspace_id: &str,
     script_path: &str,
 ) -> Result<()> {
-    for table in ["dbt_node", "dbt_edge", "dbt_graph_snapshot"] {
+    for table in ["dbt_node", "dbt_edge", "dbt_column_edge", "dbt_graph_snapshot"] {
         sqlx::query(&format!(
             "DELETE FROM {table}
               WHERE workspace_id = $1 AND script_path = $2 AND script_hash IS NULL"
@@ -1118,22 +1317,27 @@ pub async fn clear_dbt_editor_graphs(
     Ok(())
 }
 
-/// Move a dbt script's saved retry state to its new path.
+/// Move a dbt script's saved state to its new path: the run `dbt retry` resumes,
+/// and the state each environment's deferrals resolve through.
 ///
-/// Keyed by path like the sidecar, but unlike the sidecar it is not
-/// regenerated by anything: the deploy re-ingests a manifest, while these are
-/// the results of a run that already happened. Clearing on rename would throw
-/// away a resumable failure for a cosmetic change, so it travels instead.
+/// Keyed by path like the sidecar, but unlike the sidecar neither is regenerated
+/// by anything: the deploy re-ingests a manifest, while these are the results of
+/// runs that already happened. Clearing on rename would throw away a resumable
+/// failure, and every deferral until the next full run, for a cosmetic change —
+/// so they travel instead. An artifact too large for its row is unaffected: its
+/// key is that publication's own, and the moved row is what names it.
 ///
 /// See the mutator contract above: this authorizes nothing.
-pub async fn move_dbt_run_state(
+pub async fn move_dbt_script_state(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,
     old_path: &str,
     new_path: &str,
 ) -> Result<()> {
     // The destination may already hold state from a script that lived there
-    // before; the incoming row is the newer truth for this project.
+    // before; the incoming row is the newer truth for this project. What the
+    // displaced row named in object storage is left there, as a cleared one's is
+    // — see `clear_dbt_script_state`.
     sqlx::query!(
         "DELETE FROM dbt_run_state WHERE workspace_id = $1 AND script_path = $2",
         workspace_id,
@@ -1149,22 +1353,38 @@ pub async fn move_dbt_run_state(
     )
     .execute(&mut **tx)
     .await?;
+    sqlx::query!(
+        "DELETE FROM dbt_environment_state WHERE workspace_id = $1 AND script_path = $2",
+        workspace_id,
+        new_path
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE dbt_environment_state SET script_path = $3
+          WHERE workspace_id = $1 AND script_path = $2",
+        workspace_id,
+        old_path,
+        new_path
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
-/// Drop the saved retry state, but only once NO live version of the path is
-/// left.
+/// Drop the saved state, but only once NO live version of the path is left.
 ///
-/// `dbt_run_state`'s key is the path and the principal — one saved run per script
-/// per identity it executes as, not
-/// one per version — so archiving or deleting a single version must not take it
-/// with them: the live version's `dbt retry` would be refused and the
-/// partial-failure resume lost. It does not need to be version-scoped either,
-/// because `identity` already refuses a resume whose project, warehouse or
-/// engine moved.
+/// Neither table is keyed by version — `dbt_run_state` by path and principal,
+/// `dbt_environment_state` by path and environment — so archiving or deleting a
+/// single version must not take them with it: the live version's `dbt retry`
+/// would be refused, its partial-failure resume lost, and every deferral would
+/// have to wait for another full run to republish. Neither needs to be
+/// version-scoped either: `identity` already refuses a resume whose project,
+/// warehouse or engine moved, and a deferral resolves relation names, which a
+/// new version of the same project spells the same way.
 ///
 /// See the mutator contract above: this authorizes nothing.
-pub async fn clear_dbt_run_state_if_path_retired(
+pub async fn clear_dbt_script_state_if_path_retired(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,
     script_path: &str,
@@ -1179,23 +1399,47 @@ pub async fn clear_dbt_run_state_if_path_retired(
     )
     .execute(&mut **tx)
     .await?;
+    sqlx::query!(
+        "DELETE FROM dbt_environment_state WHERE workspace_id = $1 AND script_path = $2
+           AND NOT EXISTS (SELECT 1 FROM script
+                            WHERE workspace_id = $1 AND path = $2
+                              AND deleted = false AND archived = false)",
+        workspace_id,
+        script_path
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
-/// Drop a dbt script's saved retry state.
+/// Drop a dbt script's saved state, both halves.
 ///
-/// Archive and delete: `run_results` is not small, the invocation arguments it
-/// carries are the user's, and a script later created at the same path would
-/// otherwise inherit a stranger's resumable failure.
+/// Archive and delete: neither is small, the invocation arguments and manifest
+/// they carry are the user's, and a script later created at the same path would
+/// otherwise inherit a stranger's resumable failure and defer to a project it
+/// has nothing to do with.
+///
+/// An artifact too large for its row lives in the instance's object storage, and
+/// this leaves it there — as a deleted script leaves its bundle. Reaching it from
+/// here would mean an object-store client in this crate and a delete that has to
+/// land after the caller's transaction commits, for one object per environment of
+/// a script that is gone.
 ///
 /// See the mutator contract above: this authorizes nothing.
-pub async fn clear_dbt_run_state(
+pub async fn clear_dbt_script_state(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,
     script_path: &str,
 ) -> Result<()> {
     sqlx::query!(
         "DELETE FROM dbt_run_state WHERE workspace_id = $1 AND script_path = $2",
+        workspace_id,
+        script_path
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM dbt_environment_state WHERE workspace_id = $1 AND script_path = $2",
         workspace_id,
         script_path
     )
@@ -1764,6 +2008,69 @@ mod tests {
         assert_eq!(back.nodes.len(), ingested.nodes.len());
         assert_eq!(back.assets.len(), ingested.assets.len());
         assert_eq!(back.assets[0].path, ingested.assets[0].path);
+    }
+
+    // The index describes the whole PROJECT while the graph describes what this
+    // script's selection builds, so an edge whose endpoint the graph does not
+    // hold has nothing to draw and must not be stored.
+    #[test]
+    fn column_lineage_is_scoped_to_the_nodes_the_graph_kept() {
+        let mut i = ingested();
+        let kept = "model.jaffle_shop.customers";
+        let dropped = "model.other_project.elsewhere";
+        i.attach_column_index(ColumnIndex {
+            edges: vec![
+                edge("model.jaffle_shop.orders_daily", "id", kept, "id", "copy"),
+                edge(dropped, "id", kept, "id", "copy"),
+                edge(kept, "id", dropped, "id", "copy"),
+            ],
+            columns: [
+                (
+                    kept.to_string(),
+                    vec![
+                        col("total", "Float64", 1),
+                        col("id", "Int32", 0),
+                        col("untyped", "", 2),
+                    ],
+                ),
+                (dropped.to_string(), vec![col("id", "Int32", 0)]),
+            ]
+            .into(),
+        });
+        assert_eq!(
+            i.column_edges
+                .iter()
+                .map(|e| (e.parent_unique_id.as_str(), e.child_unique_id.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("model.jaffle_shop.orders_daily", kept)]
+        );
+        // In `column_index` order, and a column the analysis could not type still
+        // belongs to the relation.
+        assert_eq!(
+            node(&i, kept).column_schema,
+            Some(serde_json::json!([
+                {"name": "id", "type": "Int32"},
+                {"name": "total", "type": "Float64"},
+                {"name": "untyped"},
+            ]))
+        );
+        assert!(node(&i, "model.jaffle_shop.orders_daily")
+            .column_schema
+            .is_none());
+    }
+
+    fn edge(from: &str, from_col: &str, to: &str, to_col: &str, kind: &str) -> IngestedColumnEdge {
+        IngestedColumnEdge {
+            parent_unique_id: from.into(),
+            parent_column: from_col.into(),
+            child_unique_id: to.into(),
+            child_column: to_col.into(),
+            lineage_kind: kind.into(),
+        }
+    }
+
+    fn col(name: &str, column_type: &str, index: i64) -> IndexedColumn {
+        IndexedColumn { name: name.into(), column_type: column_type.into(), index }
     }
 }
 

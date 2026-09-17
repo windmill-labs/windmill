@@ -436,6 +436,22 @@ describe('SessionPreviewTabs.open', () => {
 		expect(o.activeId).toBe(id)
 	})
 
+	it('dedupes a run form by tool call, and hands that tab to the run in place', () => {
+		const o = owner()
+		o.open({ type: 'page', href: `${base}/runs`, label: 'Runs' })
+		o.open({ type: 'runform', toolCallId: 'call_1', label: 'Run refund' })
+		const id = o.tabs[1].id
+		// The label carries the script's summary, which is not what identifies the call.
+		expect(o.open({ type: 'runform', toolCallId: 'call_1', label: 'Refund' }).status).toBe(
+			'focused'
+		)
+		expect(o.tabs).toHaveLength(2)
+		o.retargetRunForm('call_1', `${base}/run/01a0?workspace=w`)
+		// Still second: a tab that followed its call to the run has not moved in the strip.
+		expect(o.tabs[1].id).toBe(id)
+		expect(o.tabs[1].url).toBe(`${base}/run/01a0?workspace=w`)
+	})
+
 	it('re-points the same tab (no duplicate) when the artifact was renamed', () => {
 		const o = owner()
 		o.open(artifactTarget)

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { ButtonType } from '$lib/components/common/button/model'
 	import { getContext, tick, untrack } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
@@ -25,7 +26,8 @@
 		Save,
 		X,
 		Check,
-		Settings2
+		Settings2,
+		MessageSquare
 	} from 'lucide-svelte'
 	import CaptureIcon from '$lib/components/triggers/CaptureIcon.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
@@ -43,13 +45,15 @@
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import { isObjectTooBig, readFieldsRecursively } from '$lib/utils'
-	import { refreshFlowStateStore } from '$lib/components/flows/flowStoreRefresh.svelte'
 	import type { AiAgent, InputTransform, ScriptLang } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
 	import { nextId } from '../flowModuleNextId'
-	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { fetchAgentWithDraft, normalizeAgentRef } from '../linkedAgentDrafts'
+	import type { AIAgentConfig } from '../agentResourceUtils'
 	import FlowChat from '../conversations/FlowChat.svelte'
 	import { SPECIAL_MODULE_IDS } from '$lib/components/copilot/chat/shared'
 
@@ -96,18 +100,10 @@
 	)
 
 	let chatInputEnabled = $state(Boolean(flowStore.val.value?.chat_input_enabled))
-	let shouldUseStreaming = $derived.by(() => {
-		const modules = flowStore.val.value?.modules
-		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		return (
-			lastModule?.value?.type === 'aiagent' &&
-			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
-			lastModule?.value?.input_transforms?.streaming?.value === true
-		)
-	})
-	let showChatModeWarning = $state(false)
-	let showAdditionalInputs = $state(false)
+	// Chat mode shows one of the two at a time: the conversation, or the inputs it sends.
+	let chatPanelTab = $state<'chat' | 'inputs'>('chat')
 	let chatInputsEditTab = $state(false)
+	let chatEditableSchemaForm: EditableSchemaForm | undefined = $state(undefined)
 	let chatInputsAddPropertyV2: AddPropertyV2 | undefined = $state(undefined)
 
 	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
@@ -520,23 +516,9 @@
 		return jobId
 	}
 
-	function hasOtherInputs(): boolean {
-		const properties = flowStore.val.schema?.properties
-		return Boolean(
-			properties &&
-				Object.keys(properties).length > 0 &&
-				!(Object.keys(properties).length === 1 && Object.keys(properties).includes('user_message'))
-		)
-	}
-
 	function handleToggleChatMode() {
 		if (!flowStore.val.value?.chat_input_enabled) {
-			// Check if there are existing inputs
-			if (hasOtherInputs()) {
-				showChatModeWarning = true
-			} else {
-				enableChatMode()
-			}
+			enableChatMode()
 		} else {
 			// Disable chat input - remove from flow.value
 			if (flowStore.val.value) {
@@ -545,21 +527,77 @@
 		}
 	}
 
+	/**
+	 * Add the flow input the agent's `user_attachments` reads, and return its name. Chat
+	 * mode means files dropped in the composer, and that only works through a flow input —
+	 * so it is set up with the message and the memory rather than left to be discovered.
+	 */
+	function addAttachmentsInput(): string {
+		const schema = (flowStore.val.schema ?? {}) as Record<string, any>
+		const properties: Record<string, any> = (schema.properties ??= {})
+		let name = 'files'
+		for (let i = 2; name in properties; i++) name = `files_${i}`
+		properties[name] = {
+			type: 'array',
+			items: { type: 'object', resourceType: 's3object' },
+			description: 'Images or PDFs for the agent to read'
+		}
+		flowStore.val.schema = schema
+		return name
+	}
+
+	// The step panel seeds an array-typed field with [] and undefined persists as null
+	// through JSON round-trips, so both count as nothing configured.
+	function isEmptyAgentChatInputValue(value: unknown): boolean {
+		return value == null || value === '' || (Array.isArray(value) && value.length === 0)
+	}
+
+	/**
+	 * Memory and streaming of a linked agent are the resource's, so enabling chat mode cannot
+	 * set them. Read the agent, its draft first, and say what the chat will lack.
+	 */
+	async function warnIfLinkedAgentCannotChat(path: string) {
+		if (!opWs) return
+		let args: AIAgentConfig
+		try {
+			const { response, draft } = await fetchAgentWithDraft(path, opWs)
+			args = draft?.args ?? ((response.value ?? {}) as AIAgentConfig)
+		} catch {
+			// Unreadable here means unreadable at run time too; that run reports it.
+			return
+		}
+		const missing: string[] = []
+		if (!args.memory || (args.memory as { kind?: string }).kind === 'off') missing.push('memory')
+		if (args.streaming !== true) missing.push('streaming')
+		if (missing.length > 0) {
+			sendUserToast(
+				`The linked agent ${path} has ${missing.join(' and ')} off. The chat needs both; turn them on in the agent.`,
+				true
+			)
+		}
+	}
+
 	function enableChatMode() {
 		// Enable chat input - set in flow.value
 		flowStore.val.value.chat_input_enabled = true
 
-		// Set up the schema for chat input
+		// The chat fills the flow's form rather than standing in for it: all it needs is a
+		// `user_message` string, which the server requires under that exact argument name.
+		// Every other input stays — the composer drives the ones an agent field reads, and
+		// the rest are asked for in the Configure-inputs modal.
+		const schema = flowStore.val.schema ?? {}
+		const properties = { ...(schema.properties ?? {}) }
+		// Only a string can carry the message; anything else here cannot be what chat sends.
+		if (properties['user_message']?.type !== 'string') {
+			properties['user_message'] = { type: 'string', description: 'Message from user' }
+		}
+		const required: string[] = Array.isArray(schema.required) ? schema.required : []
 		flowStore.val.schema = {
 			$schema: 'https://json-schema.org/draft/2020-12/schema',
+			...schema,
 			type: 'object',
-			properties: {
-				user_message: {
-					type: 'string',
-					description: 'Message from user'
-				}
-			},
-			required: ['user_message']
+			properties,
+			required: required.includes('user_message') ? required : [...required, 'user_message']
 		}
 
 		// Find all AI agent modules
@@ -579,8 +617,12 @@
 							(accu, key) => {
 								if (key === 'user_message') {
 									accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
+								} else if (key === 'user_attachments') {
+									accu[key] = { type: 'javascript', expr: `flow_input.${addAttachmentsInput()}` }
 								} else if (key === 'memory') {
 									accu[key] = { type: 'static', value: { kind: 'auto', context_length: 10 } }
+								} else if (key === 'streaming') {
+									accu[key] = { type: 'static', value: true }
 								} else {
 									accu[key] = {
 										type: 'static',
@@ -595,25 +637,23 @@
 				}
 			]
 			sendUserToast(
-				'Chat mode enabled. AI agent created with user message input and context memory set to 10.',
+				'Chat mode enabled. AI agent created with user message and attachments inputs, context memory set to 10 and streaming turned on.',
 				false
 			)
 		} else if (aiAgentModules.length === 1) {
 			// Exactly one AI agent exists: fill in defaults only for inputs the
 			// user hasn't configured, so re-enabling chat mode on an already
-			// configured agent doesn't clobber a custom user_message expression
-			// or a deliberate memory choice (e.g. off).
+			// configured agent doesn't clobber a custom user_message expression.
 			const aiAgent = aiAgentModules[0]
 			const value = aiAgent.value as AiAgent
 
 			// Degenerate shapes the input form can produce without deliberate
-			// configuration count as unconfigured: empty static value (undefined
-			// persists as null through JSON round-trips), blank JS expression
-			// (the JS toggle seeds a bare backtick pair), or an AI transform
-			// (meaningless for the chat input).
+			// configuration count as unconfigured: empty static value, blank JS
+			// expression (the JS toggle seeds a bare backtick pair), or an AI
+			// transform (meaningless for the chat input).
 			const isUnconfigured = (transform: InputTransform | undefined) =>
 				transform === undefined ||
-				(transform.type === 'static' && (transform.value == null || transform.value === '')) ||
+				(transform.type === 'static' && isEmptyAgentChatInputValue(transform.value)) ||
 				(transform.type === 'javascript' && transform.expr.replaceAll('`', '').trim() === '') ||
 				transform.type === 'ai'
 
@@ -626,12 +666,47 @@
 				applied.push('user message input')
 			}
 
-			if (isUnconfigured(value.input_transforms['memory'])) {
-				value.input_transforms['memory'] = {
-					type: 'static',
-					value: { kind: 'auto', context_length: 10 }
+			if (isUnconfigured(value.input_transforms['user_attachments'])) {
+				value.input_transforms['user_attachments'] = {
+					type: 'javascript',
+					expr: `flow_input.${addAttachmentsInput()}`
 				}
-				applied.push('context memory set to 10')
+				applied.push('attachments input')
+			}
+
+			// A linked step's brain lives in the agent resource: the worker overlays only the
+			// flow-local keys from the step, so a memory or streaming transform written here
+			// would be ignored. Those are checked on the agent itself below instead.
+			const linkedAgent = value.agent ? normalizeAgentRef(value.agent) : undefined
+			if (linkedAgent === undefined) {
+				// `off` is the first oneOf variant of the memory field, so a step added by hand
+				// carries it without anyone choosing it — and an agent that forgets every turn
+				// makes the chat a series of unrelated questions. Overwritten rather than left
+				// alone; the toast below says it happened.
+				const memoryIsOff = (transform: InputTransform | undefined) =>
+					transform?.type === 'static' && (transform.value as any)?.kind === 'off'
+
+				if (
+					isUnconfigured(value.input_transforms['memory']) ||
+					memoryIsOff(value.input_transforms['memory'])
+				) {
+					value.input_transforms['memory'] = {
+						type: 'static',
+						value: { kind: 'auto', context_length: 10 }
+					}
+					applied.push('context memory set to 10')
+				}
+
+				// Without streaming the chat has no SSE to read, so a turn shows nothing —
+				// no thinking, no answer — until the run ends and its rows are written.
+				if (
+					isUnconfigured(value.input_transforms['streaming']) ||
+					(value.input_transforms['streaming']?.type === 'static' &&
+						value.input_transforms['streaming'].value === false)
+				) {
+					value.input_transforms['streaming'] = { type: 'static', value: true }
+					applied.push('streaming turned on')
+				}
 			}
 
 			sendUserToast(
@@ -640,42 +715,53 @@
 					: 'Chat mode enabled. Existing AI agent configuration kept unchanged.',
 				false
 			)
+			if (linkedAgent !== undefined) {
+				warnIfLinkedAgentCannotChat(linkedAgent)
+			}
 		}
 		// If there are multiple AI agents, don't auto-configure (ambiguous which one to configure)
-
-		showChatModeWarning = false
 	}
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
 <svelte:window onkeydown={handleKeydown} />
 
-<ConfirmationModal
-	open={showChatModeWarning}
-	title="Enable Chat Mode?"
-	confirmationText="Continue"
-	onConfirmed={enableChatMode}
-	onCanceled={() => {
-		showChatModeWarning = false
-		chatInputEnabled = false
-	}}
->
-	<p class="text-sm text-secondary">
-		Enabling Chat Mode will replace all existing flow inputs with a single
-		<span class="font-mono text-xs bg-surface-secondary px-1 rounded">user_message</span>
-		parameter.
-	</p>
-	<p class="text-sm text-secondary mt-2">
-		Your current input configuration will be lost. Are you sure you want to continue?
-	</p>
-</ConfirmationModal>
+<!-- The edit toggle and the add-input target, shared by both panels below: chat mode
+     carries a smaller set of side tabs, but the controls themselves must not differ. -->
+{#snippet inputsEditButton(open: boolean, toggle: () => void)}
+	<Button
+		onClick={toggle}
+		{...open
+			? {
+					title: 'Close input editor',
+					startIcon: { icon: ChevronRight },
+					btnClasses: 'rounded-none rounded-tl-md'
+				}
+			: {
+					title: 'Open input editor',
+					startIcon: { icon: Pen }
+				}}
+		variant="accent"
+		iconOnly
+		wrapperClasses="h-full"
+	/>
+{/snippet}
+
+{#snippet inputsAddTrigger()}
+	<div
+		class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
+		id="add-flow-input-btn"
+	>
+		<Plus size={14} />
+	</div>
+{/snippet}
 
 <FlowCard {noEditor} title="Flow Input">
 	{#snippet action()}
 		{#if !disabled}
 			<div class="flex items-center gap-2">
 				<Toggle
-					size="sm"
+					size="xs"
 					bind:checked={chatInputEnabled}
 					on:change={() => {
 						handleToggleChatMode()
@@ -683,20 +769,25 @@
 					options={{
 						right: 'Chat Mode',
 						rightTooltip:
-							'When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter. The flow schema will be automatically set to accept only a user_message string input.'
+							'Turns this flow\'s page into a chat. Each message runs the flow with the message as its "user_message" input, and is kept as a chat — one conversation per chat, each with its own AI agent memory.',
+						rightDocumentationLink:
+							'https://www.windmill.dev/docs/core_concepts/ai_agents#chat-mode'
 					}}
 				/>
 				{#if flowStore.val.value?.chat_input_enabled}
-					<Button
-						size="xs"
-						variant="border"
-						color={showAdditionalInputs ? 'blue' : 'light'}
-						startIcon={{ icon: Settings2 }}
-						title="Manage inputs"
-						on:click={() => (showAdditionalInputs = !showAdditionalInputs)}
-					>
-						Manage inputs
-					</Button>
+					<ToggleButtonGroup bind:selected={chatPanelTab} noWFull>
+						{#snippet children({ item })}
+							<ToggleButton size="sm" value="chat" label="Chat" icon={MessageSquare} {item} />
+							<ToggleButton
+								size="sm"
+								value="inputs"
+								label="Inputs"
+								icon={Settings2}
+								tooltip="Edit the flow inputs the chat sends alongside each message"
+								{item}
+							/>
+						{/snippet}
+					</ToggleButtonGroup>
 				{/if}
 			</div>
 		{/if}
@@ -705,11 +796,15 @@
 		<div class="flex flex-col h-full">
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex flex-col h-full">
-					{#if showAdditionalInputs}
-						<div class="border-b p-2">
+					{#if chatPanelTab === 'inputs'}
+						<!-- EditableSchemaForm scrolls internally against `h-full`, so the wrapper has
+						     to be bounded (flex-1 min-h-0) or the form grows to content height and
+						     spills out of the panel. -->
+						<div class="py-2 px-4 flex-1 min-h-0">
 							<EditableSchemaForm
+								bind:this={chatEditableSchemaForm}
 								bind:schema={flowStore.val.schema}
-								hiddenArgs={['user_message']}
+								lockedArgs={['user_message']}
 								isFlowInput
 								showSensitiveToggle
 								workspace={opWs}
@@ -722,45 +817,43 @@
 								}}
 							>
 								{#snippet openEditTab()}
-									<Button
-										size="xs"
-										variant={chatInputsEditTab ? 'contained' : 'border'}
-										color={chatInputsEditTab ? 'blue' : 'light'}
-										startIcon={{ icon: chatInputsEditTab ? ChevronRight : Pen }}
-										title={chatInputsEditTab ? 'Close editor' : 'Edit inputs'}
-										onClick={() => {
-											chatInputsEditTab = !chatInputsEditTab
-										}}
-									/>
+									{@render inputsEditButton(
+										chatInputsEditTab,
+										() => (chatInputsEditTab = !chatInputsEditTab)
+									)}
 								{/snippet}
 								{#snippet addProperty()}
 									<AddPropertyV2
 										bind:this={chatInputsAddPropertyV2}
 										bind:schema={flowStore.val.schema}
-										onAddNew={() => {}}
+										onAddNew={(argName) => {
+											chatInputsEditTab = true
+											chatEditableSchemaForm?.openField(argName)
+											refreshStateStore(flowStore)
+										}}
 									>
 										{#snippet trigger()}
-											<Button
-												size="xs"
-												color="light"
-												startIcon={{ icon: Plus }}
-												title="Add additional input"
-											>
-												Add input
-											</Button>
+											{@render inputsAddTrigger()}
 										{/snippet}
 									</AddPropertyV2>
 								{/snippet}
 							</EditableSchemaForm>
 						</div>
 					{/if}
-					<FlowChat
-						onRunFlow={runFlowWithMessage}
-						path={$pathStore}
-						hideSidebar={true}
-						useStreaming={shouldUseStreaming}
-						inputSchema={flowStore.val.schema}
-					/>
+					<!-- Hidden rather than unmounted: tearing the chat down destroys its SDK chat,
+					     which ends the stream and poller of the turn in flight, so a turn started
+					     here would finish server-side with nothing following it and the reader would
+					     come back to their own message and no answer. One display class at a time,
+					     so the two cannot race in the cascade. -->
+					<div class={chatPanelTab === 'inputs' ? 'hidden' : 'flex flex-col flex-1 min-h-0'}>
+						<FlowChat
+							onRunFlow={runFlowWithMessage}
+							path={$pathStore}
+							conversationKind="test"
+							inputSchema={flowStore.val.schema}
+							flowModules={flowStore.val.value?.modules}
+						/>
+					</div>
 				</div>
 			{:else}
 				<div class="py-2 px-4 flex-1 min-h-0">
@@ -825,22 +918,9 @@
 							<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>
 								<SideBarTab {dropdownItems} fullMenu={!!$flowInputEditorState?.selectedTab}>
 									{#snippet close_button()}
-										<Button
-											onClick={() => handleEditSchema()}
-											{...!!$flowInputEditorState?.selectedTab
-												? {
-														title: 'Close input editor',
-														startIcon: { icon: ChevronRight },
-														btnClasses: 'rounded-none rounded-tl-md'
-													}
-												: {
-														title: 'Open input editor',
-														startIcon: { icon: Pen }
-													}}
-											variant="accent"
-											iconOnly
-											wrapperClasses="h-full"
-										/>
+										{@render inputsEditButton(!!$flowInputEditorState?.selectedTab, () =>
+											handleEditSchema()
+										)}
 									{/snippet}
 								</SideBarTab>
 							</div>
@@ -890,16 +970,11 @@
 									onAddNew={(argName) => {
 										handleEditSchema('inputEditor')
 										editableSchemaForm?.openField(argName)
-										refreshFlowStateStore(flowStore)
+										refreshStateStore(flowStore)
 									}}
 								>
 									{#snippet trigger()}
-										<div
-											class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
-											id="add-flow-input-btn"
-										>
-											<Plus size={14} />
-										</div>
+										{@render inputsAddTrigger()}
 									{/snippet}
 								</AddPropertyV2>
 							{/if}

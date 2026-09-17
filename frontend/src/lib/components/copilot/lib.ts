@@ -1177,9 +1177,21 @@ export async function getCompletion(
 function extractFirstJSON(str: string) {
 	let depth = 0,
 		i = 0
+	// Braces inside string values are not depth changes, so the scan tracks
+	// quoting and escaping: otherwise an argument such as {"a": "} "} is cut short.
+	let inString = false,
+		escaped = false
 	for (; i < str.length; i++) {
-		if (str[i] === '{') depth++
-		else if (str[i] === '}' && --depth === 0) break
+		const ch = str[i]
+		if (inString) {
+			if (escaped) escaped = false
+			else if (ch === '\\') escaped = true
+			else if (ch === '"') inString = false
+			continue
+		}
+		if (ch === '"') inString = true
+		else if (ch === '{') depth++
+		else if (ch === '}' && --depth === 0) break
 	}
 	return str.slice(0, i + 1)
 }

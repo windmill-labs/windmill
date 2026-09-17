@@ -5,10 +5,12 @@
 	import LabelsInput from './LabelsInput.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
+		addResourceTypeDisplayName,
 		isCustomResourceTypeName,
 		resourceTypeDisplayName,
 		resourceTypeMatchRank,
 		resourceTypeSearchText,
+		setResourceTypeDisplayNames,
 		sortResourceTypesByMatch
 	} from './resourceTypeDisplay'
 	import {
@@ -21,9 +23,10 @@
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
 	import { registryEntryFor, registryCcCapableFor, stripSandboxSuffix } from './oauthRegistry'
-	import { createEventDispatcher, onDestroy, tick, untrack } from 'svelte'
+	import { createEventDispatcher, onDestroy, tick } from 'svelte'
 	import Path from './Path.svelte'
-	import { Button, RadioCard, Skeleton } from './common'
+	import { ListRow, RadioCard, Skeleton } from './common'
+	import { useListHighlight } from './common/listRow/listHighlight.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
 	import WhitelistIp from './WhitelistIp.svelte'
@@ -40,9 +43,16 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
+	import {
+		alphabetical,
+		byPopularity,
+		hubResourceTypePicks,
+		localResourceTypeCounts,
+		recordHubResourceTypePick
+	} from './pickerPopularity'
 	import Label from './Label.svelte'
 	import ResourcePathHint from './ResourcePathHint.svelte'
-	import { twMerge } from 'tailwind-merge'
+	import SchemaForm from './SchemaForm.svelte'
 
 	interface Props {
 		step?: number
@@ -223,6 +233,28 @@
 			| undefined
 	)
 
+	/** Fields of the resource type the provider's registry entry asks for once the token is
+	 * in (`resource_fields`): what no token response carries, like Snowflake's database. A
+	 * list rather than "every other field" because most OAuth types also hold the fields of
+	 * another way in: ServiceNow's basic-auth password, Bitbucket's app password. */
+	let resourceFields = $derived((registryEntry()?.resource_fields as string[] | undefined) ?? [])
+
+	/** Their slice of the resource type's schema, so they render with the type's own
+	 * descriptions; plain text inputs while the type is not synced from the hub. */
+	let resourceFieldsSchema = $derived.by(() => {
+		const props: Record<string, SchemaProperty> =
+			(resourceTypeInfo?.schema as any)?.properties ?? {}
+		return {
+			$schema: 'https://json-schema.org/draft/2020-12/schema',
+			type: 'object',
+			order: resourceFields,
+			properties: Object.fromEntries(
+				resourceFields.map((f) => [f, props[f] ?? { type: 'string', description: '' }])
+			),
+			required: []
+		}
+	})
+
 	/** Instance entry declares client credentials but not authorization_code
 	 * (custom provider configured with only a token URL) */
 	let authCodeUnavailable = $state(false)
@@ -332,6 +364,7 @@
 	export async function open(rt?: string) {
 		if (!rt) {
 			loadResourceTypes()
+			loadPopularity()
 		}
 		step = 1 //express && !manual ? 3 : 1
 		// The list is keyboard-driven from the search field, so it takes focus on open.
@@ -378,12 +411,29 @@
 		}
 	}
 
+	/**
+	 * Orders the browse list: the types this workspace already has resources of lead, ranked
+	 * among themselves by the hub's pick counts, then everything else on the same counts.
+	 * `byPopularity` carries the full rule. Both signals are fetched, so the rows render
+	 * alphabetically and re-sort when this lands.
+	 */
+	let popularity: (a: string, b: string) => number = $state(alphabetical)
+
+	async function loadPopularity() {
+		if (!effectiveWorkspace) return
+		const [hub, local] = await Promise.all([
+			hubResourceTypePicks(effectiveWorkspace),
+			localResourceTypeCounts(effectiveWorkspace)
+		])
+		popularity = byPopularity(hub, local)
+	}
+
 	async function loadConnects() {
 		if (!connects) {
 			try {
-				const list = (await OauthService.listOauthConnects())
-					.filter((x) => x.name != 'supabase_wizard')
-					.sort((a, b) => a.name.localeCompare(b.name))
+				const list = (await OauthService.listOauthConnects()).filter(
+					(x) => x.name != 'supabase_wizard'
+				)
 				connects = list.map((x) => x.name)
 				connectsInfo = Object.fromEntries(list.map((x) => [x.name, x]))
 			} catch (e) {
@@ -449,6 +499,7 @@
 		// $derived, so search re-ranks when they land.
 		ResourceService.listResourceType({ workspace: effectiveWorkspace })
 			.then((types) => {
+				setResourceTypeDisplayNames(types)
 				resourceTypeDescriptions = Object.fromEntries(
 					types.filter((t) => t.description).map((t) => [t.name, t.description!])
 				)
@@ -466,19 +517,17 @@
 		// providers — so any of them can also be connected with the user's own
 		// credentials or manually, not only via the shared instance setup (same as
 		// the authorization-code behavior).
-		connectsManual = availableRts
-			.map(
-				(x) =>
-					({
-						key: x,
-						...(apiTokenApps[x] ?? {
-							instructions: '',
-							img: undefined,
-							linkedSecret: undefined
-						})
-					}) as { key: string; img?: string; instructions: string[] }
-			)
-			.sort((a, b) => a.key.localeCompare(b.key))
+		connectsManual = availableRts.map(
+			(x) =>
+				({
+					key: x,
+					...(apiTokenApps[x] ?? {
+						instructions: '',
+						img: undefined,
+						linkedSecret: undefined
+					})
+				}) as { key: string; img?: string; instructions: string[] }
+		)
 		const filteredNativeLanguages = filteredConnectsManual?.filter(
 			(o) => nativeLanguagesCategory?.includes(o[0]) ?? false
 		)
@@ -606,6 +655,7 @@
 				workspace: effectiveWorkspace,
 				path: resourceType
 			})
+			addResourceTypeDisplayName(resourceTypeInfo)
 			const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
 			const newArgsKeys = Object.keys(props).filter((x) => props?.[x]?.type == 'string') ?? []
 
@@ -623,9 +673,11 @@
 	export async function next() {
 		if (step == 1) {
 			linkedSecrets = []
+			// Both branches: the OAuth one fills `resourceFields` into the same map, and fields
+			// typed into another type's form before Back would otherwise ride along.
+			args = {}
 			if (manual) {
 				getResourceTypeInfo()
-				args = {}
 			} else {
 				getResourceTypeInfo()
 				// Awaited: the popup is built from `scopes`, so advancing before this
@@ -864,10 +916,19 @@
 				)
 			}
 
-			const resourceValue = args
+			// A copy: the form is still mounted and bound to `args` across the awaits below, and
+			// puts back the default of any field removed from it.
+			const resourceValue = $state.snapshot(args)
 
 			let savedVariableCount = 0
 			if (!manual) {
+				// A field left blank is absent, not an empty string a consumer reads as a value:
+				// the Snowflake executor sends any `database` it finds, empty or not.
+				for (const f of resourceFields) {
+					if (resourceValue[f] === '' || resourceValue[f] == undefined) {
+						delete resourceValue[f]
+					}
+				}
 				// OAuth flow: single secret variable for the token
 				if (typeof value == 'string' && value != '' && !value.startsWith('$var:')) {
 					savedVariableCount++
@@ -952,6 +1013,10 @@
 					}
 				})
 			}
+			// Saving is what "picking a type" means to the hub: reaching step 2 is still
+			// browsing. Both branches above count, `filling` included — an imported stub is
+			// a type taken into the workspace just the same.
+			recordHubResourceTypePick(effectiveWorkspace, resourceType)
 			dispatch('refresh', path)
 			dispatch('close')
 			sendUserToast(
@@ -972,6 +1037,9 @@
 		if (step == 1) {
 			loadConnects()
 			loadResourceTypes()
+			// Opened on a specific type, `open()` skipped this; backing out to the browse
+			// list is the first time it is needed.
+			loadPopularity()
 		}
 	}
 
@@ -980,23 +1048,34 @@
 	let filteredConnects: { key: string }[] = $state([])
 	let filteredConnectsManual: { key: string; img?: string; instructions: string[] }[] = $state([])
 
-	// uFuzzy scores the name and the description as one string, so searching "google" ranks
-	// every type whose description mentions Google alongside the ones named after it. Re-sort
-	// on which field matched, keeping uFuzzy's order within a tier.
+	let searching = $derived(filter.trim() !== '')
+
+	// Searching, the query owns the order: uFuzzy scores the name and the description as one
+	// string, so "google" ranks every type whose description mentions Google alongside the
+	// ones named after it — re-sort on which field matched, keeping uFuzzy's order within a
+	// tier. Browsing, there is no query to rank against, so popularity orders the list.
 	const rank = (items: { key: string }[] | undefined) =>
 		items &&
-		sortResourceTypesByMatch(
-			items,
-			filter,
-			(x) => x.key,
-			(x) => resourceTypeDescriptions[x.key]
-		)
+		(searching
+			? sortResourceTypesByMatch(
+					items,
+					filter,
+					(x) => x.key,
+					(x) => resourceTypeDescriptions[x.key]
+				)
+			: // Both signals are keyed by resource type, and a sandbox client is a second row
+				// against one (`salesforce_sandbox` saves a `salesforce`), so it ranks on the
+				// parent's popularity. Its own key still breaks the tie the pair then have, or
+				// the two would order arbitrarily.
+				[...items].sort(
+					(a, b) =>
+						popularity(stripSandboxSuffix(a.key), stripSandboxSuffix(b.key)) ||
+						a.key.localeCompare(b.key)
+				))
 	let rankedConnects = $derived(rank(filteredConnects))
 	let rankedConnectsManual = $derived(
 		rank(filteredConnectsManual) as typeof filteredConnectsManual | undefined
 	)
-
-	let searching = $derived(filter.trim() !== '')
 
 	// Browsing, the "Others" list leads with the native database types. Searching, that
 	// grouping would outrank the search itself — `ms_sql_server` sorting under `mysql` on
@@ -1027,15 +1106,8 @@
 	// Both lists start undefined and render skeletons; "nothing found" only means something
 	// once they have landed.
 	let listsLoaded = $derived(rankedConnectsManual !== undefined && rankedConnects !== undefined)
-	let highlightedIndex = $state(-1)
 	const rowDomId = (index: number) => `resource-type-row-${index}`
 
-	// Set at hover time rather than up front, so only the descriptions the row actually cut
-	// off carry a tooltip.
-	function titleIfTruncated(e: MouseEvent & { currentTarget: HTMLElement }) {
-		const el = e.currentTarget
-		el.title = el.scrollWidth > el.clientWidth ? (el.textContent?.trim() ?? '') : ''
-	}
 	const oauthRowOffset = $derived(customKeys.length)
 	const otherRowOffset = $derived(customKeys.length + (rankedConnects?.length ?? 0))
 
@@ -1054,53 +1126,23 @@
 		return best
 	}
 
-	// Filtering reshuffles the rows under the highlight: point it at the best match so Enter
-	// takes the top hit, and drop it entirely once the filter is cleared.
-	$effect(() => {
-		navItems
-		filter
-		untrack(() => (highlightedIndex = searching ? bestMatchIndex() : -1))
+	const highlight = useListHighlight({
+		count: () => navItems.length,
+		rowId: rowDomId,
+		// Sections are rendered in a fixed order, so the best match is not necessarily the
+		// first row; Enter should still take the top hit.
+		restingIndex: () => (searching ? bestMatchIndex() : -1),
+		onActivate: (index) => {
+			const item = navItems[index]
+			if (!item) return
+			item.oauth ? connectOauth(item.key) : selectFromOthers(item.key)
+		},
+		activateEnterFrom: [SEARCH_INPUT_ID]
 	})
-
-	// Scrolling rows under a resting pointer makes the browser fire `mouseenter` on each one,
-	// which would drag the highlight back under the cursor as the arrow keys move it. Only a
-	// real pointer move hands the highlight back to the mouse.
-	let pointerOwnsHighlight = $state(true)
-
-	function highlightHovered(index: number) {
-		if (pointerOwnsHighlight) highlightedIndex = index
-	}
-
-	function moveHighlight(delta: number) {
-		const count = navItems.length
-		if (count === 0) return
-		pointerOwnsHighlight = false
-		// Rows are tabbable buttons, so focus can sit on one. Enter then activates whatever is
-		// focused, which has to stay the highlighted row.
-		const rowWasFocused = document.activeElement?.id?.startsWith('resource-type-row-') ?? false
-		highlightedIndex =
-			highlightedIndex < 0
-				? delta > 0
-					? 0
-					: count - 1
-				: (highlightedIndex + delta + count) % count
-		const row = document.getElementById(rowDomId(highlightedIndex))
-		row?.scrollIntoView({ block: 'nearest' })
-		if (rowWasFocused) row?.focus()
-	}
 
 	function onListKeydown(e: KeyboardEvent) {
 		if (step !== 1) return
-		if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-			e.preventDefault()
-			moveHighlight(e.key === 'ArrowDown' ? 1 : -1)
-		} else if (e.key === 'Enter' && (e.target as HTMLElement)?.id === SEARCH_INPUT_ID) {
-			// A focused row activates itself on Enter; this covers Enter typed in the search field.
-			const item = navItems[highlightedIndex]
-			if (!item) return
-			e.preventDefault()
-			item.oauth ? connectOauth(item.key) : selectFromOthers(item.key)
-		}
+		highlight.onKeydown(e)
 	}
 
 	let editScopes = $state(false)
@@ -1132,7 +1174,7 @@
 		<div
 			class="flex flex-col h-full min-h-0"
 			onkeydown={onListKeydown}
-			onpointermove={() => (pointerOwnsHighlight = true)}
+			onpointermove={highlight.pointerMoved}
 		>
 			<div class="shrink-0 pb-4">
 				<div class="relative w-full">
@@ -1146,28 +1188,6 @@
 				</div>
 			</div>
 
-			{#snippet resourceRow(key: string)}
-				<div class="flex flex-row items-center gap-4 w-full min-w-0 text-left">
-					<div class="shrink-0">
-						<IconedResourceType name={key} silent width="20px" height="20px" />
-					</div>
-					<div class="flex flex-col gap-1 min-w-0">
-						<div class="flex flex-row items-baseline gap-2 min-w-0">
-							<span class="truncate leading-5">{resourceTypeDisplayName(key)}</span>
-							<span class="shrink-0 font-mono text-2xs font-normal text-hint">{key}</span>
-						</div>
-						{#if resourceTypeDescriptions[key]}
-							<span
-								class="truncate text-xs font-normal leading-4 text-secondary"
-								onmouseenter={titleIfTruncated}
-							>
-								{plainDescription(resourceTypeDescriptions[key])}
-							</span>
-						{/if}
-					</div>
-				</div>
-			{/snippet}
-
 			{#snippet sectionHeading(title: string, count: number)}
 				<h2 class="mb-3 text-2xs font-normal uppercase text-secondary">
 					{title}{#if searching}<span class="ml-2 text-hint">{count}</span>{/if}
@@ -1175,26 +1195,29 @@
 			{/snippet}
 
 			{#snippet resourceButton(key: string, index: number, oauth: boolean)}
-				<Button
+				{#snippet icon()}
+					<IconedResourceType name={key} silent width="20px" height="20px" />
+				{/snippet}
+				{#snippet title()}
+					<span class="truncate leading-5">{resourceTypeDisplayName(key)}</span>
+					<span class="shrink-0 font-mono text-2xs font-normal text-hint">{key}</span>
+				{/snippet}
+				{#snippet subtitle()}
+					{plainDescription(resourceTypeDescriptions[key])}
+				{/snippet}
+				<!-- `highlighted`: the pointer moves the same highlight the arrow keys move, so
+				     the row's own hover is off — two lit rows at once would be ambiguous. -->
+				<ListRow
 					id={rowDomId(index)}
 					aiId={`app-connect-inner-${oauth ? 'oauth-' : ''}${key}`}
 					aiDescription={`Connect to ${key}${oauth ? ' with the instance OAuth client' : ''}`}
-					unifiedSize="md"
-					variant="subtle"
-					btnClasses={twMerge(
-						'justify-start px-3 h-auto py-3 scroll-my-2',
-						// The pointer moves the same highlight the arrow keys move, so the variant's
-						// own hover is off: two lit rows at once would be ambiguous.
-						'hover:bg-transparent',
-						// `!` so the highlight also wins on the row the pointer is over, whose own
-						// hover was turned off just above.
-						index === highlightedIndex ? '!bg-surface-hover' : ''
-					)}
-					on:mouseenter={() => highlightHovered(index)}
-					on:click={() => (oauth ? connectOauth(key) : selectFromOthers(key))}
-				>
-					{@render resourceRow(key)}
-				</Button>
+					{icon}
+					{title}
+					subtitle={resourceTypeDescriptions[key] ? subtitle : undefined}
+					highlighted={index === highlight.index}
+					onMouseEnter={() => highlight.hovered(index)}
+					onClick={() => (oauth ? connectOauth(key) : selectFromOthers(key))}
+				/>
 			{/snippet}
 
 			<div class="flex-1 min-h-0 overflow-y-auto">
@@ -1213,7 +1236,7 @@
 						{#if customKeys.length > 0}
 							<section>
 								{@render sectionHeading('Custom resource types', customKeys.length)}
-								<div class="flex flex-col gap-1">
+								<div class="flex flex-col gap-0.5">
 									{#each customKeys as key, i}
 										{@render resourceButton(key, i, false)}
 									{/each}
@@ -1227,7 +1250,7 @@
 									'Instance-configured OAuth APIs',
 									rankedConnects?.length ?? 0
 								)}
-								<div class="flex flex-col gap-1">
+								<div class="flex flex-col gap-0.5">
 									{#if rankedConnects}
 										{#each rankedConnects as { key }, i}
 											{@render resourceButton(key, oauthRowOffset + i, true)}
@@ -1259,7 +1282,7 @@
 									</div>
 								{/if}
 
-								<div class="flex flex-col gap-1">
+								<div class="flex flex-col gap-0.5">
 									{#if rankedConnectsManual}
 										{#each otherKeys as key, i}
 											{@render resourceButton(key, otherRowOffset + i, false)}
@@ -1388,6 +1411,15 @@
 						{linkedSecretCandidates}
 						{resourceType}
 						{resourceTypeInfo}
+						workspace={effectiveWorkspace}
+						onCredentialStored={() => {
+							// `forceSecretValue` files a git_repository's `url` in a secret
+							// variable, for the URLs that carry a token in them. The picker's
+							// does not: the token is stored separately, so that variable would
+							// hold nothing secret and add a second place to keep in step with
+							// the resource.
+							linkedSecrets = linkedSecrets.filter((f) => f !== 'url')
+						}}
 						bind:args
 						bind:isValid
 						onSynced={getResourceTypeInfo}
@@ -1532,7 +1564,7 @@
 					>
 
 					{#if editScopes}
-						<OauthScopes bind:scopes />
+						<OauthScopes bind:scopes options={registryEntry()?.scope_options} />
 					{:else}
 						<div class="flex flex-col gap-1">
 							{#each scopes as scope}
@@ -1566,6 +1598,17 @@
 				tooltip="Prevents this resource from being deployed to prod/staging"
 			>
 				<Toggle bind:checked={wsSpecific} />
+			</Label>
+		{/if}
+		<!-- Not for express or `fillPath`, which save as soon as the token arrives: the fields
+		     are then filled by editing the resource. -->
+		{#if step == 4 && !manual && !express && !fillPath && resourceFields.length > 0}
+			<Label
+				label="Connection details"
+				tooltip="Saved on the resource with the token, and editable later"
+				class="mt-6"
+			>
+				<SchemaForm onlyMaskPassword noDelete schema={resourceFieldsSchema} bind:args />
 			</Label>
 		{/if}
 		{#if apiTokenApps[resourceType] || !manual}

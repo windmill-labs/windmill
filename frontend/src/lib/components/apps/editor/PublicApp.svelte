@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { User, UserRoundX } from 'lucide-svelte'
 	import { applyDarkModeVariant } from '$lib/darkModeVariant'
 	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { base } from '$app/paths'
 	import { page } from '$app/state'
 	import Login from '$lib/components/Login.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { Alert, Skeleton } from '$lib/components/common'
-	import { WindmillIcon } from '$lib/components/icons'
-	import { getContext, onMount, setContext } from 'svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
+	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
+	import { getContext, setContext } from 'svelte'
 	import {
 		EMBED_NAV_CONTEXT_KEY,
 		IS_APP_PUBLIC_CONTEXT_KEY,
@@ -18,7 +18,7 @@
 	import { UserService, type AppWithLastVersion, type GlobalWhoamiResponse } from '$lib/gen'
 	import { urlParamsToObject } from '$lib/utils'
 	import { goto } from '$app/navigation'
-	import AppPreview from './AppPreview.svelte'
+	import { loadAppPreview } from './loadAppPreview'
 	import RawAppPreview from '$lib/components/raw_apps/RawAppPreview.svelte'
 	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
 	import { twMerge } from 'tailwind-merge'
@@ -28,6 +28,7 @@
 		notExists,
 		noPermission,
 		jwtError,
+		guestAppPath = undefined,
 		onLoginSuccess,
 		app,
 		workspace,
@@ -37,13 +38,16 @@
 		notExists: boolean
 		noPermission: boolean
 		jwtError: boolean
+		/** Set when this app is open to guests: signing in gets the visitor in without
+		 * an account. Undefined means the ordinary "you need read access" dead end. */
+		guestAppPath?: string | undefined
 		onLoginSuccess: () => void
 		app: (AppWithLastVersion & { value: any; workspace_id?: string }) | undefined
 		workspace: string | undefined
 		/**
 		 * In-workspace rendering (`/apps/get`, `/app_embed`): keep exact parity
 		 * with the pre-sandbox member viewer — no "Powered by Windmill" badge, no
-		 * user overlay, no HTML-result approval gate, column flex wrapper.
+		 * HTML-result approval gate, column flex wrapper.
 		 */
 		inWorkspace?: boolean
 		hideRefreshBar?: boolean
@@ -88,12 +92,12 @@
 		// console.log(user)
 	}
 
-	onMount(() => {
-		// this is to avoid loading global user if the userStore is set at loading
-		setTimeout(() => {
-			if ($userStore) return
+	// Only the no-access page reads it, to tell a signed-in non-member which
+	// workspace the app belongs to.
+	$effect(() => {
+		if (noPermission && !guestAppPath && !$userStore && !globalUser) {
 			loadGlobalUser()
-		}, 2000)
+		}
 	})
 </script>
 
@@ -107,18 +111,6 @@
 			>Powered by &nbsp;<WindmillIcon />&nbsp;Windmill</a
 		>
 	</div>
-
-	{#snippet userInfo(child)}
-		<div class="flex gap-1 items-center"><User size={14} />{child}</div>
-	{/snippet}
-
-	<div class="z-50 text-2xs text-primary absolute top-3 left-2"
-		>{#if $userStore}
-			{@render userInfo($userStore.username)}
-		{:else if globalUser}
-			{@render userInfo(globalUser.email)}
-		{:else}<UserRoundX size={14} />{/if}
-	</div>
 {/if}
 
 {#if notExists}
@@ -128,17 +120,31 @@
 		</Alert></div
 	>
 {:else if noPermission}
-	<div class="px-4 mt-20 w-full text-center font-bold text-xl"> This app requires read access </div>
-	<div class="text-center mt-8 text-sm text-primary">
-		{#if $userStore}You are logged in but have no read access to this app{:else if globalUser && effectiveWorkspace}
-			You are logged in but are not a member of the workspace <span class="text-xl font-bold"
-				>{effectiveWorkspace}</span
-			> this app is part of
-		{:else}You must be logged in and have read access to this app{/if}</div
-	>
+	{#if guestAppPath && !$userStore}
+		<div class="px-4 mt-20 w-full text-center font-bold text-xl"> Sign in to open this app </div>
+		<div class="text-center mt-8 text-sm text-primary">
+			You do not need a Windmill account. Signing in lets you open this app and nothing else.
+		</div>
+	{:else}
+		<div class="px-4 mt-20 w-full text-center font-bold text-xl">
+			This app requires read access
+		</div>
+		<div class="text-center mt-8 text-sm text-primary">
+			{#if $userStore}You are logged in but have no read access to this app{:else if globalUser && effectiveWorkspace}
+				You are logged in but are not a member of the workspace <span class="text-xl font-bold"
+					>{effectiveWorkspace}</span
+				> this app is part of
+			{:else}You must be logged in and have read access to this app{/if}</div
+		>
+	{/if}
 	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
 		{#if !jwtError}
-			<Login {onLoginSuccess} popup rd={page.url.pathname + page.url.search + page.url.hash} />
+			<Login
+				{onLoginSuccess}
+				popup
+				guestApp={guestAppPath}
+				rd={page.url.pathname + page.url.search + page.url.hash}
+			/>
 		{/if}
 	</div>
 {:else if app}
@@ -170,27 +176,35 @@
 				)}
 				style={app?.value?.['css']?.['app']?.['viewer']?.style}
 			>
-				<AppPreview
-					noBackend={false}
-					{hideRefreshBar}
-					context={{
-						email: $userStore?.email,
-						name: $userStore?.name,
-						groups: $userStore?.groups,
-						username: $userStore?.username,
-						query: urlParamsToObject(page.url.searchParams, { stripReserved: true }),
-						hash: page.url.hash.substring(1)
-					}}
-					workspace={effectiveWorkspace}
-					summary={app.summary}
-					app={app.value}
-					appPath={app.path}
-					{breakpoint}
-					policy={app.policy}
-					isEditor={false}
-					replaceStateFn={(path) => goto(path)}
-					gotoFn={(path, opt) => (embedNav ? embedNav.navigateTop(path) : goto(path, opt))}
-				/>
+				{#await loadAppPreview()}
+					<Skeleton layout={[[4], 0.5, [50]]} />
+				{:then Module}
+					<Module.default
+						noBackend={false}
+						{hideRefreshBar}
+						context={{
+							email: $userStore?.email,
+							name: $userStore?.name,
+							groups: $userStore?.groups,
+							username: $userStore?.username,
+							query: urlParamsToObject(page.url.searchParams, { stripReserved: true }),
+							hash: page.url.hash.substring(1)
+						}}
+						workspace={effectiveWorkspace}
+						summary={app.summary}
+						app={app.value}
+						appPath={app.path}
+						{breakpoint}
+						policy={app.policy}
+						isEditor={false}
+						replaceStateFn={(path) => goto(path)}
+						gotoFn={(path, opt) => (embedNav ? embedNav.navigateTop(path) : goto(path, opt))}
+					/>
+				{:catch}
+					<div class="px-4 mt-20 w-full">
+						<Alert type="error" title="Could not load the app">Reload the page to try again.</Alert>
+					</div>
+				{/await}
 			</div>
 		{/if}
 	{/key}

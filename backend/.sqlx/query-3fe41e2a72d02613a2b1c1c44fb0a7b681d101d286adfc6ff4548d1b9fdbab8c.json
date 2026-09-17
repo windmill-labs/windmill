@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT super_admin AS \"super_admin!\" FROM password WHERE email = $1 AND disabled = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "super_admin!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3fe41e2a72d02613a2b1c1c44fb0a7b681d101d286adfc6ff4548d1b9fdbab8c"
+}

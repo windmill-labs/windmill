@@ -30,14 +30,18 @@ Open-source platform for internal tools, workflows, API integrations, background
   reaches the DB only through the API, so `Connection::Http` paths are never taken by a plain
   `cargo run`; a normal build cannot start one at all.
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
+- **Auth surface**: `docs/auth-surface.md` — credential precedence, session/cache invalidation
+  scope, which token labels email their owner at expiry, how OAuth login matches `login_type`, and
+  that every superadmin route refuses `$WM_TOKEN`. Read before designing anything that creates
+  users, tokens or sessions.
 - **Product telemetry**: `docs/feature-telemetry.md` — when to instrument a new feature with
   `feature_usage`, and the four-step recipe. An unregistered `(feature, kind)` pair is dropped
   silently, so frontend-only instrumentation records nothing.
 - **Backend patterns**: use the `rust-backend` skill when writing Rust code
 - **Frontend patterns**: use the `svelte-frontend` skill when writing Svelte code. Do NOT edit svelte files unless you have read that skill.
 - **Frontend UUIDs**: do not call `crypto.randomUUID()` in frontend code. Import `randomUUID` from `$lib/utils/uuid` instead.
-- **Code review**: review the current PR or branch against the shared review policy in `REVIEW.md` (severity triage, public-surface checklist, AGENTS.md compliance, test-coverage assessment). The skill at `.agents/skills/local-review/SKILL.md` orchestrates it. All three CLIs auto-discover the same SKILL — Claude reads `.claude/skills/` (symlinked to the canonical `.agents/skills/` file), Codex and Pi read `.agents/skills/` directly. Invoke with `/local-review` in Claude Code, `$local-review` (or `/skills` selector) in Codex, or `pi --skill local-review` / `/skill:local-review` in Pi. For a Codex-driven pass that mirrors the `codex-pr-review` GitHub action against your unpushed work (committed + uncommitted) before you push, use `/local-review-codex` (`.agents/skills/local-review-codex/`) — same `REVIEW.md` policy, `gpt-5.6-sol`, `xhigh` reasoning; requires the `codex` CLI >= 0.144.1.
-- **Domain guides**: `.claude/skills/native-trigger/` and `frontend/tutorial-system-guide.mdc`
+- **Code review**: review the current PR or branch against the shared review policy in `REVIEW.md` (severity triage, public-surface checklist, AGENTS.md compliance, test-coverage assessment). The skill at `.agents/skills/local-review/SKILL.md` orchestrates it. All three CLIs auto-discover the same SKILL — Claude reads `.claude/skills/` (symlinked to the canonical `.agents/skills/` file), Codex and Pi read `.agents/skills/` directly. Invoke with `/local-review` in Claude Code, `$local-review` (or `/skills` selector) in Codex, or `pi --skill local-review` / `/skill:local-review` in Pi. For a Codex-driven pass that mirrors the `codex-pr-review` GitHub action against your unpushed work (committed + uncommitted) before you push, use `/local-review-codex` (`.agents/skills/local-review-codex/`) — same `REVIEW.md` policy and `xhigh` reasoning, on `gpt-6-astra` rather than the action's `gpt-5.6-sol`; requires the `codex` CLI >= 0.153.4.
+- **Domain guides**: `.claude/skills/native-trigger/`
 - **Brand/UI guidelines**: `frontend/brand-guidelines.md`
 - **Domain vocabulary**: `CONTEXT.md` — the words this codebase uses for its own concepts (step, step setting, trigger step, …). Name things the way it does.
 - **CLI commands**: when adding/modifying/removing a command, subcommand, option, or description in `cli/src/commands/`, run `python system_prompts/generate.py` to refresh `system_prompts/auto-generated/` and `cli/src/guidance/skills.gen.ts`. The CLI docs the agents use to operate `wmill` are derived from the source — stale generated files give agents the wrong flags.

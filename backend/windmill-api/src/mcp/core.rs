@@ -12,7 +12,9 @@ use windmill_mcp::common::transform::transform_property_keys;
 use windmill_mcp::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, WorkspaceInfo,
 };
-use windmill_mcp::server::{BackendResult, EndpointTool, ErrorData, McpBackend, PathFilter};
+use windmill_mcp::server::{
+    BackendResult, EndpointTool, ErrorData, McpBackend, McpRequest, PathFilter,
+};
 
 use crate::auth::AuthCache;
 use crate::db::ApiAuthed;
@@ -214,8 +216,11 @@ impl McpBackend for WindmillBackend {
         workspace_id: &str,
         path: &str,
         args: Value,
+        request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
-        let push_args = prepare_push_args(args);
+        let push_args = prepare_push_args(&self.db, workspace_id, path, false, args, request)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         let result = run_wait_result_script_by_path_internal(
             self.db.clone(),
@@ -238,8 +243,11 @@ impl McpBackend for WindmillBackend {
         workspace_id: &str,
         path: &str,
         args: Value,
+        request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
-        let push_args = prepare_push_args(args);
+        let push_args = prepare_push_args(&self.db, workspace_id, path, true, args, request)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         let result = run_wait_result_flow_by_path_internal(
             self.db.clone(),

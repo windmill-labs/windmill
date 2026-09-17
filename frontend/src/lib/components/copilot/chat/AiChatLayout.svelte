@@ -7,6 +7,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { chatState } from './sharedChatState.svelte'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
+	import { copilotInfo } from '$lib/aiStore'
 	import { aiChatManager } from './AIChatManager.svelte'
 	import { onDestroy } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -63,6 +64,14 @@
 	$effect(() => {
 		if ($workspaceStore && loadAiConfig) {
 			loadCopilot($workspaceStore)
+		}
+	})
+
+	// The pane restores its last open state from localStorage before the config can say
+	// the workspace hid the assistant; close it as soon as that is known.
+	$effect(() => {
+		if ($copilotInfo.workspaceDisabled && chatState.size > 0) {
+			aiChatManager.closeChat()
 		}
 	})
 

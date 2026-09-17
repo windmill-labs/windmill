@@ -161,6 +161,13 @@ export interface ToolCallArgumentRule {
   stringStartsWithAnyOf?: string[];
   stringMustNotStartWithAnyOf?: string[];
   /**
+   * Universal over calls: every recorded call to `tool` must carry `field` as
+   * exactly one of these strings. Use when a near-miss would still satisfy a
+   * prefix — a resource reference like `$res:f/a/b` shares its prefix with the
+   * wrong `$res:f/a/b_backup`, and the mock never resolves it to catch that.
+   */
+  stringEqualsAnyOf?: string[];
+  /**
    * Case-insensitive "contains", existential over calls: at least one recorded
    * call to `tool` must have `field` containing one of these substrings. Other
    * calls to the same tool may do anything. Use instead of `stringStartsWithAnyOf`

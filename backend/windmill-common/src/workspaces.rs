@@ -71,6 +71,7 @@ bitflags::bitflags! {
         const RESTRICT_DEPLOY_TO_DEPLOYERS =        1 << 2;
         const RESTRICT_ANONYMOUS_APP_DEPLOYMENT =   1 << 3;
         const RESTRICT_PUBLIC_RUN_SHARING =         1 << 4;
+        const RESTRICT_GUEST_APP_DEPLOYMENT =       1 << 5;
     }
 }
 
@@ -83,6 +84,7 @@ pub enum ProtectionRuleKind {
     RestrictDeployToDeployers,
     RestrictAnonymousAppDeployment,
     RestrictPublicRunSharing,
+    RestrictGuestAppDeployment,
 }
 
 impl ProtectionRuleKind {
@@ -103,6 +105,9 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::RestrictPublicRunSharing => {
                 ProtectionRules::RESTRICT_PUBLIC_RUN_SHARING
             }
+            ProtectionRuleKind::RestrictGuestAppDeployment => {
+                ProtectionRules::RESTRICT_GUEST_APP_DEPLOYMENT
+            }
         }
     }
 
@@ -120,6 +125,9 @@ impl ProtectionRuleKind {
             }
             ProtectionRuleKind::RestrictPublicRunSharing => {
                 "Sharing a run publicly (readable without login) is restricted in this workspace"
+            }
+            ProtectionRuleKind::RestrictGuestAppDeployment => {
+                "Opening an app to guests (anyone who can sign in) is restricted in this workspace"
             }
         }
     }
@@ -175,7 +183,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28911/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28969/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -183,7 +191,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28911/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28910/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28957/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -337,13 +345,14 @@ pub struct GitRepositorySettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_pull: Option<AutoPullSettings>,
     /// Open a PR when a deploy pushes a `wm_deploy/**` branch of this promotion
-    /// repo (app-backed only; runs from the deploy callback so it works without
+    /// repo (needs a credential the server holds — a GitHub App installation or
+    /// a checked GitLab token; runs from the deploy callback so it works without
     /// inbound webhooks). Off by default so upgrades don't change behavior.
     #[serde(default, skip_serializing_if = "is_false")]
     pub promotion_open_prs: bool,
     /// Parent-level: open a PR when a fork of this workspace deploys to its
-    /// `wm-fork/**` branch (app-backed only; the fork's deploy callback reads
-    /// this from the parent). Off by default.
+    /// `wm-fork/**` branch (needs a credential the server holds; the fork's
+    /// deploy callback reads this from the parent). Off by default.
     #[serde(default, skip_serializing_if = "is_false")]
     pub fork_open_prs: bool,
     /// Server-owned: the last failure opening a PR for a deploy branch of this
@@ -352,6 +361,10 @@ pub struct GitRepositorySettings {
     /// successful PR; never accepted from clients.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_pr_error: Option<String>,
+    /// Server-owned: what the repo's credential says about its own expiry and
+    /// scopes. Written by the credential check, never accepted from clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<GitCredentialStatus>,
 }
 
 impl GitRepositorySettings {
@@ -395,6 +408,44 @@ pub enum AutoPullMode {
     Webhook,
     /// Polling only (`git ls-remote` on an interval).
     Polling,
+}
+
+/// Host whose credential lifecycle Windmill can manage from the repo URL.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum GitCredentialProvider {
+    Gitlab,
+}
+
+/// What the repo's own credential says about itself, refreshed by asking the
+/// host. Server-owned: written by the credential check, never accepted from a
+/// client.
+///
+/// Absent means the check has not run or the repo carries no credential we can
+/// introspect (a GitHub App repo mints tokens per call and has nothing to expire).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GitCredentialStatus {
+    pub provider: GitCredentialProvider,
+    /// Changes on every rotation, so it identifies the current token, not the
+    /// credential's whole history.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_id: Option<i64>,
+    /// `None` is a non-expiring token, which only self-managed GitLab can issue
+    /// (and only for a service account). It means no warning and no rotation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<chrono::NaiveDate>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
+    /// Whether *this workspace* renews the credential. That needs a scope which
+    /// permits it (`api` or `self_rotate`) and a credential this workspace holds:
+    /// a token carried in the repository URL is the operator's to manage, and one
+    /// resolved from an ancestor is the ancestor's, so neither is renewed here.
+    pub rotatable: bool,
+    /// Unix timestamp (seconds) of the last check.
+    pub checked_at: i64,
+    /// Why the last check or rotation failed, cleared by the next success.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Outcome of the most recent auto-pull attempt, surfaced in the UI.
@@ -463,6 +514,11 @@ pub struct AutoPullSettings {
     pub last_synced_sha: std::collections::HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_pull_status: Option<AutoPullStatus>,
+    /// Email of the admin this repository's automatic pulls (its own and its forks')
+    /// apply changes as: whoever last saved the settings with auto pull on. Stamped
+    /// server-side, never taken from the client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled_by: Option<String>,
 }
 
 // Manual Debug so the HMAC `webhook_secret` (even encrypted) never lands in logs.
@@ -473,6 +529,7 @@ impl std::fmt::Debug for AutoPullSettings {
             .field("mode", &self.mode)
             .field("poll_interval_s", &self.poll_interval_s)
             .field("sync_forks", &self.sync_forks)
+            .field("enabled_by", &self.enabled_by)
             .field("webhook_id", &self.webhook_id)
             .field(
                 "webhook_secret",
@@ -508,9 +565,10 @@ impl AutoPullSettings {
     /// Whether a freshly observed `(git_ref, head_sha)` warrants enqueuing a pull.
     ///
     /// A trigger (poll or webhook) is only a hint: we pull when auto-pull is
-    /// enabled and the observed head differs from the last sha we synced for
-    /// that ref. Re-observing the same head (e.g. a redundant poll, or the
-    /// commit our own deploy callback just pushed back) is a no-op.
+    /// enabled and the observed head differs from the last sha we pulled for
+    /// that ref. Re-observing the same head (a redundant poll) is a no-op. A
+    /// commit our own deploy pushed is not: pushes never write here, so the pull
+    /// it triggers picks up anything pushed under it.
     pub fn should_pull(&self, git_ref: &str, head_sha: &str) -> bool {
         self.enabled && self.last_synced_sha.get(git_ref).map(String::as_str) != Some(head_sha)
     }
@@ -765,6 +823,223 @@ pub struct BillableSeats {
     pub developers: i64,
     pub operators: i64,
     pub seats: i64,
+}
+
+/// Guests are free up to `FREE_GUESTS_PER_WINDOW` distinct emails over the trailing
+/// `GUEST_WINDOW_DAYS`. Past that, an Enterprise plan meters them, `GUESTS_PER_SEAT`
+/// guests to one seat, while every other plan and build stops admitting new emails.
+pub const GUEST_WINDOW_DAYS: i32 = 30;
+pub const FREE_GUESTS_PER_WINDOW: i64 = 100;
+pub const GUESTS_PER_SEAT: i64 = 4;
+
+/// Whether guests past the allowance are metered (Enterprise plan) rather than refused.
+/// A build without `enterprise` has no plan and is capped, like a Pro key.
+pub async fn guests_are_metered() -> bool {
+    #[cfg(feature = "enterprise")]
+    {
+        matches!(
+            crate::ee_oss::get_license_plan().await,
+            crate::ee_oss::LicensePlan::Enterprise
+        )
+    }
+    #[cfg(not(feature = "enterprise"))]
+    {
+        false
+    }
+}
+
+/// Seats the guests past the free allowance consume: `ceil(billable / GUESTS_PER_SEAT)`.
+pub fn guest_seats(distinct_guests: i64) -> i64 {
+    let billable = (distinct_guests - FREE_GUESTS_PER_WINDOW).max(0);
+    (billable + GUESTS_PER_SEAT - 1) / GUESTS_PER_SEAT
+}
+
+/// Distinct guest emails over the trailing window, today included.
+pub async fn guest_count_in_window<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
+    executor: E,
+) -> Result<i64> {
+    sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT email) FROM guest_activity WHERE day > CURRENT_DATE - $1",
+    )
+    .bind(GUEST_WINDOW_DAYS)
+    .fetch_one(executor)
+    .await
+    .map_err(|e| Error::internal_err(format!("counting guests: {e:#}")))
+}
+
+/// The instance's standing against the guest allowance, as every surface reports it.
+#[derive(Clone, Debug, Serialize)]
+pub struct GuestUsage {
+    /// Whether this deployment can admit guests at all ([`instance_supports_guests`]).
+    /// Off, every other field is moot and no switch below can turn guests on.
+    pub available: bool,
+    /// The superadmin switch (`GUEST_ACCESS_DISABLED_SETTING`), which every workspace
+    /// switch sits under. Reported as stored, so a superadmin sees what they set even
+    /// where `available` overrules it.
+    pub instance_enabled: bool,
+    /// Distinct guest emails over the trailing `window_days`.
+    pub guest_count: i64,
+    pub window_days: i32,
+    pub free_allowance: i64,
+    /// Enterprise plan: guests past the allowance take `guest_seats`. Otherwise no new
+    /// email is admitted past it.
+    pub metered: bool,
+    pub billable_guests: i64,
+    pub guest_seats: i64,
+}
+
+/// What a caller is told when it asks for guests on a deployment that cannot have them.
+pub const GUESTS_UNAVAILABLE_MESSAGE: &str =
+    "Guest access is not available on Windmill Cloud. It requires a self-hosted instance \
+     or a dedicated Windmill Cloud deployment.";
+
+/// Whether guests can exist on this deployment at all. They cannot on the shared cloud:
+/// a guest is an identity Windmill itself never vouched for, admitted on the say-so of
+/// whoever runs the instance, which is not a call a multi-tenant deployment can make for
+/// its tenants. Folded into every guest gate below, so a workspace switch or an app
+/// policy left saying `guest` is inert rather than honored.
+pub fn instance_supports_guests() -> bool {
+    !*crate::worker::CLOUD_HOSTED
+}
+
+/// [`instance_supports_guests`] as an error, for the writes that would otherwise store a
+/// setting that can never take effect.
+pub fn require_guest_support() -> Result<()> {
+    if instance_supports_guests() {
+        Ok(())
+    } else {
+        Err(Error::BadRequest(GUESTS_UNAVAILABLE_MESSAGE.to_string()))
+    }
+}
+
+/// SQL for the superadmin switch alone, absent meaning on. The setting is read as text
+/// before the cast so `true` and `"true"` both count.
+fn instance_switch_sql() -> String {
+    format!(
+        "NOT COALESCE((SELECT (value #>> '{{}}')::boolean FROM global_settings \
+         WHERE name = '{}'), false)",
+        crate::global_settings::GUEST_ACCESS_DISABLED_SETTING
+    )
+}
+
+/// SQL for "the instance admits guests": the superadmin switch, under
+/// [`instance_supports_guests`].
+fn instance_admits_guests_sql() -> String {
+    if !instance_supports_guests() {
+        return "false".to_string();
+    }
+    instance_switch_sql()
+}
+
+pub async fn guest_usage(db: &crate::DB) -> Result<GuestUsage> {
+    let instance_switch = instance_switch_sql();
+    let instance_enabled: bool = sqlx::query_scalar(&format!("SELECT {instance_switch}"))
+        .fetch_one(db)
+        .await
+        .map_err(|e| Error::internal_err(format!("reading the instance guest switch: {e:#}")))?;
+    let guest_count = guest_count_in_window(db).await?;
+    let metered = guests_are_metered().await;
+    let billable_guests = if metered {
+        (guest_count - FREE_GUESTS_PER_WINDOW).max(0)
+    } else {
+        0
+    };
+    Ok(GuestUsage {
+        available: instance_supports_guests(),
+        instance_enabled,
+        guest_count,
+        window_days: GUEST_WINDOW_DAYS,
+        free_allowance: FREE_GUESTS_PER_WINDOW,
+        metered,
+        billable_guests,
+        guest_seats: if metered { guest_seats(guest_count) } else { 0 },
+    })
+}
+
+/// Whether `email` may be admitted as a guest right now. Checked once, where a session
+/// is minted: a returning guest (already in the window) is always let back in, so the
+/// cap only ever refuses a stranger, and a metered instance refuses nobody.
+///
+/// Must run inside the transaction that then records the guest in `guest_activity`:
+/// it takes a transaction-scoped lock so concurrent strangers count each other, and the
+/// lock is what keeps the cap exact rather than approximate.
+pub async fn guest_admission(conn: &mut sqlx::PgConnection, email: &str) -> Result<()> {
+    if guests_are_metered().await {
+        return Ok(());
+    }
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('guest_allowance'))")
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| Error::internal_err(format!("locking the guest allowance: {e:#}")))?;
+    let (in_window, count): (bool, i64) = sqlx::query_as(
+        "SELECT
+            EXISTS(SELECT 1 FROM guest_activity WHERE email = $1 AND day > CURRENT_DATE - $2),
+            (SELECT COUNT(DISTINCT email) FROM guest_activity WHERE day > CURRENT_DATE - $2)",
+    )
+    .bind(email)
+    .bind(GUEST_WINDOW_DAYS)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(|e| Error::internal_err(format!("checking the guest allowance: {e:#}")))?;
+    if in_window || count < FREE_GUESTS_PER_WINDOW {
+        return Ok(());
+    }
+    Err(Error::PermissionDenied(format!(
+        "This instance has reached its limit of {FREE_GUESTS_PER_WINDOW} guests over \
+         {GUEST_WINDOW_DAYS} days. Guest sign-in beyond that needs an Enterprise license."
+    )))
+}
+
+/// Whether a guest session for `email` in `w_id` still stands: the instance and the
+/// workspace admit guests, and the email still has no account. Read at the auth door on
+/// every guest request, so turning either switch off, or an account provisioned after
+/// the mint (or racing it), ends the session on its next request.
+pub async fn guest_session_stands(db: &crate::DB, w_id: &str, email: &str) -> Result<bool> {
+    let instance_admits = instance_admits_guests_sql();
+    let stands: Option<bool> = sqlx::query_scalar(&format!(
+        "SELECT guest_access_enabled
+            AND {instance_admits}
+            AND NOT EXISTS(SELECT 1 FROM password WHERE email = $2)
+            AND NOT EXISTS(SELECT 1 FROM usr WHERE email = $2)
+         FROM workspace_settings WHERE workspace_id = $1"
+    ))
+    .bind(w_id)
+    .bind(email)
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("checking the guest session of {email}: {e:#}")))?;
+    Ok(stands.unwrap_or(false))
+}
+
+/// Every switch at once: the instance's, the workspace's, and `app_path` being in
+/// `guest` execution mode. The single answer to "may a guest session be minted for this
+/// app", used by the mint itself and by the sign-in branch that decides whether to call
+/// it. A missing app or a policy with no stated mode reads as "no". The allowance is
+/// `guest_admission`.
+pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
+    executor: E,
+    w_id: &str,
+    app_path: &str,
+) -> Result<bool> {
+    // The mint refuses a path it cannot scope, so discovery must not advertise one.
+    if !crate::auth::is_scope_literal_path(app_path) {
+        return Ok(false);
+    }
+    let instance_admits = instance_admits_guests_sql();
+    let admits: Option<bool> = sqlx::query_scalar(&format!(
+        "SELECT COALESCE(ws.guest_access_enabled AND app.policy->>'execution_mode' = 'guest', false)
+            AND {instance_admits}
+         FROM app JOIN workspace_settings ws ON ws.workspace_id = app.workspace_id
+         WHERE app.workspace_id = $1 AND app.path = $2"
+    ))
+    .bind(w_id)
+    .bind(app_path)
+    .fetch_optional(executor)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!("checking guest access to {w_id}/{app_path}: {e:#}"))
+    })?;
+    Ok(admits.unwrap_or(false))
 }
 
 /// Billable members of `w_id` and the seats they cost, as `ceil(developers + operators/2)`. Service
@@ -1511,6 +1786,48 @@ pub async fn workspace_with_fork_ancestors(db: &crate::DB, w_id: &str) -> Result
     chain.push(w_id.to_string());
     chain.extend(fork_ancestor_chain(db, w_id).await?);
     Ok(chain)
+}
+
+/// The nearest fork ancestor of `w_id` holding a row at `path` in `table`, or `None` when no
+/// ancestor does (or `w_id` is not a fork). Fork creation clones trigger and schedule rows down
+/// the whole chain, so a row shares its upstream identifier (Kafka group, PG slot, cron) with
+/// every ancestor that still has one, not just the direct parent, which may have deleted its
+/// copy since.
+///
+/// Runs on the caller's connection so it sees the caller's transaction, and uncached: the
+/// answer depends on the target table, not only on lineage.
+///
+/// `table` is interpolated into SQL, hence `'static`: a trigger's `TABLE_NAME` or a literal,
+/// never caller input. Reads lineage for any `w_id` with no authorization check, like
+/// [`fork_ancestor_chain`], so the caller must already be authorized for `w_id`.
+pub async fn nearest_fork_ancestor_having(
+    conn: &mut sqlx::PgConnection,
+    table: &'static str,
+    w_id: &str,
+    path: &str,
+) -> Result<Option<String>> {
+    sqlx::query_scalar(&format!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT chain.id FROM chain
+            JOIN {table} t ON t.workspace_id = chain.id AND t.path = $2
+            WHERE chain.depth > 0
+            ORDER BY chain.depth LIMIT 1
+        "#
+    ))
+    .bind(w_id)
+    .bind(path)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(|e| Error::internal_err(format!("resolving fork ancestors of {w_id}: {e:#}")))
 }
 
 lazy_static::lazy_static! {
@@ -2440,6 +2757,7 @@ mod tests {
             webhook_secret: None,
             webhook_url: None,
             webhook_error: None,
+            enabled_by: None,
             last_synced_sha: synced
                 .iter()
                 .map(|(r, s)| (r.to_string(), s.to_string()))
@@ -2803,4 +3121,18 @@ pub async fn dbt_warehouse_resource(
         .and_then(|t| t.as_str())
         .map(|t| t.to_string());
     Ok((path, target))
+}
+
+#[cfg(test)]
+mod guest_allowance_tests {
+    use super::*;
+
+    #[test]
+    fn guest_seats_round_up_past_the_allowance() {
+        assert_eq!(guest_seats(0), 0);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW), 0);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW + 1), 1);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW + GUESTS_PER_SEAT), 1);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW + GUESTS_PER_SEAT + 1), 2);
+    }
 }

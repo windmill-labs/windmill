@@ -408,16 +408,6 @@ pub fn create_empty_dir(path: &PathBuf) -> std::io::Result<()> {
     }
 }
 
-/// Signals a detached `spawn_blocking` task that the future awaiting it is
-/// gone, so it can stop instead of running to completion in the background.
-struct AbortOnDrop(std::sync::Arc<std::sync::atomic::AtomicBool>);
-
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
-}
-
 /// Lay down the tree of an app-backed repository, which git can't clone
 /// because its URL carries no credential.
 ///
@@ -490,7 +480,7 @@ async fn fetch_repo_archive(
         // stopping it, so the flag is what a cancelled job uses to reach the
         // extraction loop. The guard sets it when this future is dropped.
         let aborted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let _abort_on_drop = AbortOnDrop(aborted.clone());
+        let _abort_on_drop = crate::common::AbortOnDrop(aborted.clone());
         let unpack_archive = download_archive.clone();
         tokio::task::spawn_blocking(move || {
             unpack_repo_archive(&unpack_archive, &download_target, &aborted)

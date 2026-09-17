@@ -38,8 +38,8 @@ use windmill_common::{
     FlowVersionInfo, DB,
 };
 use windmill_queue::{
-    cancel_job, get_result_and_success_by_id_from_flow, push, PushArgs, PushArgsOwned,
-    PushIsolationLevel,
+    cancel_job, get_result_and_success_by_id_from_flow, parse_result_object, push, PushArgs,
+    PushArgsOwned, PushIsolationLevel,
 };
 
 use crate::types::RunJobQuery;
@@ -374,9 +374,9 @@ pub async fn run_wait_result_internal(
 }
 
 pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result<Response> {
-    let composite_result = serde_json::from_str::<WindmillCompositeResult>(result.get());
+    let composite_result = parse_result_object::<WindmillCompositeResult>(result.get());
     match composite_result {
-        Ok(WindmillCompositeResult {
+        Some(WindmillCompositeResult {
             windmill_status_code,
             windmill_content_type,
             windmill_headers,
@@ -416,17 +416,53 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
 
             let mut headers = HeaderMap::new();
 
+            // A reverse proxy consumes hop-by-hop headers instead of forwarding them and
+            // drops every header named by `Connection`, so a script could use one to strip
+            // the sandbox headers this function adds before they reach the browser.
+            const HOP_BY_HOP_HEADERS: [&str; 9] = [
+                "connection",
+                "keep-alive",
+                "proxy-authenticate",
+                "proxy-authorization",
+                "proxy-connection",
+                "te",
+                "trailer",
+                "transfer-encoding",
+                "upgrade",
+            ];
+
             if let Some(windmill_headers) = windmill_headers {
                 for (k, v) in windmill_headers {
                     let k = HeaderName::from_str(k.as_str()).map_err(|err| {
                         Error::internal_err(format!("Invalid header name {k}: {err}"))
                     })?;
+                    if HOP_BY_HOP_HEADERS.contains(&k.as_str()) {
+                        return Err(Error::ExecutionErr(format!(
+                            "windmill_headers cannot set the hop-by-hop header \"{k}\""
+                        )));
+                    }
                     let v = HeaderValue::from_str(v.as_str()).map_err(|err| {
                         Error::internal_err(format!("Invalid header value {v}: {err}"))
                     })?;
                     headers.insert(k, v);
                 }
             }
+
+            // The script controls the content type and body, and run_wait_result and sync
+            // HTTP routes are reachable by top-level GET navigation with the session cookie:
+            // sandbox the document into an opaque origin so HTML can never run with the
+            // viewer's session. Inserted after `wm_headers` so a script cannot override it.
+            headers.insert(
+                http::header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            );
+            headers.insert(
+                http::header::CONTENT_SECURITY_POLICY,
+                HeaderValue::from_static(
+                    "sandbox allow-scripts allow-forms allow-popups \
+                     allow-popups-to-escape-sandbox allow-downloads allow-modals",
+                ),
+            );
 
             if let Some(content_type) = windmill_content_type {
                 let serialized_json_result = result_value
@@ -632,10 +668,17 @@ pub async fn handle_chat_conversation_messages(
     flow_path: &str,
     run_query: &RunJobQuery,
     user_message_raw: Option<&Box<serde_json::value::RawValue>>,
+    job_id: Uuid,
+    is_test: bool,
 ) -> error::Result<()> {
+    // Names the query parameter rather than the field: it is not a flow argument, and
+    // supplying it as one is the first thing tried on reading `memory_id is required`.
     let memory_id = run_query.memory_id.ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
-            "memory_id is required for chat-enabled flows".to_string(),
+            "memory_id is required for chat-enabled flows. Pass it as the `memory_id` query \
+             parameter, not as a flow argument: it names the conversation the turn belongs to, \
+             so a fresh UUID starts one and reusing a UUID continues it."
+                .to_string(),
         )
     })?;
 
@@ -659,13 +702,17 @@ pub async fn handle_chat_conversation_messages(
         &authed.username,
         &user_message,
         memory_id,
+        is_test,
     )
     .await?;
 
+    // The run this message started. Its args are the only record of what the message
+    // carried besides its text — attachments and every other flow input — and nothing
+    // written later points at them: an assistant row holds the AI agent step's job.
     add_message_to_conversation_tx(
         tx,
         memory_id,
-        None,
+        Some(job_id),
         &user_message,
         MessageType::User,
         None,
@@ -790,6 +837,8 @@ pub async fn run_flow<'c>(
             &flow_path.to_string(),
             &run_query,
             args.args.get("user_message"),
+            uuid,
+            false,
         )
         .await?;
     }
@@ -1104,6 +1153,65 @@ mod result_to_response_tests {
             resp.headers().get(http::header::CONTENT_TYPE).unwrap(),
             "text/html"
         );
+        assert_sandboxed(resp.headers());
         assert_eq!(body_bytes(resp).await, b"<h1>hi</h1>");
+    }
+
+    fn assert_sandboxed(headers: &HeaderMap) {
+        assert_eq!(
+            headers.get(http::header::X_CONTENT_TYPE_OPTIONS).unwrap(),
+            "nosniff"
+        );
+        let csp = headers
+            .get(http::header::CONTENT_SECURITY_POLICY)
+            .expect("content-security-policy")
+            .to_str()
+            .unwrap();
+        assert!(csp.starts_with("sandbox "), "csp: {csp}");
+        assert!(!csp.contains("allow-same-origin"), "csp: {csp}");
+    }
+
+    #[tokio::test]
+    async fn custom_headers_cannot_override_sandbox() {
+        // wm_headers is script-controlled: a content-type set there replaces the JSON
+        // one even without wm_content_type, and the sandbox headers must survive an
+        // attempt to override them.
+        let resp = result_to_response(
+            raw(
+                r#"{"wm_headers":{"content-type":"text/html","content-security-policy":"default-src *","x-content-type-options":"none"},"result":"<h1>hi</h1>"}"#,
+            ),
+            true,
+        )
+        .expect("response");
+
+        assert_eq!(
+            resp.headers().get(http::header::CONTENT_TYPE).unwrap(),
+            "text/html"
+        );
+        assert_sandboxed(resp.headers());
+    }
+
+    #[tokio::test]
+    async fn hop_by_hop_custom_headers_are_rejected() {
+        // A proxy drops every header named by `Connection`, which would strip the
+        // sandbox headers on the way to the browser.
+        for name in ["connection", "Connection", "transfer-encoding", "upgrade"] {
+            let res = result_to_response(
+                raw(&format!(
+                    r#"{{"wm_content_type":"text/html","wm_headers":{{"{name}":"content-security-policy, x-content-type-options"}},"result":"<h1>hi</h1>"}}"#
+                )),
+                true,
+            );
+            assert!(res.is_err(), "hop-by-hop header must be rejected: {name}");
+        }
+    }
+
+    #[tokio::test]
+    async fn array_result_is_not_a_composite_response() {
+        let json = r#"[201,"text/html",null,null,"<h1>hi</h1>"]"#;
+        let resp = result_to_response(raw(json), true).expect("response");
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(body_bytes(resp).await, json.as_bytes());
     }
 }

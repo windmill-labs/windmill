@@ -15,6 +15,7 @@ use windmill_common::email_oss::send_email_if_possible;
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
 use windmill_common::webhook::WebhookShared;
 use windmill_common::{BASE_URL, DB};
+use windmill_dep_map::lock_hash::record_lock_hashes_for_workspace;
 
 use axum::{
     extract::{Extension, Path, Query},
@@ -150,6 +151,9 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
+        .route("/edit_guest_access", post(edit_guest_access))
+        .route("/edit_guest_jwt_key", post(edit_guest_jwt_key))
+        .route("/guest_usage", get(get_guest_usage))
         .route("/default_app", get(get_default_app))
         .route(
             "/default_scripts",
@@ -223,6 +227,10 @@ pub fn global_service() -> Router {
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
         .route("/session_workspace_status", post(session_workspace_status))
+        .route(
+            "/session_workspace_retention",
+            post(session_workspace_retention),
+        )
         .route("/create", post(create_workspace))
         .route("/create_fork", post(deprecated_create_workspace_fork))
         .route("/exists", post(exists_workspace))
@@ -316,6 +324,17 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
     pub error_handler_fallback_to_instance_alerts: bool,
+    /// Whether this workspace admits guest sessions (`ExecutionMode::Guest`). An app's
+    /// own `execution_mode: guest` is inert while this is off.
+    pub guest_access_enabled: bool,
+    /// The key a guest JWT is verified against: a PEM public key, or a JWKS URL, at most
+    /// one (a DB CHECK enforces it). Public material, not a secret, so it is admin-
+    /// readable here. `None`/`None` falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
+    /// off cloud, or accepts no JWT guest if none is set; `guest_access_enabled` is the switch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guest_jwt_public_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guest_jwt_jwks_url: Option<String>,
 }
 
 /// Subset of `WorkspaceSettings` that is safe to return to any workspace
@@ -338,6 +357,9 @@ pub struct WorkspacePublicSettings {
     pub teams_team_guid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mute_critical_alerts: Option<bool>,
+    /// Not sensitive, and the app editor needs it to say whether the guest rung is
+    /// live -- an app can be set to `guest` while the workspace has guests off.
+    pub guest_access_enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_ui: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -892,12 +914,15 @@ fn redact_git_sync_webhook_secrets(git_sync: &mut serde_json::Value) {
 }
 
 /// Zero the server-owned auto-pull fields (webhook id/secret/url/error, synced
-/// sha, last pull status) on a client-supplied `AutoPullSettings`. The client only
-/// controls `enabled` / `mode` / `poll_interval_s`; the rest is written by the
-/// server (webhook creation, poller) and must never be trusted from the request —
-/// otherwise a caller could inject a webhook id/secret or fake sync state.
-fn clear_client_supplied_auto_pull_state(
+/// sha, last pull status) on a client-supplied `AutoPullSettings`, and stamp who
+/// pulls run as: `saver_email` while auto pull is on. The client only controls
+/// `enabled` / `mode` / `poll_interval_s`; the rest is written by the server (webhook
+/// creation, poller, this save) and must never be trusted from the request —
+/// otherwise a caller could inject a webhook id/secret, fake sync state, or pick who
+/// pulls run as.
+fn sanitize_client_auto_pull(
     auto_pull: &mut windmill_common::workspaces::AutoPullSettings,
+    saver_email: &str,
 ) {
     auto_pull.webhook_id = None;
     auto_pull.webhook_secret = None;
@@ -905,6 +930,28 @@ fn clear_client_supplied_auto_pull_state(
     auto_pull.webhook_error = None;
     auto_pull.last_synced_sha = std::collections::HashMap::new();
     auto_pull.last_pull_status = None;
+    auto_pull.enabled_by = auto_pull.enabled.then(|| saver_email.to_string());
+}
+
+#[cfg(test)]
+mod sanitize_client_auto_pull_tests {
+    use windmill_common::workspaces::AutoPullSettings;
+
+    #[test]
+    fn a_save_stamps_the_saver_over_any_client_supplied_stamp() {
+        let mut ap = AutoPullSettings {
+            enabled: true,
+            enabled_by: Some("forged@example.com".to_string()),
+            ..Default::default()
+        };
+        super::sanitize_client_auto_pull(&mut ap, "saver@example.com");
+        assert_eq!(ap.enabled_by.as_deref(), Some("saver@example.com"));
+
+        ap.enabled = false;
+        ap.enabled_by = Some("forged@example.com".to_string());
+        super::sanitize_client_auto_pull(&mut ap, "saver@example.com");
+        assert_eq!(ap.enabled_by, None, "auto pull off carries no stamp");
+    }
 }
 
 /// Whether a git-sync repository tracking `tracked` rules out `label_branch` as a dev workspace's
@@ -1072,7 +1119,10 @@ async fn get_settings(
             error_handler,
             success_handler,
             public_app_execution_limit_per_minute,
-            error_handler_fallback_to_instance_alerts
+            error_handler_fallback_to_instance_alerts,
+            guest_access_enabled,
+            guest_jwt_public_key,
+            guest_jwt_jwks_url
         FROM
             workspace_settings
         WHERE
@@ -1111,6 +1161,7 @@ async fn get_public_settings(
             teams_team_name,
             teams_team_guid,
             mute_critical_alerts,
+            guest_access_enabled,
             deploy_ui,
             large_file_storage,
             datatable
@@ -1129,6 +1180,18 @@ async fn get_public_settings(
     tx.commit().await?;
 
     Ok(Json(settings))
+}
+
+/// The instance's standing against the guest allowance: counts only, no emails, so any
+/// member may read it. Instance-wide, since a licence is per instance and one email is
+/// one guest however many workspaces it opens; the settings card and the editor's
+/// Guests rung show it so nobody discovers the cap from a visitor's complaint.
+async fn get_guest_usage(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(_w_id): Path<String>,
+) -> JsonResult<windmill_common::workspaces::GuestUsage> {
+    Ok(Json(windmill_common::workspaces::guest_usage(&db).await?))
 }
 
 #[derive(Deserialize)]
@@ -1245,26 +1308,22 @@ async fn get_git_sync_deploy_mode(
 
     let configured = !settings.repositories.is_empty();
 
-    // Auto-pull runs only on Enterprise-licensed instances (see poll_git_auto_pull);
-    // without a caller branch there is nothing to match. Either way deploy_on_push
-    // stays false and the caller falls back (git push via CI, or wmill sync push).
+    // Auto-pull runs only in builds that compile the poller (`private`); without a
+    // caller branch there is nothing to match. Either way deploy_on_push stays
+    // false and the caller falls back (git push via CI, or wmill sync push).
     let Some(branch) = q.branch.as_deref() else {
         return Ok(Json(GitSyncDeployMode {
             configured,
             deploy_on_push: false,
         }));
     };
-    let licensed = matches!(
-        windmill_common::ee_oss::get_license_plan().await,
-        windmill_common::ee_oss::LicensePlan::Enterprise
-    );
 
     // Count the auto-pull repos that would deploy this branch. We deliberately do
     // not check the caller's remote URL: with exactly one such repo the local
     // checkout is unambiguously it, and with several we can't tell which is the
     // caller's, so we report false and let the CLI ask the user.
     let mut matches = 0u32;
-    if licensed && !root_deleted {
+    if cfg!(feature = "private") && !root_deleted {
         for repo in &settings.repositories {
             let Some(auto_pull) = repo.auto_pull.as_ref() else {
                 continue;
@@ -2034,6 +2093,17 @@ async fn edit_large_file_storage_config(
             serde_json::to_value::<LargeFileStorageWithSecondary>(lfs_config)
                 .map_err(|err| Error::internal_err(err.to_string()))?;
 
+        // A workspace whose AI session backups fell back to the instance store leaves it
+        // here: the generation moves on, so nothing it left in any instance store is read
+        // again, whichever one a later return to the fallback finds (`ai_session_backups`).
+        sqlx::query!(
+            "UPDATE workspace_settings SET ai_sessions_backup_generation = \
+             ai_sessions_backup_generation + 1 \
+             WHERE workspace_id = $1 AND large_file_storage IS NULL",
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
         sqlx::query!(
             "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",
             serialized_lfs_config,
@@ -2049,7 +2119,22 @@ async fn edit_large_file_storage_config(
         .execute(&mut *tx)
         .await?;
     }
+    let backups_generation = sqlx::query_scalar!(
+        "SELECT ai_sessions_backup_generation FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
     tx.commit().await?;
+
+    // Read by nothing any more, whatever the storage is now: what the AI session backups
+    // left in the instance store under a generation older than the one just committed.
+    #[cfg(feature = "parquet")]
+    if let Some(generation) = backups_generation {
+        crate::ai_session_backups::spawn_delete_fallback(w_id.clone(), generation);
+    }
+    #[cfg(not(feature = "parquet"))]
+    let _ = backups_generation;
 
     // Trigger git sync for large file storage changes
     handle_deployment_metadata(
@@ -3490,6 +3575,9 @@ async fn edit_datatable_config(
     // Migrations opt-in is owned by the enable/disable endpoints, not this config
     // form: preserve each existing data table's flag, and default brand-new data
     // tables to enabled.
+    // Counted here rather than after the write because this is where a rename is
+    // still distinguishable from a creation; emitted once the commit lands.
+    let mut created_substrates: Vec<&'static str> = Vec::new();
     for (name, dt) in new_config.settings.datatables.iter_mut() {
         let lookup = rename_src
             .get(name.as_str())
@@ -3497,7 +3585,15 @@ async fn edit_datatable_config(
             .unwrap_or(name.as_str());
         dt.migrations_enabled = match old_datatables.get(lookup) {
             Some(old) => old.migrations_enabled,
-            None => Some(true),
+            None => {
+                // Keyed by how the substrate is serialized into `workspace_settings`,
+                // so these line up with the `datatable_configured` adoption counts.
+                created_substrates.push(match dt.database.resource_type {
+                    DataTableCatalogResourceType::Instance => "instance",
+                    DataTableCatalogResourceType::Postgresql => "postgresql",
+                });
+                Some(true)
+            }
         };
     }
 
@@ -3554,6 +3650,10 @@ async fn edit_datatable_config(
         .await?;
 
     tx.commit().await?;
+
+    for substrate in created_substrates {
+        windmill_common::feature_usage::log_feature_usage("datatable", "created", substrate);
+    }
 
     crate::datatable_migrations::record_datatable_cascade_deployments(
         &authed,
@@ -3657,54 +3757,6 @@ fn cleanup_legacy_git_sync_settings_in_memory(
 
 #[cfg(not(feature = "enterprise"))]
 const CE_GIT_SYNC_MAX_USERS: i64 = 2;
-
-/// Auto-pull is licensed per plan, not just per build: the poller only serves
-/// Enterprise plans at runtime, so the save path must reject the setting too —
-/// otherwise an EE binary without the plan could still register a webhook and
-/// receive webhook-driven pulls.
-#[cfg(feature = "enterprise")]
-async fn check_git_sync_ee_license(feature: &str) -> Result<()> {
-    if !matches!(
-        windmill_common::ee_oss::get_license_plan().await,
-        windmill_common::ee_oss::LicensePlan::Enterprise
-    ) {
-        return Err(Error::BadRequest(format!(
-            "{feature} requires an Enterprise license"
-        )));
-    }
-    Ok(())
-}
-
-#[cfg(feature = "enterprise")]
-async fn check_auto_pull_license() -> Result<()> {
-    check_git_sync_ee_license("Automatic pull from git").await
-}
-
-/// In-app PR creation (promotion/fork deploy branches) drives GitHub API calls
-/// from the deploy completion hook; runtime-gate it like auto-pull.
-#[cfg(feature = "enterprise")]
-async fn check_open_prs_license<'a>(
-    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
-) -> Result<()> {
-    if repos.any(|r| r.promotion_open_prs || r.fork_open_prs) {
-        check_git_sync_ee_license("Opening pull requests from Windmill").await?;
-    }
-    Ok(())
-}
-
-/// Promotion mode (`use_individual_branch`: per-item `wm_deploy/**` deploy
-/// branches) is an EE feature; runtime-gate it like auto-pull and PR creation
-/// so an enterprise binary without an active plan can't enable it via either
-/// git-sync edit endpoint.
-#[cfg(feature = "enterprise")]
-async fn check_promotion_license<'a>(
-    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
-) -> Result<()> {
-    if repos.any(|r| r.use_individual_branch.unwrap_or(false)) {
-        check_git_sync_ee_license("Promotion mode").await?;
-    }
-    Ok(())
-}
 
 /// Promotion on a dev workspace needs the dev-aware sync script (hub >= 28796):
 /// an older pinned script bundles a CLI that force-disables per-item branches
@@ -3934,9 +3986,10 @@ async fn edit_git_sync_config(
         // stay clean.
         for repo in git_sync_settings.repositories.iter_mut() {
             if let Some(ap) = repo.auto_pull.as_mut() {
-                clear_client_supplied_auto_pull_state(ap);
+                sanitize_client_auto_pull(ap, &authed.email);
             }
             repo.open_pr_error = None;
+            repo.credential = None;
         }
         reject_parent_only_git_sync_settings_on_fork(
             &db,
@@ -3955,18 +4008,6 @@ async fn edit_git_sync_config(
                 "Automatic pull from git is an Enterprise Edition feature".to_string(),
             ));
         }
-        #[cfg(feature = "enterprise")]
-        if git_sync_settings
-            .repositories
-            .iter()
-            .any(|r| r.auto_pull.as_ref().is_some_and(|a| a.enabled))
-        {
-            check_auto_pull_license().await?;
-        }
-        #[cfg(feature = "enterprise")]
-        check_open_prs_license(git_sync_settings.repositories.iter()).await?;
-        #[cfg(feature = "enterprise")]
-        check_promotion_license(git_sync_settings.repositories.iter()).await?;
         #[cfg(feature = "enterprise")]
         check_dev_promotion_script_version(&db, &w_id, git_sync_settings.repositories.iter())
             .await?;
@@ -4037,6 +4078,7 @@ async fn edit_git_sync_config(
                     continue;
                 };
                 repo.open_pr_error = old.open_pr_error.clone();
+                repo.credential = old.credential.clone();
                 if let (Some(new_ap), Some(old_ap)) =
                     (repo.auto_pull.as_mut(), old.auto_pull.as_ref())
                 {
@@ -4082,6 +4124,7 @@ async fn edit_git_sync_config(
             .flatten()
             .and_then(|v| serde_json::from_value(v).ok());
             let removed_webhooks: Vec<(String, i64)> = existing
+                .as_ref()
                 .map(|e| {
                     e.repositories
                         .iter()
@@ -4115,6 +4158,19 @@ async fn edit_git_sync_config(
             // `sync_repo_webhook` writes back the webhook fields it changes itself:
             // the remote hook and the record of it have to move together, so
             // persisting them out here would let one land without the other.
+            // Before the webhook reconcile, which decides whether this repo can have
+            // one from the credential this records. Also puts a short-lived or
+            // under-scoped token in front of the operator while they are still on the
+            // settings page, rather than when it expires.
+            if let Err(e) = windmill_common::git_sync_ee::refresh_git_credential_status(
+                &db,
+                &w_id,
+                &repo.git_repo_resource_path,
+            )
+            .await
+            {
+                tracing::warn!("git credential check error: {}", e);
+            }
             if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
             {
                 tracing::warn!("git auto-pull: webhook sync error: {}", e);
@@ -4165,9 +4221,10 @@ async fn edit_git_sync_repository(
     // existing repo re-derives it from the DB (carried over below) and a new one
     // starts clean.
     if let Some(ap) = new_config.repository.auto_pull.as_mut() {
-        clear_client_supplied_auto_pull_state(ap);
+        sanitize_client_auto_pull(ap, &authed.email);
     }
     new_config.repository.open_pr_error = None;
+    new_config.repository.credential = None;
     reject_parent_only_git_sync_settings_on_fork(
         &db,
         &w_id,
@@ -4188,19 +4245,6 @@ async fn edit_git_sync_repository(
             "Automatic pull from git is an Enterprise Edition feature".to_string(),
         ));
     }
-    #[cfg(feature = "enterprise")]
-    if new_config
-        .repository
-        .auto_pull
-        .as_ref()
-        .is_some_and(|a| a.enabled)
-    {
-        check_auto_pull_license().await?;
-    }
-    #[cfg(feature = "enterprise")]
-    check_open_prs_license(std::iter::once(&new_config.repository)).await?;
-    #[cfg(feature = "enterprise")]
-    check_promotion_license(std::iter::once(&new_config.repository)).await?;
     #[cfg(feature = "enterprise")]
     check_dev_promotion_script_version(&db, &w_id, std::iter::once(&new_config.repository)).await?;
     #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -4292,6 +4336,7 @@ async fn edit_git_sync_repository(
         // from the UI cannot revert what the poller/webhook layer wrote.
         let mut updated = new_config.repository;
         updated.open_pr_error = existing_repo.open_pr_error.clone();
+        updated.credential = existing_repo.credential.clone();
         match (updated.auto_pull.as_mut(), existing_repo.auto_pull.as_ref()) {
             (Some(new_ap), Some(old_ap)) => {
                 new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
@@ -4305,13 +4350,6 @@ async fn edit_git_sync_repository(
                 updated.auto_pull = existing_repo.auto_pull.clone();
             }
             _ => {}
-        }
-        // The request-side license gate above only saw the submitted config; the
-        // preservation can resurrect an enabled auto_pull (None arm), so re-check
-        // the effective state before it gets written and reconciled.
-        #[cfg(feature = "enterprise")]
-        if updated.auto_pull.as_ref().is_some_and(|a| a.enabled) {
-            check_auto_pull_license().await?;
         }
         *existing_repo = updated;
     } else {
@@ -4349,6 +4387,15 @@ async fn edit_git_sync_repository(
         .iter_mut()
         .find(|r| r.git_repo_resource_path == new_config.git_repo_resource_path)
     {
+        if let Err(e) = windmill_common::git_sync_ee::refresh_git_credential_status(
+            &db,
+            &w_id,
+            &repo.git_repo_resource_path,
+        )
+        .await
+        {
+            tracing::warn!("git credential check error: {}", e);
+        }
         if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await {
             tracing::warn!("git auto-pull: webhook sync error: {}", e);
         }
@@ -4488,6 +4535,10 @@ async fn delete_git_sync_repository(
         }
     }
 
+    // The stored credential is deliberately left alone: it belongs to the git
+    // repository resource, which this endpoint does not delete, and the resource
+    // still authenticates with it for connection tests and commit lookups.
+
     // Trigger git sync for repository deletion
     handle_deployment_metadata(
         &authed.email,
@@ -4592,6 +4643,118 @@ async fn edit_default_app(
         "Setting a workspace default app is only available on Windmill Enterprise Edition"
             .to_string(),
     ));
+}
+
+#[derive(Deserialize)]
+struct EditGuestAccess {
+    guest_access_enabled: bool,
+}
+
+/// Turn guest sessions on or off for this workspace. Off by default, and off is
+/// authoritative and immediate: the switch is re-read where a guest session is
+/// minted (`guest_app_admits`) and at the auth door on every guest request, so an app
+/// whose policy already says `guest` — pushed by git-sync, say — closes to guests on
+/// the next request, sessions already issued included.
+async fn edit_guest_access(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(EditGuestAccess { guest_access_enabled }): Json<EditGuestAccess>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    if guest_access_enabled {
+        windmill_common::workspaces::require_guest_support()?;
+    }
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET guest_access_enabled = $1 WHERE workspace_id = $2",
+        guest_access_enabled,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_guest_access",
+        ActionKind::Update,
+        &w_id,
+        Some(&guest_access_enabled.to_string()),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!(
+        "Guest access set to {guest_access_enabled} for workspace {w_id}"
+    ))
+}
+
+#[derive(Deserialize)]
+struct EditGuestJwtKey {
+    /// A PEM public key (RS or ES family), or a JWKS URL, at most one. Both empty clears the
+    /// workspace key; verification then falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
+    /// off cloud, or refuses the JWT if none is set. The off-switch is `guest_access_enabled`.
+    public_key: Option<String>,
+    jwks_url: Option<String>,
+}
+
+/// Configure the key a guest JWT (`jwt_guest_`) is verified against for this workspace.
+/// Workspace-admin gated, like the guest switch: guests are free up to the instance
+/// allowance on any plan, so configuring their key needs no licence. The key is
+/// validated before it is stored so a typo is refused here, not silently on every guest
+/// later: a PEM must parse as an RS/ES public key (HS* has no PEM form and is
+/// unreachable), and a JWKS URL must be fetchable and hold at least one usable signing key.
+async fn edit_guest_jwt_key(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(EditGuestJwtKey { public_key, jwks_url }): Json<EditGuestJwtKey>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let public_key = public_key.filter(|s| !s.trim().is_empty());
+    let jwks_url = jwks_url.filter(|s| !s.trim().is_empty());
+    if public_key.is_some() && jwks_url.is_some() {
+        return Err(Error::BadRequest(
+            "Set a PEM public key or a JWKS URL, not both".to_string(),
+        ));
+    }
+    // Clearing stays allowed wherever guests are: a key nobody can use is still worth
+    // removing.
+    if public_key.is_some() || jwks_url.is_some() {
+        windmill_common::workspaces::require_guest_support()?;
+    }
+    if let Some(pem) = public_key.as_deref() {
+        windmill_common::guest_jwt::decoding_key_from_pem(pem)?;
+    }
+    if let Some(url) = jwks_url.as_deref() {
+        windmill_common::guest_jwt::fetch_jwks(url).await?;
+    }
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET guest_jwt_public_key = $1, guest_jwt_jwks_url = $2 WHERE workspace_id = $3",
+        public_key,
+        jwks_url,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_guest_jwt_key",
+        ActionKind::Update,
+        &w_id,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Guest JWT key updated for workspace {w_id}"))
 }
 
 async fn edit_default_scripts(
@@ -5122,6 +5285,17 @@ async fn set_encryption_key(
 
     let mut tx = db.begin().await?;
 
+    // Under the row's lock, so two rotations racing serialize and each sees the key the
+    // other committed. The AI session backups in the workspace storage live under a prefix
+    // named by a generation this bumps (with the key, in this transaction) rather than
+    // being re-keyed; the older generations are deleted once this one has committed (see
+    // `ai_session_backups`). The same key set again is no rotation to them.
+    let previous_key: String = sqlx::query_scalar(
+        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud' FOR UPDATE",
+    )
+    .bind(&w_id)
+    .fetch_one(&mut *tx)
+    .await?;
     sqlx::query!(
         "UPDATE workspace_key SET key = $1 WHERE workspace_id = $2",
         request.new_key.clone(),
@@ -5129,6 +5303,18 @@ async fn set_encryption_key(
     )
     .execute(&mut *tx)
     .await?;
+    let backups_generation: Option<i64> = if previous_key != request.new_key {
+        sqlx::query_scalar(
+            "UPDATE workspace_settings SET ai_sessions_backup_generation = \
+             ai_sessions_backup_generation + 1 WHERE workspace_id = $1 \
+             RETURNING ai_sessions_backup_generation",
+        )
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?
+    } else {
+        None
+    };
 
     let mut reencrypted_secret_paths: Vec<String> = Vec::new();
     if !request.skip_reencrypt.unwrap_or(false) {
@@ -5184,6 +5370,15 @@ async fn set_encryption_key(
 
     // Invalidate the cache only after the transaction has committed
     WORKSPACE_CRYPT_CACHE.remove(w_id.as_str());
+
+    // Nothing writes under the older generations any more; the browsers push their
+    // sessions again under the new one.
+    #[cfg(feature = "parquet")]
+    if let Some(generation) = backups_generation {
+        crate::ai_session_backups::spawn_delete_older(db.clone(), w_id.clone(), generation);
+    }
+    #[cfg(not(feature = "parquet"))]
+    let _ = backups_generation;
 
     // Build the batch: one event for the encryption key itself plus one per
     // re-encrypted secret variable. The batch entrypoint dispatches a single
@@ -5354,6 +5549,14 @@ struct SessionWorkspaceStatusRequest {
     workspace_ids: Vec<String>,
 }
 
+/// `ai_config.sessions_retention_days` as stored, `None` when unset or not a count of days.
+pub fn sessions_retention_days(value: Option<&serde_json::Value>) -> Option<u32> {
+    value
+        .and_then(|v| v.as_u64())
+        .filter(|days| *days >= 1)
+        .and_then(|days| u32::try_from(days).ok())
+}
+
 /// Reconciliation support for client-side AI sessions, which the backend cannot touch
 /// directly. The client posts the workspace ids its sessions reference and uses the
 /// per-id status to keep sessions in sync with workspace lifecycle: `deleted` (no row, or
@@ -5401,6 +5604,42 @@ async fn session_workspace_status(
     .await?;
     let statuses = rows.into_iter().map(|r| (r.id, r.status)).collect();
     Ok(Json(statuses))
+}
+
+/// The AI session retention a browser deletes its local copies by (docs/ai-session-backups.md).
+/// Its own route, not a field on the status above, whose shape an older tab still reads. Unlike
+/// a status, it answers only for a workspace this caller can be authed into: a setting is the
+/// workspace's to tell, so a disabled membership gets none though its sessions still reconcile.
+async fn session_workspace_retention(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(req): Json<SessionWorkspaceStatusRequest>,
+) -> JsonResult<HashMap<String, u32>> {
+    if req.workspace_ids.len() > 1000 {
+        return Err(Error::BadRequest(
+            "Too many workspace ids (max 1000)".to_string(),
+        ));
+    }
+    let email = &authed.email;
+    let is_superadmin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
+    let rows = sqlx::query!(
+        "SELECT workspace_settings.workspace_id AS \"id!\",
+                workspace_settings.ai_config->'sessions_retention_days' AS retention
+         FROM workspace_settings
+         LEFT JOIN usr ON usr.workspace_id = workspace_settings.workspace_id AND usr.email = $2
+         WHERE workspace_settings.workspace_id = ANY($1)
+           AND ($3 OR (usr.email IS NOT NULL AND NOT usr.disabled))",
+        &req.workspace_ids[..],
+        email,
+        is_superadmin,
+    )
+    .fetch_all(&db)
+    .await?;
+    let days = rows
+        .into_iter()
+        .filter_map(|r| sessions_retention_days(r.retention.as_ref()).map(|days| (r.id, days)))
+        .collect();
+    Ok(Json(days))
 }
 
 /// The instance critical alert channels belong to the instance operator, who on cloud is
@@ -5799,9 +6038,8 @@ async fn clone_workspace_data(
     // Clone the forker's own per-user drafts (plus the legacy NULL-email
     // workspace draft, if any) so they keep their pending edits in the
     // fork. Other users' drafts are intentionally NOT cloned — they don't
-    // own a `usr` row in the fork (see `clone_workspace_full`) so their
-    // drafts would dangle and the home-page `draft_users` aggregate would
-    // surface them as duplicate legacy entries.
+    // own a `usr` row in the fork (see `clone_workspace_full`), so those
+    // drafts would belong to someone the fork holds no membership for.
     clone_drafts(tx, source_workspace_id, target_workspace_id, &authed.email).await?;
 
     // Clone workspace runnable dependencies and dependency map
@@ -5865,7 +6103,7 @@ async fn clone_triggers_and_schedules(
             path, route_path, route_path_key, script_path, is_flow, workspace_id,
             edited_by, edited_at, extra_perms, authentication_method, http_method,
             static_asset_config, is_static_website, workspaced_route, wrap_body,
-            raw_string, authentication_resource_path, summary, description,
+            raw_string, allowed_origins, authentication_resource_path, summary, description,
             error_handler_path, error_handler_args, retry, request_type, mode,
             permissioned_as, labels
         )
@@ -5873,7 +6111,7 @@ async fn clone_triggers_and_schedules(
             path, route_path, route_path_key, script_path, is_flow, $1,
             edited_by, edited_at, extra_perms, authentication_method, http_method,
             static_asset_config, is_static_website, workspaced_route, wrap_body,
-            raw_string, authentication_resource_path, summary, description,
+            raw_string, allowed_origins, authentication_resource_path, summary, description,
             error_handler_path, error_handler_args, retry, request_type, 'disabled'::TRIGGER_MODE,
             permissioned_as, labels
         FROM http_trigger
@@ -6154,9 +6392,10 @@ async fn update_workspace_settings(
             // Auto-pull and fork PRs are parent-owned and must not be inherited:
             // the fork would otherwise carry the parent's webhook id (turning off
             // auto-pull on the fork would delete the parent's webhook). A fork
-            // still inherits the push-direction config and the installation.
-            // Repo → fork sync is driven by the parent's webhook/poller
-            // (`sync_forks`), which routes the fork's `wm-fork/**` branch into it.
+            // still inherits the push-direction config, the installation, and the
+            // recorded credential status, which describes the repository rather
+            // than belonging to either workspace and would otherwise leave the
+            // fork unqualified for managed features until its first check.
             r.auto_pull = None;
             r.fork_open_prs = false;
             r.open_pr_error = None;
@@ -6274,8 +6513,8 @@ async fn clone_resource_types(
     target_workspace_id: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at, created_by, format_extension, is_fileset)
-         SELECT $2, name, schema, description, edited_at, created_by, format_extension, is_fileset
+        "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at, created_by, format_extension, is_fileset, display_name)
+         SELECT $2, name, schema, description, edited_at, created_by, format_extension, is_fileset, display_name
          FROM resource_type
          WHERE workspace_id = $1",
         source_workspace_id,
@@ -6475,7 +6714,7 @@ async fn clone_scripts(
 }
 
 /// The parsed dbt graph a deployed script carries: its models, their SQL and
-/// tests, and the `ref()` lineage between them.
+/// tests, and the `ref()` and column-level lineage between them.
 ///
 /// Keyed on (workspace_id, script_path, script_hash), and the fork keeps every
 /// script's hash, so each row moves across as itself.
@@ -6493,11 +6732,11 @@ async fn clone_dbt_graph(
         "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
             resource_type, name, asset_path, materialized, materialize_strategy, unique_key,
             tags, description, test_kind, test_column, test_args, severity, attached_node,
-            columns, freshness, raw_code, original_file_path, ingested_at)
+            columns, column_schema, freshness, raw_code, original_file_path, ingested_at)
          SELECT $2, script_path, script_hash, job_id, unique_id,
             resource_type, name, asset_path, materialized, materialize_strategy, unique_key,
             tags, description, test_kind, test_column, test_args, severity, attached_node,
-            columns, freshness, raw_code, original_file_path, ingested_at
+            columns, column_schema, freshness, raw_code, original_file_path, ingested_at
          FROM dbt_node
          WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
         source_workspace_id,
@@ -6511,6 +6750,24 @@ async fn clone_dbt_graph(
          SELECT $2, script_path, script_hash, job_id, parent_unique_id, child_unique_id,
             ingested_at
          FROM dbt_edge
+         WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    // Column lineage travels with the rest of the graph, and it has to: the
+    // snapshot's digest covers it, so a fork missing these rows recomputes the
+    // digest the source stored, matches, and stores nothing — leaving the
+    // lineage gone until someone redeploys, which is the failure this whole
+    // function exists to prevent.
+    sqlx::query!(
+        "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id,
+            parent_unique_id, parent_column, child_unique_id, child_column, lineage_kind,
+            ingested_at)
+         SELECT $2, script_path, script_hash, job_id, parent_unique_id, parent_column,
+            child_unique_id, child_column, lineage_kind, ingested_at
+         FROM dbt_column_edge
          WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
         source_workspace_id,
         target_workspace_id
@@ -7130,8 +7387,8 @@ async fn clone_workspace_runnable_dependencies(
 ) -> Result<()> {
     // Clone workspace_runnable_dependencies
     sqlx::query!(
-        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id, app_path)
-         SELECT flow_path, runnable_path, script_hash, runnable_is_flow, $1, app_path
+        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, script_hash, runnable_is_flow, runnable_is_agent, workspace_id, app_path)
+         SELECT flow_path, runnable_path, script_hash, runnable_is_flow, runnable_is_agent, $1, app_path
          FROM workspace_runnable_dependencies
          WHERE workspace_id = $2",
         target_workspace_id,
@@ -7140,7 +7397,16 @@ async fn clone_workspace_runnable_dependencies(
     .execute(&mut **tx)
     .await?;
 
-    // Clone dependency_map to preserve import relationships
+    // Recorded so the clone's own relocks have something to match; with no row they record NULL
+    // and nothing in it ever skips. Hashed from the locks the clone holds rather than copied from
+    // the source's rows, which are only as current as the last write to them: one left stale by a
+    // supplied lock deployed before this was recorded names a lock the clone no longer has, and an
+    // importer that resolved against the real one would then skip a relock it needed.
+    record_lock_hashes_for_workspace(tx, target_workspace_id).await?;
+
+    // Deliberately without `imported_lockfile_hash`: it records what an importer resolved against
+    // when it was last locked, which nothing here can establish for the version the clone got.
+    // Left NULL, every importer relocks once and re-anchors both sides to what the clone holds.
     sqlx::query!(
         "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id)
          SELECT $1, importer_path, importer_kind, imported_path, importer_node_id
@@ -11097,6 +11363,7 @@ async fn load_workspace_authed(
             token_prefix: base_authed.token_prefix.clone(),
             read_only: base_authed.read_only,
             job_id: base_authed.job_id,
+            credential_expiry: base_authed.credential_expiry,
         });
     };
 
@@ -11129,6 +11396,7 @@ async fn load_workspace_authed(
         token_prefix: base_authed.token_prefix.clone(),
         read_only: base_authed.read_only,
         job_id: base_authed.job_id,
+        credential_expiry: base_authed.credential_expiry,
     })
 }
 

@@ -80,6 +80,7 @@
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
+		editInForkDescription,
 		editInForkLabel,
 		onEditInForkClick
 	} from '$lib/utils/editInFork'
@@ -301,6 +302,8 @@
 		if (flow && !$userStore?.operator) {
 			buttons.push({
 				label: 'Fork',
+				description: `Start a new flow from a copy of this one`,
+				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: `${base}/flows/add?template=${flow.path}`,
 					variant: 'subtle',
@@ -319,6 +322,8 @@
 		) {
 			buttons.push({
 				label: editInForkLabel($workspaceStore, $userWorkspaces),
+				description: editInForkDescription('flow', $workspaceStore, $userWorkspaces),
+				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: buildForkEditUrl('flow', flow.path),
 					onClick: (e: Event | undefined) =>
@@ -346,6 +351,7 @@
 
 		buttons.push({
 			label: `History`,
+			narrow: 'menu',
 			buttonProps: {
 				onClick: () => flowHistory?.open(),
 				unifiedSize: 'md',
@@ -361,6 +367,7 @@
 		if (!$userStore?.operator) {
 			buttons.push({
 				label: 'Build app',
+				narrow: 'menu',
 				buttonProps: {
 					onClick: async () => {
 						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
@@ -484,6 +491,7 @@
 	let stepDetail: FlowModule | string | undefined = $state(undefined)
 	let rightPaneSelected = $state('saved_inputs')
 	let savedInputsV2: SavedInputsV2 | undefined = $state(undefined)
+	let detailLayout: DetailPageLayout | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
 	let path = $derived(page.params.path ?? '')
 
@@ -522,15 +530,6 @@
 	let showEditButtons = $state(false)
 	let mainButtons = $derived(getMainButtons(flow, args))
 	let chatInputEnabled = $derived(flow?.value?.chat_input_enabled ?? false)
-	let shouldUseStreaming = $derived.by(() => {
-		const modules = flow?.value?.modules
-		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		return (
-			lastModule?.value?.type === 'aiagent' &&
-			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
-			lastModule?.value?.input_transforms?.streaming?.value === true
-		)
-	})
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -548,6 +547,7 @@
 {/if}
 
 <DetailPageLayout
+	bind:this={detailLayout}
 	bind:selected={rightPaneSelected}
 	isOperator={$userStore?.operator}
 	forceSmallScreen={chatInputEnabled}
@@ -562,7 +562,7 @@
 	{#snippet header()}
 		<DetailPageHeader
 			on:seeTriggers={() => {
-				rightPaneSelected = 'triggers'
+				detailLayout?.showTriggers()
 			}}
 			{mainButtons}
 			menuItems={getMenuItems(flow, deployUiSettings)}
@@ -598,7 +598,7 @@
 					isFlow
 					selected={rightPaneSelected == 'triggers'}
 					onSelect={async (triggerIndex: number) => {
-						rightPaneSelected = 'triggers'
+						detailLayout?.showTriggers()
 						await tick()
 						triggersState.selectedTriggerIndex = triggerIndex
 					}}
@@ -629,7 +629,7 @@
 			{/if}
 		</DetailPageHeader>
 	{/snippet}
-	{#snippet form()}
+	{#snippet form({ graphInline }: { graphInline: boolean })}
 		<div class="px-3">
 			<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showEditButtons = v)} />
 		</div>
@@ -703,8 +703,10 @@
 								onRunFlow={runFlowForChat}
 								{deploymentInProgress}
 								path={flow?.path ?? ''}
-								useStreaming={shouldUseStreaming}
+								description={flow?.description}
 								inputSchema={flow?.schema}
+								flowModules={flow?.value?.modules}
+								wideLayout
 							/>
 						{:else}
 							{@const hasSchema =
@@ -774,7 +776,7 @@
 						{/if}
 					</div>
 				</div>
-				{#if !chatInputEnabled}
+				{#if graphInline}
 					<div class="grow min-h-0">
 						<FlowGraphViewer
 							triggerNode={true}
@@ -792,7 +794,7 @@
 								}
 							}}
 							on:triggerDetail={(e) => {
-								rightPaneSelected = 'triggers'
+								detailLayout?.showTriggers()
 							}}
 							noBorder={true}
 						/>
@@ -820,10 +822,10 @@
 		/>
 	{/snippet}
 
-	{#snippet flow_step()}
+	{#snippet flow_step({ onBack }: { onBack?: () => void })}
 		{#if flow}
 			{#if stepDetail}
-				<FlowGraphViewerStep schema={flow.schema} {stepDetail} />
+				<FlowGraphViewerStep schema={flow.schema} {stepDetail} {onBack} />
 			{/if}
 		{/if}
 	{/snippet}
@@ -852,7 +854,7 @@
 					triggerNode={true}
 					download
 					{flow}
-					noSide={false}
+					noSide={true}
 					noBorder
 					minHeight={flowGraphHeight}
 					on:select={(e) => {
@@ -865,7 +867,7 @@
 						}
 					}}
 					on:triggerDetail={(e) => {
-						rightPaneSelected = 'triggers'
+						detailLayout?.showTriggers()
 					}}
 				/>
 			</div>

@@ -62,6 +62,7 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkDatatableSchema,
 		getBenchmarkDraftForUser,
 		getBenchmarkFlowByPath,
+		getBenchmarkFlowAllResults,
 		getBenchmarkJobLogs,
 		getBenchmarkOwnDraft,
 		getBenchmarkScriptByHash,
@@ -70,10 +71,14 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkResourceValue,
 		getBenchmarkVariableByPath,
 		hasBenchmarkWorkspace,
+		getBenchmarkResource,
 		listBenchmarkAiProviderResources,
+		listBenchmarkPlainResources,
 		listBenchmarkApps,
 		listBenchmarkDatatables,
+		listBenchmarkDataMetrics,
 		listBenchmarkDrafts,
+		listBenchmarkDucklakes,
 		listBenchmarkFlows,
 		listBenchmarkJobs,
 		listBenchmarkScripts,
@@ -84,6 +89,7 @@ vi.mock('$lib/gen', async () => {
 		previewBenchmarkSchedule,
 		runBenchmarkDatatableSql,
 		runBenchmarkFlowByPath,
+		runBenchmarkScriptByPath,
 		runBenchmarkScriptPreview,
 		updateBenchmarkDraft,
 		listBenchmarkMcpTools
@@ -277,6 +283,18 @@ vi.mock('$lib/gen', async () => {
 				}
 				return runBenchmarkScriptPreview({ workspace: data.workspace, requestBody })
 			},
+			runScriptByPath: async (data: {
+				workspace: string
+				path: string
+				requestBody?: Record<string, unknown>
+			}) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? runBenchmarkScriptByPath({
+							workspace: data.workspace,
+							path: data.path,
+							args: data.requestBody
+						})
+					: actual.JobService.runScriptByPath(data),
 			runFlowByPath: async (data: {
 				workspace: string
 				path: string
@@ -310,7 +328,11 @@ vi.mock('$lib/gen', async () => {
 			getJobLogs: async (data: { workspace: string; id: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? getBenchmarkJobLogs(data.workspace, data.id)
-					: actual.JobService.getJobLogs(data)
+					: actual.JobService.getJobLogs(data),
+			getFlowAllResults: async (data: { workspace: string; id: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkFlowAllResults(data.workspace, data.id)
+					: actual.JobService.getFlowAllResults(data)
 		}),
 		WorkspaceService: wrapService(actual.WorkspaceService, {
 			getCopilotInfo: async (data: { workspace: string }) =>
@@ -321,6 +343,10 @@ vi.mock('$lib/gen', async () => {
 				hasBenchmarkWorkspace(data.workspace)
 					? (listBenchmarkDatatables(data.workspace) ?? [])
 					: actual.WorkspaceService.listDataTableTables(data),
+			listDucklakes: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkDucklakes(data.workspace) ?? [])
+					: actual.WorkspaceService.listDucklakes(data),
 			getDataTableTableSchema: async (data: {
 				workspace: string
 				datatableName: string
@@ -335,6 +361,12 @@ vi.mock('$lib/gen', async () => {
 							tableName: data.tableName
 						})
 					: actual.WorkspaceService.getDataTableTableSchema(data)
+		}),
+		DataMetricService: wrapService(actual.DataMetricService, {
+			listDataMetrics: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? { metrics: listBenchmarkDataMetrics(data.workspace) ?? [] }
+					: actual.DataMetricService.listDataMetrics(data)
 		}),
 		ScheduleService: wrapService(actual.ScheduleService, {
 			existsSchedule: async (data: { workspace: string; path: string }) =>
@@ -359,18 +391,24 @@ vi.mock('$lib/gen', async () => {
 				hasBenchmarkWorkspace(data.workspace)
 					? Boolean(getBenchmarkResourceValue(data.workspace, data.path))
 					: actual.ResourceService.existsResource(data),
-			// Only AI provider resources are modelled: they are what an AI agent step references.
 			listResource: async (data: { workspace: string; resourceType?: string }) => {
 				if (!hasBenchmarkWorkspace(data.workspace)) {
 					return actual.ResourceService.listResource(data)
 				}
-				const seeded = listBenchmarkAiProviderResources(data.workspace) ?? []
+				const seeded = [
+					...(listBenchmarkAiProviderResources(data.workspace) ?? []),
+					...(listBenchmarkPlainResources(data.workspace) ?? [])
+				]
 				const wanted = data.resourceType?.split(',')
 				return wanted ? seeded.filter((r) => wanted.includes(r.resource_type)) : seeded
 			},
 			getResource: async (data: { workspace: string; path: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`Resource "${data.path}" not found in benchmark workspace`)
+					const resource = getBenchmarkResource(data.workspace, data.path)
+					if (!resource) {
+						throw new Error(`Resource "${data.path}" not found in benchmark workspace`)
+					}
+					return resource
 				}
 				return actual.ResourceService.getResource(data)
 			},

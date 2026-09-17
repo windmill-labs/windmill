@@ -78,6 +78,11 @@ pub struct ApiAuthed {
     /// member can point at a superadmin, so it must never be trusted as a global
     /// superadmin (`require_super_admin`), GHSA-hfh4-cx4h-3fcr.
     pub job_id: Option<uuid::Uuid>,
+    /// When this credential itself expires, if it carries its own expiry rather than a
+    /// token row. Set for a guest JWT (its `exp`): a token minted from it is capped at
+    /// this, since the JWT's expiry is a guest's only revocation and there is no row to
+    /// look the limit up in. `None` for every credential whose limit lives in `token`.
+    pub credential_expiry: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl ApiAuthed {
@@ -165,6 +170,7 @@ impl From<Authed> for ApiAuthed {
             token_prefix: value.token_prefix,
             read_only: false,
             job_id: None,
+            credential_expiry: None,
         }
     }
 }
@@ -1047,6 +1053,10 @@ pub async fn fetch_api_authed_from_permissioned_as(
     db: &DB,
     username_override: Option<String>,
 ) -> error::Result<ApiAuthed> {
+    // Keyed by the supplied address, so an entry built for a principal's previous holder is reused
+    // while that address is still supplied, until its 120s expiry: a cached dispatch address is
+    // evicted sooner, an app's stored one (a username deleted then reused) may not be. Accepted;
+    // the rebuild after expiry is the current holder's.
     let key = (w_id.to_string(), permissioned_as.clone(), email.clone());
 
     let mut api_authed = match API_AUTHED_CACHE.get(&key) {
@@ -1062,7 +1072,10 @@ pub async fn fetch_api_authed_from_permissioned_as(
 
             let api_authed = ApiAuthed {
                 username: authed.username,
-                email,
+                // The resolved one, not the address we were handed: that is the point of
+                // `fetch_authed_from_permissioned_as` validating it against the principal's live
+                // binding, and this value goes on to the job row, `job_perms` and the JWT.
+                email: authed.email,
                 is_admin: authed.is_admin,
                 is_operator: authed.is_operator,
                 groups: authed.groups,
@@ -1074,6 +1087,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 token_prefix: authed.token_prefix,
                 read_only: false,
                 job_id: None,
+                credential_expiry: None,
             };
 
             API_AUTHED_CACHE.insert(
@@ -1127,6 +1141,9 @@ impl NewToken {
 /// [`ensure_scopes_within_caller`] first (internal narrowing mints intentionally
 /// skip it, since their scopes derive from the action being authorized, not the
 /// caller's token).
+///
+/// A token the system mints for itself with an `expiration` needs a label reserved in
+/// `windmill_common::auth::is_user_token`, or its expiry alerts its owner (docs/auth-surface.md).
 pub async fn create_token_internal(
     tx: &mut sqlx::PgConnection,
     db: &DB,

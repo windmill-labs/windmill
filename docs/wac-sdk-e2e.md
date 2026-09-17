@@ -34,8 +34,12 @@ cp python-client/wmill/wmill/client.py \
    /tmp/windmill-mytest/cache/python_3_12/wmill==*/wmill/client.py
 find /tmp/windmill-mytest -name __pycache__ -type d -exec rm -rf {} +
 
-# 4. RESTART the backend — see below
-# 5. run your scenarios, and rm -rf /tmp/windmill-mytest when done
+# 4. drop the bundle snapshots — a bun job runs a bundle built from the package,
+#    cached by content hash, so a job that already ran keeps the old SDK inlined
+rm -rf /tmp/windmill-mytest/cache/bun
+
+# 5. RESTART the backend — see below
+# 6. run your scenarios, and rm -rf /tmp/windmill-mytest when done
 ```
 
 ## Restart the workers after injecting

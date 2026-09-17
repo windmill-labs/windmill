@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings\n              SET dbt_warehouses = '{\"main\": {\"resource_path\": \"u/test-user/wh\"}}'::jsonb\n            WHERE workspace_id = 'test-workspace'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "1d8effff5dd1e4a177efed7366e84411c125cbfada861992e3d6032de635bad6"
+}
