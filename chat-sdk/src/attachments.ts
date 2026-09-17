@@ -65,16 +65,16 @@ function dataUrlToBlob(dataUrl: string, fallbackType: string): Blob {
   return new Blob([bytes], { type: mediaType })
 }
 
-/**
- * Put each attachment in the workspace's object storage and hand back what the agent reads.
- * The key's turn prefix and per-file index keep two files with the same name, in this turn or
- * an earlier one, from overwriting each other; the name stays the last segment.
- */
 /** Delete uploads no run will read. Best effort: a delete that fails leaves that object behind. */
 export async function discardUploads(api: WindmillChatApi, uploaded: UploadedAttachment[]): Promise<void> {
   await Promise.all(uploaded.map((u) => api.deleteFile(u.s3).catch(() => {})))
 }
 
+/**
+ * Put each attachment in the workspace's object storage and hand back what the agent reads.
+ * The key's turn prefix and per-file index keep two files with the same name, in this turn or
+ * an earlier one, from overwriting each other; the name stays the last segment.
+ */
 export async function uploadAttachments(
   api: WindmillChatApi,
   attachments: AttachmentUpload[],
