@@ -347,14 +347,20 @@ describe('createChat with server history', () => {
                 tool_result: 'MCP tool error: boom'
               }),
               messageRow(4, 'assistant', 'The answer is 42', { reasoning: 'hmm' }),
-              messageRow(5, 'assistant', 'Hello')
+              messageRow(5, 'assistant', 'Hello'),
+              messageRow(6, 'tool', 'Used get_price tool', {
+                job_id: 'script-tool-job',
+                tool_arguments: '{"item":"widget"}',
+                tool_result: '{"price":42}'
+              })
             ])
           : undefined
     )
     const chat = createChat(options({ history: 'server' }, fetch))
     await chat.selectConversation('conv-1')
 
-    const [user, used, failed, answer, plain] = chat.getState().messages
+    const [user, used, failed, answer, plain, scriptTool] = chat.getState().messages
+    expect(scriptTool).toMatchObject({ jobId: 'script-tool-job', tool: { name: 'get_price', status: 'success', arguments: '{"item":"widget"}', result: '{"price":42}' } })
     expect(user.attachments).toEqual([{ input: 'files', s3: 'chat/a.png', storage: 'secondary', filename: 'a.png' }])
     expect(answer.attachments).toBeUndefined()
     expect(used.tool).toEqual({ name: 'lookup', status: 'success', arguments: '{"q":1}', result: '42' })

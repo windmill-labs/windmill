@@ -749,9 +749,9 @@ function fromRow(row: FlowConversationMessage): ChatMessage {
     seq: row.created_seq,
     reasoning: row.reasoning ?? undefined,
     attachments: row.attachments ?? undefined,
-    // The call the row carries, which is all there is of it for a tool that ran inside the
-    // agent's job or failed before it had one of its own. For a failed tool the result is
-    // what it failed with, and the row's text names the tool rather than the reason.
+    // The call the row carries: the model's arguments and what the model got back. For a
+    // failed tool the result is what it failed with, and the row's text names the tool
+    // rather than the reason.
     tool: toolName
       ? {
           name: toolName,

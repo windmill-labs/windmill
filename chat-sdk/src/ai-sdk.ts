@@ -131,8 +131,8 @@ export function createWindmillChatTransport<UI_MESSAGE extends UIMessage = UIMes
 }
 
 /** The call a stored tool row carries: its tool, named by the sentence the worker words
- *  every tool row from, and the arguments and result the row keeps when its job cannot be
- *  asked for them — for a failed tool, the result is what it failed with. */
+ *  every tool row from, and the model's arguments and what it got back — for a failed
+ *  tool, the result is what it failed with. */
 function toolFromRow(row: FlowConversationMessage): ChatMessage['tool'] {
   if (row.message_type !== 'tool') return undefined
   const name =

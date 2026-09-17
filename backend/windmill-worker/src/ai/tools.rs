@@ -713,20 +713,8 @@ async fn handle_tool_execution_error(
         update_flow_status_module_with_actions_success(ctx.db, parent_job, false).await?;
     }
 
-    // Add tool message to conversation if chat_input_enabled (error case). Worded from the
-    // tool like every other tool row, with the error as the row's result so the reason
-    // survives a reload. The arguments are not put on the row: the tool's job was pushed
-    // with the ones the step's input transforms produced, not the raw ones the model
-    // supplied, and the job holds those.
-    let content = format!("Error executing {}", tool_call.function.name);
-    add_tool_message_to_chat(
-        ctx,
-        Some(job_id),
-        &content,
-        false,
-        Some(MessageExtras { tool_result: Some(error_message.clone()), ..Default::default() }),
-    )
-    .await;
+    let (content, extras) = windmill_tool_row(tool_call, false, &error_message);
+    add_tool_message_to_chat(ctx, Some(job_id), &content, false, Some(extras)).await;
 
     Ok(())
 }
@@ -827,11 +815,7 @@ async fn handle_tool_execution_success(
         ..Default::default()
     });
 
-    // A failed job's result is what it failed with; kept on the row, as on the error
-    // handler's row, so the reason survives a reload. A successful call's result stays on
-    // the job.
-    let extras = (!success)
-        .then(|| MessageExtras { tool_result: Some(tool_result.clone()), ..Default::default() });
+    let (content, extras) = windmill_tool_row(tool_call, success, &tool_result);
 
     // The job ran; whether it ran successfully is `success`, and the row stored below is
     // worded from it. The stream has to carry the same value, or the card the reader watches
@@ -852,16 +836,31 @@ async fn handle_tool_execution_success(
         update_flow_status_module_with_actions_success(ctx.db, parent_job, success).await?;
     }
 
-    // Add tool message to conversation if chat_input_enabled
+    add_tool_message_to_chat(ctx, Some(job_id), &content, success, Some(extras)).await;
+
+    Ok(())
+}
+
+/// A Windmill tool's conversation row: worded from the tool, carrying the model's call and
+/// the exact text the model got back, the same text agent memory keeps for that tool
+/// message, so a card needs no job fetch. The call is the model's arguments, not the job's
+/// args: the step's input transforms add inputs the model never wrote.
+fn windmill_tool_row(
+    tool_call: &OpenAIToolCall,
+    success: bool,
+    sent_to_model: &str,
+) -> (String, MessageExtras) {
     let content = if success {
         format!("Used {} tool", tool_call.function.name)
     } else {
         format!("Error executing {}", tool_call.function.name)
     };
-
-    add_tool_message_to_chat(ctx, Some(job_id), &content, success, extras).await;
-
-    Ok(())
+    let extras = MessageExtras {
+        tool_arguments: Some(tool_call.function.arguments.clone()),
+        tool_result: Some(sent_to_model.to_string()),
+        ..Default::default()
+    };
+    (content, extras)
 }
 
 /// Add tool message to conversation if chat is enabled
@@ -875,8 +874,7 @@ async fn add_tool_message_to_chat(
     tool_job_id: Option<Uuid>,
     content: &str,
     success: bool,
-    // The call, for a tool with no job of its own, and what a failed call failed with. A
-    // Windmill tool's successful call is read from its job.
+    // The model's call and what it got back; every tool row carries both.
     extras: Option<MessageExtras>,
 ) {
     if ctx.omit_output_from_conversation {
@@ -936,8 +934,42 @@ async fn add_tool_message_to_chat(
 
 #[cfg(test)]
 mod tests {
-    use super::extract_ai_agent_output;
+    use super::{extract_ai_agent_output, windmill_tool_row};
     use serde_json::value::RawValue;
+    use windmill_ai::ai_types::{OpenAIFunction, OpenAIToolCall};
+
+    #[test]
+    fn a_windmill_tool_row_carries_the_models_call_and_what_it_got_back() {
+        let tool_call = OpenAIToolCall {
+            id: "call_1".to_string(),
+            function: OpenAIFunction {
+                name: "get_price".to_string(),
+                arguments: r#"{"item":"widget"}"#.to_string(),
+            },
+            r#type: "function".to_string(),
+            extra_content: None,
+        };
+
+        let (content, extras) = windmill_tool_row(&tool_call, true, r#"{"price":42}"#);
+        assert_eq!(content, "Used get_price tool");
+        assert_eq!(
+            extras.tool_arguments.as_deref(),
+            Some(r#"{"item":"widget"}"#)
+        );
+        assert_eq!(extras.tool_result.as_deref(), Some(r#"{"price":42}"#));
+
+        let (content, extras) =
+            windmill_tool_row(&tool_call, false, "Error running tool: ExecutionErr: boom");
+        assert_eq!(content, "Error executing get_price");
+        assert_eq!(
+            extras.tool_arguments.as_deref(),
+            Some(r#"{"item":"widget"}"#)
+        );
+        assert_eq!(
+            extras.tool_result.as_deref(),
+            Some("Error running tool: ExecutionErr: boom")
+        );
+    }
 
     #[test]
     fn extracts_only_the_output_of_an_agent_result() {

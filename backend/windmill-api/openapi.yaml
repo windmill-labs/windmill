@@ -28371,17 +28371,17 @@ components:
           type: string
           nullable: true
           description: >-
-            The arguments of an MCP tool call, which runs inside the agent's job and so has
-            none of its own. Null for a provider-native web search, whose query the provider
-            does not return, and for a Windmill tool, a script or flow whose own job holds
-            its call.
+            On a tool row, the arguments the model wrote for the call. For a script, flow or
+            AI agent tool these exclude the inputs its step wires in, which only the tool's
+            job holds. Null for a provider-native web search, whose query the provider does
+            not return.
         tool_result:
           type: string
           nullable: true
           description: >-
-            An MCP tool's result, a provider-native web search's citations, and for any
-            failed tool what it failed with — the row's own text names the tool rather than
-            the reason. Null for a successful Windmill tool, whose own job holds the result.
+            On a tool row, the text the model got back from the call, or what the call
+            failed with — the row's own text names the tool rather than the reason. For a
+            provider-native web search, its citations.
         reasoning:
           type: string
           nullable: true

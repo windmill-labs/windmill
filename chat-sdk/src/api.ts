@@ -40,9 +40,9 @@ export interface FlowConversationMessage {
   created_seq: number
   step_name?: string | null
   success?: boolean
-  /** An MCP tool call's arguments; null for a web search and for a Windmill tool, whose own job holds its call. */
+  /** On a tool row, the arguments the model wrote, without the inputs a step wires in; null for a web search. */
   tool_arguments?: string | null
-  /** An MCP tool's result, a web search's citations, and what any failed tool failed with. */
+  /** On a tool row, the text the model got back or what the call failed with; a web search's citations. */
   tool_result?: string | null
   /** On an answer, the thinking that produced it; on a tool row, the thinking that led to the call. */
   reasoning?: string | null

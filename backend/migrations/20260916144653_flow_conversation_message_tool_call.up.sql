@@ -1,8 +1,9 @@
--- A chat is rebuilt from its rows without reading jobs. A tool row for a script or flow
--- names the tool's own job, which holds its call. An MCP tool runs inside the agent's job,
--- whose result lists every call of the turn with nothing tying one to a row, so its row
--- carries the call itself; a provider-native web search carries only its citations, the
--- provider never returning the query.
+-- A chat is rebuilt from its rows without reading jobs, so every tool row carries its call:
+-- the arguments the model wrote and the text the model got back, or what the call failed
+-- with. A script or flow tool's job holds the args its input transforms produced, not the
+-- model's; an MCP tool runs inside the agent's job, whose result lists every call of the
+-- turn with nothing tying one to a row. A provider-native web search carries only its
+-- citations, the provider never returning the query.
 ALTER TABLE flow_conversation_message ADD COLUMN tool_arguments TEXT;
 ALTER TABLE flow_conversation_message ADD COLUMN tool_result TEXT;
 

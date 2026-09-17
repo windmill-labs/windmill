@@ -99,9 +99,10 @@ async fn lock_conversation(
 }
 
 /// What a row carries beyond its text. A chat is rebuilt from its rows alone, without
-/// reading jobs. An MCP or provider-native tool runs inside the agent's job, whose result
-/// holds every call of the turn with nothing tying one to a row, and that job's
-/// `reasoning` is one string for the whole turn where the rows keep it per iteration.
+/// reading jobs, so every tool row carries the model's call and what the model got back: a
+/// Windmill tool's job holds the args its input transforms produced rather than the model's,
+/// and an MCP tool's call sits among every call of the turn in the agent's job. That job's
+/// `reasoning` is one string for the whole turn, where the rows keep it per iteration.
 #[derive(Debug, Clone, Default)]
 pub struct MessageExtras {
     pub tool_arguments: Option<String>,
