@@ -896,6 +896,28 @@ describe('global AI tools', () => {
 		expect(JobService.getCompletedJobResultMaybe).not.toHaveBeenCalled()
 	})
 
+	it('keeps a payload that merely carries the marker string in a reason of its own', async () => {
+		// The backend elides a result to the bare string and args to exactly
+		// {reason: marker}. A payload with that reason plus fields of its own is the
+		// run's own value, and withholding it would report an elision that never was.
+		vi.mocked(JobService.getJob).mockResolvedValueOnce({
+			type: 'CompletedJob',
+			id: 'job-reason',
+			job_kind: 'script',
+			success: false,
+			canceled: false,
+			args: { reason: 'WINDMILL_TOO_BIG', retries: 2 },
+			result: { reason: 'WINDMILL_TOO_BIG', code: 42 }
+		} as any)
+
+		const run = JSON.parse(await callGlobalTool('get_run', { id: 'job-reason' })).run
+
+		expect(run.args_truncated).toBeUndefined()
+		expect(run.result_truncated).toBeUndefined()
+		expect(run.args).toContain('"retries": 2')
+		expect(run.result).toContain('"code": 42')
+	})
+
 	it('reports skipped and suspended runs as such rather than success or running', async () => {
 		// `success` is true for a skipped job, and a suspended job is `running`.
 		vi.mocked(JobService.getJob).mockResolvedValueOnce({

@@ -1,4 +1,5 @@
 import { JobService, type Job, type GetFlowAllResultsResponse } from '$lib/gen'
+import { isWindmillTooBigObject } from '$lib/components/job_args'
 
 /**
  * Model-facing view of a run for the global chat's get_run tool: the job's own
@@ -367,18 +368,12 @@ function cap(text: string, tail = false): string {
  * whose logs it simply failed to read. */
 const LOGS_UNREADABLE = 'Logs could not be read for this run.'
 
-/** `getJob` swaps a payload over ~90KB for this marker rather than sending it
- * (`get_job_query!` in backend/windmill-api/src/jobs.rs) — as the bare string
- * for a result, wrapped in `reason` for args. Neither is the run's own value, so
- * both have to be recognised rather than handed to the model. */
-const TOO_BIG = 'WINDMILL_TOO_BIG'
-
-function isTooBig(value: unknown): boolean {
-	return (
-		value === TOO_BIG ||
-		(typeof value === 'object' && value !== null && (value as any).reason === TOO_BIG)
-	)
-}
+/** `getJob` swaps a payload over ~90KB for a marker rather than sending it
+ * (`get_job_query!` in backend/windmill-api/src/jobs.rs), and the two fields use
+ * different ones: a result becomes the bare string, args become exactly
+ * `{reason: <marker>}`. Each field matches only its own form, so a payload that
+ * merely carries that string in a `reason` of its own stays the run's value. */
+const TOO_BIG_RESULT = 'WINDMILL_TOO_BIG'
 
 function stringify(value: unknown): string {
 	return typeof value === 'string' ? value : JSON.stringify(value, null, 1)
@@ -391,14 +386,18 @@ function stringify(value: unknown): string {
  * the result keeps the head the step tree already carries beside it. */
 function shapeRunArgs(job: Job): Record<string, unknown> {
 	if (!job.args) return {}
-	return isTooBig(job.args) ? { args_truncated: true } : { args: cap(stringify(job.args)) }
+	return isWindmillTooBigObject(job.args)
+		? { args_truncated: true }
+		: { args: cap(stringify(job.args)) }
 }
 
 function shapeRunResult(job: Job): Record<string, unknown> {
 	if (!('result' in job) || job.result === undefined) return {}
 	// No `result` key when elided, so the tree's `result_prefix` — a real
 	// server-side head of the same payload — stands in its place unoverridden.
-	return isTooBig(job.result) ? { result_truncated: true } : { result: cap(stringify(job.result)) }
+	return job.result === TOO_BIG_RESULT
+		? { result_truncated: true }
+		: { result: cap(stringify(job.result)) }
 }
 
 /** Why a run ended badly. get_run is the only route to these — the catalog
