@@ -79,28 +79,77 @@ function lastTurnFailed(messages: readonly ChatMessage[]): boolean {
 	return false
 }
 
-export function toDisplayMessages(messages: readonly ChatMessage[]): DisplayMessage[] {
+/**
+ * What a failed tool call returned, as the card's error: the card shows the error in place of
+ * the result. A job failure is stored as `{ message, name, stack }`; an MCP failure as plain text.
+ */
+function toolErrorText(result: unknown): string | undefined {
+	if (typeof result === 'string') return result || undefined
+	if (result && typeof result === 'object') {
+		const message = (result as { message?: unknown }).message
+		return typeof message === 'string' ? message : JSON.stringify(result, null, 2)
+	}
+	return undefined
+}
+
+/** The name the worker gives the structured-output tool: suffixed when an agent tool already has it. */
+const STRUCTURED_OUTPUT_CALL = /^structured_output(_\d+)?$/
+
+/**
+ * `busy`: the latest turn is still running, so a failed tool call is not yet its outcome.
+ * `stopped`: ids of the user messages of the turns the reader stopped, as message id or row id.
+ * A stopped turn never offers Retry, though Stop leaves its failed tool row or the cancelled
+ * flow's failure as its last message.
+ */
+export function toDisplayMessages(
+	messages: readonly ChatMessage[],
+	busy = false,
+	stopped: ReadonlySet<string> = new Set()
+): DisplayMessage[] {
 	let userIndex = 0
-	return messages.map((message, i): DisplayMessage => {
+	let latestUser = -1
+	for (let i = messages.length - 1; i >= 0 && latestUser < 0; i--) {
+		if (messages[i].role === 'user') latestUser = i
+	}
+	return messages.flatMap((message, i): DisplayMessage[] => {
 		switch (message.role) {
-			case 'user':
-				return {
-					role: 'user',
-					index: userIndex++,
-					content: message.content,
-					// Drives the shared Retry button.
-					error: turnFailed(messages, i) || undefined
-				}
+			case 'user': {
+				const index = userIndex++
+				const settled =
+					!(busy && i === latestUser) &&
+					!stopped.has(message.id) &&
+					!(message.serverId && stopped.has(message.serverId))
+				return [
+					{
+						role: 'user',
+						index,
+						content: message.content,
+						// Drives the shared Retry button.
+						error: (settled && turnFailed(messages, i)) || undefined
+					}
+				]
+			}
 			case 'tool': {
 				const parameters = parseToolPayload(message.tool?.arguments)
 				const result = parseToolPayload(message.tool?.result)
 				const failed = message.success === false
-				return {
+				// A call the turn finished without, stopped or lost before its row was written. The
+				// call a structured answer streams as never gets a result of its own, the answer
+				// being the turn's text, so it is not one.
+				const unfinished =
+					message.tool &&
+					!message.pending &&
+					!message.content &&
+					!STRUCTURED_OUTPUT_CALL.test(message.tool.name)
+						? `${message.tool.name} did not finish`
+						: undefined
+				const call: DisplayMessage = {
 					role: 'tool',
 					tool_call_id: message.id,
 					// The card's header is the row's text, which the server only words once the
 					// tool has returned; until then the row says what is running.
-					content: message.content || (message.tool ? `Running ${message.tool.name}` : ''),
+					content:
+						message.content || unfinished || (message.tool ? `Running ${message.tool.name}` : ''),
 					// Withheld for the copilot's two plan-mode names: `toolName` is what makes
 					// ToolExecutionDisplay render a plan card, and an agent tool that happened to
 					// share one would silently become one.
@@ -108,22 +157,39 @@ export function toDisplayMessages(messages: readonly ChatMessage[]): DisplayMess
 					parameters,
 					result,
 					showDetails: parameters !== undefined || result !== undefined,
-					error: failed ? message.content : undefined,
+					error: failed ? (toolErrorText(result) ?? message.content) : unfinished,
 					isLoading: message.pending && message.tool?.status === 'running'
 				}
+				// The tool card has no thinking section: the thinking that led to the call reads
+				// as a card of its own, just before it.
+				return message.reasoning
+					? [
+							{
+								role: 'assistant',
+								content: '',
+								reasoning: message.reasoning,
+								stepName: message.stepName,
+								jobId: message.jobId,
+								createdAt: message.createdAt
+							},
+							call
+						]
+					: [call]
 			}
 			default:
-				return {
-					role: 'assistant',
-					content: message.content,
-					// Only the message a turn is still writing: a finalized reasoning-only
-					// message must not look in progress.
-					streaming: message.pending || undefined,
-					reasoning: message.reasoning,
-					stepName: message.stepName,
-					jobId: message.jobId,
-					createdAt: message.createdAt
-				}
+				return [
+					{
+						role: 'assistant',
+						content: message.content,
+						// Only the message a turn is still writing: a finalized reasoning-only
+						// message must not look in progress.
+						streaming: message.pending || undefined,
+						reasoning: message.reasoning,
+						stepName: message.stepName,
+						jobId: message.jobId,
+						createdAt: message.createdAt
+					}
+				]
 		}
 	})
 }
@@ -168,12 +234,17 @@ export class FlowChatViewHost implements ChatViewHost {
 	#onState(state: ChatState) {
 		const previous = this.#state
 		this.#state = state
+		const landed = state.messages.filter(
+			(m) => m.serverId && this.#stoppedTurns.has(m.id) && !this.#stoppedTurns.has(m.serverId)
+		)
+		if (landed.length > 0) {
+			this.#stoppedTurns = new Set([...this.#stoppedTurns, ...landed.map((m) => m.serverId!)])
+		}
 		if (previous.conversationId !== state.conversationId) {
 			// A conversation opens at its end, whatever the reader was doing in the last one.
 			this.#automaticScroll = true
 			// A conversation reopened later comes back from the server under other message ids.
 			this.#sentAttachments.clear()
-			this.#stoppedSentIds.clear()
 			// The queue was typed into the conversation that just went away; a message sent
 			// after the switch would ride out of the wrong one, so it goes back to the composer.
 			this.dequeueMessage()
@@ -193,7 +264,14 @@ export class FlowChatViewHost implements ChatViewHost {
 	}
 
 	// Transcript
-	displayMessages = $derived.by(() => toDisplayMessages(this.#state.messages))
+	displayMessages = $derived.by(() =>
+		toDisplayMessages(this.#state.messages, isBusy(this.#state.status), this.#stoppedTurns)
+	)
+	/** The user message of each turn stopped in this view, by message id and, once the chat has
+	 * read its row, row id: a reopened conversation or an older page rebuilds messages from rows,
+	 * so a turn left before its row was read is not recognised there. Only this session knows;
+	 * a reload shows the stopped turn as its rows left it. */
+	#stoppedTurns = $state.raw<ReadonlySet<string>>(new Set())
 	get messages(): readonly unknown[] {
 		return this.#state.messages
 	}
@@ -293,7 +371,6 @@ export class FlowChatViewHost implements ChatViewHost {
 			last?.role === 'user' && last.pending && last.content === text ? last.id : undefined
 		if (sentId && (images.length > 0 || blobs.length > 0)) {
 			this.#sentAttachments.set(sentId, { images, blobs })
-			this.#inFlightSentId = sentId
 		}
 		const turn = sending.catch((e) => {
 			if (sentId) this.#sentAttachments.delete(sentId)
@@ -312,29 +389,29 @@ export class FlowChatViewHost implements ChatViewHost {
 		})
 		this.#turnDone = turn
 		await turn
-		// The files are kept only for a turn Retry can be offered on: one that failed, or one
-		// stopped, whose cancelled run is synced as a failure only after the send settles. A
-		// base64 payload per sent file would otherwise pile up for as long as the panel lives.
+		// The files are kept only for a turn that failed, the one Retry is offered on: a base64
+		// payload per sent file would otherwise pile up for as long as the panel lives.
 		if (sentId) {
-			if (this.#inFlightSentId === sentId) this.#inFlightSentId = undefined
-			const stopped = this.#stoppedSentIds.delete(sentId)
 			const index = this.#state.messages.findIndex((m) => m.id === sentId)
-			if (!stopped && (index === -1 || !turnFailed(this.#state.messages, index))) {
+			if (index === -1 || !turnFailed(this.#state.messages, index)) {
 				this.#sentAttachments.delete(sentId)
 			}
 		}
 		return true
 	}
-	/** The user message of the send still awaiting its turn, when it carried files. */
-	#inFlightSentId: string | undefined = undefined
-	#stoppedSentIds = new Set<string>()
 	/** Settles when the chat has released the last turn this host started. */
 	#turnDone: Promise<unknown> = Promise.resolve()
 	cancel = () => {
-		if (this.#inFlightSentId) this.#stoppedSentIds.add(this.#inFlightSentId)
 		// Stop means stop: what was typed during the run goes back to the composer rather
 		// than waiting there to go out after some later turn settles.
 		this.dequeueMessage()
+		const { messages, status } = this.#state
+		const turn = isBusy(status) ? [...messages].reverse().find((m) => m.role === 'user') : undefined
+		if (turn) {
+			this.#stoppedTurns = new Set(
+				[...this.#stoppedTurns, turn.id, turn.serverId].filter((id) => id !== undefined)
+			)
+		}
 		void this.#chat.stop()
 	}
 	// Typed off the interface: a Svelte component's own type resolves differently
@@ -401,13 +478,16 @@ export class FlowChatViewHost implements ChatViewHost {
 	/** The files each user message of this session went out with, for Retry. A message loaded
 	 * from history has none recorded here and retries with its text alone. */
 	#sentAttachments = new Map<string, { images: AttachedImage[]; blobs: AttachedBlob[] }>()
-	/** Send the user message at this transcript position again. */
+	/** Send the user message at this transcript position again. The position is in
+	 * `displayMessages`, which holds more entries than the chat's messages. */
 	retryRequest = (messageIndex: number) => {
-		const message = this.#state.messages[messageIndex]
+		const message = this.displayMessages[messageIndex]
 		if (!message || message.role !== 'user' || this.loading) return
+		// A display message counts user messages in `index`; the files are kept by chat message id.
+		const sent = this.#state.messages.filter((m) => m.role === 'user')[message.index]
 		void this.sendRequest({
 			instructions: message.content,
-			...this.#sentAttachments.get(message.id)
+			...(sent ? this.#sentAttachments.get(sent.id) : undefined)
 		})
 	}
 	restartGeneration = () => {}

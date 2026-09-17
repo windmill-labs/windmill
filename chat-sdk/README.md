@@ -56,8 +56,10 @@ not a replacement of the previous answer.
 
 The transport also carries the history helpers: `transport.loadMessages(id)` returns
 `UIMessage`s for `useChat({ messages })` or `setMessages`, `transport.listConversations()`
-and `transport.deleteConversation(id)`. Attachments are not supported: `sendMessage` with
-`files` is refused with an explanatory error.
+and `transport.deleteConversation(id)`. A loaded user message lists the files it carried
+in `metadata.attachments`; `WindmillChatApi.attachmentUrl` gives each one's download URL.
+Sending attachments is not supported: `sendMessage` with `files` is refused with an
+explanatory error.
 
 ## assistant-ui
 

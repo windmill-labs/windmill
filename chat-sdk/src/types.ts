@@ -34,7 +34,7 @@ export interface ChatMessage {
   content: string
   /** The model's reasoning summary, when the provider streams one. */
   reasoning?: string
-  /** Set on `tool` messages that came from the live stream. */
+  /** The call on a `tool` message, from the live stream or its stored row; `callId` is only known from the stream. */
   tool?: ToolInvocation
   success: boolean
   createdAt: string
