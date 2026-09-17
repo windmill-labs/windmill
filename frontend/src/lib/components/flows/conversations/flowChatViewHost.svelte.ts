@@ -28,8 +28,8 @@ export type FlowChatViewHostOptions = {
 	 * is disabled on the same condition; this covers the sends the composer does not
 	 * make itself: a queued message going out, a retry. */
 	sendDisabled?: () => boolean
-	/** Flow inputs edited by a control beside the composer rather than the Inputs modal. No
-	 * surface has one yet. A retry takes their current value rather than the failed turn's. */
+	/** Flow inputs edited by a control beside the composer, such as the model button. A retry
+	 * takes their current value rather than the failed turn's. */
 	inputsShownInComposer?: () => string[]
 	/** Injectables for tests: the clock and scheduler behind the typewriter pacing. */
 	revealOptions?: Pick<TypewriterRevealOptions, 'instant' | 'now' | 'schedule' | 'cancel'>

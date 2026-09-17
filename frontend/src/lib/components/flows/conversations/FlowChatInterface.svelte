@@ -154,7 +154,10 @@
 		{
 			additionalInputs: () => (additionalInputsSchema ? { ...runInputs } : undefined),
 			workspace: () => workspace,
-			sendDisabled: () => deploymentInProgress || !!modelGap
+			sendDisabled: () => deploymentInProgress || !!modelGap,
+			// The model controls only: a retry changes model when the reader did, but replays
+			// the run's own attachments rather than whatever the composer holds now.
+			inputsShownInComposer: () => composerOwnedInputs(modelWiring, undefined)
 		}
 	)
 	setChatViewHost(chatHost)
