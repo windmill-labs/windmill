@@ -11,7 +11,12 @@
 	import { resource } from 'runed'
 	import { ArrowLeft, Expand, Minimize, Plus, RefreshCcw } from 'lucide-svelte'
 	import DBManagerContent from '../DBManagerContent.svelte'
-	import { ADMIN_DATATABLE_ROLE, datatableNameTakesRole, type DbInput } from '../dbTypes'
+	import {
+		ADMIN_DATATABLE_ROLE,
+		datatableNameTakesRole,
+		defaultMigrationRole,
+		type DbInput
+	} from '../dbTypes'
 	import type { PendingRowAction, SelectedTable } from '../DBManager.svelte'
 	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import { useDbManagerTag } from '../dbManagerTag.svelte'
@@ -107,12 +112,12 @@
 	// without one runs, and caches, as whatever the server defaults to.
 	const roleSettled = $derived(
 		selectedDatatable === undefined ||
-			// Its reference cannot name a role, so it connects as the default one.
-			!datatableNameTakesRole(selectedDatatable) ||
 			(rolesOfCurrent !== undefined &&
 				(!rolesOfCurrent.permissioned ||
 					rolesOfCurrent.roles.length === 0 ||
-					selectedRole !== undefined))
+					selectedRole !== undefined ||
+					// Its reference cannot name a role, so it connects as the default one.
+					!datatableNameTakesRole(selectedDatatable)))
 	)
 
 	$effect(() => {
@@ -307,6 +312,11 @@
 					resourceType: 'postgresql' as const,
 					resourcePath: `datatable://${selectedDatatable}`,
 					role: selectedRole,
+					migrationRole: defaultMigrationRole(
+						selectedDatatable,
+						rolesOfCurrent?.permissioned,
+						rolesOfCurrent?.default_role
+					),
 					specificSchema: openSchemaKey,
 					specificTable: openTableKey
 				}

@@ -6,6 +6,9 @@ export type DbInput =
 			/** The data table role to connect as; the data table's default when unset. Only
 			 * meaningful for a `datatable://` path. */
 			role?: string
+			/** The role migrations written through this input declare when `role` is unset. A
+			 * migration declaring none runs as admin, not as the role the manager connects as. */
+			migrationRole?: string
 			specificSchema?: string
 			specificTable?: string
 	  }
@@ -40,6 +43,16 @@ export function isDatatableRoleName(name: string): boolean {
  * `?role=` after it would be taken as part of the name or refused. */
 export function datatableNameTakesRole(name: string): boolean {
 	return !name.includes('?')
+}
+
+/** The `migrationRole` of a data table that cannot name a role in its reference: it connects as
+ * its default role, which its migrations must then declare. */
+export function defaultMigrationRole(
+	name: string,
+	permissioned: boolean | undefined,
+	defaultRole: string | undefined
+): string | undefined {
+	return permissioned && !datatableNameTakesRole(name) ? defaultRole : undefined
 }
 
 /** `datatable://<name>`, with `?role=<role>` when a role is named. Throws rather than build a

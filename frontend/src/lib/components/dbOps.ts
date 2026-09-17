@@ -299,7 +299,7 @@ export function dbSchemaOpsWithPreviewScripts({
 			? input.resourcePath.slice('datatable://'.length)
 			: undefined
 	// A migration declaring no role runs as admin, whatever role the manager connects as.
-	const migrationRole = input.type === 'database' ? input.role : undefined
+	const migrationRole = input.type === 'database' ? (input.role ?? input.migrationRole) : undefined
 
 	function makeMarker(op: string, payload: Record<string, unknown>): string {
 		if (ducklake) payload.ducklake = ducklake

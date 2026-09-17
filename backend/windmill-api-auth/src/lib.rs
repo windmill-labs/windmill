@@ -1141,6 +1141,9 @@ impl NewToken {
 /// [`ensure_scopes_within_caller`] first (internal narrowing mints intentionally
 /// skip it, since their scopes derive from the action being authorized, not the
 /// caller's token).
+///
+/// A token the system mints for itself with an `expiration` needs a label reserved in
+/// `windmill_common::auth::is_user_token`, or its expiry alerts its owner (docs/auth-surface.md).
 pub async fn create_token_internal(
     tx: &mut sqlx::PgConnection,
     db: &DB,

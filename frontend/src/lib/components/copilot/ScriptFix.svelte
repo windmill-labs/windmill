@@ -25,7 +25,7 @@
 		/** The failing run's error, used when there is no job to point at. */
 		error?: string
 		/** The failing run's job id. Preferred over `error`: the chat reads the
-		 * run itself with `get_job_logs`, which gives it the logs rather than
+		 * run itself with `get_run`, which gives it the logs rather than
 		 * just the thrown value, and keeps the composer readable. */
 		jobId?: string
 		/** Set when this sits in a flow step's preview, so the session opens on
