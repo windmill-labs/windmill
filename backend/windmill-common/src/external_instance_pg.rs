@@ -288,9 +288,40 @@ pub async fn check_external_instance_pg_write(
             ensure_external_instance_pg_removable(db).await
         }
         Some(value) => {
-            crate::external_instance_pg_oss::validate_external_instance_pg_setting(value)
+            crate::external_instance_pg_oss::validate_external_instance_pg_setting(value)?;
+            ensure_external_instance_pg_not_repointed(db, value).await
         }
     }
+}
+
+/// Refuse pointing the setting at another host or port while databases live on the current one.
+/// Data tables name databases, not clusters, so they would silently resolve to whatever the new
+/// cluster holds under the same names. Other fields (admin login, sslmode) may change freely.
+async fn ensure_external_instance_pg_not_repointed(
+    db: &DB,
+    value: &serde_json::Value,
+) -> Result<()> {
+    let Some(current) = read_external_instance_pg_config(db).await? else {
+        return Ok(());
+    };
+    let Ok(desired) = serde_json::from_value::<ExternalInstancePg>(value.clone()) else {
+        return Ok(());
+    };
+    let address = |c: &ExternalInstancePg| (c.host.trim().to_lowercase(), c.port.unwrap_or(5432));
+    if address(&current) == address(&desired) {
+        return Ok(());
+    }
+    let state = read_external_instance_pg_state(db).await?;
+    let usages = external_instance_database_usages(db).await?;
+    if state.databases.is_empty() && usages.is_empty() {
+        return Ok(());
+    }
+    Err(Error::BadRequest(format!(
+        "The external instance cluster at {}:{} still holds databases in use. Drop them and repoint \
+         what uses them before pointing {EXTERNAL_INSTANCE_PG_SETTING} at another cluster.",
+        current.host.trim(),
+        current.port.unwrap_or(5432)
+    )))
 }
 
 /// Converge the external cluster on the configured login: check what it can do, create or update
