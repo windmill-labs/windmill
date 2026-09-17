@@ -575,8 +575,8 @@ components:
       type: object
       description: |
         Keeps the whole memory named by the run's memory id (or the step's `memory_id`), replacing
-        its older part with a summary as the conversation approaches the context window. Without a
-        memory id the agent runs without memory, and compaction bounds the run's own loop.
+        its older part with a summary as the conversation approaches the model's context window.
+        Without a memory id the agent runs without memory, and compaction bounds the run's own loop.
       properties:
         kind:
           type: string
@@ -584,10 +584,11 @@ components:
             - compaction
         context_window:
           type: integer
-          description: The model's context window in tokens, used to decide when to summarize the older part of the conversation. Defaults to 128000.
+          description: |
+            Overrides the context window looked up from the model, in tokens. Only a model
+            Windmill does not know needs one; those fall back to 128000.
       required:
         - kind
-        - context_window
 
     MemoryMessage:
       type: object

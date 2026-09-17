@@ -74,16 +74,6 @@ impl Default for OutputType {
     }
 }
 
-/// Context window assumed when the step does not declare one, matching the flow editor's
-/// default. A step pointed at a smaller model has to say so: the assumed window is what
-/// compaction measures against, so too large a one never trips and the provider raises
-/// the context error itself.
-const DEFAULT_CONTEXT_WINDOW: usize = 128000;
-
-fn default_context_window() -> usize {
-    DEFAULT_CONTEXT_WINDOW
-}
-
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Memory {
@@ -93,13 +83,11 @@ pub enum Memory {
         context_length: usize,
     },
     Compaction {
-        /// The model's context window in tokens. Compaction is driven off this, so a
-        /// value larger than the model actually serves lets the conversation overflow
+        /// Overrides the window looked up from the model. Only a step the lookup cannot
+        /// serve — a Custom AI deployment, a model id not in the table — needs one, and
+        /// a value larger than the model actually serves lets the conversation overflow
         /// before the summary is ever taken.
-        #[serde(
-            default = "default_context_window",
-            deserialize_with = "deserialize_null_as_zero"
-        )]
+        #[serde(default, deserialize_with = "deserialize_null_as_zero")]
         context_window: usize,
     },
     /// Written before `window`. Its `memory_id` stays a fallback behind the run's memory id.
@@ -205,11 +193,6 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
         let memory = memory.map(|memory| match memory {
             Memory::Auto { context_length: 0, .. } | Memory::Window { context_length: 0 } => {
                 Memory::Off
-            }
-            // A window of 0 — an input expression that resolved to nothing — would put
-            // the compaction threshold at zero and summarize on every iteration.
-            Memory::Compaction { context_window: 0 } => {
-                Memory::Compaction { context_window: DEFAULT_CONTEXT_WINDOW }
             }
             memory => memory,
         });
@@ -406,30 +389,33 @@ impl TokenUsage {
         Self::new(input, output, total)
     }
 
-    /// Add cache token information
+    /// Records a cached prefix the provider counted *inside* `input_tokens`, which the
+    /// OpenAI-shaped ones do. The counts are kept only for the cost split.
     pub fn with_cache(mut self, read: Option<i32>, write: Option<i32>) -> Self {
         self.cache_read_input_tokens = read;
         self.cache_write_input_tokens = write;
         self
     }
 
-    /// How many tokens the prompt of a single request actually occupied.
-    ///
-    /// The two provider shapes report caching differently: Anthropic and Bedrock keep
-    /// the cached prefix out of `input_tokens` and report it beside it, while the
-    /// OpenAI-shaped providers count `cached_tokens` inside `input_tokens` and never
-    /// report a write count. Adding the cache fields only when a write count is present
-    /// puts both on the same scale instead of double counting the OpenAI one.
+    /// Records a cached prefix the provider reported *beside* `input_tokens` rather than
+    /// inside it, which Anthropic and Bedrock do. `input_tokens` is raised to the whole
+    /// prompt, so `input_tokens` means the same thing whatever served the request; the
+    /// cache counts stay as the subsets they have become, and the total follows.
+    pub fn with_cache_beside_input(mut self, read: Option<i32>, write: Option<i32>) -> Self {
+        let beside = read.unwrap_or(0).saturating_add(write.unwrap_or(0));
+        self.input_tokens = self.input_tokens.map(|input| input.saturating_add(beside));
+        self.total_tokens = match (self.input_tokens, self.output_tokens) {
+            (Some(input), Some(output)) => Some(input.saturating_add(output)),
+            _ => self.total_tokens.map(|total| total.saturating_add(beside)),
+        };
+        self.with_cache(read, write)
+    }
+
+    /// How many tokens the prompt of a single request occupied — the whole input,
+    /// cached prefix included, because every provider's conversion normalizes
+    /// `input_tokens` to that before it gets here.
     pub fn prompt_tokens(&self) -> Option<i32> {
-        let input = self.input_tokens?;
-        if self.cache_write_input_tokens.is_none() {
-            return Some(input);
-        }
-        Some(
-            input
-                .saturating_add(self.cache_read_input_tokens.unwrap_or(0))
-                .saturating_add(self.cache_write_input_tokens.unwrap_or(0)),
-        )
+        self.input_tokens
     }
 
     pub fn is_empty(&self) -> bool {
@@ -976,18 +962,24 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    /// Getting this wrong under-reports Anthropic's prompt by the whole cached prefix,
-    /// which is exactly the case compaction has to notice.
+    /// Whichever provider served the request, `input_tokens` has to end up meaning the
+    /// whole prompt. Leaving the Anthropic shape as reported under-states it by the
+    /// entire cached prefix, which is exactly what compaction has to notice.
     #[test]
-    fn prompt_tokens_puts_both_provider_cache_shapes_on_one_scale() {
-        // OpenAI-shaped: cached_tokens is inside input_tokens, no write count.
+    fn both_provider_cache_shapes_report_the_whole_prompt() {
+        // OpenAI-shaped: cached_tokens is already inside input_tokens.
         let openai = TokenUsage::new(Some(1000), Some(10), Some(1010)).with_cache(Some(800), None);
         assert_eq!(openai.prompt_tokens(), Some(1000));
+        assert_eq!(openai.total_tokens, Some(1010));
 
-        // Anthropic-shaped: the cached prefix is reported beside input_tokens.
-        let anthropic =
-            TokenUsage::from_input_output(Some(200), Some(10)).with_cache(Some(5000), Some(300));
+        // Anthropic-shaped: the cached prefix is reported beside input_tokens, and the
+        // total follows the prompt it is folded into.
+        let anthropic = TokenUsage::from_input_output(Some(200), Some(10))
+            .with_cache_beside_input(Some(5000), Some(300));
         assert_eq!(anthropic.prompt_tokens(), Some(5500));
+        assert_eq!(anthropic.total_tokens, Some(5510));
+        // Kept as the subsets they have become, for the cost split.
+        assert_eq!(anthropic.cache_read_input_tokens, Some(5000));
 
         assert_eq!(TokenUsage::default().prompt_tokens(), None);
     }

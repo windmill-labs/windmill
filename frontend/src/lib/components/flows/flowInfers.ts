@@ -4,7 +4,7 @@ import type { Schema } from '$lib/common'
 import { emptySchema } from '$lib/utils'
 import type { FlowModule, InputTransform } from '$lib/gen'
 import { AGENT_FLOW_LOCAL_KEYS } from './agentResourceUtils'
-import { AGENT_HISTORY_KEYS, DEFAULT_CONTEXT_WINDOW } from './agentFormFields'
+import { AGENT_HISTORY_KEYS } from './agentFormFields'
 
 /** Display names for the memory field's options, so anything else naming the setting an author
  *  picked cannot drift from the button they see. */
@@ -99,11 +99,10 @@ export const AI_AGENT_SCHEMA: Schema = {
 							type: 'number',
 							title: 'Context window',
 							description:
-								"The model's context window in tokens. Once a request fills 80% of it, the older messages are replaced by a summary and the recent ones are kept as they are.",
-							default: DEFAULT_CONTEXT_WINDOW
+								'Tokens the model holds. Once a request fills 80% of it, the older messages are replaced by a summary and the recent ones are kept as they are. Leave empty to use the window known for the model, or 128000 for a model Windmill does not know.'
 						}
 					},
-					required: ['kind', 'context_window'],
+					required: ['kind'],
 					'x-no-s3-storage-workspace-warning':
 						'Without S3 storage on the workspace, memory is kept in the database, up to 100KB per memory. A conversation that grows past it is cut from its oldest message, the summary included, before it ever reaches the context window. Configure S3 storage in your workspace settings to keep summarization in charge of what is dropped.'
 				}

@@ -25,6 +25,7 @@ use crate::ai::tools::McpClientStub as McpClient;
 use windmill_ai::{
     ai_providers::AIProvider,
     image_handler::upload_image_to_s3,
+    model_context::model_context_window,
     providers::{
         create_chat_completions_query_builder, create_query_builder, is_chat_completions_only,
         openai::{
@@ -1511,7 +1512,14 @@ pub async fn run_agent(
                 .and_then(|defs| serde_json::to_string(defs).ok())
                 .map(|schemas| schemas.len() / 4)
                 .unwrap_or(0);
-            Some(Compactor::new(*context_window, tool_schema_tokens))
+            // An unset window — the usual case — is looked up from the model. The field
+            // is the override for what the lookup cannot serve: a Custom AI deployment,
+            // or an id the table does not list.
+            let context_window = match context_window {
+                0 => model_context_window(args.provider.get_model()),
+                declared => *declared,
+            };
+            Some(Compactor::new(context_window, tool_schema_tokens))
         }
         _ => None,
     };
@@ -2304,10 +2312,10 @@ mod tests {
                 Resolved::Compaction(run, 32000),
             ),
             (
-                "a cleared context window falls back to the default",
+                "a cleared context window is left for the model lookup to fill",
                 json!({ "memory": { "kind": "compaction", "context_window": null } }),
                 Some(run),
-                Resolved::Compaction(run, 128000),
+                Resolved::Compaction(run, 0),
             ),
             (
                 "a step memory id overrides the run's",

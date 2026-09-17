@@ -30,16 +30,10 @@ export const AGENT_TOOLS_ROW = 'tools'
 export const AGENT_HISTORY_KEYS = ['memory_id', 'previous_messages'] as const
 export type AgentHistoryKey = (typeof AGENT_HISTORY_KEYS)[number]
 
-/** Matches the backend default in `windmill-ai`'s `Memory::Compaction`. */
-export const DEFAULT_CONTEXT_WINDOW = 128000
-
 /** What turning managed memory on writes. Both call sites are chat mode, and a chat conversation
  *  is open-ended: it keeps everything and summarizes the older part rather than dropping messages
- *  off the front. */
-export const DEFAULT_AGENT_MEMORY: MemoryConfig = {
-	kind: 'compaction',
-	context_window: DEFAULT_CONTEXT_WINDOW
-}
+ *  off the front. No context window, so the run reads the one known for the model it ends up on. */
+export const DEFAULT_AGENT_MEMORY: MemoryConfig = { kind: 'compaction' }
 
 /** The docs section on how an agent's memory is named and kept. */
 export const AGENT_MEMORY_DOCS_URL =
@@ -79,7 +73,9 @@ export function historyInputApplies(
 /** A memory setting in words, for a linked agent's summary. */
 export function describeMemoryPolicy(memory: any): string {
 	if (memory?.kind === 'compaction') {
-		return `Whole conversation, summarized near ${memory.context_window ?? DEFAULT_CONTEXT_WINDOW} tokens`
+		return memory.context_window
+			? `Whole conversation, summarized near ${memory.context_window} tokens`
+			: "Whole conversation, summarized as it fills the model's context window"
 	}
 	if (keepsManagedMemory(memory)) return `Last ${memory.context_length} messages`
 	if (memory?.kind === 'manual') return 'Off, sends previous messages saved with the agent'

@@ -1147,7 +1147,7 @@ impl BedrockQueryBuilder {
                                     Some(token_usage.output_tokens()),
                                     Some(token_usage.total_tokens()),
                                 )
-                                .with_cache(
+                                .with_cache_beside_input(
                                     token_usage
                                         .cache_read_input_tokens()
                                         .map(|v| i32::try_from(v).unwrap_or(i32::MAX)),
@@ -1263,7 +1263,10 @@ mod tests {
         // recovers the uncached share by subtracting the details back out.
         assert_eq!(usage["usage"]["prompt_tokens"], 1010);
         assert_eq!(usage["usage"]["completion_tokens"], 7);
-        assert_eq!(usage["usage"]["prompt_tokens_details"]["cached_tokens"], 900);
+        assert_eq!(
+            usage["usage"]["prompt_tokens_details"]["cached_tokens"],
+            900
+        );
         assert_eq!(
             usage["usage"]["prompt_tokens_details"]["cache_write_tokens"],
             100

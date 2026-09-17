@@ -217,63 +217,39 @@ fn summarizable_start(messages: &[OpenAIMessage]) -> usize {
         .unwrap_or(messages.len())
 }
 
-/// How far the character estimate falls short of what the provider actually charges.
-///
-/// The estimator reads message text. A request carries more than that: an attachment is
-/// a short S3 path here and a whole image or PDF once the provider's request builder
-/// expands it, and every tokenizer disagrees with `chars / 4`. Rather than enumerate
-/// what the estimate cannot see — the list only grows — it is calibrated against the one
-/// number that is ground truth, the prompt the provider charged for the last request.
-/// Never below 1.0: the estimate is only ever wrong by undercounting.
-fn estimator_scale(
-    messages: &[OpenAIMessage],
-    tool_schema_tokens: usize,
-    last_request: LastRequest,
-) -> f64 {
-    let Some(measured) = last_request
-        .prompt_tokens
-        .map(|tokens| tokens.max(0) as usize)
-    else {
-        return 1.0;
-    };
-    let sent = last_request.message_count.min(messages.len());
-    let estimated = estimate_conversation_tokens(&messages[..sent]);
-    if estimated == 0 {
-        return 1.0;
-    }
-    (measured.saturating_sub(tool_schema_tokens) as f64 / estimated as f64).max(1.0)
-}
-
 /// Index at which the kept tail starts, or `None` when there is nothing worth
 /// summarizing.
 ///
 /// The tail grows backwards from the newest message until it fills the target budget,
 /// then backs up over any leading `tool` messages so it never opens with a tool result
 /// whose `tool_calls` message was summarized away — every provider rejects that.
+///
+/// Sized on the character estimate alone, even where the provider counted the last
+/// request: the split has to price messages the provider never saw, and a tail sized a
+/// little wrong only compacts again a turn later.
 fn plan_tail_start(
     messages: &[OpenAIMessage],
     context_window: usize,
     tool_schema_tokens: usize,
-    last_request: LastRequest,
 ) -> Option<usize> {
     let prefix_start = summarizable_start(messages);
-    let scale = estimator_scale(messages, tool_schema_tokens, last_request);
-    let scaled =
-        |message: &OpenAIMessage| (estimate_message_tokens(message) as f64 * scale) as usize;
 
     // The budget is for the tail alone, so what every request carries regardless — the
     // system prompt compaction keeps, and the tool definitions, which are not in the
     // message list at all — comes off the target first. Left in, a tail sized to the
     // whole target puts the next request back over the trigger and compacts again.
-    let fixed_prompt_tokens =
-        messages[..prefix_start].iter().map(scaled).sum::<usize>() + tool_schema_tokens;
+    let fixed_prompt_tokens = messages[..prefix_start]
+        .iter()
+        .map(estimate_message_tokens)
+        .sum::<usize>()
+        + tool_schema_tokens;
     let budget = ((context_window as f64 * COMPACTION_TARGET_RATIO) as usize)
         .saturating_sub(summary_reserve_tokens(context_window) + fixed_prompt_tokens);
 
     let mut tail_start = messages.len();
     let mut tail_tokens = 0usize;
     for index in (prefix_start..messages.len()).rev() {
-        let tokens = scaled(&messages[index]);
+        let tokens = estimate_message_tokens(&messages[index]);
         // The newest message is always kept, however large: dropping it would discard
         // the tool results this iteration just produced.
         if tail_start < messages.len() && tail_tokens + tokens > budget {
@@ -296,7 +272,7 @@ fn plan_tail_start(
     let new_prefix_tokens = prefix
         .iter()
         .filter(|message| !is_compaction_summary(message))
-        .map(scaled)
+        .map(estimate_message_tokens)
         .sum::<usize>();
     let worth_summarizing = prefix.len() >= MIN_PREFIX_MESSAGES_TO_SUMMARIZE
         || new_prefix_tokens >= context_window / MIN_PREFIX_SHARE_TO_SUMMARIZE;
@@ -453,12 +429,9 @@ impl Compactor {
             return None;
         }
 
-        let Some(tail_start) = plan_tail_start(
-            messages,
-            self.context_window,
-            self.tool_schema_tokens,
-            last_request,
-        ) else {
+        let Some(tail_start) =
+            plan_tail_start(messages, self.context_window, self.tool_schema_tokens)
+        else {
             // The trigger runs off the provider's count and the split off a character
             // estimate; when they disagree the step keeps growing with nothing done, so
             // say so rather than leaving the mode looking broken.
@@ -669,9 +642,6 @@ async fn summarize_prefix(
 mod tests {
     use super::*;
 
-    /// No provider count yet, so the estimate stands as it is.
-    const UNMEASURED: LastRequest = LastRequest { prompt_tokens: None, message_count: 0 };
-
     fn message(role: &str, content: &str) -> OpenAIMessage {
         OpenAIMessage {
             role: role.to_string(),
@@ -713,7 +683,7 @@ mod tests {
             messages.push(message("tool", &"x".repeat(40000)));
         }
 
-        let tail_start = plan_tail_start(&messages, 32000, 0, UNMEASURED).expect("should compact");
+        let tail_start = plan_tail_start(&messages, 32000, 0).expect("should compact");
         assert_ne!(messages[tail_start].role, "tool");
         assert!(tail_start >= 1, "the system message is never summarized");
     }
@@ -729,10 +699,8 @@ mod tests {
             messages.push(message("user", &"u".repeat(8000)));
         }
 
-        let without_overhead =
-            plan_tail_start(&messages, 40000, 0, UNMEASURED).expect("should compact");
-        let with_overhead =
-            plan_tail_start(&messages, 40000, 10000, UNMEASURED).expect("should compact");
+        let without_overhead = plan_tail_start(&messages, 40000, 0).expect("should compact");
+        let with_overhead = plan_tail_start(&messages, 40000, 10000).expect("should compact");
 
         assert!(
             with_overhead > without_overhead,
@@ -772,32 +740,6 @@ mod tests {
         assert_eq!(summary_reserve_tokens(8000), MIN_SUMMARY_RESERVE_TOKENS);
     }
 
-    /// An attachment is a short S3 path in the message list and a whole image by the
-    /// time the provider counts it. The estimate cannot see that, so it is calibrated
-    /// against what the provider charged rather than taught about each such input.
-    #[test]
-    fn plan_tail_start_scales_the_estimate_to_what_the_provider_charged() {
-        let mut messages = vec![message("system", "sys"), message("user", "hi")];
-        for _ in 0..8 {
-            messages.push(message("assistant", &"a".repeat(8000)));
-            messages.push(message("user", &"u".repeat(8000)));
-        }
-        // 16 messages of 2000 estimated tokens each; the provider charged four times that
-        // for the same conversation, so each is really worth 8000.
-        let measured = LastRequest {
-            prompt_tokens: Some(4 * estimate_conversation_tokens(&messages) as i32),
-            message_count: messages.len(),
-        };
-
-        let unscaled = plan_tail_start(&messages, 40000, 0, UNMEASURED).expect("should compact");
-        let scaled = plan_tail_start(&messages, 40000, 0, measured).expect("should compact");
-
-        assert!(
-            scaled > unscaled,
-            "a heavier real cost must shrink the tail: {unscaled} -> {scaled}"
-        );
-    }
-
     /// An attachment is a short S3 path in the message list and a whole image once the
     /// provider expands it, and it arrives early enough that the message-count guard
     /// would otherwise refuse to summarize the one or two turns carrying it.
@@ -824,7 +766,7 @@ mod tests {
         ];
 
         // Two attachments are worth more than a quarter of this window on their own.
-        assert!(plan_tail_start(&messages, 10000, 0, UNMEASURED).is_some());
+        assert!(plan_tail_start(&messages, 10000, 0).is_some());
     }
 
     /// A summary is reserve-sized whatever it holds, so a prefix of nothing else would
@@ -838,7 +780,7 @@ mod tests {
             message("assistant", &"a".repeat(40000)),
         ];
 
-        assert_eq!(plan_tail_start(&messages, 10000, 0, UNMEASURED), None);
+        assert_eq!(plan_tail_start(&messages, 10000, 0), None);
     }
 
     #[test]
@@ -848,6 +790,6 @@ mod tests {
             message("user", "hi"),
             message("assistant", "hello"),
         ];
-        assert_eq!(plan_tail_start(&messages, 1000, 0, UNMEASURED), None);
+        assert_eq!(plan_tail_start(&messages, 1000, 0), None);
     }
 }

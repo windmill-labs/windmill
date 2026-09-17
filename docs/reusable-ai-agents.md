@@ -44,8 +44,8 @@ which memory it is:
 
 - **Agent: managed memory.** `memory` is a brain key, so it moves with a saved agent.
   `{ kind: window, context_length }` has Windmill store the conversation and replay its last N
-  messages; `{ kind: compaction, context_window }` replays all of it and summarizes the older part
-  as it fills the window (see below); `{ kind: off }` keeps none. An absent `memory` means off, the
+  messages; `{ kind: compaction }` replays all of it and summarizes the older part as it fills the
+  model's context window (see below); `{ kind: off }` keeps none. An absent `memory` means off, the
   default: the editor turns it on when chat input is enabled, as compaction, since a chat has no
   end. `auto` and `manual` are the older spellings and are still read.
 - **Run: memory id.** `flow_status.memory_id`, set when the run is queued: the chat conversation
@@ -81,19 +81,29 @@ Each ignored input and each stateless fallback is written to the job log.
 
 ### Compaction
 
-`{ kind: compaction, context_window }` keeps the whole conversation and lets a summary, rather than
-a message count, decide what leaves the prompt. It is driven by the context window the step
-declares, 128000 by default: a step pointed at a smaller model has to say so, since too large a
-window never trips and the provider raises the context error itself.
+`{ kind: compaction }` keeps the whole conversation and lets a summary, rather than a message count,
+decide what leaves the prompt.
 
-`windmill-worker/src/ai/compaction.rs` holds it. Between agent-loop iterations, and once more after
-the loop, the worker projects what the next prompt would cost — the provider's count for the last
-request, scaled onto everything appended since — and compacts once it passes 80% of the window. It
-grows the tail backwards until it fills the target budget, summarizes the prefix in one extra
-request billed to the step, and replaces it with that summary. The tail never opens on a `tool`
-message, a prefix that is only a previous summary is never summarized again, and three consecutive
-failures stop it for the run. Nothing about it is fatal: a failed summarization leaves the
-conversation as it was.
+The window it plans against comes from the model, through `MODEL_CONTEXT_WINDOWS` in
+`windmill-ai/src/model_context.rs`, falling back to 128000 for an id the table does not list. That
+table mirrors the one the AI session's own compaction reads
+(`frontend/src/lib/components/copilot/modelConfig.ts`) and the two have to be updated together. The
+step's `context_window` overrides it, for a Custom AI deployment or a model the table cannot name;
+setting it too large never trips the trigger and the provider raises the context error itself.
+
+`windmill-worker/src/ai/compaction.rs` holds the rest. Between agent-loop iterations, and once more
+after the loop, the worker projects what the next prompt would cost — the provider's count for the
+last request plus a `chars/4` estimate of everything appended since — and compacts once it passes
+80% of the window. It grows the tail backwards until it fills the target budget, summarizes the
+prefix in one extra request billed to the step, and replaces it with that summary. The tail never
+opens on a `tool` message, a prefix that is only a previous summary is never summarized again, and
+three consecutive failures stop it for the run. Nothing about it is fatal: a failed summarization
+leaves the conversation as it was.
+
+The count the trigger reads is `TokenUsage::prompt_tokens`, which is `input_tokens` and nothing
+else. Each provider's parser normalizes that field to the whole prompt first — Anthropic and
+Bedrock report their cached prefix beside it, so `with_cache_beside_input` folds it in, while the
+OpenAI-shaped ones already count it inside.
 
 Memory is stored per (memory id, step id), in `ai_agent_memory` or S3 at
 `memory/{workspace}/{memory id}/{step}.json`. The chat transcript (`flow_conversation_message`)
