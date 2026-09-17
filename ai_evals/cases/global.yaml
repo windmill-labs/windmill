@@ -2160,6 +2160,32 @@
     - creates an AI draft of f/evals/global/process_invoice applying 8% tax
     - does not deploy or save the draft
 
+- id: global-test38-chat-flow-follow-up-same-conversation
+  prompt: |-
+    I want to check that my support chat flow `f/evals/global/support_chat` remembers what was said.
+    Test it: first send "My name is Ada", then send "What is my name?" as a follow-up in the same chat.
+  initial: ai_evals/fixtures/frontend/global/initial/support_chat_flow.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - test_run_flow
+    # A chat flow's memory lives in its conversation, so a follow-up only reaches the first
+    # turn's history when both test runs name the same conversation.
+    toolCallArgs:
+      - tool: test_run_flow
+        field: memory_id
+        sharedByAtLeast: 2
+    forbiddenToolsUsed:
+      - run_flow
+      - deploy_workspace_item
+  # The judge cannot observe runs; what this case guards is the conversation the runs share.
+  skipJudge: true
+  judgeChecklist:
+    - test-runs the chat flow twice, the second message as a follow-up in the first run's conversation
+
 - id: global-undo-created-draft
   prompt: |-
     Create a draft Postgres resource at `u/admin/scratch_db` for host db.example.com port 5432, database `orders`, user `app`, and tell me what fields it ended up with.
