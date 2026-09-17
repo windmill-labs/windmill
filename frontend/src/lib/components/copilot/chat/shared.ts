@@ -634,6 +634,8 @@ export type ToolDisplayMessage = {
 	 * workspace rides along: a chat is readable from any workspace, and the same path names
 	 * a different server in each. */
 	mcpServer?: { workspace: string; path: string }
+	/** The run behind the call. Flow chats only: the card links to it. */
+	jobId?: string
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay

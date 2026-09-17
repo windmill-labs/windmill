@@ -15,22 +15,19 @@ import {
 	TypewriterReveal,
 	type TypewriterRevealOptions
 } from '$lib/components/copilot/chat/typewriterReveal'
-import { JobService, type FlowModule } from '$lib/gen'
+import { JobService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
-import { ToolCallStore, type ToolCallDetails } from './toolCallContext.svelte'
 import { attachmentLanes } from './messageAttachments'
 
 export type FlowChatViewHostOptions = {
 	/** The flow inputs sent next to `user_message` with every turn. */
 	additionalInputs?: () => Record<string, any> | undefined
-	/** The workspace the transcript's paths resolve against, and the jobs are read from. */
+	/** The workspace the transcript's paths resolve against, and a retry reads its run from. */
 	workspace?: () => string | undefined
 	/** Whether sending is refused right now (a deployment in progress, say). The composer
 	 * is disabled on the same condition; this covers the sends the composer does not
 	 * make itself: a queued message going out, a retry. */
 	sendDisabled?: () => boolean
-	/** The flow's modules, which say which of a tool job's arguments the model supplied. */
-	flowModules?: () => FlowModule[] | undefined
 	/** Flow inputs edited by a control beside the composer rather than the Inputs modal. No
 	 * surface has one yet. A retry takes their current value rather than the failed turn's. */
 	inputsShownInComposer?: () => string[]
@@ -99,14 +96,10 @@ export function showsStepNames(messages: readonly ChatMessage[]): boolean {
 /** How much of a streaming message is on screen, per lane, in characters. */
 export type Revealed = { content: number; reasoning: number }
 
-const EMPTY_TOOL_CALL: ToolCallDetails = {}
-
 /** What a display row can only learn beyond the message itself. Every lookup is optional. */
 export type DisplayLookups = {
 	/** The workspace an attachment's download link points into. */
 	workspace?: string
-	/** A tool row's call, from the job it names. */
-	toolCall?: (jobId: string | undefined) => ToolCallDetails
 	/** How much of a pending assistant row the pacing has put on screen. */
 	revealed?: (message: ChatMessage) => Revealed | undefined
 }
@@ -133,20 +126,11 @@ export function toDisplayMessages(
 			}
 			case 'tool': {
 				const failed = message.success === false
-				// A row carrying its own call (one that streamed) must not ask a job for it: an
-				// MCP tool runs inside the agent's job and names it, so the job would answer
-				// with the agent's arguments and result rather than the tool's.
-				const fromRow: ToolCallDetails = {
-					toolName: message.tool?.name,
-					parameters: parseToolPayload(message.tool?.arguments),
-					result: parseToolPayload(message.tool?.result)
-				}
-				const carriesItsOwnCall = fromRow.parameters !== undefined || fromRow.result !== undefined
-				const fromJob =
-					carriesItsOwnCall || !lookups.toolCall ? EMPTY_TOOL_CALL : lookups.toolCall(message.jobId)
-				const toolName = fromRow.toolName ?? fromJob.toolName
-				const parameters = fromRow.parameters ?? fromJob.parameters
-				const result = fromRow.result ?? fromJob.result
+				// The model's call and what the tool sent back, as the stream carried them or the
+				// worker stored them on the row. A row stored without them shows its name and job.
+				const toolName = message.tool?.name
+				const parameters = parseToolPayload(message.tool?.arguments)
+				const result = parseToolPayload(message.tool?.result)
 				return {
 					role: 'tool',
 					tool_call_id: message.id,
@@ -162,7 +146,8 @@ export function toDisplayMessages(
 					showDetails: parameters !== undefined || result !== undefined,
 					// What the tool failed with, from its result, else the row's own sentence.
 					error: failed ? (asErrorText(result) ?? message.content) : undefined,
-					isLoading: message.pending && message.tool?.status === 'running'
+					isLoading: message.pending && message.tool?.status === 'running',
+					jobId: message.jobId
 				}
 			}
 			default: {
@@ -312,16 +297,10 @@ export class FlowChatViewHost implements ChatViewHost {
 		delete this.#revealed[id]
 	}
 
-	#toolCalls = new ToolCallStore(
-		() => this.#options.workspace?.(),
-		() => this.#options.flowModules?.()
-	)
-
 	// Transcript
 	displayMessages = $derived.by(() =>
 		toDisplayMessages(this.#state.messages, {
 			workspace: this.#options.workspace?.(),
-			toolCall: (jobId) => this.#toolCalls.get(jobId),
 			revealed: (message) => this.#revealed[message.id]
 		})
 	)

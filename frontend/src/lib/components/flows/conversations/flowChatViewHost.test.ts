@@ -3,7 +3,7 @@ import type { Chat, ChatMessage, ChatState } from 'windmill-chat'
 import { FlowChatViewHost, toDisplayMessages } from './flowChatViewHost.svelte'
 
 vi.mock('$lib/gen', () => ({
-	JobService: { getJobArgs: vi.fn(), getJob: vi.fn() }
+	JobService: { getJobArgs: vi.fn() }
 }))
 vi.mock('$lib/toast', () => ({ sendUserToast: vi.fn() }))
 
@@ -11,12 +11,10 @@ import { JobService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 
 const getJobArgs = vi.mocked(JobService.getJobArgs)
-const getJob = vi.mocked(JobService.getJob)
 const toast = vi.mocked(sendUserToast)
 
 beforeEach(() => {
 	getJobArgs.mockReset()
-	getJob.mockReset()
 	toast.mockReset()
 })
 
@@ -160,40 +158,37 @@ describe('toDisplayMessages', () => {
 		})
 	})
 
-	// A row read back from the server keeps only its sentence; the call lives on the tool's
-	// own job. A row that streamed carries the call itself and must not ask a job for it.
-	it('reads a stored tool row from its job, and a streamed row from itself', () => {
-		const toolCall = vi.fn((jobId?: string) =>
-			jobId === 'tool-job'
-				? { toolName: 'search_docs', parameters: { query: 'retention' }, result: ['a'] }
-				: {}
-		)
-		const display = toDisplayMessages(
-			[
-				message({
-					role: 'tool',
-					content: 'Used search_docs tool',
-					jobId: 'tool-job',
-					tool: { name: 'search_docs', status: 'success' }
-				}),
-				message({
-					role: 'tool',
-					content: 'Used lookup tool',
-					jobId: 'agent-job',
-					tool: { name: 'lookup', status: 'success', arguments: '{"id":1}', result: '"ok"' }
-				})
-			],
-			{ toolCall }
-		)
+	// A row stored before the worker kept the call has only its sentence: the card names the
+	// tool and links its job, and has no details to open.
+	it('builds a tool card from the row alone, with its job link', () => {
+		const display = toDisplayMessages([
+			message({
+				role: 'tool',
+				content: 'Used lookup tool',
+				jobId: 'tool-job',
+				tool: { name: 'lookup', status: 'success', arguments: '{"id":1}', result: '"ok"' }
+			}),
+			message({
+				role: 'tool',
+				content: 'Used search_docs tool',
+				jobId: 'older-job',
+				tool: { name: 'search_docs', status: 'success' }
+			})
+		])
 		expect(display[0]).toMatchObject({
-			toolName: 'search_docs',
-			parameters: { query: 'retention' },
-			result: ['a'],
-			showDetails: true
+			toolName: 'lookup',
+			parameters: { id: 1 },
+			result: 'ok',
+			showDetails: true,
+			jobId: 'tool-job'
 		})
-		expect(display[1]).toMatchObject({ parameters: { id: 1 }, result: 'ok', showDetails: true })
-		expect(toolCall).toHaveBeenCalledTimes(1)
-		expect(toolCall).toHaveBeenCalledWith('tool-job')
+		expect(display[1]).toMatchObject({
+			toolName: 'search_docs',
+			parameters: undefined,
+			result: undefined,
+			showDetails: false,
+			jobId: 'older-job'
+		})
 	})
 
 	it('labels answers with their step only once the transcript names more than one', () => {
