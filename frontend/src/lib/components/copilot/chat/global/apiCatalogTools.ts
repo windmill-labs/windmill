@@ -58,6 +58,8 @@ const COVERED_ENDPOINTS: Record<string, string> = {
 	searchDocs: 'search_docs',
 	readDocsPage: 'read_docs_page',
 	listJobs: 'list_runs',
+	listWorkers: 'list_workers',
+	listDataMetrics: 'list_data_metrics',
 	getJob: 'get_run',
 	getJobLogs: 'get_run',
 	runScriptPreviewAndWaitResult: 'test_run_script'
@@ -231,7 +233,7 @@ const searchApiEndpointsSchema = z.object({
 	query: z
 		.string()
 		.describe(
-			'Keywords matched against endpoint names, paths, and descriptions (e.g. "workers", "queue", "run flow"). Jobs are called "runs" in the UI.'
+			'Keywords matched against endpoint names, paths, and descriptions (e.g. "queue", "run flow", "audit log"). Jobs are called "runs" in the UI.'
 		)
 })
 
@@ -264,7 +266,7 @@ export const apiCatalogTools: Tool<{}>[] = [
 		def: createToolDef(
 			searchApiEndpointsSchema,
 			'search_api_endpoints',
-			'Search the Windmill REST API endpoint catalog for operations no dedicated tool covers (workers, queue state, job details, running deployed items, deletions, ...). Returns endpoint names to pass to call_api_get or call_api_endpoint.'
+			'Search the Windmill REST API endpoint catalog for operations no dedicated tool covers (queue state, job details, running deployed items, deletions, ...). Returns endpoint names to pass to call_api_get or call_api_endpoint.'
 		),
 		planModeSafe: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {

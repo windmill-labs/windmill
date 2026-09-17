@@ -39,6 +39,8 @@
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
 		wideLayout?: boolean
+		/** What this surface's runs create: previews in the editor, deployed runs on the flow page. */
+		conversationKind?: 'test' | 'deployed'
 	}
 
 	let {
@@ -49,7 +51,8 @@
 		path,
 		workspace = undefined,
 		description = undefined,
-		wideLayout = false
+		wideLayout = false,
+		conversationKind = 'deployed'
 	}: Props = $props()
 
 	// Derive helperScript for dynamic inputs from schema
@@ -178,10 +181,22 @@
 					? undefined
 					: 'This workspace has no object storage, so files cannot be attached.',
 			workspace: () => workspace,
-			sendDisabled: () => deploymentInProgress || !!modelGap
+			sendDisabled: () => deploymentInProgress || !!modelGap || !!wrongKindReason
 		}
 	)
 	setChatViewHost(chatHost)
+
+	// A chat of the other kind can be read from here but not added to: the server refuses a
+	// preview run into a deployed conversation and the reverse, so the composer says why first.
+	const wrongKindReason = $derived.by(() => {
+		const { conversationId, conversations } = chatHost.state
+		const open = conversations.find((c) => c.id === conversationId)
+		if (open?.isTest === undefined || open.isTest === (conversationKind === 'test'))
+			return undefined
+		return open.isTest
+			? 'This chat was run from the flow editor. Start a new chat to continue here.'
+			: 'This chat belongs to the deployed flow. Start a new chat to test.'
+	})
 	onDestroy(() => chatHost.dispose())
 
 	// What the Configure-inputs modal asks for: every flow input the composer does not
@@ -315,8 +330,10 @@
 		{emptyHint}
 		footerSettings={modalSchema || showModelButton ? footerSettings : undefined}
 		placeholder="Send a message to run the flow"
-		disabled={deploymentInProgress || !!modelGap}
-		disabledMessage={deploymentInProgress ? 'Deployment in progress' : (modelGap ?? '')}
+		disabled={deploymentInProgress || !!modelGap || !!wrongKindReason}
+		disabledMessage={deploymentInProgress
+			? 'Deployment in progress'
+			: (modelGap ?? wrongKindReason ?? '')}
 		loadPastChat={() => {}}
 		deletePastChat={() => {}}
 		saveAndClear={() => {}}

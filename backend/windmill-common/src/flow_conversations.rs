@@ -7,6 +7,29 @@ use crate::db::DB;
 use crate::error::Result;
 use crate::utils::truncate_with_ellipsis;
 
+/// Changing it detaches every memory stored under a string memory id.
+const MEMORY_ID_NAMESPACE: Uuid = Uuid::from_u128(0x6f1c2d4e_8a3b_5c7d_9e0f_1a2b3c4d5e6f);
+
+/// Memory is stored and carried in `flow_status.memory_id` as a uuid, which names the same memory
+/// wherever it is passed, as a chat conversation id must. Any other string names a memory through a
+/// name-based (v5) uuid scoped to its workspace and flow, so the same key in two flows or two
+/// workspaces names two memories, and chat conversation ids stay unique across workspaces.
+pub fn memory_key(workspace_id: &str, flow_path: &str, memory_id: &str) -> Uuid {
+    let memory_id = memory_id.trim();
+    Uuid::parse_str(memory_id).unwrap_or_else(|_| {
+        use sha1::{Digest, Sha1};
+        let mut hasher = Sha1::new();
+        hasher.update(MEMORY_ID_NAMESPACE.as_bytes());
+        for part in [workspace_id, flow_path, memory_id] {
+            hasher.update(part.as_bytes());
+            hasher.update([0u8]);
+        }
+        let mut bytes = [0u8; 16];
+        bytes.copy_from_slice(&hasher.finalize()[..16]);
+        uuid::Builder::from_sha1_bytes(bytes).into_uuid()
+    })
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
 #[sqlx(type_name = "MESSAGE_TYPE", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
@@ -26,8 +49,12 @@ pub struct FlowConversation {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub created_by: String,
+    /// Started from the flow editor's test panel rather than a deployed run.
+    pub is_test: bool,
 }
 
+/// `is_test` is written on insert. An existing conversation of the other kind refuses the
+/// turn, so preview and deployed runs never share one.
 pub async fn get_or_create_conversation_with_id(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
@@ -35,9 +62,10 @@ pub async fn get_or_create_conversation_with_id(
     username: &str,
     title: &str,
     conversation_id: Uuid,
+    is_test: bool,
 ) -> Result<FlowConversation> {
     if let Some(existing) = lock_conversation(tx, w_id, conversation_id).await? {
-        return Ok(existing);
+        return same_kind(existing, is_test);
     }
 
     // Truncate title to 25 characters max
@@ -47,15 +75,16 @@ pub async fn get_or_create_conversation_with_id(
     // wins, the others wait on it, do nothing, and read the row it created.
     let created = sqlx::query_as!(
         FlowConversation,
-        "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by, title)
-         VALUES ($1, $2, $3, $4, $5)
+        "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by, title, is_test)
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (id) DO NOTHING
-         RETURNING id, workspace_id, flow_path, title, created_at, updated_at, created_by",
+         RETURNING id, workspace_id, flow_path, title, created_at, updated_at, created_by, is_test",
         conversation_id,
         w_id,
         flow_path,
         username,
-        title
+        title,
+        is_test
     )
     .fetch_optional(&mut **tx)
     .await?;
@@ -63,13 +92,29 @@ pub async fn get_or_create_conversation_with_id(
         return Ok(conversation);
     }
 
-    lock_conversation(tx, w_id, conversation_id)
+    // The concurrent first turn that won the insert may have been of the other kind.
+    let existing = lock_conversation(tx, w_id, conversation_id)
         .await?
         .ok_or_else(|| {
             crate::error::Error::BadRequest(format!(
                 "conversation {conversation_id} belongs to another workspace"
             ))
-        })
+        })?;
+    same_kind(existing, is_test)
+}
+
+/// `memory_id` is the caller's to choose, so a preview run could name a deployed
+/// conversation and the reverse. A conversation's kind is fixed at creation and nothing
+/// would show the mixing afterwards, so the turn is refused before it starts.
+fn same_kind(existing: FlowConversation, is_test: bool) -> Result<FlowConversation> {
+    if existing.is_test == is_test {
+        return Ok(existing);
+    }
+    Err(crate::error::Error::BadRequest(if existing.is_test {
+        "this conversation was started from the flow editor's test panel; start a new conversation to run the deployed flow".to_string()
+    } else {
+        "this conversation belongs to the deployed flow; start a new conversation to test from the flow editor".to_string()
+    }))
 }
 
 /// Locked, so a turn orders against retention collecting the conversation
@@ -83,7 +128,7 @@ async fn lock_conversation(
 ) -> Result<Option<FlowConversation>> {
     Ok(sqlx::query_as!(
         FlowConversation,
-        "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
+        "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by, is_test
          FROM flow_conversation
          WHERE id = $1 AND workspace_id = $2
          FOR UPDATE",
@@ -163,4 +208,27 @@ pub async fn delete_conversation_memory(
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A string names a memory only within its workspace and flow; a uuid is used as is.
+    #[test]
+    fn memory_key_scopes_strings_but_not_uuids() {
+        let key = memory_key("ws", "f/support/triage", " customer-1 ");
+        assert_eq!(key, memory_key("ws", "f/support/triage", "customer-1"));
+        assert_ne!(
+            key,
+            memory_key("other_ws", "f/support/triage", "customer-1")
+        );
+        assert_ne!(key, memory_key("ws", "f/sales/triage", "customer-1"));
+        let conversation = Uuid::from_u128(7).to_string();
+        assert_eq!(memory_key("ws", "f/a", &conversation), Uuid::from_u128(7));
+        assert_eq!(
+            memory_key("other_ws", "f/b", &conversation),
+            Uuid::from_u128(7)
+        );
+    }
 }

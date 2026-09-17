@@ -653,9 +653,11 @@ pub async fn set_flow_memory_id(
 pub async fn process_flow_run_query_params(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     job_id: Uuid,
+    w_id: &str,
+    flow_path: &str,
     run_query: &RunJobQuery,
 ) -> error::Result<()> {
-    if let Some(memory_id) = run_query.memory_id {
+    if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
         set_flow_memory_id(tx, job_id, memory_id).await?;
     }
     Ok(())
@@ -669,10 +671,11 @@ pub async fn handle_chat_conversation_messages(
     run_query: &RunJobQuery,
     user_message_raw: Option<&Box<serde_json::value::RawValue>>,
     job_id: Uuid,
+    is_test: bool,
 ) -> error::Result<()> {
     // Names the query parameter rather than the field: it is not a flow argument, and
     // supplying it as one is the first thing tried on reading `memory_id is required`.
-    let memory_id = run_query.memory_id.ok_or_else(|| {
+    let memory_id = run_query.memory_key(w_id, flow_path).ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
             "memory_id is required for chat-enabled flows. Pass it as the `memory_id` query \
              parameter, not as a flow argument: it names the conversation the turn belongs to, \
@@ -701,6 +704,7 @@ pub async fn handle_chat_conversation_messages(
         &authed.username,
         &user_message,
         memory_id,
+        is_test,
     )
     .await?;
 
@@ -822,7 +826,7 @@ pub async fn run_flow<'c>(
     .await?;
 
     // Set memory_id if provided (for agent memory)
-    if let Some(memory_id) = run_query.memory_id {
+    if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
         set_flow_memory_id(&mut tx, uuid, memory_id).await?;
     }
 
@@ -836,6 +840,7 @@ pub async fn run_flow<'c>(
             &run_query,
             args.args.get("user_message"),
             uuid,
+            false,
         )
         .await?;
     }
