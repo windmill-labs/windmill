@@ -39,7 +39,7 @@ use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
 use windmill_common::workspaces::{resolve_governing_datatable, DataTable, GoverningDatatable};
 use windmill_common::{PgDatabase, DB};
 
-use crate::datatable_permissions::{ensure_governs_datatable, ensure_reaches_datatable};
+use crate::datatable_permissions::{ensure_governs_datatable, ensure_reaches_governing_datatable};
 
 pub(crate) fn routes() -> Router {
     Router::new()
@@ -1018,8 +1018,8 @@ async fn get_datatable_acl(
 ) -> JsonResult<DatatableAclInfo> {
     crate::datatable_acl_oss::ensure_datatable_acl_available()?;
     let target: AclTarget = query.try_into()?;
-    ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed).await?;
     let governing = resolve_governing_datatable(&db, &w_id, &datatable_name).await?;
+    ensure_reaches_governing_datatable(&db, &w_id, &datatable_name, &governing, &authed).await?;
     ensure_instance(&governing)?;
     let editable = ensure_governs_datatable(&db, &authed, &w_id, &governing)
         .await
