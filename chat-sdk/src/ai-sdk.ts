@@ -309,13 +309,21 @@ class PartWriter {
 
 /**
  * `ChatMessage`s (Windmill's role-per-row model) as `UIMessage`s: an assistant
- * turn becomes one message whose parts carry its text, reasoning and tool calls.
+ * turn becomes one message whose parts carry its text, reasoning and tool calls. A
+ * user message's attachments ride in `metadata.attachments`, as references for
+ * `WindmillChatApi.attachmentUrl`: a `file` part would need a URL the browser can
+ * load unauthenticated.
  */
 export function toUIMessages(messages: ChatMessage[]): UIMessage[] {
   const out: UIMessage[] = []
   for (const m of messages) {
     if (m.role === 'user' || m.role === 'system') {
-      out.push({ id: m.id, role: m.role, parts: [{ type: 'text', text: m.content }] })
+      out.push({
+        id: m.id,
+        role: m.role,
+        ...(m.attachments?.length ? { metadata: { attachments: m.attachments } } : {}),
+        parts: [{ type: 'text', text: m.content }]
+      })
       continue
     }
     let target = out[out.length - 1]

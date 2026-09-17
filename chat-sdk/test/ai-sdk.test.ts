@@ -141,11 +141,11 @@ describe('createWindmillChatTransport', () => {
     expect(second[1]).toMatchObject({ errorText: 'ExecutionErr: boom' })
   })
 
-  test('loads the call an MCP tool row carries and the reasoning behind an answer', async () => {
+  test('loads the attachments of a user row, the call an MCP tool row carries and the reasoning behind an answer', async () => {
     const { fetch } = fetchMock((c) =>
       c.method === 'GET' && c.url.pathname.endsWith('/messages')
         ? json([
-            messageRow(1, 'user', 'hi'),
+            messageRow(1, 'user', 'hi', { attachments: [{ input: 'files', s3: 'chat/a.png', filename: 'a.png' }] }),
             messageRow(2, 'tool', 'Used lookup tool', { job_id: 'agent-job', reasoning: 'why', tool_arguments: '{"q":1}', tool_result: '42' }),
             messageRow(3, 'assistant', 'The answer is 42', { reasoning: 'hmm' })
           ])
@@ -154,6 +154,8 @@ describe('createWindmillChatTransport', () => {
     const transport = createWindmillChatTransport({ baseUrl: 'http://wm.test', workspace: 'ws', flowPath: FLOW, fetch })
     const ui = await transport.loadMessages('c')
     expect(ui.map((m) => m.parts.map((p) => p.type))).toEqual([['text'], ['reasoning', 'dynamic-tool', 'reasoning', 'text']])
+    expect(ui[0].metadata).toEqual({ attachments: [{ input: 'files', s3: 'chat/a.png', filename: 'a.png' }] })
+    expect(ui[1].metadata).toBeUndefined()
     expect(ui[1].parts[0]).toMatchObject({ type: 'reasoning', text: 'why' })
     expect(ui[1].parts[1]).toMatchObject({ toolName: 'lookup', state: 'output-available', input: { q: 1 }, output: 42 })
     expect(ui[1].parts[2]).toMatchObject({ type: 'reasoning', text: 'hmm' })
