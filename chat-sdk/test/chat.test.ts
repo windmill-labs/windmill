@@ -745,7 +745,7 @@ describe('createChat with server history', () => {
   })
 
   test('resuming a turn whose message is off the first page replays it without duplicating rows', async () => {
-    const { fetch, calls } = fetchMock(
+    const { fetch } = fetchMock(
       (c) =>
         c.url.pathname === streamPath && !c.url.searchParams.has('stream_offset')
           ? sse([
@@ -780,7 +780,37 @@ describe('createChat with server history', () => {
       ['row-52', 'assistant', 'Done', false]
     ])
     expect(chat.getState().status).toBe('idle')
-    expect(calls.some((c) => c.url.pathname.includes('/jobs_u/get/'))).toBe(false)
+  })
+
+  test("the previous run's answer landing after the next message is not that turn's answer", async () => {
+    let reads = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'second answer' } }])
+          : undefined,
+      (c) => (c.url.pathname.endsWith('/jobs_u/get/job-1') ? json({ flow_status: { modules: [{ job: 'step-2' }] } }) : undefined),
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        if (!c.url.searchParams.has('after_seq')) return json([messageRow(71, 'user', 'first')])
+        // The earlier agent wrote its answer from a task its run did not wait for.
+        return json(
+          ++reads === 1
+            ? [messageRow(72, 'user', 'second'), messageRow(73, 'assistant', 'first answer, late', { job_id: 'step-1' })]
+            : [messageRow(74, 'assistant', 'second answer', { job_id: 'step-2' })]
+        )
+      }
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    await chat.sendMessage('second')
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.serverId])).toEqual([
+      ['user', 'first', 'row-71'],
+      ['user', 'second', 'row-72'],
+      ['assistant', 'first answer, late', 'row-73'],
+      ['assistant', 'second answer', 'row-74']
+    ])
   })
 
   test('an answer cut by a lost stream gives way to the polled result', async () => {

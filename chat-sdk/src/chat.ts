@@ -46,6 +46,8 @@ interface Turn {
   /** Id of the turn's user message; the answer is whatever follows it. */
   userMessageId: string
   jobId?: string
+  /** The flow job and its step jobs; a persisted answer carries one of them as `job_id`. */
+  jobIds?: Set<string>
   /** Id of the streaming assistant message; cleared when a tool call ends the round. */
   assistantId?: string
   streamedText: boolean
@@ -572,6 +574,8 @@ class ChatImpl implements Chat {
   async #finishTurn(turn: Turn, result: unknown, isNew: boolean): Promise<void> {
     if (!this.#turnActive(turn)) return
     if (this.#state.history === 'server') {
+      turn.jobIds = await this.#turnJobIds(turn)
+      if (!this.#turnActive(turn)) return
       const reconciled = await this.#reconcileTurn(turn)
       if (!this.#turnActive(turn)) return
       if (reconciled) {
@@ -649,22 +653,50 @@ class ChatImpl implements Chat {
    * a badly delayed one can invert that order at the cost of the reconcile
    * retries). The content is not compared with the flow result: an image answer, a
    * structured one and a forwarded agent result are all persisted in a shape the
-   * result does not reproduce. Every row created after the user message is the
-   * turn's: the server refuses a turn while the conversation's previous run is still
-   * queued, so no other run of this conversation writes meanwhile. Until the user
+   * result does not reproduce. A row belongs to the turn when it was created after
+   * the user message and, when it carries a job id, the job is one of the turn's. The
+   * server refuses a turn while the previous run is queued, but an agent writes its
+   * answer row from a task the run does not wait for, so that row can still land after
+   * the next user message; its job says whose it is. A tool row without a job (an MCP
+   * call runs inside the agent step) belongs to the turn under way. Until the user
    * message's own row has been read, its position in the list stands in for its seq.
    */
   #answered(turn: Turn): boolean {
     const messages = this.#state.messages
     const from = messages.findIndex((m) => m.id === turn.userMessageId)
     const userSeq = messages[from]?.seq
+    const ownJob = (m: ChatMessage) =>
+      turn.jobIds === undefined || (m.jobId === undefined ? m.role === 'tool' : turn.jobIds.has(m.jobId))
     let latest: ChatMessage | undefined
     messages.forEach((m, i) => {
-      if (m.seq === undefined || m.role === 'user') return
+      if (m.seq === undefined || m.role === 'user' || !ownJob(m)) return
       if (userSeq !== undefined ? m.seq <= userSeq : i <= from) return
       if (latest === undefined || m.seq > latest.seq!) latest = m
     })
     return latest?.role === 'assistant'
+  }
+
+  /**
+   * The flow job plus every step job it ran, the failure and preprocessor steps
+   * included (a failure handler's answer is persisted under its own job), and the
+   * jobs an agent step's tool calls ran as (a tool row is persisted under its own
+   * job too). Unknown when the read fails.
+   */
+  async #turnJobIds(turn: Turn): Promise<Set<string> | undefined> {
+    try {
+      const job = await this.#api.getFlowJob(turn.jobId!, turn.controller.signal)
+      const ids = new Set([turn.jobId!])
+      const status = job.flow_status
+      for (const m of [...(status?.modules ?? []), status?.failure_module, status?.preprocessor_module]) {
+        if (m?.job) ids.add(m.job)
+        for (const j of m?.flow_jobs ?? []) ids.add(j)
+        for (const a of m?.agent_actions ?? []) if (a.job_id) ids.add(a.job_id)
+      }
+      return ids
+    } catch (e) {
+      if (isAbortError(e)) throw e
+      return undefined
+    }
   }
 
   #failTurn(turn: Turn, e: unknown): void {
