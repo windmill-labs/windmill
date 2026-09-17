@@ -900,34 +900,32 @@ async fn add_tool_message_to_chat(
             .as_ref()
             .and_then(|fs| fs.memory_id)
         {
-            let db_clone = ctx.db.clone();
             let effective_step_id = ctx
                 .flow_step_id_override
                 .or(ctx.job.flow_step_id.as_deref());
             let step_name = get_step_name_from_flow(ctx.summary.as_deref(), effective_step_id);
-            let content = content.to_string();
 
-            // Spawn task because we do not need to wait for the result
-            tokio::spawn(async move {
-                if let Err(e) = add_message_to_conversation(
-                    &db_clone,
-                    &memory_id,
-                    tool_job_id,
-                    &content,
-                    MessageType::Tool,
-                    &step_name,
-                    success,
-                    extras.as_ref(),
-                )
-                .await
-                {
-                    tracing::warn!(
-                        "Failed to add tool message to conversation {}: {}",
-                        memory_id,
-                        e
-                    );
-                }
-            });
+            // Awaited, not spawned: `created_seq` is the transcript's order, so a round's rows
+            // must commit in the order of its calls. Calls run one after another; running them
+            // in parallel would need their rows written in call order all the same.
+            if let Err(e) = add_message_to_conversation(
+                ctx.db,
+                &memory_id,
+                tool_job_id,
+                content,
+                MessageType::Tool,
+                &step_name,
+                success,
+                extras.as_ref(),
+            )
+            .await
+            {
+                tracing::warn!(
+                    "Failed to add tool message to conversation {}: {}",
+                    memory_id,
+                    e
+                );
+            }
         }
     }
 }
