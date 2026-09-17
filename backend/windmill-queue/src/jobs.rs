@@ -7926,8 +7926,9 @@ mod result_metadata_tests {
 
 #[cfg(test)]
 mod render_tag_path_tests {
-    use super::render_tag_path;
+    use super::{interpolate_args, render_tag_path, PushArgs};
     use serde_json::value::RawValue;
+    use std::collections::HashMap;
 
     fn render(root: &str, path: &str) -> String {
         render_tag_path(
@@ -7946,5 +7947,19 @@ mod render_tag_path_tests {
         assert_eq!(render(r#"{"a": 1}"#, "b.c"), "");
         assert_eq!(render(r#"{"a": ["eu"]}"#, "a.0"), "");
         assert_eq!(render_tag_path(None, "a"), "");
+
+        let args = HashMap::from([("cfg".to_string(), raw(r#"{"lang": "eu"}"#))]);
+        let push_args = PushArgs {
+            args: &args,
+            extra: Some(HashMap::from([("e".to_string(), raw(r#""x""#))])),
+        };
+        assert_eq!(
+            interpolate_args("w-$args[cfg.lang]-$args[e]".to_string(), &push_args, "ws"),
+            "w-eu-x"
+        );
+    }
+
+    fn raw(json: &str) -> Box<RawValue> {
+        RawValue::from_string(json.to_string()).unwrap()
     }
 }
