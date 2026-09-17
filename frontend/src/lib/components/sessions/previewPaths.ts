@@ -54,6 +54,17 @@ export type PageItemRef =
 	| { kind: 'variable' | 'resource' | 'schedule'; path: string }
 	| { kind: 'trigger'; triggerKind: TriggerKind; path: string }
 
+/** How a list page addresses a row in its hash. Resources route theirs through an extra
+ * segment; every other page names the path directly. */
+export const drawerHashFor = (pagePath: string, itemPath: string) =>
+	pagePath === RESOURCES_PATH ? `/resource/${itemPath}` : itemPath
+
+/** The full page a page item is edited on: its list page, with the row's drawer open. */
+export function pageItemPageHref(ref: PageItemRef): string {
+	const listPath = pageItemListPath(ref)
+	return `${pageHref(listPath)}#${drawerHashFor(listPath, ref.path)}`
+}
+
 /** The list page a page item is edited from. */
 export function pageItemListPath(ref: PageItemRef): string {
 	switch (ref.kind) {

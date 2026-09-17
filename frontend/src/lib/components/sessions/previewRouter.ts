@@ -5,6 +5,7 @@ import {
 	GROUPS_PATH,
 	pageItemForListPath,
 	pageItemListPath,
+	pageItemPageHref,
 	pageItemUrl,
 	pageKey,
 	pageHref,
@@ -561,4 +562,25 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 					: undefined
 	if (!editorKind) return { kind: 'iframe' }
 	return { kind: 'editor', editorKind, path: route.itemPath }
+}
+
+/** The full workspace page showing what a tab shows ("Open in workspace"), or undefined when
+ * there is none. Every tab kind answers here, so a new one cannot fall through to its url being
+ * navigated as a path — an artifact or page item url is a scheme, not a route. */
+export function workspacePageHref(location: string): string | undefined {
+	const slot = resolvePreviewTab(location)
+	switch (slot.kind) {
+		case 'artifact':
+		case 'runform':
+			return undefined
+		case 'pageitem':
+			return pageItemPageHref(slot.ref)
+		case 'editor':
+		case 'iframe':
+			return location
+		default: {
+			const unhandled: never = slot
+			return unhandled
+		}
+	}
 }
