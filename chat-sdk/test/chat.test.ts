@@ -369,6 +369,40 @@ describe('createChat with server history', () => {
     expect(plain.reasoning).toBeUndefined()
   })
 
+  test('a row nothing streamed, like a web search, lands before the answer as on reload', async () => {
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([
+              {
+                type: 'update',
+                new_result_stream: ndjson({ type: 'token_delta', content: 'Rust.' }),
+                stream_offset: 1,
+                completed: true,
+                only_result: { output: 'Rust.', messages: [] }
+              }
+            ])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json([
+              messageRow(91, 'user', 'hi'),
+              messageRow(92, 'tool', 'Used websearch tool', { job_id: 'step-1', tool_result: '[{"url":"https://example.com"}]' }),
+              messageRow(93, 'assistant', 'Rust.', { job_id: 'step-1' })
+            ])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('hi')
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.seq])).toEqual([
+      ['user', 'hi', 91],
+      ['tool', 'Used websearch tool', 92],
+      ['assistant', 'Rust.', 93]
+    ])
+  })
+
   test('keeps the streamed answer until its row lands, even when a tool row lands first', async () => {
     let messageFetches = 0
     const { fetch } = fetchMock(

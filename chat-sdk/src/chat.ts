@@ -680,7 +680,18 @@ class ChatImpl implements Chat {
               : row.tool
         }
       } else {
-        messages.push(row)
+        // A row nothing streamed, such as a provider-native web search, goes where a reload
+        // puts it: after the last message of a lower `seq`, before streamed messages whose
+        // rows come after it. Appending would show it after the answer until the next reload.
+        let at = messages.length
+        for (let j = messages.length - 1; j >= 0; j--) {
+          const seq = messages[j].seq
+          if (seq !== undefined && seq < row.seq!) {
+            at = j + 1
+            break
+          }
+        }
+        messages.splice(at, 0, row)
       }
     }
     this.#set({ messages })
