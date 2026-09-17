@@ -1484,13 +1484,14 @@ pub struct GoverningDatatable {
 }
 
 impl GoverningDatatable {
-    /// Backed by the Windmill instance's own Postgres, which is the only substrate data table
-    /// roles apply to.
-    pub fn is_instance(&self) -> bool {
+    /// The Windmill-managed cluster whose data table roles this entry can use. `None` for a
+    /// resource-backed one: roles are logins Windmill creates, and it creates none on a host a
+    /// workspace admin chose.
+    pub fn role_cluster(&self) -> Option<crate::datatable_roles::DatatableRoleCluster> {
         self.datatable
             .database
             .as_ref()
-            .is_some_and(|d| d.resource_type == DataTableCatalogResourceType::Instance)
+            .and_then(|d| crate::datatable_roles::DatatableRoleCluster::of(d.resource_type))
     }
 }
 

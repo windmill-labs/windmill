@@ -2265,7 +2265,8 @@ struct DataTableTables {
     schemas: TableListMap,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
-    /// On the instance database: the only kind that can be under roles or have its access edited.
+    /// On a database Windmill manages, on its own cluster or the external one: the only kinds that
+    /// can be under roles or have their access edited.
     instance: bool,
     permissioned: bool,
     /// The roles this caller may connect as, by name; empty when not under roles.
@@ -2522,7 +2523,7 @@ async fn list_one_datatable_tables(
     };
     let result: Result<()> = async {
         let governing = resolve_governing_datatable(db, w_id, &entry.datatable_name).await?;
-        entry.instance = governing.is_instance();
+        entry.instance = governing.role_cluster().is_some();
         let usable =
             crate::datatable_permissions_oss::usable_datatable_roles(db, authed, w_id, &governing)
                 .await?;
@@ -4052,18 +4053,20 @@ async fn edit_datatable_config(
             None => None,
         };
         // Carrying the block onto a resource-backed entry would produce a data table the chokepoint
-        // refuses on every job — a save that succeeds and breaks everything afterwards. Refuse it
-        // instead: turning roles off first is one step, and it keeps discarding an access decision
-        // something somebody chose rather than a side effect of moving a database.
+        // refuses on every job — a save that succeeds and breaks everything afterwards — and onto
+        // the other managed cluster, one whose role ids name nothing in that cluster's catalog.
+        // Refuse it instead: turning roles off first is one step, and it keeps discarding an access
+        // decision something somebody chose rather than a side effect of moving a database.
+        let old_kind = old.and_then(|old| old.database.as_ref()).map(|d| d.resource_type);
         if dt.permissions.is_some()
             && dt
                 .database
                 .as_ref()
-                .is_some_and(|d| d.resource_type != DataTableCatalogResourceType::Instance)
+                .is_some_and(|d| Some(d.resource_type) != old_kind)
         {
             return Err(Error::BadRequest(format!(
-                "Data table '{name}' is under roles, which only a data table on the instance \
-                 database can be. Turn its roles off before moving it to a PostgreSQL resource."
+                "Data table '{name}' is under roles, which belong to the cluster its database is \
+                 on. Turn its roles off before moving it to another kind of database."
             )));
         }
         // A pointer names no database of its own, so the form's empty `database` is correct there.
@@ -4140,7 +4143,7 @@ async fn edit_datatable_config(
     // entry through a declared rename alone, and a settings sync never declares one, so an entry
     // without roles that newly points at such a database — a name added, or an existing one
     // repointed — would answer everyone there as `admin`. That holds whichever workspace governs it.
-    let newly_pointed: Vec<(&String, &str)> = new_config
+    let newly_pointed: Vec<(&String, DataTableCatalogResourceType, &str)> = new_config
         .settings
         .datatables
         .iter()
@@ -4149,7 +4152,7 @@ async fn edit_datatable_config(
             let db = dt
                 .database
                 .as_ref()
-                .filter(|d| d.resource_type == DataTableCatalogResourceType::Instance)?;
+                .filter(|d| d.resource_type.is_windmill_managed())?;
             let lookup = rename_src
                 .get(name.as_str())
                 .copied()
@@ -4161,38 +4164,44 @@ async fn edit_datatable_config(
                     old_db.resource_type != db.resource_type
                         || old_db.resource_path != db.resource_path
                 });
-            repointed.then_some((name, db.resource_path.as_str()))
+            repointed.then_some((name, db.resource_type, db.resource_path.as_str()))
         })
         .collect();
     // Another workspace turning roles on for the same database holds only its own settings row, so
     // without this the scan below could read past its uncommitted write.
     windmill_common::datatable_roles::lock_instance_databases_governance(
         &mut *tx,
-        newly_pointed.iter().map(|(_, dbname)| *dbname),
+        newly_pointed.iter().map(|(_, _, dbname)| *dbname),
     )
     .await?;
-    let governed_elsewhere: Vec<String> = if newly_pointed.is_empty() {
+    let governed_elsewhere: Vec<(String, String)> = if newly_pointed.is_empty() {
         vec![]
     } else {
-        sqlx::query_scalar(
-            "SELECT DISTINCT dt.value->'database'->>'resource_path' FROM workspace_settings ws
+        sqlx::query_as(
+            "SELECT DISTINCT dt.value->'database'->>'resource_type',
+                    dt.value->'database'->>'resource_path'
+             FROM workspace_settings ws
              CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
              WHERE ws.workspace_id <> $1 AND dt.value ? 'permissions'
-               AND dt.value->'database'->>'resource_type' = 'instance'",
+               AND dt.value->'database'->>'resource_type' IN ('instance', 'external_instance')",
         )
         .bind(&w_id)
         .fetch_all(&mut *tx)
         .await?
     };
-    for (name, dbname) in newly_pointed {
+    for (name, kind, dbname) in newly_pointed {
         let governed_here = old_datatables.values().any(|old| {
             old.permissions.is_some()
-                && old.database.as_ref().is_some_and(|d| {
-                    d.resource_type == DataTableCatalogResourceType::Instance
-                        && d.resource_path == dbname
-                })
+                && old
+                    .database
+                    .as_ref()
+                    .is_some_and(|d| d.resource_type == kind && d.resource_path == dbname)
         });
-        if governed_here || governed_elsewhere.iter().any(|g| g == dbname) {
+        if governed_here
+            || governed_elsewhere
+                .iter()
+                .any(|(k, p)| k == kind.as_ref() && p == dbname)
+        {
             return Err(Error::BadRequest(format!(
                 "Data table '{name}' would point at database '{dbname}', which a data table under \
                  roles uses, without carrying those roles: everyone reaching '{name}' would connect \

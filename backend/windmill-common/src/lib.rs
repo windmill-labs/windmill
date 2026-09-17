@@ -1563,18 +1563,20 @@ pub(crate) fn instance_db_grants(dbname: &str) -> String {
     )
 }
 
-/// Re-apply [`instance_db_grants`] to an instance database provisioned before data table roles
-/// existed, whose grants carry no grant option. Connects as the instance's own Postgres user —
-/// the database and `public` schema owner — since only it can hand out an option it holds.
+/// Re-apply [`instance_db_grants`] to a managed database provisioned before data table roles
+/// existed, whose grants carry no grant option. Connects as the cluster's administrator — the
+/// database and `public` schema owner — since only it can hand out an option it holds.
 ///
-/// Authorization: reaches an instance database with the server's own credentials and checks
+/// Authorization: reaches a managed database with the server's own credentials and checks
 /// nothing. Callers MUST have authorized administration of `dbname` — superadmin, or an admin of
 /// the workspace governing a data table on it.
 pub async fn ensure_instance_db_grant_options_unchecked(
     db: &DB,
+    cluster: crate::datatable_roles::DatatableRoleCluster,
     dbname: &str,
 ) -> error::Result<()> {
-    crate::datatable_roles_oss::ensure_instance_db_grant_options_unchecked(db, dbname).await
+    crate::datatable_roles_oss::ensure_instance_db_grant_options_unchecked(db, cluster, dbname)
+        .await
 }
 
 /// Create a custom instance database: CREATE DATABASE, grant permissions, register in global_settings.
@@ -1648,7 +1650,13 @@ pub async fn create_custom_instance_database(
     // A data table role can only reach a database it may CONNECT to, and PUBLIC's default CONNECT
     // would otherwise let every role in regardless of what this instance defines. Best-effort: a
     // failure here leaves the database usable as `admin`, and the next role change repairs it.
-    if let Err(e) = crate::datatable_roles::converge_connect_grants(db, dbname).await {
+    if let Err(e) = crate::datatable_roles::converge_connect_grants(
+        db,
+        crate::datatable_roles::DatatableRoleCluster::Instance,
+        dbname,
+    )
+    .await
+    {
         tracing::warn!("Could not set CONNECT grants on instance database '{dbname}': {e}");
     }
 
