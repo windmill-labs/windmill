@@ -6873,7 +6873,7 @@ const command = new Command()
   )
   .option(
     "--apply-to-perpetual-runs",
-    "Move running perpetual runs of the scripts this push deploys to their new version once their current run finishes",
+    "Move running perpetual runs of the scripts this push deploys to their new version once their current run finishes, or stop them if the new version is not perpetual",
   )
   .action(push as any)
   // Internal: invoked only by the git-sync hub script. Hidden from help and

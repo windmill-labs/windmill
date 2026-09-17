@@ -7,7 +7,7 @@ export type PerpetualRunsAtPath = {
 	count: number
 	/** More runs than one page holds are queued at the path, so `count` is a lower bound. */
 	truncated: boolean
-	/** Arguments the deployed schema adds as required, removes, or retypes, compared with the runs' versions. */
+	/** Arguments the deployed schema removes, retypes or newly requires, compared with the runs' versions. */
 	mismatchedArgs: string[]
 }
 
@@ -22,23 +22,35 @@ export async function loadPerpetualRunsAtPath(
 		jobKinds: 'script',
 		perPage: RUNS_PAGE_SIZE
 	})
-	// A flow step running this script never restarts, whatever the script's perpetual setting.
-	const runs = queued.filter((job) => !job.parent_job)
+	// Only what the backend restarts: never a flow step, and only a run of a perpetual version.
+	const candidates = queued.filter((job) => !job.is_flow_step && job.script_hash)
+	const hashes = [...new Set(candidates.map((job) => job.script_hash!))]
+	const versions = new Map(
+		await Promise.all(
+			hashes.map(
+				async (hash) =>
+					[
+						hash,
+						await ScriptService.getScriptByHash({ workspace, hash }).catch(() => undefined)
+					] as const
+			)
+		)
+	)
+	const runs = candidates.filter((job) => versions.get(job.script_hash!)?.restart_unless_cancelled)
 	if (runs.length === 0) {
 		return undefined
 	}
 
-	const hashes = [...new Set(runs.flatMap((job) => (job.script_hash ? [job.script_hash] : [])))]
-	const versions = await Promise.all(
-		hashes.map((hash) => ScriptService.getScriptByHash({ workspace, hash }).catch(() => undefined))
-	)
 	const mismatchedArgs = new Set<string>()
-	for (const version of versions) {
-		if (!version) continue
-		for (const [arg, { diff }] of Object.entries(computeDiff(schema, version.schema))) {
-			// A new optional argument takes its default when the reused arguments lack it.
-			if (diff === 'same' || (diff === 'added' && !schema?.required?.includes(arg))) continue
-			mismatchedArgs.add(arg)
+	for (const hash of new Set(runs.map((job) => job.script_hash!))) {
+		const previous = versions.get(hash)?.schema
+		for (const [arg, { diff }] of Object.entries(computeDiff(schema, previous))) {
+			// An added argument only breaks a reused run when it is required, checked below.
+			if (diff !== 'same' && diff !== 'added') mismatchedArgs.add(arg)
+		}
+		const previouslyRequired: unknown[] = Array.isArray(previous?.required) ? previous.required : []
+		for (const arg of schema?.required ?? []) {
+			if (!previouslyRequired.includes(arg)) mismatchedArgs.add(arg)
 		}
 	}
 

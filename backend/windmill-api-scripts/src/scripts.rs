@@ -648,8 +648,8 @@ struct CreateScriptQuery {
     #[serde(default)]
     skip_if_noop: bool,
     /// Perpetual runs of an older version at this path start their next run on the deployed
-    /// version once their current one finishes. A deploy skipped as a no-op creates no version,
-    /// so it moves nothing.
+    /// version once their current one finishes, or stop when it is not perpetual. A deploy skipped
+    /// as a no-op creates no version, so it moves nothing.
     #[serde(default)]
     apply_to_perpetual_runs: bool,
 }

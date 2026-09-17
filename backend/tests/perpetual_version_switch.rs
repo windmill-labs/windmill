@@ -4,6 +4,7 @@
 use serde_json::{json, Value};
 use sqlx::{types::Json, Pool, Postgres};
 use uuid::Uuid;
+use windmill_common::scripts::{deploy_relocked_version, fetch_script_for_update};
 use windmill_queue::{add_completed_job, get_mini_completed_job};
 
 const W_ID: &str = "test-workspace";
@@ -110,6 +111,26 @@ async fn a_flagged_newer_version_takes_over_the_next_run(db: Pool<Postgres>) -> 
         json!({"n": 1}),
         "and the arguments of the run that finished"
     );
+    Ok(())
+}
+
+/// A dependency change relocks a version into a new one, which has to keep the flag or the loop
+/// never moves.
+#[sqlx::test(fixtures("base"))]
+async fn a_flagged_version_relocked_before_the_run_ends_still_takes_over(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    insert_version(&db, 4001, 60.0, None, None, None).await?;
+    insert_version(&db, 4002, 0.0, None, Some(true), None).await?;
+    let mut tx = db.begin().await?;
+    let head = fetch_script_for_update(PATH, W_ID, &mut *tx)
+        .await?
+        .unwrap();
+    let relocked = deploy_relocked_version(&mut tx, head, None, Some(""), None, None).await?;
+    tx.commit().await?;
+
+    let (hash, _, _) = next_run_after_run_of(&db, 4001).await?;
+    assert_eq!(hash, relocked);
     Ok(())
 }
 

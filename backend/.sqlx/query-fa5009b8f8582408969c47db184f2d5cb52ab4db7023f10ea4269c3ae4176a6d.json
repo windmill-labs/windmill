@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT on_behalf_of IS NOT NULL AS \"ran_on_behalf_of!\" FROM script WHERE hash = $1 AND workspace_id = $2",
+  "query": "SELECT (on_behalf_of IS NOT NULL OR on_behalf_of_email IS NOT NULL) AS \"ran_on_behalf_of!\" FROM script WHERE hash = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       null
     ]
   },
-  "hash": "cf14e4d52fb9d35141a76e6d38973fb2000ad85d1a4e065c6ef4305a4b4e800e"
+  "hash": "fa5009b8f8582408969c47db184f2d5cb52ab4db7023f10ea4269c3ae4176a6d"
 }

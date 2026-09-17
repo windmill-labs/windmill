@@ -706,6 +706,13 @@ export async function handleFile(
             deepEqual(modules ?? null, remote.modules ?? null))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
+          if (opts?.applyToPerpetualRuns) {
+            log.warn(
+              colors.yellow(
+                `No new version of ${remotePath} was deployed, so --apply-to-perpetual-runs moves no runs`
+              )
+            );
+          }
           // Even when the body is unchanged, perms may still drift — sync them
           // independently before returning.
           await applyExtraPermsDiff(
@@ -2226,7 +2233,7 @@ const command = new Command()
   .option("--message <message:string>", "Deployment message")
   .option(
     "--apply-to-perpetual-runs",
-    "Move running perpetual runs of this script to the new version once their current run finishes",
+    "Move running perpetual runs of this script to the new version once their current run finishes, or stop them if the new version is not perpetual",
   )
   .action(push as any)
   .command("get", "get a script's details")

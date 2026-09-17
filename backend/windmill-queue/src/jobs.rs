@@ -1788,10 +1788,11 @@ async fn perpetual_version_switch(
         None => {
             // A run of a version with an on-behalf-of identity is permissioned as that identity,
             // not as whoever started the loop. Carrying it over would run a version that no
-            // longer names it with its authority.
+            // longer names it with its authority. An address-only row counts: a server predating
+            // the principal column dispatched it as that address.
             let ran_on_behalf_of = sqlx::query_scalar!(
-                "SELECT on_behalf_of IS NOT NULL AS \"ran_on_behalf_of!\" FROM script \
-                 WHERE hash = $1 AND workspace_id = $2",
+                "SELECT (on_behalf_of IS NOT NULL OR on_behalf_of_email IS NOT NULL) \
+                 AS \"ran_on_behalf_of!\" FROM script WHERE hash = $1 AND workspace_id = $2",
                 hash.0,
                 w_id
             )
@@ -1811,6 +1812,27 @@ async fn perpetual_version_switch(
             )
         }
     };
+    // The loop's tag was checked when it started; a new version's own tag has not been.
+    if latest.dedicated_worker != Some(true) {
+        if let Some(tag) = latest.tag.as_deref().filter(|t| !t.is_empty()) {
+            let is_super_admin = windmill_common::auth::is_super_admin_email(db, &email).await?;
+            if let Err(e) = windmill_common::jobs::check_tag_available_for_workspace_internal(
+                db,
+                w_id,
+                tag,
+                is_super_admin,
+                None,
+            )
+            .await
+            {
+                tracing::warn!(
+                    "Perpetual script {path} stays on version {hash}: version {} has tag {tag}: {e}",
+                    ScriptHash(latest.hash)
+                );
+                return Ok(PerpetualVersionSwitch::Stay);
+            }
+        }
+    }
     Ok(PerpetualVersionSwitch::To(PerpetualNextRun {
         hash: ScriptHash(latest.hash),
         language: latest.language,
