@@ -112,16 +112,36 @@
 	}
 
 	/**
-	 * Creates a URL-synced filter instance that automatically syncs with URL search parameters
+	 * Creates a URL-synced filter instance that automatically syncs with URL search parameters.
+	 *
+	 * `initial` supplies defaults for keys the URL doesn't carry (a route segment, a persisted
+	 * toggle); the returned `seed` re-applies them after a navigation has rewritten the query.
 	 */
 	export function useUrlSyncedFilterInstance<T extends FilterSchemaRec>(
-		schemaRec: T
-	): { val: Partial<FilterInstanceRec<T>> } {
+		schemaRec: T,
+		initial?: Partial<FilterInstanceRec<T>>
+	): {
+		val: Partial<FilterInstanceRec<T>>
+		seed: (values: Partial<FilterInstanceRec<T>>) => void
+	} {
 		// Build the Zod schema from the filter schema
 		const zodSchema = filterSchemaRecToZodSchema(schemaRec)
 
 		// Create URL-synced search params
 		const urlFilter = useSearchParams(zodSchema) as Record<string, unknown>
+
+		// A default has to arrive as a URL param: the URL→instance effect below drops whatever the
+		// URL lacks, so a value written to the instance is undone on the next sync. Going through
+		// urlFilter rather than straight to history keeps the search-param cells in step, so it
+		// does not matter whether a popstate follows.
+		function seed(values: Partial<FilterInstanceRec<T>>) {
+			const sp = new URLSearchParams(window.location.search)
+			for (const [key, value] of Object.entries(values) as [string, unknown][]) {
+				if (value === undefined || value === null || sp.has(key)) continue
+				urlFilter[key] = value instanceof Date ? value.toISOString() : value
+			}
+		}
+		if (initial) seed(initial)
 
 		// Create the filter instance object
 		const filterInstance: { val: Partial<FilterInstanceRec<T>> } = $state({ val: {} })
@@ -173,7 +193,15 @@
 			})
 		}
 
-		return filterInstance
+		return {
+			get val() {
+				return filterInstance.val
+			},
+			set val(v: Partial<FilterInstanceRec<T>>) {
+				filterInstance.val = v
+			},
+			seed
+		}
 	}
 
 	function filterToText<F extends FilterSchema>(filter: FilterInstance<F>, schema: F): string {

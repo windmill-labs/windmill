@@ -13,6 +13,10 @@ export type ReusableAgentEvent =
 	| 'linked'
 	/** A linked step was forked back into a standalone agent. */
 	| 'unlinked'
+	/** A linked agent's unsaved draft was deployed alongside the flow that uses it. */
+	| 'draft_deployed_with_flow'
+	/** A linked agent's unsaved draft was left as a draft when its flow was deployed. */
+	| 'draft_kept_on_deploy'
 
 export function logReusableAgentUsage(event: ReusableAgentEvent): void {
 	logFeatureUsage('ai_agent', 'reusable', { key: event })

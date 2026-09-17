@@ -12,6 +12,8 @@
 	} from './context'
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
+	import { getChatViewHost } from './chatViewHost'
+	import { composerBoxClass, COMPOSER_FIELD_RESET } from './composerBox'
 	import { formatMention } from './mention'
 	import { twMerge } from 'tailwind-merge'
 	import { tick, untrack, type Snippet } from 'svelte'
@@ -45,7 +47,10 @@
 		isImageViewerOpen
 	} from '$lib/components/common/image/ExpandableImage.svelte'
 
-	const aiChatManager = getAiChatManager()
+	const chatHost = getChatViewHost()
+	// Resolved here, not where it is used: getContext is only legal during component
+	// initialisation, and the mention consumer below runs inside the send gesture.
+	const chatManager = getAiChatManager()
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -65,15 +70,15 @@
 		showContext?: boolean
 		bottomRightSnippet?: Snippet
 		onKeyDown?: (e: KeyboardEvent) => void
-		// When provided, overrides `aiChatManager.loading` for the send/stop
+		// When provided, overrides `chatHost.loading` for the send/stop
 		// button — useful for callers driving their own request lifecycle
 		// (e.g. the inline ⌘K widget runs requests outside the global
-		// `aiChatManager.loading` flag).
+		// `chatHost.loading` flag).
 		loading?: boolean
-		// Called when the user clicks Stop. Defaults to `aiChatManager.cancel()`.
+		// Called when the user clicks Stop. Defaults to `chatHost.cancel()`.
 		onCancel?: () => void
 		// Observe the composer draft as it changes (the text is local state —
-		// `aiChatManager.instructions` only carries programmatic prompts). Used by
+		// `chatHost.instructions` only carries programmatic prompts). Used by
 		// sessions to persist the typed-but-unsent prompt with the session draft.
 		onDraftChange?: (text: string) => void
 		// tool_call_id of the askUserQuestion the turn is parked on, when it is. A
@@ -129,6 +134,12 @@
 
 	// Generate mode-specific placeholder
 	const modePlaceholder = $derived.by(() => {
+		// The composer unlocks by itself when the other tab's turn ends, so the
+		// placeholder names what it is waiting on (the typing indicator says
+		// where the run is).
+		if (chatHost.runHeldElsewhere) {
+			return 'Waiting for the turn in the other tab to finish'
+		}
 		if (pendingQuestionToolCallId !== undefined) {
 			return 'Answer the question above'
 		}
@@ -141,7 +152,7 @@
 			return placeholder
 		}
 
-		switch (aiChatManager.mode) {
+		switch (chatHost.mode) {
 			case AIMode.SCRIPT:
 				return 'Modify this script...'
 			case AIMode.FLOW:
@@ -207,19 +218,24 @@
 	// against a concurrent drop.
 	let pendingImages = $state(0)
 
-	/** Attach dropped/pasted image files (downscaled + bounded). GLOBAL mode only. */
+	/** Attach dropped/pasted image files (downscaled + bounded). */
 	export async function addImages(files: (File | Blob)[]) {
-		if (aiChatManager.mode !== AIMode.GLOBAL) return
+		if (!chatHost.supportsMessageAttachments) return
 		const imageFiles = files.filter(isImageFile)
 		if (imageFiles.length === 0) return
-		// tryGetCurrentModel returns undefined instead of throwing: this runs from a
-		// drop/paste handler that can't surface a rejection.
-		const model = tryGetCurrentModel()
-		// Only known text-only models fail this, so attaching would certainly 400 the
-		// next turn — refuse rather than warn and send it anyway.
-		if (model && !modelSupportsVision(model.provider, model.model)) {
-			sendUserToast(`${model.model} can't read images. Switch to a vision model first.`, true)
-			return
+		// The vision check is about the model this composer's own turn will hit, so it
+		// only applies to a host that picks that model. Elsewhere the model is chosen
+		// in the flow and tryGetCurrentModel would answer for the wrong one.
+		if (chatHost.supportsModelSettings) {
+			// tryGetCurrentModel returns undefined instead of throwing: this runs from a
+			// drop/paste handler that can't surface a rejection.
+			const model = tryGetCurrentModel()
+			// Only known text-only models fail this, so attaching would certainly 400 the
+			// next turn — refuse rather than warn and send it anyway.
+			if (model && !modelSupportsVision(model.provider, model.model)) {
+				sendUserToast(`${model.model} can't read images. Switch to a vision model first.`, true)
+				return
+			}
 		}
 		// Count decodes already in flight: two drops that both read the image count
 		// before either resolves would each claim the same free slots and overshoot
@@ -302,13 +318,13 @@
 		draft.files.reduce((sum, f) => sum + textByteLength(f.content), 0) + pendingFileBytes
 	)
 	$effect(() => {
-		aiChatManager.setComposerStaged(composerKey, editingMessageIndex, stagedBytes)
+		chatHost.setComposerStaged(composerKey, editingMessageIndex, stagedBytes)
 	})
-	$effect(() => () => aiChatManager.clearComposerStaged(composerKey))
+	$effect(() => () => chatHost.clearComposerStaged(composerKey))
 
-	/** Attach dropped/picked text files (sniffed + bounded). GLOBAL mode only. */
+	/** Attach dropped/picked text files (sniffed + bounded). */
 	export async function addTextFiles(candidates: File[]) {
-		if (aiChatManager.mode !== AIMode.GLOBAL) return
+		if (!chatHost.supportsMessageAttachments) return
 		if (candidates.length === 0) return
 		const remaining = MAX_ATTACHED_FILES - draft.files.length - pendingFiles
 		if (remaining <= 0) {
@@ -340,7 +356,7 @@
 		// stage stands in for it, so counting both would charge those bytes twice.
 		let budget =
 			MAX_CONVERSATION_FILE_BYTES -
-			aiChatManager.attachmentBytesExcluding(composerKey) -
+			chatHost.attachmentBytesExcluding(composerKey) -
 			draft.files.reduce((sum, f) => sum + textByteLength(f.content), 0) -
 			pendingFileBytes
 		const withinBudget: File[] = []
@@ -382,7 +398,7 @@
 			// from the budget — the decoded sizes replace it.
 			const liveBudget =
 				MAX_CONVERSATION_FILE_BYTES -
-				aiChatManager.attachmentBytesExcluding(composerKey) -
+				chatHost.attachmentBytesExcluding(composerKey) -
 				draft.files.reduce((sum, f) => sum + textByteLength(f.content), 0) -
 				(pendingFileBytes - reservedBytes)
 			const { droppedAtBudget } = draft.addFiles(reads, liveBudget)
@@ -414,9 +430,9 @@
 	// Modes that show the rich textarea with @-context support (workspace
 	// scripts, workspace flows, code blocks, DBs, etc.).
 	const isContextEnabledMode = $derived(
-		aiChatManager.mode === AIMode.SCRIPT ||
-			aiChatManager.mode === AIMode.FLOW ||
-			aiChatManager.mode === AIMode.GLOBAL
+		chatHost.mode === AIMode.SCRIPT ||
+			chatHost.mode === AIMode.FLOW ||
+			chatHost.mode === AIMode.GLOBAL
 	)
 
 	const domSelectorChips = $derived(
@@ -545,14 +561,14 @@
 	 * the composer. The conversation is left untouched — resending creates a new
 	 * message, unlike the bubble's edit pencil which rewinds the conversation. */
 	function recallLastSentMessage(): boolean {
-		const messages = aiChatManager.displayMessages
+		const messages = chatHost.displayMessages
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const message = messages[i]
 			if (message.role !== 'user' || message.synthetic) continue
 			// Images come from the stored turn, never the bubble: a provider
 			// rejection strips them from history while the bubble keeps its copy,
 			// and recalling that copy would re-attach the refused image.
-			const images = aiChatManager.storedImages(i) ?? []
+			const images = chatHost.storedImages(i) ?? []
 			// Eligibility looks at the bubble, though: the last thing the user
 			// actually sent is the recall boundary, so a context-only turn (GLOBAL
 			// allows text-free sends with chips) recalls its chips, and a turn
@@ -576,8 +592,7 @@
 			// count against the conversation budget — re-admit them instead of
 			// copying, or resending would blow past MAX_CONVERSATION_FILE_BYTES.
 			if (message.files?.length) {
-				const budget =
-					MAX_CONVERSATION_FILE_BYTES - aiChatManager.attachmentBytesExcluding(composerKey)
+				const budget = MAX_CONVERSATION_FILE_BYTES - chatHost.attachmentBytesExcluding(composerKey)
 				const { droppedAtBudget } = draft.addFiles(message.files, budget)
 				if (droppedAtBudget > 0) {
 					const mb = Math.round(MAX_CONVERSATION_FILE_BYTES / 1_000_000)
@@ -648,10 +663,10 @@
 
 		if (
 			contextElement.type === 'app_datatable' &&
-			aiChatManager.mode === AIMode.APP &&
-			aiChatManager.appAiChatHelpers
+			chatHost.mode === AIMode.APP &&
+			chatHost.appAiChatHelpers
 		) {
-			const appAiChatHelpers = aiChatManager.appAiChatHelpers
+			const appAiChatHelpers = chatHost.appAiChatHelpers
 			appAiChatHelpers.addTableToWhitelist(
 				contextElement.datatableName,
 				contextElement.schemaName,
@@ -693,8 +708,10 @@
 	 * consuming past them would hand this message a mention the user picked for
 	 * the next one. */
 	function consumeMentionsIfGlobal() {
-		if (aiChatManager.mode !== AIMode.GLOBAL) return
-		aiChatManager.contextManager?.consumeMentionContext()
+		if (chatHost.mode !== AIMode.GLOBAL) return
+		// The mention context belongs to the copilot's own ContextManager, which only
+		// the manager has — the GLOBAL guard above means this host is always it.
+		chatManager.contextManager?.consumeMentionContext()
 	}
 
 	function sendRequest() {
@@ -703,13 +720,18 @@
 		if (pendingImages > 0 || pendingFiles > 0 || ingestionHolds > 0) {
 			return
 		}
+		// A host whose consumer needs a message of its own refuses an attachment-only
+		// turn. Returning before `take()` keeps the chips where the user put them.
+		if (chatHost.requiresMessageText && draft.text.trim() === '') {
+			return
+		}
 		// Read before `take()` empties the draft the id derives from, and only take
 		// once the answer is delivered — an undelivered one would leave the user
 		// with neither their text nor a resumed turn.
 		const answeredQuestionId = questionAnsweredBySend
 		if (
 			answeredQuestionId &&
-			aiChatManager.handleUserQuestionAnswer(answeredQuestionId, [
+			chatHost.handleUserQuestionAnswer(answeredQuestionId, [
 				expanded(chatDraft(draft.text.trim(), draft.pastes))
 			])
 		) {
@@ -721,7 +743,7 @@
 			contextTextareaComponent?.clearForSend()
 			return
 		}
-		if (aiChatManager.loading) {
+		if (chatHost.loading) {
 			// Queue the message instead of silently discarding it — it is
 			// auto-sent when the streaming turn completes successfully.
 			// Editing-while-loading keeps the old discard behavior. Paste
@@ -732,10 +754,10 @@
 			// chips picked at press time.
 			if (
 				editingMessageIndex === null &&
-				(!draft.isEmpty || (aiChatManager.mode === AIMode.GLOBAL && selectedContext.length > 0))
+				(!draft.isEmpty || (chatHost.mode === AIMode.GLOBAL && selectedContext.length > 0))
 			) {
 				const sent = draft.take()
-				aiChatManager.queueMessage(
+				chatHost.queueMessage(
 					expanded(chatDraft(sent.text, sent.pastes)),
 					sent.images,
 					[...selectedContext],
@@ -752,7 +774,7 @@
 			// message's original chips), so send exactly what's shown — the user may
 			// have added or removed chips.
 			const sent = draft.take()
-			aiChatManager.restartGeneration(
+			chatHost.restartGeneration(
 				editingMessageIndex,
 				sent.text,
 				sent.pastes,
@@ -765,9 +787,9 @@
 			const sent = draft.take()
 			// Pin before consuming: the manager falls back to the live selection only
 			// when given no override, and the consume below empties it.
-			const carried = aiChatManager.mode === AIMode.GLOBAL ? [...selectedContext] : undefined
+			const carried = chatHost.mode === AIMode.GLOBAL ? [...selectedContext] : undefined
 			consumeMentionsIfGlobal()
-			aiChatManager.sendRequest({
+			chatHost.sendRequest({
 				instructions: sent.text,
 				pastes: sent.pastes,
 				images: sent.images,
@@ -999,31 +1021,40 @@
 	<!-- The turn stays `loading` while parked on a question, but a drafted answer
 	     is what the button should ship then — otherwise the only pointer action on
 	     a typed answer would be Stop. Anything else keeps Stop. -->
-	{@const isLoading = (loading ?? aiChatManager.loading) && !questionAnsweredBySend}
+	{@const isLoading = (loading ?? chatHost.loading) && !questionAnsweredBySend}
 	{@const emptyDraft = draft.isEmpty}
 	<!-- A text-free GLOBAL draft with context chips is a valid turn (Enter
 	     already sends it), so the button stays enabled there for pointer/touch
 	     parity — mirrors the sendRequest guard. Custom onSendRequest consumers
 	     (inline ⌘K) and editor copilots need content. -->
+	{@const needsText = chatHost.requiresMessageText && draft.text.trim() === ''}
+	<!-- The wording is about the attachment, so it earns its place only once there is one:
+	     an empty composer is the idle state, not a refusal. -->
+	{@const needsTextForAttachment = needsText && !emptyDraft}
 	{@const sendDisabled =
 		disabled ||
 		pendingImages > 0 ||
 		pendingFiles > 0 ||
 		ingestionHolds > 0 ||
+		needsText ||
 		(emptyDraft &&
 			(onSendRequest !== undefined ||
-				aiChatManager.mode !== AIMode.GLOBAL ||
+				chatHost.mode !== AIMode.GLOBAL ||
 				selectedContext.length === 0))}
 	<Button
 		variant="subtle"
 		unifiedSize="md"
 		iconOnly
-		title={isLoading ? 'Stop' : 'Send'}
+		title={isLoading
+			? 'Stop'
+			: needsTextForAttachment
+				? 'Write a message to send with the attachment'
+				: 'Send'}
 		startIcon={{ icon: isLoading ? Square : ArrowUp }}
 		disabled={!isLoading && sendDisabled}
 		on:click={() => {
 			if (isLoading) {
-				onCancel ? onCancel() : aiChatManager.cancel()
+				onCancel ? onCancel() : chatHost.cancel()
 			} else if (!sendDisabled) {
 				submitRequest()
 			}
@@ -1109,9 +1140,9 @@
 	class="relative mt-1"
 	role="presentation"
 	onkeydown={(e) => {
-		if (e.key === 'Escape' && aiChatManager.loading) {
+		if (e.key === 'Escape' && chatHost.loading) {
 			e.preventDefault()
-			aiChatManager.cancel()
+			chatHost.cancel()
 		} else if (
 			e.key === 'ArrowUp' &&
 			!e.defaultPrevented &&
@@ -1133,14 +1164,14 @@
 			// custom-send consumers (inline widget) have their own history
 			// semantics.
 			if (
-				aiChatManager.queuedMessage ||
-				aiChatManager.queuedImages.length > 0 ||
-				aiChatManager.queuedFiles.length > 0 ||
-				(aiChatManager.queuedContext?.length ?? 0) > 0
+				chatHost.queuedMessage ||
+				chatHost.queuedImages.length > 0 ||
+				chatHost.queuedFiles.length > 0 ||
+				(chatHost.queuedContext?.length ?? 0) > 0
 			) {
 				e.preventDefault()
-				aiChatManager.dequeueMessage()
-			} else if (!aiChatManager.sendInFlight && recallLastSentMessage()) {
+				chatHost.dequeueMessage()
+			} else if (!chatHost.sendInFlight && recallLastSentMessage()) {
 				// History recall waits for the in-flight turn: from the moment the
 				// composer clears, the turn's bubble, stored images and context land
 				// across several awaits, so recalling now would return an incomplete
@@ -1157,10 +1188,10 @@
 				bind:this={contextTextareaComponent}
 				bind:value={draft.text}
 				bind:pastes={draft.pastes}
-				onImageFiles={aiChatManager.mode === AIMode.GLOBAL
+				onImageFiles={chatHost.supportsMessageAttachments
 					? (pasted) => void addImages(pasted)
 					: undefined}
-				onTextFiles={aiChatManager.mode === AIMode.GLOBAL
+				onTextFiles={chatHost.supportsMessageAttachments
 					? (pasted) => void addTextFiles(pasted)
 					: undefined}
 				{availableContext}
@@ -1190,7 +1221,7 @@
 				</div>
 			{/if}
 		</div>
-	{:else if aiChatManager.mode === AIMode.APP}
+	{:else if chatHost.mode === AIMode.APP}
 		{#if showContext}
 			{@render badgeRow()}
 		{/if}
@@ -1258,30 +1289,38 @@
 			</Portal>
 		{/if}
 	{:else}
-		<div class={twMerge('relative w-full scroll-pb-2 pt-2', className)}>
-			<textarea
-				bind:this={instructionsTextareaComponent}
-				bind:value={draft.text}
-				use:autosize={{ maxHeight: '40vh' }}
-				onkeydown={(e) => {
-					if (onKeyDown) {
-						onKeyDown(e)
-					}
-					if (e.key === 'Enter' && !e.shiftKey) {
-						e.preventDefault()
-						sendRequest()
-					}
-				}}
-				rows={1}
-				placeholder={modePlaceholder}
-				class={twMerge('resize-none', CHAT_INPUT_PADDING)}
-				{disabled}
-			></textarea>
-			{#if !bottomRightSnippet}
-				<div class="absolute bottom-1 right-1">
-					{@render sendStopButton()}
-				</div>
-			{/if}
+		<!-- Same box as the rich composer above, so a host on the plain textarea shows
+		     the identical chip rows inside the identical field. -->
+		<div class={composerBoxClass(disabled)}>
+			{@render badgeRow()}
+			{@render imageChipsRow()}
+			<div class={twMerge('relative w-full', className)}>
+				<textarea
+					bind:this={instructionsTextareaComponent}
+					bind:value={draft.text}
+					use:autosize={{ maxHeight: '40vh' }}
+					onkeydown={(e) => {
+						if (onKeyDown) {
+							onKeyDown(e)
+						}
+						// An Enter that confirms an IME composition (Japanese, Chinese) is not a
+						// send; it would ship the unfinished text.
+						if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+							e.preventDefault()
+							sendRequest()
+						}
+					}}
+					rows={1}
+					placeholder={modePlaceholder}
+					class={twMerge('resize-none', COMPOSER_FIELD_RESET, CHAT_INPUT_PADDING)}
+					{disabled}
+				></textarea>
+				{#if !bottomRightSnippet}
+					<div class="absolute bottom-1 right-1">
+						{@render sendStopButton()}
+					</div>
+				{/if}
+			</div>
 		</div>
 	{/if}
 	{#if bottomRightSnippet}

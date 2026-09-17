@@ -3,14 +3,15 @@
 	import Modal2 from './common/modal/Modal2.svelte'
 	import NewDataTableMigrationModal from './workspaceSettings/NewDataTableMigrationModal.svelte'
 	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
-	import { splitSqlStatements, isDdlStatement } from './sqlDdl'
+	import { joinSqlStatements, splitSqlRuns } from './sqlDdl'
+	import { logDdlGuardChoice } from './workspaceSettings/datatableTelemetry'
 	import { CornerDownLeft } from 'lucide-svelte'
 
 	let { workspace, datatable }: { workspace: string; datatable: string } = $props()
 
 	type Choice = 'run' | 'migrate' | 'cancel'
 
-	let promptStatement = $state<string | undefined>(undefined)
+	let promptStatements = $state<string[]>([])
 	let promptOpen = $state(false)
 	let resolvePrompt: ((choice: Choice) => void) | undefined = undefined
 	let resolveMigrationClosed: ((created: boolean) => void) | undefined = undefined
@@ -22,11 +23,15 @@
 	// toast action after a migration is created here.
 	let migrationsModal = $state<DataTableMigrationsButton | undefined>(undefined)
 
+	// The block is shown as-is in the prompt and becomes the migration body, where
+	// every statement inside the BEGIN; ... END; frame must be `;`-terminated.
+	let promptSql = $derived(joinSqlStatements(promptStatements))
+
 	function finishPrompt(choice: Choice) {
 		const r = resolvePrompt
 		resolvePrompt = undefined
 		promptOpen = false
-		promptStatement = undefined
+		promptStatements = []
 		r?.(choice)
 	}
 
@@ -48,10 +53,10 @@
 		}
 	}
 
-	function promptDdl(statement: string): Promise<Choice> {
+	function promptDdl(statements: string[]): Promise<Choice> {
 		return new Promise((resolve) => {
 			resolvePrompt = resolve
-			promptStatement = statement
+			promptStatements = statements
 			promptOpen = true
 		})
 	}
@@ -65,61 +70,66 @@
 
 	// Open the prefilled new-migration modal. Resolves with whether a migration
 	// was actually created (false if the user cancelled / closed it).
-	function openMigrationModal(statement: string): Promise<boolean> {
+	function openMigrationModal(sql: string): Promise<boolean> {
 		return new Promise((resolve) => {
 			resolveMigrationClosed = (created: boolean) => resolve(created)
-			newMigrationModal?.open({ codeUp: statement })
+			newMigrationModal?.open({ codeUp: sql })
 		})
 	}
 
 	/**
-	 * Inspect `code` for DDL statements. For each one, prompt the user to run it
-	 * anyway or turn it into a migration (prompts shown one at a time). Returns
-	 * whether to proceed and the code to run (with migrated statements stripped).
+	 * Inspect `code` for DDL statements. Each run of adjacent DDL statements is
+	 * prompted for once (runs shown one at a time) and becomes a single migration,
+	 * so a chain of schema changes applies in one transaction instead of asking
+	 * once per statement. Returns whether to proceed and the code to run (with
+	 * migrated statements stripped).
 	 */
 	export async function guard(
 		code: string
 	): Promise<{ proceed: boolean; code: string; ranMigration: boolean }> {
 		migrationRan = false
-		const statements = splitSqlStatements(code)
-		if (!statements.some((s) => isDdlStatement(s))) {
+		const runs = splitSqlRuns(code)
+		if (!runs.some((r) => r.isDdl)) {
 			return { proceed: true, code, ranMigration: false }
 		}
 
 		const kept: string[] = []
-		for (const statement of statements) {
-			if (!isDdlStatement(statement)) {
-				kept.push(statement)
+		for (const run of runs) {
+			if (!run.isDdl) {
+				kept.push(...run.statements)
 				continue
 			}
-			// Re-prompt for this statement until the user makes a terminal choice;
+			// Re-prompt for this run until the user makes a terminal choice;
 			// cancelling the migration modal returns to the prompt with the DDL intact.
 			for (;;) {
-				const choice = await promptDdl(statement)
+				const choice = await promptDdl(run.statements)
 				if (choice === 'cancel') {
+					logDdlGuardChoice('cancelled')
 					return { proceed: false, code, ranMigration: migrationRan }
 				}
 				if (choice === 'run') {
-					kept.push(statement)
+					logDdlGuardChoice('run_anyway')
+					kept.push(...run.statements)
 					break
 				}
-				// migrate: only strip the statement once a migration is actually
+				// migrate: only strip the statements once a migration is actually
 				// created; if the modal was cancelled, loop back to the prompt.
-				const created = await openMigrationModal(statement)
+				const created = await openMigrationModal(joinSqlStatements(run.statements))
 				if (created) {
+					logDdlGuardChoice('migrated')
 					break
 				}
 			}
 		}
 
-		return { proceed: true, code: kept.join(';\n'), ranMigration: migrationRan }
+		return { proceed: true, code: joinSqlStatements(kept), ranMigration: migrationRan }
 	}
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
 
 <Modal2
-	title="Schema change detected"
+	title={promptStatements.length > 1 ? 'Schema changes detected' : 'Schema change detected'}
 	fixedWidth="md"
 	fixedHeight="adaptive"
 	bind:isOpen={promptOpen}
@@ -127,12 +137,17 @@
 >
 	<div class="flex flex-col gap-3 w-full">
 		<p class="text-sm text-secondary">
-			This looks like a schema-changing (DDL) statement. Schema changes are best tracked as
-			migrations rather than run ad-hoc. Create a migration for it instead?
+			{#if promptStatements.length > 1}
+				These {promptStatements.length} consecutive statements are schema-changing (DDL). Schema changes
+				are best tracked as migrations rather than run ad-hoc. Create a single migration for them instead?
+			{:else}
+				This looks like a schema-changing (DDL) statement. Schema changes are best tracked as
+				migrations rather than run ad-hoc. Create a migration for it instead?
+			{/if}
 		</p>
 		<pre
 			class="text-xs whitespace-pre-wrap font-mono bg-surface-secondary rounded p-3 max-h-48 overflow-auto"
-			>{promptStatement ?? ''}</pre
+			>{promptSql}</pre
 		>
 		<div class="flex justify-end gap-2 pt-2">
 			<Button variant="default" size="sm" on:click={() => finishPrompt('run')}>Run anyway</Button>

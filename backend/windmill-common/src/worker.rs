@@ -392,6 +392,7 @@ lazy_static::lazy_static! {
         pip_local_dependencies: Default::default(),
         env_vars: Default::default(),
         native_mode: false,
+        object_store_cache_config: Default::default(),
     });
 
     pub static ref WORKER_PULL_QUERIES: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
@@ -2343,6 +2344,7 @@ pub async fn load_worker_config(
             .or_else(|| load_additional_python_paths_from_env()),
         env_vars: resolved_env_vars,
         native_mode,
+        object_store_cache_config: config.object_store_cache_config,
     })
 }
 
@@ -2432,6 +2434,7 @@ pub struct WorkerConfigOpt {
     pub env_vars_static: Option<HashMap<String, String>>,
     pub env_vars_allowlist: Option<Vec<String>>,
     pub native_mode: Option<bool>,
+    pub object_store_cache_config: Option<serde_json::Value>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -2450,6 +2453,7 @@ impl Default for WorkerConfigOpt {
             env_vars_static: Default::default(),
             env_vars_allowlist: Default::default(),
             native_mode: Default::default(),
+            object_store_cache_config: Default::default(),
         }
     }
 }
@@ -2468,12 +2472,18 @@ pub struct WorkerConfig {
     pub pip_local_dependencies: Option<Vec<String>>,
     pub env_vars: HashMap<String, String>,
     pub native_mode: bool,
+    /// Object store this group's dependency cache uses instead of the instance one, as stored
+    /// in the group config. Raw JSON: `windmill-common` cannot depend on the object store crate
+    /// that parses it, and comparing the raw value is what tells a reload the store changed.
+    pub object_store_cache_config: Option<serde_json::Value>,
 }
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?} }}",
-        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode)
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?}, object_store_cache_config: {} }}",
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode,
+        // holds bucket credentials
+        self.object_store_cache_config.as_ref().map(|_| "***").unwrap_or("None"))
     }
 }
 
@@ -2500,6 +2510,42 @@ pub fn split_python_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> 
         .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
         .map(String::from)
         .collect()
+}
+
+/// Byte offset of the comment marker, per pip's rule: a `#` at line start or preceded by
+/// whitespace. A `#` elsewhere belongs to the requirement (`pkg @ https://h/p.whl#sha256=…`).
+fn requirement_comment_start(line: &str) -> Option<usize> {
+    line.char_indices()
+        .find(|(i, c)| *c == '#' && (*i == 0 || line[..*i].ends_with(char::is_whitespace)))
+        .map(|(i, _)| i)
+}
+
+/// The installable requirement carried by one lockfile line, or `None` for a comment, a
+/// `-r`/`-e`/`--flag` directive, or a blank.
+///
+/// Windmill installs a lockfile one entry at a time as a `uv pip install` argument, so
+/// requirements-file syntax a file-level parser would absorb is an unparseable package name
+/// here and has to be stripped first.
+pub fn requirement_from_lockfile_line(line: &str) -> Option<&str> {
+    let requirement = match requirement_comment_start(line) {
+        Some(i) => &line[..i],
+        None => line,
+    }
+    .trim()
+    // Continuations are stripped, not joined: right for `--generate-hashes` locks, whose
+    // continued lines are `--hash=` flags this function drops, but a lock continuing onto a
+    // marker or extra would lose it.
+    .trim_end_matches('\\')
+    .trim_end();
+
+    (!requirement.is_empty() && !requirement.starts_with('-')).then_some(requirement)
+}
+
+/// Whether a lockfile line continues onto the next one. The continued lines reach the
+/// installer as entries of their own rather than being joined, so a caller that cares what
+/// they carried — `--hash=` pins, for a `--generate-hashes` lock — has to say so itself.
+pub fn lockfile_line_has_continuation(line: &str) -> bool {
+    line.trim_end().ends_with('\\')
 }
 
 #[derive(Eq, PartialEq, Clone, Copy, Default, Debug)]
@@ -2618,6 +2664,52 @@ mod tests {
     /// A workspace id chain: the workspace itself, then its fork ancestors nearest-first.
     fn chain(ids: &[&str]) -> Vec<String> {
         ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Fixtures are verbatim `uv pip compile` output (uv 0.11.28): split and inline
+    /// annotation styles, and `--generate-hashes`.
+    #[test]
+    fn test_requirement_from_lockfile_line() {
+        assert_eq!(requirement_from_lockfile_line("    # via httpx"), None);
+        assert_eq!(requirement_from_lockfile_line("    # via"), None);
+        assert_eq!(requirement_from_lockfile_line("    #   anyio"), None);
+        assert_eq!(
+            requirement_from_lockfile_line("    # via -r .tmp/requirements.in"),
+            None
+        );
+        assert_eq!(
+            requirement_from_lockfile_line("anyio==4.15.1 \\"),
+            Some("anyio==4.15.1")
+        );
+        assert_eq!(
+            requirement_from_lockfile_line(
+                "    --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7 \\"
+            ),
+            None
+        );
+        assert_eq!(requirement_from_lockfile_line("# py: 3.11"), None);
+        assert_eq!(requirement_from_lockfile_line("-r other.txt"), None);
+        assert_eq!(
+            requirement_from_lockfile_line("--index-url https://x"),
+            None
+        );
+        assert_eq!(requirement_from_lockfile_line("   "), None);
+        assert_eq!(
+            requirement_from_lockfile_line("httpx==0.27.0"),
+            Some("httpx==0.27.0")
+        );
+        assert_eq!(
+            requirement_from_lockfile_line("httpx==0.27.0  # via -r requirements.in"),
+            Some("httpx==0.27.0")
+        );
+        // A `#` not preceded by whitespace is part of the requirement, not a comment.
+        assert_eq!(
+            requirement_from_lockfile_line("wmill @ https://h/wmill.whl#sha256=abc"),
+            Some("wmill @ https://h/wmill.whl#sha256=abc")
+        );
+
+        assert!(lockfile_line_has_continuation("anyio==4.15.1 \\"));
+        assert!(!lockfile_line_has_continuation("anyio==4.15.1"));
     }
 
     #[test]

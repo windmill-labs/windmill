@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            slack_name,\n            teams_team_id,\n            teams_team_name,\n            teams_team_guid,\n            mute_critical_alerts,\n            guest_access_enabled,\n            deploy_ui,\n            large_file_storage,\n            datatable\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "slack_team_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "slack_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "teams_team_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "teams_team_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "teams_team_guid",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "mute_critical_alerts",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "guest_access_enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "deploy_ui",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "large_file_storage",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "datatable",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "ede15bff96152f209aff756830cbc76b5afa1af6ed324376989117b1054c3447"
+}

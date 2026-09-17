@@ -26,10 +26,11 @@
 		AzureTriggerService,
 		EmailTriggerService
 	} from '$lib/gen'
-	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore, type UserExt } from '$lib/stores'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { Alert, Button } from './common'
+	import { overlayStack, type OverlayStack } from './common/overlayHost.svelte'
 	import { random_adj } from './random_positive_adjetive'
 	import { ChevronDown, Copy, SearchCode } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
@@ -85,6 +86,11 @@
 		 *  workspace when the editor operates on a workspace other than the one the
 		 *  top nav points at (see the sessions preview / dev-workspace flows). */
 		workspaceOverride?: string
+		/** The user acting in `workspaceOverride`, for the owner suggestion and the folder
+		 *  write flags. Omit it to stand in the navigation `$userStore`, who is a member of
+		 *  the navigation workspace only; pass `null` for "not known (yet)", which that user
+		 *  must not answer for either. */
+		actingUser?: UserExt | null
 		/** One path that does not count as taken, for a caller creating something that may
 		 *  already have written there itself — a setup flow correcting its own failed attempt.
 		 *  Every other existing path is still refused. */
@@ -110,11 +116,16 @@
 		size = 'md',
 		drawerOffset = 0,
 		workspaceOverride = undefined,
+		actingUser = undefined,
 		allowedExistingPath = undefined,
 		warnOnRename = true
 	}: Props = $props()
 
 	let ws = $derived(workspaceOverride ?? $workspaceStore)
+	// Sole place this component falls back to the ambient user, and only for a caller that
+	// passed none; everything below reads `user`, so a caller acting on another workspace is
+	// never mixed with the navigation user's memberships.
+	let user = $derived(actingUser === undefined ? $userStore : (actingUser ?? undefined))
 
 	$effect.pre(() => {
 		if (path == undefined) {
@@ -169,17 +180,17 @@
 
 	export async function reset() {
 		if (path == '' || path == 'u//' || path?.startsWith('tmp/') || path?.startsWith('hub/')) {
-			if ($lastMetaUsed == undefined || $lastMetaUsed.owner != $userStore?.username) {
+			if ($lastMetaUsed == undefined || $lastMetaUsed.owner != user?.username) {
 				meta = {
 					ownerKind: hideUser ? 'folder' : 'user',
 					name: fullNamePlaceholder ?? random_adj() + '_' + namePlaceholder,
 					owner: ''
 				}
 				if (!hideUser) {
-					if ($userStore?.username?.includes('@')) {
-						meta.owner = $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+					if (user?.username?.includes('@')) {
+						meta.owner = user!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
 					} else {
-						meta.owner = $userStore!.username!
+						meta.owner = user!.username!
 					}
 				}
 			} else {
@@ -229,9 +240,9 @@
 				.map((x) => ({
 					name: x,
 					write:
-						$userStore?.folders?.includes(x) == true ||
-						($userStore?.is_admin ?? false) ||
-						($userStore?.is_super_admin ?? false)
+						user?.folders?.includes(x) == true ||
+						(user?.is_admin ?? false) ||
+						(user?.is_super_admin ?? false)
 				}))
 		)
 	}
@@ -395,9 +406,11 @@
 		}
 	})
 
-	const openSearchWithPrefilledText: (t?: string) => void = getContext(
+	const openSearchWithPrefilledText: (t?: string, stack?: OverlayStack) => void = getContext(
 		'openSearchWithPrefilledText'
 	)
+	// Handed to the search so it stacks above the modal or drawer this field sits in.
+	const searchStack = overlayStack()
 
 	$effect.pre(() => {
 		;[meta?.name, meta?.owner, meta?.ownerKind]
@@ -423,7 +436,7 @@
 		})
 	})
 	$effect.pre(() => {
-		if (ws && $userStore) {
+		if (ws && user) {
 			untrack(() => {
 				loadFolders()
 				initPath()
@@ -441,14 +454,18 @@
 			initialPath !== path
 	)
 	let pathUsageInFlowsPromise = $derived(
-		(kind == 'script' || kind == 'flow') &&
-			ws &&
-			initialPath &&
-			FlowService.listFlowPathsFromWorkspaceRunnable({
-				workspace: ws,
-				path: initialPath,
-				runnableKind: kind
-			})
+		ws && initialPath
+			? kind == 'script' || kind == 'flow'
+				? FlowService.listFlowPathsFromWorkspaceRunnable({
+						workspace: ws,
+						path: initialPath,
+						runnableKind: kind
+					})
+				: kind == 'resource'
+					? // Only steps linked to a saved agent are tracked; other `$res:` references are not.
+						FlowService.listFlowPathsLinkingAgent({ workspace: ws, path: initialPath })
+					: undefined
+			: undefined
 	)
 	let pathUsageInAppsPromise = $derived(
 		(kind == 'script' || kind == 'flow') &&
@@ -506,7 +523,7 @@
 								} else {
 									// 'group' is unreachable here (Select only offers user/folder)
 									// but validateName still accepts it for forward-compat.
-									meta.owner = $userStore?.username?.split('@')[0] ?? ''
+									meta.owner = user?.username?.split('@')[0] ?? ''
 								}
 							}
 						}
@@ -520,7 +537,7 @@
 			<div>
 				{#if meta.ownerKind === 'user'}
 					{@const userOwnerDisabled =
-						disabled || !($superadmin || ($userStore?.is_admin ?? false)) || disableEditing}
+						disabled || !($superadmin || (user?.is_admin ?? false)) || disableEditing}
 					<label class="block shrink min-w-0">
 						<TextInput
 							class={twMerge('!border-none', userOwnerDisabled && '!bg-transparent')}
@@ -528,7 +545,7 @@
 							underlyingInputEl="div"
 							bind:value={meta.owner}
 							inputProps={{
-								placeholder: $userStore?.username ?? '',
+								placeholder: user?.username ?? '',
 								onkeydown: setDirty,
 								disabled: userOwnerDisabled
 							}}
@@ -637,24 +654,36 @@
 						</ul>
 					</Alert>
 				{/if}
+			{:else if displayPathChangedWarning && kind == 'resource'}
+				{@render renameMayBreakWarning()}
+			{/if}
+		{:catch}
+			<!-- A resource's references beyond linked agents are never looked up, so a failed lookup
+			     still leaves it with the generic warning. -->
+			{#if displayPathChangedWarning && kind == 'resource'}
+				{@render renameMayBreakWarning()}
 			{/if}
 		{/await}
 	{:else if displayPathChangedWarning}
-		<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
-			You are renaming an item that may be depended upon by other items. This may break apps, flows
-			or resources. Find if it used elsewhere using the content search. Note that linked variables
-			and resources (having the same path) are automatically moved together.
-			<div class="flex pt-2">
-				<Button
-					variant="default"
-					on:click={() => {
-						openSearchWithPrefilledText('#')
-					}}
-					startIcon={{ icon: SearchCode }}
-				>
-					Search
-				</Button>
-			</div>
-		</Alert>
+		{@render renameMayBreakWarning()}
 	{/if}
 </div>
+
+{#snippet renameMayBreakWarning()}
+	<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
+		You are renaming an item that may be depended upon by other items. This may break apps, flows or
+		resources. Find if it used elsewhere using the content search. Note that linked variables and
+		resources (having the same path) are automatically moved together.
+		<div class="flex pt-2">
+			<Button
+				variant="default"
+				on:click={() => {
+					openSearchWithPrefilledText('#', searchStack)
+				}}
+				startIcon={{ icon: SearchCode }}
+			>
+				Search
+			</Button>
+		</div>
+	</Alert>
+{/snippet}

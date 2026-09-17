@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE git_sync_ci_test_check SET github_posted = true\n                 WHERE workspace_id = $1 AND repo_resource_path = $4 AND head_sha = $2\n                   AND check_run_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7a0ddb6821d8f628bcf85f786e5864e09c7a5a421ba99647570c2b557d53aa51"
+}

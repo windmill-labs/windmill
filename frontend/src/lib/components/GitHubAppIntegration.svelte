@@ -180,7 +180,7 @@
 	{#if !githubState.loadingGithubInstallations}
 		<Button
 			variant="default"
-			size="xs"
+			unifiedSize="sm"
 			on:click={handleRefreshInstallations}
 			disabled={!$enterpriseLicense}
 			startIcon={{ icon: RotateCw }}
@@ -198,7 +198,7 @@
 			{#snippet trigger()}
 				<Button
 					variant="default"
-					size="xs"
+					unifiedSize="sm"
 					disabled={!$enterpriseLicense || githubState.loadingGithubInstallations}
 					startIcon={{
 						icon: githubState.loadingGithubInstallations ? Loader2 : Github,

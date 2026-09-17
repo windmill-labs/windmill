@@ -976,18 +976,33 @@ fn six_fields_hint(schedule_str: &str, version: Option<&str>, seconds_required: 
 }
 
 impl ScheduleType {
+    /// `NotFound` means the expression has no run left (an expired year, an impossible
+    /// date), and schedule pushes disable the schedule on it. Every other error must stay
+    /// transient: croner fails across a DST jump longer than an hour (Antarctica/Troll)
+    /// and succeeds again once the jump has passed.
     pub fn find_next(
         &self,
         starting_from: &chrono::DateTime<chrono_tz::Tz>,
-    ) -> chrono::DateTime<chrono_tz::Tz> {
+    ) -> Result<chrono::DateTime<chrono_tz::Tz>> {
+        let no_run_left = || {
+            Error::NotFound(format!(
+                "cron: the schedule has no run left after {}",
+                starting_from.format("%Y-%m-%d %H:%M:%S %Z")
+            ))
+        };
         match self {
             ScheduleType::Croner(croner_schedule) => croner_schedule
                 .find_next_occurrence(starting_from, false)
-                .expect("cron: a schedule should have a next event"),
-            ScheduleType::Cron(schedule) => schedule
-                .after(starting_from)
-                .next()
-                .expect("cron: a schedule should have a next event"),
+                .map_err(|e| match e {
+                    croner::errors::CronError::TimeSearchLimitExceeded => no_run_left(),
+                    e => Error::internal_err(format!(
+                        "cron: could not compute the run after {}: {e}",
+                        starting_from.format("%Y-%m-%d %H:%M:%S %Z")
+                    )),
+                }),
+            ScheduleType::Cron(schedule) => {
+                schedule.after(starting_from).next().ok_or_else(no_run_left)
+            }
         }
     }
 
@@ -1125,19 +1140,35 @@ use tokio::time::{self, Duration, Sleep};
 
 use pin_project_lite::pin_project;
 
+/// What a [`WarnAfterFuture`] is timing, which decides how its warning reads.
+pub enum WarnSubject {
+    /// A database query, with the SQL when the caller has it.
+    Query(Option<String>),
+    /// Anything else (a child process, a cache transfer), named for the log line.
+    Step(String),
+}
+
 pub trait WarnAfterExt: Future + Sized {
     /// Warns if the future takes longer than the specified number of seconds to complete.
     #[track_caller]
     fn warn_after_seconds(self, seconds: u8) -> WarnAfterFuture<Self> {
         let caller = Location::caller();
-        self.build_from_caller(seconds, caller, None)
+        self.build_from_caller(seconds, caller, WarnSubject::Query(None))
+    }
+
+    /// Same, for a step that is not a database query (a child process, a cache transfer):
+    /// the warning names `step` instead of reporting a slow query.
+    #[track_caller]
+    fn warn_after_seconds_for(self, seconds: u8, step: &str) -> WarnAfterFuture<Self> {
+        let caller = Location::caller();
+        self.build_from_caller(seconds, caller, WarnSubject::Step(step.to_string()))
     }
 
     fn build_from_caller(
         self,
         seconds: u8,
         caller: &Location,
-        sql: Option<String>,
+        subject: WarnSubject,
     ) -> WarnAfterFuture<Self> {
         let location = format!("{}:{}", caller.file(), caller.line());
         WarnAfterFuture {
@@ -1147,13 +1178,13 @@ pub trait WarnAfterExt: Future + Sized {
             start_time: std::time::Instant::now(),
             location,
             seconds,
-            sql,
+            subject,
         }
     }
     #[track_caller]
     fn warn_after_seconds_with_sql(self, seconds: u8, sql: String) -> WarnAfterFuture<Self> {
         let caller = Location::caller();
-        self.build_from_caller(seconds, caller, Some(sql))
+        self.build_from_caller(seconds, caller, WarnSubject::Query(Some(sql)))
     }
 }
 
@@ -1171,7 +1202,7 @@ pin_project! {
         location: String,
         start_time: std::time::Instant,
         seconds: u8,
-        sql: Option<String>,
+        subject: WarnSubject,
     }
 }
 
@@ -1191,12 +1222,20 @@ impl<F: Future> Future for WarnAfterFuture<F> {
         // Poll the timeout future to check if it has elapsed.
         if !*this.warned {
             if this.timeout.poll(cx).is_ready() {
-                tracing::warn!(
-                    location = this.location,
-                    "SLOW_QUERY: query {} to db taking longer than expected (> {} seconds)",
-                    build_query_string(&this.location, this.sql.as_deref()),
-                    this.seconds,
-                );
+                match &*this.subject {
+                    WarnSubject::Step(step) => tracing::warn!(
+                        location = this.location,
+                        "SLOW_STEP: {step} at {} taking longer than expected (> {} seconds)",
+                        this.location,
+                        this.seconds,
+                    ),
+                    WarnSubject::Query(sql) => tracing::warn!(
+                        location = this.location,
+                        "SLOW_QUERY: query {} to db taking longer than expected (> {} seconds)",
+                        build_query_string(&this.location, sql.as_deref()),
+                        this.seconds,
+                    ),
+                }
                 *this.warned = true;
             }
         }
@@ -1206,12 +1245,20 @@ impl<F: Future> Future for WarnAfterFuture<F> {
             Poll::Ready(output) => {
                 if *this.warned {
                     let elapsed = this.start_time.elapsed();
-                    tracing::warn!(
-                        location = this.location,
-                        "SLOW_QUERY: completed query {} with total duration: {:.2?}",
-                        build_query_string(&this.location, this.sql.as_deref()),
-                        elapsed
-                    );
+                    match &*this.subject {
+                        WarnSubject::Step(step) => tracing::warn!(
+                            location = this.location,
+                            "SLOW_STEP: {step} at {} completed with total duration: {:.2?}",
+                            this.location,
+                            elapsed
+                        ),
+                        WarnSubject::Query(sql) => tracing::warn!(
+                            location = this.location,
+                            "SLOW_QUERY: completed query {} with total duration: {:.2?}",
+                            build_query_string(&this.location, sql.as_deref()),
+                            elapsed
+                        ),
+                    }
                 }
                 Poll::Ready(output)
             }
@@ -1675,6 +1722,22 @@ mod tests {
             .expect("invalid cron must be rejected")
             .to_string();
         assert!(!err.contains("6 fields"), "{err}");
+    }
+
+    #[test]
+    fn find_next_reports_only_a_cron_with_no_run_left_as_not_found() {
+        use chrono::TimeZone;
+        let troll: chrono_tz::Tz = "Antarctica/Troll".parse().unwrap();
+        // Troll's clocks jump from 01:00 to 03:00 on the last Sunday of March.
+        let before_jump = troll.with_ymd_and_hms(2027, 3, 28, 0, 30, 0).unwrap();
+
+        let expired = ScheduleType::from_str("0 0 9 1 1 * 2026", Some("v1"), true).unwrap();
+        let err = expired.find_next(&before_jump).unwrap_err();
+        assert!(matches!(err, Error::NotFound(_)), "{err}");
+
+        let across_jump = ScheduleType::from_str("0 30 1 * * *", Some("v2"), true).unwrap();
+        let err = across_jump.find_next(&before_jump).unwrap_err();
+        assert!(!matches!(err, Error::NotFound(_)), "{err}");
     }
 
     /// A worker that restarts must land on the exact same name to reclaim its `worker_ping`

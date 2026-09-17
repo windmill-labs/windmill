@@ -69,6 +69,11 @@ mod ai;
 #[cfg(feature = "private")]
 mod ai_free_tier_ee;
 mod ai_free_tier_oss;
+#[cfg(feature = "parquet")]
+mod ai_sessions;
+#[cfg(feature = "parquet")]
+pub use ai_sessions::sweep_expired_ai_session_backups;
+mod ai_shared_artifacts;
 mod apps;
 mod apps_raw_bundle;
 pub use apps::invalidate_app_policy_cache;
@@ -80,6 +85,7 @@ pub mod azure_proxy_ee;
 mod azure_proxy_oss;
 mod capture;
 mod concurrency_groups;
+mod csrf;
 mod db;
 mod db_health;
 mod dbt;
@@ -378,6 +384,7 @@ async fn inject_agent_authed(
                 token_prefix: None,
                 read_only: false,
                 job_id: None,
+                credential_expiry: None,
             },
             job_id: None,
         });
@@ -452,15 +459,15 @@ pub async fn run_server(
     // unless they are allowed — hence a separate layer rather than widening the
     // one every other route shares. (`Mcp-Param-*` is only sent for tool inputs
     // annotated with `x-mcp-header`, which no tool here declares.)
+    //
+    // The request's own header list is mirrored rather than enumerated: a browser
+    // MCP client may send any custom name for a preprocessor to read, and no fixed
+    // list could cover them. Nothing is granted by echoing it: the origin is
+    // `Any`, so browsers never attach credentials, and the endpoint authenticates
+    // each request on its own.
     let mcp_cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST, http::Method::DELETE])
-        .allow_headers([
-            http::header::CONTENT_TYPE,
-            http::header::AUTHORIZATION,
-            http::HeaderName::from_static("mcp-protocol-version"),
-            http::HeaderName::from_static("mcp-method"),
-            http::HeaderName::from_static("mcp-name"),
-        ])
+        .allow_headers(tower_http::cors::AllowHeaders::mirror_request())
         // The 401 challenge is how a client discovers where to authorize (RFC 9728),
         // and it is not a safelisted response header, so without this a browser
         // client sees an empty one and has no way to begin the OAuth flow.
@@ -657,9 +664,13 @@ pub async fn run_server(
                             "/workspace_dependencies",
                             workspace_dependencies::workspaced_service(),
                         )
+                        // CORS so a chat UI on another origin (an external site, or
+                        // a sandboxed raw app with its frontend SDK token) can read
+                        // its conversation history. Bearer-only, like variables.
                         .nest(
                             "/flow_conversations",
-                            windmill_api_flow_conversations::workspaced_service(),
+                            windmill_api_flow_conversations::workspaced_service()
+                                .layer(cors.clone()),
                         )
                         // CORS so an opaque-origin app iframe (WIN-2006 embed,
                         // no separate domain) can read folders/listnames with a
@@ -953,6 +964,15 @@ pub async fn run_server(
                     #[cfg(feature = "enterprise")]
                     {
                         git_sync_oss::global_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    Router::new()
+                })
+                .nest("/w/{workspace_id}/git_sync", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        git_sync_oss::workspaced_git_sync_service()
                     }
 
                     #[cfg(not(feature = "enterprise"))]

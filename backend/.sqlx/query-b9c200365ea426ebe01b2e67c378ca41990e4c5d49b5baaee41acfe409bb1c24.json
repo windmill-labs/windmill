@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,\n                               resource_type, name, asset_path, tags)\n         VALUES ($1, $2, $3, $4, 'model.p.raw_orders', 'model', 'raw_orders',\n                 'u/a/wh/analytics/raw_orders', '{}')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b9c200365ea426ebe01b2e67c378ca41990e4c5d49b5baaee41acfe409bb1c24"
+}

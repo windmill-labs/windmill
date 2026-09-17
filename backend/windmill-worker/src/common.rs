@@ -67,6 +67,20 @@ mount {
 #[cfg(not(debug_assertions))]
 pub const DEV_CONF_NSJAIL: &str = "";
 
+/// Tells a `spawn_blocking` task to stop when the future awaiting it goes away.
+///
+/// Dropping a `JoinHandle` detaches the task rather than cancelling it, so a
+/// cancelled or timed-out phase otherwise leaves the blocking pool working on an
+/// answer nobody will read. Hold one of these beside the handle and have the
+/// blocking loop check the flag.
+pub(crate) struct AbortOnDrop(pub(crate) std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// Turn a JSON value into the string a shell/CLI arg should receive: a JSON string
 /// becomes its inner value, anything else is re-serialized compactly.
 pub(crate) fn raw_to_string(x: &str) -> String {
@@ -1545,7 +1559,7 @@ pub async fn cached_result_path(
     client: &AuthedClient,
     job: &MiniPulledJob,
     raw_data: Option<&RawData>,
-) -> String {
+) -> windmill_common::error::Result<String> {
     let mut hasher = sha2::Sha256::new();
     hasher.update(&[job.kind as u8]);
     if let Some(ScriptHash(hash)) = job.runnable_id {
@@ -1560,6 +1574,13 @@ pub async fn cached_result_path(
             _ => {}
         }
     }
+    // A workflow-as-code task child runs its parent's code with the parent's
+    // arguments; the step it executes is what tells its result from the parent's
+    // and from its siblings'.
+    if let Some(step_key) = wac_executing_key(db, job).await? {
+        hasher.update(b"wac_step:");
+        hasher.update(step_key.as_bytes());
+    }
     hash_args(
         db,
         client,
@@ -1570,7 +1591,26 @@ pub async fn cached_result_path(
         job.cache_ignore_s3_path.unwrap_or(false),
     )
     .await;
-    format!("g/results/{:064x}", hasher.finalize())
+    Ok(format!("g/results/{:064x}", hasher.finalize()))
+}
+
+/// The checkpoint step key a workflow-as-code parent seeded for this child at push
+/// time; `None` for any job that is not such a child.
+async fn wac_executing_key(
+    db: &DB,
+    job: &MiniPulledJob,
+) -> windmill_common::error::Result<Option<String>> {
+    if job.parent_job.is_none() || job.flow_step_id.is_some() {
+        return Ok(None);
+    }
+    let key: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT workflow_as_code_status->'_checkpoint'->>'_executing_key' \
+         FROM v2_job_status WHERE id = $1",
+    )
+    .bind(job.id)
+    .fetch_optional(db)
+    .await?;
+    Ok(key.flatten())
 }
 
 #[cfg(feature = "parquet")]

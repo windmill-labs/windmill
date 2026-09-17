@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { FlowValue, MemoryConfig, OpenFlow } from '$lib/gen'
-import { cleanFlow, modulesWithRetryOrSleep } from './utils.svelte'
+import type { FlowValue } from '$lib/gen'
+import { modulesWithRetryOrSleep, normalizeAgentHistory } from './utils.svelte'
 
 const constantRetry = { constant: { attempts: 1, seconds: 5 } }
 
@@ -48,36 +48,52 @@ describe('modulesWithRetryOrSleep', () => {
 	})
 })
 
-describe('cleanFlow memory_id stamping', () => {
-	function agentFlow(memory: MemoryConfig): OpenFlow {
-		return {
-			summary: '',
-			value: {
-				modules: [
-					{
-						id: 'a',
-						value: {
-							type: 'aiagent',
-							tools: [],
-							input_transforms: { memory: { type: 'static', value: memory } }
-						}
-					} as any
-				]
+describe('normalizeAgentHistory', () => {
+	const legacy = () => ({
+		memory: {
+			type: 'static',
+			value: { kind: 'auto', context_length: 10, memory_id: '0f5c3a8e-1d2b-4c6a-9e7f-3b8d2a1c4e6f' }
+		}
+	})
+
+	// Outside chat the baked id is still read for runs that pass none, and an older worker must keep
+	// accepting the step, so a save leaves it exactly as it was.
+	it('keeps a legacy baked memory id outside chat mode', () => {
+		const transforms = legacy()
+		normalizeAgentHistory(transforms, false)
+		expect(transforms).toEqual(legacy())
+	})
+
+	it('drops a legacy baked memory id in chat mode, where it was never read', () => {
+		const transforms = legacy()
+		normalizeAgentHistory(transforms, true)
+		expect(transforms.memory.value).toEqual({ kind: 'auto', context_length: 10 })
+	})
+
+	it('drops an empty baked memory id, which names no memory', () => {
+		const transforms = {
+			memory: { type: 'static', value: { kind: 'auto', context_length: 10, memory_id: '' } }
+		}
+		normalizeAgentHistory(transforms, false)
+		expect(transforms.memory.value).toEqual({ kind: 'auto', context_length: 10 })
+	})
+
+	it('saves managed memory that keeps no messages as off, which is how it runs', () => {
+		for (const context_length of [0, null, undefined]) {
+			const transforms: Record<string, any> = {
+				memory: { type: 'static', value: { kind: 'window', context_length } }
 			}
-		} as OpenFlow
-	}
+			normalizeAgentHistory(transforms, false)
+			expect(transforms.memory.value).toEqual({ kind: 'off' })
+		}
+	})
 
-	function memoryOf(flow: OpenFlow): any {
-		return (flow.value.modules[0].value as any).input_transforms.memory.value
-	}
-
-	// Two steps left without one share a memory key, which silently merges their
-	// conversations.
-	it('stamps one on the modes that persist, and nowhere else', () => {
-		expect(memoryOf(cleanFlow(agentFlow({ kind: 'autocompacted' })))).toHaveProperty('memory_id')
-		expect(memoryOf(cleanFlow(agentFlow({ kind: 'auto', context_length: 5 })))).toHaveProperty(
-			'memory_id'
-		)
-		expect(memoryOf(cleanFlow(agentFlow({ kind: 'off' })))).not.toHaveProperty('memory_id')
+	it('does not persist an empty static memory id or message list', () => {
+		const transforms: Record<string, any> = {
+			memory_id: { type: 'static', value: ' ' },
+			previous_messages: { type: 'static', value: [] }
+		}
+		normalizeAgentHistory(transforms, false)
+		expect(transforms).toEqual({})
 	})
 })

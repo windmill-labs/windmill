@@ -32,8 +32,9 @@
 		// `all` pages the prefix to the end in one call instead of fetching a single page.
 		onExpandOwner?: (prefix: string, more?: boolean, opts?: { all?: boolean }) => void
 		onCollapseOwner?: (prefix: string) => void
-		// Position of this node among the rendered root nodes; "expand all" only
-		// auto-loads the first EXPAND_ALL_LOAD_LIMIT of them (see the effect below).
+		// This root owner's place in line for "expand all", which only auto-loads the first
+		// EXPAND_ALL_LOAD_LIMIT (see the effect below). Not always its rendered position:
+		// owners nested under a grouping row are ranked after the rest.
 		rootIndex?: number
 		showEditButton?: boolean
 		// Path prefix of the parent node, so this one can name its own (`ownerLoad` and
@@ -43,6 +44,10 @@
 		// is grouped under this node is only part of it: counts render as "N+" and the
 		// node offers to load the rest of itself.
 		ancestorHasMore?: boolean
+		// Visual nesting on top of `depth`. `depth` stays semantic (0 is a top-level owner
+		// that loads lazily), so an owner shown inside a grouping row is indented through
+		// this rather than by raising its depth.
+		indent?: number
 	}
 
 	let {
@@ -59,8 +64,11 @@
 		rootIndex = 0,
 		showEditButton = true,
 		parentPrefix,
-		ancestorHasMore = false
+		ancestorHasMore = false,
+		indent = 0
 	}: Props = $props()
+
+	let visualDepth = $derived(depth + indent)
 
 	// Bounds the request burst from "expand all": however many root owners the tree
 	// renders (its slice grows as you scroll), it fetches at most this many. Lazy owners
@@ -256,7 +264,7 @@
 		>
 			<div
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
-				style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
+				style={visualDepth > 0 ? `padding-left: ${visualDepth * 16}px;` : ''}
 			>
 				<div class="flex justify-center items-center">
 					{#if isUser(item)}
@@ -310,7 +318,7 @@
 						<a
 							href="{base}/pipeline/{encodeURIComponent(item.folderName)}"
 							class="flex items-center gap-4 px-4 py-3 border-b text-sm hover:bg-surface-hover transition-colors"
-							style="padding-left: {(depth + 1) * 16}px;"
+							style="padding-left: {(visualDepth + 1) * 16}px;"
 						>
 							<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
 							<span class="text-xs font-medium text-emphasis">Pipeline</span>
@@ -335,12 +343,13 @@
 							{showCode}
 							{showEditButton}
 							depth={depth + 1}
+							{indent}
 						/>
 					{/each}
 					{#if effectiveMax < item.items.length}
 						<div
 							class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
-							style="padding-left: {(depth + 1) * 16}px;"
+							style="padding-left: {(visualDepth + 1) * 16}px;"
 						>
 							<!-- Rows, not items: this slices the node's own entries, where a subfolder
 						     is one row standing for everything under it. -->
@@ -377,7 +386,7 @@
 						     as rows still missing. -->
 							<div
 								class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
-								style="padding-left: {(depth + 1) * 16}px;"
+								style="padding-left: {(visualDepth + 1) * 16}px;"
 							>
 								<span class="text-xs text-secondary">
 									Showing {loadedHere}{ownerTotal != undefined ? ` of ${ownerTotal}` : ''} items in {nodePrefix}
@@ -427,6 +436,6 @@
 		on:appChanged
 		on:rawAppChanged
 		on:reload
-		{depth}
+		depth={visualDepth}
 	/>
 {/if}

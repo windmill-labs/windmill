@@ -33,6 +33,7 @@ path = "src/lib.rs"
 tar.workspace = true
 hmac.workspace = true
 sha2.workspace = true
+sha1.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 serde.workspace = true
@@ -109,6 +110,8 @@ pep440_rs.workspace = true
 systemstat.workspace = true
 size.workspace = true
 rsa = { workspace = true, optional = true }
+spki = { workspace = true }
+pkcs1 = { workspace = true }
 aes-gcm = { workspace = true, optional = true }
 
 semver.workspace = true

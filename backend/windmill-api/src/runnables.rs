@@ -116,6 +116,10 @@ struct RunnableItem {
     use_codebase: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     has_deploy_errors: Option<bool>,
+    // flow-only: projected from the value so the home list can badge flows that
+    // open as a chat without fetching every flow's value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chat_input_enabled: Option<bool>,
     // app-only
     #[serde(skip_serializing_if = "Option::is_none")]
     raw_app: Option<bool>,
@@ -261,7 +265,8 @@ fn branch_sqls() -> Branches {
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
               LEFT JOIN password p ON p.email = d.email AND p.super_admin = true \
-              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND {typ_pred}) as draft_users"
+              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND {typ_pred} \
+                AND (d.email IS NULL OR u.username IS NOT NULL OR p.email IS NOT NULL)) as draft_users"
         )
     };
 
@@ -273,7 +278,7 @@ fn branch_sqls() -> Branches {
                 o.ws_error_handler_muted, o.created_at as edited_at, \
                 o.hash, o.language::text as language, o.kind::text as script_kind, o.auto_kind, \
                 o.codebase IS NOT NULL as use_codebase, \
-                (o.lock_error_logs IS NOT NULL) as has_deploy_errors, \
+                (o.lock_error_logs IS NOT NULL) as has_deploy_errors, NULL::bool as chat_input_enabled, \
                 NULL::bool as raw_app, NULL::text as execution_mode, NULL::bigint as id, NULL::bigint as version, \
                 o.created_at as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.path)) as sort_name, o.hash as tiebreak \
          FROM script o \
@@ -290,6 +295,7 @@ fn branch_sqls() -> Branches {
                 o.ws_error_handler_muted, o.edited_at, \
                 NULL::bigint as hash, NULL::text as language, NULL::text as script_kind, NULL::text as auto_kind, \
                 NULL::bool as use_codebase, NULL::bool as has_deploy_errors, \
+                (o.value->>'chat_input_enabled')::bool as chat_input_enabled, \
                 NULL::bool as raw_app, NULL::text as execution_mode, NULL::bigint as id, NULL::bigint as version, \
                 o.edited_at as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.path)) as sort_name, 0::bigint as tiebreak \
          FROM flow o \
@@ -305,7 +311,7 @@ fn branch_sqls() -> Branches {
                 {draft_users}, o.labels, folder_labels(o.workspace_id, o.path) as inherited_labels, \
                 NULL::bool as ws_error_handler_muted, av.created_at as edited_at, \
                 NULL::bigint as hash, NULL::text as language, NULL::text as script_kind, NULL::text as auto_kind, \
-                NULL::bool as use_codebase, NULL::bool as has_deploy_errors, \
+                NULL::bool as use_codebase, NULL::bool as has_deploy_errors, NULL::bool as chat_input_enabled, \
                 av.raw_app, o.policy->>'execution_mode' as execution_mode, o.id, \
                 o.versions[array_upper(o.versions, 1)] as version, \
                 COALESCE(av.created_at, 'epoch'::timestamptz) as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.path)) as sort_name, 0::bigint as tiebreak \
@@ -343,11 +349,21 @@ fn draft_branch_sql(kind: &str) -> String {
     let kind_cols = match kind {
         "script" => {
             "d.value->>'language' as language, d.value->>'kind' as script_kind, \
-                     d.value->>'auto_kind' as auto_kind, false as raw_app"
+                     d.value->>'auto_kind' as auto_kind, false as raw_app, \
+                     NULL::bool as chat_input_enabled"
+        }
+        // Type-guarded rather than a bare `::bool` cast: draft JSON is stored
+        // unvalidated, so a malformed value must yield NULL, not abort the list,
+        // and the string "true" must not count as enabled.
+        "flow" => {
+            "NULL::text as language, NULL::text as script_kind, NULL::text as auto_kind, \
+              false as raw_app, \
+              CASE WHEN json_typeof(d.value->'value'->'chat_input_enabled') = 'boolean' \
+                   THEN (d.value->'value'->>'chat_input_enabled')::bool END as chat_input_enabled"
         }
         _ => {
             "NULL::text as language, NULL::text as script_kind, NULL::text as auto_kind, \
-              (d.typ = 'raw_app') as raw_app"
+              (d.typ = 'raw_app') as raw_app, NULL::bool as chat_input_enabled"
         }
     };
     format!(
@@ -358,7 +374,7 @@ fn draft_branch_sql(kind: &str) -> String {
                 NULL::text[] as labels, NULL::text[] as inherited_labels, \
                 NULL::bool as ws_error_handler_muted, o.created_at as edited_at, \
                 NULL::bigint as hash, o.language, o.script_kind, o.auto_kind, \
-                NULL::bool as use_codebase, NULL::bool as has_deploy_errors, \
+                NULL::bool as use_codebase, NULL::bool as has_deploy_errors, o.chat_input_enabled, \
                 o.raw_app, NULL::text as execution_mode, NULL::bigint as id, NULL::bigint as version, \
                 o.created_at as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.draft_path, o.path)) as sort_name, 0::bigint as tiebreak \
          FROM ( \

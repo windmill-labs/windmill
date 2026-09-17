@@ -38,7 +38,7 @@ vi.mock('$lib/components/flows/flowTree', () => ({
 vi.mock('$lib/gen', () => ({
 	ScriptService: {},
 	FlowService: {},
-	JobService: { getJob: vi.fn() },
+	JobService: { getJob: vi.fn(), getJobUpdates: vi.fn() },
 	ScheduleService: {
 		previewSchedule: vi.fn(),
 		createSchedule: vi.fn()
@@ -945,6 +945,16 @@ describe('processToolCall', () => {
 				{ requestConfirmation: vi.fn().mockResolvedValue(false) }
 			)
 		).toEqual([['ai_chat', 'tool', 'run_script:declined']])
+		// A tool that runs its own consent surface (the run form) declines by settling
+		// the card, then returns normally — that must not read as a successful run.
+		expect(
+			await outcomeKeys({
+				fn: vi.fn(async ({ toolCallbacks, toolId }: any) => {
+					toolCallbacks.setToolStatus(toolId, { declinedByUser: true })
+					return 'cancelled'
+				})
+			})
+		).toEqual([['ai_chat', 'tool', 'run_script:declined']])
 		expect(await outcomeKeys({}, { isPlanModeActive: () => true })).toEqual([
 			['ai_chat', 'tool', 'run_script:blocked_plan_mode']
 		])
@@ -1272,6 +1282,28 @@ describe('isActiveUserQuestion', () => {
 	})
 })
 
+describe('isActiveRunForm', () => {
+	const runForm = { path: 'f/a/b', schema: {}, args: { name: 'ada' } }
+	function toolMessage(overrides: Partial<ToolDisplayMessage> = {}): ToolDisplayMessage {
+		return {
+			role: 'tool',
+			tool_call_id: 'call_r',
+			content: 'waiting for arguments',
+			isLoading: true,
+			runForm,
+			...overrides
+		}
+	}
+
+	// Either flag unmounts the card, so the loop must stop waiting on it.
+	it('is false once submitted or cancelled', async () => {
+		const { isActiveRunForm } = await import('./shared')
+		expect(isActiveRunForm(toolMessage())).toBe(true)
+		expect(isActiveRunForm(toolMessage({ runForm: { ...runForm, submitted: true } }))).toBe(false)
+		expect(isActiveRunForm(toolMessage({ runForm: { ...runForm, canceled: true } }))).toBe(false)
+	})
+})
+
 describe('pendingUserAction', () => {
 	const toolMessage = (overrides: Partial<ToolDisplayMessage> = {}): ToolDisplayMessage => ({
 		role: 'tool',
@@ -1287,6 +1319,15 @@ describe('pendingUserAction', () => {
 		const { pendingUserAction } = await import('./shared')
 		expect(pendingUserAction([question])).toBe('question')
 		expect(pendingUserAction([toolMessage({ needsConfirmation: true })])).toBe('confirmation')
+	})
+
+	// A run form asks for arguments rather than a yes/no, but it blocks the loop the
+	// same way, so the chat reports it as a confirmation.
+	it('reports an unsubmitted run form as a confirmation', async () => {
+		const { pendingUserAction } = await import('./shared')
+		expect(
+			pendingUserAction([toolMessage({ runForm: { path: 'f/a/b', schema: {}, args: {} } })])
+		).toBe('confirmation')
 	})
 
 	it('is undefined for a tool the AI is running on its own', async () => {
@@ -1365,6 +1406,9 @@ describe('pollJobCompletion detach', () => {
 			const getJob = vi.mocked(JobService.getJob)
 			getJob.mockReset()
 			getJob.mockResolvedValue({ type: 'QueuedJob', running: true } as any)
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockResolvedValue({ running: true, completed: false } as any)
 			const cbs = makeCallbacks()
 
 			// detachAfterMs 2000 → 2 polls at 1s each, then detach.
@@ -1390,14 +1434,50 @@ describe('pollJobCompletion detach', () => {
 			const { JobService } = await import('$lib/gen')
 			const getJob = vi.mocked(JobService.getJob)
 			getJob.mockReset()
-			const completed = { type: 'CompletedJob', success: true, result: 42 }
+			const completed = { type: 'CompletedJob', success: true, result: 42, logs: 'ran' }
 			getJob.mockResolvedValue(completed as any)
+			// Still landing on a tick the updates endpoint calls unfinished: the job can
+			// complete between the two calls, and `getJob` is what says so.
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockResolvedValue({ completed: false, running: true } as any)
 			const cbs = makeCallbacks()
 
 			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 15000 })
 			await vi.advanceTimersByTimeAsync(1000)
 
-			expect(await promise).toBe(completed)
+			const landed = await promise
+			expect(landed).toBe(completed)
+			// Fetched again with its logs rather than settled on the logless tick fetch,
+			// which would reach the model as "No logs available".
+			expect((landed as any).logs).toBe('ran')
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	// Streaming rides on a second endpoint; landing the job must not. A failing updates
+	// endpoint costs live logs, never the run.
+	it('returns the completed job with its logs when the updates endpoint fails', async () => {
+		vi.useFakeTimers()
+		try {
+			const { pollJobCompletion } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJob = vi.mocked(JobService.getJob)
+			getJob.mockReset()
+			const completed = { type: 'CompletedJob', success: true, result: 42, logs: 'ran' }
+			getJob.mockResolvedValue(completed as any)
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockRejectedValue(new Error('updates unavailable'))
+			const cbs = makeCallbacks()
+
+			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 15000 })
+			await vi.advanceTimersByTimeAsync(1000)
+
+			const landed = await promise
+			expect(landed).toBe(completed)
+			expect((landed as any).logs).toBe('ran')
 		} finally {
 			vi.useRealTimers()
 		}
@@ -1411,6 +1491,9 @@ describe('pollJobCompletion detach', () => {
 			const getJob = vi.mocked(JobService.getJob)
 			getJob.mockReset()
 			getJob.mockResolvedValue({ type: 'QueuedJob', running: true } as any)
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockResolvedValue({ running: true, completed: false } as any)
 			const cbs = makeCallbacks()
 
 			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any)

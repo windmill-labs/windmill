@@ -23,6 +23,8 @@ export interface SchemaProperty {
 	pattern?: string
 	default?: any
 	enum?: EnumType
+	/** Display names by stored value, for an enum's options or a one-of's variants. */
+	enumLabels?: Record<string, string>
 	contentEncoding?: 'base64' | 'binary'
 	format?: string
 	items?: {
@@ -35,6 +37,8 @@ export interface SchemaProperty {
 	}
 	min?: number
 	max?: number
+	/** Height a string field's text area opens at, in rows. */
+	minRows?: number
 	currency?: string
 	currencyLocale?: string
 	multiselect?: boolean
@@ -43,6 +47,8 @@ export interface SchemaProperty {
 	required?: string[]
 	showExpr?: string
 	hideWhenChatEnabled?: boolean
+	/** Why the oneOf variant is chat mode's to pick. Set = selector disabled, reason shown. */
+	lockOneOfWhenChatEnabled?: string
 	password?: boolean
 	order?: string[]
 	nullable?: boolean

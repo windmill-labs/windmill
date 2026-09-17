@@ -6,19 +6,22 @@
 	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import {
 		extractCandidatePaths,
 		remarkWindmillPaths,
 		workspaceItemRegistry
 	} from './workspaceItems.svelte'
 	import { markdownProse } from '$lib/components/markdownProse'
+	import DisplayResult from '$lib/components/DisplayResult.svelte'
 
 	interface Props {
 		message: DisplayMessage
+		// Workspace the message's paths are resolved against: the one the chat
+		// operates on, which is not always the one being navigated.
+		workspace: string | undefined
 	}
 
-	let { message }: Props = $props()
+	let { message, workspace }: Props = $props()
 
 	const reasoning = $derived(
 		message.role === 'assistant' ? message.reasoning?.trim() || undefined : undefined
@@ -58,6 +61,20 @@
 		return rest === 0 ? `${minutes}m` : `${minutes}m ${rest}s`
 	}
 
+	const stepName = $derived(message.role === 'assistant' ? message.stepName : undefined)
+
+	// A flow step can return a file rather than text; the raw JSON would be
+	// unreadable, so hand it to the result viewer instead of the markdown renderer.
+	const s3Object = $derived.by(() => {
+		if (!message.content.startsWith('{')) return undefined
+		try {
+			const parsed = JSON.parse(message.content)
+			return parsed?.type === 'windmill_s3_object' && parsed?.s3 ? parsed : undefined
+		} catch {
+			return undefined
+		}
+	})
+
 	const candidatePaths = $derived(extractCandidatePaths(message.content))
 	const rendererPlugin = {
 		renderer: {
@@ -69,12 +86,11 @@
 	// Only populate the registry for messages that contain path-shaped tokens. The
 	// registry still dedups concurrent calls across messages and workspaces.
 	$effect(() => {
-		const ws = $workspaceStore
-		if (ws && candidatePaths.length > 0) workspaceItemRegistry.ensureLoaded(ws)
+		if (workspace && candidatePaths.length > 0) workspaceItemRegistry.ensureLoaded(workspace)
 	})
 
 	const plugins = $derived.by(() => {
-		const ws = $workspaceStore ?? ''
+		const ws = workspace ?? ''
 		if (!ws || candidatePaths.length === 0) {
 			return [gfmPlugin(), rendererPlugin]
 		}
@@ -97,6 +113,12 @@
 	})
 </script>
 
+{#if stepName}
+	<div class="text-2xs text-tertiary font-medium mb-1 truncate" title="Answered by {stepName}">
+		{stepName}
+	</div>
+{/if}
+
 {#if reasoning}
 	<ChatCollapsibleCard
 		label={reasoningLabel}
@@ -111,7 +133,9 @@
 	</ChatCollapsibleCard>
 {/if}
 
-{#if message.content}
+{#if s3Object}
+	<DisplayResult result={s3Object} workspaceId={workspace} noControls={true} />
+{:else if message.content}
 	<div class="w-full space-y-2 {markdownProse.sm}">
 		<Markdown md={message.content} {plugins} />
 	</div>

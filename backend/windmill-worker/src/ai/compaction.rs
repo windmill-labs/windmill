@@ -1,5 +1,5 @@
 //! Summary-based partial compaction for AI agent steps running with
-//! `Memory::AutoCompacted`.
+//! `Memory::Compaction`.
 //!
 //! When the prompt of an agent-loop iteration approaches the model's context window,
 //! the older prefix of the conversation is replaced by a single LLM-written summary
@@ -545,6 +545,8 @@ async fn summarize_prefix(
         // scratchpad — which counts as a failure. The prompt asks for an `<analysis>`
         // block, which is the reasoning this call needs.
         reasoning_effort: None,
+        // Nothing streams this call's reasoning, and a summary of it would be billed.
+        reasoning_summary: false,
         // Exactly the room the split set aside. Asking for more lets a summary land the
         // conversation back over the trigger; leaving it to the provider default gives
         // 64000 on Anthropic (over several Claude models' output ceiling) and the model's
