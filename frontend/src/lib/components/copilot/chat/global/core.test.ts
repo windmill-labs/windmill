@@ -814,6 +814,14 @@ describe('global AI tools', () => {
 		expect(parsed.run.steps_unavailable).toBe(true)
 		// The tree's root entry normally names the run; without it nothing does.
 		expect(parsed.run.job_id).toBe('job-123')
+
+		// And the tree read fails the same two ways the log read does: reading
+		// `.entries` off a resolved undefined throws, which would cost the model the
+		// job and logs already in hand rather than just the tree.
+		vi.mocked(JobService.getFlowAllResults).mockResolvedValueOnce(undefined as any)
+		const noTree = JSON.parse(await callGlobalTool('get_run', { id: 'job-123' }))
+		expect(noTree.run.steps_unavailable).toBe(true)
+		expect(noTree.run.logs).toBe('job log line 1\njob log line 2')
 	})
 
 	it('reports why a run was canceled or died, the fields getJob used to carry', async () => {

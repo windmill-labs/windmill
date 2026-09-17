@@ -434,9 +434,12 @@ export async function getRun(workspace: string, id: string, step?: string): Prom
 				// otherwise prepends — noise for the model, and not actual stripping.
 				removeAnsiWarnings: true
 			}).catch(() => LOGS_UNREADABLE),
-			JobService.getFlowAllResults({ workspace, id, maxResultLen: TREE_RESULT_HEAD_CHARS }).catch(
-				() => ({ entries: [] }) as GetFlowAllResultsResponse
-			)
+			// `.catch` alone would leave the tree half-guarded: like the log read, this
+			// one can fail by resolving `undefined` rather than rejecting, and reading
+			// `.entries` off that throws — losing the job and logs already in hand.
+			JobService.getFlowAllResults({ workspace, id, maxResultLen: TREE_RESULT_HEAD_CHARS })
+				.catch(() => undefined)
+				.then((r) => r ?? ({ entries: [] } as GetFlowAllResultsResponse))
 		])
 		const { id: _id, ...summary } = summarizeRun(job)
 		const payloads = { ...shapeRunArgs(job), ...shapeRunResult(job) }
