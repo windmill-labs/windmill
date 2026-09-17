@@ -8753,6 +8753,11 @@ async fn create_workspace_fork(
     }
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    // Before the settings clone reads the parent's data tables: a pointer this fork ends up with
+    // must not be written after cleanup of the parent decided that nothing points at its copies.
+    // Also before the external cluster's lifecycle lock, which finalizing an external copy takes:
+    // fork cleanup takes the two in this order.
+    windmill_common::workspaces::lock_fork_datatables(&mut tx, &parent_workspace_id).await?;
 
     if nw.is_dev_workspace {
         // The checks above ran outside a transaction, so the parent's eligibility and the chain's
@@ -8865,9 +8870,6 @@ async fn create_workspace_fork(
     // re-enables in the fork, with parent-conflict warnings on enable.
     clone_triggers_and_schedules(&mut tx, &parent_workspace_id, &forked_id).await?;
 
-    // Before the external cluster's lifecycle lock, which finalizing an external copy takes: fork
-    // cleanup takes the two in this order.
-    windmill_common::workspaces::lock_fork_datatables(&mut tx, &parent_workspace_id).await?;
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {
         apply_forked_datatable(&db, &mut tx, &authed, &parent_workspace_id, &forked_id, fdt)
