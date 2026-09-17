@@ -231,19 +231,20 @@ pub async fn create_external_instance_database_unchecked(
 }
 
 /// Drop `dbname` from the external cluster: only a database Windmill registered creating, and still
-/// carries the mark it set there. With `refuse_if_used`, refuse while a data table names it.
+/// carries the mark it set there. Refused while a data table names it, except one in
+/// `usage_allowed_in`: the fork whose own copy is being cleaned up.
 ///
 /// Authorization: checks nothing. Callers MUST be superadmin, or be deleting the fork that owns
 /// this `wm_fork_` database.
 pub async fn drop_external_instance_database_unchecked(
     db: &DB,
     dbname: &str,
-    refuse_if_used: bool,
+    usage_allowed_in: Option<&str>,
 ) -> Result<()> {
     crate::external_instance_pg_oss::drop_external_instance_database_unchecked(
         db,
         dbname,
-        refuse_if_used,
+        usage_allowed_in,
     )
     .await
 }
@@ -289,7 +290,8 @@ pub async fn ensure_external_instance_database_registered(
 /// check taken outside it could pass while a database create still reads the old cluster, which
 /// would then register a database there after the setting names another one.
 ///
-/// Authorization: checks nothing. Callers MUST be superadmin.
+/// Authorization: checks nothing. Callers MUST be superadmin, or the declarative instance config
+/// sync, which applies what the operator deployed.
 pub async fn write_external_instance_pg_setting(
     db: &DB,
     value: Option<&serde_json::Value>,
@@ -332,6 +334,9 @@ pub async fn write_external_instance_pg_setting(
 
 /// [`write_external_instance_pg_setting`] for a settings diff: writes the key if the diff touches
 /// it, and takes it out of the diff so the generic apply does not write it again.
+///
+/// Authorization: checks nothing. Callers MUST be superadmin, or the declarative instance config
+/// sync, which applies what the operator deployed.
 pub async fn write_external_instance_pg_from_diff(
     db: &DB,
     diff: &mut crate::instance_config::SettingsDiff,

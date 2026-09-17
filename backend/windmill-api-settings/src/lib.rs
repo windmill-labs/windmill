@@ -1887,7 +1887,7 @@ async fn drop_external_instance_pg_database(
     require_super_admin(&db, &authed).await?;
     // A data table naming a dropped database fails on every job, far from the drop that caused it.
     windmill_common::external_instance_pg::drop_external_instance_database_unchecked(
-        &db, &dbname, true,
+        &db, &dbname, None,
     )
     .await?;
     windmill_audit::audit_oss::audit_log(

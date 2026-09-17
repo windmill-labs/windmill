@@ -1421,8 +1421,11 @@ pub async fn drop_forked_datatable_databases(
             let dropped = if database.resource_type
                 == windmill_common::workspaces::DataTableCatalogResourceType::ExternalInstance
             {
+                // Its own entry still names the copy; another workspace's never should.
                 windmill_common::external_instance_pg::drop_external_instance_database_unchecked(
-                    &db, db_to_drop, false,
+                    &db,
+                    db_to_drop,
+                    Some(&w_id),
                 )
                 .await
             } else {
