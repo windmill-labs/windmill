@@ -3364,16 +3364,78 @@ fn apply_pg_tls_env(
         return Ok(Some(file));
     }
     // Only a connection that asked to be verified against the system trust store. Without a file,
-    // libpq's own default would look for `~/.postgresql/root.crt` and refuse a verify-* mode.
-    if pg_db.accept_invalid_certs == Some(false)
-        && matches!(
-            pg_db.sslmode.as_deref(),
-            Some("verify-full") | Some("verify-ca")
-        )
-    {
-        cmd.env("PGSSLROOTCERT", "system");
+    // libpq's own default would look for `~/.postgresql/root.crt` and refuse a verify-* mode. libpq
+    // takes the special `system` value with verify-full only, so verify-ca needs the bundle itself.
+    if pg_db.accept_invalid_certs == Some(false) {
+        match pg_db.sslmode.as_deref() {
+            Some("verify-full") => {
+                cmd.env("PGSSLROOTCERT", "system");
+            }
+            Some("verify-ca") => {
+                if let Some(bundle) = system_ca_bundle() {
+                    cmd.env("PGSSLROOTCERT", bundle);
+                }
+            }
+            _ => {}
+        }
     }
     Ok(None)
+}
+
+fn system_ca_bundle() -> Option<std::path::PathBuf> {
+    std::env::var_os("SSL_CERT_FILE")
+        .map(std::path::PathBuf::from)
+        .into_iter()
+        .chain(
+            [
+                "/etc/ssl/certs/ca-certificates.crt",
+                "/etc/pki/tls/certs/ca-bundle.crt",
+                "/etc/ssl/cert.pem",
+                "/etc/ssl/ca-bundle.pem",
+            ]
+            .map(std::path::PathBuf::from),
+        )
+        .find(|path| path.is_file())
+}
+
+#[cfg(test)]
+mod pg_tls_env_tests {
+    use super::apply_pg_tls_env;
+    use windmill_common::PgDatabase;
+
+    fn root_cert_env(sslmode: &str) -> Option<std::ffi::OsString> {
+        let pg_db = PgDatabase {
+            host: "db".to_string(),
+            user: None,
+            password: None,
+            port: None,
+            sslmode: Some(sslmode.to_string()),
+            dbname: "d".to_string(),
+            root_certificate_pem: None,
+            accept_invalid_certs: Some(false),
+            use_iam_auth: None,
+            region: None,
+        };
+        let mut cmd = tokio::process::Command::new("psql");
+        apply_pg_tls_env(&mut cmd, &pg_db).unwrap();
+        cmd.as_std()
+            .get_envs()
+            .find(|(k, _)| *k == "PGSSLROOTCERT")
+            .and_then(|(_, v)| v.map(|v| v.to_os_string()))
+    }
+
+    #[test]
+    fn system_roots_only_through_verify_full() {
+        assert_eq!(
+            root_cert_env("verify-full").as_deref(),
+            Some("system".as_ref())
+        );
+        // libpq refuses `sslrootcert=system` with verify-ca, which would fail every dump and restore.
+        assert_ne!(
+            root_cert_env("verify-ca").as_deref(),
+            Some("system".as_ref())
+        );
+    }
 }
 
 /// GUC names the server backing `pg_db` knows about.
