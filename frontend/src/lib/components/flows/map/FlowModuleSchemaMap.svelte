@@ -293,7 +293,7 @@
 		})
 	}
 
-	function requestDelete(ids: string[]) {
+	function requestDelete(ids: string[], selectAfter?: string) {
 		const request = prepareDeleteRequest({
 			ids,
 			flow: flowStore.val,
@@ -303,6 +303,9 @@
 		})
 		if (!request) {
 			return
+		}
+		if (selectAfter) {
+			request.plan.selection = { kind: 'select', id: selectAfter }
 		}
 
 		const affectedGroups = request.plan.structureDelete?.affectedGroups ?? []
@@ -323,6 +326,13 @@
 
 	export function deleteMultiple(ids: string[]) {
 		requestDelete(ids)
+	}
+
+	/** Delete a tool from its agent's Tools section, the only place a nested agent's tools can be
+	 *  deleted from. The agent stays selected: a plain delete selects whatever precedes the tool,
+	 *  often a sibling tool, which would take the panel away from the list being edited. */
+	export function deleteAgentTool(agentId: string, toolId: string) {
+		requestDelete([toolId], agentId)
 	}
 
 	// Operates directly on the flat module array (not the structure tree).

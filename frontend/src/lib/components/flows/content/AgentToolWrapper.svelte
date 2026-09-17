@@ -20,6 +20,9 @@
 		staticOnly?: boolean
 		/** See `FlowModuleComponent`: set where there is no graph to select a nested tool on. */
 		noToolNavigation?: boolean
+		/** See `FlowModuleComponent`. */
+		agentTrail?: Pick<FlowModule, 'id' | 'summary'>[]
+		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 	}
 
 	let {
@@ -32,7 +35,9 @@
 		highlightArg,
 		siblingToolNames = undefined,
 		staticOnly = false,
-		noToolNavigation = false
+		noToolNavigation = false,
+		agentTrail = undefined,
+		flowModuleSchemaMap = undefined
 	}: Props = $props()
 </script>
 
@@ -65,6 +70,8 @@
 		isAgentTool={true}
 		{staticOnly}
 		{noToolNavigation}
+		{agentTrail}
+		{flowModuleSchemaMap}
 		bind:toolDescription={tool.description}
 		{siblingToolNames}
 	/>

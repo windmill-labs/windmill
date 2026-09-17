@@ -25,6 +25,9 @@
 		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
 		allowTrigger?: boolean
 		toolMode?: boolean
+		/** Off for a tool of a nested agent: the worker runs an agent tool only under a step's own
+		 *  agent, and leaves one nested any deeper out of what the model is offered. */
+		allowAiAgentTool?: boolean
 		/** Narrow layout (450px instead of 650px). Defaults on for the preprocessor
 		 *  and failure pickers; set it when the container cannot fit the wide one. */
 		small?: boolean
@@ -37,6 +40,7 @@
 		kind = 'script',
 		allowTrigger = true,
 		toolMode = false,
+		allowAiAgentTool = true,
 		small: smallProp = undefined
 	}: Props = $props()
 
@@ -230,13 +234,15 @@
 							dispatch('close')
 						}}
 					/>
-					<TopLevelNode
-						label="AI Agent"
-						onSelect={() => {
-							dispatch('pickAiAgentTool')
-							dispatch('close')
-						}}
-					/>
+					{#if allowAiAgentTool}
+						<TopLevelNode
+							label="AI Agent"
+							onSelect={() => {
+								dispatch('pickAiAgentTool')
+								dispatch('close')
+							}}
+						/>
+					{/if}
 				{:else}
 					{#if customUi?.triggers != false && allowTrigger}
 						<TopLevelNode

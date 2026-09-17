@@ -70,7 +70,7 @@
 		signDebugRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
-	import { Bug, Terminal } from 'lucide-svelte'
+	import { Bug, ChevronRight, Terminal } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/utils'
 
 	const {
@@ -130,6 +130,9 @@
 		 *  surface without a graph — the agent editor, which addresses one tool at a time — would
 		 *  offer a row whose click lands nowhere. */
 		noToolNavigation?: boolean
+		/** The agents an agent tool sits under, the step's own first. The header lists them to go
+		 *  back up, since a nested agent's tools have no graph node to reach them from. */
+		agentTrail?: Pick<FlowModule, 'id' | 'summary'>[]
 		toolDescription?: string | undefined
 		siblingToolNames?: string[]
 	}
@@ -151,6 +154,7 @@
 		staticOnly = false,
 		flowModuleSchemaMap = undefined,
 		noToolNavigation = false,
+		agentTrail = undefined,
 		toolDescription = $bindable(undefined),
 		siblingToolNames = undefined
 	}: Props = $props()
@@ -828,6 +832,26 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
+{#snippet agentTrailNav()}
+	<nav
+		aria-label="Breadcrumb"
+		class="flex flex-row flex-wrap items-center gap-0.5 min-w-0 text-xs text-secondary"
+	>
+		{#each agentTrail ?? [] as agent, i (i)}
+			<Button
+				variant="subtle"
+				unifiedSize="2xs"
+				onClick={() => selectionManager.selectId(agent.id, { openPanel: true })}
+				wrapperClasses="min-w-0 shrink"
+				btnClasses="!px-0 !font-normal !text-xs text-secondary hover:text-emphasis hover:underline hover:!bg-transparent min-w-0"
+			>
+				<span class="truncate">{agent.summary || 'AI Agent'}</span>
+			</Button>
+			<ChevronRight size={12} class="text-tertiary shrink-0" />
+		{/each}
+	</nav>
+{/snippet}
+
 {#if flowModule.value}
 	<div class="h-full bg-surface" bind:clientWidth={width}>
 		<FlowCard
@@ -846,6 +870,7 @@
 			on:reload={reloadModule}
 			bind:summary={flowModule.summary}
 			bind:description={toolDescription}
+			trail={agentTrail?.length && !noToolNavigation ? agentTrailNav : undefined}
 			{isAgentTool}
 			{siblingToolNames}
 		>
@@ -1252,6 +1277,10 @@
 														onAddTool={flowModuleSchemaMap
 															? (detail) =>
 																	flowModuleSchemaMap?.addToolToAgent(flowModule.id, detail)
+															: undefined}
+														onDeleteTool={flowModuleSchemaMap && !agentLinked
+															? (toolId) =>
+																	flowModuleSchemaMap?.deleteAgentTool(flowModule.id, toolId)
 															: undefined}
 													/>
 												{:else}

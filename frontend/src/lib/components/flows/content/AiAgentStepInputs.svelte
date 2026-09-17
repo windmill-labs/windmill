@@ -558,6 +558,7 @@
 										{onAddTool}
 										{onDeleteTool}
 										pickerPortal={toolPickerPortal}
+										allowAiAgentTool={!isAgentTool}
 									/>
 								{:else}
 									<!-- Inert rather than merely button-less: every control below writes into

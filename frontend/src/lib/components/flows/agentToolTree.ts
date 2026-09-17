@@ -7,7 +7,7 @@ import {
 } from './agentToolUtils'
 import { forEachAiAgentModule } from './aiAgentModules'
 
-type FlowNodeLike = Pick<FlowModule, 'id' | 'value'>
+type FlowNodeLike = Pick<FlowModule, 'id' | 'value' | 'summary'>
 
 export type AgentToolOwner = {
 	agentId: string
@@ -15,6 +15,8 @@ export type AgentToolOwner = {
 	toolIndex: number
 	tool: AgentTool
 	depth: number
+	/** Every agent the tool sits under, the step's own first and `agentId`'s last. */
+	agents: FlowNodeLike[]
 }
 
 export type RemovedAgentTool = {
@@ -26,7 +28,7 @@ export function findAgentToolOwner(
 	modules: FlowModule[],
 	toolId: string
 ): AgentToolOwner | undefined {
-	return findAgentToolOwnerInModules(modules, toolId, 0)
+	return findAgentToolOwnerInModules(modules, toolId, [])
 }
 
 export function removeAgentToolOwner(owner: AgentToolOwner): RemovedAgentTool | undefined {
@@ -53,10 +55,10 @@ export function collectAgentToolIds(tool: AgentTool): string[] {
 function findAgentToolOwnerInModules(
 	modules: FlowModule[],
 	toolId: string,
-	depth: number
+	agents: FlowNodeLike[]
 ): AgentToolOwner | undefined {
 	for (const module of modules) {
-		const owner = findAgentToolOwnerInNode(module, toolId, depth)
+		const owner = findAgentToolOwnerInNode(module, toolId, agents)
 		if (owner) {
 			return owner
 		}
@@ -68,15 +70,15 @@ function findAgentToolOwnerInModules(
 function findAgentToolOwnerInNode(
 	node: FlowNodeLike,
 	toolId: string,
-	depth: number
+	agents: FlowNodeLike[]
 ): AgentToolOwner | undefined {
 	if (node.value.type === 'forloopflow' || node.value.type === 'whileloopflow') {
-		return findAgentToolOwnerInModules(node.value.modules, toolId, depth)
+		return findAgentToolOwnerInModules(node.value.modules, toolId, agents)
 	}
 
 	if (node.value.type === 'branchall') {
 		for (const branch of node.value.branches) {
-			const owner = findAgentToolOwnerInModules(branch.modules, toolId, depth)
+			const owner = findAgentToolOwnerInModules(branch.modules, toolId, agents)
 			if (owner) {
 				return owner
 			}
@@ -85,12 +87,12 @@ function findAgentToolOwnerInNode(
 	}
 
 	if (node.value.type === 'branchone') {
-		const defaultOwner = findAgentToolOwnerInModules(node.value.default, toolId, depth)
+		const defaultOwner = findAgentToolOwnerInModules(node.value.default, toolId, agents)
 		if (defaultOwner) {
 			return defaultOwner
 		}
 		for (const branch of node.value.branches) {
-			const owner = findAgentToolOwnerInModules(branch.modules, toolId, depth)
+			const owner = findAgentToolOwnerInModules(branch.modules, toolId, agents)
 			if (owner) {
 				return owner
 			}
@@ -102,6 +104,7 @@ function findAgentToolOwnerInNode(
 		return undefined
 	}
 
+	const withNode = [...agents, node]
 	// Absent for a linked agent, whose tools live in the resource rather than on the module.
 	const tools = node.value.tools ?? []
 	const toolIndex = tools.findIndex((tool) => tool.id === toolId)
@@ -111,7 +114,8 @@ function findAgentToolOwnerInNode(
 			tools,
 			toolIndex,
 			tool: tools[toolIndex],
-			depth: depth + 1
+			depth: withNode.length,
+			agents: withNode
 		}
 	}
 
@@ -120,7 +124,7 @@ function findAgentToolOwnerInNode(
 			continue
 		}
 
-		const owner = findAgentToolOwnerInNode(tool as FlowNodeLike, toolId, depth + 1)
+		const owner = findAgentToolOwnerInNode(tool as FlowNodeLike, toolId, withNode)
 		if (owner) {
 			return owner
 		}

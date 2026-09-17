@@ -39,6 +39,8 @@
 		subtitleDocLink?: string | undefined
 		children?: import('svelte').Snippet
 		action?: import('svelte').Snippet
+		/** A line above the header naming where the step sits. */
+		trail?: import('svelte').Snippet
 		isAgentTool?: boolean
 		siblingToolNames?: string[]
 	}
@@ -52,6 +54,7 @@
 		subtitleDocLink = undefined,
 		children,
 		action,
+		trail,
 		isAgentTool = false,
 		siblingToolNames = undefined
 	}: Props = $props()
@@ -192,6 +195,7 @@
 </script>
 
 <div class="flex flex-col gap-1 px-4 py-2">
+	{@render trail?.()}
 	<div
 		class="overflow-x-auto scrollbar-hidden flex items-center justify-between flex-nowrap w-full"
 	>

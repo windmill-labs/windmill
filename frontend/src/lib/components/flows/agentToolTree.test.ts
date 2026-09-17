@@ -59,20 +59,26 @@ describe('findAgentToolOwner', () => {
 	})
 
 	it('finds a nested tool owner inside a nested ai agent tool', () => {
-		const nestedAgent = makeAiAgent('support_agent', [makeFlowModuleTool(makeRawModule('create_ticket'))])
+		const nestedAgent = makeAiAgent('support_agent', [
+			makeFlowModuleTool(makeRawModule('create_ticket'))
+		])
 		const rootAgent = makeAiAgent('root_agent', [makeFlowModuleTool(nestedAgent)])
 
-		expect(findAgentToolOwner([rootAgent], 'create_ticket')).toMatchObject({
+		const owner = findAgentToolOwner([rootAgent], 'create_ticket')
+		expect(owner).toMatchObject({
 			agentId: 'support_agent',
 			toolIndex: 0,
 			depth: 2
 		})
+		expect(owner?.agents.map((agent) => agent.id)).toEqual(['root_agent', 'support_agent'])
 	})
 })
 
 describe('removeAgentToolOwner', () => {
 	it('removes the matched tool and returns its subtree ids', () => {
-		const nestedAgent = makeAiAgent('support_agent', [makeFlowModuleTool(makeRawModule('create_ticket'))])
+		const nestedAgent = makeAiAgent('support_agent', [
+			makeFlowModuleTool(makeRawModule('create_ticket'))
+		])
 		const rootAgent = makeAiAgent('root_agent', [
 			makeFlowModuleTool(makeRawModule('lookup_user')),
 			makeFlowModuleTool(nestedAgent)
@@ -85,7 +91,9 @@ describe('removeAgentToolOwner', () => {
 			removedIds: ['support_agent', 'create_ticket']
 		})
 		expect((rootAgent.value as any).tools).toHaveLength(1)
-		expect(((rootAgent.value as any).tools as any[]).map((tool) => tool.id)).toEqual(['lookup_user'])
+		expect(((rootAgent.value as any).tools as any[]).map((tool) => tool.id)).toEqual([
+			'lookup_user'
+		])
 	})
 })
 
@@ -93,7 +101,9 @@ describe('collectFlowNodeIds', () => {
 	it('includes ai agent tool ids when deleting an ai agent flow module', () => {
 		const agent = makeAiAgent('root_agent', [
 			makeFlowModuleTool(makeRawModule('lookup_user')),
-			makeFlowModuleTool(makeAiAgent('support_agent', [makeFlowModuleTool(makeRawModule('create_ticket'))]))
+			makeFlowModuleTool(
+				makeAiAgent('support_agent', [makeFlowModuleTool(makeRawModule('create_ticket'))])
+			)
 		])
 
 		expect(collectFlowNodeIds(agent)).toEqual([

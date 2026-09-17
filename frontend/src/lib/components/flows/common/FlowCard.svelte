@@ -14,6 +14,8 @@
 		header?: import('svelte').Snippet
 		action?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		/** See `FlowCardHeader`. */
+		trail?: import('svelte').Snippet
 		isAgentTool?: boolean
 		siblingToolNames?: string[]
 	}
@@ -30,6 +32,7 @@
 		header,
 		action,
 		children,
+		trail,
 		isAgentTool = false,
 		siblingToolNames = undefined
 	}: Props = $props()
@@ -49,6 +52,7 @@
 				{subtitleDocLink}
 				{flowModuleValue}
 				{action}
+				{trail}
 				{isAgentTool}
 				{siblingToolNames}
 			>

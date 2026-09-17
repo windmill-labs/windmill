@@ -20,6 +20,8 @@
 		emptyMessage?: string
 		/** Where the picker's popover belongs, when the roster is not inside the flow editor. */
 		pickerPortal?: string
+		/** See `InsertModuleInner`. */
+		allowAiAgentTool?: boolean
 	}
 
 	let {
@@ -28,7 +30,8 @@
 		onAddTool = undefined,
 		onDeleteTool = undefined,
 		emptyMessage = 'No tools yet. Add one from the agent on the flow graph.',
-		pickerPortal = '#flow-editor'
+		pickerPortal = '#flow-editor',
+		allowAiAgentTool = true
 	}: Props = $props()
 
 	let funcDesc = $state('')
@@ -81,6 +84,7 @@
 			<InsertModuleInner
 				bind:funcDesc
 				toolMode
+				{allowAiAgentTool}
 				on:close={close}
 				on:new={(e) => (onAddTool?.(e.detail), close())}
 				on:insert={(e) => (onAddTool?.(e.detail), close())}

@@ -26,6 +26,7 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { formatCron } from '$lib/utils'
 	import AgentToolWrapper from './AgentToolWrapper.svelte'
+	import { findAgentToolOwner } from '../agentToolTree'
 	const { selectionManager, flowStateStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const selectedId = $derived(selectionManager.getSelectedId())
@@ -65,6 +66,13 @@
 		isAgentTool = false,
 		flowModuleSchemaMap = undefined
 	}: Props = $props()
+
+	// Searched at any depth: a nested agent's tools have no wrapper of their own to render them.
+	const selectedToolOwner = $derived(
+		flowModule.value.type === 'aiagent' && selectedId
+			? findAgentToolOwner([flowModule], selectedId)
+			: undefined
+	)
 
 	function initializePrimaryScheduleForTriggerScript(module: FlowModule) {
 		const primaryIndex = triggersState.triggers.findIndex((t) => t.isPrimary)
@@ -326,18 +334,19 @@
 		{/if}
 	{/each}
 {:else if flowModule.value.type === 'aiagent'}
-	{#each flowModule.value.tools ?? [] as tool, toolIndex (toolIndex)}
-		{#if selectedId === tool.id}
-			<AgentToolWrapper
-				{noEditor}
-				bind:tool={flowModule.value.tools![toolIndex]}
-				parentModule={flowModule}
-				{previousModule}
-				{enableAi}
-				{forceTestTab}
-				{highlightArg}
-				siblingToolNames={flowModule.value.tools!.map((t) => t.summary ?? '')}
-			/>
-		{/if}
-	{/each}
+	{#if selectedToolOwner}
+		{@const owner = selectedToolOwner}
+		<AgentToolWrapper
+			{noEditor}
+			bind:tool={() => owner.tools[owner.toolIndex], (v) => (owner.tools[owner.toolIndex] = v)}
+			parentModule={owner.agents[owner.agents.length - 1] as FlowModule}
+			{previousModule}
+			{enableAi}
+			{forceTestTab}
+			{highlightArg}
+			siblingToolNames={owner.tools.map((t) => t.summary ?? '')}
+			agentTrail={owner.agents}
+			{flowModuleSchemaMap}
+		/>
+	{/if}
 {/if}
