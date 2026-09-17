@@ -26,7 +26,9 @@ use windmill_api_auth::{check_scopes, get_scope_tags, ApiAuthed};
 use windmill_common::{
     db::{UserDB, UserDbWithAuthed},
     error::{self, Error},
-    flow_conversations::{add_message_to_conversation_tx, MessageType},
+    flow_conversations::{
+        add_message_to_conversation_tx, message_attachments, MessageExtras, MessageType,
+    },
     get_latest_flow_version_info_for_path,
     jobs::{
         check_tag_available_for_workspace_internal, format_result, script_path_to_payload,
@@ -668,6 +670,8 @@ pub async fn handle_chat_conversation_messages(
     flow_path: &str,
     run_query: &RunJobQuery,
     user_message_raw: Option<&Box<serde_json::value::RawValue>>,
+    // The run's args, for the files the message carried.
+    args: &HashMap<String, Box<serde_json::value::RawValue>>,
 ) -> error::Result<()> {
     let memory_id = run_query.memory_id.ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
@@ -706,7 +710,7 @@ pub async fn handle_chat_conversation_messages(
         MessageType::User,
         None,
         true,
-        None,
+        Some(&MessageExtras { attachments: message_attachments(args), ..Default::default() }),
     )
     .await?;
 
@@ -827,6 +831,7 @@ pub async fn run_flow<'c>(
             &flow_path.to_string(),
             &run_query,
             args.args.get("user_message"),
+            &args.args,
         )
         .await?;
     }

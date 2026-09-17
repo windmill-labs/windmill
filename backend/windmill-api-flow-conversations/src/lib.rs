@@ -46,6 +46,9 @@ pub struct FlowConversationMessage {
     /// On an answer, the thinking that produced it; on a tool row, the thinking that led to
     /// the call. The agent job keeps the turn's thinking as one string.
     pub reasoning: Option<String>,
+    /// The files a user message carried, as object-storage references
+    /// (`[{input, s3, storage?, filename?}]`).
+    pub attachments: Option<sqlx::types::JsonValue>,
 }
 
 #[derive(Deserialize)]
@@ -188,7 +191,7 @@ async fn list_messages(
     let messages = if let Some(after_seq) = query.after_seq {
         sqlx::query_as!(
             FlowConversationMessage,
-            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, created_seq, step_name, success, tool_arguments, tool_result, reasoning
+            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, created_seq, step_name, success, tool_arguments, tool_result, reasoning, attachments
              FROM flow_conversation_message
              WHERE conversation_id = $1
                AND created_seq > $2
@@ -205,9 +208,9 @@ async fn list_messages(
         // Fetch messages for this conversation, oldest first, but reverse the order of the messages for easy rendering on the frontend
         sqlx::query_as!(
             FlowConversationMessage,
-            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, created_seq, step_name, success, tool_arguments, tool_result, reasoning
+            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, created_seq, step_name, success, tool_arguments, tool_result, reasoning, attachments
              FROM (
-                SELECT id, conversation_id, message_type, content, job_id, created_at, created_seq, step_name, success, tool_arguments, tool_result, reasoning
+                SELECT id, conversation_id, message_type, content, job_id, created_at, created_seq, step_name, success, tool_arguments, tool_result, reasoning, attachments
                 FROM flow_conversation_message
                 WHERE conversation_id = $1
                 ORDER BY created_seq DESC
