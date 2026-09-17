@@ -1,4 +1,5 @@
 import type { FlowModule, InputTransform } from '$lib/gen'
+import { parse, parseExpressionAt } from 'acorn'
 
 /**
  * The flow's own AI agent steps, including those inside loops and branches. An agent carried
@@ -49,17 +50,59 @@ export type AgentChatInput = {
 	property: Record<string, any>
 }
 
-const FLOW_INPUT_REF = /flow_input\??\.([A-Za-z_$][\w$]*)/g
+/**
+ * The `flow_input` properties an expression reads, from its syntax tree rather than its text,
+ * so a mention in a comment, a string or a nested path (`results.a.flow_input.x`) is not a read.
+ * A transform may be a statement body with `return`. Undefined when it does not parse.
+ */
+function flowInputReads(expr: string): Set<string> | undefined {
+	let root: unknown
+	try {
+		root = parseExpressionAt(`(\n${expr}\n)`, 0, { ecmaVersion: 'latest' })
+	} catch {
+		try {
+			root = parse(expr, {
+				ecmaVersion: 'latest',
+				allowReturnOutsideFunction: true,
+				allowAwaitOutsideFunction: true
+			})
+		} catch {
+			return undefined
+		}
+	}
+	const names = new Set<string>()
+	const visit = (node: any) => {
+		if (!node || typeof node !== 'object') return
+		if (Array.isArray(node)) return node.forEach(visit)
+		if (
+			node.type === 'MemberExpression' &&
+			node.object?.type === 'Identifier' &&
+			node.object.name === 'flow_input'
+		) {
+			if (!node.computed && node.property?.type === 'Identifier') names.add(node.property.name)
+			else if (node.computed && typeof node.property?.value === 'string')
+				names.add(node.property.value)
+		}
+		for (const key in node) if (key !== 'type') visit(node[key])
+	}
+	visit(root)
+	return names
+}
 
 /**
- * The flow input a transform reads, when it reads exactly one. The expression may reshape
- * it (`(flow_input.files || []).map(...)`) and still counts; two inputs name none, since the
- * composer could not tell which one it edits.
+ * The flow input a transform reads, when it reads exactly one. The expression may reshape it
+ * (`(flow_input.files || []).map(...)`) and still counts. With `declared`, only the flow's own
+ * inputs count, so a loop's `flow_input.iter` does not make a read ambiguous.
  */
-export function flowInputRef(transform: InputTransform | undefined): string | undefined {
+export function flowInputRef(
+	transform: InputTransform | undefined,
+	declared?: Record<string, unknown>
+): string | undefined {
 	if (transform?.type !== 'javascript') return undefined
-	const names = new Set([...transform.expr.matchAll(FLOW_INPUT_REF)].map((match) => match[1]))
-	return names.size === 1 ? [...names][0] : undefined
+	const reads = flowInputReads(transform.expr)
+	if (!reads) return undefined
+	const names = declared ? [...reads].filter((name) => name in declared) : [...reads]
+	return names.length === 1 ? names[0] : undefined
 }
 
 /** Whether a schema entry holds an s3 file, as the flow input editor recognises one. */
@@ -118,13 +161,13 @@ export function resolveAgentChatInputs(
 			// An agent that feeds the key from anything but a flow input — a literal, another
 			// step's result, or the empty placeholder every agent step carries for the keys of
 			// AI_AGENT_SCHEMA — is not reading an input, so it has no say in which one the
-			// composer drives.
-			if (transform?.type !== 'javascript' || !transform.expr.includes('flow_input')) continue
-			const name = flowInputRef(transform)
-			// A name the schema doesn't declare has no field to promote, and one expression
-			// reading two inputs names none: either way this agent reads something the
-			// composer cannot drive, which is what disagreement means here.
-			const usable = name && name in properties ? name : undefined
+			// composer drives. An expression that does not parse is kept, as unreadable.
+			if (transform?.type !== 'javascript') continue
+			const reads = flowInputReads(transform.expr)
+			if (reads ? reads.size === 0 : !transform.expr.includes('flow_input')) continue
+			// Reading no declared input, or two of them, names none: this agent reads something
+			// the composer cannot drive, which is what disagreement means here.
+			const usable = flowInputRef(transform, properties)
 			const names = namesPerKey.get(key) ?? new Set<string | undefined>()
 			names.add(usable)
 			namesPerKey.set(key, names)

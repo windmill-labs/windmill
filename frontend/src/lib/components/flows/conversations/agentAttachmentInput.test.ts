@@ -62,6 +62,27 @@ describe('flowInputRef', () => {
 		expect(flowInputRef({ type: 'javascript', expr: 'flow_input?.docs' })).toBe('docs')
 	})
 
+	// A loop step reads its iteration from `flow_input.iter`, which is not a flow input.
+	it('ignores names the flow does not declare, such as a loop iteration', () => {
+		const transform = {
+			type: 'javascript' as const,
+			expr: 'flow_input.files.filter((_, i) => i === flow_input.iter.index)'
+		}
+		expect(flowInputRef(transform)).toBeUndefined()
+		expect(flowInputRef(transform, { files: {} })).toBe('files')
+	})
+
+	it('counts real reads only, in any access form and in a statement body', () => {
+		const ref = (expr: string) =>
+			flowInputRef({ type: 'javascript', expr }, { files: {}, docs: {} })
+		expect(ref("flow_input['files']")).toBe('files')
+		expect(ref('/* flow_input.docs */ flow_input?.files')).toBe('files')
+		expect(ref("'flow_input.docs' + flow_input.files")).toBe('files')
+		expect(ref('results.a.flow_input.docs ?? flow_input.files')).toBe('files')
+		expect(ref('const f = flow_input.files\nreturn f')).toBe('files')
+		expect(ref('flow_input.files.concat(')).toBeUndefined()
+	})
+
 	it('names nothing for two inputs or a static value', () => {
 		expect(
 			flowInputRef({ type: 'javascript', expr: '[...flow_input.a, ...flow_input.b]' })
@@ -95,6 +116,33 @@ describe('resolveAgentChatInputs', () => {
 			required: []
 		}
 		expect(resolveAgentChatInputs([reader('files'), reader('docs')], twoInputs)).toEqual([])
+	})
+
+	it('promotes the input an agent inside a loop reads next to its iteration', () => {
+		const loop = {
+			id: 'loop',
+			value: {
+				type: 'forloopflow',
+				modules: [
+					agentWith({
+						user_attachments: {
+							type: 'javascript',
+							expr: 'flow_input.files.filter((_, i) => i === flow_input.iter.index)'
+						}
+					})
+				]
+			}
+		} as unknown as FlowModule
+		expect(resolveAgentChatInputs([loop], schema).map((i) => i.name)).toEqual(['files'])
+	})
+
+	it('gives no say to an agent that only mentions flow_input in a comment', () => {
+		const commented = agentWith({
+			user_attachments: { type: 'javascript', expr: '// flow_input.docs\nresults.a.files' }
+		})
+		expect(resolveAgentChatInputs([reader('files'), commented], schema).map((i) => i.name)).toEqual(
+			['files']
+		)
 	})
 
 	it('promotes nothing for an input the schema does not declare', () => {
