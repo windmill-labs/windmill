@@ -49,7 +49,11 @@
 			})
 			.catch((error) => {
 				console.error('Save failed:', error)
-				sendUserToast(error?.message ?? 'Save failed', true)
+				// An ApiError's message is only the HTTP status text; the server's reason is its body.
+				sendUserToast(
+					(typeof error?.body === 'string' && error.body) || error?.message || 'Save failed',
+					true
+				)
 				saveStatus = 'error'
 				statusTimeout = setTimeout(() => {
 					saveStatus = null
