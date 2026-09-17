@@ -2265,18 +2265,53 @@ fn pg_attach_verification(res: &PgDatabase) -> Result<Option<(&str, std::path::P
     }
     let roots = format!("{bundle}\n{pem}\n");
     use sha2::Digest;
-    let path = std::env::temp_dir().join(format!(
-        "windmill-pg-roots-{}.pem",
+    let dir = std::env::temp_dir().join("windmill-pg-roots");
+    let path = dir.join(format!(
+        "{}.pem",
         hex::encode(&sha2::Sha256::digest(roots.as_bytes())[..8])
     ));
-    if !path.is_file() {
+    let write_err = |e: std::io::Error| {
+        Error::ExecutionErr(format!("Failed to write root certificates: {e}"))
+    };
+    if path.is_file() {
+        // Marks it recently used, so pruning takes the others first.
+        let _ = std::fs::File::options()
+            .append(true)
+            .open(&path)
+            .and_then(|f| f.set_modified(std::time::SystemTime::now()));
+    } else {
+        std::fs::create_dir_all(&dir).map_err(write_err)?;
         // Renamed into place: a job attaching concurrently must never read a half-written file.
         let partial = path.with_extension(format!("{}.partial", Uuid::new_v4()));
         std::fs::write(&partial, &roots)
             .and_then(|()| std::fs::rename(&partial, &path))
-            .map_err(|e| Error::ExecutionErr(format!("Failed to write root certificates: {e}")))?;
+            .map_err(write_err)?;
+        prune_pg_roots(&dir, &path);
     }
     Ok(Some((mode, path)))
+}
+
+/// Root files outlive the job: a resource's certificate is workspace-controlled, so each distinct
+/// one would otherwise add a file forever. Keeps the most recently used ones.
+const PG_ROOTS_KEPT: usize = 32;
+
+fn prune_pg_roots(dir: &std::path::Path, keep: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut files: Vec<(std::time::SystemTime, std::path::PathBuf)> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "pem") && p != keep)
+        .filter_map(|p| Some((std::fs::metadata(&p).ok()?.modified().ok()?, p)))
+        .collect();
+    if files.len() < PG_ROOTS_KEPT {
+        return;
+    }
+    files.sort();
+    for (_, p) in &files[..=files.len() - PG_ROOTS_KEPT] {
+        let _ = std::fs::remove_file(p);
+    }
 }
 
 fn pg_attach_uri(res: &PgDatabase) -> Result<String> {
@@ -2881,6 +2916,16 @@ mod tests {
         assert!(uri.contains("?sslmode=verify-full&sslrootcert="), "{uri}");
         let root = urlencoding::decode(uri.split("sslrootcert=").nth(1).unwrap()).unwrap();
         let roots = std::fs::read_to_string(root.as_ref()).unwrap();
+        for i in 0..(PG_ROOTS_KEPT + 5) {
+            let mut other = pg("verify-full", Some(false));
+            other.root_certificate_pem = Some(format!("-----BEGIN CERTIFICATE-----{i}"));
+            pg_attach_uri(&other).unwrap();
+        }
+        let kept = std::fs::read_dir(std::env::temp_dir().join("windmill-pg-roots"))
+            .unwrap()
+            .filter(|e| e.as_ref().unwrap().path().extension().is_some_and(|x| x == "pem"))
+            .count();
+        assert!(kept <= PG_ROOTS_KEPT, "{kept} root files kept");
         assert!(roots.contains("-----BEGIN CERTIFICATE-----test"));
         let external = serde_json::to_value(pg("verify-full", Some(false))).unwrap();
         let attach = &pg_secret_attach_statements(external, "dt").unwrap()[3];
