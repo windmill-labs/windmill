@@ -16,7 +16,6 @@
 
 	const runsText = $derived.by(() => {
 		if (!runs) return ''
-		if (runs.truncated) return `At least ${runs.count} runs of this script are`
 		return runs.count === 1 ? '1 run of this script is' : `${runs.count} runs of this script are`
 	})
 </script>
