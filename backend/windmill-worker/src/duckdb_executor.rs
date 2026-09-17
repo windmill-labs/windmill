@@ -2240,19 +2240,18 @@ fn parse_attach_db_resource<'a>(query: &'a str) -> Option<ParsedAttachDbResource
     None
 }
 
-/// `to_uri` turns verify-ca and verify-full into `require`, which resources have always relied on.
+/// The verification a DuckDB postgres attach keeps, as its libpq `sslmode` and `sslrootcert`.
+///
+/// Attaches have always turned verify-ca and verify-full into `require`, which resources rely on.
 /// A connection that explicitly refuses invalid certificates — the external instance cluster's —
-/// keeps its mode instead: under `require` its shared password would go to whichever server answers.
-/// DuckDB's libpq takes one root file, so it gets the system bundle plus the configured certificate.
-fn pg_attach_uri(res: &PgDatabase) -> Result<String> {
-    let uri = res.to_uri();
+/// keeps its mode instead: under `require` its shared password would go to whichever server
+/// answers. DuckDB's libpq takes one root file, so it gets the system bundle plus the configured
+/// certificate.
+fn pg_attach_verification(res: &PgDatabase) -> Result<Option<(&str, std::path::PathBuf)>> {
     let mode = match res.sslmode.as_deref() {
         Some(mode @ ("verify-ca" | "verify-full")) if res.accept_invalid_certs == Some(false) => mode,
-        _ => return Ok(uri),
+        _ => return Ok(None),
     };
-    let base = uri.strip_suffix("?sslmode=require").ok_or_else(|| {
-        Error::internal_err("unexpected sslmode in a postgres connection URI".to_string())
-    })?;
     let bundle = windmill_common::system_ca_bundle()
         .map(std::fs::read_to_string)
         .transpose()
@@ -2277,9 +2276,20 @@ fn pg_attach_uri(res: &PgDatabase) -> Result<String> {
             .and_then(|()| std::fs::rename(&partial, &path))
             .map_err(|e| Error::ExecutionErr(format!("Failed to write root certificates: {e}")))?;
     }
+    Ok(Some((mode, path)))
+}
+
+fn pg_attach_uri(res: &PgDatabase) -> Result<String> {
+    let uri = res.to_uri();
+    let Some((mode, roots)) = pg_attach_verification(res)? else {
+        return Ok(uri);
+    };
+    let base = uri.strip_suffix("?sslmode=require").ok_or_else(|| {
+        Error::internal_err("unexpected sslmode in a postgres connection URI".to_string())
+    })?;
     Ok(format!(
         "{base}?sslmode={mode}&sslrootcert={}",
-        urlencoding::encode(&path.to_string_lossy())
+        urlencoding::encode(&roots.to_string_lossy())
     ))
 }
 
@@ -2746,10 +2756,21 @@ fn pg_secret_attach_statements(db_resource: Value, alias_name: &str) -> Result<V
     let esc = |s: &str| s.replace('\'', "''");
     // The postgres secret type has no sslmode parameter, so it goes in the ATTACH
     // string; only the libpq values PgDatabase::to_uri collapses to are forwarded.
-    let sslmode = match res.sslmode.as_deref() {
-        Some("disable") => "disable",
-        Some("require") | Some("verify-ca") | Some("verify-full") => "require",
-        _ => "prefer",
+    let sslmode = match pg_attach_verification(&res)? {
+        // A libpq keyword/value string: the path is quoted for libpq, then for the DuckDB literal.
+        Some((mode, roots)) => format!(
+            "{mode} sslrootcert=''{}''",
+            roots
+                .to_string_lossy()
+                .replace('\\', "\\\\")
+                .replace('\'', "\\''")
+        ),
+        None => match res.sslmode.as_deref() {
+            Some("disable") => "disable",
+            Some("require") | Some("verify-ca") | Some("verify-full") => "require",
+            _ => "prefer",
+        }
+        .to_string(),
     };
     let secret_name = datatable_secret_name(alias_name);
     Ok(vec![
@@ -2856,6 +2877,12 @@ mod tests {
         let root = urlencoding::decode(uri.split("sslrootcert=").nth(1).unwrap()).unwrap();
         let roots = std::fs::read_to_string(root.as_ref()).unwrap();
         assert!(roots.contains("-----BEGIN CERTIFICATE-----test"));
+        let external = serde_json::to_value(pg("verify-full", Some(false))).unwrap();
+        let attach = &pg_secret_attach_statements(external, "dt").unwrap()[3];
+        assert!(
+            attach.starts_with(&format!("ATTACH 'sslmode=verify-full sslrootcert=''{}''", root)),
+            "{attach}"
+        );
         // A resource that never opted in keeps the historical downgrade.
         assert!(pg_attach_uri(&pg("verify-full", None)).unwrap().ends_with("?sslmode=require"));
         assert!(pg_attach_uri(&pg("require", Some(false))).unwrap().ends_with("?sslmode=require"));
