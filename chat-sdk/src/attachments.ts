@@ -70,6 +70,11 @@ function dataUrlToBlob(dataUrl: string, fallbackType: string): Blob {
  * The key's turn prefix and per-file index keep two files with the same name, in this turn or
  * an earlier one, from overwriting each other; the name stays the last segment.
  */
+/** Delete uploads no run will read. Best effort: a delete that fails leaves that object behind. */
+export async function discardUploads(api: WindmillChatApi, uploaded: UploadedAttachment[]): Promise<void> {
+  await Promise.all(uploaded.map((u) => api.deleteFile(u.s3).catch(() => {})))
+}
+
 export async function uploadAttachments(
   api: WindmillChatApi,
   attachments: AttachmentUpload[],
@@ -108,7 +113,7 @@ export async function uploadAttachments(
     const reasons = results.flatMap((r) => (r.status === 'rejected' ? [r.reason] : []))
     // A stop that lands once every upload has answered still withdraws the batch.
     if (reasons.length === 0 && !signal?.aborted) return uploaded
-    await Promise.all(uploaded.map((u) => api.deleteFile(u.s3).catch(() => {})))
+    await discardUploads(api, uploaded)
     // The failure that started it, not the aborts it caused in the other uploads.
     throw reasons.find((reason) => !isAbortError(reason)) ?? reasons[0] ?? abortError()
   } finally {

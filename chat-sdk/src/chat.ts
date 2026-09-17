@@ -7,7 +7,7 @@ import {
 import { resolveConfig, type ResolvedConfig } from './config'
 import { followJob } from './follow'
 import { createLocalHistory, type LocalHistory } from './history'
-import { uploadAttachments } from './attachments'
+import { discardUploads, uploadAttachments } from './attachments'
 import type { AgentStreamEvent } from './stream'
 import type {
   Chat,
@@ -166,6 +166,11 @@ class ChatImpl implements Chat {
           this.#set({
             messages: this.#state.messages.map((m) => (m.id === turn.userMessageId ? { ...m, attachments: carried } : m))
           })
+        }
+        // A subscriber told of those attachments may stop the turn right here.
+        if (turn.controller.signal.aborted) {
+          await discardUploads(this.#api, uploaded)
+          throw abortError()
         }
       }
       // Nothing may start once stop() or a conversation switch has withdrawn the turn.

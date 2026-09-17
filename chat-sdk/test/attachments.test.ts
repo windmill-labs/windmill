@@ -440,4 +440,32 @@ describe('sendMessage with attachments', () => {
     ).toEqual([key])
     expect(chat.getState()).toMatchObject({ status: 'idle', messages: [], conversations: [] })
   })
+
+  test('a subscriber stopping when the attachments appear still discards the uploads', async () => {
+    const { fetch, calls } = fetchMock(
+      upload,
+      (c) =>
+        c.method === 'DELETE' && c.url.pathname === '/api/w/ws/job_helpers/delete_s3_file'
+          ? json('deleted')
+          : undefined,
+      run,
+      answer
+    )
+    const chat = createChat(options(fetch))
+    chat.subscribe((s) => {
+      if (s.messages.some((m) => m.attachments)) void chat.stop()
+    })
+    await expect(
+      chat.sendMessage('read this', {
+        attachments: [{ name: 'contract.pdf', data: pdf }],
+        attachmentsInput: { name: 'files', multiple: true }
+      })
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    expect(runs(calls)).toHaveLength(0)
+    const key = uploads(calls)[0].url.searchParams.get('file_key')
+    expect(
+      calls.filter((c) => c.method === 'DELETE').map((c) => c.url.searchParams.get('file_key'))
+    ).toEqual([key])
+    expect(chat.getState()).toMatchObject({ status: 'idle', messages: [], conversations: [] })
+  })
 })
