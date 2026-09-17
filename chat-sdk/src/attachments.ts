@@ -73,13 +73,8 @@ function dataUrlToBlob(dataUrl: string, fallbackType: string): Blob {
 
 /**
  * Put each attachment in the workspace's object storage and hand back what the agent reads.
- * The flow runs on a worker, so the bytes have to exist somewhere the worker can fetch.
- *
- * A prefix per turn, and a segment per attachment inside it. The turn's prefix keeps a
- * re-attached filename off the copy an earlier message still points at; the segment does the
- * same within one turn, where two files can arrive under one name and would otherwise race to
- * a single key and leave the agent reading one of them twice. The name itself stays the last
- * segment, so anything that reads a name off the key still sees what the user attached.
+ * The key's turn prefix and per-file index keep two files with the same name, in this turn or
+ * an earlier one, from overwriting each other; the name stays the last segment.
  */
 export async function uploadAttachments(
   api: WindmillChatApi,

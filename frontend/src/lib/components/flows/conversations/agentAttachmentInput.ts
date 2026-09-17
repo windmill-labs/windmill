@@ -1,13 +1,9 @@
 import type { FlowModule, InputTransform } from '$lib/gen'
 
 /**
- * The flow's own AI agent steps, including those inside loops and branches but never one
- * carried as another agent's tool.
- *
- * The graph walks an agent's tools as if they were child steps (flowTree.ts), which is
- * right for the graph and wrong here: a tool agent's inputs belong to the agent that
- * calls it, not to the chat. Counting it would let a nested agent's wiring speak for the
- * step the reader is actually talking to.
+ * The flow's own AI agent steps, including those inside loops and branches. An agent carried
+ * as another agent's tool is left out, unlike in the graph (flowTree.ts): its inputs come from
+ * the agent calling it, not from the chat.
  */
 export function agentSteps(modules: FlowModule[] | undefined): FlowModule[] {
 	const found: FlowModule[] = []
@@ -83,12 +79,9 @@ function holdsS3File(property: Record<string, any> | undefined): boolean {
 export type AttachmentsTarget = { name: string; multiple: boolean; required?: boolean }
 
 /**
- * Where the composer's attachments go, or nothing when there is nowhere they fit.
- *
- * The agent reads `user_attachments` through a transform that may reshape what it takes, so
- * the flow input feeding it is not necessarily an s3 field: an expression building the s3
- * object itself promotes a plain string. Writing `{ s3, filename }` into that input fails at
- * run time, so the paperclip appears only where the schema says the value belongs.
+ * Where the composer's attachments go: the promoted input, only when its schema holds s3
+ * objects. A transform may build the s3 object from a plain string input, and writing
+ * `{ s3, filename }` into that input would fail at run time.
  */
 export function attachmentsTargetFor(
 	input: AgentChatInput | undefined

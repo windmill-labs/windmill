@@ -253,10 +253,8 @@ export class FlowChatViewHost implements ChatViewHost {
 		// The attachments are this input's only editor: a value stored for it in the inputs
 		// modal would otherwise ride along on every message.
 		if (target) delete inputs[target.name]
-		// The per-turn cap again, at the place the truncation would happen: the composer
-		// enforces it as files are attached, but a queue built over several turns arrives
-		// here as one send, and a scalar input keeps the first upload — uploading the rest
-		// would strand them in storage while the transcript claimed they went.
+		// The composer caps files as they are attached, but a queue merged over several turns
+		// arrives here as one send, and the chat refuses more than a single-file input holds.
 		const cap = this.maxMessageAttachments
 		if (cap !== undefined && images.length + blobs.length > cap) {
 			const dropped = images.length + blobs.length - cap
@@ -391,10 +389,10 @@ export class FlowChatViewHost implements ChatViewHost {
 
 	// Per-message actions
 	storedImages = () => undefined
-	/** Send the user message at this transcript position again. */
 	/** The files each user message of this session went out with, for Retry. A message loaded
 	 * from history has none recorded here and retries with its text alone. */
 	#sentAttachments = new Map<string, { images: AttachedImage[]; blobs: AttachedBlob[] }>()
+	/** Send the user message at this transcript position again. */
 	retryRequest = (messageIndex: number) => {
 		const message = this.#state.messages[messageIndex]
 		if (!message || message.role !== 'user' || this.loading) return
@@ -430,8 +428,7 @@ export class FlowChatViewHost implements ChatViewHost {
 	// handle on the user's own disk — has no meaning here.
 	supportsLinkedFolders = false
 	attachmentsAsBlobs = true
-	// A scalar flow input holds one file; sending more would upload every one and run with
-	// the first, leaving the rest orphaned in storage and the transcript claiming otherwise.
+	// A single-file flow input takes one attachment per message.
 	get maxMessageAttachments(): number | undefined {
 		return this.#options.attachmentsTarget?.()?.multiple === false ? 1 : undefined
 	}

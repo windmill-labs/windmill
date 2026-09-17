@@ -306,8 +306,7 @@ describe('FlowChatViewHost', () => {
 		])
 	})
 
-	// The composer caps as files are attached, but a queue built over several turns
-	// arrives as one send; a scalar input would keep the first upload and strand the rest.
+	// A queue merged over several turns reaches the host as one send.
 	it('re-applies a single-file cap to a merged queue', async () => {
 		const { chat } = fakeChat()
 		const host = new FlowChatViewHost(chat, {

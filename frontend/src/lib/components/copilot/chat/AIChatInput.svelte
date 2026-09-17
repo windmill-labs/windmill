@@ -1380,7 +1380,7 @@
 					? (pasted) => void addImages(pasted)
 					: undefined}
 				onTextFiles={chatHost.supportsMessageAttachments
-					? (pasted) => void addTextFiles(pasted)
+					? (pasted) => void addNonImageFiles(pasted)
 					: undefined}
 				{availableContext}
 				{selectedContext}
