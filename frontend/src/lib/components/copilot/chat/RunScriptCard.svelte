@@ -229,8 +229,10 @@
 			noCode: true,
 			noLogs: true
 		})
-		// The dedicated endpoint, as get_run uses it: the job's own `logs` field is only
-		// the tail still in the DB column, missing whatever compaction flushed to storage.
+		// The dedicated endpoint, as get_run uses it, and the whole log does come down for a
+		// 4000-char tail. The cheap reads cannot replace it: the job's own `logs` field is
+		// `right(job_logs.logs, 20000)`, and compaction leaves as few as 3000 characters in
+		// that column, so a large log would show less here than the model was given.
 		const logsReq = JobService.getJobLogs({
 			workspace: target.workspace,
 			id: target.jobId,

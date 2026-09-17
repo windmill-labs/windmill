@@ -426,13 +426,9 @@ export async function getRun(workspace: string, id: string, step?: string): Prom
 		// part of the question, so neither failing should cost the model the rest.
 		const [job, logs, results] = await Promise.all([
 			JobService.getJob({ workspace, id, noLogs: true, noCode: true }),
-			// The dedicated endpoint rather than the job's own `logs` field: that one
-			// is the last 20k still in the DB column, missing the head that log
-			// compaction flushed to object storage. This one stitches them back.
-			//
-			// It takes no length parameter, so unlike args and result the whole log
-			// does come into the tab before being capped. Only this job's own logs,
-			// though: a flow's are its orchestration lines, not its steps'.
+			// The dedicated endpoint rather than the job's own `logs` field, which holds too
+			// little to serve a tail — RunScriptCard's fetch has the mechanism. Only this
+			// job's own logs either way: a flow's are its orchestration lines, not its steps'.
 			JobService.getJobLogs({
 				workspace,
 				id,
