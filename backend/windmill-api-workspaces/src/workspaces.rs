@@ -3373,7 +3373,7 @@ fn apply_pg_tls_env(
                 cmd.env("PGSSLROOTCERT", "system");
             }
             Some("verify-ca") => {
-                if let Some(bundle) = system_ca_bundle() {
+                if let Some(bundle) = windmill_common::system_ca_bundle() {
                     cmd.env("PGSSLROOTCERT", bundle);
                 }
             }
@@ -3383,21 +3383,6 @@ fn apply_pg_tls_env(
     Ok(None)
 }
 
-fn system_ca_bundle() -> Option<std::path::PathBuf> {
-    std::env::var_os("SSL_CERT_FILE")
-        .map(std::path::PathBuf::from)
-        .into_iter()
-        .chain(
-            [
-                "/etc/ssl/certs/ca-certificates.crt",
-                "/etc/pki/tls/certs/ca-bundle.crt",
-                "/etc/ssl/cert.pem",
-                "/etc/ssl/ca-bundle.pem",
-            ]
-            .map(std::path::PathBuf::from),
-        )
-        .find(|path| path.is_file())
-}
 
 #[cfg(test)]
 mod pg_tls_env_tests {
@@ -8352,6 +8337,13 @@ async fn apply_forked_datatable(
         })?,
     };
 
+    if database.resource_type == DataTableCatalogResourceType::ExternalInstance {
+        windmill_common::external_instance_pg::ensure_external_instance_database_registered(
+            tx,
+            &fdt.new_dbname,
+        )
+        .await?;
+    }
     if database.resource_type.is_windmill_managed() {
         // The whole `database` object, not just its `resource_path`: a pointer entry has none to
         // patch. `reference` goes with it — exactly one of the two may be set. The copy was created

@@ -3018,6 +3018,14 @@ async fn register_fork_ducklake_namespace(
     {
         return Ok(());
     }
+    let mut tx = db.begin().await?;
+    // A row naming an external database counts as a use of it. Written under the lock a drop takes,
+    // and only while the database is still registered, so a drop cannot slip in between the
+    // settings this attach resolved and the row that protects the database.
+    if let Some(dbname) = catalog.strip_prefix("external_instance:") {
+        crate::external_instance_pg::ensure_external_instance_database_registered(&mut tx, dbname)
+            .await?;
+    }
     sqlx::query!(
         "INSERT INTO fork_ducklake_namespace
            (workspace_id, ducklake_name, metadata_schema, catalog, storage, storage_ref, data_path)
@@ -3032,9 +3040,10 @@ async fn register_fork_ducklake_namespace(
         &storage_ref,
         data_path,
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("registering fork ducklake namespace: {e:#}")))?;
+    tx.commit().await?;
     let mut locations = FORK_DUCKLAKE_REGISTERED
         .get(w_id)
         .filter(|(_, exp)| *exp > now)
