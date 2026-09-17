@@ -167,6 +167,50 @@ describe('toDisplayMessages', () => {
 		expect(display[0]).toMatchObject({ role: 'user', error: undefined })
 	})
 
+	it('offers no retry while the turn whose tool failed is still running', () => {
+		const messages = [
+			message({ role: 'user', content: 'first' }),
+			message({ role: 'assistant', content: 'boom', success: false }),
+			message({ role: 'user', content: 'try' }),
+			message({
+				role: 'tool',
+				content: 'Error executing search',
+				success: false,
+				tool: { name: 'search', status: 'error' }
+			})
+		]
+		const running = toDisplayMessages(messages, true)
+		expect(running[0]).toMatchObject({ role: 'user', error: true })
+		expect(running[2]).toMatchObject({ role: 'user', error: undefined })
+		expect(toDisplayMessages(messages, false)[2]).toMatchObject({ role: 'user', error: true })
+	})
+
+	it('shows what a failed tool returned as its error, not the row label', () => {
+		const display = toDisplayMessages([
+			message({
+				role: 'tool',
+				content: 'Error executing lookup_stock',
+				success: false,
+				tool: {
+					name: 'lookup_stock',
+					status: 'error',
+					result: '{"message":"stock service unavailable","name":"Error","stack":"at main"}'
+				}
+			}),
+			message({
+				role: 'tool',
+				content: 'Error executing mcp_search',
+				success: false,
+				tool: { name: 'mcp_search', status: 'error', result: 'connection refused' }
+			})
+		])
+		expect(display[0]).toMatchObject({
+			content: 'Error executing lookup_stock',
+			error: 'stock service unavailable'
+		})
+		expect(display[1]).toMatchObject({ error: 'connection refused' })
+	})
+
 	it('flags the streaming assistant message and a failed tool', () => {
 		const display = toDisplayMessages([
 			message({ role: 'assistant', content: 'partial', pending: true }),
@@ -307,6 +351,59 @@ describe('FlowChatViewHost', () => {
 		set({ status: 'error' })
 		expect(prependText).toHaveBeenLastCalledWith('after error')
 		expect(chat.sendMessage).not.toHaveBeenCalled()
+		host.dispose()
+	})
+
+	it('offers no retry on a turn the reader stopped', () => {
+		const failedTool = message({
+			role: 'tool',
+			content: 'Error executing search',
+			success: false,
+			tool: { name: 'search', status: 'error' }
+		})
+		const { chat, set } = fakeChat(
+			idleState({
+				status: 'streaming',
+				messages: [message({ id: 'live', role: 'user', content: 'go' }), failedTool]
+			})
+		)
+		const host = new FlowChatViewHost(chat)
+		host.cancel()
+		expect(chat.stop).toHaveBeenCalled()
+		set({ status: 'idle' })
+		expect(host.displayMessages[0]).toMatchObject({ role: 'user', error: undefined })
+		// The chat re-reads the rows: the user message gets its row id, and the cancelled
+		// flow's failure lands as the answer.
+		const cancelled = message({ role: 'assistant', content: 'Job canceled', success: false })
+		set({
+			messages: [
+				message({ id: 'live', serverId: 'row-2', role: 'user', content: 'go' }),
+				failedTool,
+				cancelled
+			]
+		})
+		expect(host.displayMessages[0]).toMatchObject({ role: 'user', error: undefined })
+		// Reopened, with an older page that failed in front: messages are rebuilt from rows.
+		set({
+			messages: [
+				message({ id: 'row-0', serverId: 'row-0', role: 'user', content: 'before' }),
+				message({ role: 'assistant', content: 'boom', success: false }),
+				message({ id: 'row-2', serverId: 'row-2', role: 'user', content: 'go' }),
+				failedTool,
+				cancelled
+			]
+		})
+		expect(host.displayMessages[0]).toMatchObject({ content: 'before', error: true })
+		expect(host.displayMessages[2]).toMatchObject({ content: 'go', error: undefined })
+		// The next turn is not stopped and fails on its own.
+		set({
+			messages: [
+				...chat.getState().messages,
+				message({ role: 'user', content: 'again' }),
+				message({ role: 'assistant', content: 'boom', success: false })
+			]
+		})
+		expect(host.displayMessages.at(-2)).toMatchObject({ role: 'user', error: true })
 		host.dispose()
 	})
 

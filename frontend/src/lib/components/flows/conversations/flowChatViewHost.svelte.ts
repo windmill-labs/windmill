@@ -59,23 +59,56 @@ function lastTurnFailed(messages: readonly ChatMessage[]): boolean {
 	return false
 }
 
+/**
+ * What a failed tool call returned, as the card's error: the card shows the error in place of
+ * the result. A job failure is stored as `{ message, name, stack }`; an MCP failure as plain text.
+ */
+function toolErrorText(result: unknown): string | undefined {
+	if (typeof result === 'string') return result || undefined
+	if (result && typeof result === 'object') {
+		const message = (result as { message?: unknown }).message
+		return typeof message === 'string' ? message : JSON.stringify(result, null, 2)
+	}
+	return undefined
+}
+
 /** The name the worker gives the structured-output tool: suffixed when an agent tool already has it. */
 const STRUCTURED_OUTPUT_CALL = /^structured_output(_\d+)?$/
 
-export function toDisplayMessages(messages: readonly ChatMessage[]): DisplayMessage[] {
+/**
+ * `busy`: the latest turn is still running, so a failed tool call is not yet its outcome.
+ * `stopped`: ids of the user messages of the turns the reader stopped, as message id or row id.
+ * A stopped turn never offers Retry, though Stop leaves its failed tool row or the cancelled
+ * flow's failure as its last message.
+ */
+export function toDisplayMessages(
+	messages: readonly ChatMessage[],
+	busy = false,
+	stopped: ReadonlySet<string> = new Set()
+): DisplayMessage[] {
 	let userIndex = 0
+	let latestUser = -1
+	for (let i = messages.length - 1; i >= 0 && latestUser < 0; i--) {
+		if (messages[i].role === 'user') latestUser = i
+	}
 	return messages.flatMap((message, i): DisplayMessage[] => {
 		switch (message.role) {
-			case 'user':
+			case 'user': {
+				const index = userIndex++
+				const settled =
+					!(busy && i === latestUser) &&
+					!stopped.has(message.id) &&
+					!(message.serverId && stopped.has(message.serverId))
 				return [
 					{
 						role: 'user',
-						index: userIndex++,
+						index,
 						content: message.content,
 						// Drives the shared Retry button.
-						error: turnFailed(messages, i) || undefined
+						error: (settled && turnFailed(messages, i)) || undefined
 					}
 				]
+			}
 			case 'tool': {
 				const parameters = parseToolPayload(message.tool?.arguments)
 				const result = parseToolPayload(message.tool?.result)
@@ -104,7 +137,7 @@ export function toDisplayMessages(messages: readonly ChatMessage[]): DisplayMess
 					parameters,
 					result,
 					showDetails: parameters !== undefined || result !== undefined,
-					error: failed ? message.content : unfinished,
+					error: failed ? (toolErrorText(result) ?? message.content) : unfinished,
 					isLoading: message.pending && message.tool?.status === 'running'
 				}
 				// The tool card has no thinking section: the thinking that led to the call reads
@@ -180,6 +213,12 @@ export class FlowChatViewHost implements ChatViewHost {
 	#onState(state: ChatState) {
 		const previous = this.#state
 		this.#state = state
+		const landed = state.messages.filter(
+			(m) => m.serverId && this.#stoppedTurns.has(m.id) && !this.#stoppedTurns.has(m.serverId)
+		)
+		if (landed.length > 0) {
+			this.#stoppedTurns = new Set([...this.#stoppedTurns, ...landed.map((m) => m.serverId!)])
+		}
 		if (previous.conversationId !== state.conversationId) {
 			// A conversation opens at its end, whatever the reader was doing in the last one.
 			this.#automaticScroll = true
@@ -202,7 +241,14 @@ export class FlowChatViewHost implements ChatViewHost {
 	}
 
 	// Transcript
-	displayMessages = $derived.by(() => toDisplayMessages(this.#state.messages))
+	displayMessages = $derived.by(() =>
+		toDisplayMessages(this.#state.messages, isBusy(this.#state.status), this.#stoppedTurns)
+	)
+	/** The user message of each turn stopped in this view, by message id and, once the chat has
+	 * read its row, row id: a reopened conversation or an older page rebuilds messages from rows,
+	 * so a turn left before its row was read is not recognised there. Only this session knows;
+	 * a reload shows the stopped turn as its rows left it. */
+	#stoppedTurns = $state.raw<ReadonlySet<string>>(new Set())
 	get messages(): readonly unknown[] {
 		return this.#state.messages
 	}
@@ -265,6 +311,13 @@ export class FlowChatViewHost implements ChatViewHost {
 		// Stop means stop: what was typed during the run goes back to the composer rather
 		// than waiting there to go out after some later turn settles.
 		this.dequeueMessage()
+		const { messages, status } = this.#state
+		const turn = isBusy(status) ? [...messages].reverse().find((m) => m.role === 'user') : undefined
+		if (turn) {
+			this.#stoppedTurns = new Set(
+				[...this.#stoppedTurns, turn.id, turn.serverId].filter((id) => id !== undefined)
+			)
+		}
 		void this.#chat.stop()
 	}
 	// Typed off the interface: a Svelte component's own type resolves differently
