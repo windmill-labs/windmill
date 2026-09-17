@@ -1194,7 +1194,7 @@ pub async fn run_agent(
         for note in &history_notes {
             append_logs(&job.id, &job.workspace_id, format!("{note}\n"), conn).await;
         }
-    } else if !matches!(history, HistorySource::Stateless)
+    } else if !matches!(args.memory, None | Some(Memory::Off))
         || args.memory_id.is_some()
         || args.previous_messages.is_some()
     {
