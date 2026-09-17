@@ -117,10 +117,6 @@ describe('buildAgentTrace', () => {
 	})
 })
 
-// A run stopped by max_iterations serializes its partial messages itself rather
-// than reusing the success envelope's writer. `agent_action` is `skip_serializing`
-// on `OpenAIMessage`, so if that path ever stops wrapping them the tags vanish and
-// this trace silently empties — which is the one run worth reading.
 describe('splitFinalAnswer', () => {
 	it('moves the answering turn out of the trace, with its citations', () => {
 		const entries = buildAgentTrace([
@@ -165,6 +161,10 @@ describe('splitFinalAnswer', () => {
 	})
 })
 
+// A run stopped by max_iterations serializes its partial messages itself rather
+// than reusing the success envelope's writer. `agent_action` is `skip_serializing`
+// on `OpenAIMessage`, so if that path ever stops wrapping them the tags vanish and
+// this trace silently empties — which is the one run worth reading.
 describe('the max-iterations path', () => {
 	it('traces the partial messages the error carries', () => {
 		const partial = parseAgentErrorMessages({

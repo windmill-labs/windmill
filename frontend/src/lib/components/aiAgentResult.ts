@@ -1,4 +1,5 @@
 import type { FlowStatusModule } from '$lib/gen'
+import { parseStreamEvents, type AgentStreamEvent } from 'windmill-chat'
 
 /** The `agent_action` tag the worker puts on every message it records. */
 export type AgentAction = NonNullable<FlowStatusModule['agent_actions']>[number]
@@ -221,31 +222,11 @@ export function emptyAgentStreamProgress(): AgentStreamProgress {
  * the arguments and the worker follows with `tool_execution`. Resetting on all
  * three is idempotent and keeps the rule provider-independent.
  */
-const TOOL_TURN_STARTED = ['tool_call', 'tool_call_arguments', 'tool_execution']
-
-const STREAM_EVENT_TYPES = [
-	'token_delta',
-	'reasoning_token_delta',
+const TOOL_TURN_STARTED: AgentStreamEvent['type'][] = [
 	'tool_call',
 	'tool_call_arguments',
-	'tool_execution',
-	'tool_result'
+	'tool_execution'
 ]
-
-function parseStreamEvent(line: string): (Record<string, unknown> & { type: string }) | undefined {
-	let event: unknown
-	try {
-		event = JSON.parse(line)
-	} catch {
-		return undefined
-	}
-	if (!isRecord(event) || typeof event.type !== 'string') {
-		return undefined
-	}
-	return STREAM_EVENT_TYPES.includes(event.type)
-		? (event as Record<string, unknown> & { type: string })
-		: undefined
-}
 
 /**
  * Whether `result_stream` is an agent's event stream rather than something a
@@ -262,7 +243,7 @@ export function isAgentStream(raw: string): boolean {
 		}
 		const line = raw.slice(start, end)
 		if (line.trim() !== '') {
-			return parseStreamEvent(line) !== undefined
+			return parseStreamEvents(line).length > 0
 		}
 		start = end + 1
 	}
@@ -288,54 +269,59 @@ export function advanceAgentStream(
 		return previous
 	}
 	const stream: AgentStream = { ...previous.stream, entries: [...previous.stream.entries] }
-	for (const line of raw.slice(previous.consumed, complete).split('\n')) {
-		if (line.trim() === '') {
+	// `result_stream` is whatever the job wrote and the parser keeps any line whose
+	// `type` it knows, so an event can arrive without the fields its type promises.
+	// A delta with no text would append "undefined", and a tool event keyed on
+	// nothing would draw an unlabelled card every later nameless event joins.
+	for (const event of parseStreamEvents(raw.slice(previous.consumed, complete))) {
+		if (event.type === 'token_delta') {
+			if (typeof event.content === 'string') {
+				stream.current += event.content
+			}
 			continue
 		}
-		const event = parseStreamEvent(line)
-		if (!event) {
+		if (event.type === 'reasoning_token_delta') {
+			if (typeof event.content === 'string') {
+				stream.reasoning += event.content
+			}
 			continue
 		}
-		if (event.type === 'token_delta' && typeof event.content === 'string') {
-			stream.current += event.content
-		} else if (event.type === 'reasoning_token_delta' && typeof event.content === 'string') {
-			stream.reasoning += event.content
-		} else if (typeof event.function_name === 'string') {
-			if (TOOL_TURN_STARTED.includes(event.type)) {
-				if (stream.current !== '') {
-					// A model can narrate and request a tool in the same turn. The call
-					// settles what that text was: narration, not the output. It becomes a
-					// row rather than being dropped, so nothing vanishes from the screen
-					// only to reappear when the result lands.
-					stream.entries.push({ kind: 'assistant', content: stream.current })
-					stream.current = ''
-				}
-				// Thinking belongs to the turn that produced it, and a turn can think
-				// without narrating — extended thinking before a tool call is exactly
-				// that shape. So this clears on the boundary itself, not with the
-				// narration, or one turn's thoughts run into the next turn's.
-				stream.reasoning = ''
+		if (typeof event.call_id !== 'string' || typeof event.function_name !== 'string') {
+			continue
+		}
+		if (TOOL_TURN_STARTED.includes(event.type)) {
+			if (stream.current !== '') {
+				// A model can narrate and request a tool in the same turn. The call
+				// settles what that text was: narration, not the output. It becomes a
+				// row rather than being dropped, so nothing vanishes from the screen
+				// only to reappear when the result lands.
+				stream.entries.push({ kind: 'assistant', content: stream.current })
+				stream.current = ''
 			}
-			// The same call is announced, then argued, then executed, then answered.
-			// Keyed on `call_id` so those four events are one row rather than four.
-			const callId = typeof event.call_id === 'string' ? event.call_id : event.function_name
-			const existing = stream.entries.find(
-				(e): e is Extract<AgentStreamEntry, { kind: 'tool' }> =>
-					e.kind === 'tool' && e.callId === callId
-			)
-			const settled = event.type === 'tool_result'
-			if (existing) {
-				existing.running = !settled
-				existing.success = settled ? event.success === true : existing.success
-			} else {
-				stream.entries.push({
-					kind: 'tool',
-					callId,
-					name: event.function_name,
-					running: !settled,
-					success: settled ? event.success === true : undefined
-				})
-			}
+			// Thinking belongs to the turn that produced it, and a turn can think
+			// without narrating — extended thinking before a tool call is exactly
+			// that shape. So this clears on the boundary itself, not with the
+			// narration, or one turn's thoughts run into the next turn's.
+			stream.reasoning = ''
+		}
+		// The same call is announced, then argued, then executed, then answered.
+		// Keyed on `call_id` so those four events are one row rather than four.
+		const existing = stream.entries.find(
+			(e): e is Extract<AgentStreamEntry, { kind: 'tool' }> =>
+				e.kind === 'tool' && e.callId === event.call_id
+		)
+		const settled = event.type === 'tool_result'
+		if (existing) {
+			existing.running = !settled
+			existing.success = settled ? event.success === true : existing.success
+		} else {
+			stream.entries.push({
+				kind: 'tool',
+				callId: event.call_id,
+				name: event.function_name,
+				running: !settled,
+				success: settled ? event.success === true : undefined
+			})
 		}
 	}
 	return { consumed: complete, stream }

@@ -78,6 +78,9 @@ describe('agent stream', () => {
 		expect(isAgentStream('{"level":"info","msg":"hello"}\n')).toBe(false)
 		// No newline yet, so the first line may still be half-written.
 		expect(isAgentStream('{"type":"token_delta","content":"a"}')).toBe(false)
+		// A provider that does not filter its empty deltas opens with one, and the
+		// run is an agent's all the same.
+		expect(isAgentStream('{"type":"token_delta","content":""}\n')).toBe(true)
 	})
 
 	it('folds the token deltas into the answer so far', () => {
@@ -199,6 +202,16 @@ describe('a stream that narrates before calling a tool', () => {
 		expect(stream.current).toBe('eu-central-1 is down.')
 		// The narration became a row rather than disappearing.
 		expect(stream.entries[0]).toEqual({ kind: 'assistant', content: 'Let me check the metrics.' })
+	})
+
+	// A script can write anything to `result_stream`, so an event is not guaranteed
+	// the fields its type declares.
+	it('ignores an event with nothing to key a row by, or no text to add', () => {
+		const raw =
+			'{"type":"token_delta","content":"Hi."}\n{"type":"token_delta"}\n{"type":"tool_call"}\n'
+		const { stream } = advanceAgentStream(raw, emptyAgentStreamProgress())
+		expect(stream.entries).toEqual([])
+		expect(stream.current).toBe('Hi.')
 	})
 })
 
