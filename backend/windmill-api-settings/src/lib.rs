@@ -1670,6 +1670,8 @@ struct CustomInstanceDb {
     tag: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     used_by_workspaces: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    workspace_id: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Serialize, Default)]
@@ -1825,12 +1827,31 @@ async fn setup_custom_instance_pg_database(
     Path(dbname): Path<String>,
     Json(body): Json<SetupCustomInstanceDbBody>,
 ) -> JsonResult<CustomInstanceDb> {
+    // Before anything is recorded: the status written below replaces the registry entry, and with it
+    // the workspace a fork copy is reserved for.
+    require_super_admin(&db, &authed).await?;
+    // A re-run keeps the fork reservation: without it, the workspace the copy was made for could no
+    // longer import into it or finish its fork.
+    let workspace_id = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT value->'databases'->$1->>'workspace_id' FROM global_settings
+         WHERE name = 'custom_instance_pg_databases'",
+    )
+    .bind(&dbname)
+    .fetch_optional(&db)
+    .await?
+    .flatten();
     let mut logs = CustomInstanceDbLogs::default();
     let result = setup_custom_instance_pg_database_inner(authed, &db, &dbname, &mut logs).await;
     let success = result.is_ok();
     let error = result.err().map(|e| e.to_string());
-    let status =
-        CustomInstanceDb { logs, success, error, tag: body.tag, used_by_workspaces: vec![] };
+    let status = CustomInstanceDb {
+        logs,
+        success,
+        error,
+        tag: body.tag,
+        used_by_workspaces: vec![],
+        workspace_id,
+    };
     let status_json = serde_json::to_value(&status).map_err(to_anyhow)?;
     // Save that the database was setup successfully
     sqlx::query!(
