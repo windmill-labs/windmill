@@ -1,6 +1,7 @@
 import {
   WindmillApiError,
   WindmillChatApi,
+  type ConversationKind,
   type FlowConversation,
   type FlowConversationMessage
 } from './api'
@@ -18,6 +19,7 @@ import type {
 } from './types'
 import {
   conversationTitle,
+  truncateTitle,
   errorResultMessage,
   extractChatAnswer,
   isAbortError,
@@ -59,6 +61,8 @@ class ChatImpl implements Chat {
   #state: ChatState
   #turn: Turn | undefined
   #page = 1
+  /** The kind the caller last listed, so the refresh after a new turn lists the same rows. */
+  #conversationKind: ConversationKind | undefined
   #persistTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(options: ChatOptions) {
@@ -229,15 +233,21 @@ class ChatImpl implements Chat {
   }
 
   loadConversations = async (
-    options: { page?: number; perPage?: number } = {}
+    options: { page?: number; perPage?: number; kind?: ConversationKind } = {}
   ): Promise<Conversation[]> => {
     const page = options.page ?? 1
+    // A different kind is a different listing: its first rows replace the held ones, on
+    // whichever page they were asked for.
+    const kindChanged = 'kind' in options && options.kind !== this.#conversationKind
+    if ('kind' in options) this.#conversationKind = options.kind
+    const kind = this.#conversationKind
     let conversations: Conversation[]
     if (this.#state.history === 'server') {
       try {
         const rows = await this.#api.listConversations(this.#config.flowPath, {
           page,
-          perPage: options.perPage ?? this.#config.pageSize
+          perPage: options.perPage ?? this.#config.pageSize,
+          kind
         })
         conversations = rows.map(fromConversation)
       } catch (e) {
@@ -247,10 +257,13 @@ class ChatImpl implements Chat {
     } else {
       conversations = this.#state.history === 'local' ? this.#local.listConversations() : []
     }
+    // Another kind was asked for while this list was on its way: its rows are not the
+    // listing any more, whichever response lands last.
+    if (kind !== this.#conversationKind) return conversations
     const known = new Set(this.#state.conversations.map((c) => c.id))
     this.#set({
       conversations:
-        page === 1
+        page === 1 || kindChanged
           ? conversations
           : [...this.#state.conversations, ...conversations.filter((c) => !known.has(c.id))]
     })
@@ -271,6 +284,24 @@ class ChatImpl implements Chat {
       this.#local.deleteConversation(conversationId)
     }
     this.#set({ conversations: this.#state.conversations.filter((c) => c.id !== conversationId) })
+  }
+
+  renameConversation = async (conversationId: string, title: string): Promise<void> => {
+    // Cut here as the server cuts, so the title shown is the one stored.
+    const trimmed = truncateTitle(title.trim())
+    if (!trimmed) return
+    if (this.#state.history === 'server') {
+      await this.#api.renameConversation(conversationId, trimmed)
+    } else if (this.#state.history === 'local') {
+      this.#local.renameConversation(conversationId, trimmed)
+    }
+    // Patched in place: the server keeps `updated_at` on a rename, so the list order the
+    // next load returns is the one shown now.
+    this.#set({
+      conversations: this.#state.conversations.map((c) =>
+        c.id === conversationId ? { ...c, title: trimmed } : c
+      )
+    })
   }
 
   loadOlderMessages = async (): Promise<void> => {
@@ -734,7 +765,8 @@ function fromConversation(row: FlowConversation): Conversation {
     id: row.id,
     title: row.title ?? undefined,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    isTest: row.is_test
   }
 }
 

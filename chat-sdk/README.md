@@ -225,8 +225,11 @@ answer, an `assistant` message with `success: false`. `status: 'error'` (with `e
 set) means the turn could not run or be followed at all, such as a refused request.
 
 Methods: `sendMessage(text, { inputs? })`, `stop()`, `newConversation()`,
-`selectConversation(id)`, `loadConversations({ page?, perPage? })`,
-`deleteConversation(id)`, `loadOlderMessages()`, `destroy()`. Switching conversations
+`selectConversation(id)`, `loadConversations({ page?, perPage?, kind? })`,
+`deleteConversation(id)`, `renameConversation(id, title)`, `loadOlderMessages()`,
+`destroy()`. `kind` lists the flow editor's test chats (`'test'`), the deployed flow's
+own (`'deployed'`, the server's default) or both (`'all'`); each `Conversation` carries
+`isTest`. A rename keeps the conversation's place in the list. Switching conversations
 stops following the current answer; the flow keeps running and, with server history,
 its answer is there when you come back.
 

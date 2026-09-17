@@ -669,6 +669,7 @@ pub async fn handle_chat_conversation_messages(
     run_query: &RunJobQuery,
     user_message_raw: Option<&Box<serde_json::value::RawValue>>,
     job_id: Uuid,
+    is_test: bool,
 ) -> error::Result<()> {
     // Names the query parameter rather than the field: it is not a flow argument, and
     // supplying it as one is the first thing tried on reading `memory_id is required`.
@@ -701,6 +702,7 @@ pub async fn handle_chat_conversation_messages(
         &authed.username,
         &user_message,
         memory_id,
+        is_test,
     )
     .await?;
 
@@ -836,6 +838,7 @@ pub async fn run_flow<'c>(
             &run_query,
             args.args.get("user_message"),
             uuid,
+            false,
         )
         .await?;
     }
