@@ -110,6 +110,21 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    // A fork copy reserved for the old id would otherwise be unreachable: its creator cannot
+    // import into it or finish its fork under the new id, and nothing else would ever drop it.
+    sqlx::query(
+        r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (
+               SELECT COALESCE(jsonb_object_agg(k, CASE WHEN v->>'workspace_id' = $1
+                   THEN jsonb_set(v, '{workspace_id}', to_jsonb($2::text)) ELSE v END), '{}'::jsonb)
+               FROM jsonb_each(COALESCE(value->'databases', '{}'::jsonb)) AS e(k, v)
+           ))
+           WHERE name = 'custom_instance_pg_databases'"#,
+    )
+    .bind(&old_id)
+    .bind(&rw.new_id)
+    .execute(&mut *tx)
+    .await?;
+
     // Duplicate workspace settings (keep copy in old workspace for reference)
     info!("Duplicating workspace_settings table");
     sqlx::query!(
