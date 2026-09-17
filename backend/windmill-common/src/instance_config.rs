@@ -811,6 +811,9 @@ pub struct CustomInstanceDb {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
+    /// The workspace a member created this fork copy for. Absent when a superadmin created it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
 }
 
 /// Setup log entries for a custom instance database.

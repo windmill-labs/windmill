@@ -292,6 +292,9 @@ pub fn role_id_by_name<'a>(catalog: &'a DatatableRoleCatalog, name: &str) -> Res
 
 /// Every database Windmill manages on `cluster`. Role provisioning has to reach all of them: a role
 /// that cannot `CONNECT` to a database is refused by Postgres before any grant matters.
+///
+/// Authorization: checks nothing, and names every managed database across all workspaces. Callers
+/// MUST be superadmin-gated or keep the names server-side; never return them to a workspace caller.
 pub async fn registered_instance_databases(
     db: &DB,
     cluster: DatatableRoleCluster,

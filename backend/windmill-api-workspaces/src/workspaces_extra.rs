@@ -1418,19 +1418,41 @@ pub async fn drop_forked_datatable_databases(
                 ));
                 continue;
             }
-            let dropped = if database.resource_type
-                == windmill_common::workspaces::DataTableCatalogResourceType::ExternalInstance
-            {
-                // Its own entry still names the copy; another workspace's never should.
-                windmill_common::external_instance_pg::drop_external_instance_database_unchecked(
-                    &db,
-                    db_to_drop,
-                    Some(&w_id),
-                )
-                .await
-            } else {
-                windmill_common::drop_custom_instance_database(&db, db_to_drop).await
-            };
+            // The fork's own entry is what is going away; anything else still reaching the copy,
+            // a child fork's pointer at this entry included, keeps it. The lock keeps a child fork
+            // from gaining such a pointer before the drop.
+            let dropped = async {
+                let mut tx = db.begin().await?;
+                windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
+                if database.resource_type
+                    == windmill_common::workspaces::DataTableCatalogResourceType::ExternalInstance
+                {
+                    windmill_common::external_instance_pg::drop_external_instance_database_unchecked(
+                        &db,
+                        db_to_drop,
+                        Some((&w_id, dt_name)),
+                    )
+                    .await?;
+                } else {
+                    let uses = windmill_common::workspaces::managed_database_uses(
+                        &mut tx,
+                        windmill_common::workspaces::DataTableCatalogResourceType::Instance,
+                        db_to_drop,
+                        Some((&w_id, dt_name)),
+                    )
+                    .await?;
+                    if !uses.is_empty() {
+                        return Err(Error::BadRequest(format!(
+                            "it is still used by {}",
+                            uses.join(", ")
+                        )));
+                    }
+                    windmill_common::drop_custom_instance_database(&db, db_to_drop).await?;
+                }
+                tx.commit().await?;
+                Ok::<_, Error>(())
+            }
+            .await;
             if let Err(e) = dropped {
                 errors.push(format!(
                     "Could not drop instance database '{}' for datatable://{}: {}",

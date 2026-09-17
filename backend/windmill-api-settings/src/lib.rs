@@ -1863,7 +1863,7 @@ async fn create_external_instance_pg_database(
     require_super_admin(&db, &authed).await?;
     let tag = body.tag.as_deref().unwrap_or("datatable");
     windmill_common::external_instance_pg::create_external_instance_database_unchecked(
-        &db, &dbname, tag,
+        &db, &dbname, tag, None,
     )
     .await?;
     windmill_audit::audit_oss::audit_log(
