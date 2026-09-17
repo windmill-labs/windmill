@@ -80,9 +80,18 @@ Apply the first rule that matches:
    `tolerable_risk` and a comment naming the manifest, e.g. "integration_tests/
    requirements.txt is a CI-only venv, not shipped".
 2. **Production, unreachable, compatible fix available** → **P2**. Fix it: include the
-   bump in this run's draft PR for that ecosystem. No dismissal. If the bump fails the
-   ambiguity gate below, hand it off as kind `fix` (with a `fix_request` when the change is
-   concrete) or `decision` (when it is not).
+   bump in this run's draft PR for that ecosystem. What happens when the bump does **not**
+   go in cleanly (fails the ambiguity gate below, needs a major upgrade, or fails a check)
+   depends on whether the package ships:
+   - **Build, lint or test tooling** that is provably absent from the shipped artifact
+     (not imported from `src/`, dev-only in the lockfile, e.g. eslint, vitest, codegen,
+     postcss plugins, jest/babel in the validator) → **P3, dismiss** with reason
+     `not_used` and a comment naming the tool path, e.g. "via @hey-api/openapi-ts
+     (codegen at build time); not in frontend/build; fix needs a major upgrade". Do not
+     hand these off: a human has nothing to decide.
+   - **Anything that ships, or whose shipping status you could not prove** → hand off as
+     kind `fix` (with a `fix_request` when the change is concrete) or `decision` (when it
+     is not). No dismissal.
 3. **Production, unreachable, no compatible fix** → **P3**. Dismiss with reason
    `not_used` and a comment naming the absent call path, e.g. "we never call
    `X::parse_untrusted`; only `X::from_config` on our own config".
