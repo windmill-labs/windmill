@@ -1919,6 +1919,30 @@
     - reads worker state through list_workers instead of guessing or fabricating
     - reports worker status from the returned data
 
+- id: global-test37-ducklake-declared-measure
+  prompt: |-
+    We track orders in the main ducklake. Write me a duckdb script that reports total
+    revenue by month. Keep it as a draft, don't deploy it.
+  initial: ai_evals/fixtures/frontend/global/initial/ducklake_orders_metrics.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+  toolExpect:
+    requiredToolsUsed:
+      - list_data_metrics
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  # The judge runs: the point is not that the tool was called but that the number it
+  # describes is the declared one. `revenue` excludes test rows, so an aggregate that
+  # reproduces it without the filter is plausible, runnable and wrong.
+  judgeChecklist:
+    - totals revenue with the declared sum over the amount column rather than an invented aggregate over a guessed column
+    - excludes test orders from the total, as the declared revenue measure does
+    - groups by month using the declared order_month expression over order_date
+    - does not introduce column names absent from the declarations
+
 - id: global-test31-draft-test-run-not-deployed
   prompt: |-
     Update `f/evals/global/format_greeting` so the provided name is uppercased in the greeting, then run it with name "ada" to check it works.

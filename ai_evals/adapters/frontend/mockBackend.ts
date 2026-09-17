@@ -11,6 +11,7 @@ import type {
 	Script
 } from '../../../frontend/src/lib/gen'
 import type {
+	DataMetric,
 	DataTableTables,
 	DataTableTableSchema,
 	EndpointTool,
@@ -110,6 +111,9 @@ export interface BenchmarkWorkspaceRunnables {
 	aiProviders?: BenchmarkWorkspaceAiProvider[]
 	resources?: BenchmarkWorkspaceResource[]
 	datatables?: BenchmarkDatatableSeed[]
+	/** DuckLake catalog names, as `list_ducklakes` reports them. */
+	ducklakes?: string[]
+	dataMetrics?: DataMetric[]
 	jobs?: BenchmarkWorkspaceJob[]
 }
 
@@ -640,6 +644,27 @@ export function listBenchmarkDatatables(workspace: string): DataTableTables[] | 
 			Object.entries(datatable.schemas).map(([schema, tables]) => [schema, Object.keys(tables)])
 		)
 	}))
+}
+
+// ============= DuckLake catalogs and declared metrics =============
+
+/** Seeded DuckLake names, or `null` for a non-benchmark workspace. */
+export function listBenchmarkDucklakes(workspace: string): string[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	return runnables ? (runnables.ducklakes ?? []) : null
+}
+
+/**
+ * Seeded metric declarations, or `null` for a non-benchmark workspace.
+ *
+ * The `table` / `path_prefix` filters are ignored: which rows a filter selects is
+ * `canonical_table_path`'s business and is pinned by `ducklakeTools.test.ts`.
+ * Re-deriving it here would give the eval its own copy of that spec to drift from,
+ * and the case this serves measures whether the model reaches for the tool at all.
+ */
+export function listBenchmarkDataMetrics(workspace: string): DataMetric[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	return runnables ? (runnables.dataMetrics ?? []) : null
 }
 
 export function getBenchmarkDatatableSchema(input: {
