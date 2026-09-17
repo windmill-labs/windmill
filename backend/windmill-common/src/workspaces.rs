@@ -1967,6 +1967,10 @@ pub fn strip_datatable_permissions(
 /// As [`parse_datatable_ref`], except that an entry whose stored name itself contains `?` — which
 /// names could before they were restricted — resolves by that exact name, without a role. It is
 /// looked up first, so `sales?role=x` never reaches a different entry than the one stored so.
+///
+/// Authorization: checks nothing, and its answer reveals whether `w_id` stores that exact name.
+/// Callers MUST already act for `w_id` — a job of it, or a caller authenticated into it — and
+/// MUST still pass the name to [`get_datatable_resource_from_db`] or an admin-access check.
 pub async fn parse_datatable_ref_for(
     db: &DB,
     w_id: &str,

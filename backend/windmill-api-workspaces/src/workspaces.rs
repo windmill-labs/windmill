@@ -8549,6 +8549,14 @@ async fn create_workspace_fork(
     .execute(&mut *tx)
     .await?;
 
+    // The pointers this fork writes to the parent's data tables stay invisible until it commits, so
+    // a rename of one of them cannot carry them. Holding the parent's settings row makes such a
+    // rename wait for this commit, and makes the copy below read one that committed first.
+    sqlx::query("SELECT 1 FROM workspace_settings WHERE workspace_id = $1 FOR SHARE")
+        .bind(&parent_workspace_id)
+        .execute(&mut *tx)
+        .await?;
+
     // Clone all data from the parent workspace using Rust implementation
     if let Err(e) =
         clone_workspace_data(&mut tx, &db, &parent_workspace_id, &forked_id, &authed).await
