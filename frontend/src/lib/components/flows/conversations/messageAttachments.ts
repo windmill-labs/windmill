@@ -1,13 +1,11 @@
 /** The files a user message carried, as the lanes its bubble renders: image thumbnails and file chips. */
-import type { ChatMessage } from 'windmill-chat'
+import type { ChatAttachment } from 'windmill-chat'
 import { base } from '$lib/base'
 import {
 	createAttachedFileContextElement,
 	type ContextElement
 } from '$lib/components/copilot/chat/context'
 import type { AttachedImage } from '$lib/components/copilot/chat/imageUtils'
-
-type ChatAttachment = NonNullable<ChatMessage['attachments']>[number]
 
 const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.avif']
 

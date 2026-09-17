@@ -15,6 +15,7 @@ export { followJob, type FollowEvent } from './follow'
 export { extractChatAnswer, conversationIdFor } from './utils'
 export type {
   Chat,
+  ChatAttachment,
   ChatMessage,
   ChatOptions,
   ChatRole,
