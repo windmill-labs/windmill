@@ -129,7 +129,9 @@ pub async fn external_instance_databases(db: &DB) -> Result<BTreeMap<String, Cus
     Ok(read_external_instance_pg_state(db).await?.databases)
 }
 
-/// The workspaces whose data tables or Ducklake catalogs name each database on the external cluster.
+/// The workspaces whose data tables or Ducklake catalogs name each database on the external cluster,
+/// and the forks whose Ducklake namespaces there are still waiting to be cleaned up: those rows
+/// outlive a settings change, and cleanup cannot drop a namespace in a database that is gone.
 ///
 /// Authorization: reads every workspace's settings and checks nothing. Callers MUST be superadmin
 /// or an internal lifecycle path.
@@ -155,7 +157,11 @@ pub async fn external_instance_database_usages<'c>(
                  ELSE '{}'::jsonb END
          ) AS dl(k, entry)
          WHERE entry->'catalog'->>'resource_type' = 'external_instance'
-           AND entry->'catalog'->>'resource_path' IS NOT NULL",
+           AND entry->'catalog'->>'resource_path' IS NOT NULL
+         UNION ALL
+         SELECT workspace_id, substring(catalog FROM length('external_instance:') + 1)
+         FROM fork_ducklake_namespace
+         WHERE catalog LIKE 'external\\_instance:%'",
     )
     .fetch_all(db)
     .await?;
