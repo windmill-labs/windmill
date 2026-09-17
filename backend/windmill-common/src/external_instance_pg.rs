@@ -41,6 +41,21 @@ pub struct ExternalInstancePgState {
     pub databases: BTreeMap<String, CustomInstanceDb>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_setup: Option<ExternalInstancePgSetupReport>,
+    /// The cluster ([`external_instance_pg_address`]) the last successful setup converged. Databases
+    /// are only created on a cluster setup succeeded on: the passwords above exist as soon as setup
+    /// first runs, whether or not the cluster accepted them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set_up_for: Option<String>,
+}
+
+/// What identifies the cluster a configuration points at. Other fields (admin login, sslmode) can
+/// change without it becoming another cluster.
+pub fn external_instance_pg_address(config: &ExternalInstancePg) -> String {
+    format!(
+        "{}:{}",
+        config.host.trim().to_lowercase(),
+        config.port.unwrap_or(5432)
+    )
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -125,6 +140,10 @@ pub async fn external_instance_pg_status(db: &DB) -> Result<ExternalInstancePgSt
 }
 
 /// The databases Windmill created on the external cluster, without the passwords kept beside them.
+///
+/// Authorization: names every database across all workspaces, and the workspace each fork copy is
+/// reserved for, and checks nothing. Callers MUST be superadmin or an internal authorization or
+/// lifecycle path that does not return the names to a workspace caller.
 pub async fn external_instance_databases(db: &DB) -> Result<BTreeMap<String, CustomInstanceDb>> {
     Ok(read_external_instance_pg_state(db).await?.databases)
 }
@@ -372,8 +391,7 @@ async fn ensure_external_instance_pg_not_repointed(
     let Ok(desired) = serde_json::from_value::<ExternalInstancePg>(value.clone()) else {
         return Ok(());
     };
-    let address = |c: &ExternalInstancePg| (c.host.trim().to_lowercase(), c.port.unwrap_or(5432));
-    if address(&current) == address(&desired) {
+    if external_instance_pg_address(&current) == external_instance_pg_address(&desired) {
         return Ok(());
     }
     let state = read_external_instance_pg_state(db).await?;
