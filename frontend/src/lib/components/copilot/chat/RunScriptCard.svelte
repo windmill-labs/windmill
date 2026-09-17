@@ -53,11 +53,6 @@
 	const inspectedJob = $derived(fetched?.jobId === inspected?.jobId ? fetched : undefined)
 
 	const inspectedStatus = $derived(inspectedJob ? deriveChatJobStatus(inspectedJob.job) : undefined)
-	// Only a completed job carries a result; a queued or running one has none, and reading
-	// it off that job is a type error rather than an undefined.
-	const inspectedCompleted = $derived(
-		inspectedJob && 'success' in inspectedJob.job ? (inspectedJob.job as CompletedJob) : undefined
-	)
 
 	const chatJob = $derived(
 		aiChatManager.backgroundJobs.find((j) => j.toolCallId === message.tool_call_id)
@@ -136,7 +131,12 @@
 	// pretty view buys. A string that happens to be JSON parses back as JSON, and the
 	// text it was stored as is one toggle away in the raw view.
 	const resultValue = $derived.by(() => {
-		if (inspected) return inspectedCompleted?.result
+		// Only a completed job carries a result; a queued or running one has none, and reading
+		// it off that job is a type error rather than an undefined.
+		if (inspected)
+			return inspectedJob && 'success' in inspectedJob.job
+				? (inspectedJob.job as CompletedJob).result
+				: undefined
 		if (message.result === undefined) return undefined
 		if (typeof message.result !== 'string') return message.result
 		try {
@@ -145,11 +145,6 @@
 			return message.result
 		}
 	})
-	// A run the chat started reports its failure on the tool call; an inspected one carries
-	// it as its result, which the outcome pane renders the way the run page does. `failed`
-	// excludes a cancellation, which also leaves an error here but owns its own pane.
-	const errorText = $derived(!inspected && failed ? message.error : undefined)
-
 	// The row is the card's whole heading, in the tense the call is in: a run cancelled
 	// before it started never ran, so it is still the thing that was going to be run. A
 	// test says so, since what it ran is the draft rather than what is deployed.
@@ -595,10 +590,14 @@
 											streaming
 										</div>
 									{/if}
-								{:else if errorText}
+									<!-- A run the chat started reports its failure on the tool call; an inspected one
+					     carries it as its result, which the pane below renders the way the run page
+					     does. `failed` excludes a cancellation, which also leaves an error on the
+					     message but owns its own pane. -->
+								{:else if !inspected && failed}
 									<pre
 										class="whitespace-pre-wrap break-words font-mono text-2xs text-red-700 dark:text-red-300"
-										>{errorText}</pre
+										>{message.error}</pre
 									>
 								{:else if streaming}
 									<!-- The same renderer as a landed result, handed the partial: it is the one that
