@@ -103,6 +103,8 @@
 	import DeployButton from './DeployButton.svelte'
 	import { type Trigger, deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
 	import DraftChangesConfirmationModal from './common/confirmationModal/DraftChangesConfirmationModal.svelte'
+	import PerpetualRunsDeployModal from './scripts/PerpetualRunsDeployModal.svelte'
+	import { loadPerpetualRunsAtPath, type PerpetualRunsAtPath } from './scripts/perpetualRuns'
 	import { Triggers } from './triggers/triggers.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
@@ -274,6 +276,9 @@
 	// Draft triggers confirmation modal
 	let draftTriggersModalOpen = $state(false)
 	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
+
+	let perpetualRunsToConfirm: PerpetualRunsAtPath | undefined = $state(undefined)
+	let confirmPerpetualRunsCallback: (applyToPerpetualRuns: boolean) => void = () => {}
 
 	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
 		const { selectedTriggers } = event.detail
@@ -630,7 +635,8 @@
 		stay: boolean,
 		parentHash: string,
 		deploymentMsg?: string,
-		triggersToDeploy?: Trigger[]
+		triggersToDeploy?: Trigger[],
+		applyToPerpetualRuns?: boolean
 	): Promise<void> {
 		if (!triggersToDeploy) {
 			// Check if there are draft triggers that need confirmation
@@ -638,8 +644,34 @@
 			if (draftTriggers.length > 0) {
 				draftTriggersModalOpen = true
 				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
-					await editScript(stay, parentHash, deploymentMsg, triggersToDeploy)
+					await editScript(stay, parentHash, deploymentMsg, triggersToDeploy, applyToPerpetualRuns)
 				}
+				return
+			}
+		}
+
+		// Runs move only to a newer version at their own path, so a deploy that renames the script
+		// has nothing to offer them.
+		if (
+			applyToPerpetualRuns === undefined &&
+			script.restart_unless_cancelled &&
+			initialPath &&
+			script.path === initialPath
+		) {
+			loadingSave = true
+			const runs = await loadPerpetualRunsAtPath(opWorkspace!, initialPath, script.schema).catch(
+				(error) => {
+					console.error('Could not list the runs of this perpetual script', error)
+					return undefined
+				}
+			)
+			loadingSave = false
+			if (runs) {
+				confirmPerpetualRunsCallback = (applyToPerpetualRuns: boolean) => {
+					perpetualRunsToConfirm = undefined
+					editScript(stay, parentHash, deploymentMsg, triggersToDeploy, applyToPerpetualRuns)
+				}
+				perpetualRunsToConfirm = runs
 				return
 			}
 		}
@@ -672,6 +704,7 @@
 
 			const newHash = await ScriptService.createScript({
 				workspace: opWorkspace!,
+				applyToPerpetualRuns: applyToPerpetualRuns || undefined,
 				requestBody: {
 					path: script.path,
 					summary: script.summary,
@@ -1156,6 +1189,12 @@
 		draftTriggersModalOpen = false
 	}}
 	on:confirmed={handleDraftTriggersConfirmed}
+/>
+
+<PerpetualRunsDeployModal
+	runs={perpetualRunsToConfirm}
+	onConfirmed={(applyToPerpetualRuns) => confirmPerpetualRunsCallback(applyToPerpetualRuns)}
+	onCanceled={() => (perpetualRunsToConfirm = undefined)}
 />
 
 {#if !$userStore?.operator}

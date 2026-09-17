@@ -1611,6 +1611,20 @@ async fn restart_job_if_perpetual_inner(
     };
 
     if restart {
+        let next = match perpetual_version_switch(db, queued_job, hash).await {
+            Ok(PerpetualVersionSwitch::Stay) => {
+                PerpetualNextRun::same_version(queued_job, hash, script_timeout)
+            }
+            Ok(PerpetualVersionSwitch::End) => return Ok(()),
+            Ok(PerpetualVersionSwitch::To(next)) => next,
+            Err(e) => {
+                tracing::error!(
+                    "Could not look up a newer version for perpetual script {:?}, restarting it on the version that just ran: {e:#}",
+                    queued_job.runnable_path
+                );
+                PerpetualNextRun::same_version(queued_job, hash, script_timeout)
+            }
+        };
         let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
         // perpetual jobs can run one job per 10s max. If the job was faster than 10s, schedule the next one with the appropriate delay
@@ -1642,16 +1656,13 @@ async fn restart_job_if_perpetual_inner(
             tx,
             &queued_job.workspace_id,
             JobPayload::ScriptHash {
-                hash,
+                hash: next.hash,
                 path: queued_job.runnable_path.clone().unwrap_or_default(),
-                cache_ttl: queued_job.cache_ttl,
-                cache_ignore_s3_path: queued_job.cache_ignore_s3_path,
-                dedicated_worker: None,
-                language: queued_job
-                    .script_lang
-                    .clone()
-                    .unwrap_or_else(|| ScriptLang::Deno),
-                priority: queued_job.priority,
+                cache_ttl: next.cache_ttl,
+                cache_ignore_s3_path: next.cache_ignore_s3_path,
+                dedicated_worker: next.dedicated_worker,
+                language: next.language,
+                priority: next.priority,
                 apply_preprocessor: false,
                 concurrency_settings: ConcurrencySettings {
                     concurrency_key: custom_concurrency_key(db, &queued_job.id).await?,
@@ -1664,8 +1675,8 @@ async fn restart_job_if_perpetual_inner(
             },
             PushArgs::from(&args.0),
             &queued_job.created_by,
-            &queued_job.permissioned_as_email,
-            queued_job.permissioned_as.clone(),
+            &next.email,
+            next.permissioned_as,
             Some(&format!("add.completed.job{}", queued_job.id)),
             None,
             scheduled_for,
@@ -1678,10 +1689,10 @@ async fn restart_job_if_perpetual_inner(
             false,
             None,
             true,
-            Some(queued_job.tag.clone()),
-            script_timeout,
+            next.tag,
+            next.timeout,
             None,
-            queued_job.priority,
+            next.priority,
             None,
             false,
             None,
@@ -1692,6 +1703,126 @@ async fn restart_job_if_perpetual_inner(
         tx.commit().await?;
     }
     Ok(())
+}
+
+/// The version the next run of a perpetual loop executes, with that version's settings.
+struct PerpetualNextRun {
+    hash: ScriptHash,
+    language: ScriptLang,
+    tag: Option<String>,
+    timeout: Option<i32>,
+    dedicated_worker: Option<bool>,
+    cache_ttl: Option<i32>,
+    cache_ignore_s3_path: Option<bool>,
+    priority: Option<i16>,
+    email: String,
+    permissioned_as: String,
+}
+
+impl PerpetualNextRun {
+    fn same_version(queued_job: &MiniCompletedJob, hash: ScriptHash, timeout: Option<i32>) -> Self {
+        Self {
+            hash,
+            language: queued_job.script_lang.clone().unwrap_or(ScriptLang::Deno),
+            tag: Some(queued_job.tag.clone()),
+            timeout,
+            dedicated_worker: None,
+            cache_ttl: queued_job.cache_ttl,
+            cache_ignore_s3_path: queued_job.cache_ignore_s3_path,
+            priority: queued_job.priority,
+            email: queued_job.permissioned_as_email.clone(),
+            permissioned_as: queued_job.permissioned_as.clone(),
+        }
+    }
+}
+
+enum PerpetualVersionSwitch {
+    /// Restart on the version that just ran.
+    Stay,
+    /// The version to move to is not perpetual, so the run that just finished was the last.
+    End,
+    To(PerpetualNextRun),
+}
+
+/// A perpetual loop moves to the newest version at its path only when that version was deployed
+/// with `apply_to_perpetual_runs`.
+async fn perpetual_version_switch(
+    db: &Pool<Postgres>,
+    queued_job: &MiniCompletedJob,
+    hash: ScriptHash,
+) -> Result<PerpetualVersionSwitch, Error> {
+    let Some(path) = queued_job.runnable_path.as_deref() else {
+        return Ok(PerpetualVersionSwitch::Stay);
+    };
+    let w_id = &queued_job.workspace_id;
+    // Selects the row `get_latest_hash_for_path` does with `require_locked`. That function also
+    // resolves the version's on-behalf-of identity, and a failure there must not break a loop
+    // that is not moving.
+    let latest = sqlx::query!(
+        "SELECT hash, apply_to_perpetual_runs, restart_unless_cancelled, timeout, tag, \
+         language AS \"language: ScriptLang\", dedicated_worker, cache_ttl, cache_ignore_s3_path, \
+         priority, on_behalf_of FROM script \
+         WHERE path = $1 AND workspace_id = $2 AND archived = false AND lock IS NOT NULL \
+         ORDER BY created_at DESC LIMIT 1",
+        path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    let Some(latest) =
+        latest.filter(|l| l.hash != hash.0 && l.apply_to_perpetual_runs == Some(true))
+    else {
+        return Ok(PerpetualVersionSwitch::Stay);
+    };
+    if !latest.restart_unless_cancelled.unwrap_or(false) {
+        return Ok(PerpetualVersionSwitch::End);
+    }
+    let (email, permissioned_as) = match windmill_common::on_behalf_of_from_permissioned_as(
+        latest.on_behalf_of.as_deref(),
+        w_id,
+        db,
+    )
+    .await?
+    {
+        Some(obo) => (obo.email, obo.permissioned_as),
+        None => {
+            // A run of a version with an on-behalf-of identity is permissioned as that identity,
+            // not as whoever started the loop. Carrying it over would run a version that no
+            // longer names it with its authority.
+            let ran_on_behalf_of = sqlx::query_scalar!(
+                "SELECT on_behalf_of IS NOT NULL AS \"ran_on_behalf_of!\" FROM script \
+                 WHERE hash = $1 AND workspace_id = $2",
+                hash.0,
+                w_id
+            )
+            .fetch_optional(db)
+            .await?
+            .unwrap_or(true);
+            if ran_on_behalf_of {
+                tracing::warn!(
+                    "Perpetual script {path} stays on version {hash}: it runs on behalf of an identity that version {} no longer names",
+                    ScriptHash(latest.hash)
+                );
+                return Ok(PerpetualVersionSwitch::Stay);
+            }
+            (
+                queued_job.permissioned_as_email.clone(),
+                queued_job.permissioned_as.clone(),
+            )
+        }
+    };
+    Ok(PerpetualVersionSwitch::To(PerpetualNextRun {
+        hash: ScriptHash(latest.hash),
+        language: latest.language,
+        tag: latest.tag,
+        timeout: latest.timeout,
+        dedicated_worker: latest.dedicated_worker,
+        cache_ttl: latest.cache_ttl,
+        cache_ignore_s3_path: latest.cache_ignore_s3_path,
+        priority: latest.priority,
+        email,
+        permissioned_as,
+    }))
 }
 
 /// Marks the failures a succeeding native retry attempt superseded as resolved, so
