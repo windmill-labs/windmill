@@ -1689,7 +1689,15 @@ async fn list_custom_instance_pg_databases(
             ))
         })?;
 
-    if windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
+    if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
+        // Which workspace reserved a fork copy is nobody else's business: it would enumerate every
+        // pending fork on the instance.
+        for entry in result.values_mut() {
+            entry.workspace_id = None;
+        }
+        return Ok(Json(result));
+    }
+    {
         // Enrich each database with the list of workspaces referencing it through
         // either a ducklake catalog or a datatable database whose resource_type is
         // 'instance'. Not stored in DB to avoid drift.
