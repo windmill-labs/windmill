@@ -8328,6 +8328,13 @@ async fn apply_forked_datatable(
         })?,
     };
 
+    if database.resource_type == DataTableCatalogResourceType::ExternalInstance {
+        windmill_common::external_instance_pg::ensure_external_instance_database_registered(
+            tx,
+            &fdt.new_dbname,
+        )
+        .await?;
+    }
     if database.resource_type.is_windmill_managed() {
         // The whole `database` object, not just its `resource_path`: a pointer entry has none to
         // patch. `reference` goes with it — exactly one of the two may be set. The copy was created
