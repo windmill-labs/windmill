@@ -130,6 +130,9 @@ pub async fn external_instance_databases(db: &DB) -> Result<BTreeMap<String, Cus
 }
 
 /// The workspaces whose data tables name each database on the external cluster.
+///
+/// Authorization: reads every workspace's settings and checks nothing. Callers MUST be superadmin
+/// or an internal lifecycle path.
 pub async fn external_instance_database_usages<'c>(
     db: impl sqlx::PgExecutor<'c>,
 ) -> Result<BTreeMap<String, BTreeSet<String>>> {
