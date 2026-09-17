@@ -3372,7 +3372,7 @@ fn apply_pg_tls_env(
                 cmd.env("PGSSLROOTCERT", "system");
             }
             Some("verify-ca") => {
-                if let Some(bundle) = system_ca_bundle() {
+                if let Some(bundle) = windmill_common::system_ca_bundle() {
                     cmd.env("PGSSLROOTCERT", bundle);
                 }
             }
@@ -3382,21 +3382,6 @@ fn apply_pg_tls_env(
     Ok(None)
 }
 
-fn system_ca_bundle() -> Option<std::path::PathBuf> {
-    std::env::var_os("SSL_CERT_FILE")
-        .map(std::path::PathBuf::from)
-        .into_iter()
-        .chain(
-            [
-                "/etc/ssl/certs/ca-certificates.crt",
-                "/etc/pki/tls/certs/ca-bundle.crt",
-                "/etc/ssl/cert.pem",
-                "/etc/ssl/ca-bundle.pem",
-            ]
-            .map(std::path::PathBuf::from),
-        )
-        .find(|path| path.is_file())
-}
 
 #[cfg(test)]
 mod pg_tls_env_tests {
