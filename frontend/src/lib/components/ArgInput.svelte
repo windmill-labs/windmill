@@ -209,6 +209,15 @@
 	let tagKey = $derived(
 		oneOf?.find((o) => Object.keys(o.properties ?? {})?.includes('kind')) ? 'kind' : 'label'
 	)
+	// `oneOfSelected` is resynced in an effect, one pass after the variants or the value change. A
+	// variant that just left the list while the selection still names it, as when a value moves
+	// off a legacy kind the list offered only for it, would render the nested form against nothing
+	// for that pass and let it rewrite the value. The value's own tag settles it at once.
+	let effectiveOneOfSelected = $derived.by(() => {
+		if (oneOf?.some((o) => o.title === oneOfSelected)) return oneOfSelected
+		const tag = value?.[tagKey]
+		return oneOf?.some((o) => o.title === tag) ? tag : oneOfSelected
+	})
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
 		if (
 			oneOf &&
@@ -1112,7 +1121,7 @@
 					{/if}
 					{#if oneOf && oneOf.length >= 2}
 						<ToggleButtonGroup
-							selected={oneOfSelected}
+							selected={effectiveOneOfSelected}
 							wrap
 							class="mb-4"
 							disabled={disabled || oneOfLockedReason !== undefined}
@@ -1151,8 +1160,8 @@
 								{/each}
 							{/snippet}
 						</ToggleButtonGroup>
-						{#if oneOfSelected}
-							{@const objIdx = oneOf.findIndex((o) => o.title === oneOfSelected)}
+						{#if effectiveOneOfSelected}
+							{@const objIdx = oneOf.findIndex((o) => o.title === effectiveOneOfSelected)}
 							{@const obj = oneOf[objIdx]}
 							{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
 								{#key redraw}
@@ -1167,10 +1176,10 @@
 											{workspace}
 											bind:schema={
 												() => ({
-													properties: obj.properties ?? {},
-													order: obj.order,
+													properties: obj?.properties ?? {},
+													order: obj?.order,
 													$schema: '',
-													required: obj.required ?? [],
+													required: obj?.required ?? [],
 													type: 'object'
 												}),
 												() => {
@@ -1204,16 +1213,16 @@
 											{workspace}
 											hiddenArgs={['label', 'kind']}
 											schema={{
-												properties: obj.properties,
-												order: obj.order,
+												properties: obj?.properties ?? {},
+												order: obj?.order,
 												$schema: '',
-												required: obj.required ?? [],
+												required: obj?.required ?? [],
 												type: 'object'
 											}}
 											bind:args={
 												() => value,
 												(v) => {
-													value = { ...v, [tagKey]: oneOfSelected }
+													value = { ...v, [tagKey]: effectiveOneOfSelected }
 												}
 											}
 											{shouldDispatchChanges}
