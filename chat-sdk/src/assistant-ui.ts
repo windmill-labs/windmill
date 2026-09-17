@@ -53,7 +53,8 @@ export function useWindmillRuntime(options: WindmillRuntimeOptions): AssistantRu
             threads: chat.conversations.map((c) => ({ status: 'regular' as const, id: c.id, title: c.title })),
             onSwitchToNewThread: () => chat.newConversation(),
             onSwitchToThread: (id) => chat.selectConversation(id),
-            onDelete: (id) => chat.deleteConversation(id)
+            onDelete: (id) => chat.deleteConversation(id),
+            onRename: (id, title) => chat.renameConversation(id, title)
           }
         }
       : undefined

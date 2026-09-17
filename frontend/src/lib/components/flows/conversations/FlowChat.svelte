@@ -38,6 +38,13 @@
 		description?: string
 		wideLayout?: boolean
 		frame?: ChatFrame
+		/**
+		 * What this surface's own runs are: the editor runs previews and lists its test
+		 * chats, the flow page runs the deployed flow and lists only its users' chats.
+		 * The sidebar offers the kind filter everywhere but on the deployed flow, whose
+		 * users have no test chats to look at.
+		 */
+		conversationKind?: 'test' | 'deployed'
 	}
 
 	let {
@@ -50,7 +57,8 @@
 		flowModules = undefined,
 		description = undefined,
 		wideLayout = false,
-		frame = 'top'
+		frame = 'top',
+		conversationKind = 'deployed'
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
@@ -119,7 +127,13 @@
 <div class="flex overflow-hidden flex-1 {FRAME_CLASS[frame]}">
 	{#if chat && chatState}
 		{#if !hideSidebar}
-			<FlowConversationsSidebar bind:this={sidebar} {chat} {chatState} />
+			<FlowConversationsSidebar
+				bind:this={sidebar}
+				{chat}
+				{chatState}
+				defaultKind={conversationKind}
+				canFilterKind={conversationKind !== 'deployed'}
+			/>
 		{/if}
 		<!-- pb-3 on the chat alone, not on the row: the transcript and composer stop short of
 		     the panel edge the way the session chat does, while the sidebar and the border
@@ -138,6 +152,7 @@
 					{workspace}
 					{description}
 					{wideLayout}
+					{conversationKind}
 				/>
 			{/key}
 		</div>

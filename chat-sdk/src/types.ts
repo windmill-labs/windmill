@@ -56,6 +56,11 @@ export interface Conversation {
   title: string | undefined
   createdAt: string
   updatedAt: string
+  /**
+   * Started from the flow editor's test panel rather than a deployed run. Known once the
+   * server has listed the conversation; unset for one only this client has seen.
+   */
+  isTest?: boolean
 }
 
 export interface ChatState {
@@ -132,8 +137,18 @@ export interface Chat {
   stop(): Promise<void>
   newConversation(): void
   selectConversation(conversationId: string): Promise<void>
-  loadConversations(options?: { page?: number; perPage?: number }): Promise<Conversation[]>
+  /**
+   * `kind` narrows server history to the flow editor's test chats, the deployed flow's
+   * own (the server's default), or both. Local history has no test chats and ignores it.
+   */
+  loadConversations(options?: {
+    page?: number
+    perPage?: number
+    kind?: 'test' | 'deployed' | 'all'
+  }): Promise<Conversation[]>
   deleteConversation(conversationId: string): Promise<void>
+  /** Sets a conversation's title. The list keeps its order: only a turn moves a conversation. */
+  renameConversation(conversationId: string, title: string): Promise<void>
   loadOlderMessages(): Promise<void>
   /**
    * Points later runs and conversation listings at another flow path, for a flow that was

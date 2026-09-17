@@ -470,7 +470,7 @@
 							)
 							return jobId ?? ''
 						}}
-						hideSidebar={true}
+						conversationKind="test"
 						frame="boxed"
 						path={$pathStore}
 						identity={$initialPathStore || fakeInitialPath}

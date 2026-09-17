@@ -850,7 +850,7 @@
 							onRunFlow={runFlowWithMessage}
 							path={$pathStore}
 							identity={$initialPathStore || fakeInitialPath}
-							hideSidebar={true}
+							conversationKind="test"
 							inputSchema={flowStore.val.schema}
 							flowModules={flowStore.val.value?.modules}
 						/>
