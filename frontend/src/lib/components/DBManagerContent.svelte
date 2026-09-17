@@ -302,6 +302,7 @@
 				{/if}
 			</div>
 			<DbManager
+				databaseKey={schemaCacheKey(ws, _input)}
 				dbSupportsSchemas={dbSupportsSchemas(dbType)}
 				databaseIsEmpty={!loadError &&
 					!Object.values(shownSchema.schema).flatMap((s) => Object.values(s)).length}

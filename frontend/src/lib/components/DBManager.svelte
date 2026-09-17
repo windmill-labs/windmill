@@ -77,6 +77,11 @@
 	export type DbManagerViewMode = 'data' | 'diagram'
 
 	type Props = {
+		/** Identifies the database this is connected to, stable across reloads of
+		 * it. A string rather than one of the objects read from it: those are
+		 * replaced as the manager re-reads, which says nothing about the database
+		 * having changed. */
+		databaseKey?: string
 		dbType: DbType
 		dbSchema: DBSchema
 		dbSupportsSchemas: boolean
@@ -124,6 +129,7 @@
 		onImport?: (mode: 'schema_and_data' | 'schema_only') => void
 	}
 	let {
+		databaseKey,
 		dbType,
 		dbSchema,
 		dbTableOpsFactory,
@@ -670,26 +676,39 @@
 	})
 
 	// Fetched once for the whole database rather than per table: the diagram needs
-	// every relation at once, and the per-table query would be one job each.
+	// every relation at once, and the per-table query would be one job each. The
+	// result carries the database it was read from, and the metadata it was read
+	// beside — which is what the cards are built from.
 	let relationsError = $state<string | undefined>(undefined)
-	// Re-read only when the schema itself was reloaded, which is what a new
-	// `colDefs` identity means. Toggling back to the diagram must not queue the
-	// query again.
-	let relationsFetchedFor: Record<string, ColumnDef[]> | undefined
 	let relations = resource(
-		[() => viewMode, () => colDefs],
-		async ([mode, defs], _prev, { data }): Promise<DbRelation[]> => {
-			if (mode !== 'diagram' || (data && relationsFetchedFor === defs)) return data ?? []
+		[() => viewMode, () => databaseKey, () => colDefs],
+		async ([mode, key, defs], _prev, { data, signal }) => {
+			// Re-read only when the database itself was reloaded: toggling back to
+			// the diagram must not queue the query again.
+			if (mode !== 'diagram' || (data?.databaseKey === key && data?.defs === defs)) return data
 			relationsError = undefined
+			let read: DbRelation[] = []
+			let error: string | undefined
 			try {
-				const fetched = await dbSchemaOps.onFetchAllForeignKeys()
-				relationsFetchedFor = defs
-				return fetched
+				read = await dbSchemaOps.onFetchAllForeignKeys()
 			} catch (e) {
-				relationsError = (e as any)?.body ?? (e as Error)?.message ?? String(e)
-				return []
+				error = (e as any)?.body ?? (e as Error)?.message ?? String(e)
 			}
+			// The manager is not remounted on every database change and a queued job
+			// cannot be recalled, so a slow read can land after the next database's.
+			// An AbortError keeps it out of `current`, where it would decorate that
+			// database's tables with this one's relations.
+			if (signal.aborted) throw new DOMException('Superseded', 'AbortError')
+			relationsError = error
+			return { databaseKey: key, defs, relations: read }
 		}
+	)
+	// Relations are shown only alongside the database they were read from, so a
+	// result that is merely not superseded yet cannot decorate another one.
+	let currentRelations = $derived(
+		relations.current?.databaseKey === databaseKey && relations.current?.defs === colDefs
+			? relations.current.relations
+			: []
 	)
 
 	// Opening the diagram on an empty canvas would make it look broken, so the
@@ -1126,7 +1145,7 @@
 				{dbSchema}
 				{colDefs}
 				selectedTables={diagramTables}
-				relations={relations.current ?? []}
+				relations={currentRelations}
 				loading={relations.loading}
 				error={relationsError}
 				onOpenTable={({ schema, table }) => {
