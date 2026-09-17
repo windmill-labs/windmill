@@ -64,7 +64,10 @@ export class JobBackedStore<T> {
 			return
 		}
 		try {
-			this.#byJob = { ...this.#byJob, [jobId]: await this.#load(workspace, jobId) }
+			// Awaited before the spread: reads run in parallel, and a copy of the cache taken
+			// before the await would drop whatever another read stored meanwhile.
+			const loaded = await this.#load(workspace, jobId)
+			this.#byJob = { ...this.#byJob, [jobId]: loaded }
 		} catch {
 			// A purged job, or one this user cannot read: the row keeps what it stored.
 			this.#byJob = { ...this.#byJob, [jobId]: this.#empty }
