@@ -3437,8 +3437,13 @@ async fn create_pg_database(
     }
 
     if is_instance_datatable_source(&db, &w_id, &req.source).await? {
-        windmill_common::create_custom_instance_database(&db, &req.target_dbname, "datatable")
-            .await?;
+        windmill_common::create_custom_instance_database(
+            &db,
+            &req.target_dbname,
+            "datatable",
+            Some(&w_id),
+        )
+        .await?;
     } else {
         let source_pg =
             resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
@@ -3591,6 +3596,10 @@ async fn import_pg_database(
                     "Non-superadmin users can only override target dbname with names starting with 'wm_fork_'"
                         .to_string(),
                 ));
+            }
+            if is_instance_datatable_source(&db, &w_id, &req.target).await? {
+                windmill_common::ensure_fork_database_available_to(&db, override_dbname, &w_id)
+                    .await?;
             }
         }
         target_pg.dbname = override_dbname.clone();
@@ -8030,6 +8039,7 @@ async fn point_kept_datatables_at_parent(
     forked_w_id: &str,
     cloned: &[ForkedDatatableInfo],
 ) -> Result<()> {
+    windmill_common::workspaces::lock_fork_datatables(tx, parent_w_id).await?;
     let settings: Option<serde_json::Value> = sqlx::query_scalar!(
         "SELECT datatable FROM workspace_settings WHERE workspace_id = $1",
         forked_w_id
@@ -8198,6 +8208,12 @@ async fn apply_forked_datatable(
         })?,
     };
 
+    if database.resource_type == DataTableCatalogResourceType::Instance
+        && !windmill_api_auth::is_super_admin_authed(db, authed).await?
+    {
+        windmill_common::ensure_fork_database_available_to(db, &fdt.new_dbname, parent_w_id)
+            .await?;
+    }
     if database.resource_type == DataTableCatalogResourceType::Instance {
         // The whole `database` object, not just its `resource_path`: a pointer entry has none to
         // patch. `reference` goes with it — exactly one of the two may be set.
