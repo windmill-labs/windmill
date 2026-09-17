@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by, title, is_test)\n         VALUES ($1, $2, $3, $4, $5, $6)\n         RETURNING id, workspace_id, flow_path, title, created_at, updated_at, created_by, is_test",
+  "query": "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by, is_test\n         FROM flow_conversation\n         WHERE id = $1 AND workspace_id = $2\n         FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -47,11 +47,7 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Bool"
+        "Text"
       ]
     },
     "nullable": [
@@ -65,5 +61,5 @@
       false
     ]
   },
-  "hash": "79776c1a15e41edecb1a3cf749ff7e6c10efc85dc73473470078ad28f4c7cee1"
+  "hash": "dd84f9dfb238d18cb74f9e43228345427131bf8008eba6920021d6a449791534"
 }
