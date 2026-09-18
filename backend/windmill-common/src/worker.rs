@@ -775,6 +775,19 @@ pub fn make_pull_query(tags: &[String]) -> String {
     query
 }
 
+/// Claim a parent's tool jobs without tag filtering. The caller must supply only child IDs
+/// it owns; this query is an internal scheduling primitive and does not authorize job access.
+pub fn make_tool_job_pull_query(job_ids: &[uuid::Uuid]) -> String {
+    // pull() binds only the worker name. These literals come from typed UUIDs, never input SQL.
+    let ids = job_ids.iter().map(|id| format!("'{id}'::uuid")).join(", ");
+    format_pull_query(format!(
+        "SELECT id FROM v2_job_queue
+        WHERE running = false AND id = ANY(ARRAY[{ids}]::uuid[]) AND scheduled_for <= now()
+        ORDER BY priority DESC NULLS LAST, scheduled_for
+        FOR UPDATE SKIP LOCKED LIMIT 1"
+    ))
+}
+
 // Variant of `make_pull_query` that additionally excludes jobs whose workspace_id is in the
 // overloaded-list bind parameter ($2::text[]). Built as a separate string (rather than reusing
 // `make_pull_query` with an always-bound array) so the planner can keep using the same indexes

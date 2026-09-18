@@ -4399,6 +4399,45 @@ pub fn has_active_concurrency_limit(concurrent_limit: Option<i32>) -> bool {
     concurrent_limit.is_some_and(|n| n > 0)
 }
 
+/// Admit a job already owned by a worker without releasing its queue reservation.
+/// The caller must maintain its heartbeat while waiting and complete it on failure.
+pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<bool> {
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    {
+        let settings = windmill_common::runnable_settings::prefetch_cached_from_handle(
+            job.runnable_settings_handle,
+            db,
+        )
+        .await?
+        .1
+        .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s);
+        if has_active_concurrency_limit(settings.concurrent_limit)
+            && !*DISABLE_CONCURRENCY_LIMIT
+            && job.canceled_by.is_none()
+        {
+            let key = concurrency_key(db, &job.id).await?.ok_or_else(|| {
+                Error::internal_err(format!("No concurrency key found for job {}", job.id))
+            })?;
+            if !key.is_empty() {
+                return Ok(crate::jobs_ee::update_concurrency_counter(
+                    db,
+                    &job.id,
+                    key,
+                    serde_json::json!({ job.id.to_string(): {} }),
+                    job.id.to_string(),
+                    settings.concurrency_time_window_s.unwrap_or(0),
+                    settings.concurrent_limit.unwrap_or_default(),
+                )
+                .await?
+                .0);
+            }
+        }
+    }
+    #[cfg(not(all(feature = "private", feature = "enterprise")))]
+    let _ = (db, job);
+    Ok(true)
+}
+
 pub async fn custom_concurrency_key(
     db: &Pool<Postgres>,
     job_id: &Uuid,

@@ -4973,6 +4973,7 @@ pub async fn handle_queued_job(
                         hostname,
                         killpill_rx,
                         &mut has_stream,
+                        job_completed_tx.clone(),
                     ))
                     .await
                 }
