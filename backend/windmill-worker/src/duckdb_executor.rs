@@ -1475,6 +1475,7 @@ pub async fn do_duckdb(
                             &job.id,
                             client,
                             &mut hidden_passwords,
+                            job_dir,
                         )
                         .await?,
                     );
@@ -1490,12 +1491,13 @@ pub async fn do_duckdb(
                     &mut hidden_passwords,
                     &job.workspace_id,
                     materialize.as_ref().map(|(_, m)| m.asset_path.as_str()),
+                    job_dir,
                 )
                 .await?
                 {
                     probe_blocks.extend(q);
                 } else if let Some(q) =
-                    transform_attach_datatable(&query_block, conn, &mut hidden_passwords, job)
+                    transform_attach_datatable(&query_block, conn, &mut hidden_passwords, job, job_dir)
                         .await?
                 {
                     probe_blocks.extend(q);
@@ -1552,6 +1554,7 @@ pub async fn do_duckdb(
                             &job.id,
                             client,
                             &mut hidden_passwords,
+                            job_dir,
                         )
                         .await?,
                     );
@@ -1567,12 +1570,13 @@ pub async fn do_duckdb(
                     &mut hidden_passwords,
                     &job.workspace_id,
                     materialize.as_ref().map(|(_, m)| m.asset_path.as_str()),
+                    job_dir,
                 )
                 .await?
                 {
                     v.extend(ducklake_query);
                 } else if let Some(datatable_query) =
-                    transform_attach_datatable(&query_block, conn, &mut hidden_passwords, job)
+                    transform_attach_datatable(&query_block, conn, &mut hidden_passwords, job, job_dir)
                         .await?
                 {
                     v.extend(datatable_query);
@@ -2246,10 +2250,16 @@ fn parse_attach_db_resource<'a>(query: &'a str) -> Option<ParsedAttachDbResource
 /// A connection that explicitly refuses invalid certificates — the external instance cluster's —
 /// keeps its mode instead: under `require` its shared password would go to whichever server
 /// answers. DuckDB's libpq takes one root file, so it gets the system bundle plus the configured
-/// certificate.
-fn pg_attach_verification(res: &PgDatabase) -> Result<Option<(&str, std::path::PathBuf)>> {
+/// certificate, written in the job directory: a resource's certificate is workspace-controlled, so
+/// a file per distinct one has to go with the job rather than pile up on the worker.
+fn pg_attach_verification<'a>(
+    res: &'a PgDatabase,
+    job_dir: &str,
+) -> Result<Option<(&'a str, std::path::PathBuf)>> {
     let mode = match res.sslmode.as_deref() {
-        Some(mode @ ("verify-ca" | "verify-full")) if res.accept_invalid_certs == Some(false) => mode,
+        Some(mode @ ("verify-ca" | "verify-full")) if res.accept_invalid_certs == Some(false) => {
+            mode
+        }
         _ => return Ok(None),
     };
     let bundle = windmill_common::system_ca_bundle()
@@ -2265,58 +2275,20 @@ fn pg_attach_verification(res: &PgDatabase) -> Result<Option<(&str, std::path::P
     }
     let roots = format!("{bundle}\n{pem}\n");
     use sha2::Digest;
-    let dir = std::env::temp_dir().join("windmill-pg-roots");
-    let path = dir.join(format!(
-        "{}.pem",
+    let path = std::path::Path::new(job_dir).join(format!(
+        "pg_roots_{}.pem",
         hex::encode(&sha2::Sha256::digest(roots.as_bytes())[..8])
     ));
-    let write_err = |e: std::io::Error| {
-        Error::ExecutionErr(format!("Failed to write root certificates: {e}"))
-    };
-    if path.is_file() {
-        // Marks it recently used, so pruning takes the others first.
-        let _ = std::fs::File::options()
-            .append(true)
-            .open(&path)
-            .and_then(|f| f.set_modified(std::time::SystemTime::now()));
-    } else {
-        std::fs::create_dir_all(&dir).map_err(write_err)?;
-        // Renamed into place: a job attaching concurrently must never read a half-written file.
-        let partial = path.with_extension(format!("{}.partial", Uuid::new_v4()));
-        std::fs::write(&partial, &roots)
-            .and_then(|()| std::fs::rename(&partial, &path))
-            .map_err(write_err)?;
-        prune_pg_roots(&dir, &path);
+    if !path.is_file() {
+        std::fs::write(&path, &roots)
+            .map_err(|e| Error::ExecutionErr(format!("Failed to write root certificates: {e}")))?;
     }
     Ok(Some((mode, path)))
 }
 
-/// Root files outlive the job: a resource's certificate is workspace-controlled, so each distinct
-/// one would otherwise add a file forever. Keeps the most recently used ones.
-const PG_ROOTS_KEPT: usize = 32;
-
-fn prune_pg_roots(dir: &std::path::Path, keep: &std::path::Path) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    let mut files: Vec<(std::time::SystemTime, std::path::PathBuf)> = entries
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "pem") && p != keep)
-        .filter_map(|p| Some((std::fs::metadata(&p).ok()?.modified().ok()?, p)))
-        .collect();
-    if files.len() < PG_ROOTS_KEPT {
-        return;
-    }
-    files.sort();
-    for (_, p) in &files[..=files.len() - PG_ROOTS_KEPT] {
-        let _ = std::fs::remove_file(p);
-    }
-}
-
-fn pg_attach_uri(res: &PgDatabase) -> Result<String> {
+fn pg_attach_uri(res: &PgDatabase, job_dir: &str) -> Result<String> {
     let uri = res.to_uri();
-    let Some((mode, roots)) = pg_attach_verification(res)? else {
+    let Some((mode, roots)) = pg_attach_verification(res, job_dir)? else {
         return Ok(uri);
     };
     let base = uri.strip_suffix("?sslmode=require").ok_or_else(|| {
@@ -2328,11 +2300,11 @@ fn pg_attach_uri(res: &PgDatabase) -> Result<String> {
     ))
 }
 
-fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String> {
+fn format_attach_db_conn_str(db_resource: Value, db_type: &str, job_dir: &str) -> Result<String> {
     let s = match db_type.to_lowercase().as_str() {
         "postgres" | "postgresql" => {
             let res: PgDatabase = serde_json::from_value(db_resource)?;
-            pg_attach_uri(&res)?
+            pg_attach_uri(&res, job_dir)?
         }
         #[cfg(feature = "mysql")]
         "mysql" => {
@@ -2404,6 +2376,7 @@ async fn transform_attach_db_resource_query(
     job_id: &Uuid,
     client: &AuthedClient,
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
+    job_dir: &str,
 ) -> Result<Vec<String>> {
     let db_resource: Value = client
         .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
@@ -2411,8 +2384,14 @@ async fn transform_attach_db_resource_query(
     if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
     }
-    db_resource_to_attach_statements(db_resource, parsed.name, parsed.db_type, parsed.extra_args)
-        .await
+    db_resource_to_attach_statements(
+        db_resource,
+        parsed.name,
+        parsed.db_type,
+        parsed.extra_args,
+        job_dir,
+    )
+    .await
 }
 
 async fn db_resource_to_attach_statements(
@@ -2420,11 +2399,12 @@ async fn db_resource_to_attach_statements(
     ident_name: &str,
     db_type: &str,
     extra_args: Option<&str>,
+    job_dir: &str,
 ) -> Result<Vec<String>> {
     // Escape single quotes: the connection string is built from resource fields
     // (host/db/user/password) and embedded in a single-quoted DuckDB literal, so an
     // unescaped quote in any field would otherwise break out of the ATTACH statement.
-    let conn_str = format_attach_db_conn_str(db_resource, db_type)?.replace('\'', "''");
+    let conn_str = format_attach_db_conn_str(db_resource, db_type, job_dir)?.replace('\'', "''");
     let attach_str = format!(
         "ATTACH '{}' as {} (TYPE {}{});",
         conn_str,
@@ -2447,6 +2427,7 @@ async fn transform_attach_ducklake(
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
     w_id: &str,
     materialize_target: Option<&str>,
+    job_dir: &str,
 ) -> Result<Option<Vec<String>>> {
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'ducklake(://[^':]+)?'\s*AS\s+([^ ;]+)\s*(\([^)]*\))?").unwrap();
@@ -2497,7 +2478,7 @@ async fn transform_attach_ducklake(
     // single-quoted DuckDB literals below, so an unescaped quote in a resource
     // field would break out of the ATTACH statement.
     let db_conn_str =
-        format_attach_db_conn_str(ducklake.catalog_resource, db_type)?.replace('\'', "''");
+        format_attach_db_conn_str(ducklake.catalog_resource, db_type, job_dir)?.replace('\'', "''");
     let storage = ducklake
         .storage
         .storage
@@ -2552,6 +2533,7 @@ async fn transform_attach_ducklake(
             defer,
             materialize_target,
             hidden_passwords,
+            job_dir,
         )?);
     }
     Ok(Some(statements))
@@ -2585,6 +2567,7 @@ fn fork_defer_statements(
     defer: &windmill_common::workspaces::DucklakeForkDefer,
     materialize_target: Option<&str>,
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
+    job_dir: &str,
 ) -> Result<Vec<String>> {
     let mut stmts = vec![];
     if defer.ancestors.is_empty() {
@@ -2603,7 +2586,7 @@ fn fork_defer_statements(
         };
         stmts.push(get_attach_db_install_str(db_type)?.to_string());
         let conn_str =
-            format_attach_db_conn_str(a.catalog_resource.clone(), db_type)?.replace('\'', "''");
+            format_attach_db_conn_str(a.catalog_resource.clone(), db_type, job_dir)?.replace('\'', "''");
         let storage = a
             .storage
             .storage
@@ -2722,6 +2705,7 @@ async fn transform_attach_datatable(
     conn: &Connection,
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
     job: &MiniPulledJob,
+    job_dir: &str,
 ) -> Result<Option<Vec<String>>> {
     let Some(attached) = parse_attach_datatable(query) else {
         return Ok(None);
@@ -2764,6 +2748,7 @@ async fn transform_attach_datatable(
     Ok(Some(pg_secret_attach_statements(
         db_resource,
         attached.alias,
+        job_dir,
     )?))
 }
 
@@ -2784,14 +2769,18 @@ fn datatable_secret_name(alias: &str) -> String {
 
 /// ATTACH a datatable's postgres database through a DuckDB TEMPORARY SECRET holding
 /// the connection parameters; only sslmode rides in the ATTACH string.
-fn pg_secret_attach_statements(db_resource: Value, alias_name: &str) -> Result<Vec<String>> {
+fn pg_secret_attach_statements(
+    db_resource: Value,
+    alias_name: &str,
+    job_dir: &str,
+) -> Result<Vec<String>> {
     let res: PgDatabase = serde_json::from_value(db_resource)?;
     // Escape single quotes: each field is embedded in a single-quoted DuckDB literal,
     // so an unescaped quote would break out of the CREATE SECRET statement.
     let esc = |s: &str| s.replace('\'', "''");
     // The postgres secret type has no sslmode parameter, so it goes in the ATTACH
     // string; only the libpq values PgDatabase::to_uri collapses to are forwarded.
-    let sslmode = match pg_attach_verification(&res)? {
+    let sslmode = match pg_attach_verification(&res, job_dir)? {
         // A libpq keyword/value string: the path is quoted for libpq, then for the DuckDB literal.
         Some((mode, roots)) => format!(
             "{mode} sslrootcert=''{}''",
@@ -2900,6 +2889,9 @@ mod tests {
 
     #[test]
     fn pg_attach_keeps_verification_only_when_required() {
+        let job_dir = std::env::temp_dir().join(format!("wm-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&job_dir).unwrap();
+        let job_dir = job_dir.to_string_lossy().to_string();
         let pg = |sslmode: &str, accept_invalid_certs: Option<bool>| PgDatabase {
             host: "db.internal".to_string(),
             user: Some("custom_instance_user".to_string()),
@@ -2912,30 +2904,35 @@ mod tests {
             use_iam_auth: None,
             region: None,
         };
-        let uri = pg_attach_uri(&pg("verify-full", Some(false))).unwrap();
+        let uri = pg_attach_uri(&pg("verify-full", Some(false)), &job_dir).unwrap();
         assert!(uri.contains("?sslmode=verify-full&sslrootcert="), "{uri}");
         let root = urlencoding::decode(uri.split("sslrootcert=").nth(1).unwrap()).unwrap();
-        let roots = std::fs::read_to_string(root.as_ref()).unwrap();
-        for i in 0..(PG_ROOTS_KEPT + 5) {
+        assert!(std::fs::read_to_string(root.as_ref())
+            .unwrap()
+            .contains("-----BEGIN CERTIFICATE-----test"));
+        // Every certificate a job attaches keeps its own file: one attach must not evict another's.
+        for i in 0..40 {
             let mut other = pg("verify-full", Some(false));
             other.root_certificate_pem = Some(format!("-----BEGIN CERTIFICATE-----{i}"));
-            pg_attach_uri(&other).unwrap();
+            let other = pg_attach_uri(&other, &job_dir).unwrap();
+            let path = urlencoding::decode(other.split("sslrootcert=").nth(1).unwrap()).unwrap();
+            assert!(std::path::Path::new(path.as_ref()).is_file(), "{path}");
         }
-        let kept = std::fs::read_dir(std::env::temp_dir().join("windmill-pg-roots"))
-            .unwrap()
-            .filter(|e| e.as_ref().unwrap().path().extension().is_some_and(|x| x == "pem"))
-            .count();
-        assert!(kept <= PG_ROOTS_KEPT, "{kept} root files kept");
-        assert!(roots.contains("-----BEGIN CERTIFICATE-----test"));
+        assert!(std::path::Path::new(root.as_ref()).is_file(), "the first file is still there");
         let external = serde_json::to_value(pg("verify-full", Some(false))).unwrap();
-        let attach = &pg_secret_attach_statements(external, "dt").unwrap()[3];
+        let attach = &pg_secret_attach_statements(external, "dt", &job_dir).unwrap()[3];
         assert!(
             attach.starts_with(&format!("ATTACH 'sslmode=verify-full sslrootcert=''{}''", root)),
             "{attach}"
         );
         // A resource that never opted in keeps the historical downgrade.
-        assert!(pg_attach_uri(&pg("verify-full", None)).unwrap().ends_with("?sslmode=require"));
-        assert!(pg_attach_uri(&pg("require", Some(false))).unwrap().ends_with("?sslmode=require"));
+        assert!(pg_attach_uri(&pg("verify-full", None), &job_dir)
+            .unwrap()
+            .ends_with("?sslmode=require"));
+        assert!(pg_attach_uri(&pg("require", Some(false)), &job_dir)
+            .unwrap()
+            .ends_with("?sslmode=require"));
+        std::fs::remove_dir_all(&job_dir).unwrap();
     }
 
     #[test]
@@ -3089,7 +3086,7 @@ mod tests {
         let mut defer = test_fork_defer(vec![("orders", false)], vec![]);
         defer.ancestors[0].extra_args = Some("ENCRYPTED true".to_string());
         let mut hp = Arc::new(Mutex::new(vec![]));
-        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp, "/tmp").unwrap();
         let attach = stmts
             .iter()
             .find(|s| s.starts_with("ATTACH IF NOT EXISTS"))
@@ -3113,7 +3110,7 @@ mod tests {
             vec![],
         );
         let mut hp = Arc::new(Mutex::new(vec![]));
-        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp, "/tmp").unwrap();
         let joined = stmts.join("\n");
         assert!(
             joined.contains(
@@ -3145,7 +3142,7 @@ mod tests {
     fn test_fork_defer_statements_shape() {
         let defer = test_fork_defer(vec![("orders", false), ("dim", true)], vec![]);
         let mut hp = Arc::new(Mutex::new(vec![]));
-        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp, "/tmp").unwrap();
         let joined = stmts.join("\n");
         // Ancestor attach: read-only, idempotent, never auto-migrating or auto-creating.
         assert!(joined.contains("ATTACH IF NOT EXISTS"), "{joined}");
@@ -3172,7 +3169,7 @@ mod tests {
         let defer = test_fork_defer(vec![("orders", false)], vec!["orders", "orders_current"]);
         let mut hp = Arc::new(Mutex::new(vec![]));
         let stmts =
-            fork_defer_statements("lake", "_wm_target", &defer, Some("lake/orders"), &mut hp)
+            fork_defer_statements("lake", "_wm_target", &defer, Some("lake/orders"), &mut hp, "/tmp")
                 .unwrap();
         let joined = stmts.join("\n");
         assert!(!joined.contains("CREATE VIEW"), "{joined}");
@@ -3189,14 +3186,14 @@ mod tests {
         // status can't be trusted) → no DROP VIEW, or the job would wedge on a type mismatch.
         let defer = test_fork_defer(vec![("orders", false)], vec![]);
         let stmts =
-            fork_defer_statements("lake", "_wm_target", &defer, Some("lake/orders"), &mut hp)
+            fork_defer_statements("lake", "_wm_target", &defer, Some("lake/orders"), &mut hp, "/tmp")
                 .unwrap();
         assert!(!stmts.join("\n").contains("DROP VIEW"), "{stmts:?}");
 
         // Target in a different lake → this lake's defer views are untouched.
         let defer = test_fork_defer(vec![("orders", false)], vec!["orders"]);
         let stmts =
-            fork_defer_statements("lake", "dl", &defer, Some("other/orders"), &mut hp).unwrap();
+            fork_defer_statements("lake", "dl", &defer, Some("other/orders"), &mut hp, "/tmp").unwrap();
         let joined = stmts.join("\n");
         assert!(
             joined.contains("CREATE VIEW IF NOT EXISTS dl.\"orders\""),
@@ -3209,7 +3206,7 @@ mod tests {
     fn test_fork_defer_statements_schema_qualified() {
         let defer = test_fork_defer(vec![("staging.raw", false)], vec![]);
         let mut hp = Arc::new(Mutex::new(vec![]));
-        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp, "/tmp").unwrap();
         let joined = stmts.join("\n");
         assert!(
             joined.contains("CREATE SCHEMA IF NOT EXISTS dl.\"staging\";"),
@@ -4035,7 +4032,7 @@ mod tests {
             "dbname": "mydb",
             "sslmode": "require"
         });
-        let result = format_attach_db_conn_str(db_resource, "postgres").unwrap();
+        let result = format_attach_db_conn_str(db_resource, "postgres", "/tmp").unwrap();
         // Should be in URI format: postgres://user:password@host:port/dbname?sslmode=require
         assert!(result.starts_with("postgres://"));
         assert!(result.contains("admin:secret123@localhost:5432/mydb"));
@@ -4048,7 +4045,7 @@ mod tests {
             "host": "db.example.com",
             "dbname": "production"
         });
-        let result = format_attach_db_conn_str(db_resource, "postgres").unwrap();
+        let result = format_attach_db_conn_str(db_resource, "postgres", "/tmp").unwrap();
         // Should be in URI format with defaults: postgres://postgres:@host:5432/dbname?sslmode=prefer
         assert!(result.starts_with("postgres://"));
         assert!(result.contains("@db.example.com:5432/production"));
@@ -4061,7 +4058,7 @@ mod tests {
             "host": "localhost",
             "dbname": "test"
         });
-        let result = format_attach_db_conn_str(db_resource, "postgresql").unwrap();
+        let result = format_attach_db_conn_str(db_resource, "postgresql", "/tmp").unwrap();
         // Should be in URI format (postgresql is treated the same as postgres)
         assert!(result.starts_with("postgres://"));
         assert!(result.contains("@localhost:5432/test"));
@@ -4078,7 +4075,7 @@ mod tests {
             "dbname": "wm_datatables",
             "sslmode": "require"
         });
-        let stmts = pg_secret_attach_statements(db_resource, "dt").unwrap();
+        let stmts = pg_secret_attach_statements(db_resource, "dt", "/tmp").unwrap();
         assert_eq!(stmts[0], "INSTALL postgres;");
         assert_eq!(stmts[1], "LOAD postgres;");
         let secret_name = datatable_secret_name("dt");
@@ -4109,7 +4106,7 @@ mod tests {
             if let Some(s) = input {
                 db_resource["sslmode"] = json!(s);
             }
-            let stmts = pg_secret_attach_statements(db_resource, "dt").unwrap();
+            let stmts = pg_secret_attach_statements(db_resource, "dt", "/tmp").unwrap();
             assert!(
                 stmts[3].starts_with(&format!("ATTACH 'sslmode={expected}'")),
                 "sslmode {input:?} → {}",
@@ -4132,7 +4129,7 @@ mod tests {
         let db_resource = json!({
             "project_id": "my-gcp-project"
         });
-        let result = format_attach_db_conn_str(db_resource, "bigquery").unwrap();
+        let result = format_attach_db_conn_str(db_resource, "bigquery", "/tmp").unwrap();
         assert_eq!(result, "project=my-gcp-project");
     }
 
@@ -4141,7 +4138,7 @@ mod tests {
         let db_resource = json!({
             "other_field": "value"
         });
-        let result = format_attach_db_conn_str(db_resource, "bigquery");
+        let result = format_attach_db_conn_str(db_resource, "bigquery", "/tmp");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("project_id"));
     }
@@ -4149,7 +4146,7 @@ mod tests {
     #[test]
     fn test_format_attach_db_conn_str_unsupported_type() {
         let db_resource = json!({});
-        let result = format_attach_db_conn_str(db_resource, "oracle");
+        let result = format_attach_db_conn_str(db_resource, "oracle", "/tmp");
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -4163,7 +4160,7 @@ mod tests {
             "host": "localhost",
             "dbname": "test"
         });
-        let result = format_attach_db_conn_str(db_resource, "POSTGRES").unwrap();
+        let result = format_attach_db_conn_str(db_resource, "POSTGRES", "/tmp").unwrap();
         // Should be in URI format
         assert!(result.starts_with("postgres://"));
         assert!(result.contains("@localhost:5432/test"));
@@ -4180,7 +4177,7 @@ mod tests {
             "database": "app_db",
             "ssl": true
         });
-        let result = format_attach_db_conn_str(db_resource, "mysql").unwrap();
+        let result = format_attach_db_conn_str(db_resource, "mysql", "/tmp").unwrap();
         assert!(result.contains("database=app_db"));
         assert!(result.contains("host=mysql.example.com"));
         assert!(result.contains("ssl_mode=required"));
@@ -4197,7 +4194,7 @@ mod tests {
             "database": "test",
             "ssl": false
         });
-        let result = format_attach_db_conn_str(db_resource, "mysql").unwrap();
+        let result = format_attach_db_conn_str(db_resource, "mysql", "/tmp").unwrap();
         assert!(result.contains("ssl_mode=disabled"));
     }
 
