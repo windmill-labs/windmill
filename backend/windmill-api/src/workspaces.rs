@@ -108,6 +108,7 @@ async fn edit_copilot_config(
     }
 
     ai_config.validate_model_pricing()?;
+    ai_config.validate_context_windows()?;
     ai_config.validate_sessions_retention()?;
 
     let mut tx = db.begin().await?;

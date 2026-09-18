@@ -512,6 +512,14 @@ impl AIConfig {
         Ok(())
     }
 
+    pub fn validate_context_windows(&self) -> Result<()> {
+        for (key, tokens) in self.context_window_per_model.iter().flatten() {
+            windmill_ai::ai_types::validate_context_window(key, i64::from(*tokens))
+                .map_err(Error::BadRequest)?;
+        }
+        Ok(())
+    }
+
     pub fn validate_sessions_retention(&self) -> Result<()> {
         match self.sessions_retention_days {
             Some(days) if !(1..=MAX_SESSIONS_RETENTION_DAYS).contains(&days) => {
