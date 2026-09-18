@@ -529,6 +529,30 @@ paths:
       responses:
         "302":
           description: redirected to the post-login destination, or to /user/login_link_expired when the link is used, expired or unknown
+    post:
+      security: []
+      summary: consume a single-use login link from its confirmation page, set the session cookie and answer where to go
+      operationId: confirmLoginLink
+      tags:
+        - user
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the post-login destination, or /user/login_link_expired when the link is used, expired or unknown
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - location
+                properties:
+                  location:
+                    type: string
 
   /auth/reset_password:
     post:
@@ -6753,7 +6777,7 @@ paths:
                   type: string
                 expires_in_s:
                   type: integer
-                  description: link lifetime in seconds, at most 900 (default 600)
+                  description: link lifetime in seconds, at most 7200 (default 600)
                 rd:
                   type: string
                   description: same-origin path the browser lands on after login (default /user/workspaces)
@@ -6763,6 +6787,12 @@ paths:
                     mint only while the account still has this login type (for example
                     pending_oauth), so a link stops working once the owner has set a password
                     or signed in with a provider
+                confirm:
+                  type: boolean
+                  description: >-
+                    return a /user/login_link page that signs in only when its button is
+                    clicked, instead of a link spent by opening it; set it for links sent by
+                    email, which mail scanners open on delivery (default false)
       responses:
         "201":
           description: login link minted
