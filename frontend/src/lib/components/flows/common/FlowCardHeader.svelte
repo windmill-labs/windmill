@@ -59,6 +59,9 @@
 	let toolNameError = $derived(
 		isAgentTool ? getToolNameError(summary ?? '', undefined, siblingToolNames) : undefined
 	)
+	// An agent tool's summary is the function name the model is given, not free text, so the field
+	// asks for a name whatever the tool runs: a script, an MCP server or another agent.
+	let summaryPlaceholder = $derived(isAgentTool ? 'Tool name' : 'Summary')
 
 	const dispatch = createEventDispatcher()
 	const customUi: FlowBuilderWhitelabelCustomUi | undefined = getContext('customUi')
@@ -191,6 +194,14 @@
 	})
 </script>
 
+{#snippet summaryInput()}
+	<input
+		bind:value={summary}
+		placeholder={summaryPlaceholder}
+		class={twMerge('w-full grow', toolNameError && '!border-red-400')}
+	/>
+{/snippet}
+
 <div class="flex flex-col gap-1 px-4 py-2">
 	<div
 		class="overflow-x-auto scrollbar-hidden flex items-center justify-between flex-nowrap w-full"
@@ -210,7 +221,7 @@
 							code={flowModuleValue.content}
 							class="w-full"
 							elementProps={{
-								placeholder: isAgentTool ? 'Tool name' : 'Summary'
+								placeholder: summaryPlaceholder
 							}}
 							hideError={isAgentTool}
 							{siblingToolNames}
@@ -225,22 +236,15 @@
 							<DropdownV2 size="sm" placement="bottom-end" items={scriptItems} />
 						{/if}
 
-						<div class="flex min-w-[8rem] flex-1 flex-col">
-							<input
-								bind:value={summary}
-								placeholder={isAgentTool ? 'Tool name' : 'Summary'}
-								class={twMerge('w-full grow', toolNameError && '!border-red-400')}
-							/>
-							{#if toolNameError && !isAgentTool}
-								<p class="text-3xs text-red-400 leading-tight mt-0.5">{toolNameError}</p>
-							{/if}
+						<div class="flex min-w-[8rem] flex-1">
+							{@render summaryInput()}
 						</div>
 					{:else if flowModuleValue.type === 'flow'}
 						<Badge color="indigo" capitalize>flow</Badge>
-						<input bind:value={summary} placeholder="Summary" class="w-full grow" />
+						{@render summaryInput()}
 					{:else if flowModuleValue.type === 'aiagent'}
 						<Badge color="indigo">AI Agent</Badge>
-						<input bind:value={summary} placeholder="Summary" class="w-full grow" />
+						{@render summaryInput()}
 					{/if}
 				</div>
 			</span>
