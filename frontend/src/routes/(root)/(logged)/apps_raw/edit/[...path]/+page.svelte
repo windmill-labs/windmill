@@ -4,6 +4,7 @@
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
 	import { readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -95,6 +96,8 @@
 	// edits to the just-deployed app autosaved to a dead key (autosave appeared
 	// broken). See /scripts/edit, which derives its draft path the same way.
 	// effectivePath omitted: the live-editor-draft entry is owned by RawAppEditor.
+	const operatorBuilderApps = useOperatorBuilderApps()
+
 	const draftSync = usePageDraftSync<RawAppDraft>({
 		itemKind: 'raw_app',
 		path: () => page.params.path ?? '',
@@ -269,7 +272,7 @@
 			// Seed the React 19 template so the editor has a usable state even if the
 			// user dismisses the picker without selecting.
 			const seedFiles = { ...react19Template }
-			const seedRunnables = structuredClone(STARTER_RUNNABLES)
+			const seedRunnables = starterRunnables()
 			savedApp = {
 				summary: '',
 				value: { files: seedFiles as any, runnables: seedRunnables as any },
@@ -518,9 +521,15 @@
 
 	let rawAppEditor: RawAppEditor | undefined = $state()
 
+	// The starter runnables are inline scripts, which the backend refuses from an operator with
+	// builder rights: seeding them would make their very first deploy fail.
+	function starterRunnables() {
+		return $operatorBuilderApps ? {} : structuredClone(STARTER_RUNNABLES)
+	}
+
 	function onTemplatePickerStart(result: RawAppTemplatePickerResult, withPrompt: boolean) {
 		files = { ...result.files }
-		runnables = { ...result.runnables, ...structuredClone(STARTER_RUNNABLES) }
+		runnables = { ...result.runnables, ...starterRunnables() }
 		data = result.data
 		summary = result.summary
 		policy = result.policy

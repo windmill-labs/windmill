@@ -17,7 +17,11 @@
 	import { resource } from 'runed'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
 	import { disableHubStore, userStore, workspaceStore } from '$lib/stores'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import {
+		useOperatorBuilderApps,
+		useOperatorBuilderFlows,
+		useOperatorBuilderRights
+	} from '$lib/operatorWriteRights'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
@@ -63,6 +67,8 @@
 	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
 
 	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const operatorBuilderApps = useOperatorBuilderApps()
+	const operatorBuilderRights = useOperatorBuilderRights()
 
 	interface Props {
 		subtab?: 'flow' | 'script' | 'app'
@@ -342,9 +348,11 @@
 			canWrite:
 				canWrite(it.path, (it.extra_perms ?? {}) as any, $userStore) &&
 				(it.type === 'script' || it.workspace_id == $workspaceStore) &&
-				// The builder right covers flows only; a script or an app is still off limits, so
-				// the row must not offer edit or delete for those.
-				(!$userStore?.operator || (it.type === 'flow' && $operatorBuilderFlows))
+				// Each builder right covers only its own kind; a script or a low-code app is
+				// still off limits, so the row must not offer edit or delete for those.
+				(!$userStore?.operator ||
+					(it.type === 'flow' && $operatorBuilderFlows) ||
+					(it.type === 'app' && it.raw_app === true && $operatorBuilderApps))
 		}
 		// combinedItems reads a script's time from `created_at`; the endpoint's
 		// unified `edited_at` holds exactly that for scripts.
@@ -1070,7 +1078,7 @@
 	 * whose direct-deploy protection cleared `showEditButtons` — must not be shown them.
 	 * Reading archived items is not a write, so it is not gated on this.
 	 */
-	let canCreateHere = $derived((!$userStore?.operator || $operatorBuilderFlows) && showEditButtons)
+	let canCreateHere = $derived((!$userStore?.operator || $operatorBuilderRights) && showEditButtons)
 
 	// The workspace itself holds nothing — no filter is narrowing the list away. It stays
 	// false until the first load resolves: a skeleton already means "loading", and the
@@ -1885,7 +1893,7 @@
 				     script and flow hub pickers observe. Nor for a builder: a hub project brings
 				     scripts and apps along. -->
 				<CreateActionsMenu
-					onImportHubProject={$disableHubStore || $operatorBuilderFlows
+					onImportHubProject={$disableHubStore || $operatorBuilderRights
 						? undefined
 						: () => (hubPickerOpen = true)}
 				/>

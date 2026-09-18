@@ -20,7 +20,8 @@ use windmill_api_auth::{
     require_owner_of_path, ApiAuthed,
 };
 use windmill_common::workspaces::{
-    check_deploy_rules, check_operator_can_build_flows, operator_can_build_flows, RuleCheckResult,
+    check_deploy_rules, check_operator_can_build, operator_builder_rights, BuilderKind,
+    RuleCheckResult,
 };
 use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
@@ -243,7 +244,7 @@ async fn list_flows(
 
     // Append the authed user's drafts at paths with no deployed flow; see scripts.rs.
     if lq.include_draft_only.unwrap_or(false)
-        && (!authed.is_operator || operator_can_build_flows(&db, &w_id).await?)
+        && (!authed.is_operator || operator_builder_rights(&db, &w_id).await?.flows)
         && offset == 0
         && lq.path_start.is_none()
         && lq.path_exact.is_none()
@@ -730,7 +731,14 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(mut nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
-    check_operator_can_build_flows(&db, &w_id, authed.is_operator, "create flows").await?;
+    check_operator_can_build(
+        &db,
+        &w_id,
+        authed.is_operator,
+        BuilderKind::Flows,
+        "create flows",
+    )
+    .await?;
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
 
     // A `<= 0` flow timeout is "unset", not a 0-second limit that kills every run instantly.
@@ -1321,7 +1329,14 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(ef): Json<EditFlow>,
 ) -> Result<String> {
-    check_operator_can_build_flows(&db, &w_id, authed.is_operator, "update flows").await?;
+    check_operator_can_build(
+        &db,
+        &w_id,
+        authed.is_operator,
+        BuilderKind::Flows,
+        "update flows",
+    )
+    .await?;
     let flow_path = flow_path.to_path();
     // The URL identifies the flow being updated; the body path is only needed to rename.
     let mut nf = ef.into_new_flow(flow_path);
@@ -1985,7 +2000,14 @@ async fn archive_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(archived): Json<Archived>,
 ) -> Result<String> {
-    check_operator_can_build_flows(&db, &w_id, authed.is_operator, "archive flows").await?;
+    check_operator_can_build(
+        &db,
+        &w_id,
+        authed.is_operator,
+        BuilderKind::Flows,
+        "archive flows",
+    )
+    .await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -2126,7 +2148,14 @@ async fn delete_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<DeleteFlowQuery>,
 ) -> Result<String> {
-    check_operator_can_build_flows(&db, &w_id, authed.is_operator, "delete flows").await?;
+    check_operator_can_build(
+        &db,
+        &w_id,
+        authed.is_operator,
+        BuilderKind::Flows,
+        "delete flows",
+    )
+    .await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(

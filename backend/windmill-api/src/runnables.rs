@@ -34,7 +34,7 @@ use std::collections::HashMap;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult},
-    workspaces::operator_can_build_flows,
+    workspaces::{operator_builder_rights, OperatorBuilderRights},
 };
 use windmill_types::scripts::ScriptHash;
 use windmill_types::user_drafts::DraftUserRef;
@@ -572,9 +572,14 @@ async fn list_runnables(
     // Draft-only rows are the caller's own work in progress: never archived, so they
     // have no place in the archived view, and carrying no labels of their own they are
     // out of scope of a label filter (as in the per-kind endpoints). Operators don't
-    // see other people's drafts and have none of their own, except a builder's flows.
+    // see other people's drafts and have none of their own, except of what they may build.
+    let builder = if authed.is_operator {
+        operator_builder_rights(&db, &w_id).await?
+    } else {
+        OperatorBuilderRights::default()
+    };
     let include_drafts = q.include_draft_only.unwrap_or(false)
-        && (!authed.is_operator || operator_can_build_flows(&db, &w_id).await?)
+        && (!authed.is_operator || builder.any())
         && !show_archived
         && q.label.as_ref().filter(|s| !s.is_empty()).is_none();
     let draft_extras_for = |kind: &str| -> Vec<String> {
@@ -660,7 +665,10 @@ async fn list_runnables(
                             keyset: Option<&str>,
                             limit: Option<usize>|
      -> Option<String> {
-        if !include_drafts || !kinds.contains(&kind) || (authed.is_operator && kind != "flow") {
+        if !include_drafts
+            || !kinds.contains(&kind)
+            || (authed.is_operator && !operator_drafts_kind(builder, kind))
+        {
             return None;
         }
         // `fav` is ignored: with no favorite join there is nothing to filter on, and the
@@ -988,6 +996,15 @@ async fn count_runnables_by_owner(
     Ok(Json(RunnableCountsResponse { counts }))
 }
 
+/// Whether an operator with `builder` rights can have drafts of a `/list` kind.
+fn operator_drafts_kind(builder: OperatorBuilderRights, kind: &str) -> bool {
+    match kind {
+        "flow" => builder.flows,
+        "app" => builder.apps,
+        _ => false,
+    }
+}
+
 /// Adds the caller's draft-only rows to `counts`, in the same shape `/list`
 /// returns them so a badge never disagrees with the rows behind it.
 ///
@@ -1008,13 +1025,21 @@ async fn add_draft_counts(
     if !q.include_draft_only.unwrap_or(false) {
         return Ok(());
     }
-    // An operator has no drafts of their own, except a builder's flows.
+    // An operator has no drafts of their own, except of what they may build.
+    let builder_kinds: Vec<&str>;
     let kinds: &[&str] = if !authed.is_operator {
         kinds
-    } else if kinds.contains(&"flow") && operator_can_build_flows(db, w_id).await? {
-        &["flow"]
     } else {
-        return Ok(());
+        let builder = operator_builder_rights(db, w_id).await?;
+        builder_kinds = kinds
+            .iter()
+            .copied()
+            .filter(|k| operator_drafts_kind(builder, k))
+            .collect();
+        if builder_kinds.is_empty() {
+            return Ok(());
+        }
+        &builder_kinds
     };
     // $1 = workspace, $2 = the caller's email.
     let mut binds: Vec<String> = vec![];
