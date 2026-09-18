@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by\n         FROM flow_conversation\n         WHERE id = $1 AND workspace_id = $2",
+  "query": "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by, title, is_test)\n         VALUES ($1, $2, $3, $4, $5, $6)\n         ON CONFLICT (id) DO NOTHING\n         RETURNING id, workspace_id, flow_path, title, created_at, updated_at, created_by, is_test",
   "describe": {
     "columns": [
       {
@@ -37,12 +37,21 @@
         "ordinal": 6,
         "name": "created_by",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_test",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
-        "Text"
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool"
       ]
     },
     "nullable": [
@@ -52,8 +61,9 @@
       true,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "c383cc023714b361d10c10e8fef1fc148ab1da942951ee9ffdddaecee76a6be9"
+  "hash": "6d259b8cce5da5fecefe4ce322789b6b2cc43b51f2056c677d58f39c31fb26cb"
 }

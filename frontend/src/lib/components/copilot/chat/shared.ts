@@ -634,6 +634,8 @@ export type ToolDisplayMessage = {
 	 * workspace rides along: a chat is readable from any workspace, and the same path names
 	 * a different server in each. */
 	mcpServer?: { workspace: string; path: string }
+	/** The run behind the call. Flow chats only: the card links to it. */
+	jobId?: string
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
@@ -677,7 +679,9 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 	/** The run behind this answer. Flow chats only: a copilot turn happens in the
 	 * browser and has no job. */
 	jobId?: string
-	/** When the message was stored, as the server reports it. */
+	/** When the answer arrived: the server's time for a flow chat's stored row, the browser's
+	 * for a copilot answer, which is stamped as it lands. Absent on a copilot chat restored
+	 * from history, which predates the stamp. */
 	createdAt?: string
 }
 
