@@ -51,6 +51,8 @@ export const copilotInfo = writable<{
 	aiModels: AIProviderModel[]
 	customPrompts?: Record<string, string>
 	maxTokensPerModel?: Record<string, number>
+	/** Context windows per `provider:model`, overriding the built-in table. */
+	contextWindowPerModel?: Record<string, number>
 	/** Negotiated rates per `provider:model`, overriding the built-in price table. */
 	modelPricing?: Record<string, ModelPriceOverride>
 	webSearchEnabledProviders?: Partial<Record<AIProvider, boolean>>
@@ -67,6 +69,7 @@ export const copilotInfo = writable<{
 	aiModels: [],
 	customPrompts: {},
 	maxTokensPerModel: {},
+	contextWindowPerModel: {},
 	modelPricing: {},
 	webSearchEnabledProviders: {}
 })
@@ -144,6 +147,7 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			aiModels: aiModels,
 			customPrompts: aiConfig.custom_prompts ?? {},
 			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {},
+			contextWindowPerModel: aiConfig.context_window_per_model ?? {},
 			webSearchEnabledProviders,
 			modelPricing: aiConfig.model_pricing ?? {},
 			freeTier: aiConfig.free_tier
@@ -160,6 +164,7 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			aiModels: [],
 			customPrompts: {},
 			maxTokensPerModel: {},
+			contextWindowPerModel: {},
 			webSearchEnabledProviders: {},
 			modelPricing: {},
 			// An exhausted free grant lands here — no providers, but the reason AI is off

@@ -28825,6 +28825,16 @@ components:
             type: integer
             minimum: 1
             maximum: 2000000
+        context_window_per_model:
+          type: object
+          description: >-
+            Context window, in tokens, the AI chat budgets against for a model, keyed
+            `provider:model`. Overrides the built-in window, or the assumed one for a
+            model the chat does not know.
+          additionalProperties:
+            type: integer
+            minimum: 1000
+            maximum: 10000000
         free_tier:
           $ref: "#/components/schemas/FreeTierInfo"
         model_pricing:
