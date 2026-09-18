@@ -2692,7 +2692,7 @@ fn datatable_secret_name(alias: &str) -> String {
 }
 
 /// ATTACH a datatable's postgres database through a DuckDB TEMPORARY SECRET holding
-/// the connection parameters; only sslmode rides in the ATTACH string.
+/// the connection parameters; only sslmode and options ride in the ATTACH string.
 fn pg_secret_attach_statements(db_resource: Value, alias_name: &str) -> Result<Vec<String>> {
     let res: PgDatabase = serde_json::from_value(db_resource)?;
     // Escape single quotes: each field is embedded in a single-quoted DuckDB literal,
