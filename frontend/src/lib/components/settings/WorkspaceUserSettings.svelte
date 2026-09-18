@@ -1090,6 +1090,7 @@
 <Section
 	label="Fork members"
 	description="Choose who a new fork of this workspace starts with, besides the person who creates it."
+	wrapperClass="pb-12"
 >
 	<Toggle
 		bind:checked={addAdminsAndDevelopersToForks}
@@ -1101,8 +1102,6 @@
 		}}
 	/>
 </Section>
-
-<div class="pt-12"></div>
 
 {#if invites?.length > 0}
 	<Section
