@@ -6,9 +6,23 @@
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Select from './select/Select.svelte'
-	import { ArrowLeft, Copy, Download, Expand, Minimize, RefreshCcw, Upload } from 'lucide-svelte'
+	import {
+		ArrowLeft,
+		Copy,
+		Download,
+		Expand,
+		Minimize,
+		Network,
+		RefreshCcw,
+		Table2,
+		Upload
+	} from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
-	import type { PendingRowAction } from './DBManager.svelte'
+	import type { DbManagerViewMode, PendingRowAction } from './DBManager.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import { getDbType } from './dbOps'
 	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
 	import DataTablePermissionsButton from './workspaceSettings/DataTablePermissionsButton.svelte'
 	import { resource } from 'runed'
@@ -177,6 +191,16 @@
 
 	let hasReplResult = $state(false)
 
+	// Which view the manager shows. Held here, beside the control that switches it
+	// and outside the key that remounts the manager, so picking another data table
+	// or role stays on the view the user was reading.
+	let requestedViewMode = $state<DbManagerViewMode>('data')
+	// Only PostgreSQL has a diagram; the manager clamps the mode itself, and this
+	// keeps the control off the header for a database that cannot show one.
+	let diagramSupported = $derived(
+		!!uriState.effectiveInput && getDbType(uriState.effectiveInput) === 'postgresql'
+	)
+
 	// Export/Import state
 	let exportDrawerOpen = $state(false)
 	let exportResult = $state('')
@@ -311,6 +335,8 @@
 			{#key `${selectedDatatable}~${selectedRole ?? ''}`}
 				<DBManagerContent
 					bind:this={dbManagerContent}
+					{requestedViewMode}
+					onViewMode={(mode) => (requestedViewMode = mode)}
 					input={contentInput}
 					workspace={uriState.workspace}
 					datatableTree={uriState.isDatatableInput ? datatables.current : undefined}
@@ -351,6 +377,18 @@
 				>
 					Import
 				</Button>
+			{/if}
+			{#if diagramSupported}
+				<ToggleButtonGroup
+					bind:selected={requestedViewMode}
+					noWFull
+					onSelected={(v) => logFeatureUsage('db_manager', 'view_mode', { key: v })}
+				>
+					{#snippet children({ item })}
+						<ToggleButton value="data" label="Data" icon={Table2} {item} />
+						<ToggleButton value="diagram" label="Diagram" icon={Network} {item} />
+					{/snippet}
+				</ToggleButtonGroup>
 			{/if}
 			{#if uriState.effectiveInput && ws}
 				<DbWorkerTagButton

@@ -7,7 +7,6 @@
 		EditIcon,
 		Loader2,
 		Plus,
-		Network,
 		Table2,
 		Database as DatabaseIcon,
 		Folder as FolderIcon,
@@ -45,11 +44,8 @@
 	import { ADMIN_DATATABLE_ROLE, datatableNameTakesRole, type DatatableRowAction } from './dbTypes'
 	import TextInput from './text_input/TextInput.svelte'
 	import Checkbox from './common/checkbox/Checkbox.svelte'
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import DbSchemaDiagram from './dbdiagram/DbSchemaDiagram.svelte'
 	import type { DbRelation } from './dbRelations'
-	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {
@@ -77,6 +73,11 @@
 	export type DbManagerViewMode = 'data' | 'diagram'
 
 	type Props = {
+		/** Which of the two views the right pane shows. Owned by whoever renders the
+		 * control that switches it; ignored for a database with no diagram. */
+		requestedViewMode?: DbManagerViewMode
+		/** Asked for from inside, e.g. opening a table from the diagram. */
+		onViewMode?: (mode: DbManagerViewMode) => void
 		/** Identifies the database this is connected to, stable across reloads of
 		 * it. A string rather than one of the objects read from it: those are
 		 * replaced as the manager re-reads, which says nothing about the database
@@ -129,6 +130,8 @@
 		onImport?: (mode: 'schema_and_data' | 'schema_only') => void
 	}
 	let {
+		requestedViewMode = 'data',
+		onViewMode,
 		databaseKey,
 		dbType,
 		dbSchema,
@@ -164,16 +167,14 @@
 	// cannot be renamed.
 	const SCHEMA_RENAME_DB_TYPES: DbType[] = ['postgresql', 'snowflake']
 
-	let requestedViewMode = $state<DbManagerViewMode>('data')
-
 	// PostgreSQL is the only database whose foreign keys can be read for the whole
 	// database in one query; the others would need one job per table. A caller
 	// already using the tree's checkboxes to collect tables keeps them.
 	let supportsDiagram = $derived(dbType === 'postgresql' && !multiSelectMode)
 
-	// The manager is not always remounted when the database under it changes, so a
-	// move away from PostgreSQL would otherwise leave the diagram on screen with no
-	// toggle left to leave it by.
+	// The mode is asked for from outside, where the control that sets it lives, so
+	// a database this manager cannot draw has to be clamped here rather than left
+	// showing a diagram with no control in reach to leave it by.
 	let viewMode = $derived(supportsDiagram ? requestedViewMode : 'data')
 
 	// Everything the diagram remembers, against the database it is about. The
@@ -875,18 +876,6 @@
 <Splitpanes>
 	<Pane size={28} class="relative flex flex-col">
 		<div class="mx-3 mt-3 flex flex-col gap-2">
-			{#if supportsDiagram}
-				<ToggleButtonGroup
-					bind:selected={requestedViewMode}
-					noWFull
-					onSelected={(v) => logFeatureUsage('db_manager', 'view_mode', { key: v })}
-				>
-					{#snippet children({ item })}
-						<ToggleButton value="data" label="Data" icon={Table2} {item} />
-						<ToggleButton value="diagram" label="Diagram" icon={Network} {item} />
-					{/snippet}
-				</ToggleButtonGroup>
-			{/if}
 			<TextInput bind:value={search} inputProps={{ placeholder: 'Search table or schema...' }} />
 		</div>
 		<div class="overflow-x-clip overflow-y-auto relative mt-1.5 flex-1">
@@ -1177,7 +1166,7 @@
 				loading={relations.loading}
 				error={relationsError}
 				onOpenTable={({ schema, table }) => {
-					requestedViewMode = 'data'
+					onViewMode?.('data')
 					selectTable(currentDatatable, schema, table)
 				}}
 			/>
