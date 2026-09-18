@@ -1091,7 +1091,13 @@
 	label="Fork members"
 	description="Choose who a new fork of this workspace starts with, besides the person who creates it."
 	wrapperClass="pb-12"
+	collapsable
 >
+	{#snippet badge()}
+		<Badge color={addAdminsAndDevelopersToForks ? 'green' : 'gray'}>
+			{addAdminsAndDevelopersToForks ? 'Admins and developers' : 'Creator only'}
+		</Badge>
+	{/snippet}
 	<Toggle
 		bind:checked={addAdminsAndDevelopersToForks}
 		on:change={(e) => updateAddAdminsAndDevelopersToForks(e.detail)}
