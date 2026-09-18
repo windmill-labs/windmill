@@ -1991,6 +1991,21 @@ const triggerServices: Record<TriggerKind, TriggerService> = {
 	}
 }
 
+/** Whether the server would admit a guest here: the deployment has to support guests at
+ * all, and the instance and workspace switches both have to be on. `guest` is stored on
+ * an app even when none of that holds, so the mode alone never settles who can open it.
+ * `undefined` when a switch read fails — neither proven live nor proven inert. */
+async function guestAccessIsLive(workspace: string): Promise<boolean | undefined> {
+	const [usage, settings] = await Promise.all([
+		WorkspaceService.getGuestUsage({ workspace }).catch(() => undefined),
+		WorkspaceService.getPublicSettings({ workspace }).catch(() => undefined)
+	])
+	if (usage === undefined || settings === undefined) {
+		return undefined
+	}
+	return !!(usage.available && usage.instance_enabled && settings.guest_access_enabled)
+}
+
 async function readWorkspaceItem(
 	type: WorkspaceItemType,
 	path: string,
@@ -2055,7 +2070,14 @@ async function readWorkspaceItem(
 			const app = await AppService.getAppByPath({ workspace, path })
 			// A grid is not files and runnables: summarizing one reports an empty app. Name the
 			// kind instead.
-			const executionMode = app.policy?.execution_mode
+			// An app sits in `guest` mode whether or not anyone is admitted by it, so reporting
+			// the mode bare would tell the model strangers can open an app that admits members
+			// only. Say it is inert rather than hide it, as the app's deploy settings do.
+			let executionMode: string | undefined = app.policy?.execution_mode
+			if (executionMode === 'guest' && (await guestAccessIsLive(workspace)) === false) {
+				executionMode =
+					'guest, but inert: the instance or workspace admits no guest, so this app admits members only'
+			}
 			if (app.raw_app === false) {
 				return {
 					type: 'app',
@@ -8030,15 +8052,10 @@ async function deployDraft(
 						`backend runnables are now reachable by anyone with the URL, without logging in. ` +
 						`Tell the user plainly what is now reachable and by whom.`
 				} else if (policy.execution_mode === 'guest') {
-					// Guest is stored even where it is inert: the deployment must admit guests, and
-					// the instance and workspace switches must both be on. Below that, silence — a
-					// false note is worse than none. The standing cap is a live count no read
-					// settles, so the note says the door is open, not that every newcomer gets in.
-					const [usage, settings] = await Promise.all([
-						WorkspaceService.getGuestUsage({ workspace }).catch(() => undefined),
-						WorkspaceService.getPublicSettings({ workspace }).catch(() => undefined)
-					])
-					if (usage?.available && usage.instance_enabled && settings?.guest_access_enabled) {
+					// Only where the guest door actually opens: below that, silence — a false note
+					// is worse than none. The standing cap is a live count no read settles, so the
+					// note says the door is open, not that every newcomer gets in.
+					if (await guestAccessIsLive(workspace)) {
 						deployNote =
 							`${deployNote ? `${deployNote} ` : ''}This app is deployed as guest: anyone ` +
 							`the instance's identity provider authenticates can now open it and run its ` +

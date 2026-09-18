@@ -3753,16 +3753,22 @@ describe('global AI tools', () => {
 			const read = await callGlobalTool('read_workspace_item', { type: 'app', path: app.path })
 			return JSON.parse(read).executionMode
 		}
+		const guestApp = {
+			path: 'f/apps/code',
+			summary: 'Code app',
+			raw_app: true,
+			value: { files: {}, runnables: {} },
+			policy: { execution_mode: 'guest' }
+		}
 
-		expect(
-			await readMode({
-				path: 'f/apps/code',
-				summary: 'Code app',
-				raw_app: true,
-				value: { files: {}, runnables: {} },
-				policy: { execution_mode: 'guest' }
-			})
-		).toBe('guest')
+		vi.mocked(WorkspaceService.getGuestUsage).mockResolvedValueOnce({
+			available: true,
+			instance_enabled: true
+		} as any)
+		vi.mocked(WorkspaceService.getPublicSettings).mockResolvedValueOnce({
+			guest_access_enabled: true
+		} as any)
+		expect(await readMode(guestApp)).toBe('guest')
 
 		expect(
 			await readMode({
@@ -3773,6 +3779,21 @@ describe('global AI tools', () => {
 				policy: { execution_mode: 'anonymous' }
 			})
 		).toBe('anonymous')
+
+		// The same app, with each switch crossed in turn: either one alone admits nobody, so
+		// reporting the mode bare would name an exposure the server refuses. Both off needs
+		// no case of its own — whichever half of the check were dropped, one of these two
+		// still catches it.
+		vi.mocked(WorkspaceService.getPublicSettings).mockResolvedValueOnce({
+			guest_access_enabled: true
+		} as any)
+		expect(await readMode(guestApp)).toContain('inert')
+
+		vi.mocked(WorkspaceService.getGuestUsage).mockResolvedValueOnce({
+			available: true,
+			instance_enabled: true
+		} as any)
+		expect(await readMode(guestApp)).toContain('inert')
 	})
 
 	it('reads raw app files without creating a draft', async () => {

@@ -145,8 +145,10 @@ export type WorkspaceItem = {
 	rawApp?: boolean
 	/** Apps only. Who may open the deployed app: `anonymous` is anyone with the
 	 * URL and no login, `guest` anyone the identity provider authenticates, the
-	 * rest a workspace member. Reported per app, not in listings — a listing
-	 * carrying it would make absence read as proof of no exposure. */
+	 * rest a workspace member. A `guest` app whose instance or workspace admits
+	 * no guest says so here, since the mode is stored either way. Reported per
+	 * app, not in listings — a listing carrying it would make absence read as
+	 * proof of no exposure. */
 	executionMode?: string
 	isDraft: boolean
 	isLiveDraft?: boolean
