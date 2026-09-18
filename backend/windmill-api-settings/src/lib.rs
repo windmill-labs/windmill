@@ -42,7 +42,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde_json::json;
 
 use serde::{Deserialize, Serialize};
 use windmill_ai::ai_cache::bump_instance_ai_config_revision;
@@ -60,7 +59,7 @@ use windmill_common::{
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS, EXTERNAL_INSTANCE_PG_SETTING,
         GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
         INSTANCE_BANNER_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
@@ -167,6 +166,14 @@ pub fn global_service() -> Router {
         .route(
             "/refresh_custom_instance_user_pwd",
             post(refresh_custom_instance_user_pwd),
+        )
+        .route(
+            "/external_instance_pg/status",
+            get(get_external_instance_pg_status),
+        )
+        .route(
+            "/external_instance_pg/setup",
+            post(setup_external_instance_pg),
         )
         .route(
             "/setup_custom_instance_pg_database/{name}",
@@ -938,6 +945,13 @@ async fn run_setting_pre_write_hook(
     value: &serde_json::Value,
 ) -> error::Result<()> {
     match key {
+        EXTERNAL_INSTANCE_PG_SETTING => {
+            windmill_common::external_instance_pg::check_external_instance_pg_write(
+                db,
+                Some(value),
+            )
+            .await?;
+        }
         // The instance AI config is written as an untyped blob through this generic
         // endpoint, so it never passes the typed check the workspace handler applies.
         // Rates that reach a cost total unbounded would make it negative or infinite.
@@ -1288,6 +1302,14 @@ async fn set_instance_config(
 
         for (key, value) in &settings_diff.upserts {
             run_setting_pre_write_hook(&db, key, value).await?;
+        }
+        if settings_diff
+            .deletes
+            .iter()
+            .any(|k| k == EXTERNAL_INSTANCE_PG_SETTING)
+        {
+            windmill_common::external_instance_pg::check_external_instance_pg_write(&db, None)
+                .await?;
         }
 
         instance_config::apply_settings_diff(&db, &settings_diff)
@@ -1647,6 +1669,8 @@ struct CustomInstanceDb {
     tag: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     used_by_workspaces: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    workspace_id: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Serialize, Default)]
@@ -1687,7 +1711,40 @@ async fn list_custom_instance_pg_databases(
             ))
         })?;
 
-    if windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
+    if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
+        // A fork copy's name gives away the workspace it was reserved for, so every pending fork on
+        // the instance would be listed. Kept for members of that workspace, and wherever the
+        // caller's workspaces use it, e.g. the fork it was finalized into.
+        let reserved_visible: BTreeSet<String> = sqlx::query_scalar(
+            r#"SELECT e.k FROM global_settings gs
+               CROSS JOIN LATERAL jsonb_each(gs.value->'databases') AS e(k, v)
+               WHERE gs.name = 'custom_instance_pg_databases' AND e.v->>'workspace_id' IS NOT NULL
+                 AND (EXISTS (SELECT 1 FROM usr WHERE usr.email = $1
+                                AND usr.workspace_id = e.v->>'workspace_id')
+                   OR EXISTS (SELECT 1 FROM usr JOIN workspace_settings ws
+                                ON ws.workspace_id = usr.workspace_id
+                              CROSS JOIN LATERAL jsonb_each(
+                                  CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'
+                                      THEN ws.datatable->'datatables' ELSE '{}'::jsonb END) dt
+                              WHERE usr.email = $1
+                                AND dt.value->'database'->>'resource_type' = 'instance'
+                                AND dt.value->'database'->>'resource_path' = e.k))"#,
+        )
+        .bind(&authed.email)
+        .fetch_all(&db)
+        .await?
+        .into_iter()
+        .collect();
+        result.retain(|dbname, entry| {
+            entry.workspace_id.is_none() || reserved_visible.contains(dbname)
+        });
+        // Which workspace reserved a copy is still only for superadmins.
+        for entry in result.values_mut() {
+            entry.workspace_id = None;
+        }
+        return Ok(Json(result));
+    }
+    {
         // Enrich each database with the list of workspaces referencing it through
         // either a ducklake catalog or a datatable database whose resource_type is
         // 'instance'. Not stored in DB to avoid drift.
@@ -1743,6 +1800,54 @@ async fn refresh_custom_instance_user_pwd(
     Ok(Json(()))
 }
 
+async fn get_external_instance_pg_status(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<windmill_common::external_instance_pg::ExternalInstancePgStatus> {
+    require_super_admin(&db, &authed).await?;
+    Ok(Json(
+        windmill_common::external_instance_pg::external_instance_pg_status(&db).await?,
+    ))
+}
+
+#[derive(Deserialize)]
+struct SetupExternalInstancePgBody {
+    #[serde(default)]
+    rotate_passwords: bool,
+}
+
+async fn setup_external_instance_pg(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(body): Json<SetupExternalInstancePgBody>,
+) -> JsonResult<windmill_common::external_instance_pg::ExternalInstancePgSetupReport> {
+    require_super_admin(&db, &authed).await?;
+    let report = windmill_common::external_instance_pg::setup_external_instance_pg_unchecked(
+        &db,
+        body.rotate_passwords,
+    )
+    .await?;
+    let rotated = body.rotate_passwords.to_string();
+    let success = report.success.to_string();
+    windmill_audit::audit_oss::audit_log(
+        &db,
+        &authed,
+        "settings.setup_external_instance_pg",
+        windmill_audit::ActionKind::Update,
+        "global",
+        Some(&authed.email),
+        Some(
+            [
+                ("rotate_passwords", rotated.as_str()),
+                ("success", success.as_str()),
+            ]
+            .into(),
+        ),
+    )
+    .await?;
+    Ok(Json(report))
+}
+
 #[derive(Deserialize)]
 struct SetupCustomInstanceDbBody {
     tag: Option<String>,
@@ -1754,18 +1859,48 @@ async fn setup_custom_instance_pg_database(
     Path(dbname): Path<String>,
     Json(body): Json<SetupCustomInstanceDbBody>,
 ) -> JsonResult<CustomInstanceDb> {
+    // Before anything is recorded: the status written below replaces the registry entry, and with it
+    // the workspace a fork copy is reserved for.
+    require_super_admin(&db, &authed).await?;
+    // Fork cleanup checks and drops the database and its entry under this lock. Held from before
+    // the setup creates the database to after its entry is written, neither lands on the other's
+    // half-done state: a dropped database with its entry written back, or the reverse.
+    let mut tx = db.begin().await?;
+    windmill_common::datatable_roles::lock_instance_databases_governance(
+        &mut tx,
+        [dbname.trim()],
+    )
+    .await?;
     let mut logs = CustomInstanceDbLogs::default();
     let result = setup_custom_instance_pg_database_inner(authed, &db, &dbname, &mut logs).await;
     let success = result.is_ok();
     let error = result.err().map(|e| e.to_string());
-    let status =
-        CustomInstanceDb { logs, success, error, tag: body.tag, used_by_workspaces: vec![] };
+    let status = CustomInstanceDb {
+        logs,
+        success,
+        error,
+        tag: body.tag,
+        used_by_workspaces: vec![],
+        workspace_id: None,
+    };
     let status_json = serde_json::to_value(&status).map_err(to_anyhow)?;
-    // Save that the database was setup successfully
-    sqlx::query!(
-        r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
-        json!({ dbname: status_json })
-    ).execute(&db).await?;
+    // The fork reservation is carried over inside the write, from whatever the row holds then: a
+    // rename migrating it while the setup above ran would otherwise be overwritten with the value
+    // this request started from, stranding the copy under the archived workspace.
+    let saved = sqlx::query_scalar::<_, serde_json::Value>(
+        r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}',
+               COALESCE(value->'databases', '{}'::jsonb)
+                   || jsonb_build_object($1::text, $2::jsonb || jsonb_build_object(
+                          'workspace_id', value->'databases'->$1::text->'workspace_id')))
+           WHERE name = 'custom_instance_pg_databases'
+           RETURNING value->'databases'->$1::text"#,
+    )
+    .bind(&dbname)
+    .bind(&status_json)
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    let status: CustomInstanceDb = serde_json::from_value(saved).map_err(to_anyhow)?;
 
     Ok(Json(status))
 }

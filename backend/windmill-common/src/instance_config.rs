@@ -350,6 +350,8 @@ pub struct GlobalSettings {
     pub ducklake_settings: Option<DucklakeSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_instance_pg_databases: Option<CustomInstancePgDatabases>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_instance_pg: Option<ExternalInstancePg>,
 
     // Opaque settings (EE-private structs or no clear schema)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -809,6 +811,9 @@ pub struct CustomInstanceDb {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
+    /// The workspace a member created this fork copy for. Absent when a superadmin created it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
 }
 
 /// Setup log entries for a custom instance database.
@@ -831,6 +836,36 @@ pub struct CustomInstanceDbLogs {
     pub replication_user: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replication_user_error: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// External instance PG cluster
+// ---------------------------------------------------------------------------
+
+/// The external Postgres cluster Windmill manages for `external_instance` data tables and Ducklake
+/// catalogs. `user` logs in as the cluster's administrator: it needs `CREATEDB` and `CREATEROLE`.
+/// `dbname` is only where that login connects to run cluster-wide statements.
+///
+/// Every field defaults rather than being required: this deserializes as part of the whole
+/// instance config, and one malformed row must not make every other setting unreadable. The
+/// write path and every use reject an incomplete value instead.
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct ExternalInstancePg {
+    #[serde(default)]
+    pub host: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<StringOrSecretRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dbname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sslmode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_certificate_pem: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -969,6 +1004,7 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
     "ducklake_settings",
     "custom_instance_pg_databases",
     "custom_instance_replication_pwd",
+    "external_instance_pg_state",
     "uid",
     "rsa_keys",
     "jwt_secret",
@@ -994,6 +1030,8 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     // Server-only (written by setup/refresh via direct SQL), never operator-authored —
     // hidden so the config machinery can't read, rewrite, or drop it.
     "custom_instance_replication_pwd",
+    // Same for the passwords and database registry Windmill keeps for the external cluster.
+    "external_instance_pg_state",
 ];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.
@@ -1005,6 +1043,7 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "license_key",
     "ducklake_user_pg_pwd",
     "custom_instance_replication_pwd",
+    "external_instance_pg_state",
     "pip_index_url",
     "pip_extra_index_url",
     "npm_config_registry",
@@ -1030,6 +1069,7 @@ const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
         &["secret_key", "serviceAccountKey"],
     ),
     ("custom_instance_pg_databases", &["user_pwd"]),
+    ("external_instance_pg", &["password"]),
 ];
 
 fn redact_json_value(value: &serde_json::Value) -> serde_json::Value {
@@ -1359,6 +1399,13 @@ pub async fn sync_global_settings_declarative(
         .map_err(|e| anyhow::anyhow!("{origins_key}: {e}"))?;
 
     let diff = diff_global_settings(current, desired, ApplyMode::Replace);
+    let external_pg_key = crate::global_settings::EXTERNAL_INSTANCE_PG_SETTING;
+    if diff.deletes.iter().any(|k| k == external_pg_key) {
+        crate::external_instance_pg::check_external_instance_pg_write(db, None).await?;
+    }
+    if let Some(value) = diff.upserts.get(external_pg_key) {
+        crate::external_instance_pg::check_external_instance_pg_write(db, Some(value)).await?;
+    }
     apply_settings_diff(db, &diff).await?;
 
     Ok(())
@@ -1489,6 +1536,10 @@ pub fn resolve_env_refs(settings: &mut GlobalSettings) -> Result<(), String> {
 
     if let Some(pg) = &mut settings.custom_instance_pg_databases {
         resolve_env_option(&mut pg.user_pwd)?;
+    }
+
+    if let Some(pg) = &mut settings.external_instance_pg {
+        resolve_env_option(&mut pg.password)?;
     }
 
     Ok(())
@@ -2460,39 +2511,33 @@ mod tests {
     }
 
     #[test]
-    fn custom_instance_replication_pwd_is_isolated_from_config() {
-        // The replication-role password is server-only: written by setup/refresh via direct
-        // SQL, never operator-authored. It must stay out of the declarative config surface
-        // (hidden on read) and be undeletable, so config sync can't read, rewrite, or drop it.
-        assert!(HIDDEN_SETTINGS.contains(&"custom_instance_replication_pwd"));
-        assert!(PROTECTED_SETTINGS.contains(&"custom_instance_replication_pwd"));
-        assert!(SENSITIVE_SETTINGS.contains(&"custom_instance_replication_pwd"));
+    fn server_generated_db_passwords_are_isolated_from_config() {
+        // These hold passwords the server generates: written by setup/refresh via direct SQL,
+        // never operator-authored. They must stay out of the declarative config surface
+        // (hidden on read) and be undeletable, so config sync can't read, rewrite, or drop them.
+        for key in [
+            "custom_instance_replication_pwd",
+            "external_instance_pg_state",
+        ] {
+            assert!(HIDDEN_SETTINGS.contains(&key), "{key}");
+            assert!(PROTECTED_SETTINGS.contains(&key), "{key}");
+            assert!(SENSITIVE_SETTINGS.contains(&key), "{key}");
 
-        // A stray desired value (e.g. flattened into `extra`) is ignored, not upserted.
-        let mut desired = BTreeMap::new();
-        desired.insert(
-            "custom_instance_replication_pwd".to_string(),
-            serde_json::json!("attacker-set"),
-        );
-        let diff = diff_global_settings(&BTreeMap::new(), &desired, ApplyMode::Merge);
-        assert!(
-            diff.upserts.is_empty(),
-            "hidden setting must not be upserted"
-        );
+            // A stray desired value (e.g. flattened into `extra`) is ignored, not upserted.
+            let mut desired = BTreeMap::new();
+            desired.insert(key.to_string(), serde_json::json!("attacker-set"));
+            let diff = diff_global_settings(&BTreeMap::new(), &desired, ApplyMode::Merge);
+            assert!(diff.upserts.is_empty(), "{key} must not be upserted");
 
-        // A current value is never deleted by a Replace that omits it.
-        let mut current = BTreeMap::new();
-        current.insert(
-            "custom_instance_replication_pwd".to_string(),
-            serde_json::json!("live"),
-        );
-        let diff = diff_global_settings(&current, &BTreeMap::new(), ApplyMode::Replace);
-        assert!(
-            !diff
-                .deletes
-                .contains(&"custom_instance_replication_pwd".to_string()),
-            "hidden setting must not be deleted"
-        );
+            // A current value is never deleted by a Replace that omits it.
+            let mut current = BTreeMap::new();
+            current.insert(key.to_string(), serde_json::json!("live"));
+            let diff = diff_global_settings(&current, &BTreeMap::new(), ApplyMode::Replace);
+            assert!(
+                !diff.deletes.contains(&key.to_string()),
+                "{key} must not be deleted"
+            );
+        }
     }
 
     #[test]

@@ -1572,6 +1572,43 @@ paths:
               schema:
                 type: object
 
+  /settings/external_instance_pg/status:
+    get:
+      summary: Returns whether the external instance cluster is configured and how its last setup went
+      operationId: getExternalInstancePgStatus
+      tags:
+        - setting
+      responses:
+        "200":
+          description: external instance cluster status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalInstancePgStatus"
+
+  /settings/external_instance_pg/setup:
+    post:
+      summary: Sets up the external instance cluster with its saved admin login, optionally rotating the passwords Windmill manages on it (enterprise edition only)
+      operationId: setupExternalInstancePg
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rotate_passwords:
+                  type: boolean
+      responses:
+        "200":
+          description: the setup report, also stored as the last setup
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalInstancePgSetupReport"
+
   /settings/list_custom_instance_pg_databases:
     post:
       summary: Returns the set-up statuses of custom instance pg databases
@@ -33700,6 +33737,44 @@ components:
         - ducklake
         - datatable
 
+    ExternalInstancePgSetupStep:
+      type: object
+      required: [name, status, message]
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [ok, warning, error]
+        message:
+          type: string
+
+    ExternalInstancePgSetupReport:
+      type: object
+      required: [success, finished_at, steps]
+      properties:
+        success:
+          type: boolean
+          description: no step failed; warnings leave it true
+        finished_at:
+          type: string
+          format: date-time
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalInstancePgSetupStep"
+
+    ExternalInstancePgStatus:
+      type: object
+      required: [configured, database_count]
+      properties:
+        configured:
+          type: boolean
+        database_count:
+          type: integer
+        last_setup:
+          $ref: "#/components/schemas/ExternalInstancePgSetupReport"
+
     InstanceDatatableRole:
       type: object
       required: [id, name, enabled]
@@ -34033,6 +34108,9 @@ components:
           items:
             type: string
           description: Workspaces that reference this database via a ducklake catalog or datatable database with resource_type 'instance'. Computed at request time, not persisted.
+        workspace_id:
+          type: string
+          description: The workspace a member created this database for as a fork copy. Only that workspace can import into it or point a fork at it.
 
     NewSqsTrigger:
       type: object

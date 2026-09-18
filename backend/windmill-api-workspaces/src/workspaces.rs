@@ -3437,8 +3437,27 @@ async fn create_pg_database(
     }
 
     if is_instance_datatable_source(&db, &w_id, &req.source).await? {
-        windmill_common::create_custom_instance_database(&db, &req.target_dbname, "datatable")
-            .await?;
+        // Held until the copy is registered, as a rename migrates reservations to the new id under
+        // it once the old one is archived: a copy registered after that would be reserved for an
+        // id nothing answers on.
+        let mut tx = db.begin().await?;
+        windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
+        let live = sqlx::query_scalar::<_, bool>("SELECT NOT deleted FROM workspace WHERE id = $1")
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .unwrap_or(false);
+        if !live {
+            return Err(Error::BadRequest(format!("Workspace '{w_id}' is archived")));
+        }
+        windmill_common::create_custom_instance_database(
+            &db,
+            &req.target_dbname,
+            "datatable",
+            Some(&w_id),
+        )
+        .await?;
+        tx.commit().await?;
     } else {
         let source_pg =
             resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
@@ -3580,6 +3599,7 @@ async fn import_pg_database(
     }
 
     let schema_only = req.fork_behavior == DataTableForkBehavior::SchemaOnly;
+    let mut fork_lock: Option<Transaction<'_, Postgres>> = None;
     let source_pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
     let mut target_pg =
         resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.target).await?;
@@ -3591,6 +3611,21 @@ async fn import_pg_database(
                     "Non-superadmin users can only override target dbname with names starting with 'wm_fork_'"
                         .to_string(),
                 ));
+            }
+            if is_instance_datatable_source(&db, &w_id, &req.target).await? {
+                // Held until the restore is done: fork finalization takes the first, and every
+                // save newly naming a database, in any workspace, the second. Nothing may start
+                // using this database while `psql` is still filling it.
+                let mut tx = db.begin().await?;
+                windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
+                windmill_common::datatable_roles::lock_instance_databases_governance(
+                    &mut tx,
+                    [override_dbname.as_str()],
+                )
+                .await?;
+                windmill_common::ensure_fork_database_available_to(&db, override_dbname, &w_id)
+                    .await?;
+                fork_lock = Some(tx);
             }
         }
         target_pg.dbname = override_dbname.clone();
@@ -3610,6 +3645,9 @@ async fn import_pg_database(
     )
     .await?;
     pg_import_dump(&target_pg, &dump_file).await?;
+    if let Some(tx) = fork_lock {
+        tx.commit().await?;
+    }
 
     Ok(format!(
         "Imported from '{}' into '{}'",
@@ -3701,19 +3739,37 @@ async fn edit_ducklake_config(
     )
     .await?;
 
-    let old_ducklakes = sqlx::query_scalar!(
-        r#"
-            SELECT ws.ducklake->'ducklakes' AS ducklake_name
-            FROM workspace_settings ws
-            WHERE ws.workspace_id = $1
-        "#,
-        &w_id
+    // Under the row lock the save writes with, taken before the database locks below as fork
+    // cleanup takes the two.
+    let old_ducklakes = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "SELECT ws.ducklake->'ducklakes' FROM workspace_settings ws
+         WHERE ws.workspace_id = $1 FOR UPDATE",
     )
+    .bind(&w_id)
     .fetch_one(&mut *tx)
     .await?
     .unwrap_or(serde_json::Value::Null);
     let old_ducklakes: HashMap<String, Ducklake> =
         serde_json::from_value(old_ducklakes).unwrap_or_default();
+
+    // Fork cleanup decides nothing uses an instance database under this lock, so a catalog newly
+    // put on one must not commit between its check and its drop.
+    windmill_common::datatable_roles::lock_instance_databases_governance(
+        &mut *tx,
+        new_config
+            .settings
+            .ducklakes
+            .iter()
+            .filter(|(name, dl)| {
+                dl.catalog.resource_type == DucklakeCatalogResourceType::Instance
+                    && old_ducklakes.get(name.as_str()).is_none_or(|old| {
+                        old.catalog.resource_type != DucklakeCatalogResourceType::Instance
+                            || old.catalog.resource_path != dl.catalog.resource_path
+                    })
+            })
+            .map(|(_, dl)| dl.catalog.resource_path.as_str()),
+    )
+    .await?;
 
     // Check that non-superadmins are not abusing Instance databases
     if !is_superadmin {
@@ -3789,6 +3845,8 @@ async fn edit_datatable_config(
     let is_superadmin = require_super_admin(&db, &authed).await.is_ok();
 
     let mut tx = db.begin().await?;
+    // Ahead of the settings row, as fork cleanup of this workspace takes the two.
+    windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
 
     // Read under the row lock this transaction will write with. `permissions`, `reference` and
     // `forked_from` are carried across from what this read returns, so a permissions save
@@ -4021,10 +4079,38 @@ async fn edit_datatable_config(
         })
         .collect();
     // Another workspace turning roles on for the same database holds only its own settings row, so
-    // without this the scan below could read past its uncommitted write.
+    // without this the scan below could read past its uncommitted write. Every managed database
+    // this save newly names is locked, not just the ones the scan is about: fork cleanup takes the
+    // same lock to decide nothing uses the database it is dropping.
+    let newly_named: std::collections::BTreeSet<&str> = new_config
+        .settings
+        .datatables
+        .iter()
+        .filter_map(|(name, dt)| {
+            let db = dt
+                .database
+                .as_ref()
+                .filter(|d| d.resource_type == DataTableCatalogResourceType::Instance)?;
+            let lookup = rename_src
+                .get(name.as_str())
+                .copied()
+                .unwrap_or(name.as_str());
+            old_datatables
+                .get(lookup)
+                .and_then(|old| old.database.as_ref())
+                .is_none_or(|old_db| {
+                    old_db.resource_type != db.resource_type
+                        || old_db.resource_path != db.resource_path
+                })
+                .then_some(db.resource_path.as_str())
+        })
+        .collect();
     windmill_common::datatable_roles::lock_instance_databases_governance(
         &mut *tx,
-        newly_pointed.iter().map(|(_, dbname)| *dbname),
+        newly_pointed
+            .iter()
+            .map(|(_, dbname)| *dbname)
+            .chain(newly_named.iter().copied()),
     )
     .await?;
     let governed_elsewhere: Vec<String> = if newly_pointed.is_empty() {
@@ -8199,6 +8285,21 @@ async fn apply_forked_datatable(
     };
 
     if database.resource_type == DataTableCatalogResourceType::Instance {
+        // Held until the fork commits, as every save newly naming a database takes it: none may
+        // claim the copy between the check below and this fork's entry landing on it.
+        windmill_common::datatable_roles::lock_instance_databases_governance(
+            &mut **tx,
+            [fdt.new_dbname.as_str()],
+        )
+        .await?;
+    }
+    if database.resource_type == DataTableCatalogResourceType::Instance
+        && !windmill_api_auth::is_super_admin_authed(db, authed).await?
+    {
+        windmill_common::ensure_fork_database_available_to(db, &fdt.new_dbname, parent_w_id)
+            .await?;
+    }
+    if database.resource_type == DataTableCatalogResourceType::Instance {
         // The whole `database` object, not just its `resource_path`: a pointer entry has none to
         // patch. `reference` goes with it — exactly one of the two may be set.
         let new_database = serde_json::json!({
@@ -8591,6 +8692,9 @@ async fn create_workspace_fork(
     }
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    // Before the settings clone reads the parent's data tables: a pointer this fork ends up with
+    // must not be written after cleanup of the parent decided that nothing points at its copies.
+    windmill_common::workspaces::lock_fork_datatables(&mut tx, &parent_workspace_id).await?;
 
     if nw.is_dev_workspace {
         // The checks above ran outside a transaction, so the parent's eligibility and the chain's
