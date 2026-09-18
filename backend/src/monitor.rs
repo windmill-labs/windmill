@@ -65,6 +65,7 @@ use windmill_common::{
         FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
+        MCP_DISABLE_TOKEN_QUERY_PARAM, MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
         NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING, NUGET_CONFIG_SETTING,
         OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING, OTEL_TRACING_PROXY_SETTING,
@@ -288,6 +289,15 @@ pub async fn initial_load(
     );
 
     if let Some(db) = conn.as_sql() {
+        // Outside the `server_mode` block below: a `MODE=mcp` process serves the MCP routes
+        // with `server_mode` false and would otherwise never read this at all. That mode
+        // joins no monitor loop, so there — as for every global setting, `base_url`
+        // included — this pass is the only read, and a change lands on restart.
+        pass.setting(
+            MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING,
+            false,
+            |v| async move { apply_mcp_disable_token_query_param(v) },
+        );
         pass.setting(DEFAULT_TAGS_PER_WORKSPACE_SETTING, false, |v| async move {
             apply_tag_per_workspace_enabled(v)
         });
@@ -1613,6 +1623,23 @@ pub fn apply_disable_password_login(value: Option<serde_json::Value>) {
     match value {
         Some(serde_json::Value::Bool(t)) => DISABLE_PASSWORD_LOGIN.store(t, Ordering::Relaxed),
         None => DISABLE_PASSWORD_LOGIN.store(false, Ordering::Relaxed),
+        _ => (),
+    };
+}
+
+pub async fn load_mcp_disable_token_query_param(db: &DB) {
+    match load_value_from_global_settings(db, MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING).await {
+        Ok(v) => apply_mcp_disable_token_query_param(v),
+        Err(e) => tracing::error!("Error loading mcp_disable_token_query_param setting: {e:#}"),
+    };
+}
+
+pub fn apply_mcp_disable_token_query_param(value: Option<serde_json::Value>) {
+    match value {
+        Some(serde_json::Value::Bool(t)) => {
+            MCP_DISABLE_TOKEN_QUERY_PARAM.store(t, Ordering::Relaxed)
+        }
+        None => MCP_DISABLE_TOKEN_QUERY_PARAM.store(false, Ordering::Relaxed),
         _ => (),
     };
 }

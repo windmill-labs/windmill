@@ -102,6 +102,10 @@ pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
 pub const DISABLE_WORKSPACE_INVITE_EMAILS_SETTING: &str = "disable_workspace_invite_emails";
 pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
+/// Refuse `?token=` on the MCP endpoints, leaving the `Authorization` header as the only way
+/// in. A URL-borne credential ends up in browser history, proxy logs and referrers, so an
+/// instance that cares sends MCP clients through the OAuth flow instead.
+pub const MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING: &str = "mcp_disable_token_query_param";
 /// Ceiling, in days, on how far ahead a token minted through `POST /users/tokens/create` or
 /// `POST /users/tokens/impersonate` may expire; a request asking for more, or for no
 /// expiration at all, is shortened to it rather than refused. On those routes only: server-side
@@ -407,6 +411,7 @@ use std::sync::atomic::AtomicBool;
 lazy_static::lazy_static! {
     pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
     pub static ref DISABLE_PASSWORD_LOGIN: AtomicBool = AtomicBool::new(false);
+    pub static ref MCP_DISABLE_TOKEN_QUERY_PARAM: AtomicBool = AtomicBool::new(false);
     /// Origins HTTP routes allow cross-origin when they configure none of their
     /// own. Empty means unset, which keeps the historical `*`.
     pub static ref HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS: arc_swap::ArcSwap<Vec<String>> =
