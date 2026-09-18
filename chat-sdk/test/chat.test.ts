@@ -966,25 +966,64 @@ describe('createChat with server history', () => {
     expect(state.conversations.map((c) => c.id)).toEqual(['conv'])
   })
 
-  test('a running turn the listing named is not followed once a newer one has started', async () => {
+  test('a listing that names a turn already over follows the one running now', async () => {
+    const { fetch, calls } = fetchMock(
+      (c) =>
+        c.url.pathname === '/api/w/ws/jobs_u/getupdate_sse/job-2'
+          ? sse([
+              {
+                type: 'update',
+                new_result_stream: ndjson({ type: 'token_delta', content: 'second answer' }),
+                stream_offset: 1,
+                completed: true,
+                only_result: { windmill_chat_answer: 'second answer' }
+              }
+            ])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-2')
+          ? json({ flow_status: { modules: [{ job: 'step-2' }] } })
+          : undefined,
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        const after = c.url.searchParams.get('after_seq')
+        if (after === '52') return json([messageRow(53, 'assistant', 'second answer', { job_id: 'step-2' })])
+        return json([
+          messageRow(50, 'user', 'first'),
+          messageRow(51, 'assistant', 'first answer'),
+          messageRow(52, 'user', 'second', { job_id: 'job-2' })
+        ])
+      }
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    // The listing named the first turn; it ended and the second one started before this select.
+    await chat.resumeTurn({ jobId: 'job-1', userSeq: 50 })
+    expect(calls.some((c) => c.url.pathname.includes('getupdate_sse/job-1'))).toBe(false)
+    expect(calls.some((c) => c.url.pathname.includes('getupdate_sse/job-2'))).toBe(true)
+    expect(chat.getState().messages.map((m) => [m.serverId, m.content])).toEqual([
+      ['row-50', 'first'],
+      ['row-51', 'first answer'],
+      ['row-52', 'second'],
+      ['row-53', 'second answer']
+    ])
+    expect(chat.getState().status).toBe('idle')
+    expect(chat.getState().error).toBeUndefined()
+  })
+
+  test('a newer message whose run is not named yet leaves the chat free', async () => {
     const { fetch, calls } = fetchMock(
       (c) =>
         c.url.pathname.endsWith('/messages')
-          ? json([
-              messageRow(50, 'user', 'first'),
-              messageRow(51, 'assistant', 'first answer'),
-              messageRow(52, 'user', 'second')
-            ])
+          ? json([messageRow(50, 'user', 'first'), messageRow(52, 'user', 'second')])
           : undefined
     )
     const chat = createChat(options({}, fetch))
     await chat.selectConversation('conv')
-    // The listing named the first turn; it ended and another one started before this select.
     await chat.resumeTurn({ jobId: 'job-1', userSeq: 50 })
     expect(chat.getState().status).toBe('idle')
-    expect(chat.getState().messages.map((m) => m.serverId)).toEqual(['row-50', 'row-51', 'row-52'])
     expect(calls.some((c) => c.url.pathname.includes('getupdate_sse'))).toBe(false)
-    // The chat is free: a message sent now starts its own turn rather than being refused.
+    // A message sent now starts its own turn rather than being refused.
     expect(chat.getState().error).toBeUndefined()
   })
 

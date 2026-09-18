@@ -234,15 +234,24 @@ class ChatImpl implements Chat {
       await this.#selecting
       if (!this.#turnActive(turn)) return
       // A listing is a snapshot: the turn it named can have ended and another one started
-      // since. Following it would drop the newer turn's rows and leave the chat idle while
-      // that turn runs, so it is left to the next listing to name the turn that runs now.
-      const newerTurn = this.#state.messages.some(
-        (m) => m.role === 'user' && m.seq !== undefined && m.seq > userSeq
+      // since. The newest user message this chat holds names the turn to follow instead —
+      // following the one the listing named would drop the newer turn's rows and leave the
+      // chat idle while it runs.
+      const newest = this.#state.messages.reduce<ChatMessage | undefined>(
+        (found, m) =>
+          m.role === 'user' && m.seq !== undefined && m.seq > (found?.seq ?? userSeq) ? m : found,
+        undefined
       )
-      if (newerTurn) {
-        if (this.#turn === turn) this.#turn = undefined
-        this.#set({ status: 'idle' })
-        return
+      if (newest) {
+        if (!newest.jobId) {
+          // Its row is written and its run is not named yet: there is nothing to follow, so
+          // it is left to the next listing to name the turn that runs now.
+          if (this.#turn === turn) this.#turn = undefined
+          this.#set({ status: 'idle' })
+          return
+        }
+        turn.jobId = newest.jobId
+        userSeq = newest.seq!
       }
       // The stream replays the turn from its start, so the rows it already wrote go and
       // come back as it replays them. The message that started it stays: it is the turn's
