@@ -859,6 +859,7 @@
 						<FlowChat
 							onRunFlow={runFlowWithMessage}
 							path={$pathStore}
+							identity={$initialPathStore || fakeInitialPath}
 							conversationKind="test"
 							inputSchema={flowStore.val.schema}
 							flowModules={flowStore.val.value?.modules}

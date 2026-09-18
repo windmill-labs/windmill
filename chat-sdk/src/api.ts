@@ -230,6 +230,27 @@ export class WindmillChatApi {
     return (await res.json()) as FlowConversationMessage[]
   }
 
+  /**
+   * Puts bytes in the workspace's object storage under `fileKey` and returns the key they were
+   * stored under (the server may rewrite it). Needs the workspace to have object storage set.
+   */
+  async uploadFile(
+    fileKey: string,
+    body: Blob,
+    options: { contentType?: string; signal?: AbortSignal } = {}
+  ): Promise<{ file_key: string }> {
+    const query: Record<string, string> = { file_key: fileKey }
+    if (options.contentType) query.content_type = options.contentType
+    const res = await this.#request('job_helpers/upload_s3_file', {
+      method: 'POST',
+      query,
+      raw: body,
+      contentType: options.contentType || 'application/octet-stream',
+      signal: options.signal
+    })
+    return (await res.json()) as { file_key: string }
+  }
+
   async deleteConversation(conversationId: string): Promise<void> {
     await this.#request(`flow_conversations/delete/${encodeURIComponent(conversationId)}`, {
       method: 'DELETE'
@@ -241,7 +262,11 @@ export class WindmillChatApi {
     init: {
       method?: string
       query?: Record<string, string>
+      /** JSON-encoded. */
       body?: unknown
+      /** Sent as is, under `contentType`. */
+      raw?: Blob
+      contentType?: string
       accept?: string
       signal?: AbortSignal
     } = {}
@@ -252,13 +277,14 @@ export class WindmillChatApi {
     const headers: Record<string, string> = {}
     if (init.accept) headers['Accept'] = init.accept
     if (init.body !== undefined) headers['Content-Type'] = 'application/json'
+    else if (init.raw !== undefined) headers['Content-Type'] = init.contentType ?? 'application/octet-stream'
     const token = typeof this.#token === 'function' ? await this.#token() : this.#token
     if (token) headers['Authorization'] = `Bearer ${token}`
 
     const res = await this.#fetch(url.toString(), {
       method: init.method ?? 'GET',
       headers,
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      body: init.body === undefined ? init.raw : JSON.stringify(init.body),
       // A token must not be paired with ambient cookies; without one, the cookie is
       // the credential and only rides same-origin requests.
       credentials: token ? 'omit' : 'same-origin',

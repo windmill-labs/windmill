@@ -1,3 +1,4 @@
+import type { AttachedBlob } from './blobUtils'
 import type { ChatViewHost } from './chatViewHost'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
@@ -94,7 +95,7 @@ import { copilotInfo } from '$lib/aiStore'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
-import { TypewriterReveal } from './typewriterReveal'
+import { prefersInstantReveal, TypewriterReveal } from './typewriterReveal'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import {
 	createAppBackendRunnableContextElement,
@@ -153,11 +154,6 @@ import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRout
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
-
-// SSR and users who prefer reduced motion get no typewriter pacing.
-function prefersInstantReveal(): boolean {
-	return !BROWSER || (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false)
-}
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -463,6 +459,10 @@ export class AIChatManager implements ChatViewHost {
 	get supportsLinkedFolders() {
 		return this.mode === AIMode.GLOBAL
 	}
+	// The copilot reads attachments in the browser, so non-image files decode to text.
+	attachmentsAsBlobs = false
+	// The copilot decodes its attachments, so nothing ever lands in the blob lane.
+	queuedBlobs: AttachedBlob[] = []
 	// Steers the OS file picker toward text + image formats (a soft hint; both attach to
 	// the message — text files after a content sniff).
 	attachmentAccept =
@@ -3954,6 +3954,9 @@ export class AIChatManager implements ChatViewHost {
 								{
 									role: 'assistant',
 									content: this.currentReply,
+									// Stamped as it lands. A chat restored from history predates this and
+									// simply shows no time rather than a made-up one.
+									createdAt: new Date().toISOString(),
 									...(this.currentReasoning
 										? { reasoning: this.currentReasoning, reasoningDurationMs }
 										: {}),

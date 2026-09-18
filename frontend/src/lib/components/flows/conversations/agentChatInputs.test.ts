@@ -422,6 +422,15 @@ describe('agents that do not read the message', () => {
 		expect(wiring?.fields.model).toBe('model')
 	})
 
+	// The worker runs a statement body too, so reading the message there is still reading it.
+	it('counts an agent that reads the message in a statement body', () => {
+		const wiring = resolveAgentModelWiring([
+			subAgent(wired, 'const m = flow_input.user_message\nreturn m'),
+			subAgent(fixed)
+		])
+		expect(wiring?.fields.model).toBe('model')
+	})
+
 	// Two agents both answering the reader still have to agree: either might be the one
 	// that replies, so a control moving one of them would be a lie about the other.
 	it('still needs agreement among the agents that do read the message', () => {
