@@ -115,6 +115,9 @@
 		/** A linked agent's memory, once its config has loaded: whether it keeps managed memory decides
 		 *  which history inputs the step offers. */
 		linkedMemory?: { memory: unknown } | undefined
+		/** Set when this agent's config lives in a resource, so `tools` arrives with it rather than
+		 *  with the step. */
+		agentLinked?: boolean
 	}
 
 	let {
@@ -145,7 +148,8 @@
 		onAddTool = undefined,
 		onDeleteTool = undefined,
 		toolPickerPortal = undefined,
-		linkedMemory = undefined
+		linkedMemory = undefined,
+		agentLinked = false
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $workspaceStore)
@@ -226,9 +230,10 @@
 		})
 	})
 
-	// No editor adds tools to an agent used as a tool, so its Tools section only shows the ones
-	// written into the flow by hand, read-only.
-	let toolsHidden = $derived(isAgentTool && tools.length === 0)
+	// No editor adds tools to an agent used as a tool, so an empty roster is all an inline one will
+	// ever have. Not a linked one: its tools arrive with the resource, so empty here means "not
+	// loaded" as often as "none", and `enabled_tools` is the step's to set either way.
+	let toolsHidden = $derived(isAgentTool && !agentLinked && tools.length === 0)
 	let scopedFields = $derived(
 		AGENT_FIELDS.filter(
 			(spec) =>
