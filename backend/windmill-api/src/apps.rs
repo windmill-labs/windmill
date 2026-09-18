@@ -4310,11 +4310,11 @@ async fn execute_component(
         }
     }
 
-    let is_flow = payload
+    let flow_path = payload
         .path
-        .as_ref()
-        .map(|p| p.starts_with("flow/"))
-        .unwrap_or(false);
+        .as_deref()
+        .and_then(|path| path.strip_prefix("flow/"))
+        .map(str::to_string);
 
     // Tag for inline-script jobs is read from the deployed policy in run mode;
     // only preview mode (editor) honors the client-supplied tag. This applies to
@@ -4444,8 +4444,9 @@ async fn execute_component(
 
     // Apply runnable query parameters if provided
     if let Some(ref run_query) = payload.run_query_params {
-        if is_flow {
-            crate::jobs::process_flow_run_query_params(&mut tx, uuid, run_query).await?;
+        if let Some(flow_path) = flow_path.as_deref() {
+            crate::jobs::process_flow_run_query_params(&mut tx, uuid, &w_id, flow_path, run_query)
+                .await?;
         }
     }
 
