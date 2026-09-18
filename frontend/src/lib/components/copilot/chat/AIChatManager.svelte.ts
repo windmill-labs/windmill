@@ -2838,11 +2838,7 @@ export class AIChatManager implements ChatViewHost {
 	 *  queued message (whose text may be empty when it carries only attachments
 	 *  or context). */
 	get hasUnsentInput(): boolean {
-		return (
-			this.#composersWithDraft.size > 0 ||
-			!this.#queuedDraft.isEmpty ||
-			this.queuedContext !== undefined
-		)
+		return this.#composersWithDraft.size > 0 || this.#hasQueuedMessage()
 	}
 
 	/** Release the outgoing-files reservation identified by `key` (a per-send token).
