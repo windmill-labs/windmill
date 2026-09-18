@@ -32,7 +32,8 @@
 		identity?: string
 		hideSidebar?: boolean
 		inputSchema?: Record<string, any>
-		/** The flow's modules, read for the provider wiring of its AI agent steps. */
+		/** The flow's modules, read for the AI agent inputs the composer drives: the provider wiring
+		 * and the attachments input. */
 		flowModules?: FlowModule[]
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
