@@ -3637,10 +3637,6 @@ export async function pull(
     throw error;
   }
 
-  if (opts.stateful) {
-    await mkdir(path.join(process.cwd(), ".wmill"), { recursive: true });
-  }
-
   const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
 
@@ -3773,6 +3769,10 @@ export async function pull(
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
+
+  if (opts.stateful) {
+    await mkdir(path.join(process.cwd(), ".wmill"), { recursive: true });
+  }
 
   const codebases = await listSyncCodebases(opts);
 

@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { withTestBackend } from "./test_backend.ts";
+import { createRemoteWorkspaceDeps, withTestBackend } from "./test_backend.ts";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -22,13 +22,7 @@ test("git-sync fork deploy follows the fork branch's wmill.yaml", async () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-    const created = await post("/workspace_dependencies/create", {
-      workspace_id: backend.workspace,
-      language: "python3",
-      name: null,
-      content: "wmill\n",
-    });
-    expect(created.ok).toBe(true);
+    await createRemoteWorkspaceDeps(backend, "python3", "wmill\n");
     await post("/folders/create", { name: "dedupe" });
     const script = await post("/scripts/create", {
       path: "f/dedupe/a",
