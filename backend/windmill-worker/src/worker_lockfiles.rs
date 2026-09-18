@@ -1795,6 +1795,17 @@ async fn lock_modules(
                     agent,
                     tool_inputs,
                 } => {
+                    if let Some(agent_path) = agent.as_deref().filter(|_| !skip_flow_update) {
+                        sqlx::query!(
+                            "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, runnable_is_flow, runnable_is_agent, workspace_id) VALUES ($1, $2, FALSE, TRUE, $3) ON CONFLICT DO NOTHING",
+                            job_path,
+                            agent_path,
+                            job.workspace_id,
+                        )
+                        .execute(db)
+                        .await?;
+                    }
+
                     // Extract FlowModules from tools and track their original indices
                     // MCP tools don't need locking, so we filter them out
                     let mut flow_modules = Vec::new();

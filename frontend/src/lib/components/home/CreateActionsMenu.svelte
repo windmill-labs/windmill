@@ -247,7 +247,8 @@
 		}
 	}
 
-	let activeKey = $state(allOptions[0]?.key)
+	// the doc panel only shows while an option is hovered or focused, so the menu opens compact
+	let activeKey: string | undefined = $state(undefined)
 	// every option's import action, surfaced together under the bottom "Import" submenu.
 	// The hub project leads and is separated below: the others each paste one artifact the
 	// user already holds, while this one brings a whole project in from somewhere else.
@@ -350,6 +351,7 @@
 		if (isOpen && !wasOpen) {
 			logFeatureUsage('home', 'new_menu_open', { key: source })
 		}
+		if (!isOpen) activeKey = undefined
 		wasOpen = isOpen
 	})
 
@@ -360,8 +362,18 @@
 		// only persist the non-default (hidden) state, so a cleared key means "shown"
 		storeLocalSetting(SHOW_DOC_SETTING, value ? undefined : 'false')
 	}
-	let active = $derived(allOptions.find((o) => o.key === activeKey) ?? allOptions[0])
-	let activeAc = $derived(accentClasses[active.accent])
+	// The pointer crosses the gutter outside the menu on its way into the Workflow-as-Code
+	// submenu, so leaving the menu keeps the panel while that submenu is open; it clears
+	// once the submenu closes with neither pointer nor focus left on the menu.
+	let menuEl: HTMLDivElement | undefined = $state(undefined)
+	$effect(() => {
+		if ($wacSubOpen || !menuEl) return
+		if (!menuEl.matches(':hover') && !menuEl.contains(document.activeElement)) {
+			activeKey = undefined
+		}
+	})
+	let active = $derived(allOptions.find((o) => o.key === activeKey))
+	let activeAc = $derived(active ? accentClasses[active.accent] : undefined)
 
 	// shared YAML/JSON import drawer, reused by every "Import …" extra
 	let importDrawer: Drawer | undefined = $state(undefined)
@@ -427,179 +439,195 @@
 	{/if}
 </div>
 
-{#if $open && active}
+{#if $open}
+	<!-- The positioned element keeps its width while the doc panel toggles: floating-ui
+	     anchors it by its left edge, so a resize would paint one frame at the old left before
+	     the reposition. The visible card grows leftward inside it; the rest ignores the pointer. -->
 	<div
 		use:melt={$menu}
 		data-arrow-loop
-		class="z-[6000] flex flex-row rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+		class="z-[6000] flex flex-row justify-end pointer-events-none focus:outline-none"
 		style={showDoc ? 'width: 780px;' : ''}
+		bind:this={menuEl}
+		onpointerleave={() => {
+			if (!$wacSubOpen) activeKey = undefined
+		}}
 	>
-		{#if showDoc}
-			<!-- explanation of the highlighted editor -->
-			<div class="flex flex-col gap-3 p-5 flex-1 min-w-0">
-				<div class="flex flex-row items-center gap-3">
-					<div
-						class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 {activeAc.tile}"
-					>
-						<active.icon size={26} class={activeAc.iconText} />
-					</div>
-					<div class="min-w-0">
-						<div class="flex flex-row items-center gap-2">
-							<h3 class="font-semibold text-primary leading-tight">{active.label}</h3>
-							{#if active.badge}
-								<span
-									class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {active
-										.badge.class}"
-								>
-									{active.badge.label}
-								</span>
-							{/if}
-						</div>
-						<p class="text-xs text-tertiary">{active.tagline}</p>
-					</div>
-				</div>
-
-				<p class="text-xs text-secondary leading-relaxed">{active.description}</p>
-
-				<ul class="flex flex-col gap-1.5 mt-1">
-					{#each active.bullets as bullet (bullet)}
-						<li class="flex flex-row items-center gap-2 text-xs text-secondary">
-							<ChevronRight size={14} class={activeAc.iconText} />
-							{bullet}
-						</li>
-					{/each}
-				</ul>
-
-				<button
-					class="mt-auto self-start inline-flex items-center gap-1 pt-2 text-[10px] text-tertiary hover:text-secondary transition-colors"
-					title="Hide descriptions"
-					tabindex={-1}
-					onclick={() => setShowDoc(false)}
-				>
-					<PanelLeftClose size={12} />
-					Hide descriptions
-				</button>
-			</div>
-		{/if}
-
-		<!-- option list -->
-		<div class="flex flex-col gap-0.5 p-2 w-[18rem] shrink-0">
-			{#snippet rowBody(option: Option, ac: (typeof accentClasses)[string])}
-				<div class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 {ac.tile}">
-					<option.icon size={14} class={ac.iconText} />
-				</div>
-				<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
-					{option.label}
-				</span>
-				{#if option.badge}
-					<span
-						class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {option
-							.badge.class}"
-					>
-						{option.badge.label}
-					</span>
-				{/if}
-			{/snippet}
-			{#each allOptions as option (option.key)}
-				{@const ac = accentClasses[option.accent]}
-				{@const rowClass =
-					'w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover'}
-				{#if option.variants}
-					<button
-						use:melt={$wacSubTrigger}
-						class={rowClass}
-						onfocusin={() => (activeKey = option.key)}
-						onpointerenter={() => (activeKey = option.key)}
-					>
-						{@render rowBody(option, ac)}
-						<ChevronRight size={14} class="shrink-0 text-tertiary" />
-					</button>
-					{#if $wacSubOpen}
+		<div
+			class="pointer-events-auto flex flex-row rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl {showDoc &&
+			active
+				? 'w-full'
+				: ''}"
+		>
+			{#if showDoc && active && activeAc}
+				<!-- explanation of the highlighted editor -->
+				<div class="flex flex-col gap-3 p-5 flex-1 min-w-0">
+					<div class="flex flex-row items-center gap-3">
 						<div
-							use:melt={$wacSubMenu}
-							use:hugViewportRight
-							class="z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+							class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 {activeAc.tile}"
 						>
-							{#each option.variants ?? [] as variant (variant.label)}
-								{@const VariantIcon = variant.icon}
-								<button
-									use:melt={$item}
-									class="flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
-									onclick={() => variant.onSelect()}
-								>
-									<VariantIcon width={14} height={14} />
-									<span class="text-xs font-medium text-primary">{variant.label}</span>
-								</button>
-							{/each}
+							<active.icon size={26} class={activeAc.iconText} />
 						</div>
-					{/if}
-				{:else}
-					<button
-						use:melt={$item}
-						class={rowClass}
-						onfocusin={() => (activeKey = option.key)}
-						onpointerenter={() => (activeKey = option.key)}
-						onclick={() => option.onSelect()}
-					>
-						{@render rowBody(option, ac)}
-					</button>
-				{/if}
-			{/each}
+						<div class="min-w-0">
+							<div class="flex flex-row items-center gap-2">
+								<h3 class="font-semibold text-primary leading-tight">{active.label}</h3>
+								{#if active.badge}
+									<span
+										class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {active
+											.badge.class}"
+									>
+										{active.badge.label}
+									</span>
+								{/if}
+							</div>
+							<p class="text-xs text-tertiary">{active.tagline}</p>
+						</div>
+					</div>
 
-			<!-- bottom import section: one entry whose submenu imports any artifact -->
-			<div class="mx-1 my-1 border-t border-gray-200 dark:border-gray-700"></div>
-			<button
-				use:melt={$importSubTrigger}
-				class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
-			>
-				<div
-					class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-gray-100 dark:bg-gray-700"
-				>
-					<Import size={14} class="text-gray-600 dark:text-gray-300" />
+					<p class="text-xs text-secondary leading-relaxed">{active.description}</p>
+
+					<ul class="flex flex-col gap-1.5 mt-1">
+						{#each active.bullets as bullet (bullet)}
+							<li class="flex flex-row items-center gap-2 text-xs text-secondary">
+								<ChevronRight size={14} class={activeAc.iconText} />
+								{bullet}
+							</li>
+						{/each}
+					</ul>
+
+					<button
+						class="mt-auto self-start inline-flex items-center gap-1 pt-2 text-[10px] text-tertiary hover:text-secondary transition-colors"
+						title="Hide descriptions"
+						tabindex={-1}
+						onclick={() => setShowDoc(false)}
+					>
+						<PanelLeftClose size={12} />
+						Hide descriptions
+					</button>
 				</div>
-				<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
-					Import
-				</span>
-				<ChevronRight size={14} class="shrink-0 text-tertiary" />
-			</button>
-			{#if $importSubOpen}
-				<div
-					use:melt={$importSubMenu}
-					use:hugViewportRight
-					class="z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
-				>
-					{#each importActions as action, i (action.label)}
+			{/if}
+
+			<!-- option list -->
+			<div class="flex flex-col gap-0.5 p-2 w-[18rem] shrink-0">
+				{#snippet rowBody(option: Option, ac: (typeof accentClasses)[string])}
+					<div class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 {ac.tile}">
+						<option.icon size={14} class={ac.iconText} />
+					</div>
+					<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
+						{option.label}
+					</span>
+					{#if option.badge}
+						<span
+							class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {option
+								.badge.class}"
+						>
+							{option.badge.label}
+						</span>
+					{/if}
+				{/snippet}
+				{#each allOptions as option (option.key)}
+					{@const ac = accentClasses[option.accent]}
+					{@const rowClass =
+						'w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover'}
+					{#if option.variants}
+						<button
+							use:melt={$wacSubTrigger}
+							class={rowClass}
+							onfocusin={() => (activeKey = option.key)}
+							onpointerenter={() => (activeKey = option.key)}
+						>
+							{@render rowBody(option, ac)}
+							<ChevronRight size={14} class="shrink-0 text-tertiary" />
+						</button>
+						{#if $wacSubOpen}
+							<div
+								use:melt={$wacSubMenu}
+								use:hugViewportRight
+								class="pointer-events-auto z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+							>
+								{#each option.variants ?? [] as variant (variant.label)}
+									{@const VariantIcon = variant.icon}
+									<button
+										use:melt={$item}
+										class="flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+										onclick={() => variant.onSelect()}
+									>
+										<VariantIcon width={14} height={14} />
+										<span class="text-xs font-medium text-primary">{variant.label}</span>
+									</button>
+								{/each}
+							</div>
+						{/if}
+					{:else}
 						<button
 							use:melt={$item}
-							class="flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
-							onclick={() => action.onSelect()}
+							class={rowClass}
+							onfocusin={() => (activeKey = option.key)}
+							onpointerenter={() => (activeKey = option.key)}
+							onclick={() => option.onSelect()}
 						>
-							{#if onImportHubProject && i === 0}
-								<Store size={14} class="shrink-0 text-tertiary" />
-							{:else}
-								<Import size={14} class="shrink-0 text-tertiary" />
-							{/if}
-							<span class="text-xs font-medium text-primary whitespace-nowrap">
-								{action.label}
-							</span>
+							{@render rowBody(option, ac)}
 						</button>
-						{#if onImportHubProject && i === 0}
-							<div class="mx-1 my-0.5 border-t border-gray-200 dark:border-gray-700"></div>
-						{/if}
-					{/each}
-				</div>
-			{/if}
+					{/if}
+				{/each}
 
-			{#if !showDoc}
+				<!-- bottom import section: one entry whose submenu imports any artifact -->
+				<div class="mx-1 my-1 border-t border-gray-200 dark:border-gray-700"></div>
 				<button
-					class="mt-1 px-2 py-1 text-left text-[10px] text-tertiary/70 hover:text-tertiary hover:underline transition-colors"
-					title="Show descriptions"
-					tabindex={-1}
-					onclick={() => setShowDoc(true)}
+					use:melt={$importSubTrigger}
+					class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+					onfocusin={() => (activeKey = undefined)}
+					onpointerenter={() => (activeKey = undefined)}
 				>
-					Show descriptions
+					<div
+						class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-gray-100 dark:bg-gray-700"
+					>
+						<Import size={14} class="text-gray-600 dark:text-gray-300" />
+					</div>
+					<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
+						Import
+					</span>
+					<ChevronRight size={14} class="shrink-0 text-tertiary" />
 				</button>
-			{/if}
+				{#if $importSubOpen}
+					<div
+						use:melt={$importSubMenu}
+						use:hugViewportRight
+						class="pointer-events-auto z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+					>
+						{#each importActions as action, i (action.label)}
+							<button
+								use:melt={$item}
+								class="flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+								onclick={() => action.onSelect()}
+							>
+								{#if onImportHubProject && i === 0}
+									<Store size={14} class="shrink-0 text-tertiary" />
+								{:else}
+									<Import size={14} class="shrink-0 text-tertiary" />
+								{/if}
+								<span class="text-xs font-medium text-primary whitespace-nowrap">
+									{action.label}
+								</span>
+							</button>
+							{#if onImportHubProject && i === 0}
+								<div class="mx-1 my-0.5 border-t border-gray-200 dark:border-gray-700"></div>
+							{/if}
+						{/each}
+					</div>
+				{/if}
+
+				{#if !showDoc}
+					<button
+						class="mt-1 px-2 py-1 text-left text-[10px] text-tertiary/70 hover:text-tertiary hover:underline transition-colors"
+						title="Show descriptions"
+						tabindex={-1}
+						onclick={() => setShowDoc(true)}
+					>
+						Show descriptions
+					</button>
+				{/if}
+			</div>
 		</div>
 	</div>
 {/if}

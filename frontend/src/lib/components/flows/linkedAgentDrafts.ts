@@ -11,6 +11,7 @@ import { canWrite } from '$lib/utils'
 import type { UserExt } from '$lib/stores'
 import { dfs } from './dfs'
 import { flowLocalInputs, type AIAgentConfig } from './agentResourceUtils'
+import { AGENT_HISTORY_KEYS } from './agentFormFields'
 import type { AgentResourceState } from './agentDraft.svelte'
 import type { AgentTool } from './agentToolUtils'
 
@@ -33,6 +34,25 @@ export function linkedAgentPaths(value: FlowValue | undefined): string[] {
 		}
 	}
 	return [...paths]
+}
+
+/** Point every step of this flow linked to `from` at `to`, for an agent renamed from inside it.
+ *  Returns the ids of the steps it moved. */
+export function repointLinkedAgent(
+	value: FlowValue | undefined,
+	from: string,
+	to: string
+): string[] {
+	if (!value?.modules) return []
+	const moved: string[] = []
+	for (const module of dfs(value.modules, (m) => m)) {
+		const v = module?.value as { type?: string; agent?: string } | undefined
+		if (v?.type === 'aiagent' && v.agent === from) {
+			v.agent = to
+			moved.push(module.id)
+		}
+	}
+	return moved
 }
 
 /**
@@ -114,7 +134,7 @@ export function agentDraftCanWrite(draft: LinkedAgentDraft, user: UserExt | unde
  *  neither should stop the caller — the flow still tests and deploys, against the deployed agent.
  *  Every other failure is an outage, and answering "no draft" to one would quietly run or deploy
  *  the wrong configuration, which is the whole thing this module exists to prevent. */
-function isExpectedLinkFailure(err: unknown): boolean {
+export function isExpectedLinkFailure(err: unknown): boolean {
 	const status = (err as { status?: number } | null | undefined)?.status
 	return status === 401 || status === 403 || status === 404
 }
@@ -177,17 +197,21 @@ type AiAgentValue = Extract<FlowModule['value'], { type: 'aiagent' }>
  * the step's own flow-local inputs kept on top.
  *
  * The overlay order is the worker's (`ai_executor.rs`): its linked branch interpolates the whole
- * resource brain and only then writes `user_message`/`user_attachments` back from the step's own
- * args. `tool_inputs` stays untouched — the worker overlays it onto the tools in both branches, so
- * an inlined step keeps the host flow's tool bindings.
+ * resource brain and only then writes the flow-local inputs (`user_message`, `user_attachments`,
+ * `enabled_tools`, `memory_id`, `previous_messages`) back from the step's own args. `tool_inputs`
+ * stays untouched — the worker overlays it onto the tools in both branches, so an inlined step
+ * keeps the host flow's tool bindings. The worker never reads a history input from the resource,
+ * so one a draft happens to carry is left out here too.
  */
 export function inlineAgentDraft(value: AiAgentValue, args: AIAgentConfig): AiAgentValue {
 	const { agent: _agent, ...rest } = value
+	const brain = agentArgsToTransforms(args)
+	for (const key of AGENT_HISTORY_KEYS) delete brain[key]
 	return {
 		...rest,
 		tools: (args.tools ?? []) as AgentTool[],
 		input_transforms: {
-			...agentArgsToTransforms(args),
+			...brain,
 			...flowLocalInputs(value.input_transforms as Record<string, InputTransform>)
 		}
 	} as AiAgentValue

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.812.0
+  version: 1.814.0
   title: Windmill API
 
   contact:
@@ -529,6 +529,30 @@ paths:
       responses:
         "302":
           description: redirected to the post-login destination, or to /user/login_link_expired when the link is used, expired or unknown
+    post:
+      security: []
+      summary: consume a single-use login link from its confirmation page, set the session cookie and answer where to go
+      operationId: confirmLoginLink
+      tags:
+        - user
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the post-login destination, or /user/login_link_expired when the link is used, expired or unknown
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - location
+                properties:
+                  location:
+                    type: string
 
   /auth/reset_password:
     post:
@@ -1277,6 +1301,37 @@ paths:
                     - archived
                     - deleted
 
+  /workspaces/session_workspace_retention:
+    post:
+      summary: get the AI session retention of workspaces referenced by client-side sessions
+      operationId: getSessionWorkspaceRetention
+      tags:
+        - workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workspace_ids:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - workspace_ids
+      responses:
+        "200":
+          description: >-
+            map of workspace id to its `ai_config.sessions_retention_days`; a workspace
+            without a retention, or one the caller cannot be authenticated into, is absent
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: integer
+
   /w/{workspace}/workspaces/get_as_superadmin:
     get:
       summary: get workspace as super admin (require to be super admin)
@@ -1556,6 +1611,89 @@ paths:
                 type: object
                 additionalProperties:
                   $ref: "#/components/schemas/CustomInstanceDb"
+
+  /settings/datatable_roles:
+    get:
+      summary: list the instance's data table roles
+      operationId: listInstanceDatatableRoles
+      tags:
+        - setting
+      responses:
+        "200":
+          description: the instance role catalog
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InstanceDatatableRole"
+    post:
+      summary: create a data table role on the instance's Postgres cluster
+      operationId: createInstanceDatatableRole
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        "200":
+          description: the created role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceDatatableRole"
+
+  /settings/datatable_roles/{id}:
+    post:
+      summary: rename a data table role or turn its login on and off
+      operationId: updateInstanceDatatableRole
+      tags:
+        - setting
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                enabled:
+                  type: boolean
+      responses:
+        "200":
+          description: the updated role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceDatatableRole"
+    delete:
+      summary: drop a data table role from the cluster and from every workspace that named it
+      operationId: deleteInstanceDatatableRole
+      tags:
+        - setting
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: deleted
 
   /settings/setup_custom_instance_pg_database/{name}:
     post:
@@ -5110,7 +5248,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  required: [name, resource_type, resource_path]
+                  required: [name, resource_type, resource_path, permissioned]
                   properties:
                     name:
                       type: string
@@ -5119,6 +5257,97 @@ paths:
                       enum: [postgres, instance]
                     resource_path:
                       type: string
+                    governing_workspace_id:
+                      type: string
+                    permissioned:
+                      type: boolean
+
+  /w/{workspace}/workspaces/datatable_permissions/{datatable_name}:
+    get:
+      summary: get who may connect to a data table as which role
+      operationId: getDatatablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the data table's roles and their tenants
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatatablePermissions"
+    post:
+      summary: set who may connect to a data table as which role
+      operationId: setDatatablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permissioned]
+              properties:
+                permissioned:
+                  type: boolean
+                default_role:
+                  type: string
+                roles:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/DatatableRoleTenants"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/datatable_usable_roles/{datatable_name}:
+    get:
+      summary: list the data table roles the caller may connect as
+      operationId: listUsableDatatableRoles
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: usable roles
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [permissioned, roles, default_role]
+                properties:
+                  permissioned:
+                    type: boolean
+                  roles:
+                    type: array
+                    items:
+                      type: string
+                  default_role:
+                    type: string
 
   /w/{workspace}/workspaces/list_datatable_schemas:
     get:
@@ -5300,7 +5529,22 @@ paths:
           description: status
           content:
             application/json:
-              schema: {}
+              schema:
+                type: object
+                properties:
+                  stranded_references:
+                    description: >-
+                      Data tables in other workspaces that were governed by one this save deleted
+                      and no longer resolve.
+                    type: array
+                    items:
+                      type: object
+                      required: [workspace_id, datatable]
+                      properties:
+                        workspace_id:
+                          type: string
+                        datatable:
+                          type: string
 
   /w/{workspace}/workspaces/run_datatable_migrations/{datatable_name}:
     post:
@@ -6533,7 +6777,7 @@ paths:
                   type: string
                 expires_in_s:
                   type: integer
-                  description: link lifetime in seconds, at most 900 (default 600)
+                  description: link lifetime in seconds, at most 7200 (default 600)
                 rd:
                   type: string
                   description: same-origin path the browser lands on after login (default /user/workspaces)
@@ -6543,6 +6787,12 @@ paths:
                     mint only while the account still has this login type (for example
                     pending_oauth), so a link stops working once the owner has set a password
                     or signed in with a provider
+                confirm:
+                  type: boolean
+                  description: >-
+                    return a /user/login_link page that signs in only when its button is
+                    clicked, instead of a link spent by opening it; set it for links sent by
+                    email, which mail scanners open on delivery (default false)
       responses:
         "201":
           description: login link minted
@@ -11236,11 +11486,10 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
 
       requestBody:
         description: script args
@@ -11277,11 +11526,10 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
 
       requestBody:
         description: script args
@@ -11318,11 +11566,10 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
 
       responses:
         "200":
@@ -11345,11 +11592,10 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -11387,11 +11633,10 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -11427,11 +11672,10 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -11475,11 +11719,10 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -11979,6 +12222,13 @@ paths:
                       properties:
                         draft_only:
                           type: boolean
+                        chat_input_enabled:
+                          type: boolean
+                          description: |
+                            `chat_input_enabled` of the flow's value,
+                            projected so the list can mark flows that open
+                            as a chat. Omitted when the value has no such
+                            field.
                         is_draft:
                           type: boolean
                           description: |
@@ -12065,6 +12315,25 @@ paths:
       responses:
         "200":
           description: list of flow paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/flows/list_paths_linking_agent/{path}:
+    get:
+      summary: list flow paths with a step linked to a saved agent
+      operationId: listFlowPathsLinkingAgent
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: paths of the flows linking the `ai_agent` resource, as of their last deploy
           content:
             application/json:
               schema:
@@ -12407,6 +12676,15 @@ paths:
           in: query
           schema:
             type: string
+        - name: kind
+          description: which conversations to list - the flow editor's test chats, the deployed flow's own (the default), or both
+          in: query
+          schema:
+            type: string
+            enum:
+              - test
+              - deployed
+              - all
       responses:
         "200":
           description: flow conversations list
@@ -12416,6 +12694,40 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/FlowConversation"
+
+  /w/{workspace}/flow_conversations/update/{conversation_id}:
+    post:
+      summary: rename flow conversation
+      operationId: updateFlowConversation
+      tags:
+        - flow_conversations
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: conversation_id
+          description: conversation id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                  description: the chat's name
+      responses:
+        "200":
+          description: flow conversation updated
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/flow_conversations/delete/{conversation_id}:
     delete:
@@ -13222,6 +13534,9 @@ paths:
                   backup_generation:
                     type: integer
                     description: bumped by every workspace key rotation; sync state recorded under another one is void
+                  fallback:
+                    type: boolean
+                    description: the storage answered from is the instance object store, standing in for a workspace without storage of its own; a removal owed to it is retired by any answer from the workspace's own storage
                   sessions:
                     type: array
                     description: the newest 500 at most
@@ -13273,6 +13588,8 @@ paths:
                     type: string
                   backup_generation:
                     type: integer
+                  fallback:
+                    type: boolean
                   sessions:
                     type: array
                     items:
@@ -13327,6 +13644,8 @@ paths:
                     type: string
                   backup_generation:
                     type: integer
+                  fallback:
+                    type: boolean
                   results:
                     type: array
                     items:
@@ -14804,11 +15123,10 @@ paths:
           schema:
             type: boolean
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
       requestBody:
         description: flow args
         required: true
@@ -14862,11 +15180,10 @@ paths:
           schema:
             type: boolean
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
       requestBody:
         description: flow args
         required: true
@@ -15354,11 +15671,10 @@ paths:
             type: boolean
         - $ref: "#/components/parameters/NewJobId"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
 
       requestBody:
         description: preview
@@ -15386,11 +15702,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: memory_id
-          description: memory ID for chat-enabled flows
+          description: Memory id for the flow's AI agent steps. A uuid is used as is; any other string is hashed within the workspace and flow, so the same string always names the same memory of that flow.
           in: query
           schema:
             type: string
-            format: uuid
 
       requestBody:
         description: preview
@@ -28237,7 +28552,7 @@ components:
     FlowConversation:
       type: object
       required:
-        [id, workspace_id, flow_path, created_at, updated_at, created_by]
+        [id, workspace_id, flow_path, created_at, updated_at, created_by, is_test]
       properties:
         id:
           type: string
@@ -28264,6 +28579,9 @@ components:
         created_by:
           type: string
           description: Username who created the conversation
+        is_test:
+          type: boolean
+          description: Started from the flow editor's test panel rather than a deployed run
 
     FlowConversationMessage:
       type: object
@@ -28303,6 +28621,50 @@ components:
         success:
           type: boolean
           description: Whether the message is a success
+        tool_arguments:
+          type: string
+          nullable: true
+          description: >-
+            On a tool row, the arguments the model wrote for the call. For a script, flow or
+            AI agent tool these exclude the inputs its step wires in, which only the tool's
+            job holds. Null for a provider-native web search, whose query the provider does
+            not return.
+        tool_result:
+          type: string
+          nullable: true
+          description: >-
+            On a tool row, the text the model got back from the call, or what the call
+            failed with — the row's own text names the tool rather than the reason. For a
+            provider-native web search, its citations.
+        reasoning:
+          type: string
+          nullable: true
+          description: >-
+            On an answer, the thinking that produced it; on a tool row, the thinking that
+            led to the call. Each round's thinking is on one row. The agent job's result
+            keeps the turn's thinking as a single string.
+        attachments:
+          type: array
+          nullable: true
+          description: >-
+            The files a user message carried, as object-storage references: every flow
+            input other than user_message that held one or a list of them, at most 20. Never
+            file bytes or a presigned URL.
+          items:
+            type: object
+            required: [input, s3]
+            properties:
+              input:
+                type: string
+                description: The flow input that held the file
+              s3:
+                type: string
+                description: The file's key in object storage
+              storage:
+                type: string
+                description: The secondary storage holding the file, absent for the primary one
+              filename:
+                type: string
 
     EndpointTool:
       type: object
@@ -28441,6 +28803,14 @@ components:
           description: >-
             Stops browsers from backing their AI sessions up to the workspace's object
             storage. Read from the workspace's own settings like `copilot_disabled`.
+        sessions_retention_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
+          description: >-
+            The server deletes the backup of a session no push has reached for this many
+            days. Unset keeps backups until the user deletes the session. Read from the
+            workspace's own settings like `copilot_disabled`.
 
     AISessionBackupListing:
       type: object
@@ -28886,6 +29256,12 @@ components:
           type: boolean
         has_deploy_errors:
           type: boolean
+        chat_input_enabled:
+          type: boolean
+          description: >-
+            flow-only. `chat_input_enabled` of the flow's value, projected so
+            the list can mark flows that open as a chat. Omitted when the
+            value has no such field.
         raw_app:
           type: boolean
         execution_mode:
@@ -33243,6 +33619,66 @@ components:
         - ducklake
         - datatable
 
+    InstanceDatatableRole:
+      type: object
+      required: [id, name, enabled]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+
+    DatatableRoleTenants:
+      type: object
+      required: [id, tenants]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        tenants:
+          type: array
+          items:
+            type: string
+
+    DatatablePermissions:
+      type: object
+      required: [supported, permissioned, default_role, roles, editable, available_roles]
+      properties:
+        supported:
+          type: boolean
+          description: >-
+            Whether this data table can be put under roles at all. Only one backed by the
+            instance database can: a role is a login on that cluster.
+        permissioned:
+          type: boolean
+        default_role:
+          type: string
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/DatatableRoleTenants"
+        governing_workspace_id:
+          type: string
+        editable:
+          type: boolean
+        available_roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/InstanceDatatableRole"
+        ungoverned_reachers:
+          type: array
+          items:
+            type: object
+            required: [workspace_id, datatable]
+            properties:
+              workspace_id:
+                type: string
+              datatable:
+                type: string
+
     CustomInstanceDb:
       type: object
       required:
@@ -34325,6 +34761,9 @@ components:
                 nullable: true
               disabled:
                 type: boolean
+              is_service_account:
+                type: boolean
+                description: Whether this membership is a service account.
             required:
               - id
               - name
@@ -35291,9 +35730,11 @@ components:
           type: object
           additionalProperties:
             type: object
-            required: [database]
             properties:
               database:
+                description: >-
+                  Set on an entry that owns its database. Absent on a fork's entry, which points at
+                  another workspace's data table instead.
                 type: object
                 properties:
                   resource_type:
@@ -35305,6 +35746,17 @@ components:
                     type: string
                 required:
                   - resource_type
+              reference:
+                description: >-
+                  The workspace and data table that govern this one. Server-owned: written by fork
+                  creation, and carried across a settings save whatever the request says.
+                type: object
+                required: [workspace_id, datatable]
+                properties:
+                  workspace_id:
+                    type: string
+                  datatable:
+                    type: string
               migrations_enabled:
                 type: boolean
                 description: Whether the SQL migrations feature is opted in for this data table

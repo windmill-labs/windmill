@@ -47,7 +47,10 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::{hash_token, safe_token_prefix, TOKEN_PREFIX_LEN};
-use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
+use windmill_common::global_settings::{
+    load_value_from_global_settings, parse_max_token_expiration_days,
+    AUTOMATE_USERNAME_CREATION_SETTING, MAX_TOKEN_EXPIRATION_DAYS_SETTING,
+};
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::per_minute_counter::PerMinuteCounter;
 use windmill_common::users::truncate_token;
@@ -168,7 +171,10 @@ pub fn make_unauthed_service() -> Router {
         .route("/logout", post(logout).get(logout))
         .route("/is_first_time_setup", get(is_first_time_setup))
         .route("/request_password_reset", post(request_password_reset))
-        .route("/login_link/{token}", get(consume_login_link))
+        .route(
+            "/login_link/{token}",
+            get(consume_login_link).post(confirm_login_link),
+        )
         .route("/is_smtp_configured", get(is_smtp_configured))
         .route(
             "/is_password_login_disabled",
@@ -1703,14 +1709,25 @@ async fn delete_user(
         .await?;
     windmill_common::user_drafts::delete_drafts_of_email(&mut *tx, &email_to_delete).await?;
 
-    let usernames = sqlx::query_scalar!(
-        "DELETE FROM usr WHERE email = $1 RETURNING username",
+    let memberships = sqlx::query!(
+        "DELETE FROM usr WHERE email = $1 RETURNING username, workspace_id",
         &email_to_delete
     )
     .fetch_all(&mut *tx)
     .await?;
 
-    for username in usernames {
+    for row in memberships {
+        let username = row.username;
+        // A tenant list names a principal of its workspace, so the name has to be freed in every
+        // workspace this account belonged to: a later account taking the username would otherwise
+        // inherit the data table access it had.
+        windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+            &mut tx,
+            &row.workspace_id,
+            &format!("u/{username}"),
+        )
+        .await?;
+
         sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
             .execute(&mut *tx)
             .await?;
@@ -2456,6 +2473,15 @@ pub async fn delete_workspace_user_internal(
     tx: &mut Transaction<'_, Postgres>,
     authed: Option<&ApiAuthed>, // None for system operations
 ) -> Result<()> {
+    // Same reasoning as the `extra_perms` sweep below: a freed username must not stay named
+    // anywhere that grants access, tenant lists included.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+        tx,
+        w_id,
+        &format!("u/{username_to_delete}"),
+    )
+    .await?;
+
     // ---- Clean up extra_perms referencing this user ----
     let extra_perms_tables = [
         "script",
@@ -3072,11 +3098,68 @@ pub async fn create_guest_session_token<'c>(
 
 // create_token_internal is re-exported from windmill-api-auth above
 
+/// Applies the instance-wide ceiling on how long a token a caller picks the lifetime of may
+/// live (`create_token`, and `impersonate` for superadmins), returning the expiration to store:
+/// the requested one while it fits, the ceiling otherwise, and the ceiling as well when none was
+/// requested. Only the stored expiration is capped: tokens already stored when the setting is
+/// turned on or lowered keep theirs, since the auth lookup never reads the setting.
+///
+/// It shortens rather than refuses because most callers do not comply on their own. The CLI
+/// authorization page, `wmill user create-token` and the editor's language-server token each
+/// pick a lifetime, often none at all, without reading the setting (and CLIs already installed
+/// never will), so refusing would break logging in and the editor instead of the long-lived
+/// tokens the setting is aimed at.
+///
+/// Read from `global_settings` on each call rather than cached: token creation is rare
+/// enough that the round trip costs nothing, and the ceiling is then never served stale.
+///
+/// A token owned by a service account is exempt: in the workspace the token names, or in any
+/// workspace for a workspace-less token, which has none to match. Service accounts are the
+/// identity automation that needs a long-lived credential runs as. The cost is that any
+/// workspace admin can create and impersonate one to hold an uncapped token, so the ceiling
+/// bounds personal tokens rather than what an admin can obtain.
+async fn cap_token_expiration(
+    db: &DB,
+    owner_email: &str,
+    workspace_id: Option<&str>,
+    requested: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
+    let value = load_value_from_global_settings(db, MAX_TOKEN_EXPIRATION_DAYS_SETTING).await?;
+    let max_days = match parse_max_token_expiration_days(value.as_ref()) {
+        Ok(Some(max_days)) => max_days,
+        Ok(None) => return Ok(requested),
+        // Both write paths reject this, so only a row written around them gets here.
+        Err(e) => {
+            tracing::warn!("ignoring {MAX_TOKEN_EXPIRATION_DAYS_SETTING}: {e}");
+            return Ok(requested);
+        }
+    };
+    let max = chrono::Utc::now() + chrono::Duration::days(max_days);
+
+    let is_service_account = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE email = $1 AND is_service_account IS true
+            AND ($2::varchar IS NULL OR workspace_id = $2))",
+        owner_email,
+        workspace_id,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+    if is_service_account {
+        return Ok(requested);
+    }
+
+    Ok(Some(match requested {
+        Some(expiration) if expiration < max => expiration,
+        _ => max,
+    }))
+}
+
 async fn create_token(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
     OptJobAuthed { job_id, .. }: OptJobAuthed,
-    Json(token_config): Json<NewToken>,
+    Json(mut token_config): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
     forbid_elevated_job_token(&db, &authed.email, job_id).await?;
     check_token_create_rate_limit(&authed.username)?;
@@ -3097,6 +3180,14 @@ async fn create_token(
     }
 
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
+
+    token_config.expiration = cap_token_expiration(
+        &db,
+        &authed.email,
+        token_config.workspace_id.as_deref(),
+        token_config.expiration,
+    )
+    .await?;
 
     let mut tx = db.begin().await?;
 
@@ -3154,6 +3245,7 @@ async fn impersonate(
     .fetch_optional(&db)
     .await?
     .unwrap_or(false);
+    let expiration = cap_token_expiration(&db, &impersonated, None, new_token.expiration).await?;
     let mut tx = db.begin().await?;
 
     sqlx::query!(
@@ -3165,7 +3257,7 @@ async fn impersonate(
         plaintext as Option<&str>,
         impersonated,
         new_token.label,
-        new_token.expiration,
+        expiration,
         is_super_admin
     )
     .execute(&mut *tx)
@@ -3175,7 +3267,7 @@ async fn impersonate(
         &mut *tx,
         &t_hash,
         new_token.label.as_deref(),
-        new_token.expiration,
+        expiration,
     )
     .await;
 
@@ -3195,9 +3287,12 @@ async fn impersonate(
 }
 
 const LOGIN_LINK_DEFAULT_TTL_S: u32 = 600;
-const LOGIN_LINK_MAX_TTL_S: u32 = 900;
+// Long enough for a link sent by email to still work when it is read. `require_login_type` is
+// only checked at mint, so a much longer cap would need re-checking it when the link is opened.
+const LOGIN_LINK_MAX_TTL_S: u32 = 7200;
 const LOGIN_LINK_DEFAULT_RD: &str = "/user/workspaces";
 const LOGIN_LINK_EXPIRED_PAGE: &str = "/user/login_link_expired";
+const LOGIN_LINK_CONFIRM_PAGE: &str = "/user/login_link";
 
 #[derive(Deserialize)]
 pub struct NewLoginLink {
@@ -3208,6 +3303,9 @@ pub struct NewLoginLink {
     /// account it created can require `pending_oauth`, so the link stops working once the
     /// owner has set a password or signed in with a provider.
     pub require_login_type: Option<String>,
+    /// Hand out a page that signs in only when its button is clicked. Mail scanners open links
+    /// on delivery, and opening the plain link spends it, so a link sent by email sets this.
+    pub confirm: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -3358,11 +3456,12 @@ async fn create_login_link(
     .await?;
     tx.commit().await?;
 
-    let url = format!(
-        "{}/api/auth/login_link/{}",
-        (**BASE_URL.load()).clone(),
-        token
-    );
+    let base_url = (**BASE_URL.load()).clone();
+    let url = if nl.confirm.unwrap_or(false) {
+        format!("{base_url}{LOGIN_LINK_CONFIRM_PAGE}?token={token}")
+    } else {
+        format!("{base_url}/api/auth/login_link/{token}")
+    };
     Ok((StatusCode::CREATED, Json(LoginLink { url, expires_at })))
 }
 
@@ -3608,19 +3707,45 @@ async fn consume_login_link(
     Path(token): Path<String>,
     Query(query): Query<LoginLinkQuery>,
 ) -> Result<Response> {
-    let bounce = |reason: &str| {
-        Ok(login_link_redirect(format!(
-            "{LOGIN_LINK_EXPIRED_PAGE}?reason={reason}"
-        )))
-    };
+    let location = redeem_login_link(&headers, cookies, &db, &token, query.rd).await?;
+    Ok(login_link_redirect(location))
+}
+
+#[derive(Serialize)]
+struct LoginLinkLocation {
+    location: String,
+}
+
+/// The confirmation page's click. It answers with where to go rather than redirecting, and the
+/// page navigates there itself.
+async fn confirm_login_link(
+    headers: axum::http::HeaderMap,
+    cookies: Cookies,
+    Extension(db): Extension<DB>,
+    Path(token): Path<String>,
+) -> JsonResult<LoginLinkLocation> {
+    let location = redeem_login_link(&headers, cookies, &db, &token, None).await?;
+    Ok(Json(LoginLinkLocation { location }))
+}
+
+/// Spends the link and sets the session cookie, returning the post-login destination; or
+/// returns the explanation page, with no session, when the link cannot be used.
+async fn redeem_login_link(
+    headers: &axum::http::HeaderMap,
+    cookies: Cookies,
+    db: &DB,
+    token: &str,
+    requested_rd: Option<String>,
+) -> Result<String> {
+    let bounce = |reason: &str| Ok(format!("{LOGIN_LINK_EXPIRED_PAGE}?reason={reason}"));
     if token.len() != 32 {
         return bounce("invalid");
     }
-    let t_hash = hash_token(&token);
+    let t_hash = hash_token(token);
     // The account is unknown until the row is read, so only the global and per-IP tiers
     // apply here; a 32-char random token leaves nothing for the per-account tier to guard.
     windmill_common::login_rate_limit::check_and_increment_login_attempt(
-        &headers,
+        headers,
         &t_hash[..TOKEN_PREFIX_LEN],
     )?;
 
@@ -3687,11 +3812,10 @@ async fn consume_login_link(
     .await?;
     tx.commit().await?;
 
-    let rd = link
+    Ok(link
         .rd
-        .or_else(|| same_origin_rd(query.rd))
-        .unwrap_or_else(|| LOGIN_LINK_DEFAULT_RD.to_string());
-    Ok(login_link_redirect(rd))
+        .or_else(|| same_origin_rd(requested_rd))
+        .unwrap_or_else(|| LOGIN_LINK_DEFAULT_RD.to_string()))
 }
 
 #[derive(Deserialize)]
@@ -3882,8 +4006,8 @@ async fn update_token_label(
     Path(token_prefix): Path<String>,
     Json(req): Json<UpdateTokenLabelRequest>,
 ) -> Result<String> {
-    // The new label must not collide with a system-token namespace (`session`,
-    // `ephemeral*`, `debugger-token`, `mcp-oauth-*`): those labels are
+    // The new label must not collide with a system-token namespace (see
+    // `windmill_common::auth::is_user_token`): those labels are
     // load-bearing, and a user-set collision would orphan the token — hidden
     // from the UI (`isUserToken`) and rejected by the editability guard below —
     // while it still authenticates. (`is_user_token(None)` is true, so clearing
@@ -3922,6 +4046,10 @@ async fn update_token_label(
                  AND lower(label) NOT LIKE 'ephemeral%'
                  AND label <> 'debugger-token'
                  AND label NOT LIKE 'mcp-oauth-%'
+                 AND NOT starts_with(label, 'embed_app:')
+                 AND NOT starts_with(label, 'sdk_app:')
+                 AND NOT starts_with(label, 'impersonation:')
+                 AND NOT starts_with(label, 'cli-login:')
              ))
            RETURNING token_prefix",
         req.label.as_deref(),
@@ -3962,6 +4090,12 @@ async fn leave_workspace(
 ) -> Result<String> {
     forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+        &mut tx,
+        &w_id,
+        &format!("u/{}", authed.username),
+    )
+    .await?;
     sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",
         &w_id,

@@ -128,6 +128,8 @@ import {
 } from "../../utils/metadata.ts";
 import {
   DoubleLinkedDependencyTree,
+  LocalScripts,
+  resolvePlaceholdersFromLocal,
   uploadScripts,
 } from "../../utils/dependency_tree.ts";
 import {
@@ -176,6 +178,7 @@ import {
   isDbtModulePath,
   isDbtGeneratedPath,
   isModuleEntryPoint,
+  scriptPathToRemotePath,
   getScriptBasePathFromModulePath,
   hasWrongFormatSuffix,
   DBT_DESCRIPTOR_NAME,
@@ -2543,9 +2546,9 @@ export function preservePendingScriptLocks(
 }
 
 // `sync push` never applies the workspace's display name from settings.yaml and
-// applies its color only when the local file carries one (see
-// pushWorkspaceSettings), so on a push the fields it would not apply must
-// compare equal, or the row is listed on every run.
+// applies its color and auto_invite.instance_groups only when the local file
+// carries them (see pushWorkspaceSettings), so on a push the fields it would not
+// apply must compare equal, or the row is listed on every run.
 const isWorkspaceSettingsFile = (p: string) =>
   /^settings(\.[^./\\]+)?\.(yaml|json)$/.test(p);
 function stripUnappliedSettingsFields(local: any, remote: any) {
@@ -2554,6 +2557,20 @@ function stripUnappliedSettingsFields(local: any, remote: any) {
   if (local?.color == null) {
     delete local?.color;
     delete remote?.color;
+  }
+  // push reads a missing auto_invite as {} on both sides
+  if (local) local.auto_invite ??= {};
+  if (remote) remote.auto_invite ??= {};
+  const localInvite = local?.auto_invite;
+  const remoteInvite = remote?.auto_invite;
+  if (localInvite?.instance_groups == null) {
+    for (const invite of [localInvite, remoteInvite]) {
+      delete invite?.instance_groups;
+      delete invite?.instance_groups_roles;
+    }
+  } else {
+    localInvite.instance_groups_roles ??= {};
+    if (remoteInvite) remoteInvite.instance_groups_roles ??= {};
   }
 }
 
@@ -3383,6 +3400,37 @@ async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
       // ignore
     }
   }
+}
+
+/**
+ * Index the checkout's standalone scripts by the remote path a relative import
+ * resolves to, reusing the content the local/remote diff already read.
+ *
+ * Same classification as `addToChangedIfNotExists`: a flow or app inline script
+ * is not addressable as an import target, and a module bundle is addressed by
+ * its entry point.
+ */
+function localScriptsByRemotePath(
+  localMap: Record<string, string>,
+): LocalScripts {
+  const byRemotePath: LocalScripts = new Map();
+  for (const [p, content] of Object.entries(localMap)) {
+    if (isScriptModulePath(p)) {
+      if (!isModuleEntryPoint(p)) continue;
+    } else if (
+      !hasScriptExt(p) ||
+      isDatatableMigrationPath(p) ||
+      isFileResource(p) ||
+      isFilesetResource(p) ||
+      isFlowPath(p) ||
+      isAppPath(p) ||
+      isRawAppPath(p)
+    ) {
+      continue;
+    }
+    byRemotePath.set(scriptPathToRemotePath(p), { localPath: p, content });
+  }
+  return byRemotePath;
 }
 
 export async function buildTracker(changes: Change[]) {
@@ -5074,6 +5122,14 @@ export async function push(
   }
 
   if (autoRegenerate && tree) {
+    // Pass 1 only ever walks the change set, so anything imported through a
+    // module the push leaves alone is still a dead end here.
+    await resolvePlaceholdersFromLocal(
+      tree,
+      localScriptsByRemotePath(localMap),
+      opts.defaultTs,
+    );
+
     // Propagate staleness through imports + upload script content to
     // raw_script_temp so the dep job can resolve cross-folder relative imports
     // via temp_script_refs (instead of hitting 404s for not-yet-deployed

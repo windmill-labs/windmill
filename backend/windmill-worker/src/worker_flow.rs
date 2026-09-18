@@ -69,10 +69,10 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    insert_concurrency_key_capped, interpolate_args,
+    insert_concurrency_key_capped, interpolate_args, render_tag_path,
     report_error_to_workspace_handler_or_critical_side_channel, tag_reads_args,
-    try_schedule_next_job, CanceledBy, FlowRunners, MiniCompletedJob, MiniPulledJob, PushArgs,
-    PushIsolationLevel, SameWorkerPayload, WrappedError,
+    tag_reads_flow_expr, try_schedule_next_job, CanceledBy, FlowRunners, MiniCompletedJob,
+    MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError, RE_FLOW_EXPR_TAG,
 };
 
 use windmill_audit::audit_oss::audit_log;
@@ -2005,7 +2005,8 @@ pub async fn update_flow_status_after_job_completion_internal(
 
             if flow_job.cache_ttl.is_some() && success {
                 let flow = RawData::Flow(flow_data.clone());
-                let cached_res_path = cached_result_path(db, client, &flow_job, Some(&flow)).await;
+                let cached_res_path =
+                    cached_result_path(db, client, &flow_job, Some(&flow)).await?;
 
                 save_in_cache(
                     db,
@@ -2235,6 +2236,7 @@ async fn add_tool_message_to_conversation(
                     MessageType::Assistant,
                     None,
                     success,
+                    None,
                 )
                 .await?;
                 tx.commit().await?;
@@ -3111,6 +3113,66 @@ fn resolve_flow_step_tag(
     } else {
         Some(flow_tag.to_string())
     }
+}
+
+/// Resolves each `$flow_expr[root.key.path]` of a step tag by reading `key.path` from `results`
+/// (where `key` is a step id), `flow_input` or `flow_env`, rendered as `$args[key.path]` would be.
+async fn interpolate_flow_expr_tag(
+    tag: &str,
+    db: &DB,
+    flow_job: &MiniPulledJob,
+    flow_input: &HashMap<String, Box<RawValue>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
+) -> error::Result<String> {
+    if RE_FLOW_EXPR_TAG
+        .replace_all(tag, "")
+        .contains("$flow_expr[")
+    {
+        return Err(Error::ExecutionErr(format!(
+            "Could not resolve the step tag `{tag}`: each `$flow_expr[...]` must hold a dotted \
+             path such as `results.a.b.c`"
+        )));
+    }
+    let mut rendered: HashMap<&str, String> = HashMap::new();
+    for cap in RE_FLOW_EXPR_TAG.captures_iter(tag) {
+        let path = cap.get(1).unwrap().as_str();
+        if rendered.contains_key(path) {
+            continue;
+        }
+        let (root, key_path) = path.split_once('.').unwrap_or((path, ""));
+        let (key, rest) = key_path.split_once('.').unwrap_or((key_path, ""));
+        if key.is_empty() || !matches!(root, "results" | "flow_input" | "flow_env") {
+            return Err(Error::ExecutionErr(format!(
+                "Could not resolve the step tag `{tag}`: `{path}` must start with \
+                 `results.<step_id>`, `flow_input.<key>` or `flow_env.<key>`"
+            )));
+        }
+        let value = match root {
+            "flow_input" => render_tag_path(flow_input.get(key).map(|x| &**x), rest),
+            "flow_env" => render_tag_path(flow_env.and_then(|e| e.get(key)).map(|x| &**x), rest),
+            _ => match windmill_queue::get_result_by_id(
+                db.clone(),
+                flow_job.workspace_id.clone(),
+                flow_job.id,
+                key.to_string(),
+                None,
+            )
+            .await
+            {
+                Ok(result) => render_tag_path(Some(&*result), rest),
+                Err(Error::NotFound(_)) => String::new(),
+                Err(e) => {
+                    return Err(Error::ExecutionErr(format!(
+                        "Could not resolve the step tag `{tag}`: {e}"
+                    )))
+                }
+            },
+        };
+        rendered.insert(path, value);
+    }
+    Ok(RE_FLOW_EXPR_TAG
+        .replace_all(tag, |cap: &regex::Captures| rendered[&cap[1]].clone())
+        .into_owned())
 }
 
 #[cfg(test)]
@@ -4191,6 +4253,10 @@ async fn push_next_flow_job(
             None
         };
 
+        // The `flow_input` the step's input transforms read, which a `$flow_expr[flow_input...]`
+        // tag must read too: the body of a simple for-loop also sees `iter` there.
+        let mut step_flow_input = arc_flow_job_args.clone();
+
         let marc;
         let me;
         let args = match &next_status {
@@ -4215,8 +4281,10 @@ async fn push_next_flow_job(
                 if let Some(input_transforms) = simple_input_transforms {
                     //previous id is none because we do not want to use previous id if we are in a for loop
                     let ctx = get_transform_context(&flow_job, "", &status);
+                    let args = Marc::new(args);
+                    step_flow_input = args.clone();
                     let ti = transform_input(
-                        Marc::new(args),
+                        args,
                         flow_env,
                         arc_last_job_result.clone(),
                         input_transforms,
@@ -4395,17 +4463,21 @@ async fn push_next_flow_job(
             payload_tag.tag.as_deref(),
         );
 
-        // `push_args` is empty once the input transforms failed, so a tag reading `$args[...]`
-        // interpolates to a queue nobody serves and the step sits there instead of reporting
-        // the error. Send it to the flow's tag, which a worker is provably serving right now.
+        // A step whose inputs failed to evaluate, or whose `$flow_expr[...]` tag failed to resolve,
+        // is pushed only to report the error, and a computed tag can then name a queue nobody
+        // serves (`push_args` is empty, so `$args[...]` reads nothing), leaving the step stuck
+        // instead. Send it to the flow's tag, which a worker is provably serving right now.
         //
         // A step handed over by id, or one whose tag `push` replaces, never reaches a worker
         // through its tag, so rewriting theirs would be noise.
         let step_is_pulled_by_tag = !continue_on_same_worker
             && !continue_with_runners
             && !payload_tag.payload.is_dedicated_worker();
-        let reroute_to_flow_tag =
-            err.is_some() && step_is_pulled_by_tag && tag.as_deref().is_some_and(tag_reads_args);
+        let reroute_to_flow_tag = err.is_some()
+            && step_is_pulled_by_tag
+            && tag
+                .as_deref()
+                .is_some_and(|t| tag_reads_args(t) || tag_reads_flow_expr(t));
         let tag = if reroute_to_flow_tag {
             Some(flow_job.tag.clone())
         } else {
@@ -4446,6 +4518,30 @@ async fn push_next_flow_job(
             )
             .await?;
         }
+
+        // Resolved only after the check: CUSTOM_TAGS allows the template, so its value may name
+        // any queue, as the value of an `$args[...]` tag does.
+        let mut tag_err = None;
+        let tag = match tag {
+            Some(t) if err.is_none() && tag_reads_flow_expr(&t) => {
+                match interpolate_flow_expr_tag(&t, db, &flow_job, &step_flow_input, flow_env)
+                    .warn_after_seconds(3)
+                    .await
+                {
+                    Ok(resolved) => Some(resolved),
+                    Err(e) => {
+                        tag_err = Some(e);
+                        Some(if step_is_pulled_by_tag {
+                            flow_job.tag.clone()
+                        } else {
+                            t
+                        })
+                    }
+                }
+            }
+            t => t,
+        };
+        let err = err.or(tag_err.as_ref());
 
         let evaluated_timeout = if let Some(timeout_transform) = &module.timeout {
             let ctx = get_transform_context(&flow_job, &previous_id, &status);

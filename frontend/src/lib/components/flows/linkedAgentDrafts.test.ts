@@ -4,6 +4,7 @@ import {
 	inlineAgentDraft,
 	inlineAgentDrafts,
 	loadLinkedAgentDrafts,
+	repointLinkedAgent,
 	type LinkedAgentDraft
 } from './linkedAgentDrafts'
 import { ResourceService, type FlowModule, type FlowValue } from '$lib/gen'
@@ -69,6 +70,28 @@ describe('inlineAgentDraft', () => {
 			user_message: { type: 'static', value: 'hi' }
 		})
 	})
+
+	// The worker never reads a history input from the resource, so a preview of the draft must not
+	// either: a draft carrying one would test against a memory the deployed step never sees.
+	it('never takes a history input from the draft', () => {
+		const inlined = inlineAgentDraft(
+			linkedStep({
+				user_message: { type: 'static', value: 'hi' },
+				memory_id: { type: 'static', value: 'cust-1' }
+			}),
+			{
+				memory: { kind: 'window', context_length: 10 },
+				memory_id: 'from-the-draft',
+				previous_messages: [{ role: 'user', content: 'from the draft' }]
+			} as any
+		)
+
+		expect(inlined.input_transforms).toEqual({
+			memory: { type: 'static', value: { kind: 'window', context_length: 10 } },
+			user_message: { type: 'static', value: 'hi' },
+			memory_id: { type: 'static', value: 'cust-1' }
+		})
+	})
 })
 
 describe('inlineAgentDrafts', () => {
@@ -115,6 +138,38 @@ describe('inlineAgentDrafts', () => {
 		})
 		// The input the flow supplies survives the rewrite.
 		expect(inner.value.input_transforms.user_message).toEqual({ type: 'static', value: 'hi' })
+	})
+})
+
+describe('repointLinkedAgent', () => {
+	// A rename from the agent editor moves every step of the host flow onto the new path, nested ones
+	// included. Miss one and it silently stays linked to a path that no longer exists.
+	it('repoints linked steps at any depth and leaves other agents alone', () => {
+		const value = {
+			modules: [
+				{ id: 'a', value: { type: 'aiagent', agent: 'f/team/support', tools: [] } },
+				{
+					id: 'b',
+					value: {
+						type: 'branchall',
+						branches: [
+							{
+								modules: [
+									{ id: 'c', value: { type: 'aiagent', agent: 'f/team/support', tools: [] } },
+									{ id: 'd', value: { type: 'aiagent', agent: 'f/team/other', tools: [] } }
+								]
+							}
+						]
+					}
+				}
+			]
+		} as unknown as FlowValue
+
+		expect(repointLinkedAgent(value, 'f/team/support', 'f/team/helpdesk')).toEqual(['a', 'c'])
+		const branch = (value.modules[1].value as any).branches[0].modules
+		expect((value.modules[0].value as any).agent).toBe('f/team/helpdesk')
+		expect(branch[0].value.agent).toBe('f/team/helpdesk')
+		expect(branch[1].value.agent).toBe('f/team/other')
 	})
 })
 

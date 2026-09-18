@@ -267,15 +267,22 @@ export async function importStoredChats(
 	return true
 }
 
-/** Deletes these chats of the session (with their images) and these images: what an earlier
- * restore staged for it and the backup no longer has. False when nothing could be deleted. */
+/** Every chat tagged with the session, and their images: for a session past its workspace's
+ * retention, which no runtime has mounted. */
+export function deleteSessionChats(sessionId: string, email: string): Promise<boolean> {
+	return pruneSessionChats(sessionId, undefined, new Set(), email)
+}
+
+/** Deletes chats of the session (with their images) and these images: what an earlier restore
+ * staged for it and the backup no longer has. `chats` names the ones to go; undefined is every
+ * chat of the session. False when nothing could be deleted. */
 export async function pruneSessionChats(
 	sessionId: string,
-	chats: Set<string>,
+	chats: Set<string> | undefined,
 	images: Set<string>,
 	email: string
 ): Promise<boolean> {
-	if (chats.size === 0 && images.size === 0) return true
+	if (chats?.size === 0 && images.size === 0) return true
 	const db = await backupDb(email)
 	if (!db) return false
 	try {
@@ -283,7 +290,7 @@ export async function pruneSessionChats(
 		const chatStore = tx.objectStore('chats')
 		const imageStore = tx.objectStore('images')
 		for (const chatId of await chatStore.index('by-session').getAllKeys(sessionId)) {
-			if (!chats.has(String(chatId))) continue
+			if (chats && !chats.has(String(chatId))) continue
 			await chatStore.delete(chatId)
 			const keys = await imageStore
 				.index('by-chat')

@@ -1,7 +1,7 @@
 {
   "name": "windmill-chat",
   "description": "Build chat interfaces on Windmill flows deployed in chat mode, from any frontend or raw app",
-  "version": "1.812.0",
+  "version": "1.814.0",
   "author": "Ruben Fiszel",
   "license": "Apache-2.0",
   "homepage": "https://github.com/windmill-labs/windmill/tree/main/chat-sdk#readme",

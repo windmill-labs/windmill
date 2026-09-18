@@ -1559,7 +1559,7 @@ pub async fn cached_result_path(
     client: &AuthedClient,
     job: &MiniPulledJob,
     raw_data: Option<&RawData>,
-) -> String {
+) -> windmill_common::error::Result<String> {
     let mut hasher = sha2::Sha256::new();
     hasher.update(&[job.kind as u8]);
     if let Some(ScriptHash(hash)) = job.runnable_id {
@@ -1574,6 +1574,13 @@ pub async fn cached_result_path(
             _ => {}
         }
     }
+    // A workflow-as-code task child runs its parent's code with the parent's
+    // arguments; the step it executes is what tells its result from the parent's
+    // and from its siblings'.
+    if let Some(step_key) = wac_executing_key(db, job).await? {
+        hasher.update(b"wac_step:");
+        hasher.update(step_key.as_bytes());
+    }
     hash_args(
         db,
         client,
@@ -1584,7 +1591,26 @@ pub async fn cached_result_path(
         job.cache_ignore_s3_path.unwrap_or(false),
     )
     .await;
-    format!("g/results/{:064x}", hasher.finalize())
+    Ok(format!("g/results/{:064x}", hasher.finalize()))
+}
+
+/// The checkpoint step key a workflow-as-code parent seeded for this child at push
+/// time; `None` for any job that is not such a child.
+async fn wac_executing_key(
+    db: &DB,
+    job: &MiniPulledJob,
+) -> windmill_common::error::Result<Option<String>> {
+    if job.parent_job.is_none() || job.flow_step_id.is_some() {
+        return Ok(None);
+    }
+    let key: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT workflow_as_code_status->'_checkpoint'->>'_executing_key' \
+         FROM v2_job_status WHERE id = $1",
+    )
+    .bind(job.id)
+    .fetch_optional(db)
+    .await?;
+    Ok(key.flatten())
 }
 
 #[cfg(feature = "parquet")]
