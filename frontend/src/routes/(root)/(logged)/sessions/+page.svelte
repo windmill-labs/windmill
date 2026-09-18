@@ -41,9 +41,9 @@
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import {
-		getOrCreateRuntime,
 		getRuntime,
-		listRuntimes
+		listRuntimes,
+		visitSession
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
 	import { markSessionRecovered } from '$lib/components/sessions/sessionRecoveryNotice.svelte'
@@ -214,14 +214,14 @@
 			// Keep currentSessionId in sync with the URL so consumers react to
 			// deep links the same way they react to picker clicks.
 			selectSession(session.id)
-			getOrCreateRuntime(session)
+			visitSession(session)
 		})
 	})
 
-	// Warm = sessions with a live runtime. The picker eagerly creates runtimes
-	// for its visible sessions, so this tracks whatever it shows. Keeping warm
-	// chats mounted (stacked, visibility-toggled) preserves their scroll/draft
-	// state across switches.
+	// Warm = sessions with a live runtime: the recently visited ones (capped by
+	// visitSession) plus any a chat tool or a running job keeps alive. Keeping
+	// warm chats mounted (stacked, visibility-toggled) preserves their
+	// scroll/draft state across switches.
 	const warmSessions = $derived(
 		listRuntimes()
 			.map((r) => sessionState.sessions.find((s) => s.id === r.sessionId))

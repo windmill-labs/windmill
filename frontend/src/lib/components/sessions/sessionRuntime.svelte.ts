@@ -96,7 +96,13 @@ import type {
 	RawAppDomResult
 } from '$lib/components/raw_apps/rawAppDom'
 import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
-import { pendingUserAction, type DisplayMessage } from '$lib/components/copilot/chat/shared'
+import {
+	pendingUserAction,
+	type ChatJob,
+	type DisplayMessage
+} from '$lib/components/copilot/chat/shared'
+import { readStoredChat } from '$lib/components/copilot/chat/HistoryManager.svelte'
+import { getCurrentUserEmail } from '$lib/userScopedStorage'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 
 // Per-kind load state for a session's editor target. Pure state container the
@@ -188,6 +194,7 @@ export interface SessionRuntime {
 	// exists yet for this (kind, path)), so callers can check load state without
 	// the cell accessors' create-on-miss side effect.
 	loadedEditorPath(kind: SessionTargetKind, path: string): string | undefined
+	hasEditorCells(): boolean
 	loadRawApp(
 		workspace: string,
 		path: string,
@@ -568,6 +575,9 @@ function createRuntime(session: Session): SessionRuntime {
 		pipelineEditorState,
 		flowCell,
 		loadedEditorPath,
+		hasEditorCells() {
+			return flowCells.size + scriptCells.size + rawAppCells.size > 0
+		},
 
 		async loadFlow(workspace: string, path: string, force = false) {
 			const { slot, store, stateStore, saved } = flowCell(path)
@@ -991,6 +1001,11 @@ export function disposeRuntime(sessionId: string) {
 	runtime.manager.cancel('runtime disposed')
 	runtime.manager.historyManager.close()
 	runtimes.delete(sessionId)
+	const at = visitOrder.indexOf(sessionId)
+	if (at !== -1) visitOrder.splice(at, 1)
+	// The sidebar reads the stored chat again rather than trust a read that
+	// predates everything this runtime saw.
+	peeks.delete(sessionId)
 }
 
 export function listRuntimes(): SessionRuntime[] {
@@ -1024,7 +1039,10 @@ onRemoteTurnEnd((sessionId, chatId) => {
 
 async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<void> {
 	const runtime = runtimes.get(sessionId)
-	if (!runtime) return
+	if (!runtime) {
+		peeks.delete(sessionId)
+		return
+	}
 	const m = runtime.manager
 	// Two transient states get a short retry rather than a skip, because the
 	// composer unlocks when this promise settles and a skip would unlock it on
@@ -1345,16 +1363,133 @@ setScreenshotHandler(async ({ sessionId: callerSessionId }) => {
 
 export function getSessionChatStatus(runtime: SessionRuntime): SessionChatStatus {
 	const m = runtime.manager
-	const last = m.displayMessages[m.displayMessages.length - 1]
+	const fromTranscript = transcriptChatStatus(m.displayMessages)
 	// A loop parked on the user still reports `loading`, so these must be tested
 	// before `streaming` — otherwise "answer me" renders as "the AI is typing"
 	// and a session that needs the user looks like one that doesn't.
-	const pending = pendingUserAction(m.displayMessages)
-	if (pending === 'question') return 'awaiting-answer'
-	if (pending === 'confirmation') return 'needs-confirmation'
+	if (fromTranscript === 'awaiting-answer' || fromTranscript === 'needs-confirmation') {
+		return fromTranscript
+	}
 	if (m.loading) return 'streaming'
 	if (m.instructions.trim().length > 0) return 'draft'
+	return fromTranscript
+}
+
+function transcriptChatStatus(messages: DisplayMessage[]): SessionChatStatus {
+	const pending = pendingUserAction(messages)
+	if (pending === 'question') return 'awaiting-answer'
+	if (pending === 'confirmation') return 'needs-confirmation'
+	const last = messages[messages.length - 1]
 	if (last?.role === 'user' && last.error) return 'error'
 	if (last && (last.role === 'assistant' || last.role === 'tool')) return 'awaiting-user'
 	return 'idle'
+}
+
+// ---------------------------------------------------------------------------
+// Sessions without a runtime
+// ---------------------------------------------------------------------------
+
+// A runtime costs a chat manager, its loaded transcript and a mounted chat pane,
+// so the sidebar does not create one per listed session. It reads the session's
+// one stored chat instead, once, for the status dot and the unread count.
+export interface SessionChatPeek {
+	status: SessionChatStatus
+	messageCount: number
+}
+
+const peeks = new SvelteMap<string, SessionChatPeek>()
+const peeksInFlight = new Set<string>()
+
+// Not gated on `detached`: a chat saved mid-wait stores its job undetached, and
+// loadPastChat resumes polling every unfinished job either way.
+function isLiveJob(j: ChatJob): boolean {
+	return (
+		j.status === 'queued' ||
+		j.status === 'running' ||
+		j.status === 'suspended' ||
+		j.status === 'scheduled'
+	)
+}
+
+export function getSessionChatPeek(sessionId: string): SessionChatPeek | undefined {
+	return peeks.get(sessionId)
+}
+
+/** Read the stored chat of a session that has no runtime. A chat with a detached
+ *  job still running gets its runtime instead: only a runtime polls the job and
+ *  resumes the conversation when it finishes. */
+export async function ensureSessionChatPeek(session: Session): Promise<void> {
+	const id = session.id
+	if (runtimes.has(id) || peeks.has(id) || peeksInFlight.has(id) || !session.chatId) return
+	const email = getCurrentUserEmail()
+	if (!email) return
+	peeksInFlight.add(id)
+	try {
+		const chat = await readStoredChat(session.chatId, email)
+		if (!chat || runtimes.has(id)) return
+		if (chat.backgroundJobs?.some(isLiveJob)) {
+			getOrCreateRuntime(session)
+			return
+		}
+		peeks.set(id, {
+			status: transcriptChatStatus(chat.displayMessages),
+			messageCount: chat.displayMessages.length
+		})
+	} catch (e) {
+		console.error('Failed to read session chat', e)
+	} finally {
+		peeksInFlight.delete(id)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Warm runtimes
+// ---------------------------------------------------------------------------
+
+// The sessions page keeps a chat pane mounted per runtime, so runtimes of visited
+// sessions are capped. Only an idle runtime is evicted: one that is streaming,
+// holds unsent text, polls a job or backs an open editor would lose that state.
+const MAX_WARM_RUNTIMES = 5
+const visitOrder: string[] = []
+
+function isEvictable(runtime: SessionRuntime): boolean {
+	const m = runtime.manager
+	return (
+		!m.loading &&
+		!m.sendInFlight &&
+		m.instructions.trim() === '' &&
+		m.queuedMessage.trim() === '' &&
+		!m.backgroundJobs.some(isLiveJob) &&
+		!runtime.hasEditorCells()
+	)
+}
+
+/** The user arrived on `session`: give it a runtime and evict the least recently
+ *  visited idle runtimes beyond the cap. */
+export function visitSession(session: Session): SessionRuntime {
+	const runtime = getOrCreateRuntime(session)
+	const at = visitOrder.indexOf(session.id)
+	if (at !== -1) visitOrder.splice(at, 1)
+	visitOrder.unshift(session.id)
+	let warm = runtimes.size
+	// Runtimes created for another reason (a chat tool, a live job) and never
+	// visited go first, then visited ones from the oldest visit.
+	const candidates = [...runtimes.keys()]
+		.filter((id) => id !== session.id)
+		.sort((a, b) => visitRank(b) - visitRank(a))
+	for (const id of candidates) {
+		if (warm <= MAX_WARM_RUNTIMES) break
+		const rt = runtimes.get(id)
+		if (rt && isEvictable(rt)) {
+			disposeRuntime(id)
+			warm--
+		}
+	}
+	return runtime
+}
+
+// Higher is older: never-visited runtimes rank above every visited one.
+function visitRank(id: string): number {
+	const at = visitOrder.indexOf(id)
+	return at === -1 ? Number.MAX_SAFE_INTEGER : at
 }
