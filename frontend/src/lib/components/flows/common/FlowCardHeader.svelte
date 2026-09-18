@@ -60,7 +60,8 @@
 		isAgentTool ? getToolNameError(summary ?? '', undefined, siblingToolNames) : undefined
 	)
 	// An agent tool's summary is the function name the model is given, not free text, so the field
-	// asks for a name whatever the tool runs: a script, an MCP server or another agent.
+	// asks for a name whatever the tool runs: a script of its own, one from the workspace, or
+	// another agent.
 	let summaryPlaceholder = $derived(isAgentTool ? 'Tool name' : 'Summary')
 
 	const dispatch = createEventDispatcher()
