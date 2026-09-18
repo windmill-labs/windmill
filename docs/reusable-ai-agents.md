@@ -98,7 +98,9 @@ last request plus a `chars/4` estimate of everything appended since — and comp
 prefix in one extra request billed to the step, and replaces it with that summary. The tail never
 opens on a `tool` message, a prefix that is only a previous summary is never summarized again, and
 three consecutive failures stop it for the run. Nothing about it is fatal: a failed summarization
-leaves the conversation as it was.
+leaves the conversation as it was. The summarization request is capped at the reserve and asks
+Gemini and OpenAI's reasoning models for their least thinking, since both think by default and bill
+it against that same cap; the step's own reasoning effort is not carried over.
 
 The count the trigger reads is `TokenUsage::prompt_tokens`, which is `input_tokens` and nothing
 else. Each provider's parser normalizes that field to the whole prompt first — Anthropic and

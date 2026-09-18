@@ -77,6 +77,16 @@ fn bare_model_id(model: &str) -> String {
     base.replace('.', "-")
 }
 
+/// Whether this is one of OpenAI's reasoning models (gpt-5 and later, the o-series),
+/// which think by default. Mirrors `requiresMaxCompletionTokens` in the frontend's
+/// `modelConfig.ts`: the o-series match wants a digit after the `o` so that ids such
+/// as `open-mistral-*` stay out.
+pub fn is_openai_reasoning_model(model: &str) -> bool {
+    let id = bare_model_id(model);
+    id.starts_with("gpt-5")
+        || (id.starts_with('o') && id[1..].starts_with(|c: char| c.is_ascii_digit()))
+}
+
 /// The window this model is known to hold, `None` for one not in the table.
 pub fn known_model_context_window(model: &str) -> Option<usize> {
     let id = bare_model_id(model);

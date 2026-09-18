@@ -65,6 +65,15 @@ chronological thinking the model should not keep
 		expect(formatted).not.toContain('before output')
 	})
 
+	it('keeps the whole summary when it quotes its own tags', () => {
+		const raw = `<analysis>notes</analysis>
+<summary>1. The user asked for an <analysis> block then a <summary></summary> block.
+2. Work continued.</summary>`
+		expect(formatCompactSummary(raw)).toBe(
+			'1. The user asked for an  block then a  block.\n2. Work continued.'
+		)
+	})
+
 	it('strips every analysis block, not just the first, when the summary is untagged', () => {
 		const raw = '<analysis>first</analysis>\nkept one\n<analysis>second</analysis>\nkept two'
 		const formatted = formatCompactSummary(raw)

@@ -825,6 +825,11 @@ pub enum OpenAIResponsesSSEEvent {
     #[serde(rename = "response.completed")]
     Completed { response: OpenAIResponsesResponse },
 
+    /// Response ended by `max_output_tokens` or a filter: the same object, with the
+    /// tokens spent so far, so it is billed the same
+    #[serde(rename = "response.incomplete")]
+    Incomplete { response: OpenAIResponsesResponse },
+
     /// Response created
     #[serde(rename = "response.created")]
     Created {},
@@ -1000,8 +1005,8 @@ impl SSEParser for OpenAIResponsesSSEParser {
                     });
                 }
 
-                OpenAIResponsesSSEEvent::Completed { response } => {
-                    // Extract usage from response.completed event
+                OpenAIResponsesSSEEvent::Completed { response }
+                | OpenAIResponsesSSEEvent::Incomplete { response } => {
                     if let Some(usage) = response.usage {
                         self.usage = Some(usage);
                     }

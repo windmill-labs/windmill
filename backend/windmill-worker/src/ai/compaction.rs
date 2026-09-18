@@ -10,6 +10,7 @@
 use windmill_ai::{
     ai_providers::AIProvider,
     credentials::ProviderCredentials,
+    model_context::is_openai_reasoning_model,
     proxy::{common_outbound_headers, retain_effective_credentials},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder},
     types::{ContentPart, OpenAIContent, OpenAIMessage, OutputType, TokenUsage},
@@ -71,6 +72,8 @@ const NO_TOOLS_TRAILER: &str =
 // The <analysis> block is a drafting scratchpad that `format_compact_summary` strips
 // before the summary reaches the conversation.
 const SUMMARY_PROMPT: &str = r#"Your task is to create a detailed summary of the conversation so far. This summary will be placed at the start of a continuing session; newer messages that build on this context will follow after it (you do not see them here). Summarize thoroughly so that someone reading only your summary and then the newer messages can fully understand what happened and continue the work without losing context.
+
+The message you are reading now is an instruction, not part of the conversation. Summarize only the messages above it: do not describe this instruction, do not list it among the user's messages, pending tasks or current work, and do not mention the <analysis> or <summary> tags inside your summary.
 
 This is a conversation with an AI assistant that uses tools to accomplish tasks. Frame the summary in those terms.
 
@@ -262,6 +265,13 @@ fn plan_tail_start(
     while tail_start > prefix_start && messages[tail_start].role == "tool" {
         tail_start -= 1;
     }
+    // A user message stays with its answer. The summarization instruction is itself a
+    // user message appended to the prefix, and after an unanswered one it reads as
+    // part of that turn: Anthropic merges consecutive user turns outright, and every
+    // model then summarizes the instruction as the user's latest request.
+    while tail_start > prefix_start && messages[tail_start - 1].role == "user" {
+        tail_start -= 1;
+    }
 
     // Worth a model call either because there is a run of messages to fold up, or
     // because the few there are cost enough on their own — one attachment does. A
@@ -323,8 +333,10 @@ lazy_static::lazy_static! {
         regex::Regex::new(r"(?is)<analysis>.*?</analysis>").unwrap();
     static ref ANALYSIS_OPENER_REGEX: regex::Regex =
         regex::Regex::new(r"(?i)<analysis>").unwrap();
+    // Greedy to the last closer: the summary describes the instruction that asked for
+    // it, tags included, and stopping at a quoted `</summary>` cuts it off mid-sentence.
     static ref SUMMARY_BLOCK_REGEX: regex::Regex =
-        regex::Regex::new(r"(?is)<summary>(.*?)</summary>").unwrap();
+        regex::Regex::new(r"(?is)<summary>(.*)</summary>").unwrap();
     static ref SUMMARY_OPENER_REGEX: regex::Regex =
         regex::Regex::new(r"(?i)<summary>").unwrap();
     static ref STRAY_TAG_REGEX: regex::Regex =
@@ -496,6 +508,18 @@ impl Compactor {
     }
 }
 
+/// The least thinking this model will do. Gemini and OpenAI's reasoning models think
+/// unless told how much, and bill it against `max_tokens`, so asked for nothing they can
+/// spend the summary's reserve on thought. Each provider maps the token onto what the
+/// model accepts. Everywhere else, asking for nothing is off, which is the default.
+fn lowest_reasoning_effort(provider: &AIProvider, model: &str) -> Option<&'static str> {
+    match provider {
+        AIProvider::GoogleAI => Some("none"),
+        _ if is_openai_reasoning_model(model) => Some("low"),
+        _ => None,
+    }
+}
+
 /// Sends the prefix to the same model with the compaction prompt appended and no tools.
 async fn summarize_prefix(
     prefix: &[OpenAIMessage],
@@ -524,12 +548,12 @@ async fn summarize_prefix(
         tools: None,
         model: request.model,
         temperature: request.temperature,
-        // The step's reasoning effort is deliberately dropped. Every provider counts
-        // thinking against this same budget, so a high-effort model can spend the whole
-        // reserve before writing anything and hand back a summary cut off inside its
-        // scratchpad — which counts as a failure. The prompt asks for an `<analysis>`
-        // block, which is the reasoning this call needs.
-        reasoning_effort: None,
+        // The step's reasoning effort is deliberately not carried over. Every provider
+        // counts thinking against this same budget, so a model left to think can spend
+        // the reserve before writing anything and hand back a summary cut off inside its
+        // scratchpad. The prompt asks for an `<analysis>` block, which is the reasoning
+        // this call needs.
+        reasoning_effort: lowest_reasoning_effort(&request.credentials.provider, request.model),
         // Nothing streams this call's reasoning, and a summary of it would be billed.
         reasoning_summary: false,
         // Exactly the room the split set aside. Asking for more lets a summary land the
@@ -663,9 +687,48 @@ mod tests {
     }
 
     #[test]
+    fn the_summarizer_asks_default_thinkers_for_the_least() {
+        assert_eq!(
+            lowest_reasoning_effort(&AIProvider::GoogleAI, "gemini-2.5-flash"),
+            Some("none")
+        );
+        assert_eq!(
+            lowest_reasoning_effort(&AIProvider::OpenAI, "gpt-5-mini"),
+            Some("low")
+        );
+        assert_eq!(
+            lowest_reasoning_effort(&AIProvider::OpenRouter, "openai/o3-mini"),
+            Some("low")
+        );
+        // Sending an effort to a model that takes none is a rejected request.
+        assert_eq!(
+            lowest_reasoning_effort(&AIProvider::OpenAI, "gpt-4.1-mini"),
+            None
+        );
+        assert_eq!(
+            lowest_reasoning_effort(&AIProvider::Mistral, "open-mistral-nemo"),
+            None
+        );
+        assert_eq!(
+            lowest_reasoning_effort(&AIProvider::Anthropic, "claude-haiku-4-5"),
+            None
+        );
+    }
+
+    #[test]
     fn format_compact_summary_drops_the_analysis_scratchpad() {
         let raw = "<analysis>mentions <summary> as a token</analysis>\n\n<summary>the real summary</summary>";
         assert_eq!(format_compact_summary(raw), "the real summary");
+    }
+
+    #[test]
+    fn format_compact_summary_survives_a_summary_that_quotes_its_own_tags() {
+        let raw = "<analysis>notes</analysis>\n<summary>1. The user asked for an <analysis> block \
+                   then a <summary></summary> block.\n2. Work continued.</summary>";
+        assert_eq!(
+            format_compact_summary(raw),
+            "1. The user asked for an  block then a  block.\n2. Work continued."
+        );
     }
 
     #[test]
@@ -698,6 +761,19 @@ mod tests {
         let tail_start = plan_tail_start(&messages, 32000, 0).expect("should compact");
         assert_ne!(messages[tail_start].role, "tool");
         assert!(tail_start >= 1, "the system message is never summarized");
+    }
+
+    #[test]
+    fn plan_tail_start_keeps_a_user_message_with_its_answer() {
+        let mut messages = vec![message("system", "sys")];
+        for _ in 0..6 {
+            messages.push(message("user", &"q".repeat(4000)));
+            messages.push(message("assistant", "a"));
+        }
+
+        let tail_start = plan_tail_start(&messages, 8000, 0).expect("should compact");
+        assert_eq!(messages[tail_start].role, "user");
+        assert_eq!(messages[tail_start - 1].role, "assistant");
     }
 
     /// Tool definitions and the system prompt ride on every request but are not in the
@@ -775,10 +851,12 @@ mod tests {
             attachment("user"),
             attachment("user"),
             message("assistant", &"a".repeat(20000)),
+            message("user", "next"),
+            message("assistant", "a"),
         ];
 
         // Two attachments are worth more than a quarter of this window on their own.
-        assert!(plan_tail_start(&messages, 10000, 0).is_some());
+        assert_eq!(plan_tail_start(&messages, 10000, 0), Some(4));
     }
 
     /// A summary is reserve-sized whatever it holds, so a prefix of nothing else would

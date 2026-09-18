@@ -24,6 +24,8 @@ const NO_TOOLS_TRAILER =
 // strips before the summary reaches context.
 const SUMMARY_PROMPT = `Your task is to create a detailed summary of the conversation so far. This summary will be placed at the start of a continuing session; newer messages that build on this context will follow after it (you do not see them here). Summarize thoroughly so that someone reading only your summary and then the newer messages can fully understand what happened and continue the work without losing context.
 
+The message you are reading now is an instruction, not part of the conversation. Summarize only the messages above it: do not describe this instruction, do not list it among the user's messages, pending tasks or current work, and do not mention the <analysis> or <summary> tags inside your summary.
+
 This is a conversation with Windmill's global workspace assistant. It inspects workspace items and authors them as per-user drafts — scripts, flows, apps, resources, variables, triggers, and schedules — then deploys those drafts and test-runs scripts and flows. It works with items by their workspace path (e.g. \`u/alice/sync_orders\`, \`f/team/my_flow\`); it does NOT edit files on a filesystem. Frame the summary in those terms.
 
 Before providing your final summary, wrap your analysis in <analysis> tags to organize your thoughts. In your analysis:
@@ -105,7 +107,9 @@ export function formatCompactSummary(raw: string): string {
 	// real summary boundary.
 	let formatted = raw.replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
 
-	const summaryMatch = formatted.match(/<summary>([\s\S]*?)<\/summary>/i)
+	// Greedy to the last closer: the summary describes the instruction that asked for
+	// it, tags included, and stopping at a quoted </summary> cuts it off mid-sentence.
+	const summaryMatch = formatted.match(/<summary>([\s\S]*)<\/summary>/i)
 	if (summaryMatch) {
 		formatted = (summaryMatch[1] ?? '').trim()
 	} else {
