@@ -45,6 +45,14 @@ describe('parsePostgresConnectionString', () => {
 		expect(parsePostgresConnectionString('postgres://u:p%40ss@host/db')?.password).toBe('p@ss')
 		expect(parsePostgresConnectionString('postgres://u%40corp:p@host/db')?.user).toBe('u@corp')
 	})
+
+	// libpq only percent-decodes the query, so `+` stays a plus: `Etc/GMT+3` is a timezone,
+	// `Etc/GMT 3` is a failed connection.
+	it('keeps a literal + in options, as libpq does', () => {
+		expect(
+			parsePostgresConnectionString('postgres://u@h/db?options=-c%20timezone%3DEtc/GMT+3')?.options
+		).toBe('-c timezone=Etc/GMT+3')
+	})
 })
 
 // The wizard offers the same connection as a string or as fields and switches between them

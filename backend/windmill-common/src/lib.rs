@@ -955,6 +955,13 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
 
         db.options = Some(String::new());
         assert!(!db.to_uri().contains("options"));
+
+        // libpq only percent-decodes, so a literal `+` stays a plus.
+        let parsed = PgDatabase::parse_uri("postgres://u@h/db?options=-c%20timezone%3DEtc/GMT+3");
+        assert_eq!(
+            parsed.unwrap().options.as_deref(),
+            Some("-c timezone=Etc/GMT+3")
+        );
     }
 
     /// The other paths default a missing login to `postgres`; Entra must not, or the
@@ -1385,10 +1392,15 @@ impl PgDatabase {
         let dbname = parsed_url.path().trim_start_matches('/').to_string();
         let mut sslmode = None;
         let mut options = None;
-        for query in parsed_url.query_pairs() {
-            match query.0.as_ref() {
-                "sslmode" => sslmode = Some(query.1.to_string()),
-                "options" => options = Some(query.1.to_string()),
+        // Not query_pairs(): form decoding turns `+` into a space, where libpq keeps it
+        // (`options=-c timezone=Etc/GMT+3`).
+        for pair in parsed_url.query().unwrap_or("").split('&') {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            let value =
+                String::from_utf8_lossy(&urlencoding::decode_binary(value.as_bytes())).into_owned();
+            match key {
+                "sslmode" => sslmode = Some(value),
+                "options" => options = Some(value),
                 _ => {}
             }
         }
