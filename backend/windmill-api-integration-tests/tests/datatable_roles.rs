@@ -627,21 +627,234 @@ async fn a_rename_has_to_match_the_save_it_claims_to_describe(
     Ok(())
 }
 
+async fn database_exists(db: &Pool<Postgres>, name: &str) -> anyhow::Result<bool> {
+    Ok(
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)")
+            .bind(name)
+            .fetch_one(db)
+            .await?,
+    )
+}
+
+async fn workspace_exists(db: &Pool<Postgres>, id: &str) -> anyhow::Result<bool> {
+    Ok(
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM workspace WHERE id = $1)")
+            .bind(id)
+            .fetch_one(db)
+            .await?,
+    )
+}
+
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
-async fn a_data_table_under_roles_is_not_copied_into_a_fork(
+async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
-    // `pg_dump` carries no roles and the restore drops ACLs, so a copy would arrive with the
-    // parent's tenants and none of the grants behind them: every role but admin denied by
-    // Postgres in a data table that reads as configured. Refuse the copy rather than ship that,
-    // and refuse it before any data moves.
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    // The database a fork's copy of `main` goes into is named after the fork. Every request below
+    // is refused before it is created, so the cluster-wide name never collides with a sibling run.
+    let target = "wm_fork_copy__main";
+    let fork = |token: &str, forked: Value| {
+        authed(
+            client().post(format!(
+                "http://localhost:{port}/api/w/test-workspace/workspaces/create_fork"
+            )),
+            token,
+        )
+        .json(&json!({"id": "wm-fork-copy", "name": "copy", "forked_datatables": [forked]}))
+    };
+
+    // Rows are a workspace admin's to copy, as they were before roles.
+    let resp = fork(
+        "SECRET_TOKEN_2",
+        json!({"name": "main", "new_dbname": target, "fork_behavior": "schema_and_data"}),
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 403, "{}", resp.text().await?);
+    assert!(!database_exists(&db, target).await?);
+
+    // Even the schema alone lists every table, which a member covered by no role cannot read in
+    // the parent.
+    let resp = fork(
+        "SECRET_TOKEN_3",
+        json!({"name": "main", "new_dbname": target, "fork_behavior": "schema_only"}),
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 401, "{}", resp.text().await?);
+    assert!(!database_exists(&db, target).await?);
+
+    // Refused in the first phase too, before a git branch is created for a fork that cannot be.
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/workspaces/create_workspace_fork_branch"
+        )),
+        "SECRET_TOKEN_3",
+    )
+    .json(
+        &json!({"id": "wm-fork-copy", "name": "copy", "forked_datatables": [
+            {"name": "main", "new_dbname": target, "fork_behavior": "schema_only"}
+        ]}),
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 401, "{}", resp.text().await?);
+
+    // A database the request did not create — whatever the data table, under roles or not — may be
+    // a copy left behind by a deleted fork, which the entry would reach without its governance.
+    let resp = fork(
+        "SECRET_TOKEN",
+        json!({"name": "other", "new_dbname": "wm_fork_copy__other"}),
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400);
+    assert!(
+        resp.text().await?.contains("fork_behavior"),
+        "a database the fork did not create was taken"
+    );
+    assert!(!workspace_exists(&db, "wm-fork-copy").await?);
+
+    // The copy an admin asks for goes ahead in an edition that replays grants, and is refused
+    // before any database exists in one that does not. The fixture's database does not exist, so
+    // the dump fails either way — and leaves neither a database nor a fork behind.
+    let resp = fork(
+        "SECRET_TOKEN",
+        json!({"name": "main", "new_dbname": target, "fork_behavior": "schema_only"}),
+    )
+    .send()
+    .await?;
+    assert_ne!(resp.status(), 200);
+    let body = resp.text().await?;
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    assert!(body.contains("pg_dump"), "{body}");
+    #[cfg(not(all(feature = "private", feature = "enterprise")))]
+    assert!(body.contains("Enterprise Edition"), "{body}");
+    assert!(!database_exists(&db, target).await?);
+    assert!(!workspace_exists(&db, "wm-fork-copy").await?);
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn a_clone_takes_its_roles_from_the_data_table_it_was_cloned_from(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::query(
+        r#"UPDATE workspace_settings SET datatable = jsonb_set(datatable, '{datatables,copy}', '{
+               "database": {"resource_type": "instance", "resource_path": "wm_fork_dt__copy"},
+               "governed_by": {"workspace_id": "test-workspace", "datatable": "main"},
+               "forked_from": {}
+           }'::jsonb) WHERE workspace_id = 'wm-fork-dt'"#,
+    )
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let fork = format!("http://localhost:{port}/api/w/wm-fork-dt/workspaces");
+
+    // `test-user-2` administers the fork, and is only a tenant of `analytics` in the parent.
+    let resp = authed(
+        client().get(format!("{fork}/datatable_usable_roles/copy")),
+        "SECRET_TOKEN_2",
+    )
+    .send()
+    .await?;
+    let body: Value = resp.json().await?;
+    assert_eq!(body["roles"], json!(["analytics"]), "{body}");
+
+    let resp = authed(
+        client().get(format!("{fork}/datatable_permissions/copy")),
+        "SECRET_TOKEN_2",
+    )
+    .send()
+    .await?;
+    let body: Value = resp.json().await?;
+    assert_eq!(body["editable"], false, "{body}");
+    assert_eq!(body["clone_of"]["workspace_id"], "test-workspace", "{body}");
+
+    // Nobody changes a clone's roles, a superadmin included: they are the source's.
+    for token in ["SECRET_TOKEN_2", "SECRET_TOKEN"] {
+        let resp = authed(
+            client().post(format!("{fork}/datatable_permissions/copy")),
+            token,
+        )
+        .json(&json!({"permissioned": false}))
+        .send()
+        .await?;
+        assert_eq!(resp.status(), 400, "{token} changed a clone's roles");
+    }
+
+    // A settings save cannot clear the link.
+    let resp = authed(
+        client().post(format!("{fork}/edit_datatable_config")),
+        "SECRET_TOKEN_2",
+    )
+    .json(&json!({
+        "settings": {"datatables": {"main": {}, "copy": {
+            "database": {"resource_type": "instance", "resource_path": "wm_fork_dt__copy"}
+        }}},
+        "renames": [], "deleted_datatables": []
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let governed_by: Option<Value> = sqlx::query_scalar(
+        "SELECT datatable->'datatables'->'copy'->'governed_by' FROM workspace_settings
+         WHERE workspace_id = 'wm-fork-dt'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(governed_by.unwrap()["datatable"], "main");
+
+    // Nor move it, a superadmin included: its grants were replayed into that database alone.
+    let resp = authed(
+        client().post(format!("{fork}/edit_datatable_config")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "settings": {"datatables": {"main": {}, "copy": {
+            "database": {"resource_type": "instance", "resource_path": "wm_fork_dt__elsewhere"}
+        }}},
+        "renames": [], "deleted_datatables": []
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+
+    // Nor reach its database through a second entry without roles, which would connect as `admin`.
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/workspaces/edit_datatable_config"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "settings": {"datatables": {
+            "main": {"database": {"resource_type": "instance", "resource_path": "dt_main"}},
+            "alias": {"database": {"resource_type": "instance", "resource_path": "wm_fork_dt__copy"}}
+        }},
+        "renames": [], "deleted_datatables": []
+    }))
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(status, 400, "{body}");
+    assert!(body.contains("without carrying those roles"), "{body}");
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn a_data_table_under_roles_is_not_copied_without_its_grants(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    // Both halves of the clone: the database the copy would land in, then the copy itself. The
-    // first has to refuse too, or a permissioned fork leaves an empty registered database that
-    // no data table entry names and nothing collects.
     let resp = authed(
         client().post(format!(
             "http://localhost:{port}/api/w/test-workspace/workspaces/create_pg_database"

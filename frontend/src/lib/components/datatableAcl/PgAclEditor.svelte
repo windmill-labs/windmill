@@ -120,7 +120,12 @@
 	<span class="text-xs text-secondary">Loading…</span>
 {:else}
 	<div class="flex flex-col gap-4">
-		{#if !info.editable}
+		{#if info.clone}
+			<span class="text-xs text-secondary">
+				Read only: this data table is a clone, and its owners and grants stay as they were copied
+				from the data table it was cloned from.
+			</span>
+		{:else if !info.editable}
 			<span class="text-xs text-secondary">
 				Read only: access is changed by the admins of the workspace that governs this data table, on
 				Windmill Enterprise Edition.
