@@ -1609,6 +1609,67 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExternalInstancePgSetupReport"
 
+  /settings/external_instance_pg/databases:
+    get:
+      summary: Lists the databases Windmill created on the external instance cluster, with the workspaces whose data tables use each
+      operationId: listExternalInstancePgDatabases
+      tags:
+        - setting
+      responses:
+        "200":
+          description: databases by name
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/CustomInstanceDb"
+
+  /settings/external_instance_pg/databases/{name}:
+    post:
+      summary: Creates a database on the external instance cluster (enterprise edition only)
+      operationId: createExternalInstancePgDatabase
+      tags:
+        - setting
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tag:
+                  $ref: "#/components/schemas/CustomInstanceDbTag"
+      responses:
+        "200":
+          description: database created
+          content:
+            application/json:
+              schema: {}
+    delete:
+      summary: Drops a database Windmill created on the external instance cluster, refused while a data table uses it
+      operationId: dropExternalInstancePgDatabase
+      tags:
+        - setting
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: database dropped
+          content:
+            application/json:
+              schema: {}
+
   /settings/list_custom_instance_pg_databases:
     post:
       summary: Returns the set-up statuses of custom instance pg databases
@@ -5267,7 +5328,7 @@ paths:
                       type: string
                     resource_type:
                       type: string
-                      enum: [postgres, instance]
+                      enum: [postgres, instance, external_instance]
                     resource_path:
                       type: string
                     governing_workspace_id:
@@ -34107,7 +34168,7 @@ components:
           type: array
           items:
             type: string
-          description: Workspaces that reference this database via a ducklake catalog or datatable database with resource_type 'instance'. Computed at request time, not persisted.
+          description: Workspaces that reference this database through a ducklake catalog or a datatable database of the kind being listed — 'instance' for the instance databases endpoint, 'external_instance' for the external cluster one. Computed at request time, not persisted, and only returned to superadmins.
         workspace_id:
           type: string
           description: The workspace a member created this database for as a fork copy. Only that workspace can import into it or point a fork at it.
@@ -36147,6 +36208,7 @@ components:
                     enum:
                       - postgresql
                       - instance
+                      - external_instance
                   resource_path:
                     type: string
                 required:

@@ -42,7 +42,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde_json::json;
 
 use serde::{Deserialize, Serialize};
 use windmill_ai::ai_cache::bump_instance_ai_config_revision;
@@ -175,6 +174,14 @@ pub fn global_service() -> Router {
         .route(
             "/external_instance_pg/setup",
             post(setup_external_instance_pg),
+        )
+        .route(
+            "/external_instance_pg/databases",
+            get(list_external_instance_pg_databases),
+        )
+        .route(
+            "/external_instance_pg/databases/{name}",
+            post(create_external_instance_pg_database).delete(drop_external_instance_pg_database),
         )
         .route(
             "/setup_custom_instance_pg_database/{name}",
@@ -885,6 +892,14 @@ pub async fn set_global_setting_internal(
         )));
     }
 
+    if key == EXTERNAL_INSTANCE_PG_SETTING {
+        return windmill_common::external_instance_pg::write_external_instance_pg_setting(
+            db,
+            Some(&value),
+        )
+        .await;
+    }
+
     run_setting_pre_write_hook(db, &key, &value).await?;
 
     match value {
@@ -946,13 +961,6 @@ async fn run_setting_pre_write_hook(
     value: &serde_json::Value,
 ) -> error::Result<()> {
     match key {
-        EXTERNAL_INSTANCE_PG_SETTING => {
-            windmill_common::external_instance_pg::check_external_instance_pg_write(
-                db,
-                Some(value),
-            )
-            .await?;
-        }
         // The instance AI config is written as an untyped blob through this generic
         // endpoint, so it never passes the typed check the workspace handler applies.
         // Rates that reach a cost total unbounded would make it negative or infinite.
@@ -1273,7 +1281,7 @@ async fn set_instance_config(
     let desired_map = desired.global_settings.to_settings_map();
     if !desired_map.is_empty() {
         let current_map = current.global_settings.to_settings_map();
-        let settings_diff =
+        let mut settings_diff =
             instance_config::diff_global_settings(&current_map, &desired_map, ApplyMode::Merge);
         let ai_config_changed = settings_diff
             .upserts
@@ -1302,16 +1310,15 @@ async fn set_instance_config(
         }
 
         for (key, value) in &settings_diff.upserts {
-            run_setting_pre_write_hook(&db, key, value).await?;
+            if key != EXTERNAL_INSTANCE_PG_SETTING {
+                run_setting_pre_write_hook(&db, key, value).await?;
+            }
         }
-        if settings_diff
-            .deletes
-            .iter()
-            .any(|k| k == EXTERNAL_INSTANCE_PG_SETTING)
-        {
-            windmill_common::external_instance_pg::check_external_instance_pg_write(&db, None)
-                .await?;
-        }
+        windmill_common::external_instance_pg::write_external_instance_pg_from_diff(
+            &db,
+            &mut settings_diff,
+        )
+        .await?;
 
         instance_config::apply_settings_diff(&db, &settings_diff)
             .await
@@ -1822,6 +1829,87 @@ async fn setup_external_instance_pg(
     )
     .await?;
     Ok(Json(report))
+}
+
+#[derive(Serialize)]
+struct ExternalInstancePgDatabase {
+    #[serde(flatten)]
+    status: windmill_common::instance_config::CustomInstanceDb,
+    used_by_workspaces: Vec<String>,
+}
+
+async fn list_external_instance_pg_databases(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<std::collections::BTreeMap<String, ExternalInstancePgDatabase>> {
+    require_super_admin(&db, &authed).await?;
+    let databases = windmill_common::external_instance_pg::external_instance_databases(&db).await?;
+    let mut usages =
+        windmill_common::external_instance_pg::external_instance_database_usages(&db).await?;
+    Ok(Json(
+        databases
+            .into_iter()
+            .map(|(name, status)| {
+                let used_by_workspaces = usages.remove(&name).unwrap_or_default();
+                (
+                    name,
+                    ExternalInstancePgDatabase {
+                        status,
+                        used_by_workspaces: used_by_workspaces.into_iter().collect(),
+                    },
+                )
+            })
+            .collect(),
+    ))
+}
+
+async fn create_external_instance_pg_database(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(dbname): Path<String>,
+    Json(body): Json<SetupCustomInstanceDbBody>,
+) -> JsonResult<()> {
+    require_super_admin(&db, &authed).await?;
+    let tag = body.tag.as_deref().unwrap_or("datatable");
+    windmill_common::external_instance_pg::create_external_instance_database_unchecked(
+        &db, &dbname, tag, None,
+    )
+    .await?;
+    windmill_audit::audit_oss::audit_log(
+        &db,
+        &authed,
+        "settings.create_external_instance_pg_database",
+        windmill_audit::ActionKind::Create,
+        "global",
+        Some(&authed.email),
+        Some([("dbname", dbname.as_str()), ("tag", tag)].into()),
+    )
+    .await?;
+    Ok(Json(()))
+}
+
+async fn drop_external_instance_pg_database(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(dbname): Path<String>,
+) -> JsonResult<()> {
+    require_super_admin(&db, &authed).await?;
+    // A data table naming a dropped database fails on every job, far from the drop that caused it.
+    windmill_common::external_instance_pg::drop_external_instance_database_unchecked(
+        &db, &dbname, None,
+    )
+    .await?;
+    windmill_audit::audit_oss::audit_log(
+        &db,
+        &authed,
+        "settings.drop_external_instance_pg_database",
+        windmill_audit::ActionKind::Delete,
+        "global",
+        Some(&authed.email),
+        Some([("dbname", dbname.as_str())].into()),
+    )
+    .await?;
+    Ok(Json(()))
 }
 
 #[derive(Deserialize)]

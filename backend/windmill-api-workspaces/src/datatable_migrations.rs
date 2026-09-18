@@ -11,7 +11,7 @@
 //! to keep that file focused on core workspace configuration.
 
 use crate::workspaces::{
-    is_instance_datatable, pg_dump_database, strip_unreplayable_dump_lines, ItemComparison,
+    managed_datatable_kind, pg_dump_database, strip_unreplayable_dump_lines, ItemComparison,
     PgDumpOptions,
 };
 
@@ -1556,7 +1556,9 @@ async fn generate_initial_datatable_migration(
     // without what a replay elsewhere cannot run: the replaying user owns none of this
     // database's objects, and the grants Windmill plants in an instance database (`ALTER
     // DEFAULT PRIVILEGES FOR ROLE ...`) fail even replaying onto the same server.
-    let no_acl = is_instance_datatable(&db, &w_id, &datatable_name).await?;
+    let no_acl = managed_datatable_kind(&db, &w_id, &datatable_name)
+        .await?
+        .is_some();
     let dump_file = pg_dump_database(
         &pg_db,
         PgDumpOptions {

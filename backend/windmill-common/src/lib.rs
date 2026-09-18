@@ -1086,7 +1086,13 @@ impl PgDatabase {
                 if err_str.contains("password authentication failed for user")
                     && err_str.contains("custom_instance_user")
                 {
-                    if let Some(db) = main_db {
+                    // The external instance cluster has a `custom_instance_user` of its own, whose
+                    // password setup manages. Rotating the local one would break every instance
+                    // data table and fix nothing.
+                    let local = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+                    let on_local_cluster = local.host == self.host
+                        && local.port.unwrap_or(5432) == self.port.unwrap_or(5432);
+                    if let Some(db) = main_db.filter(|_| on_local_cluster) {
                         tracing::warn!(
                             "custom_instance_user password auth failed, refreshing and retrying..."
                         );
@@ -1653,39 +1659,44 @@ pub async fn create_custom_instance_database(
     Ok(())
 }
 
-/// Refuse a workspace member writing a fork copy into, or pointing a fork at, the instance database
-/// `dbname`, unless `w_id` created it for that ([`create_custom_instance_database`]) and nothing uses
-/// it yet. The `wm_fork_` prefix is no authorization: every instance database answers to the same
-/// `custom_instance_user`, so a name is all it takes to reach another workspace's copy.
+/// Refuse a workspace member writing a fork copy into, or pointing a fork at, the managed database
+/// `dbname` of `kind`, unless `w_id` created it for that ([`create_custom_instance_database`], or
+/// its external instance counterpart) and nothing uses it yet. The `wm_fork_` prefix is no
+/// authorization: every database of a cluster answers to the same `custom_instance_user`, so a name
+/// is all it takes to reach another workspace's copy.
 ///
-/// Authorization: reads the global registry and every workspace's settings, and names other
+/// Authorization: reads the global registries and every workspace's settings, and names other
 /// workspaces in its refusal. Callers MUST have authorized `w_id` for the caller first — a member
 /// of it forking or importing there — and MUST NOT call it on a workspace the caller is not in.
 pub async fn ensure_fork_database_available_to(
     db: &DB,
+    kind: workspaces::DataTableCatalogResourceType,
     dbname: &str,
     w_id: &str,
 ) -> error::Result<()> {
-    let created_for = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT value->'databases'->$1->>'workspace_id' FROM global_settings
-         WHERE name = 'custom_instance_pg_databases'",
-    )
-    .bind(dbname)
-    .fetch_optional(db)
-    .await?
-    .flatten();
+    let created_for = match kind {
+        workspaces::DataTableCatalogResourceType::ExternalInstance => {
+            external_instance_pg::external_instance_databases(db)
+                .await?
+                .remove(dbname)
+                .and_then(|entry| entry.workspace_id)
+        }
+        _ => sqlx::query_scalar::<_, Option<String>>(
+            "SELECT value->'databases'->$1->>'workspace_id' FROM global_settings
+             WHERE name = 'custom_instance_pg_databases'",
+        )
+        .bind(dbname)
+        .fetch_optional(db)
+        .await?
+        .flatten(),
+    };
     if created_for.as_deref() != Some(w_id) {
         return Err(Error::BadRequest(format!(
             "Database '{dbname}' was not created for a fork of workspace '{w_id}'"
         )));
     }
-    let uses = workspaces::managed_database_uses(
-        &mut *db.acquire().await?,
-        workspaces::DataTableCatalogResourceType::Instance,
-        dbname,
-        None,
-    )
-    .await?;
+    let uses =
+        workspaces::managed_database_uses(&mut *db.acquire().await?, kind, dbname, None).await?;
     if !uses.is_empty() {
         return Err(Error::BadRequest(format!(
             "Database '{dbname}' is already in use: {}",

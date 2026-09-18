@@ -9,7 +9,7 @@
 			id: string
 			name: string
 			database: {
-				resource_type: 'postgresql' | 'instance'
+				resource_type: 'postgresql' | 'instance' | 'external_instance'
 				resource_path?: string | undefined
 			}
 			/** Set on a fork's entry: it names the workspace whose data table governs this one, and

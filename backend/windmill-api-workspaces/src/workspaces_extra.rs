@@ -1424,9 +1424,7 @@ pub async fn drop_forked_datatable_databases(
             _ => continue,
         };
 
-        if database.resource_type
-            == windmill_common::workspaces::DataTableCatalogResourceType::Instance
-        {
+        if database.resource_type.is_windmill_managed() {
             let db_to_drop = &database.resource_path;
             if !db_to_drop.starts_with("wm_fork_") {
                 errors.push(format!(
@@ -1453,18 +1451,30 @@ pub async fn drop_forked_datatable_databases(
                     [db_to_drop.as_str()],
                 )
                 .await?;
-                let uses = windmill_common::workspaces::managed_database_uses(
-                    &mut tx,
-                    windmill_common::workspaces::DataTableCatalogResourceType::Instance,
-                    db_to_drop,
-                    Some((&w_id, dt_name)),
-                )
-                .await?;
-                if !uses.is_empty() {
-                    return Err(Error::BadRequest(format!(
-                        "it is still used by {}",
-                        uses.join(", ")
-                    )));
+                if database.resource_type
+                    == windmill_common::workspaces::DataTableCatalogResourceType::ExternalInstance
+                {
+                    windmill_common::external_instance_pg::drop_external_instance_database_unchecked(
+                        &db,
+                        db_to_drop,
+                        Some((&w_id, dt_name)),
+                    )
+                    .await?;
+                } else {
+                    let uses = windmill_common::workspaces::managed_database_uses(
+                        &mut tx,
+                        windmill_common::workspaces::DataTableCatalogResourceType::Instance,
+                        db_to_drop,
+                        Some((&w_id, dt_name)),
+                    )
+                    .await?;
+                    if !uses.is_empty() {
+                        return Err(Error::BadRequest(format!(
+                            "it is still used by {}",
+                            uses.join(", ")
+                        )));
+                    }
+                    windmill_common::drop_custom_instance_database(&db, db_to_drop).await?;
                 }
                 // The entry goes with the database: a fork this one is cloned into afterwards must
                 // not inherit a pointer at a data table whose database is gone.
@@ -1476,7 +1486,6 @@ pub async fn drop_forked_datatable_databases(
                 .bind(dt_name)
                 .execute(&mut *tx)
                 .await?;
-                windmill_common::drop_custom_instance_database(&db, db_to_drop).await?;
                 tx.commit().await?;
                 Ok::<_, Error>(())
             }
