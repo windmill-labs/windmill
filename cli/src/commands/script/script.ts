@@ -156,7 +156,11 @@ export function isFlowInlineScriptPath(filePath: string): boolean {
   return isFlowInlineScriptPathInternal(filePath);
 }
 
-type PushOptions = GlobalOptions & { message?: string };
+export type ScriptDeployOptions = {
+  applyToPerpetualRuns?: boolean;
+};
+
+type PushOptions = GlobalOptions & ScriptDeployOptions & { message?: string };
 export async function computePushMetadataHash(
   filePath: string,
   content: string
@@ -356,7 +360,9 @@ export async function handleFile(
   workspace: Workspace,
   alreadySynced: string[],
   message: string | undefined,
-  opts: (GlobalOptions & { defaultTs?: "bun" | "deno" } & Skips) | undefined,
+  opts:
+    | (GlobalOptions & { defaultTs?: "bun" | "deno" } & Skips & ScriptDeployOptions)
+    | undefined,
   rawWorkspaceDependencies: Record<string, string>,
   codebases: SyncCodebase[],
   permissionedAsContext?: PermissionedAsContext
@@ -700,6 +706,13 @@ export async function handleFile(
             deepEqual(modules ?? null, remote.modules ?? null))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
+          if (opts?.applyToPerpetualRuns) {
+            log.warn(
+              colors.yellow(
+                `No new version of ${remotePath} was deployed, so --apply-to-perpetual-runs moves no runs`
+              )
+            );
+          }
           // Even when the body is unchanged, perms may still drift — sync them
           // independently before returning.
           await applyExtraPermsDiff(
@@ -723,7 +736,8 @@ export async function handleFile(
         bundleContent,
         workspaceId,
         body,
-        workspace
+        workspace,
+        opts?.applyToPerpetualRuns ?? false
       );
       log.info(
         colors.yellow.bold(
@@ -740,7 +754,8 @@ export async function handleFile(
         bundleContent,
         workspaceId,
         body,
-        workspace
+        workspace,
+        opts?.applyToPerpetualRuns ?? false
       );
       log.info(
         colors.yellow.bold(
@@ -970,7 +985,8 @@ async function createScript(
   bundleContent: string | Blob | undefined,
   workspaceId: string,
   body: NewScript,
-  workspace: Workspace
+  workspace: Workspace,
+  applyToPerpetualRuns: boolean
 ): Promise<number> {
   const start = performance.now();
   // Preserve any user draft at this path: a CLI / git-sync deploy must not wipe
@@ -979,7 +995,9 @@ async function createScript(
   // skip_if_noop asks the backend to treat deploys identical to the parent
   // (same content, lockfile, and metadata) as a no-op, so the CLI does not
   // produce phantom git-sync / promotion commits on re-pushes.
-  const skipIfNoop = "skip_if_noop=true";
+  const query =
+    "skip_if_noop=true" +
+    (applyToPerpetualRuns ? "&apply_to_perpetual_runs=true" : "");
   const extraHeaders = getHeaders();
   if (!bundleContent) {
     try {
@@ -988,7 +1006,7 @@ async function createScript(
         "api/w/" +
         workspaceId +
         "/scripts/create?" +
-        skipIfNoop;
+        query;
       const req = await fetch(url, {
         method: "POST",
         headers: {
@@ -1026,7 +1044,7 @@ async function createScript(
       "api/w/" +
       workspace.workspaceId +
       "/scripts/create_snapshot?" +
-      skipIfNoop;
+      query;
     const req = await fetch(url, {
       method: "POST",
       headers: {
@@ -2213,6 +2231,10 @@ const command = new Command()
   )
   .arguments("<path:file>")
   .option("--message <message:string>", "Deployment message")
+  .option(
+    "--apply-to-perpetual-runs",
+    "Move running perpetual runs of this script to the new version once their current run finishes, or stop them if the new version is not perpetual",
+  )
   .action(push as any)
   .command("get", "get a script's details")
   .arguments("<path:file>")

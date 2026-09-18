@@ -1,0 +1,116 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT hash, apply_to_perpetual_runs, restart_unless_cancelled, timeout, tag, language AS \"language: ScriptLang\", dedicated_worker, cache_ttl, cache_ignore_s3_path, priority, on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false AND lock IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "apply_to_perpetual_runs",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "restart_unless_cancelled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "timeout",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "tag",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "language: ScriptLang",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby",
+                "rlang",
+                "dbt"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "dedicated_worker",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "cache_ttl",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "cache_ignore_s3_path",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "priority",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 10,
+        "name": "on_behalf_of",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "23a3f74ab49c024c503c1c11b8c2315135e04d6f52ea06ea77b2c57ba09a1b36"
+}

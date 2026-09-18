@@ -10449,10 +10449,21 @@ paths:
         - kind
         - tag
         - deployment_message
+      # The tool cannot name a parent version, so it never deploys over a running perpetual script.
+      x-mcp-tool-include-query-params: []
       tags:
         - script
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: apply_to_perpetual_runs
+          description: |
+            Move perpetual runs of an older version at this path to the deployed version. Each run
+            finishes on its own version, and the next one starts on this version with its settings
+            and the finished run's arguments. If this version is not perpetual, the runs stop
+            after their current run instead.
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: Partially filled script
         required: true
