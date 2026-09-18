@@ -3594,12 +3594,15 @@ export async function pull(
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
   const originalCliOpts = { ...opts };
-  opts = await mergeConfigWithConfigFile(opts);
-
-  // --include-secrets overrides skipSecrets from wmill.yaml
-  if ((originalCliOpts as any).includeSecrets) {
-    opts.skipSecrets = false;
-  }
+  const withConfigFile = async () => {
+    const merged = await mergeConfigWithConfigFile({ ...originalCliOpts });
+    // --include-secrets overrides skipSecrets from wmill.yaml
+    if ((originalCliOpts as any).includeSecrets) {
+      merged.skipSecrets = false;
+    }
+    return merged;
+  };
+  opts = await withConfigFile();
 
   // Resolve workspace name for config lookups.
   // --branch resolves git branch → workspace name (deprecated but still supported).
@@ -3728,6 +3731,14 @@ export async function pull(
         onlyCreateBranch: true,
       });
       return;
+    }
+
+    // The pull writes into the branch now checked out, so its wmill.yaml
+    // applies, not the cloned branch's: a fork branch that turned on
+    // `dedupeLockfiles` would otherwise get one lockfile per script back.
+    if (getCurrentGitBranch() !== clonedBranchName) {
+      opts = await withConfigFile();
+      wsNameForConfig = resolveWsNameForConfigFromFlags(opts);
     }
   }
 
