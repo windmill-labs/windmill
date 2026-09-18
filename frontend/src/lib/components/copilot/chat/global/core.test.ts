@@ -259,6 +259,11 @@ vi.mock('$lib/gen', async () => {
 		WorkerService: wrapService(actual.WorkerService, {
 			listWorkers: vi.fn(async () => [])
 		}),
+		// Guests off by default, as a fresh workspace has them.
+		WorkspaceService: wrapService(actual.WorkspaceService, {
+			getGuestUsage: vi.fn(async () => ({ available: false, instance_enabled: false })),
+			getPublicSettings: vi.fn(async () => ({ guest_access_enabled: false }))
+		}),
 		FolderService: wrapService(actual.FolderService, {
 			createFolder: vi.fn(async () => 'created')
 		}),
@@ -404,7 +409,8 @@ import {
 	ScriptService,
 	UserService,
 	VariableService,
-	WorkerService
+	WorkerService,
+	WorkspaceService
 } from '$lib/gen'
 import { devopsRole, superadmin, userStore, usersWorkspaceStore } from '$lib/stores'
 import { processSecretArgs } from '$lib/components/secretArgUtils'
@@ -4395,9 +4401,8 @@ describe('global AI tools', () => {
 	})
 
 	// Deploying is what makes an app's runnables reachable, so it is the one moment the
-	// exposure is both true and known. Anonymous is the only mode that is unconditionally
-	// open: guest is inert while the workspace has guests off, and the rest admit members.
-	it('states that deploying an anonymous app makes its runnables public', async () => {
+	// exposure is both true and known.
+	it('discloses who can open an app after a deploy', async () => {
 		const deployApp = async (path: string, policy: Record<string, unknown>) => {
 			vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
 			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
@@ -4426,11 +4431,24 @@ describe('global AI tools', () => {
 		// anyone outside the deployers group — so the note must not name an identity.
 		expect(open.message).not.toContain('u/alice')
 
-		// Guest is stored but inert while the workspace has guests off, and nothing here
-		// can tell which it is, so it says nothing rather than something possibly false.
-		const guest = await deployApp('f/apps/guest', { execution_mode: 'guest' })
-		expect(guest.success).toBe(true)
-		expect(guest.message).not.toContain('reachable by')
+		// Guest is a real widening only where the deployment, the instance and the
+		// workspace all admit guests; stored below that, it is inert.
+		vi.mocked(WorkspaceService.getGuestUsage).mockResolvedValueOnce({
+			available: true,
+			instance_enabled: true
+		} as any)
+		vi.mocked(WorkspaceService.getPublicSettings).mockResolvedValueOnce({
+			guest_access_enabled: true
+		} as any)
+		const guestOn = await deployApp('f/apps/guest', { execution_mode: 'guest' })
+		expect(guestOn.success).toBe(true)
+		expect(guestOn.message).toContain('identity provider authenticates')
+
+		// Guests off: the mode is stored, the server ignores it, so the note would be false.
+		const guestOff = await deployApp('f/apps/guest_off', { execution_mode: 'guest' })
+		expect(guestOff.success).toBe(true)
+		expect(guestOff.message).not.toContain('reachable by')
+		expect(guestOff.message).not.toContain('identity provider')
 	})
 
 	it('forwards preserve_on_behalf_of when the deployed policy carries an on_behalf_of', async () => {

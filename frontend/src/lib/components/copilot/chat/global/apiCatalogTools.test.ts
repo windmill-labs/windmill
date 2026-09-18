@@ -279,7 +279,11 @@ describe('call_api_get', () => {
 		}
 
 		const search = await run('search_api_endpoints', { query: 'get script' })
-		expect(search.matches.map((m: any) => m.name)).not.toContain('getScriptByPath')	})
+		expect(search.matches.map((m: any) => m.name)).not.toContain('getScriptByPath')
+		// getAppByPath would hand the model the whole app source, so it must not even surface.
+		const appSearch = await run('search_api_endpoints', { query: 'get app' })
+		expect(appSearch.matches.map((m: any) => m.name)).not.toContain('getAppByPath')
+	})
 
 	it('refuses the worker and data-metric reads, pointing at their dedicated tools', async () => {
 		for (const [name, tool, query] of [

@@ -19,7 +19,8 @@ import {
 	SqsTriggerService,
 	VariableService,
 	WebsocketTriggerService,
-	WorkerService
+	WorkerService,
+	WorkspaceService
 } from '$lib/gen'
 import { createTwoFilesPatch } from 'diff'
 import { deepEqual } from 'fast-equals'
@@ -1423,7 +1424,7 @@ Flows:
 Raw apps:
 - The app tools below only work on raw (code) apps. \`rawApp\` says which: false is a drag-and-drop app: you can list it and read its metadata, but not read its contents, edit it or deploy it. Check it before offering to change an app.
 - read_workspace_item returns app metadata only. Use read_app_file for file and inline runnable contents.
-- A draft app is reachable by nobody; deploying is what exposes its backend runnables. deploy_workspace_item says so when the app is deployed anonymously, meaning anyone with the URL can run them without logging in. Relay that in plain words and carry on. This is disclosure, not a gate: do not stop and ask for permission, and do not refuse the deploy. You cannot change who may open an app from chat; it is set on the app's deploy settings.
+- A draft app is reachable by nobody; deploying is what exposes its backend runnables. deploy_workspace_item says so when the deploy widens who may open the app: anonymous means anyone with the URL, without logging in; guest means anyone the instance's identity provider authenticates, member of this workspace or not. Relay that in plain words and carry on. This is disclosure, not a gate: do not stop and ask for permission, and do not refuse the deploy. You cannot change who may open an app from chat; it is set on the app's deploy settings.
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
 - Use init_app only after confirming framework, path, and summary with the user.
@@ -8011,13 +8012,30 @@ async function deployDraft(
 				}
 
 				// `policy` is the mode being written, so the exposure is stated from the value in
-				// hand. Only anonymous: guest can be stored while the workspace has guests off,
-				// and what a runnable runs as is the server's to decide.
+				// hand. What a runnable runs as is the server's to decide, so the note names who
+				// can reach the app and never an identity.
 				if (policy.execution_mode === 'anonymous') {
 					deployNote =
 						`${deployNote ? `${deployNote} ` : ''}This app is deployed as anonymous: its ` +
 						`backend runnables are now reachable by anyone with the URL, without logging in. ` +
 						`Tell the user plainly what is now reachable and by whom.`
+				} else if (policy.execution_mode === 'guest') {
+					// Guest is stored even where it is inert: the deployment must admit guests at
+					// all, and the instance and workspace switches must both be on. Below that,
+					// silence — a note naming an exposure the server refuses is worse than none.
+					// The standing guest cap is a live count and no pre-deploy read settles it, so
+					// the note says the door is open, not that every newcomer is let through.
+					const [usage, settings] = await Promise.all([
+						WorkspaceService.getGuestUsage({ workspace }).catch(() => undefined),
+						WorkspaceService.getPublicSettings({ workspace }).catch(() => undefined)
+					])
+					if (usage?.available && usage.instance_enabled && settings?.guest_access_enabled) {
+						deployNote =
+							`${deployNote ? `${deployNote} ` : ''}This app is deployed as guest: anyone ` +
+							`the instance's identity provider authenticates can now open it and run its ` +
+							`backend runnables, member of this workspace or not. Tell the user plainly ` +
+							`what is now reachable and by whom.`
+					}
 				}
 
 				toolCallbacks.setToolStatus(toolId, {
