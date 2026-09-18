@@ -42,6 +42,13 @@
 		textByteLength,
 		type AttachedTextFile
 	} from './textFileUtils'
+	import {
+		fileToAttachedBlob,
+		matchesAccept,
+		MAX_ATTACHED_BLOBS,
+		MAX_BLOB_BYTES,
+		type AttachedBlob
+	} from './blobUtils'
 	import { MessageDraft } from './messageDraft.svelte'
 	import ExpandableImage, {
 		isImageViewerOpen
@@ -213,6 +220,45 @@
 			: undefined
 	)
 
+	/**
+	 * Free slots in one attachment lane, against both that lane's own cap and any limit the
+	 * host's consumer imposes on the turn as a whole — a flow input holding a single file
+	 * caps images and blobs together, not one each. In-flight decodes count: two drops that
+	 * both read the staged count before either resolves would claim the same slots twice.
+	 */
+	function attachmentSlots(laneCap: number, laneStaged: number): number {
+		const laneRemaining = laneCap - laneStaged
+		const turnCap = chatHost.maxMessageAttachments
+		if (turnCap === undefined) return laneRemaining
+		const staged =
+			draft.images.length +
+			pendingImages +
+			draft.files.length +
+			pendingFiles +
+			draft.blobs.length +
+			pendingBlobs
+		// A queue counts too: what is held mid-run merges into one turn on flush, so a
+		// second file accepted now would be dropped there instead of refused here.
+		const queued =
+			chatHost.queuedImages.length + chatHost.queuedFiles.length + chatHost.queuedBlobs.length
+		return Math.min(laneRemaining, Math.max(0, turnCap - staged - queued))
+	}
+
+	/** What to say when the host's own limit is the one that bit. */
+	function turnCapMessage(): string {
+		const turnCap = chatHost.maxMessageAttachments
+		return turnCap === 1
+			? 'This chat sends one attachment per message.'
+			: `This chat sends up to ${turnCap} attachments per message.`
+	}
+
+	/** Why some of what was picked did not fit, naming whichever limit actually bit. */
+	function skippedMessage(laneCap: number, lane: 'images' | 'files', skipped: number): string {
+		return chatHost.maxMessageAttachments !== undefined
+			? `${turnCapMessage()} ${skipped} file(s) were not attached.`
+			: `You can attach up to ${laneCap} ${lane}; ${skipped} were skipped.`
+	}
+
 	// Images being decoded right now. Holds off sending so a message can never go
 	// out without an attachment the user already dropped, and reserves cap slots
 	// against a concurrent drop.
@@ -221,6 +267,14 @@
 	/** Attach dropped/pasted image files (downscaled + bounded). */
 	export async function addImages(files: (File | Blob)[]) {
 		if (!chatHost.supportsMessageAttachments) return
+		// Attaching can be off despite the chat taking attachments — no object storage to
+		// upload to, say. The `+` renders disabled with the reason; a drop and a paste reach
+		// here instead, and would otherwise become a chip that only fails once sent.
+		const unavailable = chatHost.attachmentsUnavailableReason
+		if (unavailable) {
+			sendUserToast(unavailable, true)
+			return
+		}
 		const imageFiles = files.filter(isImageFile)
 		if (imageFiles.length === 0) return
 		// The vision check is about the model this composer's own turn will hit, so it
@@ -240,9 +294,14 @@
 		// Count decodes already in flight: two drops that both read the image count
 		// before either resolves would each claim the same free slots and overshoot
 		// the cap.
-		const remaining = MAX_ATTACHED_IMAGES - draft.images.length - pendingImages
+		const remaining = attachmentSlots(MAX_ATTACHED_IMAGES, draft.images.length + pendingImages)
 		if (remaining <= 0) {
-			sendUserToast(`You can attach up to ${MAX_ATTACHED_IMAGES} images.`, true)
+			sendUserToast(
+				chatHost.maxMessageAttachments !== undefined
+					? turnCapMessage()
+					: `You can attach up to ${MAX_ATTACHED_IMAGES} images.`,
+				true
+			)
 			return
 		}
 		const oversized = imageFiles.filter((f) => f.size > MAX_IMAGE_BYTES)
@@ -255,7 +314,7 @@
 		const batch = usable.slice(0, remaining)
 		if (batch.length < usable.length) {
 			sendUserToast(
-				`You can attach up to ${MAX_ATTACHED_IMAGES} images; ${usable.length - batch.length} were skipped.`,
+				skippedMessage(MAX_ATTACHED_IMAGES, 'images', usable.length - batch.length),
 				true
 			)
 		}
@@ -326,9 +385,14 @@
 	export async function addTextFiles(candidates: File[]) {
 		if (!chatHost.supportsMessageAttachments) return
 		if (candidates.length === 0) return
-		const remaining = MAX_ATTACHED_FILES - draft.files.length - pendingFiles
+		const remaining = attachmentSlots(MAX_ATTACHED_FILES, draft.files.length + pendingFiles)
 		if (remaining <= 0) {
-			sendUserToast(`You can attach up to ${MAX_ATTACHED_FILES} files.`, true)
+			sendUserToast(
+				chatHost.maxMessageAttachments !== undefined
+					? turnCapMessage()
+					: `You can attach up to ${MAX_ATTACHED_FILES} files.`,
+				true
+			)
 			return
 		}
 		const oversized = candidates.filter((f) => f.size > MAX_TEXT_FILE_BYTES)
@@ -343,10 +407,7 @@
 		if (usable.length === 0) return
 		let batch = usable.slice(0, remaining)
 		if (batch.length < usable.length) {
-			sendUserToast(
-				`You can attach up to ${MAX_ATTACHED_FILES} files; ${usable.length - batch.length} were skipped.`,
-				true
-			)
+			sendUserToast(skippedMessage(MAX_ATTACHED_FILES, 'files', usable.length - batch.length), true)
 		}
 		// Conversation-level byte budget: transcript + queue + every live
 		// composer's stage (this one and, mid-edit, the other) + this composer's
@@ -418,6 +479,82 @@
 
 	function removeFile(index: number) {
 		draft.files = draft.files.filter((_, i) => i !== index)
+	}
+
+	// Blobs being read right now — same send-hold/slot-reservation role as pendingImages.
+	let pendingBlobs = $state(0)
+
+	/**
+	 * Attach non-image files through the lane the host reads: text for a host that decodes
+	 * them, blobs for one that forwards them verbatim. The picker, a drop and both pastes all
+	 * route here, and `accept` is re-applied since drops and pastes bypass the picker's filter.
+	 */
+	export async function addNonImageFiles(files: File[]) {
+		if (files.length === 0) return
+		// Same reason as in addImages.
+		const unavailable = chatHost.attachmentsUnavailableReason
+		if (unavailable) {
+			sendUserToast(unavailable, true)
+			return
+		}
+		if (!chatHost.attachmentsAsBlobs) {
+			await addTextFiles(files)
+			return
+		}
+		const allowed = files.filter((f) => matchesAccept(f, chatHost.attachmentAccept))
+		if (allowed.length < files.length) {
+			sendUserToast(
+				`${files.length - allowed.length} file(s) skipped — this chat accepts ${chatHost.attachmentAccept}.`,
+				true
+			)
+		}
+		await addBlobs(allowed)
+	}
+
+	/** Attach files the host takes verbatim (a PDF, say). Kept out of addTextFiles:
+	 * that one decodes to a string and drops anything the binary sniff rejects. */
+	export async function addBlobs(candidates: File[]) {
+		if (!chatHost.supportsMessageAttachments) return
+		if (candidates.length === 0) return
+		const oversized = candidates.filter((f) => f.size > MAX_BLOB_BYTES)
+		if (oversized.length > 0) {
+			const mb = Math.round(MAX_BLOB_BYTES / 1_000_000)
+			sendUserToast(`${oversized.length} file(s) over ${mb}MB were skipped.`, true)
+		}
+		const usable = candidates.filter((f) => f.size <= MAX_BLOB_BYTES)
+		if (usable.length === 0) return
+		const remaining = attachmentSlots(MAX_ATTACHED_BLOBS, draft.blobs.length + pendingBlobs)
+		if (remaining <= 0) {
+			sendUserToast(
+				chatHost.maxMessageAttachments !== undefined
+					? turnCapMessage()
+					: `You can attach up to ${MAX_ATTACHED_BLOBS} files.`,
+				true
+			)
+			return
+		}
+		const batch = usable.slice(0, remaining)
+		if (batch.length < usable.length) {
+			sendUserToast(skippedMessage(MAX_ATTACHED_BLOBS, 'files', usable.length - batch.length), true)
+		}
+		pendingBlobs += batch.length
+		try {
+			const added: AttachedBlob[] = []
+			for (const file of batch) {
+				try {
+					added.push(await fileToAttachedBlob(file))
+				} catch (e) {
+					sendUserToast(`Could not read ${file.name}`, true)
+				}
+			}
+			if (added.length > 0) draft.addBlobs(added)
+		} finally {
+			pendingBlobs -= batch.length
+		}
+	}
+
+	function removeBlob(index: number) {
+		draft.blobs = draft.blobs.filter((_, i) => i !== index)
 	}
 
 	// App mode @ mention state
@@ -501,7 +638,8 @@
 		// Attachments still decoding/reading (or mid-drop-routing) count as
 		// occupancy too — they belong to a draft the user started even though
 		// their lane is still empty.
-		if (pendingImages > 0 || pendingFiles > 0 || ingestionHolds > 0) return false
+		if (pendingImages > 0 || pendingFiles > 0 || pendingBlobs > 0 || ingestionHolds > 0)
+			return false
 		if (
 			!draft.replaceIfEmpty({
 				text: value,
@@ -524,15 +662,17 @@
 	export function prependText(
 		text: string,
 		restoredImages: AttachedImage[] = [],
-		restoredFiles: AttachedTextFile[] = []
+		restoredFiles: AttachedTextFile[] = [],
+		restoredBlobs: AttachedBlob[] = []
 	): boolean {
 		// mergedIntoDraft: the restored text landed on top of a draft the user was
 		// already writing — both instructions now share one composer, so the caller
 		// must keep both their contexts rather than replacing one with the other.
-		const { mergedIntoDraft, droppedImages, droppedFiles } = draft.prepend({
+		const { mergedIntoDraft, droppedImages, droppedFiles, droppedBlobs } = draft.prepend({
 			text,
 			images: restoredImages,
-			files: restoredFiles
+			files: restoredFiles,
+			blobs: restoredBlobs
 		})
 		if (droppedImages > 0) {
 			sendUserToast(
@@ -543,6 +683,12 @@
 		if (droppedFiles > 0) {
 			sendUserToast(
 				`You can attach up to ${MAX_ATTACHED_FILES} files; ${droppedFiles} restored file(s) were dropped.`,
+				true
+			)
+		}
+		if (droppedBlobs > 0) {
+			sendUserToast(
+				`You can attach up to ${MAX_ATTACHED_BLOBS} files; ${droppedBlobs} restored file(s) were dropped.`,
 				true
 			)
 		}
@@ -717,7 +863,7 @@
 	function sendRequest() {
 		// The send button is disabled while decoding, but Enter reaches here directly.
 		// Sending now would drop the in-flight attachments onto the following message.
-		if (pendingImages > 0 || pendingFiles > 0 || ingestionHolds > 0) {
+		if (pendingImages > 0 || pendingFiles > 0 || pendingBlobs > 0 || ingestionHolds > 0) {
 			return
 		}
 		// A host whose consumer needs a message of its own refuses an attachment-only
@@ -761,7 +907,8 @@
 					expanded(chatDraft(sent.text, sent.pastes)),
 					sent.images,
 					[...selectedContext],
-					sent.files
+					sent.files,
+					sent.blobs
 				)
 				// Consumed at enqueue, not at flush: the entry above pinned them.
 				consumeMentionsIfGlobal()
@@ -789,11 +936,15 @@
 			// when given no override, and the consume below empties it.
 			const carried = chatHost.mode === AIMode.GLOBAL ? [...selectedContext] : undefined
 			consumeMentionsIfGlobal()
+			// A host that refuses the turn puts the draft back itself (see AIChatManager's
+			// restoreToInput and FlowChatViewHost's upload failure): restoring here too
+			// would double the text and every attachment.
 			chatHost.sendRequest({
 				instructions: sent.text,
 				pastes: sent.pastes,
 				images: sent.images,
 				files: sent.files,
+				blobs: sent.blobs,
 				contextOverride: carried,
 				contextOverrideOrigin: carried ? 'pinned' : undefined
 			})
@@ -1015,6 +1166,23 @@
 			updateAppTooltipPosition(appTooltipCurrentViewNumber)
 		}
 	})
+
+	/**
+	 * Clipboard files on the plain composer, as ContextTextarea does for the rich one. Only
+	 * when the clipboard has no text: a spreadsheet copy carries a bitmap next to the text,
+	 * and pasting a cell range must paste the cells.
+	 */
+	function handlePlainPaste(e: ClipboardEvent) {
+		if (!chatHost.supportsMessageAttachments) return
+		if ((e.clipboardData?.getData('text/plain') ?? '').trim()) return
+		const pasted = Array.from(e.clipboardData?.files ?? [])
+		const images = pasted.filter((f) => f.type.startsWith('image/'))
+		const others = pasted.filter((f) => !f.type.startsWith('image/'))
+		if (images.length === 0 && others.length === 0) return
+		e.preventDefault()
+		if (images.length > 0) void addImages(images)
+		if (others.length > 0) void addNonImageFiles(others)
+	}
 </script>
 
 {#snippet sendStopButton()}
@@ -1035,6 +1203,7 @@
 		disabled ||
 		pendingImages > 0 ||
 		pendingFiles > 0 ||
+		pendingBlobs > 0 ||
 		ingestionHolds > 0 ||
 		needsText ||
 		(emptyDraft &&
@@ -1068,7 +1237,7 @@
      thumbnails get their own row (different height). -->
 {#snippet badgeRow()}
 	{@const contextChips = showContext ? selectedContext : domSelectorChips}
-	{#if contextChips.length > 0 || draft.files.length > 0 || pendingFiles > 0}
+	{#if contextChips.length > 0 || draft.files.length > 0 || pendingFiles > 0 || draft.blobs.length > 0 || pendingBlobs > 0}
 		<div class="flex flex-row flex-wrap items-center gap-1 px-2.5 pt-2">
 			{#each contextChips as element (contextKey(element))}
 				<ContextElementBadge
@@ -1087,7 +1256,19 @@
 					onDelete={() => removeFile(i)}
 				/>
 			{/each}
-			{#each { length: pendingFiles } as _, i (i)}
+			<!-- Blobs are shown by the same badge as text files. Their preview line stands
+			     in for content the badge cannot render (a PDF has no text to show). -->
+			{#each draft.blobs as blob, i (i)}
+				<ContextElementBadge
+					contextElement={createAttachedFileContextElement(
+						blob.name,
+						`${blob.mediaType} · ${Math.max(1, Math.round(blob.size / 1024))} KB`
+					)}
+					deletable
+					onDelete={() => removeBlob(i)}
+				/>
+			{/each}
+			{#each { length: pendingFiles + pendingBlobs } as _, i (i)}
 				<div
 					class="h-6 w-24 rounded-md border bg-surface flex items-center justify-center"
 					title="Reading file..."
@@ -1152,6 +1333,7 @@
 			draft.isEmpty &&
 			pendingImages === 0 &&
 			pendingFiles === 0 &&
+			pendingBlobs === 0 &&
 			ingestionHolds === 0
 		) {
 			// Shell-style recall: ArrowUp in the empty main composer pulls the
@@ -1167,6 +1349,7 @@
 				chatHost.queuedMessage ||
 				chatHost.queuedImages.length > 0 ||
 				chatHost.queuedFiles.length > 0 ||
+				chatHost.queuedBlobs.length > 0 ||
 				(chatHost.queuedContext?.length ?? 0) > 0
 			) {
 				e.preventDefault()
@@ -1192,7 +1375,7 @@
 					? (pasted) => void addImages(pasted)
 					: undefined}
 				onTextFiles={chatHost.supportsMessageAttachments
-					? (pasted) => void addTextFiles(pasted)
+					? (pasted) => void addNonImageFiles(pasted)
 					: undefined}
 				{availableContext}
 				{selectedContext}
@@ -1299,6 +1482,7 @@
 					bind:this={instructionsTextareaComponent}
 					bind:value={draft.text}
 					use:autosize={{ maxHeight: '40vh' }}
+					onpaste={handlePlainPaste}
 					onkeydown={(e) => {
 						if (onKeyDown) {
 							onKeyDown(e)
