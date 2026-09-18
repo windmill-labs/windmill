@@ -679,7 +679,12 @@ async fn summarize_prefix(
         messages: &summary_messages,
         tools: None,
         model: request.model,
-        temperature: request.temperature,
+        // The step's temperature is not carried over: the summary imposes its own
+        // thinking mode (below), and OpenAI's reasoning models reject `temperature`
+        // alongside any effort but their own default. A structured extraction does not
+        // need a set temperature, so the internal call omits it rather than track which
+        // model forbids which pairing.
+        temperature: None,
         // The step's reasoning effort is deliberately not carried over. Every provider
         // counts thinking against this same budget, so a model left to think can spend
         // the reserve before writing anything and hand back a summary cut off inside its
