@@ -555,6 +555,7 @@ struct UserWorkspace {
     /// screen off this.
     pub created_by: Option<String>,
     pub disabled: bool,
+    pub is_service_account: bool,
 }
 
 #[derive(Deserialize)]
@@ -5890,7 +5891,7 @@ async fn user_workspaces(
                 workspace.is_dev_workspace, workspace.dev_workspace_label,
                 workspace.owner AS \"created_by?\",
                 CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings,
-                usr.disabled
+                usr.disabled, usr.is_service_account
          FROM workspace
          JOIN usr ON usr.workspace_id = workspace.id
          JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id
