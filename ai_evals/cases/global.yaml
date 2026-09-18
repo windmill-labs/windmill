@@ -2611,3 +2611,33 @@
   judgeChecklist:
     - runs the existing script rather than rewriting it
     - passes the GitHub resource as the bare string $res:f/evals/global/github_main
+
+- id: global-drag-and-drop-app-not-editable
+  prompt: |-
+    Add a refresh button to the sales board app.
+  initial: ai_evals/fixtures/frontend/global/initial/apps_code_and_drag_and_drop.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    # The workspace also holds a code app, so a model that refused every app — or one
+    # that never looked — fails the assistant expectations below rather than passing here.
+    forbiddenToolsUsed:
+      - write_app_file
+      - patch_app_file
+      - delete_app_file
+      - write_app_runnable
+      - delete_app_runnable
+      - init_app
+      - deploy_workspace_item
+  assistantExpect:
+    # A refusal produces no draft for the judge to see, so the answer is checked here. Only
+    # the app kind: substring tests cannot see paraphrase, and every wording of "I can't edit
+    # it" defeats a fixed list — the forbidden tools above already pin that it didn't.
+    requiredMentionsAnyOf:
+      - - drag-and-drop
+        - drag and drop
+        - low-code
+        - no-code
+  skipJudge: true

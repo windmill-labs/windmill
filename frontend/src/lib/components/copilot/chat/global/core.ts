@@ -1421,7 +1421,7 @@ Flows:
 - Use patch_flow_json for structural flow edits and write_flow for full flow rewrites.
 
 Raw apps:
-- The app tools below only work on raw (code) apps. \`rawApp\` says which: false is a drag-and-drop app, which you can list but not edit or deploy — only the compare page can. Check it before offering to change an app.
+- The app tools below only work on raw (code) apps. \`rawApp\` says which: false is a drag-and-drop app, which you can list and read but not edit or deploy. Check it before offering to change an app.
 - read_workspace_item returns app metadata only. Use read_app_file for file and inline runnable contents.
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
