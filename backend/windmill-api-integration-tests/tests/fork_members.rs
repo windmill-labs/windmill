@@ -4,7 +4,9 @@ use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
 
 /// With `add_admins_and_developers_to_forks` on, a fork starts with the parent's admins and
-/// developers at their parent role, even when a developer forks it; operators are left out.
+/// developers at their parent role, even when a developer forks it; operators are left out. The
+/// copies are manual members: a parent membership that came from an instance group must not carry
+/// that provenance into a fork that does not configure the group.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_fork_adds_parent_admins_and_developers(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -17,6 +19,13 @@ async fn test_fork_adds_parent_admins_and_developers(db: Pool<Postgres>) -> anyh
 
     sqlx::query(
         "UPDATE usr SET operator = true WHERE workspace_id = 'test-workspace' AND username = 'test-user-3'",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, added_via)
+         VALUES ('test-workspace', 'test4@windmill.dev', 'test-user-4', false,
+                 '{\"source\": \"instance_group\", \"group\": \"devs\"}')",
     )
     .execute(&db)
     .await?;
@@ -47,16 +56,18 @@ async fn test_fork_adds_parent_admins_and_developers(db: Pool<Postgres>) -> anyh
         resp.text().await?
     );
 
-    let members: Vec<(String, bool)> = sqlx::query_as(
-        "SELECT username, is_admin FROM usr WHERE workspace_id = 'wm-fork-team' ORDER BY username",
+    let members: Vec<(String, bool, bool)> = sqlx::query_as(
+        "SELECT username, is_admin, added_via IS NULL FROM usr
+         WHERE workspace_id = 'wm-fork-team' ORDER BY username",
     )
     .fetch_all(&db)
     .await?;
     assert_eq!(
         members,
         vec![
-            ("test-user".to_string(), true),
-            ("test-user-2".to_string(), false)
+            ("test-user".to_string(), true, true),
+            ("test-user-2".to_string(), false, true),
+            ("test-user-4".to_string(), false, true),
         ]
     );
 

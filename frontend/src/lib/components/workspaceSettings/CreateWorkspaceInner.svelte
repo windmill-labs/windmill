@@ -161,8 +161,6 @@
 			(!workspaceIsFork(baseWorkspaceId, forkableWorkspaces) ||
 				!!baseWorkspaceEntry.is_dev_workspace)
 	)
-	// Ask the server whether a dev already exists: the caller may not be a member of this prod's dev,
-	// so the client workspace list can't see it and would offer an invalid "create dev" action.
 	const baseForkMembersResource = resource(
 		() => (isFork ? baseWorkspaceId : undefined),
 		async (ws, _prev, { signal }) => {
@@ -176,6 +174,8 @@
 		baseForkMembersResource.current?.ws === baseWorkspaceId &&
 			!!baseForkMembersResource.current?.adds
 	)
+	// Ask the server whether a dev already exists: the caller may not be a member of this prod's dev,
+	// so the client workspace list can't see it and would offer an invalid "create dev" action.
 	const devWorkspaceResource = resource(
 		() => (baseCanHostDev ? baseWorkspaceId : undefined),
 		async (ws) => (ws ? await WorkspaceService.getDevWorkspace({ workspace: ws }) : undefined)

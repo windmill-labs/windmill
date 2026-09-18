@@ -6540,7 +6540,9 @@ async fn clone_groups(
 /// target so a fork/dev can be a shared environment. Idempotent — skips members the target already
 /// has. Group memberships are not handled here: the sole caller is the create-fork path, where
 /// `clone_groups` already copies the source's full group structure (including `all` membership).
-/// `admins_and_developers_only` keeps the enabled people who are not operators.
+/// `admins_and_developers_only` keeps the enabled people who are not operators, and adds them as
+/// manual members: the fork does not inherit the source's instance-group config, so a copied
+/// `instance_group` provenance would let the fork's reconciliation delete them and their data.
 async fn copy_workspace_members(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -6549,7 +6551,8 @@ async fn copy_workspace_members(
 ) -> Result<()> {
     sqlx::query!(
         "INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via)
-         SELECT $1, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via
+         SELECT $1, username, email, is_admin, created_at, operator, disabled, role, is_service_account,
+                CASE WHEN $3 THEN NULL ELSE added_via END
          FROM usr WHERE workspace_id = $2
            AND (NOT $3 OR (NOT operator AND NOT disabled AND NOT is_service_account))
          ON CONFLICT DO NOTHING",
