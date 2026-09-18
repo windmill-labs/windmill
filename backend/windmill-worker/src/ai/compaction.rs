@@ -299,12 +299,16 @@ fn plan_tail_start(
     while tail_start > prefix_start && messages[tail_start].role == "tool" {
         tail_start -= 1;
     }
-    // A user message stays with its answer. The summarization instruction is itself a
-    // user message appended to the prefix, and after an unanswered one it reads as
-    // part of that turn: Anthropic merges consecutive user turns outright, and every
-    // model then summarizes the instruction as the user's latest request.
-    while tail_start > prefix_start && messages[tail_start - 1].role == "user" {
-        tail_start -= 1;
+    // The prefix must not end on an unanswered user message: the summarization
+    // instruction is itself a user message appended to it, and Anthropic merges
+    // consecutive user turns, so every model then summarizes the instruction as the
+    // user's latest request. Move the boundary forward, keeping that user turn and its
+    // answer in the prefix, rather than back into the tail — back would pull a heavy
+    // attachment the window cannot hold into the kept tail, and a leading one all the
+    // way in would leave nothing to summarize. The newest message always stays in the
+    // tail, so a trailing run of user turns is left as it is.
+    while tail_start < messages.len() - 1 && messages[tail_start - 1].role == "user" {
+        tail_start += 1;
     }
 
     // Worth a model call either because there is a run of messages to fold up, or
@@ -1086,12 +1090,13 @@ mod tests {
         );
     }
 
-    /// Priced right, a conversation of attachment-heavy turns summarizes the older ones
-    /// and keeps the newest, rather than keeping them all because each read as a short
-    /// path. Two 25k-token attachments will not both fit a 30k window.
+    /// Priced right, a leading attachment turn the window cannot hold is summarized away
+    /// rather than kept because it read as a short path. It is a user message, so the
+    /// boundary moves forward past its answer rather than dragging the attachment into
+    /// the kept tail, which is where the old backward rule left it — unsummarizable.
     #[test]
-    fn plan_tail_start_summarizes_older_attachment_turns() {
-        let heavy = || OpenAIMessage {
+    fn plan_tail_start_evicts_a_leading_attachment_into_the_prefix() {
+        let heavy = OpenAIMessage {
             role: "user".to_string(),
             content: Some(OpenAIContent::Parts(vec![ContentPart::S3Object {
                 s3_object: windmill_types::s3::S3Object {
@@ -1101,14 +1106,18 @@ mod tests {
             }])),
             ..Default::default()
         };
-        let messages = vec![
-            heavy(),
-            message("assistant", "first"),
-            heavy(),
-            message("assistant", "second"),
-        ];
-        // The older attachment turn is folded away; the newest stays verbatim.
-        assert_eq!(plan_tail_start(&messages, 30_000, 0, 25_000), Some(2));
+        let mut messages = vec![heavy, message("assistant", "acknowledged")];
+        for _ in 0..3 {
+            messages.push(message("user", "a follow-up question"));
+            messages.push(message("assistant", "an answer"));
+        }
+
+        // The 25k attachment does not fit the 30k window's tail budget, so it and its
+        // answer are summarized and the tail opens on a later text turn.
+        let tail_start = plan_tail_start(&messages, 30_000, 0, 25_000).expect("should compact");
+        assert_eq!(tail_start, 2);
+        assert_eq!(messages[tail_start].role, "user");
+        assert_eq!(messages[tail_start - 1].role, "assistant");
     }
 
     /// A summary is reserve-sized whatever it holds, so a prefix of nothing else would
