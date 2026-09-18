@@ -303,8 +303,12 @@ function makeProvider(
 		getFolder: (p) => FolderService.getFolder(p).then(readLabels),
 		createFolder: (p) =>
 			FolderService.createFolder({ ...p, requestBody: withLabels(p.requestBody) }),
+		// A folder with no labels reads back without the field, so clearing them needs an explicit [].
 		updateFolder: (p) =>
-			FolderService.updateFolder({ ...p, requestBody: withLabels(p.requestBody) }),
+			FolderService.updateFolder({
+				...p,
+				requestBody: { ...p.requestBody, labels: sourceLabels ?? [] }
+			}),
 		deleteFolder: (p) => FolderService.deleteFolder(p),
 		// Triggers
 		existsTriggerByKind: (kind, p) => triggerServiceFor(kind).exists(p),

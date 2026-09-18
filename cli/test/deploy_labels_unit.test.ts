@@ -65,3 +65,20 @@ test("deployItem: carries labels for variables, resources and folders", async ()
   ]);
   for (const [, body] of writes) expect(body.labels).toEqual(labels);
 });
+
+test("deployItem: clears a folder's labels when the source has none", async () => {
+  let body: any;
+  await deployItem(
+    {
+      existsFolder: async () => true,
+      // A folder with cleared labels reads back without the field at all.
+      getFolder: async () => ({ name: "x", owners: [], extra_perms: {} }),
+      updateFolder: async (p: any) => void (body = p.requestBody),
+    } as any,
+    "folder",
+    "f/x",
+    "src",
+    "dst",
+  );
+  expect(body.labels).toEqual([]);
+});
