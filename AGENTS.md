@@ -33,8 +33,9 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Operator write rights**: `docs/operator-write-rights.md` — which `operator_settings` flags are
   enforced rather than cosmetic, and why a right that is granted-unless-withdrawn needs `Option`
   fields and a jsonb merge rather than a serde default
-- **Operator builder rights**: `docs/operator-builder-rights.md` — the workspace setting that lets
-  operators compose flows, what the composition check must cover, and why it costs a full seat
+- **Operator builder rights**: `docs/operator-builder-rights.md` — the workspace settings that let
+  operators compose flows and full-code apps, what the composition check must cover, which
+  raw-app endpoint stays closed on purpose, and why either right costs a full seat
 - **Auth surface**: `docs/auth-surface.md` — credential precedence, session/cache invalidation
   scope, which token labels email their owner at expiry, how OAuth login matches `login_type`, and
   that every superadmin route refuses `$WM_TOKEN`. Read before designing anything that creates
