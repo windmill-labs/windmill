@@ -7974,25 +7974,12 @@ async function deployDraft(
 				// not the deployed app's nested `value` shape the shared raw-app
 				// deployer reads, so they deploy through the chat's own bundle path.
 				const appDraft = draft.value as AppDraftValue
-				// One fetch, not an exists + get: the kind, the head version and whether the
-				// app is deployed at all come from the same answer.
-				const deployedApp = await AppService.getAppByPath({ workspace, path }).catch(
-					(err: unknown) => {
-						if ((err as { status?: number } | undefined)?.status === 404) return undefined
-						throw err
-					}
-				)
-				// Deploying a code app over a drag-and-drop one replaces its components with
-				// files, and the restore that would undo it is refused for want of a bundle.
-				// The loaders stop such a draft being made; this stops one made before them.
-				if (deployedApp?.raw_app === false) {
-					throw new Error(
-						`"${path}" is a low-code app, but this draft is a code app — deploying it would replace the app's components. Discard the draft and open the app in the app editor instead.`
-					)
-				}
-				// Only compare versions when the draft records a fork base (pre-feature
-				// drafts have none).
+				// Stale-draft guard: only fetch the deployed head when the draft records
+				// a fork base to compare against (pre-feature drafts have none).
 				if (draft.parentVersionId != null) {
+					const deployedApp = (await AppService.existsApp({ workspace, path }))
+						? await AppService.getAppByPath({ workspace, path })
+						: undefined
 					assertDraftBasedOnLatest(
 						'app',
 						path,

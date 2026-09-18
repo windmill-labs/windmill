@@ -3711,7 +3711,6 @@ describe('global AI tools', () => {
 		const lowCode = {
 			path: 'f/apps/legacy',
 			summary: 'legacy app',
-			versions: [1],
 			raw_app: false,
 			value: { grid: [{ id: 'a', data: { type: 'buttoncomponent' } }] }
 		} as any
@@ -4199,8 +4198,6 @@ describe('global AI tools', () => {
 	})
 
 	it('deploys a new raw app draft by bundling files and creating a raw app', async () => {
-		// The deploy checks what is deployed at the path first; nothing is, here.
-		vi.mocked(AppService.getAppByPath).mockRejectedValueOnce({ status: 404 })
 		seedBackendDraft(
 			'raw_app',
 			'f/apps/report',
@@ -4265,8 +4262,6 @@ describe('global AI tools', () => {
 	})
 
 	it('deploys an editor raw app draft at its draft_path, not its synthetic storage key', async () => {
-		// The deploy checks what is deployed at the path first; nothing is, here.
-		vi.mocked(AppService.getAppByPath).mockRejectedValueOnce({ status: 404 })
 		// An editor-created draft_only raw app lives at a synthetic storage key with
 		// its chosen path in `draft_path`; deploy must resolve to the storage key,
 		// read draft_path, and create the app there — not at the synthetic key.
@@ -4354,7 +4349,6 @@ describe('global AI tools', () => {
 	})
 
 	it('deploys an existing raw app draft by bundling files and updating the raw app', async () => {
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
 		vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
 		seedBackendDraft(
 			'raw_app',
@@ -4407,7 +4401,6 @@ describe('global AI tools', () => {
 		const deployApp = async (path: string, policy: Record<string, unknown>) => {
 			vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
 			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
-			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
 			seedBackendDraft(
 				'raw_app',
 				path,
@@ -4438,58 +4431,12 @@ describe('global AI tools', () => {
 		const guest = await deployApp('f/apps/guest', { execution_mode: 'guest' })
 		expect(guest.success).toBe(true)
 		expect(guest.message).not.toContain('reachable by')
-
-		// A logged-in viewer is the default and exposes nothing new: no note.
-		const internal = await deployApp('f/apps/internal', { execution_mode: 'publisher' })
-		expect(internal.success).toBe(true)
-		expect(internal.message).not.toContain('reachable by')
-	})
-
-	// The loaders stop a code-app draft being made over a drag-and-drop app, but one made
-	// before them is still deployable, and deploying it replaces the app's components with
-	// files. The restore that would undo that is refused for want of a bundle, so the app
-	// is not recoverable through the product.
-	it('refuses to deploy a code-app draft over a drag-and-drop app', async () => {
-		seedBackendDraft(
-			'raw_app',
-			'f/apps/legacy',
-			{
-				summary: 'Stale draft',
-				files: { '/index.tsx': 'console.log("stale")' },
-				runnables: {},
-				data: { tables: [] }
-			},
-			{ workspace: WORKSPACE }
-		)
-		const lowCode = {
-			path: 'f/apps/legacy',
-			summary: 'legacy app',
-			versions: [3],
-			raw_app: false,
-			value: { grid: [{ id: 'a', data: { type: 'buttoncomponent' } }] }
-		} as any
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(lowCode)
-
-		await expect(
-			callGlobalTool('deploy_workspace_item', { type: 'app', path: 'f/apps/legacy' })
-		).rejects.toThrow(/low-code app/)
-		expect(AppService.updateAppRaw).not.toHaveBeenCalled()
-		expect(AppService.createAppRaw).not.toHaveBeenCalled()
-		// The deploy asked what is there before writing: the refusal is on the deployed
-		// app's kind, not on anything the draft happens to carry.
-		expect(AppService.getAppByPath).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			path: 'f/apps/legacy'
-		})
-		// The draft survives so the user can inspect or discard it deliberately.
-		expect(getBackendDraft('raw_app', 'f/apps/legacy', { workspace: WORKSPACE })).toBeDefined()
 	})
 
 	it('forwards preserve_on_behalf_of when the deployed policy carries an on_behalf_of', async () => {
 		// Without the flag the backend resets the policy's on_behalf_of to the
 		// deploying user; this chat path has no on-behalf-of selector, so it must
 		// preserve whatever the carried policy already holds.
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
 		vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
 		seedBackendDraft(
 			'raw_app',
@@ -4536,7 +4483,6 @@ describe('global AI tools', () => {
 				{ workspace: WORKSPACE }
 			)
 
-			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
 			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
 
 			await callGlobalTool(
