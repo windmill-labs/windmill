@@ -65,7 +65,10 @@
 
           # Misc
           libtool
-          postgresql
+          # Must not trail the server the dev database runs (postgres:18): pg_dump refuses a
+          # server newer than itself by a major version, which takes out every data table
+          # export, clone and fork-with-data.
+          postgresql_18
 
           # Build tooling
           pkg-config
