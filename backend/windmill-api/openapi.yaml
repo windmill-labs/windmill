@@ -34761,6 +34761,9 @@ components:
                 nullable: true
               disabled:
                 type: boolean
+              is_service_account:
+                type: boolean
+                description: Whether this membership is a service account.
             required:
               - id
               - name

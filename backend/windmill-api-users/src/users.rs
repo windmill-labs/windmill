@@ -47,7 +47,10 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::{hash_token, safe_token_prefix, TOKEN_PREFIX_LEN};
-use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
+use windmill_common::global_settings::{
+    load_value_from_global_settings, parse_max_token_expiration_days,
+    AUTOMATE_USERNAME_CREATION_SETTING, MAX_TOKEN_EXPIRATION_DAYS_SETTING,
+};
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::per_minute_counter::PerMinuteCounter;
 use windmill_common::users::truncate_token;
@@ -3095,11 +3098,68 @@ pub async fn create_guest_session_token<'c>(
 
 // create_token_internal is re-exported from windmill-api-auth above
 
+/// Applies the instance-wide ceiling on how long a token a caller picks the lifetime of may
+/// live (`create_token`, and `impersonate` for superadmins), returning the expiration to store:
+/// the requested one while it fits, the ceiling otherwise, and the ceiling as well when none was
+/// requested. Only the stored expiration is capped: tokens already stored when the setting is
+/// turned on or lowered keep theirs, since the auth lookup never reads the setting.
+///
+/// It shortens rather than refuses because most callers do not comply on their own. The CLI
+/// authorization page, `wmill user create-token` and the editor's language-server token each
+/// pick a lifetime, often none at all, without reading the setting (and CLIs already installed
+/// never will), so refusing would break logging in and the editor instead of the long-lived
+/// tokens the setting is aimed at.
+///
+/// Read from `global_settings` on each call rather than cached: token creation is rare
+/// enough that the round trip costs nothing, and the ceiling is then never served stale.
+///
+/// A token owned by a service account is exempt: in the workspace the token names, or in any
+/// workspace for a workspace-less token, which has none to match. Service accounts are the
+/// identity automation that needs a long-lived credential runs as. The cost is that any
+/// workspace admin can create and impersonate one to hold an uncapped token, so the ceiling
+/// bounds personal tokens rather than what an admin can obtain.
+async fn cap_token_expiration(
+    db: &DB,
+    owner_email: &str,
+    workspace_id: Option<&str>,
+    requested: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
+    let value = load_value_from_global_settings(db, MAX_TOKEN_EXPIRATION_DAYS_SETTING).await?;
+    let max_days = match parse_max_token_expiration_days(value.as_ref()) {
+        Ok(Some(max_days)) => max_days,
+        Ok(None) => return Ok(requested),
+        // Both write paths reject this, so only a row written around them gets here.
+        Err(e) => {
+            tracing::warn!("ignoring {MAX_TOKEN_EXPIRATION_DAYS_SETTING}: {e}");
+            return Ok(requested);
+        }
+    };
+    let max = chrono::Utc::now() + chrono::Duration::days(max_days);
+
+    let is_service_account = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE email = $1 AND is_service_account IS true
+            AND ($2::varchar IS NULL OR workspace_id = $2))",
+        owner_email,
+        workspace_id,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+    if is_service_account {
+        return Ok(requested);
+    }
+
+    Ok(Some(match requested {
+        Some(expiration) if expiration < max => expiration,
+        _ => max,
+    }))
+}
+
 async fn create_token(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
     OptJobAuthed { job_id, .. }: OptJobAuthed,
-    Json(token_config): Json<NewToken>,
+    Json(mut token_config): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
     forbid_elevated_job_token(&db, &authed.email, job_id).await?;
     check_token_create_rate_limit(&authed.username)?;
@@ -3120,6 +3180,14 @@ async fn create_token(
     }
 
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
+
+    token_config.expiration = cap_token_expiration(
+        &db,
+        &authed.email,
+        token_config.workspace_id.as_deref(),
+        token_config.expiration,
+    )
+    .await?;
 
     let mut tx = db.begin().await?;
 
@@ -3177,6 +3245,7 @@ async fn impersonate(
     .fetch_optional(&db)
     .await?
     .unwrap_or(false);
+    let expiration = cap_token_expiration(&db, &impersonated, None, new_token.expiration).await?;
     let mut tx = db.begin().await?;
 
     sqlx::query!(
@@ -3188,7 +3257,7 @@ async fn impersonate(
         plaintext as Option<&str>,
         impersonated,
         new_token.label,
-        new_token.expiration,
+        expiration,
         is_super_admin
     )
     .execute(&mut *tx)
@@ -3198,7 +3267,7 @@ async fn impersonate(
         &mut *tx,
         &t_hash,
         new_token.label.as_deref(),
-        new_token.expiration,
+        expiration,
     )
     .await;
 
@@ -3980,6 +4049,7 @@ async fn update_token_label(
                  AND NOT starts_with(label, 'embed_app:')
                  AND NOT starts_with(label, 'sdk_app:')
                  AND NOT starts_with(label, 'impersonation:')
+                 AND NOT starts_with(label, 'cli-login:')
              ))
            RETURNING token_prefix",
         req.label.as_deref(),

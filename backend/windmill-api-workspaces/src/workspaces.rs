@@ -555,6 +555,7 @@ struct UserWorkspace {
     /// screen off this.
     pub created_by: Option<String>,
     pub disabled: bool,
+    pub is_service_account: bool,
 }
 
 #[derive(Deserialize)]
@@ -5950,7 +5951,7 @@ async fn user_workspaces(
                 workspace.is_dev_workspace, workspace.dev_workspace_label,
                 workspace.owner AS \"created_by?\",
                 CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings,
-                usr.disabled
+                usr.disabled, usr.is_service_account
          FROM workspace
          JOIN usr ON usr.workspace_id = workspace.id
          JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id
@@ -7336,6 +7337,127 @@ async fn clear_orphaned_compat_address(
     Ok(())
 }
 
+/// SQL boolean: the principal the `principal` expression yields resolves in the workspace bound as
+/// `$1`. The same predicate `clone_scripts` and `clone_flows` inline, whose `query!` macros cannot
+/// take a composed string, so keep the three in step.
+fn principal_resolves_sql(principal: &str) -> String {
+    format!(
+        "CASE WHEN {principal} LIKE 'u/%' THEN EXISTS (
+                SELECT 1 FROM usr u WHERE u.workspace_id = $1
+                  AND u.username = substring({principal} from 3)
+                UNION ALL
+                SELECT 1 FROM password pw WHERE pw.super_admin
+                  AND (pw.username = substring({principal} from 3)
+                       OR pw.email = substring({principal} from 3)))
+              WHEN {principal} LIKE 'g/%' THEN EXISTS (
+                SELECT 1 FROM group_ g WHERE g.workspace_id = $1
+                  AND g.name = substring({principal} from 3))
+              ELSE EXISTS (
+                SELECT 1 FROM usr u WHERE u.workspace_id = $1 AND u.username = {principal}
+                UNION ALL
+                SELECT 1 FROM password pw WHERE pw.email = {principal} AND pw.super_admin)
+         END"
+    )
+}
+
+/// Re-point the identities a fork clones verbatim at its creator when they name nobody in the fork,
+/// once its membership is final so copied members keep theirs. Unlike scripts and flows these
+/// cannot drop the identity: an app deploy rejects a preserved one that does not resolve, and
+/// publisher apps, schedules and triggers need one to run.
+async fn repoint_unresolvable_cloned_identities(
+    tx: &mut Transaction<'_, Postgres>,
+    target_workspace_id: &str,
+    authed: &ApiAuthed,
+) -> Result<()> {
+    let principal = username_to_permissioned_as(&authed.username);
+
+    sqlx::query(&format!(
+        "UPDATE app SET policy = policy
+             || jsonb_build_object('on_behalf_of', $2::text, 'on_behalf_of_email', $3::text)
+         WHERE workspace_id = $1 AND policy->>'on_behalf_of' IS NOT NULL
+           AND NOT ({})",
+        principal_resolves_sql("(policy->>'on_behalf_of')")
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .bind(&authed.email)
+    .execute(&mut **tx)
+    .await?;
+
+    // A draft holding a genuine NUL escape (the rule of `json_text_has_nul_escape`) is left as it
+    // is, since parsing it would abort the fork. The check must stay in a CASE: json `->>` raises on
+    // a NUL anywhere in the value, and Postgres reorders plain AND conditions.
+    let nul_escape = r"(^|[^\\])(\\\\)*\\u0000";
+    sqlx::query(&format!(
+        "UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value),
+             ARRAY['policy', 'on_behalf_of'], to_jsonb($2::text)),
+             ARRAY['policy', 'on_behalf_of_email'], to_jsonb($3::text)))
+         WHERE workspace_id = $1 AND typ IN ('app', 'raw_app')
+           AND CASE WHEN value::text ~ $4 THEN false
+                    ELSE value->'policy'->>'on_behalf_of' IS NOT NULL AND NOT ({}) END",
+        principal_resolves_sql("(value->'policy'->>'on_behalf_of')")
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .bind(&authed.email)
+    .bind(nul_escape)
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(&format!(
+        "UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value),
+             ARRAY['permissioned_as'], to_jsonb($2::text)))
+         WHERE workspace_id = $1 AND starts_with(typ::text, 'trigger_')
+           AND CASE WHEN value::text ~ $3 THEN false
+                    ELSE value->>'permissioned_as' IS NOT NULL AND NOT ({}) END",
+        principal_resolves_sql("(value->>'permissioned_as')")
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .bind(nul_escape)
+    .execute(&mut **tx)
+    .await?;
+
+    let column_resolves = principal_resolves_sql("permissioned_as");
+
+    // SAFETY: every table name is a literal from this list, never user input.
+    for table in [
+        "http_trigger",
+        "websocket_trigger",
+        "kafka_trigger",
+        "nats_trigger",
+        "postgres_trigger",
+        "mqtt_trigger",
+        "amqp_trigger",
+        "sqs_trigger",
+        "gcp_trigger",
+        "azure_trigger",
+        "email_trigger",
+    ] {
+        sqlx::query(&format!(
+            "UPDATE {table} SET permissioned_as = $2
+             WHERE workspace_id = $1 AND NOT ({column_resolves})"
+        ))
+        .bind(target_workspace_id)
+        .bind(&principal)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // `email` is still written for workers that predate `permissioned_as`.
+    sqlx::query(&format!(
+        "UPDATE schedule SET permissioned_as = $2, email = $3
+         WHERE workspace_id = $1 AND NOT ({column_resolves})"
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .bind(&authed.email)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
 /// Carries over the recorded principal under the rule spelled out on [`clone_scripts`].
 async fn clone_flows(
     tx: &mut Transaction<'_, Postgres>,
@@ -8651,6 +8773,8 @@ async fn create_workspace_fork(
     // attaches, no cron fires) so this is safe by construction. The user
     // re-enables in the fork, with parent-conflict warnings on enable.
     clone_triggers_and_schedules(&mut tx, &parent_workspace_id, &forked_id).await?;
+
+    repoint_unresolvable_cloned_identities(&mut tx, &forked_id, &authed).await?;
 
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {
