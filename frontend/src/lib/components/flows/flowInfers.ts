@@ -10,8 +10,9 @@ import { AGENT_HISTORY_KEYS } from './agentFormFields'
  *  picked cannot drift from the button they see. */
 export const MEMORY_OPTION_LABELS: Record<string, string> = {
 	off: 'Off',
-	window: 'On',
-	auto: 'On (legacy)',
+	window: 'Last messages',
+	compaction: 'Compaction',
+	auto: 'Last messages (legacy)',
 	manual: 'Previous messages (legacy)'
 }
 
@@ -59,7 +60,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 		memory: {
 			type: 'object',
 			description:
-				'Windmill stores the conversation and sends its last messages with each request.',
+				'Windmill stores the conversation and sends it with each request, keeping either its last messages or a summary of the older ones.',
 			enumLabels: MEMORY_OPTION_LABELS,
 			// Chat mode keys memory on the conversation, so a chat whose agent has memory off
 			// forgets every turn. Enabling chat mode turns it on; this keeps it there. A step
@@ -88,6 +89,20 @@ export const AI_AGENT_SCHEMA: Schema = {
 						}
 					},
 					required: ['kind', 'context_length']
+				},
+				{
+					type: 'object',
+					title: 'compaction',
+					properties: {
+						kind: { type: 'string', enum: ['compaction'] },
+						context_window: {
+							type: 'number',
+							title: 'Context window',
+							description:
+								"Context size in tokens. Older messages are summarized as requests approach it. Leave empty for the model's known size (128000 if unknown)."
+						}
+					},
+					required: ['kind']
 				}
 			],
 			showExpr: "fields.output_type !== 'image'"

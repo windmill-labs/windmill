@@ -69,6 +69,11 @@ export function requiresMaxCompletionTokens(model: string) {
 // (trim/compaction, the usage indicator) go through getModelContextWindow,
 // whose conservative 128K fallback keeps a limit enforced and is surfaced to
 // the user as an assumed window.
+//
+// Mirrored by MODEL_CONTEXT_WINDOWS in
+// `backend/windmill-ai/src/model_context.rs`, which an AI agent step's compaction
+// reads. Add a model to one and it must go in the other, or the same model compacts
+// at one size in a chat and another in an agent step.
 const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	// Anthropic — Sonnet/Opus 4.6+ ship a 1M window at standard pricing (GA);
 	// Haiku, older Claude models (3.x, 4.0, 4.1, 4.5) and date-suffixed Claude 4
@@ -162,9 +167,7 @@ export function buildModelMatchers<T>(
 			// separator is normalized. Only a short segment: a date is digits as well
 			// (`-20251101`) and stays a decoration.
 			strictVariants ? '(?!-\\d{1,3}(?:$|-))' : '',
-			strictVariants
-				? `(?!-(?!(?:v\\d|${DECORATIVE_SUFFIXES.join('|')})$)[a-z])`
-				: ''
+			strictVariants ? `(?!-(?!(?:v\\d|${DECORATIVE_SUFFIXES.join('|')})$)[a-z])` : ''
 		].join('')
 		return [new RegExp(pattern + guards), value]
 	})

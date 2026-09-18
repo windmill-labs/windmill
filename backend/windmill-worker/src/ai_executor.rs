@@ -1,3 +1,4 @@
+use crate::ai::compaction::{CompactionRequest, Compactor, LastRequest};
 use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
@@ -6,7 +7,8 @@ use crate::ai::utils::{
     parse_raw_script_schema, update_flow_status_module_with_actions,
     update_flow_status_module_with_actions_success,
 };
-use crate::memory_oss::{read_from_memory, write_to_memory};
+use crate::memory_common::MAX_MEMORY_SIZE_BYTES;
+use crate::memory_oss::{memory_storage_capacity_bytes, read_from_memory, write_to_memory};
 use crate::worker_flow::{get_previous_job_result, get_transform_context};
 use async_recursion::async_recursion;
 use regex::Regex;
@@ -24,6 +26,7 @@ use crate::ai::tools::McpClientStub as McpClient;
 use windmill_ai::{
     ai_providers::AIProvider,
     image_handler::upload_image_to_s3,
+    model_context::model_context_window,
     providers::{
         create_chat_completions_query_builder, create_query_builder, is_chat_completions_only,
         openai::{
@@ -120,6 +123,55 @@ fn prepare_auto_memory_messages_for_persistence(
     non_system_messages[start_idx..].to_vec()
 }
 
+/// Everything the two compaction sites of the agent loop share. Only the query builder
+/// and `include_usage` differ between them, since both can change mid-run.
+struct CompactionContext<'a> {
+    compactor: Option<&'a mut Compactor>,
+    timeout: Option<std::time::Duration>,
+    credentials: &'a windmill_ai::credentials::ProviderCredentials,
+    args: &'a AIAgentArgs,
+    client: &'a AuthedClient,
+    workspace_id: &'a str,
+}
+
+/// Compacts when the conversation has outgrown the window, billing the summarization
+/// call to the step. Returns whether it did.
+async fn compact_if_needed(
+    ctx: CompactionContext<'_>,
+    query_builder: &dyn windmill_ai::query_builder::QueryBuilder,
+    include_usage: bool,
+    messages: &mut Vec<OpenAIMessage>,
+    last_request: LastRequest,
+    final_usage: &mut Option<TokenUsage>,
+) -> bool {
+    let (Some(compactor), Some(timeout)) = (ctx.compactor, ctx.timeout) else {
+        return false;
+    };
+    let pass = compactor
+        .maybe_compact(
+            messages,
+            last_request,
+            &CompactionRequest {
+                query_builder,
+                credentials: ctx.credentials,
+                model: ctx.args.provider.get_model(),
+                temperature: ctx.args.temperature,
+                timeout,
+                client: ctx.client,
+                workspace_id: ctx.workspace_id,
+                include_usage,
+            },
+        )
+        .await;
+    if let Some(usage) = pass.usage {
+        match final_usage {
+            Some(existing) => existing.accumulate(&usage),
+            None => *final_usage = Some(usage),
+        }
+    }
+    pass.compacted
+}
+
 /// The inputs a linked step supplies for itself; the resource holds the rest of the brain.
 const FLOW_LOCAL_AGENT_KEYS: [&str; 5] = [
     "user_message",
@@ -137,11 +189,32 @@ const STEP_HISTORY_KEYS: [&str; 2] = ["memory_id", "previous_messages"];
 enum HistorySource<'a> {
     /// Supplied by the flow and replayed as is: memory is neither read nor written.
     Messages(&'a [OpenAIMessage]),
-    Window {
+    Managed {
         memory_id: Uuid,
-        context_length: usize,
+        bound: MemoryBound,
     },
     Stateless,
+}
+
+/// What keeps a managed conversation inside the model's context.
+#[derive(Debug, Clone, Copy)]
+enum MemoryBound {
+    /// Only the most recent messages are sent and kept.
+    LastMessages(usize),
+    /// Everything is sent and kept; compaction summarizes what no longer fits.
+    Compaction { context_window: usize },
+}
+
+impl MemoryBound {
+    /// How many of the memory's messages a run reads and writes back. Compaction keeps all of
+    /// them: the summary it writes is what bounds the conversation, so truncating on top of it
+    /// would drop the tail that summary was written to precede.
+    fn messages_to_keep(self) -> usize {
+        match self {
+            MemoryBound::LastMessages(context_length) => context_length,
+            MemoryBound::Compaction { .. } => usize::MAX,
+        }
+    }
 }
 
 /// A step's memory id counts only as the step authored it. A static empty value is a form
@@ -169,7 +242,12 @@ fn resolve_history_source<'a>(
     flow_path: &str,
 ) -> (HistorySource<'a>, Vec<&'static str>) {
     let mut notes = Vec::new();
-    let no_memory_id = "No memory id was passed to this run, so the agent runs without memory.";
+    let managed = |bound: MemoryBound, notes: &mut Vec<&'static str>| {
+        managed_memory_id(args, run_memory_id, workspace_id, flow_path, notes)
+            .map_or(HistorySource::Stateless, |memory_id| {
+                HistorySource::Managed { memory_id, bound }
+            })
+    };
     match &args.memory {
         // The step's own history inputs came after these, so a step that still holds one reads it
         // alone: what it did before the editor offered them is what it keeps doing.
@@ -182,43 +260,28 @@ fn resolve_history_source<'a>(
             // An id baked in at save time only ever applied when the run carried none.
             match run_memory_id.or(*memory_id) {
                 Some(memory_id) => (
-                    HistorySource::Window { memory_id, context_length: *context_length },
+                    HistorySource::Managed {
+                        memory_id,
+                        bound: MemoryBound::LastMessages(*context_length),
+                    },
                     notes,
                 ),
                 None => {
-                    notes.push(no_memory_id);
+                    notes.push(NO_RUN_MEMORY_ID);
                     (HistorySource::Stateless, notes)
                 }
             }
         }
         Some(Memory::Window { context_length }) => {
-            if args
-                .previous_messages
-                .as_ref()
-                .is_some_and(|messages| !messages.is_empty())
-            {
-                notes.push("Managed memory is on, so this step's previous messages are ignored.");
-            }
-            let memory_id = match args.memory_id.as_deref() {
-                Some("") => {
-                    notes.push(
-                        "This step's memory id evaluated to an empty value, so the agent runs without memory.",
-                    );
-                    return (HistorySource::Stateless, notes);
-                }
-                Some(step_memory_id) => memory_key(workspace_id, flow_path, step_memory_id),
-                None => match run_memory_id {
-                    Some(memory_id) => memory_id,
-                    None => {
-                        notes.push(no_memory_id);
-                        return (HistorySource::Stateless, notes);
-                    }
-                },
-            };
-            (
-                HistorySource::Window { memory_id, context_length: *context_length },
-                notes,
-            )
+            let source = managed(MemoryBound::LastMessages(*context_length), &mut notes);
+            (source, notes)
+        }
+        Some(Memory::Compaction { context_window }) => {
+            let source = managed(
+                MemoryBound::Compaction { context_window: *context_window },
+                &mut notes,
+            );
+            (source, notes)
         }
         Some(Memory::Off) | None => {
             if args.memory_id.as_deref().is_some_and(|id| !id.is_empty()) {
@@ -229,6 +292,40 @@ fn resolve_history_source<'a>(
                 None => (HistorySource::Stateless, notes),
             }
         }
+    }
+}
+
+const NO_RUN_MEMORY_ID: &str =
+    "No memory id was passed to this run, so the agent runs without memory.";
+
+/// The memory a step under a current setting reads and writes: its own id where it set one,
+/// otherwise the run's. `None` is a step that ends up stateless, with the reason noted.
+fn managed_memory_id(
+    args: &AIAgentArgs,
+    run_memory_id: Option<Uuid>,
+    workspace_id: &str,
+    flow_path: &str,
+    notes: &mut Vec<&'static str>,
+) -> Option<Uuid> {
+    if args
+        .previous_messages
+        .as_ref()
+        .is_some_and(|messages| !messages.is_empty())
+    {
+        notes.push("Managed memory is on, so this step's previous messages are ignored.");
+    }
+    match args.memory_id.as_deref() {
+        Some("") => {
+            notes.push(
+                "This step's memory id evaluated to an empty value, so the agent runs without memory.",
+            );
+            None
+        }
+        Some(step_memory_id) => Some(memory_key(workspace_id, flow_path, step_memory_id)),
+        None => run_memory_id.or_else(|| {
+            notes.push(NO_RUN_MEMORY_ID);
+            None
+        }),
     }
 }
 
@@ -1224,7 +1321,7 @@ pub async fn run_agent(
             "'user_message' must be provided for image output"
         } else if matches!(
             args.memory,
-            Some(Memory::Window { .. } | Memory::Auto { .. })
+            Some(Memory::Window { .. } | Memory::Compaction { .. } | Memory::Auto { .. })
         ) {
             "'user_message' must be provided while managed memory is on"
         } else {
@@ -1236,13 +1333,13 @@ pub async fn run_agent(
     if matches!(output_type, OutputType::Text) {
         match &history {
             HistorySource::Messages(provided) => messages.extend(provided.iter().cloned()),
-            HistorySource::Window { memory_id, context_length } => {
+            HistorySource::Managed { memory_id, bound } => {
                 if let Some(step_id) = effective_flow_step_id {
                     match read_from_memory(db, &job.workspace_id, *memory_id, step_id).await {
                         Ok(Some(loaded_messages)) => {
                             let messages_to_load = prepare_auto_memory_messages_for_request(
                                 &loaded_messages,
-                                *context_length,
+                                bound.messages_to_keep(),
                             );
                             messages.extend(messages_to_load);
                         }
@@ -1419,6 +1516,71 @@ pub async fn run_agent(
         .map(|m| m.clamp(1, HARD_MAX_AGENT_ITERATIONS))
         .unwrap_or(DEFAULT_MAX_AGENT_ITERATIONS);
 
+    let mut compactor = match &args.memory {
+        Some(Memory::Compaction { context_window }) if is_text_output => {
+            let tool_schema_tokens = tool_defs
+                .as_ref()
+                .and_then(|defs| serde_json::to_string(defs).ok())
+                .map(|schemas| schemas.len() / 4)
+                .unwrap_or(0);
+            // An unset window — the usual case — is looked up from the model. The field
+            // is the override for what the lookup cannot serve: a Custom AI deployment,
+            // or an id the table does not list.
+            let context_window = match context_window {
+                0 => model_context_window(args.provider.get_model()),
+                declared => *declared,
+            };
+            Some(Compactor::new(context_window, tool_schema_tokens))
+        }
+        _ => None,
+    };
+    // The window a persisted conversation has to fit in, when the storage is smaller
+    // than the model. The database cuts what it cannot hold from the oldest message,
+    // summary first, so a step that persists there summarizes down to it before writing.
+    let persist_capacity = match (&compactor, &history, effective_flow_step_id) {
+        (Some(_), HistorySource::Managed { .. }, Some(_)) => memory_storage_capacity_bytes().await,
+        _ => None,
+    };
+    // The summarization call runs under the agent's own request timeout, which resolves
+    // from the job alone and so is the same for every iteration.
+    let compaction_timeout = match compactor {
+        Some(_) => Some(
+            resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
+                .await
+                .0,
+        ),
+        None => None,
+    };
+    // A memory loaded from an earlier run can already be over the window — the step was
+    // switched to a smaller model, or a run under a wider one persisted more than this
+    // window holds. Compaction is otherwise reactive, taken after a request the endpoint
+    // accepted, because the fallbacks the loop learns from a rejection (`stream_options`,
+    // the chat/completions reroute) are not known before the first request. But an
+    // oversized load would make that first request overflow and fail the run, and every
+    // retry reload the same history, so one pass is taken up front off the character
+    // estimate. It uses the default request shape: an endpoint that needs a fallback may
+    // reject this one summary, which is non-fatal — the loop then proceeds as it would
+    // have. Mainstream providers need no fallback, so it lands.
+    if compactor.is_some() {
+        compact_if_needed(
+            CompactionContext {
+                compactor: compactor.as_mut(),
+                timeout: compaction_timeout,
+                credentials: &credentials,
+                args,
+                client,
+                workspace_id: &job.workspace_id,
+            },
+            query_builder.as_ref(),
+            include_usage,
+            &mut messages,
+            LastRequest { prompt_tokens: None, message_count: 0 },
+            &mut final_usage,
+        )
+        .await;
+    }
+    let mut last_request = LastRequest { prompt_tokens: None, message_count: 0 };
+
     // Main agent loop
     for i in 0..max_iterations {
         // Check if parent was canceled — stop iterating but let current tool calls finish
@@ -1429,6 +1591,10 @@ pub async fn run_agent(
         if used_structured_output_tool {
             break;
         }
+
+        // How many messages this request carries, so the provider's prompt count can
+        // later be told apart from what the response and its tool results add.
+        let request_message_count = messages.len();
 
         // Handle AWS Bedrock provider specially using the official SDK
         let parsed = if credentials.provider == AIProvider::AWSBedrock {
@@ -1669,6 +1835,16 @@ pub async fn run_agent(
                 used_websearch,
                 usage,
             } => {
+                // What this one request's prompt occupied. `final_usage` sums every
+                // iteration, so it says nothing about how full the context is.
+                last_request = LastRequest {
+                    prompt_tokens: usage.as_ref().and_then(|u| u.input_tokens),
+                    message_count: request_message_count,
+                };
+                if let Some(compactor) = compactor.as_mut() {
+                    compactor.record_response();
+                }
+
                 // Accumulate usage from this iteration
                 if let Some(u) = usage {
                     match &mut final_usage {
@@ -1918,6 +2094,25 @@ pub async fn run_agent(
                 if *cancel_rx.borrow() {
                     return Err(Error::ExecutionErr("Job cancelled".to_string()));
                 }
+
+                // Compact between iterations rather than mid-request: the next iteration
+                // is what would carry the grown conversation to the provider.
+                compact_if_needed(
+                    CompactionContext {
+                        compactor: compactor.as_mut(),
+                        timeout: compaction_timeout,
+                        credentials: &credentials,
+                        args,
+                        client,
+                        workspace_id: &job.workspace_id,
+                    },
+                    query_builder.as_ref(),
+                    include_usage,
+                    &mut messages,
+                    last_request,
+                    &mut final_usage,
+                )
+                .await;
             }
             ParsedResponse::Image { base64_data } => {
                 // For image output, upload to S3 and track in conversation
@@ -1966,6 +2161,44 @@ pub async fn run_agent(
         }
     }
 
+    // A turn the model answers without calling a tool leaves the loop on its first
+    // iteration, so this is the only compaction a chat-shaped step ever gets: without it
+    // the conversation is persisted whole and every later turn reloads it, until the
+    // provider refuses the request outright.
+    let storage_bound = match (compactor.as_mut(), persist_capacity) {
+        (Some(compactor), Some(bytes)) => compactor.bound_by_storage(bytes),
+        _ => false,
+    };
+    let compacted = compact_if_needed(
+        CompactionContext {
+            compactor: compactor.as_mut(),
+            timeout: compaction_timeout,
+            credentials: &credentials,
+            args,
+            client,
+            workspace_id: &job.workspace_id,
+        },
+        query_builder.as_ref(),
+        include_usage,
+        &mut messages,
+        last_request,
+        &mut final_usage,
+    )
+    .await;
+    if storage_bound && compacted {
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "No instance object storage, so the memory was summarized to fit the {}KB \
+                 the database holds rather than the model's context window.\n",
+                MAX_MEMORY_SIZE_BYTES / 1000
+            ),
+            conn,
+        )
+        .await;
+    }
+
     // Return the final result
     let final_messages: Vec<Message> = messages
         .iter()
@@ -2011,7 +2244,7 @@ pub async fn run_agent(
 
     // final_messages holds the complete history: what was loaded plus this run's messages
     if matches!(output_type, OutputType::Text) {
-        if let HistorySource::Window { memory_id, context_length } = &history {
+        if let HistorySource::Managed { memory_id, bound } = &history {
             if let Some(step_id) = effective_flow_step_id {
                 let all_messages: Vec<OpenAIMessage> =
                     final_messages.iter().map(|m| m.message.clone()).collect();
@@ -2019,10 +2252,10 @@ pub async fn run_agent(
                 if !all_messages.is_empty() {
                     let messages_to_persist = prepare_auto_memory_messages_for_persistence(
                         &all_messages,
-                        *context_length,
+                        bound.messages_to_keep(),
                     );
 
-                    if let Err(e) = write_to_memory(
+                    match write_to_memory(
                         db,
                         &job.workspace_id,
                         *memory_id,
@@ -2031,12 +2264,33 @@ pub async fn run_agent(
                     )
                     .await
                     {
-                        tracing::error!(
-                            "Failed to persist {} messages to memory for step {}: {}",
-                            messages_to_persist.len(),
-                            step_id,
-                            e
-                        );
+                        // The conversation outgrew what the database holds and was cut
+                        // from its oldest message. Only the worker's own log says so
+                        // otherwise, so from the flow's side the agent simply starts the
+                        // next run having forgotten how this one began.
+                        Ok(dropped) if dropped > 0 => {
+                            append_logs(
+                                &job.id,
+                                &job.workspace_id,
+                                format!(
+                                    "Memory does not fit the {}KB the database holds, so its \
+                                     {dropped} oldest messages were dropped. Configure instance \
+                                     object storage to keep the whole conversation.\n",
+                                    MAX_MEMORY_SIZE_BYTES / 1000
+                                ),
+                                conn,
+                            )
+                            .await;
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to persist {} messages to memory for step {}: {}",
+                                messages_to_persist.len(),
+                                step_id,
+                                e
+                            );
+                        }
                     }
                 }
             }
@@ -2100,6 +2354,7 @@ mod tests {
     enum Resolved {
         Messages(usize),
         Window(Uuid, usize),
+        Compaction(Uuid, usize),
         Stateless { noted: bool },
     }
 
@@ -2185,6 +2440,18 @@ mod tests {
                 Resolved::Stateless { noted: true },
             ),
             (
+                "compaction keeps the run's memory",
+                json!({ "memory": { "kind": "compaction", "context_window": 32000 } }),
+                Some(run),
+                Resolved::Compaction(run, 32000),
+            ),
+            (
+                "a cleared context window is left for the model lookup to fill",
+                json!({ "memory": { "kind": "compaction", "context_window": null } }),
+                Some(run),
+                Resolved::Compaction(run, 0),
+            ),
+            (
                 "a step memory id overrides the run's",
                 json!({ "memory": window, "memory_id": "cust_1" }),
                 Some(run),
@@ -2247,9 +2514,20 @@ mod tests {
             let args: AIAgentArgs = serde_json::from_value(raw).unwrap();
             let resolved = match resolve_history_source(&args, run_memory_id, "ws", "f/flow") {
                 (HistorySource::Messages(m), _) => Resolved::Messages(m.len()),
-                (HistorySource::Window { memory_id, context_length }, _) => {
-                    Resolved::Window(memory_id, context_length)
-                }
+                (
+                    HistorySource::Managed {
+                        memory_id,
+                        bound: MemoryBound::LastMessages(context_length),
+                    },
+                    _,
+                ) => Resolved::Window(memory_id, context_length),
+                (
+                    HistorySource::Managed {
+                        memory_id,
+                        bound: MemoryBound::Compaction { context_window },
+                    },
+                    _,
+                ) => Resolved::Compaction(memory_id, context_window),
                 (HistorySource::Stateless, notes) => {
                     Resolved::Stateless { noted: !notes.is_empty() }
                 }

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
 	import { keepsManagedMemory } from '../agentFormFields'
+	import { MEMORY_OPTION_LABELS } from '../flowInfers'
 
 	interface Props {
 		/** The agent's input transforms. Converting a legacy setting writes `memory` and the step input
@@ -10,15 +11,9 @@
 		/** Whether the step's own memory id and previous messages are on this form. A saved agent has
 		 *  neither: they belong to each step linking it. */
 		historyOnStep?: boolean
-		s3StorageConfigured?: boolean
 	}
 
-	let {
-		args = $bindable(),
-		chatInputEnabled = false,
-		historyOnStep = false,
-		s3StorageConfigured = true
-	}: Props = $props()
+	let { args = $bindable(), chatInputEnabled = false, historyOnStep = false }: Props = $props()
 
 	let memory = $derived(
 		args?.memory?.type === 'static'
@@ -41,6 +36,7 @@
 	// An `auto` setting whose saved id is never read runs exactly like the current setting for its
 	// state, so switching to that setting is the only choice.
 	let legacyEquivalent = $derived(memory?.kind === 'auto' && !legacyMemoryId)
+	let equivalentLabel = $derived(on ? MEMORY_OPTION_LABELS.window : MEMORY_OPTION_LABELS.off)
 
 	// The older setting never read the step's own memory id, so a conversion that promises the same
 	// behaviour, or the run's id, drops it rather than bringing it to life. Off keeps ignoring it.
@@ -70,11 +66,6 @@
 	}
 </script>
 
-{#if on && !s3StorageConfigured}
-	<p class="mt-1 text-2xs text-hint">
-		Without S3 storage on the workspace, memory is kept in the database, up to 100KB per memory.
-	</p>
-{/if}
 {#if legacyMessages}
 	<Alert type="info" title="Older memory setting" class="mt-2">
 		<div class="flex flex-col gap-2">
@@ -133,9 +124,7 @@
 	<Alert type="info" title="Older memory setting" class="mt-2">
 		<div class="flex flex-col gap-2">
 			<span>
-				An earlier version of the editor saved this setting. It works the same as {on
-					? 'On'
-					: 'Off'}.
+				An earlier version of the editor saved this setting. It works the same as {equivalentLabel}.
 			</span>
 			<div class="flex">
 				<Button
@@ -144,7 +133,7 @@
 					btnClasses="bg-surface"
 					onclick={switchToEquivalent}
 				>
-					Switch to {on ? 'On' : 'Off'}
+					Switch to {equivalentLabel}
 				</Button>
 			</div>
 		</div>

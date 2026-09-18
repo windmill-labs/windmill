@@ -44,8 +44,10 @@ which memory it is:
 
 - **Agent: managed memory.** `memory` is a brain key, so it moves with a saved agent.
   `{ kind: window, context_length }` has Windmill store the conversation and replay its last N
-  messages; `{ kind: off }` keeps none. An absent `memory` means off, the default: the editor turns
-  it on when chat input is enabled. `auto` and `manual` are the older spellings and are still read.
+  messages; `{ kind: compaction }` replays all of it and summarizes the older part as it fills the
+  model's context window (see below); `{ kind: off }` keeps none. An absent `memory` means off, the
+  default: the editor turns it on when chat input is enabled, as compaction, since a chat has no
+  end. `auto` and `manual` are the older spellings and are still read.
 - **Run: memory id.** `flow_status.memory_id`, set when the run is queued: the chat conversation
   id, an app chat session id, or the `memory_id` run parameter. Any string is accepted, and one
   that is not a uuid is hashed to a v5 uuid scoped to the workspace and the flow the run started
@@ -69,25 +71,67 @@ The worker reconciles them once per agent invocation, nested agent tools include
 1. A legacy `auto` or `manual` memory: read as the editor that wrote it ran it. `manual` replays
    its list; `auto` uses the run's memory id, else the id baked into it, else runs stateless.
    Neither history input is read. An `auto` without a count, or with 0, is off and read as such.
-2. Managed memory: the memory id is the step's, else the run's. With no memory id the agent runs
-   stateless, and a step `previous_messages` is ignored.
+2. Managed memory, `window` or `compaction`: the memory id is the step's, else the run's. With no
+   memory id the agent runs stateless, and a step `previous_messages` is ignored. Compaction still
+   bounds a stateless run's own loop, which is where a long tool sequence overflows.
 3. Memory off: the history is `previous_messages`, else nothing. Memory is neither read nor
    written, and a step `memory_id` is ignored.
 
 Each ignored input and each stateless fallback is written to the job log.
 
+### Compaction
+
+`{ kind: compaction }` keeps the whole conversation and lets a summary, rather than a message count,
+decide what leaves the prompt.
+
+The window it plans against comes from the model, through `MODEL_CONTEXT_WINDOWS` in
+`windmill-ai/src/model_context.rs`, falling back to 128000 for an id the table does not list. That
+table mirrors the one the AI session's own compaction reads
+(`frontend/src/lib/components/copilot/modelConfig.ts`) and the two have to be updated together. The
+step's `context_window` overrides it, for a Custom AI deployment or a model the table cannot name;
+setting it too large never trips the trigger and the provider raises the context error itself.
+
+`windmill-worker/src/ai/compaction.rs` holds the rest. Between agent-loop iterations, and once more
+after the loop, the worker projects what the next prompt would cost — the provider's count for the
+last request plus a `chars/4` estimate of everything appended since — and compacts once it passes
+80% of the window. It grows the tail backwards until it fills the target budget, half the window
+less the summary's reserve, summarizes the prefix in one extra request billed to the step, and
+replaces it with that summary. The gap between trigger and target is what one compaction buys:
+each summarization request carries most of the window, so a target close to the trigger would
+spend that on a few turns of room. The summarization request carries no tool definitions, so the
+prefix's tool calls and results go to it rendered as text: Bedrock rejects tool blocks that arrive
+without the definitions that produced them. The tail never opens on a `tool` message, a prefix
+that is only a previous summary is never summarized again, and three consecutive failures stop it
+for the run. Nothing about it is fatal: a failed summarization leaves the conversation as it was.
+The summarization request is capped at the reserve and asks Gemini and OpenAI's reasoning models
+for their least thinking, since both think by default and bill it against that same cap; the
+step's own reasoning effort is not carried over, and OpenAI's pro variants get none, since each
+rejects everything below its own floor.
+
+The count the trigger reads is `TokenUsage::input_tokens` and nothing else. Each provider's parser
+normalizes that field to the whole prompt first — Anthropic and Bedrock report their cached prefix
+beside it, so `with_cache_beside_input` folds it in, while the OpenAI-shaped ones already count it
+inside.
+
 Memory is stored per (memory id, step id), in `ai_agent_memory` or S3 at
 `memory/{workspace}/{memory id}/{step}.json`. The chat transcript (`flow_conversation_message`)
-always follows the run's id, even when a step sets its own. Nothing expires stored memory: deleting
-a chat conversation deletes its memory, and a memory named by a string id stays until it is
-overwritten.
+always follows the run's id, even when a step sets its own. The database rows are capped
+(`MAX_MEMORY_SIZE_BYTES`) and cut from the oldest message, the summary included. So when memory
+goes to the database (`memory_storage_capacity_bytes` in `memory_oss.rs`/`memory_ee.rs`), the
+post-loop pass of a compaction step runs against the smaller of the model's window and the cap at
+`chars/4`, about 25k tokens, and measures the conversation as it will be written rather than by
+the provider's count, since repetitive text packs several characters into a token: the run itself
+gets the whole window, and what is written is a summary plus a tail that fits. The step's log says
+so when that pass summarizes, and says how many messages were dropped if a write still overshoots.
+Nothing expires stored memory: deleting a chat conversation deletes its memory, and a memory named
+by a string id stays until it is overwritten.
 
 Compatibility runs one way. New workers read every older shape. The editor rewrites a legacy step
 only when the author changes it, so a flow nobody edits keeps running on older workers, while a
-step saved with `window` or a history input needs a worker that knows them. An id an older editor
-baked into `memory` stays a fallback behind the run's id until the author chooses *Keep as memory
-id* or *Use the run's memory id*. In a chat flow it is dropped on save, since the conversation id
-always took precedence there.
+step saved with `window`, `compaction` or a history input needs a worker that knows them. An id an
+older editor baked into `memory` stays a fallback behind the run's id until the author chooses
+*Keep as memory id* or *Use the run's memory id*. In a chat flow it is dropped on save, since the
+conversation id always took precedence there.
 
 ## Drafts
 

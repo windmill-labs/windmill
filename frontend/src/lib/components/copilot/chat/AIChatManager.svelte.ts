@@ -59,7 +59,8 @@ import { getModelContextWindow } from '../modelConfig'
 import {
 	getCompactionSummaryPrompt,
 	formatCompactSummary,
-	buildSummaryMessageContent
+	buildSummaryMessageContent,
+	toolExchangesAsText
 } from './compactionPrompt'
 import { dfs } from '$lib/components/flows/previousResults'
 import { redactFileArgs, redactSecretArgs } from '$lib/components/job_args'
@@ -164,7 +165,10 @@ import { PlanModeController, type PlanModeHost } from './planModeController.svel
 // cannot see — the upcoming completion and tool results, system-prompt/tool-
 // schema changes from mode switches, and the estimate's chars/4 error.
 const COMPACTION_TRIGGER_RATIO = 0.8
-const COMPACTION_TARGET_RATIO = 0.7
+// The gap below the trigger is what one compaction buys: each summarization request
+// carries most of the window, and a target close to the trigger spends that on a few
+// turns of room and summarizes its own previous summary again soon after.
+const COMPACTION_TARGET_RATIO = 0.5
 // How often a running turn is offered to the mid-turn checkpoint (see
 // sendRequest). The whole transcript is rewritten on each accepted checkpoint,
 // so this bounds the write rate; it also bounds how much of a turn a tab that
@@ -1510,7 +1514,7 @@ export class AIChatManager implements ChatViewHost {
 				[
 					// Strip image blobs from the summarizer input — the summary text stands in
 					// for them, so re-sending base64 to the summarizer only wastes tokens.
-					...stripImagePartsFromMessages(sanitizeToolCallArguments(prefix)),
+					...toolExchangesAsText(stripImagePartsFromMessages(sanitizeToolCallArguments(prefix))),
 					{ role: 'user', content: getCompactionSummaryPrompt() }
 				],
 				abortController,

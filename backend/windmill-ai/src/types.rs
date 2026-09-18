@@ -82,6 +82,14 @@ pub enum Memory {
         #[serde(default, deserialize_with = "deserialize_null_as_zero")]
         context_length: usize,
     },
+    Compaction {
+        /// Overrides the window looked up from the model. Only a step the lookup cannot
+        /// serve — a Custom AI deployment, a model id not in the table — needs one, and
+        /// a value larger than the model actually serves lets the conversation overflow
+        /// before the summary is ever taken.
+        #[serde(default, deserialize_with = "deserialize_null_as_zero")]
+        context_window: usize,
+    },
     /// Written before `window`. Its `memory_id` stays a fallback behind the run's memory id.
     Auto {
         #[serde(default, deserialize_with = "deserialize_null_as_zero")]
@@ -381,11 +389,26 @@ impl TokenUsage {
         Self::new(input, output, total)
     }
 
-    /// Add cache token information
+    /// Records a cached prefix the provider counted *inside* `input_tokens`, which the
+    /// OpenAI-shaped ones do. The counts are kept only for the cost split.
     pub fn with_cache(mut self, read: Option<i32>, write: Option<i32>) -> Self {
         self.cache_read_input_tokens = read;
         self.cache_write_input_tokens = write;
         self
+    }
+
+    /// Records a cached prefix the provider reported *beside* `input_tokens` rather than
+    /// inside it, which Anthropic and Bedrock do. `input_tokens` is raised to the whole
+    /// prompt, so `input_tokens` means the same thing whatever served the request; the
+    /// cache counts stay as the subsets they have become, and the total follows.
+    pub fn with_cache_beside_input(mut self, read: Option<i32>, write: Option<i32>) -> Self {
+        let beside = read.unwrap_or(0).saturating_add(write.unwrap_or(0));
+        self.input_tokens = self.input_tokens.map(|input| input.saturating_add(beside));
+        self.total_tokens = match (self.input_tokens, self.output_tokens) {
+            (Some(input), Some(output)) => Some(input.saturating_add(output)),
+            _ => self.total_tokens.map(|total| total.saturating_add(beside)),
+        };
+        self.with_cache(read, write)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -931,6 +954,26 @@ pub struct S3ObjectWithType {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    /// Whichever provider served the request, `input_tokens` has to end up meaning the
+    /// whole prompt. Leaving the Anthropic shape as reported under-states it by the
+    /// entire cached prefix, which is exactly what compaction has to notice.
+    #[test]
+    fn both_provider_cache_shapes_report_the_whole_prompt() {
+        // OpenAI-shaped: cached_tokens is already inside input_tokens.
+        let openai = TokenUsage::new(Some(1000), Some(10), Some(1010)).with_cache(Some(800), None);
+        assert_eq!(openai.input_tokens, Some(1000));
+        assert_eq!(openai.total_tokens, Some(1010));
+
+        // Anthropic-shaped: the cached prefix is reported beside input_tokens, and the
+        // total follows the prompt it is folded into.
+        let anthropic = TokenUsage::from_input_output(Some(200), Some(10))
+            .with_cache_beside_input(Some(5000), Some(300));
+        assert_eq!(anthropic.input_tokens, Some(5500));
+        assert_eq!(anthropic.total_tokens, Some(5510));
+        // Kept as the subsets they have become, for the cost split.
+        assert_eq!(anthropic.cache_read_input_tokens, Some(5000));
+    }
 
     /// Helper to create a simple string type schema
     fn string_schema() -> OpenAPISchema {

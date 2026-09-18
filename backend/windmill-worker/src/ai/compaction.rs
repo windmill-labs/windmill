@@ -1,0 +1,1243 @@
+//! Summary-based partial compaction for AI agent steps running with
+//! `Memory::Compaction`.
+//!
+//! When the prompt of an agent-loop iteration approaches the model's context window,
+//! the older prefix of the conversation is replaced by a single LLM-written summary
+//! while the recent tail is kept verbatim. The summary is written "up to" the point of
+//! compaction: messages the summarizing model does not see follow it in the
+//! conversation.
+
+use windmill_ai::{
+    ai_providers::AIProvider,
+    credentials::ProviderCredentials,
+    model_context::is_openai_reasoning_model,
+    proxy::{common_outbound_headers, retain_effective_credentials},
+    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder},
+    types::{ContentPart, OpenAIContent, OpenAIMessage, OutputType, TokenUsage},
+    utils::pinned_ai_client_for,
+};
+use windmill_common::{client::AuthedClient, error::Error};
+
+use crate::ai::stream_event_processor::StreamEventProcessor;
+
+/// Fraction of the context window at which a compaction is taken.
+const COMPACTION_TRIGGER_RATIO: f64 = 0.8;
+/// Fraction of the context window the kept tail plus the summary should fit into. The
+/// gap below the trigger is what one compaction buys: each request to the summarizer
+/// carries most of the window, and a target close to the trigger spends that on a few
+/// turns of room and summarizes its own previous summary again soon after.
+const COMPACTION_TARGET_RATIO: f64 = 0.5;
+/// Room left inside the target for the summary itself, which is prepended to the tail.
+const SUMMARY_OUTPUT_RESERVE_TOKENS: usize = 8000;
+/// Ceiling on that reserve as a share of the window. A flat 8000 eats the whole target
+/// on a small window, which would collapse the tail to one message and summarize the
+/// rest — a context wipe rather than a compaction.
+const MAX_SUMMARY_RESERVE_SHARE: usize = 10;
+/// Floor on it, because the reserve is also the summary's output cap: the prompt asks
+/// for a scratchpad followed by nine sections, and a response that stops inside the
+/// scratchpad is discarded. Scaled down without a floor, a small window would truncate
+/// every summary and switch the mode off after three of them.
+const MIN_SUMMARY_RESERVE_TOKENS: usize = 2000;
+/// Summarizing fewer messages than this costs a full model call to save almost nothing.
+const MIN_PREFIX_MESSAGES_TO_SUMMARIZE: usize = 4;
+/// Unless those few messages are large. A prefix worth this share of the window is worth
+/// summarizing on its own — one attachment reaches it, and waiting for a fourth message
+/// would mean carrying it past the window first.
+const MIN_PREFIX_SHARE_TO_SUMMARIZE: usize = 4;
+/// Opening of the message a compaction leaves behind. It is how a later pass recognises
+/// its own output, so it has to stay in step with `build_summary_message` and survive a
+/// round trip through persisted memory — which it does, being part of the content.
+const SUMMARY_MESSAGE_OPENING: &str =
+    "This conversation is being continued from an earlier portion that ran out of context.";
+/// The least one attachment costs once the provider's request builder turns the S3 path
+/// the message list holds into the image or PDF it points at. Once the provider has
+/// counted a request carrying attachments, `attachment_tokens` prices them from that
+/// count instead; this is the floor, and the price where nothing was counted.
+const S3_ATTACHMENT_NOMINAL_TOKENS: usize = 1500;
+/// After this many failed summarizations the run stops trying, so a provider that
+/// rejects the summarization request does not add a wasted call to every iteration. The
+/// count is per run: a chat turn is its own job, and its conversation has grown since
+/// the last one, so it is worth one attempt of its own.
+const MAX_CONSECUTIVE_COMPACTION_FAILURES: usize = 3;
+
+// Reinforce text-only output. The summarization call carries no tools, but a strong
+// instruction keeps weaker models from narrating a tool call instead of summarizing.
+const NO_TOOLS_PREAMBLE: &str = "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
+
+- You already have all the context you need in the conversation above.
+- Your entire response must be plain text: an <analysis> block followed by a <summary> block.
+
+";
+
+const NO_TOOLS_TRAILER: &str =
+    "\n\nREMINDER: Respond with plain text only — an <analysis> block followed by a <summary> block.";
+
+// The <analysis> block is a drafting scratchpad that `format_compact_summary` strips
+// before the summary reaches the conversation.
+const SUMMARY_PROMPT: &str = r#"Your task is to create a detailed summary of the conversation so far. This summary will be placed at the start of a continuing session; newer messages that build on this context will follow after it (you do not see them here). Summarize thoroughly so that someone reading only your summary and then the newer messages can fully understand what happened and continue the work without losing context.
+
+The message you are reading now is an instruction, not part of the conversation. Summarize only the messages above it: do not describe this instruction, do not list it among the user's messages, pending tasks or current work, and do not mention the <analysis> or <summary> tags inside your summary.
+
+This is a conversation with an AI assistant that uses tools to accomplish tasks. Frame the summary in those terms.
+
+Before providing your final summary, wrap your analysis in <analysis> tags to organize your thoughts. In your analysis:
+
+1. Chronologically analyze each message and section of the conversation. For each section thoroughly identify:
+   - The user's explicit requests and intents
+   - Your approach to addressing the user's requests
+   - Key decisions, technical concepts and patterns
+   - Specific details: the tools called, the arguments they were called with, and what they returned
+   - Errors you ran into and how you fixed them
+   - Specific user feedback, especially if the user told you to do something differently
+2. Double-check for technical accuracy and completeness.
+
+Your summary should include the following sections:
+
+1. Primary Request and Intent: Capture all of the user's explicit requests and intents in detail.
+2. Key Technical Concepts: List important technical concepts, technologies, and frameworks discussed.
+3. Actions and Results: Enumerate the tool calls that were made — each by tool name — noting the arguments used, what came back, and why it mattered. Include verbatim excerpts of any data, identifiers or code that later steps depend on.
+4. Errors and fixes: List errors encountered and how they were fixed, including any user feedback.
+5. Problem Solving: Document problems solved and any ongoing troubleshooting efforts.
+6. All user messages: List ALL user messages that are not tool results. These are critical for understanding the user's feedback and changing intent.
+7. Pending Tasks: Outline any pending tasks you have explicitly been asked to work on.
+8. Current Work: Describe precisely what was being worked on immediately before this summary, paying special attention to the most recent messages.
+9. Context for Continuing Work: Summarize any context, decisions, or state needed to understand and continue the work in subsequent messages. If there is a clear next step directly in line with the user's most recent explicit request, state it and include a direct quote from the most recent conversation showing where you left off.
+
+Structure your output like this:
+
+<analysis>
+[Your thought process, ensuring all points are covered thoroughly and accurately]
+</analysis>
+
+<summary>
+1. Primary Request and Intent:
+   [Detailed description]
+
+2. Key Technical Concepts:
+   - [Concept]
+
+3. Actions and Results:
+   - [Tool name]
+      - [Arguments used]
+      - [What came back]
+      - [Why it matters]
+
+4. Errors and fixes:
+   - [Error]: [How you fixed it]
+
+5. Problem Solving:
+   [Description]
+
+6. All user messages:
+   - [Non-tool-result user message]
+
+7. Pending Tasks:
+   - [Task]
+
+8. Current Work:
+   [Precise description of current work]
+
+9. Context for Continuing Work:
+   [Key context, decisions, or state needed to continue]
+</summary>
+
+Please provide your summary following this structure, ensuring precision and thoroughness."#;
+
+/// How many S3 attachments a message carries.
+fn attachment_count(message: &OpenAIMessage) -> usize {
+    match message.content.as_ref() {
+        Some(OpenAIContent::Parts(parts)) => parts
+            .iter()
+            .filter(|part| matches!(part, ContentPart::S3Object { .. }))
+            .count(),
+        _ => 0,
+    }
+}
+
+/// Rough per-message token count, each attachment priced at `attachment_tokens`. It
+/// sizes the split, and prices for the trigger the messages the provider has not
+/// counted yet, so it only has to be consistent.
+fn estimate_message_tokens(message: &OpenAIMessage, attachment_tokens: usize) -> usize {
+    let content_len = match message.content.as_ref() {
+        Some(OpenAIContent::Text(text)) => text.len(),
+        Some(OpenAIContent::Parts(parts)) => {
+            serde_json::to_string(parts).map(|s| s.len()).unwrap_or(0)
+        }
+        None => 0,
+    };
+    let tool_calls_len = message
+        .tool_calls
+        .as_ref()
+        .and_then(|calls| serde_json::to_string(calls).ok())
+        .map(|s| s.len())
+        .unwrap_or(0);
+    (content_len + tool_calls_len) / 4 + attachment_count(message) * attachment_tokens
+}
+
+/// Estimate over a run of messages: what arrived after the last counted request, or
+/// the whole conversation when the provider reported no usage.
+fn estimate_conversation_tokens(messages: &[OpenAIMessage], attachment_tokens: usize) -> usize {
+    messages
+        .iter()
+        .map(|message| estimate_message_tokens(message, attachment_tokens))
+        .sum()
+}
+
+/// What one attachment costs in a request. The message list holds an S3 path where the
+/// provider sees a whole document, so the only measure of it is the provider's count
+/// for the last request less the estimate of that request's text, shared between the
+/// attachments it carried. Without such a count, or below it, the nominal floor.
+fn attachment_tokens(
+    messages: &[OpenAIMessage],
+    last_request: LastRequest,
+    tool_schema_tokens: usize,
+) -> usize {
+    let Some(counted) = last_request.prompt_tokens else {
+        return S3_ATTACHMENT_NOMINAL_TOKENS;
+    };
+    let counted_messages = &messages[..last_request.message_count.min(messages.len())];
+    let attachments: usize = counted_messages.iter().map(attachment_count).sum();
+    if attachments == 0 {
+        return S3_ATTACHMENT_NOMINAL_TOKENS;
+    }
+    let text = estimate_conversation_tokens(counted_messages, 0) + tool_schema_tokens;
+    ((counted.max(0) as usize).saturating_sub(text) / attachments).max(S3_ATTACHMENT_NOMINAL_TOKENS)
+}
+
+/// What the provider said about the most recent request of the agent loop.
+#[derive(Clone, Copy)]
+pub struct LastRequest {
+    /// Prompt tokens the provider counted, `None` when it reported no usage.
+    pub prompt_tokens: Option<i32>,
+    /// How many messages that request carried. The assistant turn it produced and the
+    /// tool results that followed sit past this index and are not in `prompt_tokens`.
+    pub message_count: usize,
+}
+
+/// Size of the prompt the *next* request would carry: what the provider counted for the
+/// last one plus an estimate of everything appended since. A single large tool result
+/// can be most of a context window, so measuring only the last request would let the
+/// conversation blow past the window without ever tripping the trigger.
+fn projected_prompt_tokens(
+    messages: &[OpenAIMessage],
+    last_request: LastRequest,
+    tool_schema_tokens: usize,
+    attachment_tokens: usize,
+) -> usize {
+    match last_request.prompt_tokens {
+        Some(counted) => {
+            let appended = last_request.message_count.min(messages.len());
+            (counted.max(0) as usize)
+                + estimate_conversation_tokens(&messages[appended..], attachment_tokens)
+        }
+        // The provider's count covers the tool definitions; an estimate over the message
+        // list alone does not, and they can be most of a small window.
+        None => estimate_conversation_tokens(messages, attachment_tokens) + tool_schema_tokens,
+    }
+}
+
+/// How much of the window the summary may occupy. Both the split that decides what to
+/// keep and the cap the summarization request asks for read this: if they disagree, a
+/// summary can come back larger than the room made for it and put the conversation
+/// straight back over the trigger, compacting its own previous summary every response.
+fn summary_reserve_tokens(context_window: usize) -> usize {
+    SUMMARY_OUTPUT_RESERVE_TOKENS
+        .min(context_window / MAX_SUMMARY_RESERVE_SHARE)
+        .max(MIN_SUMMARY_RESERVE_TOKENS)
+}
+
+/// First message that may be summarized away. The leading system messages carry the
+/// step's own system prompt, which has to survive compaction.
+fn summarizable_start(messages: &[OpenAIMessage]) -> usize {
+    messages
+        .iter()
+        .position(|message| message.role != "system")
+        .unwrap_or(messages.len())
+}
+
+/// Index at which the kept tail starts, or `None` when there is nothing worth
+/// summarizing.
+///
+/// The tail grows backwards from the newest message until it fills the target budget,
+/// then backs up over any leading `tool` messages so it never opens with a tool result
+/// whose `tool_calls` message was summarized away — every provider rejects that.
+///
+/// Sized on the character estimate alone, even where the provider counted the last
+/// request: the split has to price messages the provider never saw, and a tail sized a
+/// little wrong only compacts again a turn later.
+fn plan_tail_start(
+    messages: &[OpenAIMessage],
+    context_window: usize,
+    tool_schema_tokens: usize,
+    attachment_tokens: usize,
+) -> Option<usize> {
+    let prefix_start = summarizable_start(messages);
+
+    // The budget is for the tail alone, so what every request carries regardless — the
+    // system prompt compaction keeps, and the tool definitions, which are not in the
+    // message list at all — comes off the target first. Left in, a tail sized to the
+    // whole target puts the next request back over the trigger and compacts again.
+    let fixed_prompt_tokens =
+        estimate_conversation_tokens(&messages[..prefix_start], attachment_tokens)
+            + tool_schema_tokens;
+    let budget = ((context_window as f64 * COMPACTION_TARGET_RATIO) as usize)
+        .saturating_sub(summary_reserve_tokens(context_window) + fixed_prompt_tokens);
+
+    let mut tail_start = messages.len();
+    let mut tail_tokens = 0usize;
+    for index in (prefix_start..messages.len()).rev() {
+        let tokens = estimate_message_tokens(&messages[index], attachment_tokens);
+        // The newest message is always kept, however large: dropping it would discard
+        // the tool results this iteration just produced.
+        if tail_start < messages.len() && tail_tokens + tokens > budget {
+            break;
+        }
+        tail_tokens += tokens;
+        tail_start = index;
+    }
+
+    // A tail must not open on a tool result whose `tool_calls` were summarized away;
+    // back up over any to the assistant that produced them.
+    while tail_start > prefix_start && messages[tail_start].role == "tool" {
+        tail_start -= 1;
+    }
+    // The prefix must not end on an unanswered user message: the summarization
+    // instruction is itself a user message appended to it, and Anthropic merges
+    // consecutive user turns, so every model then summarizes the instruction as the
+    // user's latest request. Move the boundary forward past that turn's answer, rather
+    // than back into the tail — back would pull a heavy attachment the window cannot
+    // hold into the kept tail, and a leading one all the way in would leave nothing to
+    // summarize. Skip forward over a tail-opening tool result too, so the move never
+    // orphans one. If no clean boundary is left before the newest message, leave it:
+    // the newest turn is kept whole regardless, and a lone leading turn is simply not
+    // summarized this pass.
+    if tail_start > prefix_start && messages[tail_start - 1].role == "user" {
+        let mut candidate = tail_start + 1;
+        while candidate < messages.len()
+            && (messages[candidate].role == "tool" || messages[candidate - 1].role == "user")
+        {
+            candidate += 1;
+        }
+        if candidate < messages.len() {
+            tail_start = candidate;
+        }
+    }
+
+    // Worth a model call either because there is a run of messages to fold up, or
+    // because the few there are cost enough on their own — one attachment does. A
+    // previous summary does not count towards the second test: it is reserve-sized
+    // whatever it holds, so a prefix of nothing else would be swapped for one the same
+    // size, again on the next response.
+    let prefix = &messages[prefix_start..tail_start];
+    let new_prefix_tokens = prefix
+        .iter()
+        .filter(|message| !is_compaction_summary(message))
+        .map(|message| estimate_message_tokens(message, attachment_tokens))
+        .sum::<usize>();
+    let worth_summarizing = prefix.len() >= MIN_PREFIX_MESSAGES_TO_SUMMARIZE
+        || new_prefix_tokens >= context_window / MIN_PREFIX_SHARE_TO_SUMMARIZE;
+
+    worth_summarizing.then_some(tail_start)
+}
+
+/// Strips the `<analysis>` drafting scratchpad and unwraps the `<summary>` block.
+/// Falls back to the trimmed raw text when the model did not use the tags, so a
+/// well-formed-but-untagged summary is still usable, and to the empty string — which
+/// the caller counts as a failure — when the response stopped inside the scratchpad.
+fn format_compact_summary(raw: &str) -> String {
+    // Strip the analysis scratchpad first: it precedes the summary and may itself
+    // mention <summary>/<analysis> tokens that would otherwise be mistaken for the real
+    // summary boundary.
+    let without_analysis = ANALYSIS_BLOCK_REGEX.replace_all(raw, "");
+
+    let summary = if let Some(captures) = SUMMARY_BLOCK_REGEX.captures(&without_analysis) {
+        captures
+            .get(1)
+            .map(|m| m.as_str())
+            .unwrap_or_default()
+            .to_string()
+    } else if let Some(opener) = SUMMARY_OPENER_REGEX.find(&without_analysis) {
+        // A truncated response or a weaker model sometimes opens <summary> without
+        // closing it. The text after the opener is still the summary.
+        without_analysis[opener.end()..].to_string()
+    } else if ANALYSIS_OPENER_REGEX.is_match(&without_analysis) {
+        // An unclosed <analysis> means the response ran out before it reached the
+        // summary. Its draft notes are not one, and handing them over would put the
+        // model's own scratchpad into the conversation as fact.
+        return String::new();
+    } else {
+        without_analysis.to_string()
+    };
+
+    // An orphaned opener or closer left by either branch must never reach the model.
+    let summary = STRAY_TAG_REGEX.replace_all(&summary, "");
+    // Collapse the blank-line runs left behind by stripping the analysis block.
+    BLANK_LINE_RUN_REGEX
+        .replace_all(&summary, "\n\n")
+        .trim()
+        .to_string()
+}
+
+lazy_static::lazy_static! {
+    static ref ANALYSIS_BLOCK_REGEX: regex::Regex =
+        regex::Regex::new(r"(?is)<analysis>.*?</analysis>").unwrap();
+    static ref ANALYSIS_OPENER_REGEX: regex::Regex =
+        regex::Regex::new(r"(?i)<analysis>").unwrap();
+    // Greedy to the last closer: the summary describes the instruction that asked for
+    // it, tags included, and stopping at a quoted `</summary>` cuts it off mid-sentence.
+    static ref SUMMARY_BLOCK_REGEX: regex::Regex =
+        regex::Regex::new(r"(?is)<summary>(.*)</summary>").unwrap();
+    static ref SUMMARY_OPENER_REGEX: regex::Regex =
+        regex::Regex::new(r"(?i)<summary>").unwrap();
+    static ref STRAY_TAG_REGEX: regex::Regex =
+        regex::Regex::new(r"(?i)</?(?:analysis|summary)>").unwrap();
+    static ref BLANK_LINE_RUN_REGEX: regex::Regex = regex::Regex::new(r"\n{3,}").unwrap();
+}
+
+/// Wraps a formatted summary as the user message that replaces the summarized prefix.
+fn build_summary_message(formatted_summary: &str) -> OpenAIMessage {
+    OpenAIMessage {
+        role: "user".to_string(),
+        content: Some(OpenAIContent::Text(format!(
+            "{SUMMARY_MESSAGE_OPENING} \
+             The summary below covers that earlier portion. Recent messages after the summary are \
+             preserved verbatim.\n\n{formatted_summary}\n\nContinue from where it left off. Do not \
+             re-introduce the summary or recap it; pick up the work as if the break never happened."
+        ))),
+        ..Default::default()
+    }
+}
+
+/// Whether this is a summary a previous compaction inserted. A summary is reserve-sized
+/// by construction, so a prefix that holds nothing else would clear the share threshold
+/// and be swapped for another summary of the same size, once per response, losing
+/// fidelity each time and never shrinking the prompt.
+fn is_compaction_summary(message: &OpenAIMessage) -> bool {
+    message.role == "user"
+        && matches!(
+            message.content.as_ref(),
+            Some(OpenAIContent::Text(text)) if text.starts_with(SUMMARY_MESSAGE_OPENING)
+        )
+}
+
+/// Everything the summarization call needs that the agent loop already has in hand.
+pub struct CompactionRequest<'a> {
+    pub query_builder: &'a dyn QueryBuilder,
+    pub credentials: &'a ProviderCredentials,
+    pub model: &'a str,
+    pub temperature: Option<f32>,
+    pub timeout: std::time::Duration,
+    pub client: &'a AuthedClient,
+    pub workspace_id: &'a str,
+    /// Whether the endpoint accepts the usage-tracking request shape. The agent loop
+    /// learns this from a rejection; sending it again here would make every
+    /// summarization fail on an endpoint the agent itself runs fine against.
+    pub include_usage: bool,
+}
+
+/// Per-step compaction state: the configured window and how many summarizations in a
+/// row have failed.
+pub struct Compactor {
+    context_window: usize,
+    /// Estimated size of the tool definitions every request carries. They are not part
+    /// of the message list, so nothing else in here would see them.
+    tool_schema_tokens: usize,
+    consecutive_failures: usize,
+    /// Whether the current conversation has already been acted on. A compaction pass is
+    /// worth taking once per provider response: a loop that exits without issuing
+    /// another request — a structured-output turn does — otherwise reaches the post-loop
+    /// pass on the same conversation and summarizes it a second time, or retries a
+    /// failure with nothing changed.
+    measurement_spent: bool,
+    /// Whether the window is what the memory store holds rather than what the model
+    /// does. That bound is bytes, and the provider's token count says little about
+    /// them: repetitive text and tool output pack several characters into a token, so
+    /// a conversation can overflow the store well under the count the cap converts to.
+    storage_bound: bool,
+}
+
+/// What one compaction pass did.
+pub struct CompactionPass {
+    /// Whether the conversation was rewritten around a summary.
+    pub compacted: bool,
+    /// The summarization call's own token usage, for the step to bill. Present on a
+    /// call that answered, whether or not its answer was usable.
+    pub usage: Option<TokenUsage>,
+}
+
+impl CompactionPass {
+    fn nothing() -> Self {
+        Self { compacted: false, usage: None }
+    }
+}
+
+impl Compactor {
+    pub fn new(context_window: usize, tool_schema_tokens: usize) -> Self {
+        Self {
+            context_window,
+            tool_schema_tokens,
+            consecutive_failures: 0,
+            measurement_spent: false,
+            storage_bound: false,
+        }
+    }
+
+    /// Arms the next compaction pass. Called for each provider response, whose token
+    /// count is what that pass measures.
+    pub fn record_response(&mut self) {
+        self.measurement_spent = false;
+    }
+
+    /// Bounds the passes that follow by what a store of `capacity_bytes` can hold
+    /// rather than by the model's window, and arms the next one: a conversation
+    /// already compacted to the model's window can still be over this. Returns whether
+    /// the bound is new.
+    pub fn bound_by_storage(&mut self, capacity_bytes: usize) -> bool {
+        if self.storage_bound {
+            return false;
+        }
+        self.storage_bound = true;
+        self.context_window = self.context_window.min(capacity_bytes / 4);
+        self.measurement_spent = false;
+        true
+    }
+
+    /// What the next request would cost against the window. Under the storage bound the
+    /// larger of two measures: the model's token count, and the conversation as it will
+    /// be written, in the cap's own unit. Neither alone suffices — repetitive text is
+    /// few tokens but many bytes, while an attachment is a few bytes but nearly the whole
+    /// model context — so a pass has to fire when either is over.
+    fn projected_tokens(&self, messages: &[OpenAIMessage], last_request: LastRequest) -> usize {
+        let by_tokens = projected_prompt_tokens(
+            messages,
+            last_request,
+            self.tool_schema_tokens,
+            attachment_tokens(messages, last_request, self.tool_schema_tokens),
+        );
+        if self.storage_bound {
+            let by_bytes = serde_json::to_vec(messages).map(|v| v.len()).unwrap_or(0) / 4;
+            by_bytes.max(by_tokens)
+        } else {
+            by_tokens
+        }
+    }
+
+    /// Summarizes the older part of `messages` in place when the conversation has
+    /// crossed the trigger threshold.
+    ///
+    /// A failed summarization is never fatal: the step keeps running on the
+    /// uncompacted conversation and hits the provider's own context limit if it has to.
+    pub async fn maybe_compact(
+        &mut self,
+        messages: &mut Vec<OpenAIMessage>,
+        last_request: LastRequest,
+        request: &CompactionRequest<'_>,
+    ) -> CompactionPass {
+        if self.consecutive_failures >= MAX_CONSECUTIVE_COMPACTION_FAILURES
+            || self.measurement_spent
+        {
+            return CompactionPass::nothing();
+        }
+
+        if (self.projected_tokens(messages, last_request) as f64)
+            < self.context_window as f64 * COMPACTION_TRIGGER_RATIO
+        {
+            return CompactionPass::nothing();
+        }
+
+        let Some(tail_start) = plan_tail_start(
+            messages,
+            self.context_window,
+            self.tool_schema_tokens,
+            attachment_tokens(messages, last_request, self.tool_schema_tokens),
+        ) else {
+            // The trigger runs off the provider's count and the split off a character
+            // estimate; when they disagree the step keeps growing with nothing done, so
+            // say so rather than leaving the mode looking broken.
+            tracing::info!(
+                "AI agent is over its {} token context window but has nothing worth summarizing \
+                 ({} messages)",
+                self.context_window,
+                messages.len()
+            );
+            return CompactionPass::nothing();
+        };
+
+        self.measurement_spent = true;
+
+        match summarize_prefix(
+            &messages[..tail_start],
+            summary_reserve_tokens(self.context_window),
+            request,
+        )
+        .await
+        {
+            Ok((summary, usage)) => {
+                let formatted = format_compact_summary(&summary);
+                if formatted.is_empty() {
+                    self.consecutive_failures += 1;
+                    tracing::warn!("AI agent compaction produced an empty summary, skipping");
+                    return CompactionPass { compacted: false, usage };
+                }
+                self.consecutive_failures = 0;
+                let prefix_start = summarizable_start(messages);
+                let compacted = messages.drain(prefix_start..tail_start).count();
+                messages.insert(prefix_start, build_summary_message(&formatted));
+                tracing::info!(
+                    "AI agent compacted {} messages into a summary, {} messages left",
+                    compacted,
+                    messages.len()
+                );
+                CompactionPass { compacted: true, usage }
+            }
+            Err(e) => {
+                self.consecutive_failures += 1;
+                tracing::warn!(
+                    "AI agent compaction failed ({}/{}): {e}",
+                    self.consecutive_failures,
+                    MAX_CONSECUTIVE_COMPACTION_FAILURES
+                );
+                CompactionPass::nothing()
+            }
+        }
+    }
+}
+
+/// The least thinking this model will do. Gemini and OpenAI's reasoning models think
+/// unless told how much, and bill it against `max_tokens`, so asked for nothing they can
+/// spend the summary's reserve on thought. Each provider maps the token onto what the
+/// model accepts. Everywhere else, asking for nothing is off, which is the default.
+fn lowest_reasoning_effort(provider: &AIProvider, model: &str) -> Option<&'static str> {
+    match provider {
+        AIProvider::GoogleAI => Some("none"),
+        // The pro variants each accept their own floor and reject anything below it
+        // (`gpt-5-pro` takes only `high`, `gpt-5.2-pro` starts at `medium`), so they
+        // are left to their default rather than sent an effort that fails the call.
+        _ if is_openai_reasoning_model(model) && !model.contains("-pro") => Some("low"),
+        _ => None,
+    }
+}
+
+/// The prefix with every tool exchange rendered as text. The summarization request
+/// carries no tool definitions, and Bedrock rejects `toolUse`/`toolResult` blocks that
+/// arrive without them; the summary only needs what was called and what came back.
+fn tool_exchanges_as_text(prefix: &[OpenAIMessage]) -> Vec<OpenAIMessage> {
+    let mut tool_names = std::collections::HashMap::new();
+    prefix
+        .iter()
+        .map(|message| {
+            let mut message = message.clone();
+            if let Some(calls) = message.tool_calls.take() {
+                let mut text = match message.content.take() {
+                    Some(OpenAIContent::Text(text)) => text,
+                    _ => String::new(),
+                };
+                for call in calls {
+                    tool_names.insert(call.id, call.function.name.clone());
+                    if !text.is_empty() {
+                        text.push_str("\n\n");
+                    }
+                    text.push_str(&format!(
+                        "[Called tool `{}` with arguments: {}]",
+                        call.function.name, call.function.arguments
+                    ));
+                }
+                message.content = Some(OpenAIContent::Text(text));
+            }
+            if message.role == "tool" {
+                let name = message
+                    .tool_call_id
+                    .take()
+                    .and_then(|id| tool_names.get(&id).cloned())
+                    .unwrap_or_else(|| "unknown".to_string());
+                let result = match message.content.take() {
+                    Some(OpenAIContent::Text(text)) => text,
+                    Some(parts) => serde_json::to_string(&parts).unwrap_or_default(),
+                    None => String::new(),
+                };
+                message.role = "user".to_string();
+                message.content = Some(OpenAIContent::Text(format!(
+                    "[Result of tool `{name}`: {result}]"
+                )));
+            }
+            message
+        })
+        .collect()
+}
+
+/// Sends the prefix to the same model with the compaction prompt appended and no tools.
+async fn summarize_prefix(
+    prefix: &[OpenAIMessage],
+    reserve_tokens: usize,
+    request: &CompactionRequest<'_>,
+) -> Result<(String, Option<TokenUsage>), Error> {
+    let mut summary_messages = tool_exchanges_as_text(prefix);
+    summary_messages.push(OpenAIMessage {
+        role: "user".to_string(),
+        content: Some(OpenAIContent::Text(format!(
+            "{NO_TOOLS_PREAMBLE}{SUMMARY_PROMPT}{NO_TOOLS_TRAILER}"
+        ))),
+        ..Default::default()
+    });
+
+    let build_args = BuildRequestArgs {
+        messages: &summary_messages,
+        tools: None,
+        model: request.model,
+        // The step's temperature is not carried over: the summary imposes its own
+        // thinking mode (below), and OpenAI's reasoning models reject `temperature`
+        // alongside any effort but their own default. A structured extraction does not
+        // need a set temperature, so the internal call omits it rather than track which
+        // model forbids which pairing.
+        temperature: None,
+        // The step's reasoning effort is deliberately not carried over. Every provider
+        // counts thinking against this same budget, so a model left to think can spend
+        // the reserve before writing anything and hand back a summary cut off inside its
+        // scratchpad. The prompt asks for an `<analysis>` block, which is the reasoning
+        // this call needs.
+        reasoning_effort: lowest_reasoning_effort(&request.credentials.provider, request.model),
+        // Nothing streams this call's reasoning, and a summary of it would be billed.
+        reasoning_summary: false,
+        // Exactly the room the split set aside. Asking for more lets a summary land the
+        // conversation back over the trigger; leaving it to the provider default gives
+        // 64000 on Anthropic (over several Claude models' output ceiling) and the model's
+        // own small default on Bedrock, short enough to truncate the response.
+        max_tokens: Some(reserve_tokens as u32),
+        output_schema: None,
+        output_type: &OutputType::Text,
+        system_prompt: None,
+        user_message: "",
+        attachments: None,
+        has_websearch: false,
+        // The summarization request carries no tools, so its prefix does not match the
+        // agent's own requests: routing it onto the step's cache key would only evict.
+        prompt_cache_key: None,
+    };
+
+    let parsed = if request.credentials.provider == AIProvider::AWSBedrock {
+        #[cfg(feature = "bedrock")]
+        {
+            windmill_ai::providers::bedrock::BedrockQueryBuilder::default()
+                .execute_request(
+                    &summary_messages,
+                    None,
+                    request.model,
+                    request.temperature,
+                    build_args.reasoning_effort,
+                    build_args.max_tokens,
+                    request.credentials.api_key.as_deref().unwrap_or(""),
+                    request
+                        .credentials
+                        .region
+                        .as_deref()
+                        .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION),
+                    Some(StreamEventProcessor::new_silent().boxed_sink()),
+                    request.client,
+                    request.workspace_id,
+                    None,
+                    request.credentials.aws_access_key_id.as_deref(),
+                    request.credentials.aws_secret_access_key.as_deref(),
+                    request.credentials.aws_session_token.as_deref(),
+                )
+                .await?
+        }
+        #[cfg(not(feature = "bedrock"))]
+        {
+            return Err(Error::internal_err(
+                "AWS Bedrock support is not enabled. Build with 'bedrock' feature.".to_string(),
+            ));
+        }
+    } else {
+        let base_url = &request.credentials.base_url;
+        let api_key = request.credentials.api_key.as_deref().unwrap_or("");
+        let body = if request.include_usage {
+            request
+                .query_builder
+                .build_request(&build_args, request.client, request.workspace_id)
+                .await?
+        } else {
+            request
+                .query_builder
+                .build_request_without_usage(&build_args, request.client, request.workspace_id)
+                .await?
+        };
+        let endpoint =
+            request
+                .query_builder
+                .get_endpoint(base_url, request.model, &OutputType::Text);
+        let auth_headers = retain_effective_credentials(
+            request.credentials,
+            request
+                .query_builder
+                .get_auth_headers(api_key, base_url, &OutputType::Text),
+        );
+
+        // As in the agent loop, `endpoint` derives from the user-controlled provider
+        // base_url, so DNS is pinned to the SSRF-validated address.
+        let mut http_request = pinned_ai_client_for(base_url)
+            .await?
+            .post(&endpoint)
+            .timeout(request.timeout)
+            .header("Content-Type", "application/json");
+        for (header_name, header_value) in &auth_headers {
+            http_request = http_request.header(*header_name, header_value.clone());
+        }
+        for (header_name, header_value) in common_outbound_headers(request.credentials) {
+            http_request = http_request.header(header_name.as_str(), header_value.as_str());
+        }
+
+        let resp = http_request
+            .body(body)
+            .send()
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to call API: {e}")))?;
+
+        if let Err(e) = resp.error_for_status_ref() {
+            let text = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "<failed to read body>".to_string());
+            return Err(Error::internal_err(format!(
+                "API error calling {endpoint}: {e} - {text}"
+            )));
+        }
+
+        request
+            .query_builder
+            .parse_streaming_response(resp, StreamEventProcessor::new_silent().boxed_sink())
+            .await?
+    };
+
+    match parsed {
+        ParsedResponse::Text { content, usage, .. } => Ok((content.unwrap_or_default(), usage)),
+        ParsedResponse::Image { .. } => Err(Error::internal_err(
+            "Compaction summary came back as an image".to_string(),
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn message(role: &str, content: &str) -> OpenAIMessage {
+        OpenAIMessage {
+            role: role.to_string(),
+            content: Some(OpenAIContent::Text(content.to_string())),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_summarizer_is_sent_tool_exchanges_as_text() {
+        use windmill_ai::ai_types::{OpenAIFunction, OpenAIToolCall};
+        let prefix = vec![
+            message("user", "weather?"),
+            OpenAIMessage {
+                role: "assistant".to_string(),
+                tool_calls: Some(vec![OpenAIToolCall {
+                    id: "call_1".to_string(),
+                    r#type: "function".to_string(),
+                    function: OpenAIFunction {
+                        name: "get_weather".to_string(),
+                        arguments: r#"{"city":"Paris"}"#.to_string(),
+                    },
+                    extra_content: None,
+                }]),
+                ..Default::default()
+            },
+            OpenAIMessage {
+                role: "tool".to_string(),
+                tool_call_id: Some("call_1".to_string()),
+                content: Some(OpenAIContent::Text("sunny".to_string())),
+                ..Default::default()
+            },
+            message("assistant", "It is sunny."),
+        ];
+
+        let sent = tool_exchanges_as_text(&prefix);
+
+        assert!(sent
+            .iter()
+            .all(|m| m.tool_calls.is_none() && m.tool_call_id.is_none() && m.role != "tool"));
+        let text = |i: usize| match &sent[i].content {
+            Some(OpenAIContent::Text(t)) => t.clone(),
+            other => panic!("expected text, got {other:?}"),
+        };
+        assert!(text(1).contains("get_weather") && text(1).contains("Paris"));
+        assert_eq!(sent[2].role, "user");
+        assert!(text(2).contains("get_weather") && text(2).contains("sunny"));
+    }
+
+    #[test]
+    fn the_summarizer_asks_default_thinkers_for_the_least() {
+        assert_eq!(
+            lowest_reasoning_effort(&AIProvider::GoogleAI, "gemini-2.5-flash"),
+            Some("none")
+        );
+        assert_eq!(
+            lowest_reasoning_effort(&AIProvider::OpenAI, "gpt-5-mini"),
+            Some("low")
+        );
+        assert_eq!(
+            lowest_reasoning_effort(&AIProvider::OpenRouter, "openai/o3-mini"),
+            Some("low")
+        );
+        // Sending an effort to a model that takes none is a rejected request, and so is
+        // `low` to a pro model, whose floor is its own.
+        assert_eq!(
+            lowest_reasoning_effort(&AIProvider::OpenAI, "gpt-4.1-mini"),
+            None
+        );
+        assert_eq!(
+            lowest_reasoning_effort(&AIProvider::OpenAI, "gpt-5.2-pro"),
+            None
+        );
+        assert_eq!(
+            lowest_reasoning_effort(&AIProvider::Mistral, "open-mistral-nemo"),
+            None
+        );
+        assert_eq!(
+            lowest_reasoning_effort(&AIProvider::Anthropic, "claude-haiku-4-5"),
+            None
+        );
+    }
+
+    #[test]
+    fn format_compact_summary_drops_the_analysis_scratchpad() {
+        let raw = "<analysis>mentions <summary> as a token</analysis>\n\n<summary>the real summary</summary>";
+        assert_eq!(format_compact_summary(raw), "the real summary");
+    }
+
+    #[test]
+    fn format_compact_summary_survives_a_summary_that_quotes_its_own_tags() {
+        let raw = "<analysis>notes</analysis>\n<summary>1. The user asked for an <analysis> block \
+                   then a <summary></summary> block.\n2. Work continued.</summary>";
+        assert_eq!(
+            format_compact_summary(raw),
+            "1. The user asked for an  block then a  block.\n2. Work continued."
+        );
+    }
+
+    #[test]
+    fn format_compact_summary_keeps_an_unclosed_summary() {
+        let raw = "<analysis>x</analysis><summary>cut off mid";
+        assert_eq!(format_compact_summary(raw), "cut off mid");
+    }
+
+    /// Draft notes are not a summary: passing them on would insert the model's own
+    /// scratchpad into the conversation as the record of what happened.
+    #[test]
+    fn format_compact_summary_rejects_a_response_cut_off_inside_the_analysis() {
+        assert_eq!(format_compact_summary("<analysis>ran out of tokens"), "");
+    }
+
+    /// A tail opening on a tool message loses the `tool_calls` that produced it, which
+    /// every provider rejects.
+    #[test]
+    fn plan_tail_start_never_opens_the_tail_on_a_tool_result() {
+        let mut messages = vec![message("system", "sys"), message("user", "hi")];
+        for _ in 0..6 {
+            messages.push(OpenAIMessage {
+                role: "assistant".to_string(),
+                tool_calls: Some(vec![]),
+                ..Default::default()
+            });
+            messages.push(message("tool", &"x".repeat(40000)));
+        }
+
+        let tail_start = plan_tail_start(&messages, 32000, 0, S3_ATTACHMENT_NOMINAL_TOKENS)
+            .expect("should compact");
+        assert_ne!(messages[tail_start].role, "tool");
+        assert!(tail_start >= 1, "the system message is never summarized");
+    }
+
+    #[test]
+    fn plan_tail_start_keeps_a_user_message_with_its_answer() {
+        let mut messages = vec![message("system", "sys")];
+        for _ in 0..6 {
+            messages.push(message("user", &"q".repeat(4000)));
+            messages.push(message("assistant", "a"));
+        }
+
+        let tail_start = plan_tail_start(&messages, 8000, 0, S3_ATTACHMENT_NOMINAL_TOKENS)
+            .expect("should compact");
+        assert_eq!(messages[tail_start].role, "user");
+        assert_eq!(messages[tail_start - 1].role, "assistant");
+    }
+
+    /// Tool definitions and the system prompt ride on every request but are not in the
+    /// tail; a budget that ignores them sizes the tail to the whole target and leaves the
+    /// next request back over the trigger.
+    #[test]
+    fn plan_tail_start_charges_the_budget_for_tools_and_the_system_prompt() {
+        let mut messages = vec![message("system", &"s".repeat(20000)), message("user", "hi")];
+        for _ in 0..8 {
+            messages.push(message("assistant", &"a".repeat(8000)));
+            messages.push(message("user", &"u".repeat(8000)));
+        }
+
+        let without_overhead = plan_tail_start(&messages, 40000, 0, S3_ATTACHMENT_NOMINAL_TOKENS)
+            .expect("should compact");
+        let with_overhead = plan_tail_start(&messages, 40000, 10000, S3_ATTACHMENT_NOMINAL_TOKENS)
+            .expect("should compact");
+
+        assert!(
+            with_overhead > without_overhead,
+            "tool schemas must shrink the tail: {without_overhead} -> {with_overhead}"
+        );
+    }
+
+    /// A single oversized tool result can fill the window on its own; measuring only
+    /// the last request would leave the trigger below threshold until the next request
+    /// has already been refused.
+    #[test]
+    fn projected_prompt_tokens_counts_what_arrived_after_the_last_request() {
+        let messages = vec![
+            message("system", "sys"),
+            message("user", "hi"),
+            message("assistant", "calling a tool"),
+            message("tool", &"x".repeat(40000)),
+        ];
+        let last_request = LastRequest { prompt_tokens: Some(500), message_count: 2 };
+
+        assert_eq!(
+            projected_prompt_tokens(&messages, last_request, 0, S3_ATTACHMENT_NOMINAL_TOKENS),
+            500 + 10003
+        );
+    }
+
+    /// The store's cap is bytes, and the provider's count says little about them:
+    /// repetitive text packs several characters into a token, so a conversation the
+    /// provider counts well under the cap's token equivalent can still not fit.
+    #[test]
+    fn the_storage_bound_measures_what_will_be_written() {
+        let messages: Vec<_> = (0..5)
+            .map(|_| message("user", &"the report. ".repeat(2000)))
+            .collect();
+        let counted = LastRequest { prompt_tokens: Some(5000), message_count: messages.len() };
+        let mut compactor = Compactor::new(128_000, 0);
+
+        assert_eq!(compactor.projected_tokens(&messages, counted), 5000);
+
+        assert!(compactor.bound_by_storage(100_000));
+        // Five 24KB messages: past the cap once serialized, whatever the provider says.
+        assert!(compactor.projected_tokens(&messages, counted) > 25_000);
+        assert_eq!(compactor.context_window, 25_000);
+        assert!(
+            !compactor.bound_by_storage(100_000),
+            "bounding twice is a no-op"
+        );
+    }
+
+    /// The reverse: an attachment is a few bytes in the row but nearly the whole model
+    /// context. Under the storage bound the pass must still see the provider's token
+    /// count, not just the serialized size, or it skips a pass the model needs.
+    #[test]
+    fn the_storage_bound_still_sees_the_model_token_count() {
+        let messages = vec![OpenAIMessage {
+            role: "user".to_string(),
+            content: Some(OpenAIContent::Parts(vec![ContentPart::S3Object {
+                s3_object: windmill_types::s3::S3Object {
+                    s3: "manifest.pdf".to_string(),
+                    ..Default::default()
+                },
+            }])),
+            ..Default::default()
+        }];
+        let counted = LastRequest { prompt_tokens: Some(24_000), message_count: 1 };
+        let mut compactor = Compactor::new(128_000, 0);
+        assert!(compactor.bound_by_storage(100_000));
+
+        // The serialized row is a handful of bytes; the token count carries it over.
+        assert!(compactor.projected_tokens(&messages, counted) >= 24_000);
+    }
+
+    /// The reserve is both the room the split leaves and the summary's output cap, and
+    /// the two pull opposite ways: it has to shrink with the window so the tail does not
+    /// collapse, but never below what a full summary needs to come back complete.
+    #[test]
+    fn summary_reserve_scales_with_the_window_down_to_a_floor() {
+        assert_eq!(
+            summary_reserve_tokens(128000),
+            SUMMARY_OUTPUT_RESERVE_TOKENS
+        );
+        assert_eq!(summary_reserve_tokens(20000), 2000);
+        assert_eq!(summary_reserve_tokens(8000), MIN_SUMMARY_RESERVE_TOKENS);
+    }
+
+    /// An attachment is a short S3 path in the message list and a whole image once the
+    /// provider expands it, and it arrives early enough that the message-count guard
+    /// would otherwise refuse to summarize the one or two turns carrying it.
+    #[test]
+    fn plan_tail_start_summarizes_a_short_prefix_that_carries_an_attachment() {
+        fn attachment(role: &str) -> OpenAIMessage {
+            OpenAIMessage {
+                role: role.to_string(),
+                content: Some(OpenAIContent::Parts(vec![ContentPart::S3Object {
+                    s3_object: windmill_types::s3::S3Object {
+                        s3: "u/admin/report.pdf".to_string(),
+                        ..Default::default()
+                    },
+                }])),
+                ..Default::default()
+            }
+        }
+
+        let messages = vec![
+            message("system", "sys"),
+            attachment("user"),
+            attachment("user"),
+            message("assistant", &"a".repeat(20000)),
+            message("user", "next"),
+            message("assistant", "a"),
+        ];
+
+        // Two attachments are worth more than a quarter of this window on their own.
+        assert_eq!(
+            plan_tail_start(&messages, 10000, 0, S3_ATTACHMENT_NOMINAL_TOKENS),
+            Some(4)
+        );
+    }
+
+    /// The message list holds an S3 path where the provider saw a whole document, so
+    /// what the provider counted for a request, less its text, is what its attachments
+    /// cost; without a count, or below it, the floor.
+    #[test]
+    fn attachments_are_priced_from_the_provider_count() {
+        let messages = vec![
+            OpenAIMessage {
+                role: "user".to_string(),
+                content: Some(OpenAIContent::Parts(vec![
+                    ContentPart::Text { text: "the manifest".to_string() },
+                    ContentPart::S3Object {
+                        s3_object: windmill_types::s3::S3Object {
+                            s3: "manifest.pdf".to_string(),
+                            ..Default::default()
+                        },
+                    },
+                ])),
+                ..Default::default()
+            },
+            message("assistant", "received"),
+        ];
+        let counted = |prompt_tokens| LastRequest { prompt_tokens, message_count: 1 };
+
+        let priced = attachment_tokens(&messages, counted(Some(25_000)), 100);
+        assert!((24_000..=25_000).contains(&priced), "got {priced}");
+        assert_eq!(
+            attachment_tokens(&messages, counted(None), 100),
+            S3_ATTACHMENT_NOMINAL_TOKENS
+        );
+        assert_eq!(
+            attachment_tokens(&messages, counted(Some(50)), 100),
+            S3_ATTACHMENT_NOMINAL_TOKENS
+        );
+    }
+
+    /// Priced right, a leading attachment turn the window cannot hold is summarized away
+    /// rather than kept because it read as a short path. It is a user message, so the
+    /// boundary moves forward past its answer rather than dragging the attachment into
+    /// the kept tail, which is where the old backward rule left it — unsummarizable.
+    #[test]
+    fn plan_tail_start_evicts_a_leading_attachment_into_the_prefix() {
+        let heavy = OpenAIMessage {
+            role: "user".to_string(),
+            content: Some(OpenAIContent::Parts(vec![ContentPart::S3Object {
+                s3_object: windmill_types::s3::S3Object {
+                    s3: "manifest.pdf".to_string(),
+                    ..Default::default()
+                },
+            }])),
+            ..Default::default()
+        };
+        let mut messages = vec![heavy, message("assistant", "acknowledged")];
+        for _ in 0..3 {
+            messages.push(message("user", "a follow-up question"));
+            messages.push(message("assistant", "an answer"));
+        }
+
+        // The 25k attachment does not fit the 30k window's tail budget, so it and its
+        // answer are summarized and the tail opens on a later text turn.
+        let tail_start = plan_tail_start(&messages, 30_000, 0, 25_000).expect("should compact");
+        assert_eq!(tail_start, 2);
+        assert_eq!(messages[tail_start].role, "user");
+        assert_eq!(messages[tail_start - 1].role, "assistant");
+    }
+
+    /// Moving the boundary forward off an unanswered user turn must not land it on a
+    /// tool result: that would summarize away the `tool_calls` and orphan the result.
+    #[test]
+    fn plan_tail_start_forward_move_never_opens_on_a_tool_result() {
+        let heavy = OpenAIMessage {
+            role: "user".to_string(),
+            content: Some(OpenAIContent::Parts(vec![ContentPart::S3Object {
+                s3_object: windmill_types::s3::S3Object {
+                    s3: "manifest.pdf".to_string(),
+                    ..Default::default()
+                },
+            }])),
+            ..Default::default()
+        };
+        let messages = vec![
+            message("system", "sys"),
+            heavy,
+            OpenAIMessage {
+                role: "assistant".to_string(),
+                tool_calls: Some(vec![]),
+                ..Default::default()
+            },
+            message("tool", "result"),
+        ];
+
+        // The only forward boundary lands on the tool result, so it is declined rather
+        // than taken: the tail may open on the assistant that holds the tool_calls, but
+        // never on the orphaned result.
+        if let Some(tail_start) = plan_tail_start(&messages, 30_000, 0, 25_000) {
+            assert_ne!(messages[tail_start].role, "tool");
+        }
+    }
+
+    /// An agent may run with no system prompt, so the summarizable prefix starts at 0.
+    /// A trigger that fires while the tail estimate fits everything must not index below
+    /// the start.
+    #[test]
+    fn plan_tail_start_without_a_system_prompt_does_not_underflow() {
+        let messages = vec![message("user", "hi"), message("assistant", "hello")];
+        // A window big enough that the whole tiny conversation fits the tail budget.
+        assert_eq!(
+            plan_tail_start(&messages, 128_000, 0, S3_ATTACHMENT_NOMINAL_TOKENS),
+            None
+        );
+    }
+
+    /// A summary is reserve-sized whatever it holds, so a prefix of nothing else would
+    /// clear the share threshold and be swapped for one the same size, once per response.
+    #[test]
+    fn plan_tail_start_will_not_summarize_a_lone_previous_summary() {
+        let summary = build_summary_message(&"s".repeat(8000));
+        let messages = vec![
+            message("system", "sys"),
+            summary,
+            message("assistant", &"a".repeat(40000)),
+        ];
+
+        assert_eq!(
+            plan_tail_start(&messages, 10000, 0, S3_ATTACHMENT_NOMINAL_TOKENS),
+            None
+        );
+    }
+
+    #[test]
+    fn plan_tail_start_declines_when_the_prefix_is_short() {
+        let messages = vec![
+            message("system", "sys"),
+            message("user", "hi"),
+            message("assistant", "hello"),
+        ];
+        assert_eq!(
+            plan_tail_start(&messages, 1000, 0, S3_ATTACHMENT_NOMINAL_TOKENS),
+            None
+        );
+    }
+}

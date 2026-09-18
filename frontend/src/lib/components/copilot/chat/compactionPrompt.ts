@@ -1,3 +1,5 @@
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
+
 // Summary-based compaction: when a conversation approaches the model's context
 // window, the older prefix is replaced by an LLM-generated structured summary
 // while the recent tail is kept verbatim. The summary precedes the kept tail,
@@ -23,6 +25,8 @@ const NO_TOOLS_TRAILER =
 // The <analysis> block is a drafting scratchpad that formatCompactSummary()
 // strips before the summary reaches context.
 const SUMMARY_PROMPT = `Your task is to create a detailed summary of the conversation so far. This summary will be placed at the start of a continuing session; newer messages that build on this context will follow after it (you do not see them here). Summarize thoroughly so that someone reading only your summary and then the newer messages can fully understand what happened and continue the work without losing context.
+
+The message you are reading now is an instruction, not part of the conversation. Summarize only the messages above it: do not describe this instruction, do not list it among the user's messages, pending tasks or current work, and do not mention the <analysis> or <summary> tags inside your summary.
 
 This is a conversation with Windmill's global workspace assistant. It inspects workspace items and authors them as per-user drafts — scripts, flows, apps, resources, variables, triggers, and schedules — then deploys those drafts and test-runs scripts and flows. It works with items by their workspace path (e.g. \`u/alice/sync_orders\`, \`f/team/my_flow\`); it does NOT edit files on a filesystem. Frame the summary in those terms.
 
@@ -105,7 +109,9 @@ export function formatCompactSummary(raw: string): string {
 	// real summary boundary.
 	let formatted = raw.replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
 
-	const summaryMatch = formatted.match(/<summary>([\s\S]*?)<\/summary>/i)
+	// Greedy to the last closer: the summary describes the instruction that asked for
+	// it, tags included, and stopping at a quoted </summary> cuts it off mid-sentence.
+	const summaryMatch = formatted.match(/<summary>([\s\S]*)<\/summary>/i)
 	if (summaryMatch) {
 		formatted = (summaryMatch[1] ?? '').trim()
 	} else {
@@ -123,6 +129,34 @@ export function formatCompactSummary(raw: string): string {
 
 	// Collapse the blank-line runs left behind by stripping the analysis block.
 	return formatted.replace(/\n{3,}/g, '\n\n').trim()
+}
+
+/**
+ * The prefix with every tool exchange rendered as text. The summarization request
+ * carries no tool definitions, and Bedrock rejects tool-use and tool-result blocks
+ * that arrive without them; the summary only needs what was called and what came back.
+ */
+export function toolExchangesAsText(
+	messages: ChatCompletionMessageParam[]
+): ChatCompletionMessageParam[] {
+	const toolNames = new Map<string, string>()
+	return messages.map((m) => {
+		if (m.role === 'assistant' && m.tool_calls?.length) {
+			const lines = m.tool_calls.map((t) => {
+				if (t.type !== 'function') return `[Called tool ${t.type}]`
+				toolNames.set(t.id, t.function.name)
+				return `[Called tool \`${t.function.name}\` with arguments: ${t.function.arguments}]`
+			})
+			const text = typeof m.content === 'string' && m.content ? m.content + '\n\n' : ''
+			return { role: 'assistant', content: text + lines.join('\n') }
+		}
+		if (m.role === 'tool') {
+			const name = toolNames.get(m.tool_call_id) ?? 'unknown'
+			const result = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+			return { role: 'user', content: `[Result of tool \`${name}\`: ${result}]` }
+		}
+		return m
+	})
 }
 
 /**

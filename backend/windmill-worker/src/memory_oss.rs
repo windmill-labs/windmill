@@ -30,14 +30,21 @@ pub async fn write_to_memory(
     conversation_id: Uuid,
     step_id: &str,
     messages: &[OpenAIMessage],
-) -> anyhow::Result<()> {
+) -> anyhow::Result<usize> {
     if messages.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
 
     memory_common::write_to_db(db, workspace_id, conversation_id, step_id, messages)
         .await
         .map_err(|e| anyhow::anyhow!("Database write failed: {e:?}"))
+}
+
+/// How many bytes a persisted memory can hold, `None` where nothing bounds it.
+/// In OSS: always the database limit
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
+pub async fn memory_storage_capacity_bytes() -> Option<usize> {
+    Some(memory_common::MAX_MEMORY_SIZE_BYTES)
 }
 
 /// Delete all memory for a conversation from storage
