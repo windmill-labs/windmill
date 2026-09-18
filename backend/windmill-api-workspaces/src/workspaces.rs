@@ -4106,6 +4106,14 @@ async fn edit_datatable_config(
         if unchanged {
             continue;
         }
+        // Before the registration check, whose refusal would otherwise tell a workspace admin
+        // which databases exist on the cluster.
+        if !is_superadmin {
+            return Err(Error::BadRequest(
+                "Only superadmins can create or modify data tables with Instance databases"
+                    .to_string(),
+            ));
+        }
         if database.resource_type == DataTableCatalogResourceType::ExternalInstance {
             windmill_common::external_instance_pg::ensure_external_instance_available()?;
             windmill_common::external_instance_pg::ensure_external_instance_database_registered(
@@ -4113,12 +4121,6 @@ async fn edit_datatable_config(
                 &database.resource_path,
             )
             .await?;
-        }
-        if !is_superadmin {
-            return Err(Error::BadRequest(
-                "Only superadmins can create or modify data tables with Instance databases"
-                    .to_string(),
-            ));
         }
     }
 

@@ -34089,7 +34089,7 @@ components:
           type: array
           items:
             type: string
-          description: Workspaces that reference this database via a ducklake catalog or datatable database with resource_type 'instance'. Computed at request time, not persisted.
+          description: Workspaces that reference this database through a ducklake catalog or a datatable database of the kind being listed — 'instance' for the instance databases endpoint, 'external_instance' for the external cluster one. Computed at request time, not persisted, and only returned to superadmins.
         workspace_id:
           type: string
           description: The workspace a member created this database for as a fork copy. Only that workspace can import into it or point a fork at it.
