@@ -2546,9 +2546,9 @@ export function preservePendingScriptLocks(
 }
 
 // `sync push` never applies the workspace's display name from settings.yaml and
-// applies its color only when the local file carries one (see
-// pushWorkspaceSettings), so on a push the fields it would not apply must
-// compare equal, or the row is listed on every run.
+// applies its color and auto_invite.instance_groups only when the local file
+// carries them (see pushWorkspaceSettings), so on a push the fields it would not
+// apply must compare equal, or the row is listed on every run.
 const isWorkspaceSettingsFile = (p: string) =>
   /^settings(\.[^./\\]+)?\.(yaml|json)$/.test(p);
 function stripUnappliedSettingsFields(local: any, remote: any) {
@@ -2557,6 +2557,17 @@ function stripUnappliedSettingsFields(local: any, remote: any) {
   if (local?.color == null) {
     delete local?.color;
     delete remote?.color;
+  }
+  const localInvite = local?.auto_invite;
+  const remoteInvite = remote?.auto_invite;
+  if (localInvite?.instance_groups == null) {
+    for (const invite of [localInvite, remoteInvite]) {
+      delete invite?.instance_groups;
+      delete invite?.instance_groups_roles;
+    }
+  } else {
+    localInvite.instance_groups_roles ??= {};
+    if (remoteInvite) remoteInvite.instance_groups_roles ??= {};
   }
 }
 
