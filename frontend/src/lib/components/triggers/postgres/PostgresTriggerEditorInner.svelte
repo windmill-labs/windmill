@@ -19,7 +19,7 @@
 		type Retry,
 		type TriggerMode
 	} from '$lib/gen'
-	import { usedTriggerKinds, userStore } from '$lib/stores'
+	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
@@ -55,6 +55,7 @@
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import { capitalize } from '$lib/utils'
 	import {
+		useOperatingUser,
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
@@ -101,6 +102,8 @@
 		onReset = undefined
 	}: Props = $props()
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
@@ -115,7 +118,13 @@
 	let path: string = $state('')
 	let pathError = $state('')
 	let dirtyPath: boolean = $state(false)
-	let can_write: boolean = $state(true)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+	)
 	let drawerLoading: boolean = $state(true)
 	let showLoading: boolean = $state(false)
 	let postgres_resource_path: string = $state('')
@@ -254,6 +263,8 @@
 		fixedScriptPath_?: string
 	) {
 		if (handOffPageDrawer(TRIGGER_PAGES.postgres.path, ePath)) return
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -382,7 +393,8 @@
 		postgres_resource_path = cfg?.postgres_resource_path
 		publication_name = cfg?.publication_name
 		replication_slot_name = cfg?.replication_slot_name
-		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+		permsPath = path
+		permsForWrite = cfg?.extra_perms
 		transaction_to_track = [...cfg?.publication?.transaction_to_track]
 		relations = cfg?.publication?.table_to_track ?? []
 		error_handler_path = cfg?.error_handler_path
@@ -718,7 +730,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!$userStore?.operator}
+						isOperator={!!actingUser?.operator}
 						promptText="Pick a script or flow to be triggered "
 						promptClass="text-xs text-primary"
 					>

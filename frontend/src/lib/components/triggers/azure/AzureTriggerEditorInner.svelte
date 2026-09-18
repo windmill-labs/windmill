@@ -9,7 +9,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import { usedTriggerKinds, userStore } from '$lib/stores'
+	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
@@ -41,6 +41,7 @@
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import {
+		useOperatingUser,
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
@@ -56,7 +57,15 @@
 	let pathError = $state('')
 	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
-	let can_write = $state(true)
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+	)
 	let drawerLoading = $state(true)
 
 	let azure_resource_path: string = $state('')
@@ -148,6 +157,8 @@
 		defaultValues?: Record<string, any>
 	) {
 		if (handOffPageDrawer(TRIGGER_PAGES.azure.path, ePath)) return
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -251,7 +262,8 @@
 		event_type_filters = cfg?.event_type_filters
 		path = cfg?.path
 		mode = cfg?.mode ?? 'enabled'
-		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
+		permsPath = cfg?.path
+		permsForWrite = cfg?.extra_perms
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
@@ -506,7 +518,7 @@
 							bind:itemKind
 							bind:scriptPath={script_path}
 							allowRefresh={can_write}
-							allowEdit={!$userStore?.operator}
+							allowEdit={!actingUser?.operator}
 							clearable
 						/>
 						{#if emptyString(script_path)}

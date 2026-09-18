@@ -12,7 +12,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import { KafkaTriggerService, type ErrorHandler, type Retry, type TriggerMode } from '$lib/gen'
-	import { usedTriggerKinds, userStore } from '$lib/stores'
+	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
@@ -38,6 +38,7 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
+		useOperatingUser,
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
@@ -84,6 +85,8 @@
 		onReset = undefined
 	}: Props = $props()
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
@@ -99,7 +102,13 @@
 	let pathError = $state('')
 	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
-	let can_write = $state(true)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+	)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let initialConfig: Record<string, any> | undefined = undefined
@@ -170,6 +179,8 @@
 		fixedScriptPath_?: string
 	) {
 		if (handOffPageDrawer(TRIGGER_PAGES.kafka.path, ePath)) return
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -263,7 +274,8 @@
 		autoCommit = cfg?.auto_commit ?? true
 		mode = cfg?.mode ?? 'enabled'
 		extra_perms = cfg?.extra_perms
-		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+		permsPath = path
+		permsForWrite = cfg?.extra_perms
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
@@ -565,7 +577,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!$userStore?.operator}
+						isOperator={!!actingUser?.operator}
 					>
 						{#snippet createButton()}
 							{#if emptyString(script_path)}

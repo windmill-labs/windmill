@@ -18,7 +18,7 @@
 		type Retry,
 		type TriggerMode
 	} from '$lib/gen'
-	import { usedTriggerKinds, userStore } from '$lib/stores'
+	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -39,6 +39,7 @@
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import {
+		useOperatingUser,
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
@@ -62,6 +63,8 @@
 		customSaveBehavior = undefined
 	} = $props()
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
@@ -82,7 +85,13 @@
 	let workspaced_local_part = $state(false)
 	let drawerLoading = $state(true)
 	let showLoader = $state(false)
-	let can_write = $state(true)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+	)
 	let extraPerms = $state<Record<string, boolean> | undefined>(undefined)
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
@@ -102,7 +111,7 @@
 	let originalConfig = $state<NewEmailTrigger | undefined>(undefined)
 
 	let hasChanged = $derived(!deepEqual(getEmailTriggerConfig(), originalConfig ?? {}))
-	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
+	const isAdmin = $derived(actingUser?.is_admin || actingUser?.is_super_admin)
 	const emailConfig = $derived.by(getEmailTriggerConfig)
 
 	const draftSync = useTriggerDraftSync({
@@ -135,6 +144,8 @@
 		fixedScriptPath_?: string
 	) {
 		if (handOffPageDrawer(TRIGGER_PAGES.email.path, ePath)) return
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
 		drawerLoading = true
 		let loader = setTimeout(() => {
 			showLoader = true
@@ -223,7 +234,8 @@
 		local_part = cfg?.local_part ?? ''
 		workspaced_local_part = cfg?.workspaced_local_part ?? false
 		extraPerms = cfg?.extra_perms ?? undefined
-		can_write = canWrite(path, cfg?.extra_perms ?? {}, $userStore)
+		permsPath = path
+		permsForWrite = cfg?.extra_perms ?? {}
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
@@ -275,7 +287,7 @@
 				saveCfg,
 				edit,
 				wsId!,
-				!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+				!!actingUser?.is_admin || !!actingUser?.is_super_admin,
 				usedTriggerKinds
 			)
 			if (isSaved) {
@@ -415,7 +427,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!$userStore?.operator}
+						isOperator={!!actingUser?.operator}
 						promptClass="text-xs mt-3 mb-1 text-primary"
 					>
 						{#snippet createButton()}

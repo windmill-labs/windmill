@@ -22,7 +22,7 @@
 		type Retry,
 		type TriggerMode
 	} from '$lib/gen'
-	import { usedTriggerKinds, userStore } from '$lib/stores'
+	import { usedTriggerKinds } from '$lib/stores'
 	import {
 		canWrite,
 		capitalize,
@@ -78,6 +78,7 @@
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import {
+		useOperatingUser,
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
@@ -101,6 +102,8 @@
 		customSaveBehavior = undefined
 	} = $props()
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
@@ -156,7 +159,13 @@
 	let authentication_resource_path = $state('')
 	let variable_path = $state('')
 	let signature_options_type = $state<'custom_script' | 'custom_signature'>('custom_signature')
-	let can_write = $state(true)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+	)
 	let extraPerms = $state<Record<string, boolean> | undefined>(undefined)
 	let summary: string | undefined = $state()
 	let routeDescription: string | undefined = $state()
@@ -266,6 +275,8 @@
 		defaultConfig?: Partial<NewHttpTrigger>
 	) {
 		if (handOffPageDrawer(TRIGGER_PAGES.http.path, ePath)) return
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
 		drawerLoading = true
 		let loader = setTimeout(() => {
 			showLoader = true
@@ -387,7 +398,8 @@
 			is_static_website = cfg?.is_static_website ?? false
 		}
 		extraPerms = cfg?.extra_perms ?? undefined
-		can_write = canWrite(path, cfg?.extra_perms ?? {}, $userStore)
+		permsPath = path
+		permsForWrite = cfg?.extra_perms ?? {}
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
@@ -433,7 +445,7 @@
 				saveCfg,
 				edit,
 				wsId!,
-				!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+				!!actingUser?.is_admin || !!actingUser?.is_super_admin,
 				usedTriggerKinds
 			)
 			if (isSaved) {
@@ -549,7 +561,7 @@
 	<UserSettings
 		bind:this={userSettings}
 		newTokenWorkspace={wsId}
-		newTokenLabel={`http-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
+		newTokenLabel={`http-${actingUser?.username ?? 'superadmin'}-${generateRandomString(4)}`}
 		{scopes}
 	/>
 {/if}
@@ -760,7 +772,7 @@
 										bind:itemKind
 										bind:scriptPath={script_path}
 										allowRefresh={can_write}
-										allowEdit={!$userStore?.operator}
+										allowEdit={!actingUser?.operator}
 										clearable
 									/>
 

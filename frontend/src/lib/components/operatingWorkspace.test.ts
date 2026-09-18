@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -65,6 +65,25 @@ function readsNavigationStore(file: string): boolean {
 		.replace(/<!--[\s\S]*?-->|\/\*[\s\S]*?\*\/|(^|[^:])\/\/.*$/gm, '$1')
 	return /\$workspaceStore\b|\bget\(workspaceStore\)/.test(source)
 }
+
+describe('trigger editors', () => {
+	it('judge permissions by the acting user, not the navigation one', () => {
+		// `$userStore` describes the navigation workspace: a session tab editing a fork would
+		// enable or disable its controls by the parent's roles. `useOperatingUser()` answers for
+		// the workspace the editor acts on.
+		const editors = readdirSync(join(components, 'triggers'), {
+			recursive: true,
+			encoding: 'utf-8'
+		})
+			.filter((f) => f.endsWith('EditorInner.svelte'))
+			.map((f) => join('triggers', f))
+		expect(editors.length).toBeGreaterThan(10)
+		const offenders = editors.filter((f) =>
+			/\$userStore\b/.test(readFileSync(join(components, f), 'utf-8'))
+		)
+		expect(offenders).toEqual([])
+	})
+})
 
 describe('components under a session editor', () => {
 	it('read the operating workspace, not the navigation store', () => {

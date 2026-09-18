@@ -11,7 +11,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
-	import { usedTriggerKinds, userStore } from '$lib/stores'
+	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
@@ -47,6 +47,7 @@
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import {
+		useOperatingUser,
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
@@ -93,6 +94,8 @@
 		cloudDisabled = false
 	}: Props = $props()
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
@@ -109,7 +112,13 @@
 	let pathError = $state('')
 	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
-	let can_write = $state(true)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+	)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let subscribe_topics: MqttSubscribeTopic[] = $state([])
@@ -165,6 +174,8 @@
 		fixedScriptPath_?: string
 	) {
 		if (handOffPageDrawer(TRIGGER_PAGES.mqtt.path, ePath)) return
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -258,7 +269,8 @@
 			v3_config = cfg?.v3_config ?? DEFAULT_V3_CONFIG
 			v5_config = cfg?.v5_config ?? DEFAULT_V5_CONFIG
 			client_id = cfg?.client_id ?? ''
-			can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
+			permsPath = cfg?.path
+			permsForWrite = cfg?.extra_perms
 			error_handler_path = cfg?.error_handler_path
 			error_handler_args = cfg?.error_handler_args ?? {}
 			retry = cfg?.retry
@@ -539,7 +551,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!$userStore?.operator}
+						isOperator={!!actingUser?.operator}
 					>
 						{#snippet createButton()}
 							{#if emptyString(script_path)}
