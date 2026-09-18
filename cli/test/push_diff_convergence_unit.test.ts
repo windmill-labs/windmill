@@ -334,6 +334,12 @@ test("push: settings.yaml without instance_groups is not a change", async () => 
   const skips = { includeSettings: true };
   expect(await diff(undeclared, remote, skips)).toEqual([]);
 
+  const groupsOnlyRemote = local({
+    "settings.yaml": "name: prod\nauto_invite:\n  instance_groups:\n    - eng\n",
+  });
+  const noAutoInvite = local({ "settings.yaml": "name: prod\n" });
+  expect(await diff(noAutoInvite, groupsOnlyRemote, skips)).toEqual([]);
+
   const otherGroups = local({
     "settings.yaml":
       "name: prod\nauto_invite:\n  enabled: false\n  instance_groups: []\n",

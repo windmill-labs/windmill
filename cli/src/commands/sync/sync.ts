@@ -2558,6 +2558,9 @@ function stripUnappliedSettingsFields(local: any, remote: any) {
     delete local?.color;
     delete remote?.color;
   }
+  // push reads a missing auto_invite as {} on both sides
+  if (local) local.auto_invite ??= {};
+  if (remote) remote.auto_invite ??= {};
   const localInvite = local?.auto_invite;
   const remoteInvite = remote?.auto_invite;
   if (localInvite?.instance_groups == null) {
