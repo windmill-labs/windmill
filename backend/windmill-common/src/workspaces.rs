@@ -1189,7 +1189,17 @@ pub fn invalidate_protection_rules_cache(workspace_id: &str) {
 // Operator rights cache
 
 lazy_static::lazy_static! {
-    static ref OPERATOR_RIGHTS_CACHE: Cache<String, (OperatorManageRights, i64)> = Cache::new(1000);
+    static ref OPERATOR_RIGHTS_CACHE: Cache<String, (OperatorRights, i64)> = Cache::new(1000);
+}
+
+/// Every operator right of a workspace, read and cached together because they share one
+/// `operator_settings` column and one invalidation. The two groups have opposite polarity:
+/// `builder_flows` is granted on request and costs a seat, the `manage` rights are held by
+/// default and cost nothing.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct OperatorRights {
+    pub builder_flows: bool,
+    pub manage: OperatorManageRights,
 }
 
 /// Writes an operator may perform unless the workspace withdraws them. Unlike the visibility
@@ -1236,7 +1246,7 @@ impl OperatorManageRights {
 ///
 /// Call it before opening an RLS transaction: it takes a connection from the root pool, and a
 /// second pooled connection held alongside a transaction self-deadlocks on a one-connection pool.
-pub async fn operator_manage_rights(db: &DB, workspace_id: &str) -> Result<OperatorManageRights> {
+pub async fn operator_rights(db: &DB, workspace_id: &str) -> Result<OperatorRights> {
     let now = chrono::Utc::now().timestamp();
 
     if let Some((rights, expiry)) = OPERATOR_RIGHTS_CACHE.get(workspace_id) {
@@ -1245,10 +1255,12 @@ pub async fn operator_manage_rights(db: &DB, workspace_id: &str) -> Result<Opera
         }
     }
 
-    // Coalesced to true, matching `OperatorManageRights::default`: an absent key means the
-    // workspace never configured the right, not that it withdrew it.
+    // The builder key defaults to false, a right the workspace has to grant; the manage keys to
+    // true, rights it has to withdraw. An absent key means "never configured" for both, so the
+    // defaults have to differ here rather than at the call sites.
     let row = sqlx::query!(
-        "SELECT COALESCE((operator_settings->>'manage_schedules')::boolean, true) AS \"schedules!\",
+        "SELECT COALESCE((operator_settings->>'builder_flows')::boolean, false) AS \"flows!\",
+                COALESCE((operator_settings->>'manage_schedules')::boolean, true) AS \"schedules!\",
                 COALESCE((operator_settings->>'manage_triggers')::boolean, true) AS \"triggers!\"
          FROM workspace_settings WHERE workspace_id = $1",
         workspace_id
@@ -1262,12 +1274,51 @@ pub async fn operator_manage_rights(db: &DB, workspace_id: &str) -> Result<Opera
     })?;
 
     let rights = row
-        .map(|r| OperatorManageRights { schedules: r.schedules, triggers: r.triggers })
+        .map(|r| OperatorRights {
+            builder_flows: r.flows,
+            manage: OperatorManageRights { schedules: r.schedules, triggers: r.triggers },
+        })
         .unwrap_or_default();
 
     OPERATOR_RIGHTS_CACHE.insert(workspace_id.to_string(), (rights, now + 60));
 
     Ok(rights)
+}
+
+pub async fn operator_manage_rights(db: &DB, workspace_id: &str) -> Result<OperatorManageRights> {
+    Ok(operator_rights(db, workspace_id).await?.manage)
+}
+
+/// Whether operators of this workspace may compose flows out of already-deployed runnables. Per
+/// workspace, not per user: every operator gets it, and consumes a full seat for it.
+pub async fn operator_can_build_flows(db: &DB, workspace_id: &str) -> Result<bool> {
+    Ok(operator_rights(db, workspace_id).await?.builder_flows)
+}
+
+/// Gate for a write only a workspace that granted builder rights lets operators perform. `action`
+/// completes "Operators cannot {action} for security reasons".
+pub async fn check_operator_can_build_flows(
+    db: &DB,
+    workspace_id: &str,
+    is_operator: bool,
+    action: &str,
+) -> Result<()> {
+    if is_operator && !operator_can_build_flows(db, workspace_id).await? {
+        return Err(Error::NotAuthorized(format!(
+            "Operators cannot {action} for security reasons"
+        )));
+    }
+    Ok(())
+}
+
+/// Whether a membership consumes an operator (half) seat rather than an author seat. A builder
+/// right makes an operator an author of deployable artifacts, so it weighs a full seat.
+pub async fn consumes_operator_seat(
+    db: &DB,
+    workspace_id: &str,
+    is_operator: bool,
+) -> Result<bool> {
+    Ok(is_operator && !operator_can_build_flows(db, workspace_id).await?)
 }
 
 /// Invalidate the operator rights cache for a workspace
