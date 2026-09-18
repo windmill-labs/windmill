@@ -7,7 +7,8 @@ use crate::ai::utils::{
     parse_raw_script_schema, update_flow_status_module_with_actions,
     update_flow_status_module_with_actions_success,
 };
-use crate::memory_oss::{read_from_memory, write_to_memory};
+use crate::memory_common::MAX_MEMORY_SIZE_BYTES;
+use crate::memory_oss::{memory_storage_capacity_bytes, read_from_memory, write_to_memory};
 use crate::worker_flow::{get_previous_job_result, get_transform_context};
 use async_recursion::async_recursion;
 use regex::Regex;
@@ -125,7 +126,7 @@ struct CompactionContext<'a> {
 }
 
 /// Compacts when the conversation has outgrown the window, billing the summarization
-/// call to the step.
+/// call to the step. Returns whether it did.
 async fn compact_if_needed(
     ctx: CompactionContext<'_>,
     query_builder: &dyn windmill_ai::query_builder::QueryBuilder,
@@ -133,10 +134,11 @@ async fn compact_if_needed(
     messages: &mut Vec<OpenAIMessage>,
     last_request: LastRequest,
     final_usage: &mut Option<TokenUsage>,
-) {
+) -> bool {
     let (Some(compactor), Some(timeout)) = (ctx.compactor, ctx.timeout) else {
-        return;
+        return false;
     };
+    let before = messages.len();
     let usage = compactor
         .maybe_compact(
             messages,
@@ -159,6 +161,8 @@ async fn compact_if_needed(
             None => *final_usage = Some(usage),
         }
     }
+    // A compaction folds several messages into one summary.
+    messages.len() < before
 }
 
 /// The inputs a linked step supplies for itself; the resource holds the rest of the brain.
@@ -1523,6 +1527,15 @@ pub async fn run_agent(
         }
         _ => None,
     };
+    // The window a persisted conversation has to fit in, when the storage is smaller
+    // than the model. The database cuts what it cannot hold from the oldest message,
+    // summary first, so a step that persists there summarizes down to it before writing.
+    let persist_window = match (&compactor, &history, effective_flow_step_id) {
+        (Some(_), HistorySource::Managed { .. }, Some(_)) => {
+            memory_storage_capacity_bytes().await.map(|bytes| bytes / 4)
+        }
+        _ => None,
+    };
     // The summarization call runs under the agent's own request timeout, which resolves
     // from the job alone and so is the same for every iteration.
     let compaction_timeout = match compactor {
@@ -2069,7 +2082,11 @@ pub async fn run_agent(
     // iteration, so this is the only compaction a chat-shaped step ever gets: without it
     // the conversation is persisted whole and every later turn reloads it, until the
     // provider refuses the request outright.
-    compact_if_needed(
+    let storage_bound = match (compactor.as_mut(), persist_window) {
+        (Some(compactor), Some(window)) => compactor.shrink_window(window),
+        _ => false,
+    };
+    let compacted = compact_if_needed(
         CompactionContext {
             compactor: compactor.as_mut(),
             timeout: compaction_timeout,
@@ -2085,6 +2102,19 @@ pub async fn run_agent(
         &mut final_usage,
     )
     .await;
+    if storage_bound && compacted {
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "No instance object storage, so the memory was summarized to fit the {}KB \
+                 the database holds rather than the model's context window.\n",
+                MAX_MEMORY_SIZE_BYTES / 1000
+            ),
+            conn,
+        )
+        .await;
+    }
 
     // Return the final result
     let final_messages: Vec<Message> = messages
@@ -2142,7 +2172,7 @@ pub async fn run_agent(
                         bound.messages_to_keep(),
                     );
 
-                    if let Err(e) = write_to_memory(
+                    match write_to_memory(
                         db,
                         &job.workspace_id,
                         *memory_id,
@@ -2151,12 +2181,33 @@ pub async fn run_agent(
                     )
                     .await
                     {
-                        tracing::error!(
-                            "Failed to persist {} messages to memory for step {}: {}",
-                            messages_to_persist.len(),
-                            step_id,
-                            e
-                        );
+                        // The conversation outgrew what the database holds and was cut
+                        // from its oldest message. Only the worker's own log says so
+                        // otherwise, so from the flow's side the agent simply starts the
+                        // next run having forgotten how this one began.
+                        Ok(dropped) if dropped > 0 => {
+                            append_logs(
+                                &job.id,
+                                &job.workspace_id,
+                                format!(
+                                    "Memory does not fit the {}KB the database holds, so its \
+                                     {dropped} oldest messages were dropped. Configure instance \
+                                     object storage to keep the whole conversation.\n",
+                                    MAX_MEMORY_SIZE_BYTES / 1000
+                                ),
+                                conn,
+                            )
+                            .await;
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to persist {} messages to memory for step {}: {}",
+                                messages_to_persist.len(),
+                                step_id,
+                                e
+                            );
+                        }
                     }
                 }
             }

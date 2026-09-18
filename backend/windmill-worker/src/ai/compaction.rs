@@ -405,6 +405,18 @@ impl Compactor {
         self.measurement_spent = false;
     }
 
+    /// Lowers the window for the passes that follow, and arms the next one: a
+    /// conversation already compacted to the wider window can still be over this one.
+    /// Returns whether the window changed.
+    pub fn shrink_window(&mut self, window: usize) -> bool {
+        if window >= self.context_window {
+            return false;
+        }
+        self.context_window = window;
+        self.measurement_spent = false;
+        true
+    }
+
     /// Summarizes the older part of `messages` in place when the conversation has
     /// crossed the trigger threshold. Returns the summarization call's own token usage
     /// so the step can bill it.

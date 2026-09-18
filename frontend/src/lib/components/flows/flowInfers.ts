@@ -102,9 +102,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 								'Tokens the model holds. Once a request fills 80% of it, the older messages are replaced by a summary and the recent ones are kept as they are. Leave empty to use the window known for the model, or 128000 for a model Windmill does not know.'
 						}
 					},
-					required: ['kind'],
-					'x-no-s3-storage-workspace-warning':
-						'Without S3 storage on the workspace, memory is kept in the database, up to 100KB per memory. A conversation that grows past it is cut from its oldest message, the summary included, before it ever reaches the context window. Configure S3 storage in your workspace settings to keep summarization in charge of what is dropped.'
+					required: ['kind']
 				}
 			],
 			showExpr: "fields.output_type !== 'image'"
