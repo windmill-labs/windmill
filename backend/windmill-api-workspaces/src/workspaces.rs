@@ -8284,6 +8284,15 @@ async fn apply_forked_datatable(
         })?,
     };
 
+    if database.resource_type == DataTableCatalogResourceType::Instance {
+        // Held until the fork commits, as every save newly naming a database takes it: none may
+        // claim the copy between the check below and this fork's entry landing on it.
+        windmill_common::datatable_roles::lock_instance_databases_governance(
+            &mut **tx,
+            [fdt.new_dbname.as_str()],
+        )
+        .await?;
+    }
     if database.resource_type == DataTableCatalogResourceType::Instance
         && !windmill_api_auth::is_super_admin_authed(db, authed).await?
     {

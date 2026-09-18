@@ -1476,6 +1476,20 @@ pub fn validate_dbname(dbname: &str) -> error::Result<()> {
 
 /// Drop a custom instance database: validate, terminate connections, DROP DATABASE, remove from global_settings.
 pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Result<()> {
+    drop_custom_instance_database_keep_entry(db, dbname).await?;
+    sqlx::query!(
+        r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
+        dbname.trim()
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// [`drop_custom_instance_database`] leaving its registry entry, for a caller holding row locks in
+/// a transaction: the registry write has to go through that transaction, as waiting on another
+/// connection for a lock the transaction's own peers hold is a deadlock Postgres cannot see.
+pub async fn drop_custom_instance_database_keep_entry(db: &DB, dbname: &str) -> error::Result<()> {
     let dbname = dbname.trim();
     validate_dbname(dbname)?;
 
@@ -1520,14 +1534,6 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
     } else {
         tracing::info!("Database '{}' does not exist, skipping drop", dbname);
     }
-
-    // Always remove from global_settings
-    sqlx::query!(
-        r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
-        dbname
-    )
-    .execute(db)
-    .await?;
 
     Ok(())
 }
