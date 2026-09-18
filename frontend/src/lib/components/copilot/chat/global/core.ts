@@ -3529,10 +3529,9 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read draft ${parsed.type} "${parsed.path}"`
 				})
-				// The draft answers in place of the deployed app, so leaving the exposure out
-				// here would report no exposure for a live app that has work in progress on it.
-				// A forked draft carries that app's policy, which is also the mode a deploy
-				// would write.
+				// The mode reported is the draft's, which is what deploying it will write. The
+				// deployed app's own mode is a different question, asked with version:
+				// "deployed", and must not be fetched here.
 				const executionMode =
 					parsed.type === 'app'
 						? await describeAppExposure(
