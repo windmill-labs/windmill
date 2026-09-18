@@ -729,18 +729,28 @@
 			: []
 	)
 
+	/** The schema a database's diagram opens on. `selected.schemaKey` follows the
+	 * tree and is only replaced once it is empty, so after a switch between
+	 * databases it can still name a schema of the previous one; it is taken only
+	 * when this database actually has it. */
+	function schemaToDraw(schema: DBSchema['schema']): string | undefined {
+		const browsed = selected.schemaKey
+		if (browsed && browsed in schema) return browsed
+		return ['public', 'dbo', 'main'].find((s) => s in schema) ?? Object.keys(schema)[0]
+	}
+
 	// Opening the diagram on an empty canvas would make it look broken, so a
-	// database's first draw is its current schema — unless that is big enough that
-	// drawing all of it is a choice the user should make. The schema and the
-	// selected schema key are read reactively: after a switch they arrive late, and
-	// counting the draw done without them is how a database ends up on a blank
-	// canvas for good.
+	// database's first draw is that schema — unless it is big enough that drawing
+	// all of it is a choice the user should make. Everything it needs is read
+	// reactively: after a switch the schema arrives late, and counting the draw
+	// done without it is how a database ends up on a blank canvas for good.
 	const DIAGRAM_AUTOSELECT_LIMIT = 40
 	$effect(() => {
 		const key = databaseKey
-		const schemaKey = selected.schemaKey
 		const schema = dbSchema.schema
-		if (viewMode !== 'diagram' || diagram.drawn || !schemaKey) return
+		if (viewMode !== 'diagram' || diagram.drawn) return
+		const schemaKey = schemaToDraw(schema)
+		if (!schemaKey) return
 		const tables = Object.keys(schema[schemaKey] ?? {})
 		if (!tables.length) return
 		untrack(() => {
