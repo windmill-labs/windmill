@@ -2018,6 +2018,69 @@ describe('global AI tools', () => {
 		})
 	})
 
+	it('tells a code app from a drag-and-drop app', async () => {
+		vi.mocked(AppService.listApps).mockResolvedValueOnce([
+			{ path: 'f/apps/code', summary: 'Code app', raw_app: true },
+			{ path: 'f/apps/builder', summary: 'Builder app' }
+		] as any)
+		// An app draft is always a code app: the chat cannot address a
+		// drag-and-drop app's draft kind at all.
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_listed',
+			{ summary: 'Draft app' },
+			{ workspace: WORKSPACE }
+		)
+
+		const rows = JSON.parse(await callGlobalTool('list_workspace_items', { types: ['app'] }))
+
+		expect(rows.map((r: any) => [r.path, r.rawApp])).toEqual([
+			['f/apps/code', true],
+			['f/apps/builder', false],
+			['u/admin/draft_listed', true]
+		])
+	})
+
+	it('still says which kind of app it is when the app is read directly', async () => {
+		// The flag decides whether the app tools are offered at all, and the model
+		// reads an app before it edits one — a listing that knows is not enough.
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
+			path: 'f/apps/builder',
+			summary: 'Builder app',
+			value: { grid: [] },
+			raw_app: false
+		} as any)
+
+		const read = JSON.parse(
+			await callGlobalTool('read_workspace_item', { type: 'app', path: 'f/apps/builder' })
+		)
+		expect(read.rawApp).toBe(false)
+	})
+
+	it('finds a staged app under the folder it was filed in, not its generated path', async () => {
+		// A never-deployed app the editor created lives at a generated path, so the
+		// folder the user filed it under exists only as its staged name. The server
+		// drops draft-only rows under any narrowing filter, leaving this pass the one
+		// that can answer a folder-scoped question about it.
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_7f21c9',
+			{ summary: '', draft_path: 'f/team/invoice_tracker' },
+			{ workspace: WORKSPACE }
+		)
+
+		const matched = JSON.parse(
+			await callGlobalTool('list_workspace_items', { types: ['app'], path_prefix: 'f/team/' })
+		)
+		expect(matched).toHaveLength(1)
+		expect(matched[0].draftPath).toBe('f/team/invoice_tracker')
+
+		const other = JSON.parse(
+			await callGlobalTool('list_workspace_items', { types: ['app'], path_prefix: 'f/other/' })
+		)
+		expect(other).toEqual([])
+	})
+
 	it('applies path_prefix to drafts before enforcing the result limit', async () => {
 		await callGlobalTool('write_script', {
 			path: 'f/other/outside',

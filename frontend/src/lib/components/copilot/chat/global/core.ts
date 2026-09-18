@@ -1421,6 +1421,7 @@ Flows:
 - Use patch_flow_json for structural flow edits and write_flow for full flow rewrites.
 
 Raw apps:
+- The app tools below only work on raw (code) apps. \`rawApp\` says which: false is a drag-and-drop app, which you can list and read but not edit or deploy. Check it before offering to change an app.
 - read_workspace_item returns app metadata only. Use read_app_file for file and inline runnable contents.
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
@@ -1526,6 +1527,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 			path: item.path,
 			summary: item.summary,
 			value: summarizeAppValue(item.value as AppDraftValue),
+			rawApp: item.rawApp,
 			isDraft: item.isDraft
 		}
 	}
@@ -1752,6 +1754,9 @@ function appToItem(app: ListableApp | AppWithLastVersion, includeValue: boolean)
 		path: app.path,
 		summary: app.summary,
 		value: includeValue ? ((app as AppWithLastVersion).value as AppDraftValue) : undefined,
+		// The server omits this flag rather than sending false, so its absence in the
+		// response is a known false — not a value this listing failed to fetch.
+		rawApp: app.raw_app ?? false,
 		isDraft: false
 	}
 }
@@ -2038,6 +2043,7 @@ async function readWorkspaceItem(
 				path: app.path,
 				summary: value.summary,
 				value: metadata as unknown as AppDraftValue,
+				rawApp: app.raw_app,
 				isDraft: false
 			}
 		}
@@ -3408,9 +3414,16 @@ export const globalTools: Tool<{}>[] = [
 			// (it filters before the cap; query filters after).
 			if ((parsed.page ?? 1) === 1) {
 				const draftCountByType = new Map<string, number>()
+				const prefix = parsed.path_prefix
 				for (const draft of await listGlobalDrafts(workspace)) {
 					if (!types.includes(draft.type)) continue
-					if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
+					// A draft's staged name is often not where it is stored: the editor parks
+					// a new script, flow or app at a generated `draft_<uuid>` path, and a
+					// rename stages the new name over the old path. The server drops
+					// draft-only rows under any narrowing filter, leaving this pass their
+					// only source, so either name has to satisfy the prefix.
+					if (prefix && !draft.path.startsWith(prefix) && !draft.draftPath?.startsWith(prefix))
+						continue
 					const count = draftCountByType.get(draft.type) ?? 0
 					if (count >= limit) continue
 					draftCountByType.set(draft.type, count + 1)
