@@ -611,6 +611,7 @@ export async function deployItem(
             value: variable.value ?? "",
             is_secret: variable.is_secret,
             description: variable.description ?? "",
+            labels: variable.labels,
           },
           alreadyEncrypted: false,
         });
@@ -622,6 +623,7 @@ export async function deployItem(
             value: variable.value ?? "",
             is_secret: variable.is_secret,
             description: variable.description ?? "",
+            labels: variable.labels,
           },
         });
       }
@@ -638,6 +640,7 @@ export async function deployItem(
             path,
             value: resource.value ?? "",
             description: resource.description ?? "",
+            labels: resource.labels,
           },
         });
       } else {
@@ -648,6 +651,7 @@ export async function deployItem(
             value: resource.value ?? "",
             resource_type: resource.resource_type,
             description: resource.description ?? "",
+            labels: resource.labels,
           },
         });
       }
@@ -689,6 +693,7 @@ export async function deployItem(
             owners: folder.owners,
             extra_perms: folder.extra_perms,
             summary: folder.summary ?? undefined,
+            labels: folder.labels,
           },
         });
       } else {
@@ -699,6 +704,7 @@ export async function deployItem(
             owners: folder.owners,
             extra_perms: folder.extra_perms,
             summary: folder.summary ?? undefined,
+            labels: folder.labels,
           },
         });
       }
