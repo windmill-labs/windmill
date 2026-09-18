@@ -12,6 +12,11 @@ export type DiffVersionOption = {
 	isHead?: boolean
 }
 
+/** How many deployed versions the diff picker asks for at a time. The history endpoints
+ *  still answer whole when nobody asks — the panels and the CLI read them that way — so
+ *  this is the picker's own appetite, not their default. */
+export const VERSION_PAGE_SIZE = 20
+
 export type DiffDrawerDiff =
 	| {
 			mode: 'normal'

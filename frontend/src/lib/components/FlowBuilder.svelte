@@ -10,6 +10,7 @@
 		type Job
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history.svelte'
+	import { VERSION_PAGE_SIZE } from '$lib/components/diff_drawer'
 	import {
 		clearLinkedAgentTools,
 		linkedAgentToolsForScope,
@@ -1141,7 +1142,12 @@
 		const path = userDraftPath || initialPath
 		if (!opWorkspace || !path) return undefined
 		try {
-			const history = await FlowService.getFlowHistory({ workspace: opWorkspace, path, page })
+			const history = await FlowService.getFlowHistory({
+				workspace: opWorkspace,
+				path,
+				page,
+				perPage: VERSION_PAGE_SIZE
+			})
 			// Head is the version the payload beside this list came from, not whatever the
 			// history now leads with: a deploy landing between the two fetches would
 			// otherwise label the shown (older) value as the latest.

@@ -13,6 +13,7 @@
 		WorkerService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
+	import { VERSION_PAGE_SIZE } from '$lib/components/diff_drawer'
 	import {
 		initialCode,
 		canHavePreprocessor,
@@ -849,7 +850,8 @@
 			const history = await ScriptService.getScriptHistoryByPath({
 				workspace: opWorkspace,
 				path: userDraftPath,
-				page
+				page,
+				perPage: VERSION_PAGE_SIZE
 			})
 			// The hash identifies the version — it is what the API and the CLI speak — and
 			// who deployed it drops to the subtitle. No ordinal: the list arrives a page at

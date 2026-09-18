@@ -39,6 +39,7 @@
 	import DeploymentHistory from '../apps/editor/DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import { VERSION_PAGE_SIZE } from '$lib/components/diff_drawer'
 
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
@@ -438,7 +439,8 @@
 			const history = await AppService.getAppHistoryByPath({
 				workspace: opWorkspace,
 				path: appPath,
-				page
+				page,
+				perPage: VERSION_PAGE_SIZE
 			})
 			// Head is the version the payload beside this list came from; see FlowBuilder.
 			const head = deployedVersionShown ?? history[0]?.version

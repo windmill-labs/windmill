@@ -105,8 +105,9 @@
 	export function abandonOpening(token: number) {
 		if (token !== openingToken) return
 		openingToken++
-		// The version load in flight, if any, belongs to the diff being dropped.
+		// The version load and the page in flight, if any, belong to the diff being dropped.
 		versionLoadGeneration++
+		versionListGeneration++
 		loadingVersion = false
 		data = undefined
 		diffType = undefined
@@ -142,6 +143,11 @@
 	 *  generation is stale — a slower earlier pick, or one outlived by a drawer reset —
 	 *  and neither replaces the diff nor clears the spinner, which `disabled` rides on. */
 	let versionLoadGeneration = 0
+	/** Counted separately from `versionLoadGeneration`: only a diff replacing this one
+	 *  invalidates a page in flight. Picking a version while one loads is not a reason to
+	 *  drop it — the editor's cursor has already moved past that page, so discarding it
+	 *  would skip it until the drawer is reopened. */
+	let versionListGeneration = 0
 	/** Pages of `versions` fetched after the first. Kept beside `data` so a diff swapped in
 	 *  by a newer opening drops them along with the list they extended. */
 	let extraVersions: DiffVersionOption[] = $state([])
@@ -158,12 +164,12 @@
 	async function fetchMoreVersions() {
 		if (!moreLoader || loadingMore) return
 		loadingMore = true
-		const generation = versionLoadGeneration
+		const generation = versionListGeneration
 		try {
 			const more = await moreLoader()
 			// A diff swapped in while this ran owns the picker now; appending would splice
 			// one item's history onto another's.
-			if (generation !== versionLoadGeneration) return
+			if (generation !== versionListGeneration) return
 			if (more?.length) {
 				extraVersions = [...extraVersions, ...more]
 			} else {
@@ -171,7 +177,7 @@
 				moreLoader = undefined
 			}
 		} catch (e: any) {
-			if (generation === versionLoadGeneration) {
+			if (generation === versionListGeneration) {
 				sendUserToast(`Could not load older versions: ${e?.body ?? e?.message ?? e}`, true)
 			}
 		} finally {
@@ -294,8 +300,9 @@
 			moreLoader = loadMoreVersions
 			headLabel = deployedLabel
 			headDeployed = !deployed.draft_only ? prepareDiff(deployed) : undefined
-			// A load still in flight belongs to the diff being replaced.
+			// A load or page still in flight belongs to the diff being replaced.
 			versionLoadGeneration++
+			versionListGeneration++
 			loadingVersion = false
 			extraVersions = []
 			loadingMore = false

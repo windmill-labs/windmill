@@ -69,9 +69,8 @@ use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
-        http_get_from_hub, not_found_if_none, paginate, paginate_with_default,
+        http_get_from_hub, not_found_if_none, paginate, paginate_without_limits,
         query_elems_from_hub, require_admin, strip_json_nul, Pagination, RunnableKind, StripPath,
-        HISTORY_PER_PAGE,
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
@@ -1242,26 +1241,35 @@ async fn get_app_history(
 ) -> JsonResult<Vec<AppHistory>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:read:{}", &path))?;
-    let (per_page, offset) = paginate_with_default(pagination, HISTORY_PER_PAGE);
+    // Unasked-for, this listing stays whole: the deployment-history panel reads it
+    // without paging. The diff picker asks for a page.
+    let (per_page, offset) = paginate_without_limits(pagination);
     let mut tx = user_db.begin(&authed).await?;
-    // Newest first in the order the versions were deployed, which the picker numbers
-    // (`v1`, `v2`, …) and reads the head off. That is the position in `app.versions`,
-    // not `created_at`: the latter is the deploying transaction's start time, so two
-    // that overlap can carry it in the opposite order from the one they landed in. A
-    // version absent from the array (restored from trash, copied by a fork) never sat
-    // in that sequence, so it trails the ones that did.
+    // Newest first in the order the versions were deployed, which is their position in
+    // `app.versions` and not `created_at`: the latter is the deploying transaction's
+    // start time, so two that overlap can carry it in the opposite order from the one
+    // they landed in. Paging happens inside the array, before the joins, so a page costs
+    // its own rows rather than every version the path ever had.
     let query_result = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg,
                 av.created_by as created_by, av.created_at as created_at
-        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
+        FROM app a
+        JOIN LATERAL (
+            SELECT v.id, v.ord FROM unnest(a.versions) WITH ORDINALITY AS v(id, ord)
+            ORDER BY v.ord DESC
+            LIMIT $3 OFFSET $4
+        ) page ON TRUE
+        JOIN app_version av ON av.id = page.id AND av.app_id = a.id
+        LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
         WHERE a.workspace_id = $1 AND a.path = $2
-        ORDER BY array_position(a.versions, av.id) DESC NULLS LAST, av.id DESC
-        LIMIT $3 OFFSET $4",
+        ORDER BY page.ord DESC",
         w_id,
         path,
         per_page as i64,
         offset as i64,
-    ).fetch_all(&mut *tx).await?;
+    )
+    .fetch_all(&mut *tx)
+    .await?;
     tx.commit().await?;
 
     let result: Vec<AppHistory> = query_result

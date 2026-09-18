@@ -479,21 +479,6 @@ pub fn paginate(pagination: Pagination) -> (usize, usize) {
     (per_page, offset)
 }
 
-/// What one page of a deploy history holds when the caller asks for no size. The
-/// picker that reads these shows a screenful and fetches the next page on demand;
-/// a path a pipeline deploys carries far more versions than anyone scrolls.
-pub const HISTORY_PER_PAGE: usize = 20;
-
-/// [`paginate`] for a listing whose unasked-for page should be smaller than the generic
-/// default — a version history behind a picker, where a path deployed by CI carries
-/// thousands of entries and only the first screenful is ever read.
-pub fn paginate_with_default(pagination: Pagination, default_per_page: usize) -> (usize, usize) {
-    paginate(Pagination {
-        per_page: Some(pagination.per_page.unwrap_or(default_per_page)),
-        ..pagination
-    })
-}
-
 pub fn paginate_without_limits(pagination: Pagination) -> (usize, usize) {
     let per_page = pagination.per_page.unwrap_or(MAX_PER_PAGE);
     let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;

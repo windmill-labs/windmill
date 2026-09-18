@@ -73,10 +73,7 @@ use windmill_common::{
     },
     triggers::MovedNativeTrigger,
     users::username_to_permissioned_as,
-    utils::{
-        not_found_if_none, paginate_with_default, query_elems_from_hub, require_admin, Pagination,
-        StripPath, HISTORY_PER_PAGE,
-    },
+    utils::{not_found_if_none, query_elems_from_hub, require_admin, Pagination, StripPath},
     worker::to_raw_value,
     HUB_BASE_URL,
 };
@@ -3095,7 +3092,9 @@ async fn get_script_history(
 ) -> JsonResult<Vec<ScriptHistory>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
-    let (per_page, offset) = paginate_with_default(pagination, HISTORY_PER_PAGE);
+    // Unasked-for, this listing stays whole: the deployment-history panels, the restart
+    // picker and the CLI all read it without paging. The diff picker asks for a page.
+    let (per_page, offset) = paginate_without_limits(pagination);
     let mut tx = user_db.begin(&authed).await?;
     let query_result = sqlx::query!(
         "SELECT s.hash as hash, dm.deployment_msg as deployment_msg, s.created_at as created_at, s.created_by as created_by
