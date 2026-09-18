@@ -38,7 +38,7 @@ use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{
-    build_crypt, decrypt, encrypt, SECRET_SALT, WORKSPACE_CRYPT_CACHE,
+    crypt_from_key_with_suffix, decrypt, encrypt, WORKSPACE_CRYPT_CACHE,
 };
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::workspaces::GitRepositorySettings;
@@ -5690,9 +5690,6 @@ async fn set_encryption_key(
         ));
     }
 
-    // Build the previous cipher before the transaction (reads from cache/pool)
-    let previous_encryption_key = build_crypt(&db, w_id.as_str()).await?;
-
     let mut tx = db.begin().await?;
 
     // Under the row's lock, so two rotations racing serialize and each sees the key the
@@ -5726,17 +5723,14 @@ async fn set_encryption_key(
         None
     };
 
+    // From the keys read and written under the lock, never from `build_crypt`: its
+    // cache can still hold a key an earlier rotation replaced, and the git-sync
+    // secrets below are skipped rather than failed when they do not decrypt.
+    let previous_encryption_key = crypt_from_key_with_suffix(&previous_key, "");
+    let new_encryption_key = crypt_from_key_with_suffix(&request.new_key, "");
+
     let mut reencrypted_secret_paths: Vec<String> = Vec::new();
     if !request.skip_reencrypt.unwrap_or(false) {
-        // Build the new cipher directly from the key string, since the transaction
-        // hasn't committed yet and build_crypt() would read the old key from the pool.
-        let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
-            format!("{}{}", request.new_key, salt)
-        } else {
-            request.new_key.clone()
-        };
-        let new_encryption_key = magic_crypt::new_magic_crypt!(crypt_key, 256);
-
         let mut truncated_new_key = request.new_key.clone();
         truncated_new_key.truncate(8);
         tracing::warn!(
@@ -5776,6 +5770,14 @@ async fn set_encryption_key(
         }
     }
 
+    reencrypt_git_sync_secrets(
+        &mut tx,
+        &w_id,
+        &previous_encryption_key,
+        &new_encryption_key,
+    )
+    .await?;
+
     tx.commit().await?;
 
     // Invalidate the cache only after the transaction has committed
@@ -5811,6 +5813,64 @@ async fn set_encryption_key(
     .await?;
 
     return Ok(());
+}
+
+/// Move the git-sync secrets the server keeps under the workspace key (stored
+/// repository tokens, webhook secrets) to the new key. They are never synced, so
+/// unlike variables they are still under the old key when the caller skips
+/// re-encryption.
+async fn reencrypt_git_sync_secrets(
+    conn: &mut sqlx::PgConnection,
+    w_id: &str,
+    old: &magic_crypt::MagicCrypt256,
+    new: &magic_crypt::MagicCrypt256,
+) -> Result<()> {
+    let Some((mut credentials, mut git_sync)) =
+        sqlx::query_as::<_, (serde_json::Value, Option<serde_json::Value>)>(
+            "SELECT git_credentials, git_sync FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
+        )
+        .bind(w_id)
+        .fetch_optional(&mut *conn)
+        .await?
+    else {
+        return Ok(());
+    };
+    let reencrypt = |value: &mut serde_json::Value| {
+        let Some(ciphertext) = value.as_str() else {
+            return;
+        };
+        match decrypt(old, ciphertext.to_string()) {
+            Ok(plain) => *value = serde_json::Value::String(encrypt(new, &plain)),
+            // Left by an earlier rotation and unrecoverable either way; failing here
+            // would block every later rotation of the workspace.
+            Err(e) => tracing::warn!(
+                "a git-sync secret of workspace {w_id} does not decrypt under its current key, leaving it as is: {e}"
+            ),
+        }
+    };
+    for entry in credentials.as_array_mut().into_iter().flatten() {
+        if let Some(token) = entry.get_mut("token") {
+            reencrypt(token);
+        }
+    }
+    let repositories = git_sync
+        .as_mut()
+        .and_then(|g| g.get_mut("repositories"))
+        .and_then(|r| r.as_array_mut());
+    for repo in repositories.into_iter().flatten() {
+        if let Some(secret) = repo.pointer_mut("/auto_pull/webhook_secret") {
+            reencrypt(secret);
+        }
+    }
+    sqlx::query(
+        "UPDATE workspace_settings SET git_credentials = $2, git_sync = $3 WHERE workspace_id = $1",
+    )
+    .bind(w_id)
+    .bind(credentials)
+    .bind(git_sync)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
 }
 
 #[derive(Serialize)]
