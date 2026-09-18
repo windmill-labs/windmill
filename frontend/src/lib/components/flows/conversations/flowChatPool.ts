@@ -27,6 +27,9 @@ export function isBusy(status: ChatState['status']): boolean {
 	return status === 'submitted' || status === 'streaming'
 }
 
+/** Reads of one run that may fail before its row stops saying the turn is running. */
+const POLL_GIVE_UP = 3
+
 /** What a conversation's row says about it. */
 export type ConversationActivity = 'running' | 'error' | 'idle'
 
@@ -49,8 +52,9 @@ export interface FlowChatPoolOptions<H> {
 	createChat(): Chat
 	createHost(chat: Chat): H
 	disposeHost(host: H): void
-	/** Whether a message typed during the turn waits in the host to go out. */
-	hasQueued(host: H): boolean
+	/** Whether the host holds text that was typed and never sent: queued behind the turn,
+	 * or handed back by a turn that refused it. Such a chat is never released. */
+	hasUnsentDraft(host: H): boolean
 	/** Follows a turn another page started, through the host so what it queues waits for it. */
 	resumeTurn(host: H, turn: RunningTurn): void
 	/** Whether a run has ended, for a running conversation this page holds no chat for. */
@@ -87,6 +91,8 @@ export class FlowChatPool<H> {
 	#draft: Entry<H> | undefined
 	/** Turns running in conversations this pool is not following, as the list reported them. */
 	readonly #running = new Map<string, RunningTurn>()
+	/** Failed reads in a row, per conversation, for a run this pool has no chat for. */
+	readonly #pollFailures = new Map<string, number>()
 	readonly #unread = new Map<string, number>()
 	readonly #listeners = new Set<(state: FlowChatPoolState) => void>()
 	#selectedId: string | undefined
@@ -226,7 +232,14 @@ export class FlowChatPool<H> {
 			if (this.#selectedId === undefined) this.#selectedId = state.conversationId
 		}
 		const id = state.conversationId
-		if (id === undefined) return
+		if (id === undefined) {
+			// The chat gave its conversation back: a new chat's first message never ran, so the
+			// conversation the id named was never created. Held under that id, the entry would
+			// answer for a conversation that does not exist and mint a second one on the next
+			// message, so it goes back to being the chat a new conversation starts on.
+			if (entry !== this.#draft) this.#undoNewConversation(entry)
+			return
+		}
 		const busy = isBusy(state.status)
 		if (busy) this.#running.delete(id)
 		else if (entry.busy) entry.settledAt = ++this.#clock
@@ -244,6 +257,21 @@ export class FlowChatPool<H> {
 		this.#publish()
 	}
 
+	/** Takes an entry back out of the list of conversations, as the chat that starts one. */
+	#undoNewConversation(entry: Entry<H>): void {
+		for (const [key, held] of this.#entries) {
+			if (held !== entry) continue
+			this.#entries.delete(key)
+			this.#unread.delete(key)
+			this.#running.delete(key)
+			if (this.#selectedId === key) this.#selectedId = undefined
+		}
+		// A new chat opened meanwhile is the draft now; this one has nothing left to show.
+		if (this.#draft) this.#release(entry)
+		else this.#draft = entry
+		this.#publish()
+	}
+
 	#activity(id: string): ConversationActivity {
 		const state = this.#entries.get(id)?.chat.getState()
 		if (this.#running.has(id) || (state && isBusy(state.status))) return 'running'
@@ -257,7 +285,7 @@ export class FlowChatPool<H> {
 			([id, entry]) =>
 				id !== this.#selectedId &&
 				!isBusy(entry.chat.getState().status) &&
-				!this.#options.hasQueued(entry.host)
+				!this.#options.hasUnsentDraft(entry.host)
 		)
 		settled.sort(([, a], [, b]) => b.lastShownAt - a.lastShownAt)
 		for (const [id, entry] of settled.slice(this.#options.keepSettled ?? 5)) {
@@ -285,8 +313,24 @@ export class FlowChatPool<H> {
 	async #pollRuns(): Promise<void> {
 		await Promise.all(
 			[...this.#running].map(async ([id, turn]) => {
-				const finished = await this.#options.isRunFinished(turn.jobId).catch(() => false)
-				if (finished && this.#running.get(id) === turn) this.#running.delete(id)
+				const finished = await this.#options
+					.isRunFinished(turn.jobId)
+					.then((done) => {
+						this.#pollFailures.delete(id)
+						return done
+					})
+					.catch(() => {
+						// A run whose job cannot be read — purged, refused, gone — would otherwise
+						// keep its row running and its poll going for the life of the page. After a
+						// few tries the row goes quiet; opening the conversation reads its rows.
+						const failures = (this.#pollFailures.get(id) ?? 0) + 1
+						this.#pollFailures.set(id, failures)
+						return failures >= POLL_GIVE_UP
+					})
+				if (finished && this.#running.get(id) === turn) {
+					this.#running.delete(id)
+					this.#pollFailures.delete(id)
+				}
 			})
 		)
 		if (this.#destroyed) return

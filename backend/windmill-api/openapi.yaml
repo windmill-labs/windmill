@@ -11286,6 +11286,11 @@ paths:
           content:
             application/json:
               schema: {}
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run_wait_result/fv/{version}:
     post:
@@ -11326,6 +11331,11 @@ paths:
           content:
             application/json:
               schema: {}
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
     get:
       summary: run flow by version with GET and wait until completion
@@ -14985,6 +14995,11 @@ paths:
               schema:
                 type: string
                 format: uuid
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run/batch_rerun_jobs:
     post:
@@ -15512,6 +15527,11 @@ paths:
           content:
             application/json:
               schema: {}
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run/dynamic_select:
     post:

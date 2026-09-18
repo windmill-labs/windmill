@@ -540,7 +540,7 @@ export class FlowChatViewHost implements ChatViewHost {
 	 * does. This host outlives the panel, so a turn that refuses its message after the reader
 	 * has moved on has nowhere to put it back until then.
 	 */
-	#returned: Queue = emptyQueue()
+	#returned = $state<Queue>(emptyQueue())
 	#returnDraft(text: string, images: AttachedImage[] = [], blobs: AttachedBlob[] = []) {
 		if (this.#aiChatInput) {
 			this.#aiChatInput.prependText(text, images, [], blobs)
@@ -558,6 +558,15 @@ export class FlowChatViewHost implements ChatViewHost {
 	#queue = $state<Queue>(emptyQueue())
 	get queuedMessage(): string {
 		return this.#queue.text
+	}
+	/**
+	 * Something typed here has not been sent: waiting for the turn, or handed back by a turn
+	 * that refused it while no composer was mounted to take it. Either way this host is the
+	 * only place it exists, so nothing may release it.
+	 */
+	get hasUnsentDraft(): boolean {
+		const held = [this.#queue, this.#returned]
+		return held.some((q) => q.text !== '' || q.images.length > 0 || q.blobs.length > 0)
 	}
 	queuedContext = undefined
 	get queuedImages(): AttachedImage[] {

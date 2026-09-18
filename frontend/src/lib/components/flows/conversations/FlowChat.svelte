@@ -122,7 +122,7 @@
 			createChat: () => createChat(options),
 			createHost: (chat) => new FlowChatViewHost(chat),
 			disposeHost: (host) => host.dispose(),
-			hasQueued: (host) => host.queuedMessage !== '',
+			hasUnsentDraft: (host) => host.hasUnsentDraft,
 			resumeTurn: (host, turn) => host.resumeTurn(turn),
 			isRunFinished: async (jobId) => (await api.getCompletedResult(jobId)).completed
 		})

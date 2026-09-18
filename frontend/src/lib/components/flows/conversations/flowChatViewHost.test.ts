@@ -475,9 +475,12 @@ describe('FlowChatViewHost', () => {
 		const host = new FlowChatViewHost(chat)
 		host.queueMessage('typed before leaving')
 		host.cancel()
+		// Held by the host alone until a composer takes it, so the pool must not release it.
+		expect(host.hasUnsentDraft).toBe(true)
 		const prependText = vi.fn()
 		host.setAiChatInput({ prependText } as any)
 		expect(prependText).toHaveBeenCalledWith('typed before leaving', [], [], [])
+		expect(host.hasUnsentDraft).toBe(false)
 		host.dispose()
 	})
 

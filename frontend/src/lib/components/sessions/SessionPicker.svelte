@@ -802,7 +802,7 @@
 													{#if draft}
 														<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
 													{/if}
-													<UnreadCountBadge count={unread} />
+													<UnreadCountBadge count={unread} class="min-w-4 h-4 text-[10px]" />
 												</span>
 											{/if}
 										</MenuItem>
@@ -1069,7 +1069,7 @@
 										{#if draft}
 											<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
 										{/if}
-										<UnreadCountBadge count={unread} />
+										<UnreadCountBadge count={unread} class="min-w-4 h-4 text-[10px]" />
 									</span>
 								{/if}
 							</button>

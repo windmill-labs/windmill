@@ -53,7 +53,11 @@ function conversation(id: string, extra: Partial<Conversation> = {}): Conversati
 }
 
 function pool(
-	options: { keepSettled?: number; isRunFinished?: (jobId: string) => Promise<boolean> } = {}
+	options: {
+		keepSettled?: number
+		isRunFinished?: (jobId: string) => Promise<boolean>
+		hasUnsentDraft?: (host: { chat: Chat }) => boolean
+	} = {}
 ) {
 	const chats: ReturnType<typeof fakeChat>[] = []
 	const hosts = { resumeTurn: vi.fn(), dispose: vi.fn() }
@@ -65,14 +69,15 @@ function pool(
 		},
 		createHost: (chat) => ({ chat }),
 		disposeHost: hosts.dispose,
-		hasQueued: () => false,
+		hasUnsentDraft: options.hasUnsentDraft ?? (() => false),
 		resumeTurn: (host, turn) => hosts.resumeTurn(host.chat, turn),
 		isRunFinished: options.isRunFinished ?? (async () => false),
 		keepSettled: options.keepSettled,
 		pollMs: 10
 	})
 	const chatOf = (id: string) => chats.find((c) => c.chat.getState().conversationId === id)!
-	return { pool: created, chatOf, hosts }
+	const fakeOf = (chat: Chat) => chats.find((c) => c.chat === chat)!
+	return { pool: created, chatOf, fakeOf, hosts }
 }
 
 describe('FlowChatPool', () => {
@@ -134,6 +139,44 @@ describe('FlowChatPool', () => {
 
 		p.select('a')
 		expect(chatOf('a').chat.refreshMessages).toHaveBeenCalledTimes(1)
+		p.destroy()
+	})
+
+	it('takes a chat back as the new one when its first message never ran', () => {
+		const { pool: p, fakeOf } = pool()
+		const draft = p.selected
+		const { set } = fakeOf(draft.chat)
+		// A new chat's first message names its conversation, then is withdrawn: the upload
+		// failed, or Stop was pressed while it ran, so that conversation was never created.
+		set({ conversationId: 'new-1' })
+		expect(p.getState().selectedId).toBe('new-1')
+		set({ conversationId: undefined })
+		expect(p.getState().selectedId).toBeUndefined()
+		expect(p.get('new-1')).toBeUndefined()
+		expect(p.getState().activity).toEqual({})
+		// The next message mints its own id on that same chat, and the pool follows it there.
+		expect(p.selected).toBe(draft)
+		set({ conversationId: 'new-2' })
+		expect(p.getState().selectedId).toBe('new-2')
+		expect(p.get('new-2')).toBe(draft)
+		p.destroy()
+	})
+
+	it('keeps a settled chat that still holds something typed and never sent', () => {
+		let held = ''
+		const { pool: p, chatOf } = pool({
+			keepSettled: 1,
+			hasUnsentDraft: (host) => host.chat.getState().conversationId === held
+		})
+		p.select('typed')
+		held = 'typed'
+		for (const id of ['b', 'c', 'd']) p.select(id)
+		expect(p.get('typed')).toBeDefined()
+		expect(chatOf('typed').chat.destroy).not.toHaveBeenCalled()
+		// Once it is sent or taken back, the chat is releasable like any other.
+		held = ''
+		p.select('e')
+		expect(p.get('typed')).toBeUndefined()
 		p.destroy()
 	})
 

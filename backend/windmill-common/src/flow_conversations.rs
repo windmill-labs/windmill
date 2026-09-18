@@ -144,6 +144,12 @@ async fn refuse_running_turn(
     ))
 }
 
+/// The running turn of each of `conversation_ids` that has one.
+///
+/// It answers for whatever ids it is given and checks no permission of its own, so the
+/// executor must be one the caller is entitled to read those conversations through: a
+/// `user_db` transaction under RLS, or a transaction holding ids the caller has already
+/// authorized. Handed a raw pool and ids from a request, it would report other users' jobs.
 pub async fn running_turns<'e, E: sqlx::PgExecutor<'e>>(
     executor: E,
     conversation_ids: &[Uuid],
