@@ -1265,8 +1265,8 @@ async fn get_app_history(
         ORDER BY page.ord DESC",
         w_id,
         path,
-        per_page as i64,
-        offset as i64,
+        per_page,
+        offset,
     )
     .fetch_all(&mut *tx)
     .await?;

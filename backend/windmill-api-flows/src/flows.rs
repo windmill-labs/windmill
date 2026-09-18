@@ -949,8 +949,8 @@ async fn get_flow_history(
         LIMIT $3 OFFSET $4",
         path,
         w_id,
-        per_page as i64,
-        offset as i64,
+        per_page,
+        offset,
     )
     .fetch_all(&mut *tx)
     .await?;

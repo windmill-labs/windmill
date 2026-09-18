@@ -3104,8 +3104,8 @@ async fn get_script_history(
         LIMIT $3 OFFSET $4",
         w_id,
         path,
-        per_page as i64,
-        offset as i64,
+        per_page,
+        offset,
     )
     .fetch_all(&mut *tx)
     .await?;

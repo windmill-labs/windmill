@@ -483,17 +483,18 @@ pub fn paginate(pagination: Pagination) -> (usize, usize) {
 /// histories, which the history panels and the CLI read unpaged while the diff picker takes
 /// a page at a time. An asked-for size is still clamped, and the offset saturates rather
 /// than wrapping, so no caller can turn this into an unbounded scan or a negative bind.
-pub fn paginate_optional(pagination: Pagination) -> (usize, usize) {
-    let per_page = pagination
-        .per_page
-        .unwrap_or(MAX_PER_PAGE)
-        .max(1)
-        .min(MAX_PER_PAGE);
-    let offset = pagination
-        .page
-        .unwrap_or(1)
-        .max(1)
-        .saturating_sub(1)
+pub fn paginate_optional(pagination: Pagination) -> (i64, i64) {
+    let per_page: i64 = match pagination.per_page {
+        // An asked-for size is capped, so no caller turns this into an unbounded scan.
+        Some(p) => p.clamp(1, MAX_PER_PAGE) as i64,
+        // Nothing asked for: the whole listing. `LIMIT i64::MAX` is every row there can
+        // be, which is the contract these endpoints have always answered on.
+        None => i64::MAX,
+    };
+    // Bound before Postgres sees it: an unchecked cast of a caller-controlled page turns
+    // into a negative OFFSET, which is an error rather than an empty page.
+    let offset = i64::try_from(pagination.page.unwrap_or(1).max(1) - 1)
+        .unwrap_or(i64::MAX)
         .saturating_mul(per_page);
     (per_page, offset)
 }
@@ -1678,11 +1679,11 @@ mod tests {
 
     #[test]
     fn test_paginate_optional_answers_whole_but_bounds_what_is_asked_for() {
-        // Nothing asked for: the whole listing, which is what the history panels and the
-        // CLI read.
+        // Nothing asked for: every row there can be, which is what the history panels and
+        // the CLI read.
         assert_eq!(
             paginate_optional(Pagination { page: None, per_page: None }),
-            (MAX_PER_PAGE, 0)
+            (i64::MAX, 0)
         );
         assert_eq!(
             paginate_optional(Pagination { page: Some(3), per_page: Some(20) }),
@@ -1691,14 +1692,14 @@ mod tests {
         // An asked-for size is still capped, so no caller turns this into an unbounded scan.
         assert_eq!(
             paginate_optional(Pagination { page: None, per_page: Some(usize::MAX) }),
-            (MAX_PER_PAGE, 0)
+            (MAX_PER_PAGE as i64, 0)
         );
-        // And the offset saturates instead of wrapping into a negative bind.
-        assert_eq!(
-            paginate_optional(Pagination { page: Some(usize::MAX), per_page: Some(20) }).0,
-            20
-        );
-        assert!(paginate_optional(Pagination { page: Some(usize::MAX), per_page: Some(20) }).1 > 0);
+        // A page nobody could mean lands past the end rather than going negative, which
+        // Postgres would reject outright.
+        let (per_page, offset) =
+            paginate_optional(Pagination { page: Some(usize::MAX), per_page: Some(20) });
+        assert_eq!(per_page, 20);
+        assert_eq!(offset, i64::MAX);
     }
 
     /// A 5-field crontab line is the most common way to get a schedule rejected, and both
