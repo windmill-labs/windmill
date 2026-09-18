@@ -40,6 +40,27 @@ const AUDIT_OPERATION_INDEX_KEY: &str = r#"(workspace_id, operation, id DESC, "t
 async fn create_audit_operation_index_concurrently(
     conn: &mut PgConnection,
 ) -> Result<(), MigrateError> {
+    // list_audit reads the legacy table too, which holds up to a retention period of rows
+    // written before partitioning.
+    let legacy_valid: Option<bool> = sqlx::query_scalar(
+        "SELECT indisvalid FROM pg_index
+         WHERE indexrelid = to_regclass('ix_audit_workspace_operation')",
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+    if legacy_valid != Some(true) {
+        conn.execute("DROP INDEX CONCURRENTLY IF EXISTS ix_audit_workspace_operation")
+            .await?;
+        conn.execute(
+            format!(
+                "CREATE INDEX CONCURRENTLY ix_audit_workspace_operation \
+                 ON audit {AUDIT_OPERATION_INDEX_KEY}"
+            )
+            .as_str(),
+        )
+        .await?;
+    }
+
     conn.execute(
         format!(
             "CREATE INDEX IF NOT EXISTS ix_audit_partitioned_workspace_operation \
@@ -61,7 +82,9 @@ async fn create_audit_operation_index_concurrently(
     .await?;
     let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
     for partition in partitions {
-        let index = quote(&format!("{partition}_workspace_id_operation_id_timestamp_idx"));
+        let index = quote(&format!(
+            "{partition}_workspace_id_operation_id_timestamp_idx"
+        ));
         tracing::info!("Building ix_audit_partitioned_workspace_operation on {partition}");
         // An interrupted CONCURRENTLY build leaves an invalid index under this name.
         conn.execute(format!("DROP INDEX CONCURRENTLY IF EXISTS {index}").as_str())
