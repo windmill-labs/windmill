@@ -114,6 +114,7 @@ pub(crate) async fn read_external_instance_pg_state<'c>(
     }
 }
 
+/// Authorization: reads the hidden cluster state and checks nothing. Callers MUST be superadmin.
 pub async fn external_instance_pg_status(db: &DB) -> Result<ExternalInstancePgStatus> {
     let configured = read_external_instance_pg_config(db).await?.is_some();
     let state = read_external_instance_pg_state(db).await?;
@@ -127,7 +128,7 @@ pub async fn external_instance_pg_status(db: &DB) -> Result<ExternalInstancePgSt
 /// Refuse to unset the cluster while Windmill still has databases on it: every data table and
 /// Ducklake catalog there would stop resolving. Allowed on every edition, so a downgraded
 /// instance can still clear a setting it no longer uses.
-pub async fn ensure_external_instance_pg_removable(db: &DB) -> Result<()> {
+async fn ensure_external_instance_pg_removable(db: &DB) -> Result<()> {
     let state = read_external_instance_pg_state(db).await?;
     if state.databases.is_empty() {
         return Ok(());
@@ -147,6 +148,9 @@ pub async fn ensure_external_instance_pg_removable(db: &DB) -> Result<()> {
 /// Check a write to [`EXTERNAL_INSTANCE_PG_SETTING`] before it happens: `None`, null or an empty
 /// string unsets it. Every writer of global settings calls this, the per-key and bulk endpoints
 /// as well as the declarative sync.
+///
+/// Authorization: reads the hidden cluster state and names the databases on the cluster in its
+/// refusal. Callers MUST be superadmin or an internal server path writing global settings.
 pub async fn check_external_instance_pg_write(
     db: &DB,
     value: Option<&serde_json::Value>,
