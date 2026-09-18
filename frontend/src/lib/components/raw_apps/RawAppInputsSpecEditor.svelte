@@ -14,9 +14,14 @@
 	import type { InputType } from '../apps/inputType'
 	import Select from '$lib/components/select/Select.svelte'
 	import { userStore } from '$lib/stores'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 	let opWs = $derived($operatingWorkspace)
 
 	// Build ctx properties with current user's actual values
@@ -30,7 +35,7 @@
 		{
 			value: 'groups',
 			label: 'Groups',
-			subtitle: `string[] — ${JSON.stringify($userStore?.groups ?? [])}`
+			subtitle: `string[] — ${JSON.stringify(actingUser?.groups ?? [])}`
 		},
 		{
 			value: 'workspace',

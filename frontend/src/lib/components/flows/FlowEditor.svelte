@@ -40,10 +40,14 @@
 	import FlowPanelPlacementPicker from './common/FlowPanelPlacementPicker.svelte'
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
-	import { userStore } from '$lib/stores'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 	const { flowStore, selectionManager, pathStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	// Flow paths repeat across workspaces, and a session keeps every tab it has visited alive, so two
@@ -407,7 +411,7 @@
 							if (
 								!sessionScopedManager &&
 								sessionOpen &&
-								prefersSessionHandoff($userStore?.operator)
+								prefersSessionHandoff(actingUser?.operator)
 							) {
 								void openSourceInSession(sessionOpen, {
 									previewParams: { selected: detail.moduleId },

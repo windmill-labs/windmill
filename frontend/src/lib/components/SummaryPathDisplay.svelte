@@ -11,9 +11,14 @@
 	import LabelsInput from './LabelsInput.svelte'
 	import InheritedLabels from './InheritedLabels.svelte'
 	import Badge from './common/badge/Badge.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		summary?: string
@@ -50,7 +55,7 @@
 			editSummary = summary ?? ''
 			editPath = path ?? ''
 			labelsDirty = false
-			own = isOwner(path ?? '', $userStore, $operatingWorkspace)
+			own = isOwner(path ?? '', actingUser, $operatingWorkspace)
 			onBehalfOfEmail = undefined
 			if (kind === 'flow' && $operatingWorkspace && path) {
 				checkFlowOnBehalfOf($operatingWorkspace, path).then((email) => {

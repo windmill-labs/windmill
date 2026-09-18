@@ -74,9 +74,14 @@
 	import type { RawAppData } from './dataTableRefUtils'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	// async function hash(message) {
 	// 	try {
@@ -445,7 +450,7 @@
 					// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
 					// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 					custom_path:
-						$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
+						actingUser?.is_admin || actingUser?.is_super_admin ? (customPath ?? '') : undefined,
 					labels
 				},
 				js,

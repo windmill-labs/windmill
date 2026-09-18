@@ -31,9 +31,14 @@
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { modulesWithRetryOrSleep, SAME_WORKER_INCOMPATIBLE_MSG } from '../utils.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		noEditor: boolean
@@ -55,8 +60,8 @@
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
-	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
-	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
+	let isDeployer = $derived(actingUser?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	let canPreserve = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin || isDeployer)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
 	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)

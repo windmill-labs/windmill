@@ -31,9 +31,14 @@
 	import { flowPathToHref } from '$lib/scripts'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		job: Job
@@ -499,7 +504,7 @@
 						<div class="flex items-baseline flex-wrap gap-x-2 gap-y-1">
 							<JobStatus {job} />
 
-							{#if isJobResolvable(job) && !$userStore?.operator}
+							{#if isJobResolvable(job) && !actingUser?.operator}
 								<!-- No startIcon on these: the row is baseline-aligned, and a Button is
 								     itself a flex container whose baseline comes from its icon rather
 								     than its label, which sits the text ~3px above the badges. Text

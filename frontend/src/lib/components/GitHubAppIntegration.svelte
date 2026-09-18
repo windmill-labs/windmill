@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { enterpriseLicense, userStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import { Loader2, Github, RotateCw, Plus, Minus, Download, AlertTriangle } from 'lucide-svelte'
@@ -18,9 +18,14 @@
 		type GitHubAppState
 	} from '$lib/githubApp'
 	import RepositorySelector from './RepositorySelector.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		resourceType: string
@@ -74,7 +79,7 @@
 	let showGitHubApp = $derived(
 		resourceType === 'git_repository' &&
 			$operatingWorkspace &&
-			($userStore?.is_admin || $userStore?.is_super_admin)
+			(actingUser?.is_admin || actingUser?.is_super_admin)
 	)
 
 	// Load GitHub installations when conditions are met

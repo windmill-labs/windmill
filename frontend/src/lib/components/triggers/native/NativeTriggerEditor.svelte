@@ -8,7 +8,7 @@
 		getTemplatePath,
 		saveNativeTriggerFromCfg
 	} from './utils'
-	import { usedTriggerKinds, userStore } from '$lib/stores'
+	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { Button } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -27,9 +27,14 @@
 	import { deepEqual } from 'fast-equals'
 	import type { Snippet } from 'svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		service: NativeServiceName
@@ -215,7 +220,7 @@
 			serviceConfig = (fullTrigger.service_config as Record<string, any>) || {}
 			scriptPath = fullTrigger.script_path
 			initialScriptPath = fullTrigger.script_path
-			can_write = canWrite(fullTrigger.script_path, {}, $userStore)
+			can_write = canWrite(fullTrigger.script_path, {}, actingUser)
 			summary = fullTrigger.summary ?? ''
 			externalData = fullTrigger.external_data
 			externalError = fullTrigger.external_error ?? undefined
@@ -518,7 +523,7 @@
 							bind:itemKind
 							kinds={['script']}
 							allowFlow={true}
-							allowEdit={!$userStore?.operator}
+							allowEdit={!actingUser?.operator}
 							clearable
 						/>
 						{#if emptyString(scriptPath)}

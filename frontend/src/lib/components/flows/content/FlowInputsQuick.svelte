@@ -7,7 +7,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import FlowScriptPickerQuick from '../pickers/FlowScriptPickerQuick.svelte'
 	import { defaultScriptLanguages, processInlineLangs } from '$lib/scripts'
-	import { defaultScripts, enterpriseLicense, hubBaseUrlStore, userStore } from '$lib/stores'
+	import { defaultScripts, enterpriseLicense, hubBaseUrlStore } from '$lib/stores'
 	import type { SupportedLanguage } from '$lib/common'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
@@ -28,9 +28,14 @@
 		canHaveApproval,
 		canHaveFailure
 	} from '$lib/script_helpers'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	const dispatch = createEventDispatcher()
 
@@ -397,7 +402,7 @@
 				<div class="text-2xs font-normal text-secondary ml-2"
 					>New {selectedKind != 'script' ? selectedKind + ' ' : ''}script</div
 				>
-				{#if $userStore?.is_admin || $userStore?.is_super_admin}
+				{#if actingUser?.is_admin || actingUser?.is_super_admin}
 					{#if !openScriptSettings}
 						<Button
 							onClick={() => (openScriptSettings = true)}

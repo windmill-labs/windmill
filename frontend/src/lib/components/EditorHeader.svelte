@@ -16,9 +16,14 @@
 	import BreadcrumbSegment from '$lib/components/BreadcrumbSegment.svelte'
 	import { isOwner } from '$lib/utils'
 	import { userStore } from '$lib/stores'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		summary?: string
@@ -118,7 +123,7 @@
 	// Treat an empty path as ownable so the pen popover lets a user pick the
 	// path for a brand-new item. `Path.reset()` then synthesizes a default
 	// under their own user/folder scope.
-	let own = $derived(!path || isOwner(path, $userStore, $operatingWorkspace))
+	let own = $derived(!path || isOwner(path, actingUser, $operatingWorkspace))
 
 	// Virtual entry for the picker: surfaces the currently-edited item at its
 	// live path (which may differ from `savedPath` mid-rename, so the picker

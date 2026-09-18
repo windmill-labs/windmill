@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -59,31 +59,29 @@ function reachableComponents(): string[] {
 
 // Module scripts have no component context to read the operating workspace from, so what
 // they fetch takes its workspace explicitly; only instance code and markup are checked.
-function readsNavigationStore(file: string): boolean {
-	const source = readFileSync(join(components, file), 'utf-8')
+function instanceCode(file: string): string {
+	return readFileSync(join(components, file), 'utf-8')
 		.replace(/<script\b[^>]*\bmodule\b[^>]*>[\s\S]*?<\/script>/g, '')
 		.replace(/<!--[\s\S]*?-->|\/\*[\s\S]*?\*\/|(^|[^:])\/\/.*$/gm, '$1')
-	return /\$workspaceStore\b|\bget\(workspaceStore\)/.test(source)
 }
 
-describe('trigger editors', () => {
-	it('judge permissions by the acting user, not the navigation one', () => {
-		// `$userStore` describes the navigation workspace: a session tab editing a fork would
-		// enable or disable its controls by the parent's roles. `useOperatingUser()` answers for
-		// the workspace the editor acts on.
-		const editors = readdirSync(join(components, 'triggers'), {
-			recursive: true,
-			encoding: 'utf-8'
-		})
-			.filter((f) => f.endsWith('EditorInner.svelte'))
-			.map((f) => join('triggers', f))
-		expect(editors.length).toBeGreaterThan(10)
-		const offenders = editors.filter((f) =>
-			/\$userStore\b/.test(readFileSync(join(components, f), 'utf-8'))
-		)
-		expect(offenders).toEqual([])
-	})
-})
+function readsNavigationStore(file: string): boolean {
+	return /\$workspaceStore\b|\bget\(workspaceStore\)/.test(instanceCode(file))
+}
+
+// Roles are per workspace, so a permission judged from `$userStore` inside a fork's editor
+// answers about the parent: it disables edits the user may make, or offers ones the backend
+// then refuses. Identity (username, email) is the same person in either, and stays.
+const PERMISSION_READ =
+	/canWrite\((?:[^()]|\([^()]*\))*?\$userStore|isOwner\((?:[^()]|\([^()]*\))*?\$userStore|\$userStore(?:\?|!)?\.(?:is_admin|is_super_admin|operator|folders|groups)\b/
+
+// Components that judge by the navigation user on purpose, with why.
+const NAVIGATION_JUDGES: Record<string, string> = {
+	'FolderPicker.svelte':
+		'resolves the target workspace’s member itself, and asks `$userStore` only for the navigation one',
+	'FolderEditor.svelte':
+		'resolves the target workspace’s member itself, and asks `$userStore` only for the navigation one'
+}
 
 describe('components under a session editor', () => {
 	it('read the operating workspace, not the navigation store', () => {
@@ -91,6 +89,15 @@ describe('components under a session editor', () => {
 		// A walk that finds nothing would pass vacuously.
 		expect(reachable).toContain('triggers/http/RouteEditorInner.svelte')
 		const offenders = reachable.filter((f) => !(f in NAVIGATION_READERS) && readsNavigationStore(f))
+		expect(offenders).toEqual([])
+	})
+
+	it('judge permissions by the user acting in that workspace', () => {
+		const reachable = reachableComponents()
+		expect(reachable).toContain('triggers/PermissionedAsLine.svelte')
+		const offenders = reachable.filter(
+			(f) => !(f in NAVIGATION_JUDGES) && PERMISSION_READ.test(instanceCode(f))
+		)
 		expect(offenders).toEqual([])
 	})
 })

@@ -34,9 +34,14 @@
 		type GroupDraft,
 		type GroupRole
 	} from '$lib/groupDraft'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	const ROLE_TOOLTIPS = {
 		member:
@@ -77,7 +82,7 @@
 	}: Props = $props()
 
 	const restricted = $derived(
-		isDemoWorkspaceRestricted($operatingWorkspace, $userStore?.is_admin, $userStore?.is_super_admin)
+		isDemoWorkspaceRestricted($operatingWorkspace, actingUser?.is_admin, actingUser?.is_super_admin)
 	)
 
 	let can_write = $state(false)
@@ -163,7 +168,7 @@
 			opts?.baselineOnly ? (baseline = structuredClone(value)) : setDraft(value)
 		try {
 			group = await GroupService.getGroup({ workspace: $operatingWorkspace!, name })
-			can_write = canWrite(name, group.extra_perms ?? {}, $userStore)
+			can_write = canWrite(name, group.extra_perms ?? {}, actingUser)
 			apply({
 				summary: group.summary ?? '',
 				members: Array.from(

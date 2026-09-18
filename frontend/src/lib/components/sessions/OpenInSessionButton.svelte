@@ -41,9 +41,12 @@
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo } from '$lib/aiStore'
-	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { openSourceInSession } from './sessionSwitch.svelte'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	let {
 		source,
@@ -83,7 +86,7 @@
 	const show = $derived(
 		!inSessionPanel &&
 			!!(source?.target || source?.page) &&
-			prefersSessionHandoff($userStore?.operator)
+			prefersSessionHandoff(actingUser?.operator)
 	)
 
 	// Not $state: only read inside open() as a re-entrancy latch, never rendered.

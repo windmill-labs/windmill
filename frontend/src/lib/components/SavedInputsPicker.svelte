@@ -12,9 +12,14 @@
 	import InfiniteList from './InfiniteList.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import SavedInputsPickerViewer from './SavedInputsPickerViewer.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		previewArgs?: any
@@ -257,8 +262,8 @@
 				{#snippet children({ item, hover })}
 					{@const editOptions =
 						item.created_by == $userStore?.username ||
-						$userStore?.is_admin ||
-						$userStore?.is_super_admin}
+						actingUser?.is_admin ||
+						actingUser?.is_super_admin}
 					<Cell>
 						<div class="center-center">
 							<Save size={12} />
