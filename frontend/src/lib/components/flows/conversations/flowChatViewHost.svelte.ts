@@ -284,6 +284,7 @@ export class FlowChatViewHost implements ChatViewHost {
 			this.dequeueMessage()
 			return
 		}
+		if (!isBusy(previous.status) && isBusy(state.status)) this.#turnsStarted++
 		if (isBusy(previous.status) && !isBusy(state.status)) {
 			// The turn settled. What was typed during it goes out once the turn is released,
 			// not now: the chat publishes `idle` from inside its own `sendMessage`, which still
@@ -490,6 +491,9 @@ export class FlowChatViewHost implements ChatViewHost {
 	/** A retry reading back the turn it is about to replay. Deliberately not part of
 	 * `loading`, which renders Stop: there is no run yet to stop. */
 	#readingReplayArgs = false
+	/** Turns this chat has started, so a retry can tell whether one ran while it read the
+	 * arguments, whether or not it is still running. */
+	#turnsStarted = 0
 	/**
 	 * Run the turn at this position again with the arguments its job ran with, not the
 	 * composer's current inputs (`inputsShownInComposer` aside). The position is in
@@ -502,6 +506,7 @@ export class FlowChatViewHost implements ChatViewHost {
 		const message = this.#state.messages.filter((m) => m.role === 'user')[shown.index]
 		if (!message) return
 		const conversationId = this.#state.conversationId
+		const turnsStarted = this.#turnsStarted
 		const workspace = this.#options.workspace?.()
 		let replayInputs: Record<string, any> | undefined
 		if (message.jobId && workspace) {
@@ -529,11 +534,12 @@ export class FlowChatViewHost implements ChatViewHost {
 				this.#readingReplayArgs = false
 			}
 		}
-		// The reader may have moved on while the arguments were read: to another
-		// conversation, where this turn does not belong, or by sending, which started a turn
-		// that `sendRequest` would queue this one behind as if it had been typed.
+		// The reader may have moved on while the arguments were read: to another conversation,
+		// where this turn does not belong, or by sending. Any turn started since counts, settled
+		// or not: they wrote the chat's latest message, and running this one now would answer
+		// something they have moved past.
 		if (this.#disposed || this.#state.conversationId !== conversationId) return
-		if (this.loading) {
+		if (this.#turnsStarted !== turnsStarted) {
 			sendUserToast('That chat started another turn. Retry once it finishes.', true)
 			return
 		}

@@ -580,6 +580,26 @@ describe('FlowChatViewHost', () => {
 			)
 			host.dispose()
 		})
+
+		// A quick turn can start and settle inside that read: the chat is idle again, but its
+		// latest message is not the one this retry was clicked on.
+		it('refuses once a turn ran and settled while the run was being read', async () => {
+			const { chat, set } = fakeChat(failedTurn())
+			let answer = (_: unknown) => {}
+			getJobArgs.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)) as any)
+			const host = new FlowChatViewHost(chat, { workspace: () => 'ws' })
+			const retried = host.retryRequest(0)
+			set({ status: 'streaming' })
+			set({ status: 'idle' })
+			answer({ user_message: 'go' })
+			await retried
+			expect(chat.sendMessage).not.toHaveBeenCalled()
+			expect(toast).toHaveBeenCalledWith(
+				'That chat started another turn. Retry once it finishes.',
+				true
+			)
+			host.dispose()
+		})
 	})
 
 	describe('streaming reveal', () => {
