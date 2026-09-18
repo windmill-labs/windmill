@@ -10,7 +10,14 @@
 	import { emptyString, type DynamicInput } from '$lib/utils'
 	import { tick, untrack } from 'svelte'
 	import type { Chat } from 'windmill-chat'
+	import { chatFlowKey } from './flowChatProps'
 	import type { FlowModule } from '$lib/gen'
+	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
+	import {
+		attachmentsTargetFor,
+		PER_TURN_AGENT_CHAT_INPUT_KEY,
+		resolveAgentChatInputs
+	} from './agentAttachmentInput'
 	import { deepEqual } from 'fast-equals'
 	import FlowChatModelSettings from './FlowChatModelSettings.svelte'
 	import {
@@ -30,9 +37,12 @@
 		isTest?: boolean
 		deploymentInProgress?: boolean
 		additionalInputsSchema?: Record<string, any>
-		/** The flow's modules, read for the provider wiring of its AI agent steps. */
+		/** The flow's modules, read for the AI agent inputs the composer drives: the provider wiring
+		 * and the attachments input. */
 		flowModules?: FlowModule[]
 		path: string
+		/** What the stored inputs are filed under when the path is not steady (see FlowChat). */
+		identity?: string
 		workspace?: string
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
@@ -49,6 +59,7 @@
 		additionalInputsSchema,
 		flowModules,
 		path,
+		identity = undefined,
 		workspace = undefined,
 		description = undefined,
 		wideLayout = false,
@@ -65,9 +76,25 @@
 		return undefined
 	})
 
+	// The composer's attachments feed this input, and the paperclip is its whole editor.
+	const attachmentsTarget = $derived.by(() => {
+		const target = attachmentsTargetFor(
+			resolveAgentChatInputs(flowModules, additionalInputsSchema).find(
+				(input) => input.key === PER_TURN_AGENT_CHAT_INPUT_KEY
+			)
+		)
+		const required: unknown = additionalInputsSchema?.required
+		return target && Array.isArray(required) && required.includes(target.name)
+			? { ...target, required: true }
+			: target
+	})
+	// Uploading needs the workspace's object storage; without one the `+` is drawn disabled
+	// saying so, since the modal could not upload either.
+	const workspaceStorage = useWorkspaceStorageConfigured(() => workspace)
+
 	// The model gets its own button, shaped like the copilot's model settings, driven by
-	// whichever provider fields the flow exposes. Every other flow input is asked for in
-	// the Configure-inputs modal.
+	// whichever provider fields the flow exposes. Attachments are the paperclip's; every other
+	// flow input is asked for in the Configure-inputs modal.
 	const modelWiring = $derived(resolveAgentModelWiring(flowModules))
 	// An agent with nothing to call cannot answer, and the composer cannot fix it, so the
 	// chat says what to go and do instead of offering controls that write nowhere.
@@ -106,7 +133,7 @@
 	const runInputs = $derived(withoutRejectedEffort(modelWiring, effectiveInputs))
 
 	function getStorageKey(): string {
-		return `${STORAGE_KEY_PREFIX}${path}`
+		return `${STORAGE_KEY_PREFIX}${chatFlowKey({ path, identity })}`
 	}
 
 	function loadInputsFromStorage(): Record<string, any> | null {
@@ -153,11 +180,22 @@
 		showInputsModal = true
 	}
 
+	// The host belongs to the conversation, not to this panel: the pool keeps it alive so a
+	// message queued here still goes out once the reader has moved on. What it reads is this
+	// panel's, set on mount; FlowChat remounts the panel per conversation.
 	const chatHost = untrack(() => chatHostProp)
 	chatHost.setOptions({
 		additionalInputs: () => (additionalInputsSchema ? { ...runInputs } : undefined),
+		attachmentsTarget: () => attachmentsTarget,
+		attachmentsUnavailable: () =>
+			workspaceStorage.current
+				? undefined
+				: 'This workspace has no object storage, so files cannot be attached.',
 		workspace: () => workspace,
-		sendDisabled: () => deploymentInProgress || !!modelGap || !!wrongKindReason
+		sendDisabled: () => deploymentInProgress || !!modelGap || !!wrongKindReason,
+		// The model controls only: a retry changes model when the reader did, but replays
+		// the run's own attachments rather than whatever the composer holds now.
+		inputsShownInComposer: () => composerOwnedInputs(modelWiring, undefined)
 	})
 	setChatViewHost(chatHost)
 
@@ -174,7 +212,7 @@
 	// edit itself.
 	const modalSchema = $derived.by(() => {
 		if (!additionalInputsSchema) return undefined
-		const promoted = new Set(composerOwnedInputs(modelWiring, undefined))
+		const promoted = new Set(composerOwnedInputs(modelWiring, attachmentsTarget))
 		const properties = Object.fromEntries(
 			Object.entries(additionalInputsSchema.properties ?? {}).filter(([key]) => !promoted.has(key))
 		)

@@ -134,17 +134,47 @@ export interface ChatOptions {
   onError?: (error: Error, turn: { conversationId: string; jobId?: string }) => void
 }
 
+/** A file sent with a message. It is uploaded to the workspace's object storage before the run starts. */
+export interface AttachmentUpload {
+  /** Kept as the last segment of the stored key, its extension corrected to the media type for PNG, JPEG and PDF. */
+  name: string
+  /** The bytes: a Blob, or a `data:` URL of them. */
+  data: Blob | string
+  /** The file's media type. Defaults to the Blob's own type, or the data URL's. */
+  mediaType?: string
+}
+
+/** The flow input the uploaded attachments are handed to: an `s3object` (`multiple: false`) or an `s3object[]`. */
+export interface AttachmentsInput {
+  name: string
+  multiple: boolean
+}
+
+export interface SendMessageOptions {
+  /** Extra flow inputs for this message, on top of `ChatOptions.inputs`. */
+  inputs?: Record<string, unknown>
+  /**
+   * Files to upload and hand to the flow as `{ s3, filename }` objects in `attachmentsInput`,
+   * the way an AI agent step reads `user_attachments`. A failed upload rejects `sendMessage`
+   * and the run never starts; `stop()` during the upload does the same with an `AbortError`.
+   */
+  attachments?: AttachmentUpload[]
+  /** Required with `attachments`, which also need message text. With `multiple: false`, more than one attachment is refused before anything uploads. */
+  attachmentsInput?: AttachmentsInput
+}
+
 export interface Chat {
   getState(): ChatState
   /** Calls `listener` now and on every change; returns the unsubscribe function (Svelte store contract). */
   subscribe(listener: (state: ChatState) => void): () => void
   /**
    * Sends a message in the current conversation, starting one when there is none. Resolves
-   * when the answer is complete. Rejects with `TurnRunningError`, and shows nothing of the
-   * message, when the conversation is still answering one sent elsewhere: follow that turn
-   * with `resumeTurn`, then send again.
+   * when the answer is complete. Rejects when the message could not be sent at all — a turn
+   * already running, an attachment that failed to upload — without touching the transcript.
+   * A conversation still answering a message sent elsewhere rejects with `TurnRunningError`:
+   * follow that turn with `resumeTurn`, then send again.
    */
-  sendMessage(text: string, options?: { inputs?: Record<string, unknown> }): Promise<void>
+  sendMessage(text: string, options?: SendMessageOptions): Promise<void>
   /**
    * Follows a turn of the current conversation that this chat did not start, as named by
    * `Conversation.runningTurn` or a `TurnRunningError`: its answer streams into `messages`

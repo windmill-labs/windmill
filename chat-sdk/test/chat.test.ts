@@ -962,7 +962,8 @@ describe('createChat with server history', () => {
     const state = chat.getState()
     expect(state.messages.map((m) => m.content)).toEqual(['earlier'])
     expect(state.status).toBe('idle')
-    expect(state.conversations).toEqual([])
+    // The conversation is a real one, answering elsewhere: it stays listed, its message gone.
+    expect(state.conversations.map((c) => c.id)).toEqual(['conv'])
   })
 
   test('resuming a turn whose message is off the first page replays it without duplicating rows', async () => {

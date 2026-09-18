@@ -17,7 +17,10 @@ export {
 export { parseStreamEvents, createStreamEventParser, type AgentStreamEvent } from './stream'
 export { followJob, type FollowEvent } from './follow'
 export { extractChatAnswer, conversationIdFor } from './utils'
+export { storedAttachmentName, uploadAttachments, CHAT_UPLOADS_PREFIX, type UploadedAttachment } from './attachments'
 export type {
+  AttachmentsInput,
+  AttachmentUpload,
   Chat,
   ChatAttachment,
   ChatMessage,
@@ -28,6 +31,7 @@ export type {
   Conversation,
   FetchLike,
   HistoryMode,
+  SendMessageOptions,
   StorageLike,
   TokenSource,
   ToolInvocation
