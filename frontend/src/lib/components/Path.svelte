@@ -26,7 +26,7 @@
 		AzureTriggerService,
 		EmailTriggerService
 	} from '$lib/gen'
-	import { superadmin, userStore, type UserExt } from '$lib/stores'
+	import { superadmin, type UserExt } from '$lib/stores'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { Alert, Button } from './common'
@@ -46,11 +46,13 @@
 	import { twMerge } from 'tailwind-merge'
 	import InputError from './InputError.svelte'
 	import {
+		useOperatingUser,
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
 	const operatingHref = useOperatingWorkspaceHref()
 
 	type PathKind =
@@ -92,9 +94,8 @@
 		 *  operating workspace (see `useOperatingWorkspace`). */
 		workspaceOverride?: string
 		/** The user acting in `workspaceOverride`, for the owner suggestion and the folder
-		 *  write flags. Omit it to stand in the navigation `$userStore`, who is a member of
-		 *  the navigation workspace only; pass `null` for "not known (yet)", which that user
-		 *  must not answer for either. */
+		 *  write flags. Omit it to stand in the user acting in the operating workspace; pass
+		 *  `null` for "not known (yet)", which no user must answer for. */
 		actingUser?: UserExt | null
 		/** One path that does not count as taken, for a caller creating something that may
 		 *  already have written there itself — a setup flow correcting its own failed attempt.
@@ -127,10 +128,10 @@
 	}: Props = $props()
 
 	let ws = $derived(workspaceOverride ?? $operatingWorkspace)
-	// Sole place this component falls back to the ambient user, and only for a caller that
-	// passed none; everything below reads `user`, so a caller acting on another workspace is
-	// never mixed with the navigation user's memberships.
-	let user = $derived(actingUser === undefined ? $userStore : (actingUser ?? undefined))
+	// Sole place this component falls back to an ambient user, and only for a caller that passed
+	// none: the one acting in `ws`, never the navigation user, whose memberships belong to
+	// another workspace. Everything below reads `user`.
+	let user = $derived(actingUser === undefined ? operatingUser.in(ws) : (actingUser ?? undefined))
 
 	$effect.pre(() => {
 		if (path == undefined) {

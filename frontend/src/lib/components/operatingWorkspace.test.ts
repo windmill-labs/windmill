@@ -72,6 +72,20 @@ function readsNavigationStore(file: string): boolean {
 // Roles are per workspace, so a permission judged from `$userStore` inside a fork's editor
 // answers about the parent: it disables edits the user may make, or offers ones the backend
 // then refuses. Identity (username, email) is the same person in either, and stays.
+// Following one alias, the shape that slipped past this before: `let user = $derived(… $userStore
+// …)` with the permission checks reading `user`. Aliasing the navigation user for identity —
+// their username, or which workspace they are on — is fine and stays.
+function judgesByAliasedNavigationUser(code: string): boolean {
+	const aliases = [...code.matchAll(/(?:let|const)\s+(\w+)\s*=\s*\$derived[^\n]*\$userStore/g)].map(
+		(m) => m[1]
+	)
+	return aliases.some((name) =>
+		new RegExp(
+			`${name}(?:\\?|!)?\\.(?:is_admin|is_super_admin|operator|folders|groups)\\b|canWrite\\((?:[^()]|\\([^()]*\\))*?\\b${name}\\b|isOwner\\((?:[^()]|\\([^()]*\\))*?\\b${name}\\b`
+		).test(code)
+	)
+}
+
 const PERMISSION_READ =
 	/canWrite\((?:[^()]|\([^()]*\))*?\$userStore|isOwner\((?:[^()]|\([^()]*\))*?\$userStore|\$userStore(?:\?|!)?\.(?:is_admin|is_super_admin|operator|folders|groups)\b/
 
@@ -95,9 +109,11 @@ describe('components under a session editor', () => {
 	it('judge permissions by the user acting in that workspace', () => {
 		const reachable = reachableComponents()
 		expect(reachable).toContain('triggers/PermissionedAsLine.svelte')
-		const offenders = reachable.filter(
-			(f) => !(f in NAVIGATION_JUDGES) && PERMISSION_READ.test(instanceCode(f))
-		)
+		const offenders = reachable.filter((f) => {
+			if (f in NAVIGATION_JUDGES) return false
+			const code = instanceCode(f)
+			return PERMISSION_READ.test(code) || judgesByAliasedNavigationUser(code)
+		})
 		expect(offenders).toEqual([])
 	})
 })
