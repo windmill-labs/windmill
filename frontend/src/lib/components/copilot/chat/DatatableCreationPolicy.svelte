@@ -67,6 +67,7 @@
 		<DefaultDatabaseSelector
 			datatable={aiChatManager.datatableCreationPolicy.datatable}
 			schema={aiChatManager.datatableCreationPolicy.schema}
+			roles={aiChatManager.datatableCreationPolicy.roles}
 			onChange={handleDefaultChange}
 			description="Set the default datatable and schema for new tables. When table creation is enabled, AI can create tables here if needed."
 		/>

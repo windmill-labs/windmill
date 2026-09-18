@@ -329,6 +329,7 @@ pub fn try_expand_internal_db_query(
         "ALTER_TABLE" => expand_alter_table(json_str, db_type).map(ExpandedQuery::sql),
         "CREATE_SCHEMA" => expand_create_schema(json_str, db_type).map(ExpandedQuery::sql),
         "DROP_SCHEMA" => expand_drop_schema(json_str, db_type).map(ExpandedQuery::sql),
+        "RENAME_SCHEMA" => expand_rename_schema(json_str, db_type).map(ExpandedQuery::sql),
         // Metadata queries
         "LOAD_TABLE_METADATA" => expand_load_table_metadata(json_str, db_type),
         "FOREIGN_KEYS" => expand_foreign_keys(json_str, db_type).map(ExpandedQuery::sql),
@@ -1716,6 +1717,13 @@ struct DropSchemaPayload {
     ducklake: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct RenameSchemaPayload {
+    schema: String,
+    new_schema: String,
+    ducklake: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct TableEditorColumn {
     name: String,
@@ -2002,6 +2010,23 @@ fn expand_drop_schema(json_str: &str, db_type: DbType) -> Result<String, String>
         .map_err(|e| format!("Invalid DROP_SCHEMA payload: {}", e))?;
     let query = format!("DROP SCHEMA {} CASCADE;", qi(&p.schema, db_type));
     Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
+}
+
+fn expand_rename_schema(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let p: RenameSchemaPayload = serde_json::from_str(json_str)
+        .map_err(|e| format!("Invalid RENAME_SCHEMA payload: {}", e))?;
+    if !matches!(db_type, DbType::Postgresql | DbType::Snowflake) || p.ducklake.is_some() {
+        return Err(format!(
+            "Renaming a schema is not supported on {:?}",
+            db_type
+        ));
+    }
+    let query = format!(
+        "ALTER SCHEMA {} RENAME TO {};",
+        qi(&p.schema, db_type),
+        qi(&p.new_schema, db_type)
+    );
+    Ok(query)
 }
 
 fn expand_create_table(json_str: &str, db_type: DbType) -> Result<String, String> {
@@ -2598,7 +2623,9 @@ WHERE table_catalog = current_database()",
                 )
             } else {
                 (
-                    "\nWHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped\n    AND ns.nspname != 'pg_catalog' AND ns.nspname != 'information_schema'".to_string(),
+                    // pg_catalog is readable by everyone: without the privilege check this lists
+                    // tables of schemas the connection's role cannot even enter.
+                    "\nWHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped\n    AND ns.nspname != 'pg_catalog' AND ns.nspname != 'information_schema'\n    AND has_schema_privilege(ns.oid, 'USAGE')".to_string(),
                     ",\n    ns.nspname AS schema_name,\n    c.relname AS table_name".to_string(),
                     "\nJOIN pg_catalog.pg_class c ON a.attrelid = c.oid\nJOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid".to_string(),
                     "ns.nspname, c.relname, a.attnum".to_string(),
@@ -4102,6 +4129,13 @@ mod tests {
     }
 
     #[test]
+    fn test_expand_rename_schema() {
+        let marker = r#"-- WM_INTERNAL_DB_RENAME_SCHEMA {"schema":"old","new_schema":"new"}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert_eq!(sql, "ALTER SCHEMA \"old\" RENAME TO \"new\";");
+    }
+
+    #[test]
     fn test_expand_create_schema_with_ducklake() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_SCHEMA {"schema":"s","ducklake":"lake"}"#;
         let sql = expand_code(marker, &ScriptLang::DuckDb);
@@ -4468,6 +4502,7 @@ mod tests {
         assert!(sql.contains("schema_name"));
         assert!(sql.contains("table_name"));
         assert!(sql.contains("c.relkind = 'r'"));
+        assert!(sql.contains("has_schema_privilege(ns.oid, 'USAGE')"));
     }
 
     #[test]

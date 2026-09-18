@@ -5488,6 +5488,21 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: query
+          description: list only this data table; each listed data table opens a connection to its database
+          schema:
+            type: string
+        - name: role_for
+          in: query
+          description: the data table `role` applies to; every other one is listed as its default role
+          schema:
+            type: string
+        - name: role
+          in: query
+          description: the role to list `role_for` as; refused, in that entry's `error`, if the caller may not use it
+          schema:
+            type: string
       responses:
         "200":
           description: table metadata of all datatables
@@ -5519,6 +5534,11 @@ paths:
         - name: table_name
           in: query
           required: true
+          schema:
+            type: string
+        - name: role
+          in: query
+          description: the data table role to read the table as; defaults to the data table's default role
           schema:
             type: string
       responses:
@@ -36132,7 +36152,17 @@ components:
 
     DataTableTables:
       type: object
-      required: [datatable_name, schemas]
+      required:
+        [
+          datatable_name,
+          schemas,
+          instance,
+          permissioned,
+          usable_roles,
+          default_role,
+          can_create_schema,
+          creatable_schemas,
+        ]
       properties:
         datatable_name:
           type: string
@@ -36145,6 +36175,26 @@ components:
               type: string
         error:
           type: string
+        instance:
+          type: boolean
+          description: on the instance database, the only kind that can be under roles or have its access edited
+        permissioned:
+          type: boolean
+        usable_roles:
+          type: array
+          description: the roles the caller may connect as, by name; empty when not under roles
+          items:
+            type: string
+        default_role:
+          type: string
+        can_create_schema:
+          type: boolean
+          description: whether the role the listing connected as may create schemas
+        creatable_schemas:
+          type: array
+          description: the schemas the role the listing connected as may create in
+          items:
+            type: string
 
     DataTableTableSchema:
       type: object

@@ -70,8 +70,10 @@
 		formatDataTableRef,
 		isDatatableTableAllowed,
 		type RawAppData,
-		DEFAULT_DATA
+		DEFAULT_DATA,
+		appDatatableRole
 	} from './dataTableRefUtils'
+	import { datatableReference } from '../dbTypes'
 	import { randomUUID } from '$lib/utils/uuid'
 
 	interface Props {
@@ -706,9 +708,21 @@
 			runnables = update.runnables
 		}
 		if (update.data !== undefined) {
-			data = update.data
+			replaceData(update.data)
 		}
 		historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)
+	}
+
+	/** Replaces `data` from outside the editor (history, YAML). The policy sync writes the policy
+	 * into `data`, so the policy takes the new values first or it puts the old ones straight back. */
+	function replaceData(next: RawAppData) {
+		data = next
+		aiChatManager.datatableCreationPolicy = {
+			...aiChatManager.datatableCreationPolicy,
+			datatable: next.datatable,
+			schema: next.schema,
+			roles: next.roles
+		}
 	}
 
 	let jobs: string[] = $state([])
@@ -878,7 +892,8 @@
 		aiChatManager.datatableCreationPolicy = {
 			enabled: data.datatable !== undefined,
 			datatable: data.datatable,
-			schema: data.schema
+			schema: data.schema,
+			roles: data.roles
 		}
 
 		// Start auto-snapshot
@@ -900,9 +915,15 @@
 		// Read the current policy from aiChatManager
 		const policy = aiChatManager.datatableCreationPolicy
 		// Only update if different to avoid infinite loops
-		if (data.datatable !== policy.datatable || data.schema !== policy.schema) {
+		if (
+			data.datatable !== policy.datatable ||
+			data.schema !== policy.schema ||
+			// By value: the policy holds its own proxy of the same map.
+			JSON.stringify(data.roles) !== JSON.stringify(policy.roles)
+		) {
 			data.datatable = policy.datatable
 			data.schema = policy.schema
+			data.roles = policy.roles
 		}
 	})
 
@@ -1079,10 +1100,32 @@
 					return []
 				}
 
-				const tables = await WorkspaceService.listDataTableTables({
-					workspace: opWorkspace
+				// A data table the app uses through a role is listed as that role, so the AI sees
+				// what the app's own queries reach.
+				const workspace = opWorkspace
+				const tables = await WorkspaceService.listDataTableTables({ workspace })
+				// Only data tables that still exist: `data.roles` can outlive a removed or renamed one,
+				// and the server answers a `role_for` naming nothing with a 404.
+				const roled = Object.entries(data.roles ?? {}).filter(([dt]) =>
+					tables.some((t) => t.datatable_name === dt)
+				)
+				const roledTables = await Promise.all(
+					roled.map(([roleFor, role]) =>
+						WorkspaceService.listDataTableTables({
+							workspace,
+							datatableName: roleFor,
+							roleFor,
+							role
+						})
+					)
+				)
+				const merged = tables.map((entry) => {
+					const i = roled.findIndex(([dt]) => dt === entry.datatable_name)
+					return i === -1
+						? entry
+						: (roledTables[i].find((t) => t.datatable_name === entry.datatable_name) ?? entry)
 				})
-				return filterDatatableTables(tables)
+				return filterDatatableTables(merged)
 			},
 			getDatatableTableSchema: async (
 				datatableName: string,
@@ -1106,7 +1149,8 @@
 					workspace: opWorkspace,
 					datatableName,
 					schemaName,
-					tableName
+					tableName,
+					role: appDatatableRole(data.roles, datatableName)
 				})
 				return schema.columns
 			},
@@ -1124,13 +1168,15 @@
 				}
 
 				try {
+					// The same role the app's runnables use, so a table the AI creates belongs to it.
+					const role = appDatatableRole(data.roles, datatableName)
 					const result = await runScriptAndPollResult(
 						{
 							workspace: opWorkspace,
 							requestBody: {
 								language: 'postgresql',
 								content: sql,
-								args: { database: `datatable://${datatableName}` }
+								args: { database: datatableReference(datatableName, role) }
 							}
 						},
 						writingJobOptions
@@ -1150,6 +1196,12 @@
 							const resourcePath = `datatable://${datatableName}`
 							delete $dbSchemas[resourcePath]
 							delete $dbSchemas[`${opWorkspace}:${resourcePath}`]
+							// The DB manager keys its cache by the role it connected as too.
+							for (const key of Object.keys($dbSchemas)) {
+								if (key.startsWith(`${opWorkspace}:${resourcePath}?role=`)) {
+									delete $dbSchemas[key]
+								}
+							}
 						}
 					}
 
@@ -2137,7 +2189,7 @@
 			files = structuredClone($state.snapshot(entry.files))
 			runnables = structuredClone($state.snapshot(entry.runnables))
 			summary = entry.summary
-			data = structuredClone($state.snapshot(entry.data))
+			replaceData(structuredClone($state.snapshot(entry.data)))
 
 			// If the open document survives into the new files, use the combined message
 			if (iframeDocument && isOpenableDocument(iframeDocument)) {
@@ -2366,6 +2418,20 @@
 								...aiChatManager.datatableCreationPolicy,
 								datatable,
 								schema
+							}
+						}}
+						datatableRoles={data.roles}
+						onDatatableRolesChange={(roles, roleChanged) => {
+							// The default schema was picked among what the previous role reaches: after the
+							// user moves the app's default data table to another role, it is picked again.
+							const dt = data.datatable
+							const schemaStale = dt !== undefined && roleChanged.has(dt)
+							data.roles = roles
+							if (schemaStale) data.schema = undefined
+							aiChatManager.datatableCreationPolicy = {
+								...aiChatManager.datatableCreationPolicy,
+								roles,
+								...(schemaStale && { schema: undefined })
 							}
 						}}
 						{runnables}
