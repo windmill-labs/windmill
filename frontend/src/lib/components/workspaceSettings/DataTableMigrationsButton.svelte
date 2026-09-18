@@ -27,6 +27,7 @@
 	import DropdownV2 from '../DropdownV2.svelte'
 	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
 	import { superadmin, userStore } from '$lib/stores'
+	import { parseMigrationRole, withMigrationRole } from '../datatableMigrationRole'
 
 	let {
 		workspace,
@@ -84,8 +85,9 @@
 
 	function startAddDownMigration() {
 		// Same transaction frame the new-migration modal starts from, so the down
-		// applies atomically.
-		downDraft = DOWN_TEMPLATE
+		// applies atomically. It rolls back as the role the up ran as.
+		const upRole = viewMigration ? parseMigrationRole(viewMigration.code_up) : undefined
+		downDraft = withMigrationRole(DOWN_TEMPLATE, upRole?.kind === 'role' ? upRole.role : undefined)
 		addingDown = true
 	}
 
@@ -165,6 +167,10 @@
 	function openList() {
 		listOpen = true
 		loadMigrations()
+	}
+
+	export function open() {
+		openList()
 	}
 
 	// Open the list modal and the detail view for a specific migration. Used to

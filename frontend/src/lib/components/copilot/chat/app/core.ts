@@ -18,6 +18,7 @@ import {
 	type AppCodeSelectionElement,
 	type AppDatatableElement
 } from '../context'
+import { appDatatableRole, sdkDatatableCall } from '$lib/components/raw_apps/dataTableRefUtils'
 
 // Backend runnable types
 export type BackendRunnableType = 'script' | 'flow' | 'hubscript' | 'inline'
@@ -921,9 +922,20 @@ export function prepareAppSystemMessage(customPrompt?: string): ChatCompletionSy
 	const policy = aiChatManager.datatableCreationPolicy
 	const datatableName = policy.datatable ?? 'main'
 	const schemaPrefix = policy.schema ? `${policy.schema}.` : ''
-	// Use wmill.datatable() for 'main' (default), otherwise wmill.datatable('name')
-	const datatableCall =
-		datatableName === 'main' ? 'wmill.datatable()' : `wmill.datatable('${datatableName}')`
+	// A role names the privileges the app's queries run with, so it has to be in the code the
+	// model writes.
+	const datatableRole = appDatatableRole(policy.roles, datatableName)
+	const tsDatatableCall = sdkDatatableCall(datatableName, datatableRole, 'typescript')
+	const pyDatatableCall = sdkDatatableCall(datatableName, datatableRole, 'python')
+	const roleEntries = Object.entries(policy.roles ?? {})
+	const rolesNote =
+		roleEntries.length > 0
+			? `\n\nThis app uses these data tables through a role: ${roleEntries
+					.map(([dt, role]) => `\`${dt}\` as \`${role}\``)
+					.join(
+						', '
+					)}. Always pass that role when calling \`wmill.datatable\` on them, as in the examples. The role only reaches what it was granted, so a query on a table it lacks privileges on fails with \`permission denied\`.`
+			: ''
 
 	let content = `You are a helpful assistant that creates and edits apps on the Windmill platform. Apps are defined as a collection of files that contains both the frontend and the backend.
 
@@ -1024,7 +1036,7 @@ Backend runnables should only perform **data operations** (SELECT, INSERT, UPDAT
 import * as wmill from 'windmill-client';
 
 export async function main(user_id: string) {
-  const sql = ${datatableCall};
+  const sql = ${tsDatatableCall};
   const user = await sql\`SELECT * FROM ${schemaPrefix}users WHERE id = \${user_id}\`.fetchOne();
   return user;
 }
@@ -1035,12 +1047,12 @@ export async function main(user_id: string) {
 import wmill
 
 def main(user_id: str):
-    db = ${datatableCall}
+    db = ${pyDatatableCall}
     user = db.query('SELECT * FROM ${schemaPrefix}users WHERE id = $1', user_id).fetch_one()
     return user
 \`\`\`
 
-Use these examples for normal datatable access.
+Use these examples for normal datatable access.${rolesNote}
 
 ### Schema Modifications (DDL) - Use exec_datatable_sql tool ONLY
 

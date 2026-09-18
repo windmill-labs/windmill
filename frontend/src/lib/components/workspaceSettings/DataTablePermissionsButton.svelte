@@ -5,77 +5,89 @@
 	import Toggle from '../Toggle.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
-	import { KeyRound, Plus } from 'lucide-svelte'
+	import Checkbox from '../common/checkbox/Checkbox.svelte'
+	import Cell from '../table/Cell.svelte'
+	import DataTable from '../table/DataTable.svelte'
+	import Head from '../table/Head.svelte'
+	import Row from '../table/Row.svelte'
+	import { KeyRound } from 'lucide-svelte'
 	import {
 		FolderService,
 		GroupService,
+		SettingService,
 		UserService,
 		WorkspaceService,
-		type AclTarget,
-		type DatatableAclInfo,
 		type DatatablePermissions,
 		type InstanceDatatableRole
 	} from '$lib/gen'
+	import { superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import AclTargetPicker from '../datatableAcl/AclTargetPicker.svelte'
+	import { deepEqual } from 'fast-equals'
+	import { ADMIN_DATATABLE_ROLE, isDatatableRoleName } from '../dbTypes'
 	import PgAclEditor from '../datatableAcl/PgAclEditor.svelte'
-
-	const ADMIN_ROLE = 'admin'
+	import InstanceRolesButton from './InstanceRolesButton.svelte'
 
 	let {
 		workspace,
 		datatable,
-		disabled = false
+		disabled = false,
+		hideTrigger = false,
+		onSaved
 	}: {
 		workspace: string
 		datatable: string
 		disabled?: boolean
+		/** Mount the drawer without its button, for a caller that opens it with `open()`. */
+		hideTrigger?: boolean
+		/** Called once a save went through, so a caller showing the roles can read them again. */
+		onSaved?: () => void
 	} = $props()
 
-	let drawer: Drawer | undefined = $state(undefined)
+	// `id` is the instance role's catalog id (or the reserved `admin`), which is what the tenant
+	// lists are keyed by — so renaming a role instance-side moves nothing here. A row without an id
+	// names a role the instance does not define yet: it cannot be saved until a superadmin creates
+	// it, and takes the new role's id once they have.
+	type EditedRole = { id: string | undefined; name: string | undefined; tenants: string[] }
+	type Edited = { permissioned: boolean; roles: EditedRole[]; defaultRoleId: string }
+
+	let drawerOpen = $state(false)
 	let loading = $state(false)
 	let saving = $state(false)
 	let loadError = $state<string | undefined>(undefined)
 	let info = $state<DatatablePermissions | undefined>(undefined)
 
-	// Edited copy. `id` is the instance role's catalog id (or the reserved `admin`), which is what
-	// the tenant lists are keyed by — so renaming a role instance-side moves nothing here.
 	let permissioned = $state(false)
-	let defaultRole = $state(ADMIN_ROLE)
-	let rows = $state<{ id: string; name: string | undefined; tenants: string[] }[]>([])
+	let roles = $state<EditedRole[]>([])
+	let defaultRoleId = $state(ADMIN_DATATABLE_ROLE)
+	/** The last loaded state, to detect unsaved changes against. */
+	let saved = $state<Edited>({
+		permissioned: false,
+		roles: [],
+		defaultRoleId: ADMIN_DATATABLE_ROLE
+	})
 
 	// Tenants name principals of the workspace that governs the data table, which is not
 	// necessarily the one we are browsing from.
-	let tenantOptions = $state<{ value: string; label: string }[]>([])
+	let tenantItems = $state<{ value: string; label: string; group: string }[]>([])
 
 	const editable = $derived(!!info?.editable)
 	const governing = $derived(info?.governing_workspace_id)
-	const availableRoles: InstanceDatatableRole[] = $derived(info?.available_roles ?? [])
-	const unusedRoles = $derived(availableRoles.filter((r) => !rows.some((row) => row.id === r.id)))
+	// The instance catalog, read again after the instance roles drawer changes it.
+	let catalog = $state<InstanceDatatableRole[] | undefined>(undefined)
+	const availableRoles: InstanceDatatableRole[] = $derived(catalog ?? info?.available_roles ?? [])
+	const unusedRoles = $derived(availableRoles.filter((r) => !roles.some((row) => row.id === r.id)))
+	const pendingRoles = $derived(roles.filter((r) => r.id === undefined))
+	let instanceRoles: InstanceRolesButton | undefined = $state(undefined)
 
-	let aclSchema = $state<string | undefined>(undefined)
-	let aclTable = $state<string | undefined>(undefined)
-	const aclTarget: AclTarget = $derived(
-		aclSchema
-			? aclTable
-				? { kind: 'table', schema: aclSchema, table: aclTable }
-				: { kind: 'schema', schema: aclSchema }
-			: { kind: 'database' }
+	const roleKey = (role: EditedRole) => role.id ?? `pending:${role.name}`
+
+	const hasUnsavedChanges = $derived(
+		!deepEqual($state.snapshot(saved), {
+			permissioned,
+			roles: $state.snapshot(roles) as EditedRole[],
+			defaultRoleId
+		})
 	)
-	let aclSchemas = $state<string[]>([])
-	let aclSchemasLoaded = $state(false)
-	let aclTables = $state<string[]>([])
-
-	// The editor's read of a database lists its schemas, and of a schema its tables — which is what
-	// the picker offers, so the picker reads nothing of its own. A read for a target since left
-	// behind is dropped.
-	function onAclLoaded(target: AclTarget, loaded: DatatableAclInfo) {
-		if (JSON.stringify(target) !== JSON.stringify(aclTarget)) return
-		if (target.kind === 'database') {
-			aclSchemas = loaded.children
-			aclSchemasLoaded = true
-		} else if (target.kind === 'schema') aclTables = loaded.children
-	}
 
 	async function load() {
 		loading = true
@@ -85,16 +97,23 @@
 				workspace,
 				datatableName: datatable
 			})
-			info = res
-			permissioned = res.permissioned
-			defaultRole = res.default_role
-			rows = (res.roles ?? [])
-				.map((r) => ({ id: r.id, name: r.name, tenants: r.tenants ?? [] }))
-				.sort((a, b) => (a.id === ADMIN_ROLE ? -1 : b.id === ADMIN_ROLE ? 1 : 0))
-			if (rows.length === 0) {
-				rows = [{ id: ADMIN_ROLE, name: ADMIN_ROLE, tenants: [] }]
+			const loaded: EditedRole[] = res.roles
+				.map((r) => ({ id: r.id, name: r.name, tenants: [...(r.tenants ?? [])] }))
+				.sort(
+					(a, b) => Number(b.id === ADMIN_DATATABLE_ROLE) - Number(a.id === ADMIN_DATATABLE_ROLE)
+				)
+			// A data table never put under roles comes back with none; admin is what turning the toggle
+			// on starts from.
+			if (!loaded.some((r) => r.id === ADMIN_DATATABLE_ROLE)) {
+				loaded.unshift({ id: ADMIN_DATATABLE_ROLE, name: ADMIN_DATATABLE_ROLE, tenants: [] })
 			}
-			await loadTenantOptions(res.governing_workspace_id ?? workspace)
+			info = res
+			catalog = undefined
+			permissioned = res.permissioned
+			roles = loaded
+			defaultRoleId = res.default_role
+			saved = structuredClone({ permissioned, roles: loaded, defaultRoleId })
+			await loadTenantItems(res.governing_workspace_id ?? workspace)
 		} catch (e) {
 			loadError = e?.body ?? e?.message ?? String(e)
 		} finally {
@@ -102,35 +121,70 @@
 		}
 	}
 
-	async function loadTenantOptions(ws: string) {
+	async function loadTenantItems(ws: string) {
 		try {
 			const [users, groups, folders] = await Promise.all([
 				UserService.listUsernames({ workspace: ws }),
 				GroupService.listGroupNames({ workspace: ws }),
 				FolderService.listFolderNames({ workspace: ws })
 			])
-			tenantOptions = [
-				{ value: '*', label: 'Everyone in the workspace' },
-				...users.map((u) => ({ value: `u/${u}`, label: `u/${u}` })),
-				...groups.map((g) => ({ value: `g/${g}`, label: `g/${g}` })),
-				...folders.map((f) => ({ value: `f/${f}`, label: `f/${f}` }))
+			tenantItems = [
+				{ value: '*', label: 'Everyone', group: 'Anyone in the workspace' },
+				...users.map((u) => ({ value: `u/${u}`, label: u, group: 'Users' })),
+				...groups.map((g) => ({ value: `g/${g}`, label: g, group: 'Groups' })),
+				...folders.map((f) => ({ value: `f/${f}`, label: f, group: 'Folders' }))
 			]
 		} catch {
 			// A fork member may not be able to list the governing workspace's principals. The
 			// tenants they cannot name are still shown, they just cannot pick new ones.
-			tenantOptions = []
+			tenantItems = []
 		}
 	}
 
 	function addRole(id: string) {
 		const role = availableRoles.find((r) => r.id === id)
 		if (!role) return
-		rows = [...rows, { id: role.id, name: role.name, tenants: [] }]
+		roles.push({ id: role.id, name: role.name, tenants: [] })
 	}
 
-	function removeRole(id: string) {
-		rows = rows.filter((r) => r.id !== id)
-		if (defaultRole === id) defaultRole = ADMIN_ROLE
+	/** Adds a role by name: the instance's role of that name, or a pending row for one it does not
+	 * define yet. */
+	function addRoleByName(typed: string) {
+		const name = typed.trim()
+		if (!isDatatableRoleName(name) || name.toLowerCase() === ADMIN_DATATABLE_ROLE) {
+			sendUserToast(
+				`'${name}' cannot be a data table role name: use letters, digits, '_' and '-'`,
+				true
+			)
+			return
+		}
+		if (roles.some((r) => r.name === name)) return
+		const existing = availableRoles.find((r) => r.name === name)
+		roles.push({ id: existing?.id, name, tenants: [] })
+	}
+
+	function removeRole(role: EditedRole) {
+		const key = roleKey(role)
+		roles = roles.filter((r) => roleKey(r) !== key)
+		if (role.id !== undefined && defaultRoleId === role.id) defaultRoleId = ADMIN_DATATABLE_ROLE
+	}
+
+	/** Reads the instance catalog again and gives each pending row the id of the role now defined
+	 * under its name. */
+	async function refreshCatalog() {
+		let fresh: InstanceDatatableRole[]
+		try {
+			fresh = await SettingService.listInstanceDatatableRoles()
+		} catch (e) {
+			sendUserToast(e?.body ?? e?.message ?? String(e), true)
+			return
+		}
+		catalog = fresh
+		for (const row of roles) {
+			if (row.id !== undefined) continue
+			const created = fresh.find((r) => r.name === row.name)
+			if (created) row.id = created.id
+		}
 	}
 
 	async function save() {
@@ -141,12 +195,13 @@
 				datatableName: datatable,
 				requestBody: {
 					permissioned,
-					default_role: defaultRole,
-					roles: rows.map((r) => ({ id: r.id, tenants: r.tenants }))
+					default_role: defaultRoleId,
+					roles: roles.map((r) => ({ id: r.id!, tenants: $state.snapshot(r.tenants) }))
 				}
 			})
 			sendUserToast(msg)
 			await load()
+			onSaved?.()
 		} catch (e) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
 		} finally {
@@ -155,41 +210,48 @@
 	}
 
 	export function open() {
-		aclSchema = undefined
-		aclTable = undefined
-		aclSchemas = []
-		aclSchemasLoaded = false
-		aclTables = []
-		drawer?.openDrawer()
+		drawerOpen = true
 		load()
 	}
 </script>
 
-<Button
-	unifiedSize="sm"
-	variant="default"
-	startIcon={{ icon: KeyRound }}
-	iconOnly
-	{disabled}
-	title={disabled ? 'Save settings first' : 'Roles: who may connect as which Postgres role'}
-	on:click={open}
-/>
+{#if !hideTrigger}
+	<Button
+		unifiedSize="sm"
+		variant="default"
+		startIcon={{ icon: KeyRound }}
+		iconOnly
+		{disabled}
+		title={disabled ? 'Save settings first' : 'Roles: who may connect as which Postgres role'}
+		on:click={open}
+	/>
+{/if}
 
-<Drawer bind:this={drawer} size="700px">
+<Drawer bind:open={drawerOpen} size="900px">
 	<DrawerContent
-		title="Roles for {datatable}"
-		on:close={() => drawer?.closeDrawer()}
+		title="Roles — {datatable}"
+		on:close={() => (drawerOpen = false)}
 		tooltip="A data table role is a Postgres login. A job that names one connects as it, and Postgres decides what it may touch — grant it privileges under Access. Roles are defined for the whole instance; here you say who may use each one on this data table."
 	>
 		{#snippet titleExtra()}
 			<Badge color="blue" small>Beta</Badge>
 		{/snippet}
-		{#if loading}
-			<p class="text-sm text-secondary">Loading…</p>
-		{:else if loadError}
+		{#if loadError}
 			<Alert type="error" title="Could not load roles" size="xs">{loadError}</Alert>
+		{:else if loading && !info}
+			<span class="text-sm text-secondary">Loading…</span>
 		{:else}
 			<div class="flex flex-col gap-4">
+				<Toggle
+					bind:checked={permissioned}
+					disabled={!editable || !info?.supported}
+					options={{
+						right: 'Put this data table under roles',
+						rightTooltip:
+							'Off, every job connects as admin — the connection that owns every table. On, every job resolves to a role, and a caller no tenant covers is refused.'
+					}}
+				/>
+
 				{#if !info?.supported}
 					<Alert type="info" title="Not available on this data table" size="xs">
 						A data table role is a Postgres login on the Windmill instance's own database, so only a
@@ -219,126 +281,155 @@
 					</Alert>
 				{/if}
 
-				<Toggle
-					bind:checked={permissioned}
-					disabled={!editable || !info?.supported}
-					options={{
-						right: 'Put this data table under roles',
-						rightTooltip:
-							'Off, every job connects as admin — the connection that owns every table. On, every job resolves to a role, and a caller no tenant covers is refused.'
-					}}
-				/>
-
 				{#if permissioned}
-					{#if availableRoles.length === 0}
+					{#if editable && availableRoles.length === 0}
 						<Alert type="warning" title="No role defined on this instance" size="xs">
-							Only <span class="font-mono">admin</span> can be used until a superadmin adds a data table
-							role, from Instance roles at the top of the data tables settings page.
+							Only <span class="font-mono">admin</span> can be used until a superadmin creates a data
+							table role. Type a name below to add one.
 						</Alert>
 					{/if}
 
-					<div class="flex flex-col gap-3">
-						{#each rows as row (row.id)}
-							<div class="flex flex-col gap-1 border rounded-md p-3 bg-surface-secondary">
-								<div class="flex items-center gap-2">
-									<Badge color={row.id === ADMIN_ROLE ? 'blue' : 'gray'}>
-										{row.name ?? row.id}
-									</Badge>
-									{#if row.id === ADMIN_ROLE}
-										<Tooltip>
-											The connection every data table resolved to before roles. It owns every
-											existing object, so it is always available and cannot be removed.
-										</Tooltip>
-									{:else if !row.name}
-										<span class="text-xs text-secondary italic">
-											no longer defined on this instance
-										</span>
-									{/if}
-									{#if defaultRole === row.id}
-										<Badge color="green">Default</Badge>
-									{:else if editable}
-										<Button
-											unifiedSize="2xs"
-											variant="subtle"
-											on:click={() => (defaultRole = row.id)}
-										>
-											Make default
-										</Button>
-									{/if}
-									<div class="grow"></div>
-									{#if editable && row.id !== ADMIN_ROLE}
-										<CloseButton small on:close={() => removeRole(row.id)} />
-									{/if}
-								</div>
-								<MultiSelect
-									items={tenantOptions}
-									bind:value={row.tenants}
-									disabled={!editable}
-									placeholder="Nobody yet — add a user, group or folder"
-									size="sm"
-								/>
-							</div>
-						{/each}
-					</div>
-
-					{#if editable && unusedRoles.length > 0}
-						<div class="flex items-center gap-2">
-							<Plus size={14} class="text-secondary" />
-							<Select
-								items={unusedRoles.map((r) => ({
-									value: r.id,
-									label: r.enabled ? r.name : `${r.name} (disabled)`
-								}))}
-								placeholder="Add a role"
-								bind:value={
-									() => undefined,
-									(id) => {
-										if (id) addRole(id)
-									}
-								}
-								class="w-64"
-								size="sm"
-							/>
-						</div>
-					{/if}
-				{/if}
-
-				{#if editable}
-					<div class="flex justify-end">
-						<Button unifiedSize="sm" variant="accent" loading={saving} on:click={save}>
-							Save roles
-						</Button>
-					</div>
-				{/if}
-
-				{#if info?.supported}
-					<div class="flex flex-col gap-3 border-t pt-4">
-						<div class="flex flex-col gap-0.5">
-							<span class="text-sm font-semibold text-emphasis">Access</span>
-							<span class="text-xs text-secondary">
-								What each role may do in Postgres, on the database, a schema or a table. Every
-								change shows the SQL it runs before running it.
-							</span>
-						</div>
-						<AclTargetPicker
-							schemas={aclSchemas}
-							schemasLoading={!aclSchemasLoaded}
-							tables={aclTables}
-							bind:schema={
-								() => aclSchema,
-								(s) => {
-									aclSchema = s
-									aclTables = []
-								}
-							}
-							bind:table={aclTable}
-						/>
-						{#key JSON.stringify(aclTarget)}
-							<PgAclEditor {workspace} {datatable} target={aclTarget} onLoaded={onAclLoaded} />
-						{/key}
-					</div>
+					<DataTable>
+						<Head>
+							<tr>
+								<Cell head first>
+									Role
+									<Tooltip>
+										admin is the connection the data table used before roles, so it owns every
+										existing object and cannot be removed. Every other role is a login defined for
+										the whole instance, with only the privileges granted to it under Access.
+									</Tooltip>
+								</Cell>
+								<Cell head>
+									Tenants
+									<Tooltip>
+										Users, groups and folders allowed to connect as this role. Workspace admins can
+										use every role.
+									</Tooltip>
+								</Cell>
+								<Cell head>
+									Default
+									<Tooltip>
+										The role a job gets when it names none — no `-- role` annotation, no `?role=` in
+										the reference. Callers still have to be one of its tenants.
+									</Tooltip>
+								</Cell>
+								<Cell head last />
+							</tr>
+						</Head>
+						<tbody class="divide-y bg-surface-tertiary">
+							{#each roles as role (roleKey(role))}
+								{@const isAdmin = role.id === ADMIN_DATATABLE_ROLE}
+								<Row>
+									<Cell first class="w-56 align-top">
+										<div class="flex flex-col gap-0.5 pt-1.5">
+											<span class="font-mono text-xs text-emphasis">{role.name ?? role.id}</span>
+											{#if !role.name}
+												<span class="text-2xs text-secondary italic">
+													no longer defined on this instance
+												</span>
+											{:else if role.id === undefined}
+												<Alert type="warning" title="This role does not exist yet" size="xs">
+													{#if $superadmin}
+														<div class="flex flex-col items-start gap-1">
+															<span>Create it on the instance to use it here.</span>
+															<Button
+																unifiedSize="xs"
+																variant="default"
+																on:click={() => instanceRoles?.open(role.name)}
+															>
+																Create it
+															</Button>
+														</div>
+													{:else}
+														Only a superadmin can create it on the instance.
+													{/if}
+												</Alert>
+											{/if}
+										</div>
+									</Cell>
+									<Cell class="align-top">
+										<MultiSelect
+											items={tenantItems}
+											bind:value={role.tenants}
+											groupBy={(item) => item.group}
+											disabled={!editable}
+											placeholder="Nobody — add users, groups or folders"
+										/>
+									</Cell>
+									<Cell class="w-20 align-top">
+										<div class="flex justify-center pt-2">
+											<Checkbox
+												checked={role.id !== undefined && defaultRoleId === role.id}
+												disabled={!editable || role.id === undefined}
+												title="Use this role when a job names none"
+												onChange={() => {
+													if (role.id !== undefined) defaultRoleId = role.id
+												}}
+											/>
+										</div>
+									</Cell>
+									<Cell last class="w-10 align-top">
+										{#if editable && !isAdmin}
+											<CloseButton small on:close={() => removeRole(role)} />
+										{/if}
+									</Cell>
+								</Row>
+							{/each}
+							{#if editable}
+								<Row class="!border-0">
+									<Cell colspan={4} class="pt-2 pb-2">
+										<div class="flex justify-center">
+											<Select
+												items={unusedRoles.map((r) => ({
+													value: r.id,
+													label: r.enabled ? r.name : `${r.name} (disabled)`
+												}))}
+												placeholder="+ Add a role"
+												bind:value={
+													() => undefined,
+													(id) => {
+														if (id) addRole(id)
+													}
+												}
+												onCreateItem={addRoleByName}
+												class="w-64"
+											/>
+										</div>
+									</Cell>
+								</Row>
+							{/if}
+						</tbody>
+					</DataTable>
 				{/if}
 			</div>
+
+			{#if info?.supported && !hasUnsavedChanges}
+				<div class="mt-6 pt-6 border-t">
+					<PgAclEditor {workspace} {datatable} target={{ kind: 'database' }} />
+				</div>
+			{/if}
 		{/if}
+
+		{#snippet actions()}
+			{#if editable}
+				<Button
+					variant="accent"
+					unifiedSize="md"
+					disabled={!hasUnsavedChanges || loading || !!loadError || pendingRoles.length > 0}
+					title={pendingRoles.length > 0
+						? 'Create the roles that do not exist yet, or remove them'
+						: undefined}
+					loading={saving}
+					on:click={save}
+				>
+					Save
+				</Button>
+			{/if}
+		{/snippet}
 	</DrawerContent>
 </Drawer>
+
+{#if $superadmin}
+	<InstanceRolesButton bind:this={instanceRoles} hideTrigger onChanged={refreshCatalog} />
+{/if}
