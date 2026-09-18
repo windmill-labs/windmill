@@ -1,9 +1,11 @@
 <script lang="ts">
+	import ResourceDescriptionField from '$lib/components/ResourceDescriptionField.svelte'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import Label from '$lib/components/Label.svelte'
+	import ResourcePathHint from '$lib/components/ResourcePathHint.svelte'
 	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -53,7 +55,9 @@
 		moduleId,
 		opWorkspace = undefined,
 		flowPath = '',
-		fromAgentEditor = false
+		fromAgentEditor = false,
+		chatInputEnabled = false,
+		linkedMemory = $bindable()
 	}: {
 		agent: string | undefined
 		inputTransforms: Record<string, InputTransform>
@@ -71,6 +75,9 @@
 		// backend supports it, but only a flow can author it, and a second editor over a second draft
 		// is the wrong way in.
 		fromAgentEditor?: boolean
+		chatInputEnabled?: boolean
+		// The linked agent's memory once its config has loaded, for the step's history inputs.
+		linkedMemory?: { memory: unknown } | undefined
 	} = $props()
 
 	let ws = $derived(opWorkspace ?? $workspaceStore)
@@ -211,6 +218,9 @@
 	let linkedInfo = $derived(
 		loadedInfo?.ws === ws && loadedInfo?.path === agent ? loadedInfo : undefined
 	)
+	$effect(() => {
+		linkedMemory = linkedInfo ? { memory: linkedInfo.config?.memory } : undefined
+	})
 	let inheritedTools = $derived(linkedInfo?.tools ?? [])
 	let brainParams = $derived(summarizeAgentBrain(linkedInfo?.config))
 	let providerPath = $derived(linkedInfo?.providerPath)
@@ -312,6 +322,20 @@
 	// saved without a complete one fails on every linked run. Block saving when the provider is
 	// computed/connected (only a static value can be captured into the resource) or when the static
 	// value is incomplete (a fresh step defaults to empty resource/model, which is still static).
+	// A saved agent never carries a memory id, so saving would drop the id this step's runs still fall
+	// back to and leave them without memory. The author picks what replaces it first. In chat mode the
+	// conversation id always won, so there the id was never read.
+	let legacyMemorySaveError = $derived.by(() => {
+		const memory = inputTransforms?.memory as
+			| { type?: string; value?: { kind?: string; context_length?: number; memory_id?: string } }
+			| undefined
+		const value = memory?.type === 'static' ? memory.value : undefined
+		if (chatInputEnabled || value?.kind !== 'auto' || !value.memory_id || !value.context_length) {
+			return undefined
+		}
+		return "This step still uses a fixed memory id from an earlier version. In Managed memory, choose Keep as memory id or Use the run's memory id, then save it as an agent."
+	})
+
 	let providerSaveError = $derived.by(() => {
 		const t = inputTransforms?.provider as
 			| { type?: string; value?: { resource?: string; model?: string } }
@@ -343,8 +367,8 @@
 	// the success toast that would otherwise bury the explanation.
 	async function persist(path: string, description?: string): Promise<boolean> {
 		const dropped = nonStaticBrainKeys(inputTransforms)
-		if (providerSaveError) {
-			throw new Error(providerSaveError)
+		if (providerSaveError ?? legacyMemorySaveError) {
+			throw new Error(providerSaveError ?? legacyMemorySaveError)
 		}
 		if (dropped.length > 0) {
 			sendUserToast(
@@ -355,6 +379,12 @@
 		// Tool inputs are saved verbatim: the agent carries its tools' default bindings (static, AI or
 		// flow expressions) as authored. Host flows override per-step via tool_inputs, never here.
 		const value = inputTransformsToAgentConfig(inputTransforms, tools)
+		// An id an older editor baked into this step names the flow's memory. The agent is shared by
+		// every step linking it, and each of those takes its memory id from its own run.
+		if (value.memory && typeof value.memory === 'object' && 'memory_id' in value.memory) {
+			const { memory_id: _, ...memory } = value.memory as Record<string, unknown>
+			value.memory = memory
+		}
 		// The editor stays live during the requests below, so remember what linking would discard:
 		// every brain transform and the tools. Comparing the saved config instead would miss a
 		// non-static brain edit, which the resource cannot hold yet linking still strips.
@@ -672,28 +702,31 @@
 		<div class="flex flex-col gap-4">
 			<p class="text-xs text-secondary">
 				Save this AI agent's configuration and tools as a reusable resource. Other flows can then
-				link to it, updates propagate automatically, and it gains a dataset of eval cases of its
-				own.
+				link to it, and updates propagate automatically.
 			</p>
-			<Path
-				bind:path={newPath}
-				bind:error={pathError}
-				initialPath=""
-				namePlaceholder="my_agent"
-				kind="resource"
-				workspaceOverride={ws}
-			/>
-			<label class="flex flex-col gap-1 text-xs">
-				<span class="text-secondary">Description</span>
-				<TextInput
-					bind:value={description}
-					inputProps={{ placeholder: 'What this agent does' }}
-					size="sm"
+			<!-- The path and description are the resource form's, field for field: this
+			     drawer creates a resource too, and ResourcePathHint exists so the screens
+			     that do cannot drift apart. -->
+			<Label label="Path">
+				<ResourcePathHint />
+				<Path
+					bind:path={newPath}
+					bind:error={pathError}
+					initialPath=""
+					namePlaceholder="my_agent"
+					kind="resource"
+					workspaceOverride={ws}
 				/>
-			</label>
-			{#if providerSaveError}
-				<p class="text-xs text-red-600 dark:text-red-400">
-					{providerSaveError}
+			</Label>
+			<ResourceDescriptionField
+				bind:description
+				label="Description"
+				placeholder="Describe what this agent does"
+			/>
+			{#if providerSaveError ?? legacyMemorySaveError}
+				<!-- Validation is `text-2xs` per the guidelines; the red is the feedback colour. -->
+				<p class="text-2xs text-red-600 dark:text-red-400">
+					{providerSaveError ?? legacyMemorySaveError}
 				</p>
 			{/if}
 		</div>
@@ -701,7 +734,10 @@
 			<Button
 				variant="accent"
 				startIcon={{ icon: Save }}
-				disabled={!newPath || !!pathError || saving || !!providerSaveError}
+				disabled={!newPath ||
+					!!pathError ||
+					saving ||
+					!!(providerSaveError ?? legacyMemorySaveError)}
 				onclick={saveAsAgent}
 			>
 				Save agent

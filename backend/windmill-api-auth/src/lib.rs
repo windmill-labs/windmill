@@ -1141,6 +1141,9 @@ impl NewToken {
 /// [`ensure_scopes_within_caller`] first (internal narrowing mints intentionally
 /// skip it, since their scopes derive from the action being authorized, not the
 /// caller's token).
+///
+/// A token the system mints for itself with an `expiration` needs a label reserved in
+/// `windmill_common::auth::is_user_token`, or its expiry alerts its owner (docs/auth-surface.md).
 pub async fn create_token_internal(
     tx: &mut sqlx::PgConnection,
     db: &DB,
@@ -1244,6 +1247,10 @@ pub async fn register_token_expiry_notification(
     let Some(expiration) = expiration else { return };
     // System tokens don't get expiry notifications.
     if !windmill_common::auth::is_user_token(label) {
+        return;
+    }
+    let warning_days = windmill_common::auth::TOKEN_EXPIRY_WARNING_DAYS;
+    if expiration <= chrono::Utc::now() + chrono::Duration::days(warning_days.into()) {
         return;
     }
     if let Err(e) = sqlx::query!(
