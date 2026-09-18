@@ -42,7 +42,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde_json::json;
 
 use serde::{Deserialize, Serialize};
 use windmill_ai::ai_cache::bump_instance_ai_config_revision;
