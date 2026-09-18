@@ -36,6 +36,7 @@
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
 	import AssistantSettingsModal from './AssistantSettingsModal.svelte'
+	import AgentContextSummary from './contextSummary/AgentContextSummary.svelte'
 	import { SkillsMenu } from './skills/skillsMenu.svelte'
 	import { McpMenu } from '$lib/components/mcp/mcpMenu.svelte'
 	import ChatMode from './ChatMode.svelte'
@@ -1262,4 +1263,18 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			</div>
 		{/if}
 	</div>
+	<!-- After the composer, so an empty session puts the input at the top and what the
+	     agent is carrying underneath it. -->
+	{#if messages.length === 0 && chatHost.mode === AIMode.GLOBAL && chatHost.isSessionChat}
+		<div class="flex-1 min-h-0 overflow-y-auto">
+			<!-- Same max width and gutter as the composer above, so the two line up. -->
+			<div
+				class={wideLayout
+					? 'w-full max-w-3xl mx-auto px-6 pt-8 pb-2'
+					: 'w-full max-w-2xl mx-auto px-2 pt-8 pb-2'}
+			>
+				<AgentContextSummary onManage={(section) => assistantSettings?.open(section)} />
+			</div>
+		</div>
+	{/if}
 </div>
