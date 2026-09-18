@@ -232,6 +232,7 @@
 					/>
 					<TopLevelNode
 						label="AI Agent"
+						chevron={false}
 						onSelect={() => {
 							dispatch('pickAiAgentTool')
 							dispatch('close')

@@ -463,7 +463,6 @@
 						parentModule={agentModule as FlowModule}
 						{enableAi}
 						staticOnly
-						noToolNavigation
 						forceTestTab={readOnly ? undefined : { [tool.id]: true }}
 						siblingToolNames={tools.filter((t) => t?.id !== tool?.id).map((t) => t?.summary ?? '')}
 					/>

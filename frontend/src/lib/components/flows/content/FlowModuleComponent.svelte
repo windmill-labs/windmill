@@ -126,10 +126,6 @@
 		staticOnly?: boolean
 		/** Lets the agent's Tools section add a tool through the graph's own insert path. */
 		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
-		/** Drop the tool roster's drill-in. Selecting a tool means selecting its graph node, so a
-		 *  surface without a graph — the agent editor, which addresses one tool at a time — would
-		 *  offer a row whose click lands nowhere. */
-		noToolNavigation?: boolean
 		toolDescription?: string | undefined
 		siblingToolNames?: string[]
 	}
@@ -150,7 +146,6 @@
 		isAgentTool = false,
 		staticOnly = false,
 		flowModuleSchemaMap = undefined,
-		noToolNavigation = false,
 		toolDescription = $bindable(undefined),
 		siblingToolNames = undefined
 	}: Props = $props()
@@ -204,6 +199,14 @@
 	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
 	let runSettings: FlowRunSettings | undefined = $state()
 	let agentLinked = $derived(flowModule.value.type === 'aiagent' && Boolean(flowModule.value.agent))
+	// A tool row drills in by selecting that tool's graph node, and the graph draws tool nodes only
+	// for a step's own agent (`computeAIToolNodes`). An agent used as a tool has none, so its rows
+	// would offer a click that lands nowhere.
+	let onSelectToolInGraph = $derived(
+		isAgentTool
+			? undefined
+			: (toolId: string) => selectionManager.selectId(toolId, { openPanel: true })
+	)
 	let validCode = $state(true)
 	let width = $state(1200)
 	let testJob: Job | undefined = $state(undefined)
@@ -1240,15 +1243,14 @@
 														workspace={opWs}
 														visibilityKey={agentFieldsKey}
 														linkedMemory={agentLinked ? linkedAgentMemory : undefined}
+														{agentLinked}
 														tools={agentLinked
 															? getLinkedAgentTools(
 																	linkedToolsScope(opWs, $pathStore),
 																	linkedToolsModuleId
 																)
 															: (flowModule.value.tools ?? [])}
-														onSelectTool={noToolNavigation
-															? undefined
-															: (toolId) => selectionManager.selectId(toolId, { openPanel: true })}
+														onSelectTool={onSelectToolInGraph}
 														onAddTool={flowModuleSchemaMap
 															? (detail) =>
 																	flowModuleSchemaMap?.addToolToAgent(flowModule.id, detail)
