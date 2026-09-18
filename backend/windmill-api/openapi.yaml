@@ -36584,6 +36584,12 @@ components:
         workers:
           type: boolean
           description: Whether operators can view workers page
+        manage_schedules:
+          type: boolean
+          description: Whether operators can create, edit and delete schedules. Granted unless withdrawn; omitting the field leaves the stored value unchanged.
+        manage_triggers:
+          type: boolean
+          description: Whether operators can create, edit and delete triggers. Granted unless withdrawn; omitting the field leaves the stored value unchanged.
 
     WorkspaceComparison:
       type: object

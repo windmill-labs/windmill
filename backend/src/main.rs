@@ -46,26 +46,24 @@ use windmill_common::{
         CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
-        HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
-        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
+        INDEXER_SETTING, INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
         MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
-        NO_DEFAULT_MAVEN_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING,
-        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING,
-        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
-        POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
-        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING,
-        SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
-        SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
-        SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
-        SERVICE_LOG_RETENTION_SECS_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
-        TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING,
-        UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
+        NO_DEFAULT_MAVEN_SETTING, NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING,
+        NSJAIL_TMP_BACKING_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
+        OTEL_TRACES_RETENTION_SECS_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
+        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RESTART_COORDINATION_SETTING, RETENTION_PERIOD_SECS_OVERRIDES_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
+        SANDBOX_IMAGE_CACHE_MAX_MB_SETTING, SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING,
+        SANDBOX_IMAGE_MAX_SIZE_MB_SETTING, SANDBOX_IMAGE_PULL_POLICY_SETTING,
+        SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING, SERVICE_LOG_RETENTION_SECS_SETTING,
+        SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
         WORKSPACE_MAX_QUEUED_JOBS_SETTING, WORKSPACE_REGISTRIES_SETTING,
@@ -128,22 +126,21 @@ use windmill_worker::{
 use crate::monitor::{
     initial_load, load_concurrency_key_max_queued, load_disable_password_login,
     load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir,
-    load_mcp_disable_token_query_param, load_metrics_debug_enabled,
-    load_preview_tags_override, load_require_preexisting_user, load_retention_period_overrides,
-    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces,
-    load_workspace_fairness_duration_secs, load_workspace_fairness_enabled,
-    load_workspace_fairness_max_percent, load_workspace_fairness_min_total,
-    load_workspace_max_queued_jobs, monitor_db, reload_app_workspaced_route_setting,
-    reload_audit_log_retention_days_setting, reload_base_url_setting,
-    reload_bun_install_min_release_age_setting, reload_bunfig_install_scopes_setting,
-    reload_critical_alert_mute_ui_setting, reload_critical_alert_mute_zombie_job_restart_setting,
+    load_mcp_disable_token_query_param, load_metrics_debug_enabled, load_preview_tags_override,
+    load_require_preexisting_user, load_retention_period_overrides, load_tag_per_workspace_enabled,
+    load_tag_per_workspace_workspaces, load_workspace_fairness_duration_secs,
+    load_workspace_fairness_enabled, load_workspace_fairness_max_percent,
+    load_workspace_fairness_min_total, load_workspace_max_queued_jobs, monitor_db,
+    reload_app_workspaced_route_setting, reload_audit_log_retention_days_setting,
+    reload_base_url_setting, reload_bun_install_min_release_age_setting,
+    reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
+    reload_critical_alert_mute_zombie_job_restart_setting,
     reload_critical_alerts_on_token_expiry_setting, reload_critical_error_channels_setting,
     reload_extra_pip_index_url_setting, reload_http_route_default_allowed_origins_setting,
-    reload_http_route_workspaced_route_setting,
-    reload_hub_api_secret_setting, reload_hub_base_url_setting,
-    reload_instance_events_webhook_setting, reload_job_default_timeout_setting,
-    reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
-    reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
+    reload_http_route_workspaced_route_setting, reload_hub_api_secret_setting,
+    reload_hub_base_url_setting, reload_instance_events_webhook_setting,
+    reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
+    reload_license_key, reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
     reload_nsjail_tmpfs_size_setting, reload_otel_traces_retention_secs_setting,
     reload_otel_tracing_proxy_setting, reload_pip_index_url_setting,
     reload_retention_period_setting, reload_sandbox_image_cache_max_setting,
@@ -421,7 +418,6 @@ struct HubResourceTypeRaw {
     )]
     pub display_name: Option<Option<String>>,
 }
-
 
 /// Processed resource type with parsed schema
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
@@ -1834,6 +1830,13 @@ async fn process_notify_event(
                 payload
             );
             windmill_common::variables::CUSTOM_ENVS_CACHE.remove(payload);
+        }
+        "notify_operator_settings_change" => {
+            tracing::info!(
+                "Operator settings change detected, invalidating operator rights cache: {}",
+                payload
+            );
+            windmill_common::workspaces::invalidate_operator_rights_cache(payload);
         }
         "notify_asset_producer_change" => {
             tracing::debug!(
