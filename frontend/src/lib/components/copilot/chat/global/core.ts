@@ -2055,8 +2055,16 @@ async function readWorkspaceItem(
 			const app = await AppService.getAppByPath({ workspace, path })
 			// A grid is not files and runnables: summarizing one reports an empty app. Name the
 			// kind instead.
+			const executionMode = app.policy?.execution_mode
 			if (app.raw_app === false) {
-				return { type: 'app', path: app.path, summary: app.summary, rawApp: false, isDraft: false }
+				return {
+					type: 'app',
+					path: app.path,
+					summary: app.summary,
+					rawApp: false,
+					executionMode,
+					isDraft: false
+				}
 			}
 			const value = appSourceToDraftValue(app)
 			const metadata = summarizeAppValue(value)
@@ -2066,6 +2074,7 @@ async function readWorkspaceItem(
 				summary: value.summary,
 				value: metadata as unknown as AppDraftValue,
 				rawApp: app.raw_app,
+				executionMode,
 				isDraft: false
 			}
 		}

@@ -3744,6 +3744,37 @@ describe('global AI tools', () => {
 		expect(getBackendDraft('raw_app', 'f/apps/legacy', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
+	// getAppByPath and listApps are refused by the catalog, so this read is the only way
+	// left to ask who may open a deployed app. Both kinds answer: a drag-and-drop app can
+	// be anonymous too, and no other tool here can inspect one.
+	it('reports who may open an app, whichever kind it is', async () => {
+		const readMode = async (app: any) => {
+			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(app)
+			const read = await callGlobalTool('read_workspace_item', { type: 'app', path: app.path })
+			return JSON.parse(read).executionMode
+		}
+
+		expect(
+			await readMode({
+				path: 'f/apps/code',
+				summary: 'Code app',
+				raw_app: true,
+				value: { files: {}, runnables: {} },
+				policy: { execution_mode: 'guest' }
+			})
+		).toBe('guest')
+
+		expect(
+			await readMode({
+				path: 'f/apps/builder',
+				summary: 'Builder app',
+				raw_app: false,
+				value: { grid: [] },
+				policy: { execution_mode: 'anonymous' }
+			})
+		).toBe('anonymous')
+	})
+
 	it('reads raw app files without creating a draft', async () => {
 		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
