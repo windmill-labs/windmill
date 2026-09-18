@@ -127,6 +127,12 @@ describe('read/write split', () => {
 		expect(getTool('call_mcp_write_tool').requiresConfirmation).toBe(true)
 	})
 
+	it('admits search and reads in plan mode, never writes', () => {
+		expect(getTool('search_mcp_tools').planModeSafe).toBe(true)
+		expect(getTool('call_mcp_read_tool').planModeSafe).toBe(true)
+		expect(getTool('call_mcp_write_tool').planModeSafe).toBeFalsy()
+	})
+
 	// The rejection sends the model to the write tool, which classifies from the
 	// same cached listing: without dropping it, that retry is refused too and the
 	// model has nowhere to go until the entry expires.

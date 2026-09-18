@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.814.0](https://github.com/windmill-labs/windmill/compare/v1.813.0...v1.814.0) (2026-09-17)
+
+
+### Features
+
+* **ai-chat:** add list_workers and list_data_metrics global tools ([#11143](https://github.com/windmill-labs/windmill/issues/11143)) ([e954d33](https://github.com/windmill-labs/windmill/commit/e954d33613e4ff5027667eb8f646615d9bbd499d))
+* **ai-chat:** merge get_job_logs and get_flow_run_details into get_run ([#11172](https://github.com/windmill-labs/windmill/issues/11172)) ([5bb37ca](https://github.com/windmill-labs/windmill/commit/5bb37ca3388666fba72c55534e37f37bb3e9299e))
+* allow git sync auto-pull, promotion and PRs on Pro licenses ([#11173](https://github.com/windmill-labs/windmill/issues/11173)) ([02e47de](https://github.com/windmill-labs/windmill/commit/02e47de8b4c4f3f54753aabf8c67bc8e71ffb957))
+* badge chat-input flows on the home list ([#11164](https://github.com/windmill-labs/windmill/issues/11164)) ([3d08197](https://github.com/windmill-labs/windmill/commit/3d0819718221f885b61e73d02b43dcc853c7d02a))
+* collect flow conversations and agent memory once their last message goes ([#11178](https://github.com/windmill-labs/windmill/issues/11178)) ([23c24a9](https://github.com/windmill-labs/windmill/commit/23c24a9688d4c8c462f53221334d538280f16bca))
+* flow chat model picker on a shared model-settings component ([#11187](https://github.com/windmill-labs/windmill/issues/11187)) ([189793c](https://github.com/windmill-labs/windmill/commit/189793c2e4db7f1c853695ebcc895c1ec82ed19f))
+* keep flow inputs and seed the agent when chat mode is enabled ([#11177](https://github.com/windmill-labs/windmill/issues/11177)) ([68f2248](https://github.com/windmill-labs/windmill/commit/68f2248018fc218a090bf939e1eb22ff97d5bc22))
+* let plan mode search and read connected mcp servers ([#11205](https://github.com/windmill-labs/windmill/issues/11205)) ([5371519](https://github.com/windmill-labs/windmill/commit/5371519f0f5ce7750982dcdb374dca72115902e7))
+* let test_run_flow name the conversation of a chat-mode test run ([#11198](https://github.com/windmill-labs/windmill/issues/11198)) ([6e1ef93](https://github.com/windmill-labs/windmill/commit/6e1ef93f329cb396ffc3df3304d592e8fa0e0e71))
+* managed memory with an inherited or custom memory id per step ([#11118](https://github.com/windmill-labs/windmill/issues/11118)) ([c297ed0](https://github.com/windmill-labs/windmill/commit/c297ed0052d998fb8f063faa2a36c6eb03e327be))
+* render the flow chat through the shared session chat components ([#11175](https://github.com/windmill-labs/windmill/issues/11175)) ([a9ec0ae](https://github.com/windmill-labs/windmill/commit/a9ec0aec3ac0c6b0f7919d0eb2168816923826d7))
+* show flow step detail inside the graph tab on narrow detail layouts ([#11168](https://github.com/windmill-labs/windmill/issues/11168)) ([64dffe6](https://github.com/windmill-labs/windmill/commit/64dffe6106ad6a55b61a423c855a4b5b0cef533e))
+* store mcp tool call, result and reasoning on flow conversation rows ([#11176](https://github.com/windmill-labs/windmill/issues/11176)) ([a571117](https://github.com/windmill-labs/windmill/commit/a571117f3fd2cef14c920770645c60ee358fdfdd))
+* tell test flow conversations from deployed ones and rename a chat ([#11179](https://github.com/windmill-labs/windmill/issues/11179)) ([4eab995](https://github.com/windmill-labs/windmill/commit/4eab995cf7cf091a5e4640da4cb77e0921bb7fdf))
+
+
+### Bug Fixes
+
+* disable a schedule whose cron has no run left instead of panicking ([#11195](https://github.com/windmill-labs/windmill/issues/11195)) ([381d447](https://github.com/windmill-labs/windmill/commit/381d4470ef699ea82283742132e56556b95d2bd2))
+* skip expiry notifications for app embed and SDK tokens ([#11169](https://github.com/windmill-labs/windmill/issues/11169)) ([9d348f8](https://github.com/windmill-labs/windmill/commit/9d348f84c7830f36b6153472556fd70e3d84cd24))
+
 ## [1.813.0](https://github.com/windmill-labs/windmill/compare/v1.812.0...v1.813.0) (2026-09-16)
 
 

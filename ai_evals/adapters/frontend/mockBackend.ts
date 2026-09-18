@@ -11,6 +11,7 @@ import type {
 	Script
 } from '../../../frontend/src/lib/gen'
 import type {
+	DataMetric,
 	DataTableTables,
 	DataTableTableSchema,
 	EndpointTool,
@@ -112,6 +113,9 @@ export interface BenchmarkWorkspaceRunnables {
 	aiProviders?: BenchmarkWorkspaceAiProvider[]
 	resources?: BenchmarkWorkspaceResource[]
 	datatables?: BenchmarkDatatableSeed[]
+	/** DuckLake catalog names, as `list_ducklakes` reports them. */
+	ducklakes?: string[]
+	dataMetrics?: DataMetric[]
 	jobs?: BenchmarkWorkspaceJob[]
 }
 
@@ -673,6 +677,27 @@ export function listBenchmarkDatatables(workspace: string): DataTableTables[] | 
 	}))
 }
 
+// ============= DuckLake catalogs and declared metrics =============
+
+/** Seeded DuckLake names, or `null` for a non-benchmark workspace. */
+export function listBenchmarkDucklakes(workspace: string): string[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	return runnables ? (runnables.ducklakes ?? []) : null
+}
+
+/**
+ * Seeded metric declarations, or `null` for a non-benchmark workspace.
+ *
+ * The `table` / `path_prefix` filters are ignored: which rows a filter selects is
+ * `canonical_table_path`'s business and is pinned by `ducklakeTools.test.ts`.
+ * Re-deriving it here would give the eval its own copy of that spec to drift from,
+ * and the case this serves measures whether the model reaches for the tool at all.
+ */
+export function listBenchmarkDataMetrics(workspace: string): DataMetric[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	return runnables ? (runnables.dataMetrics ?? []) : null
+}
+
 export function getBenchmarkDatatableSchema(input: {
 	workspace: string
 	datatableName: string
@@ -837,6 +862,29 @@ export function runBenchmarkFlowByPath(input: {
 			flow !== null
 				? 'Mock benchmark flow run completed successfully.'
 				: `Flow "${input.path}" not found in benchmark workspace.`
+	})
+}
+
+/**
+ * Mirror `JobService.runFlowPreview` for benchmark workspaces, including the server's
+ * refusal of a chat-enabled flow run that names no conversation (`memory_id`).
+ */
+export function runBenchmarkFlowPreview(input: {
+	workspace: string
+	memoryId?: string
+	requestBody?: { path?: string; value?: { chat_input_enabled?: boolean }; args?: unknown }
+}): string {
+	if (input.requestBody?.value?.chat_input_enabled && !input.memoryId) {
+		throw new Error('Bad request: memory_id is required for chat-enabled flows')
+	}
+	const args = (input.requestBody?.args ?? {}) as Record<string, unknown>
+	return createBenchmarkCompletedJob({
+		workspace: input.workspace,
+		jobKind: 'flowpreview',
+		success: true,
+		args,
+		result: { path: input.requestBody?.path, args, mocked: true },
+		logs: 'Mock benchmark flow preview completed successfully.'
 	})
 }
 
