@@ -60,7 +60,7 @@ function pool(
 	} = {}
 ) {
 	const chats: ReturnType<typeof fakeChat>[] = []
-	const hosts = { resumeTurn: vi.fn(), dispose: vi.fn() }
+	const hosts = { resumeTurn: vi.fn(), dispose: vi.fn(), moveUnsentDraft: vi.fn() }
 	const created = new FlowChatPool<{ chat: Chat }>({
 		createChat: () => {
 			const fake = fakeChat()
@@ -71,6 +71,7 @@ function pool(
 		disposeHost: hosts.dispose,
 		hasUnsentDraft: options.hasUnsentDraft ?? (() => false),
 		resumeTurn: (host, turn) => hosts.resumeTurn(host.chat, turn),
+		moveUnsentDraft: (from, to) => hosts.moveUnsentDraft(from.chat, to.chat),
 		isRunFinished: options.isRunFinished ?? (async () => false),
 		keepSettled: options.keepSettled,
 		pollMs: 10
@@ -159,6 +160,24 @@ describe('FlowChatPool', () => {
 		set({ conversationId: 'new-2' })
 		expect(p.getState().selectedId).toBe('new-2')
 		expect(p.get('new-2')).toBe(draft)
+		p.destroy()
+	})
+
+	it("hands a withdrawn chat's unsent draft to the new chat that took its place", async () => {
+		const { pool: p, fakeOf, hosts } = pool()
+		const withdrawn = p.selected
+		const { set } = fakeOf(withdrawn.chat)
+		set({ conversationId: 'new-1' })
+		// The reader opens another new chat while the first message is still uploading.
+		const kept = p.newChat()
+		expect(kept).not.toBe(withdrawn)
+		set({ conversationId: undefined })
+		// Not released yet: the send reports what it could not do after this.
+		expect(withdrawn.chat.destroy).not.toHaveBeenCalled()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect(hosts.moveUnsentDraft).toHaveBeenCalledWith(withdrawn.chat, kept.chat)
+		expect(withdrawn.chat.destroy).toHaveBeenCalled()
+		expect(p.selected).toBe(kept)
 		p.destroy()
 	})
 

@@ -85,9 +85,15 @@ export async function* followJob(
       continue
     }
     if (options.signal?.aborted) throw abortError()
-    // The server closes the connection after its timeout; a dropped connection looks
-    // the same minus the event. Either way the offset lets the next one resume.
-    if (!reopen) await sleep(RECONNECT_DELAY_MS, options.signal)
+    // The server closes the connection after its timeout; a connection that ends without
+    // that event, and without the job completing, carried nothing to its end. The offset
+    // lets the next one resume, and it counts like a failed one so a gateway closing every
+    // stream this way still reaches the polling below rather than reconnecting for ever.
+    if (!reopen) {
+      failures++
+      if (failures >= MAX_CONNECTION_FAILURES) break
+      await sleep(RECONNECT_DELAY_MS, options.signal)
+    }
   }
   while (true) {
     await sleep(RESULT_POLL_MS, options.signal)

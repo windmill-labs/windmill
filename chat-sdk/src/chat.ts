@@ -233,6 +233,17 @@ class ChatImpl implements Chat {
       // The conversation's first page may still be on its way; it would land over the turn.
       await this.#selecting
       if (!this.#turnActive(turn)) return
+      // A listing is a snapshot: the turn it named can have ended and another one started
+      // since. Following it would drop the newer turn's rows and leave the chat idle while
+      // that turn runs, so it is left to the next listing to name the turn that runs now.
+      const newerTurn = this.#state.messages.some(
+        (m) => m.role === 'user' && m.seq !== undefined && m.seq > userSeq
+      )
+      if (newerTurn) {
+        if (this.#turn === turn) this.#turn = undefined
+        this.#set({ status: 'idle' })
+        return
+      }
       // The stream replays the turn from its start, so the rows it already wrote go and
       // come back as it replays them. The message that started it stays: it is the turn's
       // anchor, and a long turn can have pushed it off the page this chat opened on.

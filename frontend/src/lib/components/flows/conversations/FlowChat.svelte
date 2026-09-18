@@ -124,6 +124,7 @@
 			disposeHost: (host) => host.dispose(),
 			hasUnsentDraft: (host) => host.hasUnsentDraft,
 			resumeTurn: (host, turn) => host.resumeTurn(turn),
+			moveUnsentDraft: (from, to) => to.adoptUnsentDraft(from.takeUnsentDraft()),
 			isRunFinished: async (jobId) => (await api.getCompletedResult(jobId)).completed
 		})
 		const unsubscribeList = createdList.subscribe((s) => (listState = s))

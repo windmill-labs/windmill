@@ -610,6 +610,25 @@ export class FlowChatViewHost implements ChatViewHost {
 		this.#queue = emptyQueue()
 		return taken
 	}
+	/**
+	 * Everything typed here and not sent, handed to the chat that takes this one's place: a
+	 * new chat whose first message never ran leaves with nothing of its own, and what the
+	 * reader wrote belongs in the composer they are looking at rather than in a released host.
+	 */
+	takeUnsentDraft(): Queue {
+		const queued = this.#takeQueue()
+		const returned = this.#returned
+		this.#returned = emptyQueue()
+		return {
+			text: [returned.text, queued.text].filter(Boolean).join('\n'),
+			images: [...returned.images, ...queued.images],
+			blobs: [...returned.blobs, ...queued.blobs]
+		}
+	}
+	adoptUnsentDraft({ text, images, blobs }: Queue) {
+		if (!text && images.length === 0 && blobs.length === 0) return
+		this.#returnDraft(text, images, blobs)
+	}
 	setComposerStaged = () => {}
 	clearComposerStaged = () => {}
 	attachmentBytesExcluding = () => 0

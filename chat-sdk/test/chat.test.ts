@@ -966,6 +966,51 @@ describe('createChat with server history', () => {
     expect(state.conversations.map((c) => c.id)).toEqual(['conv'])
   })
 
+  test('a running turn the listing named is not followed once a newer one has started', async () => {
+    const { fetch, calls } = fetchMock(
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json([
+              messageRow(50, 'user', 'first'),
+              messageRow(51, 'assistant', 'first answer'),
+              messageRow(52, 'user', 'second')
+            ])
+          : undefined
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    // The listing named the first turn; it ended and another one started before this select.
+    await chat.resumeTurn({ jobId: 'job-1', userSeq: 50 })
+    expect(chat.getState().status).toBe('idle')
+    expect(chat.getState().messages.map((m) => m.serverId)).toEqual(['row-50', 'row-51', 'row-52'])
+    expect(calls.some((c) => c.url.pathname.includes('getupdate_sse'))).toBe(false)
+    // The chat is free: a message sent now starts its own turn rather than being refused.
+    expect(chat.getState().error).toBeUndefined()
+  })
+
+  test('a stream that keeps ending before the job completes hands the turn to polling', async () => {
+    let streams = 0
+    const { fetch } = fetchMock(
+      run,
+      // A gateway that answers 200 and closes cleanly, carrying nothing to the end.
+      (c) => (c.url.pathname === streamPath ? (streams++, sse([])) : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/get_result_maybe/job-1')
+          ? json({ completed: true, success: true, result: { windmill_chat_answer: 'polled' } })
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json([messageRow(81, 'user', 'hi'), messageRow(82, 'assistant', 'polled')])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('hi')
+    expect(streams).toBe(3)
+    expect(chat.getState().status).toBe('idle')
+    expect(chat.getState().messages.map((m) => m.content)).toEqual(['hi', 'polled'])
+  }, 15000)
+
   test('resuming a turn whose message is off the first page replays it without duplicating rows', async () => {
     const { fetch } = fetchMock(
       (c) =>

@@ -57,6 +57,8 @@ export interface FlowChatPoolOptions<H> {
 	hasUnsentDraft(host: H): boolean
 	/** Follows a turn another page started, through the host so what it queues waits for it. */
 	resumeTurn(host: H, turn: RunningTurn): void
+	/** Hands what was typed in a chat being released to the one taking its place. */
+	moveUnsentDraft(from: H, to: H): void
 	/** Whether a run has ended, for a running conversation this page holds no chat for. */
 	isRunFinished(jobId: string): Promise<boolean>
 	/** Settled conversations kept in memory beside the shown and the busy ones. */
@@ -93,6 +95,8 @@ export class FlowChatPool<H> {
 	readonly #running = new Map<string, RunningTurn>()
 	/** Failed reads in a row, per conversation, for a run this pool has no chat for. */
 	readonly #pollFailures = new Map<string, number>()
+	/** Chats on their way out, kept until the send that withdrew them has settled. */
+	readonly #retiring = new Set<Entry<H>>()
 	readonly #unread = new Map<string, number>()
 	readonly #listeners = new Set<(state: FlowChatPoolState) => void>()
 	#selectedId: string | undefined
@@ -198,7 +202,9 @@ export class FlowChatPool<H> {
 		this.#destroyed = true
 		clearInterval(this.#poll)
 		for (const entry of this.#entries.values()) this.#release(entry)
+		for (const entry of this.#retiring) this.#release(entry)
 		if (this.#draft) this.#release(this.#draft)
+		this.#retiring.clear()
 		this.#entries.clear()
 		this.#draft = undefined
 		this.#listeners.clear()
@@ -266,9 +272,22 @@ export class FlowChatPool<H> {
 			this.#running.delete(key)
 			if (this.#selectedId === key) this.#selectedId = undefined
 		}
-		// A new chat opened meanwhile is the draft now; this one has nothing left to show.
-		if (this.#draft) this.#release(entry)
-		else this.#draft = entry
+		if (!this.#draft) {
+			this.#draft = entry
+			this.#publish()
+			return
+		}
+		// A new chat opened meanwhile is the draft now, so this chat has nowhere to show. It
+		// is released only once its send has reported what it could not do — the refusal
+		// reaches it after this — and what the reader typed moves to the chat in its place.
+		const kept = this.#draft
+		this.#retiring.add(entry)
+		setTimeout(() => {
+			if (this.#destroyed || !this.#retiring.delete(entry)) return
+			this.#options.moveUnsentDraft(entry.host, kept.host)
+			this.#release(entry)
+			this.#publish()
+		}, 0)
 		this.#publish()
 	}
 

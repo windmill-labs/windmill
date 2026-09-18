@@ -11368,6 +11368,11 @@ paths:
           content:
             application/json:
               schema: {}
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run_and_stream/f/{path}:
     post:
@@ -11409,6 +11414,11 @@ paths:
             text/event-stream:
               schema:
                 type: string
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
     get:
       summary: run flow by path with GET and stream updates via SSE
@@ -11442,6 +11452,11 @@ paths:
             text/event-stream:
               schema:
                 type: string
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run_and_stream/fv/{version}:
     post:
@@ -11489,6 +11504,11 @@ paths:
             text/event-stream:
               schema:
                 type: string
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
     get:
       summary: run flow by version with GET and stream updates via SSE
@@ -11528,6 +11548,11 @@ paths:
             text/event-stream:
               schema:
                 type: string
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run_and_stream/p/{path}:
     post:
