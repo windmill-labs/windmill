@@ -3,12 +3,12 @@
 	import { Loader2, MessageCircle, Settings2 } from 'lucide-svelte'
 	import AIChatDisplay from '$lib/components/copilot/chat/AIChatDisplay.svelte'
 	import { setChatViewHost } from '$lib/components/copilot/chat/chatViewHost'
-	import { FlowChatViewHost } from './flowChatViewHost.svelte'
+	import type { FlowChatViewHost } from './flowChatViewHost.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import { emptyString, type DynamicInput } from '$lib/utils'
-	import { onDestroy, tick, untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import type { Chat } from 'windmill-chat'
 	import { chatFlowKey } from './flowChatProps'
 	import type { FlowModule } from '$lib/gen'
@@ -30,6 +30,11 @@
 
 	interface Props {
 		chat: Chat
+		/** The conversation's host, which outlives this panel: FlowChat remounts the panel per
+		 * conversation, under `{#key}`, so a later value of either prop never reaches it. */
+		chatHost: FlowChatViewHost
+		/** Whether the shown conversation is a test chat, once the list has said. */
+		isTest?: boolean
 		deploymentInProgress?: boolean
 		additionalInputsSchema?: Record<string, any>
 		/** The flow's modules, read for the AI agent inputs the composer drives: the provider wiring
@@ -48,6 +53,8 @@
 
 	let {
 		chat,
+		chatHost: chatHostProp,
+		isTest = undefined,
 		deploymentInProgress = false,
 		additionalInputsSchema,
 		flowModules,
@@ -173,38 +180,33 @@
 		showInputsModal = true
 	}
 
-	// The host follows the chat it was built on for the life of this component: FlowChat
-	// remounts the interface under `{#key chat}`, so a later value of the prop never reaches it.
-	const chatHost = new FlowChatViewHost(
-		untrack(() => chat),
-		{
-			additionalInputs: () => (additionalInputsSchema ? { ...runInputs } : undefined),
-			attachmentsTarget: () => attachmentsTarget,
-			attachmentsUnavailable: () =>
-				workspaceStorage.current
-					? undefined
-					: 'This workspace has no object storage, so files cannot be attached.',
-			workspace: () => workspace,
-			sendDisabled: () => deploymentInProgress || !!modelGap || !!wrongKindReason,
-			// The model controls only: a retry changes model when the reader did, but replays
-			// the run's own attachments rather than whatever the composer holds now.
-			inputsShownInComposer: () => composerOwnedInputs(modelWiring, undefined)
-		}
-	)
+	// The host belongs to the conversation, not to this panel: the pool keeps it alive so a
+	// message queued here still goes out once the reader has moved on. What it reads is this
+	// panel's, set on mount; FlowChat remounts the panel per conversation.
+	const chatHost = untrack(() => chatHostProp)
+	chatHost.setOptions({
+		additionalInputs: () => (additionalInputsSchema ? { ...runInputs } : undefined),
+		attachmentsTarget: () => attachmentsTarget,
+		attachmentsUnavailable: () =>
+			workspaceStorage.current
+				? undefined
+				: 'This workspace has no object storage, so files cannot be attached.',
+		workspace: () => workspace,
+		sendDisabled: () => deploymentInProgress || !!modelGap || !!wrongKindReason,
+		// The model controls only: a retry changes model when the reader did, but replays
+		// the run's own attachments rather than whatever the composer holds now.
+		inputsShownInComposer: () => composerOwnedInputs(modelWiring, undefined)
+	})
 	setChatViewHost(chatHost)
 
 	// A chat of the other kind can be read from here but not added to: the server refuses a
 	// preview run into a deployed conversation and the reverse, so the composer says why first.
 	const wrongKindReason = $derived.by(() => {
-		const { conversationId, conversations } = chatHost.state
-		const open = conversations.find((c) => c.id === conversationId)
-		if (open?.isTest === undefined || open.isTest === (conversationKind === 'test'))
-			return undefined
-		return open.isTest
+		if (isTest === undefined || isTest === (conversationKind === 'test')) return undefined
+		return isTest
 			? 'This chat was run from the flow editor. Start a new chat to continue here.'
 			: 'This chat belongs to the deployed flow. Start a new chat to test.'
 	})
-	onDestroy(() => chatHost.dispose())
 
 	// What the Configure-inputs modal asks for: every flow input the composer does not
 	// edit itself.

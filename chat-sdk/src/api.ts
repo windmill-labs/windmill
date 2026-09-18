@@ -13,10 +13,50 @@ export interface WindmillChatApiOptions {
 export class WindmillApiError extends Error {
   constructor(
     message: string,
-    readonly status: number
+    readonly status: number,
+    /** The response body, as the server sent it. */
+    readonly body?: string
   ) {
     super(message)
     this.name = 'WindmillApiError'
+  }
+}
+
+/** The turn a conversation is still answering, as the server reports it. */
+export interface RunningTurn {
+  jobId: string
+  /** `created_seq` of the user message that started the turn. */
+  userSeq: number
+}
+
+/**
+ * A message was sent to a conversation whose turn is still running. The server refuses
+ * it (409) so two runs never write one agent memory; `turn` is the run to follow instead.
+ */
+export class TurnRunningError extends Error {
+  constructor(
+    message: string,
+    readonly turn: RunningTurn
+  ) {
+    super(message)
+    this.name = 'TurnRunningError'
+  }
+}
+
+/**
+ * The running turn named by a run's 409 body, or undefined for any other body. Exported
+ * for a custom `run` that calls Windmill through its own client: it rethrows the refusal
+ * as a `TurnRunningError` so the chat can follow the running turn.
+ */
+export function turnRunningError(body: string): TurnRunningError | undefined {
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown; running_turn?: FlowConversation['running_turn'] }
+    const turn = parsed?.running_turn
+    if (!turn || typeof turn.job_id !== 'string' || typeof turn.user_seq !== 'number') return undefined
+    const message = typeof parsed.error === 'string' ? parsed.error : 'this conversation is still answering a message'
+    return new TurnRunningError(message, { jobId: turn.job_id, userSeq: turn.user_seq })
+  } catch {
+    return undefined
   }
 }
 
@@ -30,6 +70,8 @@ export interface FlowConversation {
   created_by: string
   /** Started from the flow editor's test panel rather than a deployed run. */
   is_test: boolean
+  /** Set by the list: the turn this conversation is still answering. */
+  running_turn?: { job_id: string; user_seq: number } | null
 }
 
 /**
@@ -111,18 +153,27 @@ export class WindmillChatApi {
     this.#pollDelayMs = options.pollDelayMs
   }
 
-  /** Starts a turn: runs the flow with `memory_id` set to the conversation id. Returns the job id. */
+  /**
+   * Starts a turn: runs the flow with `memory_id` set to the conversation id. Returns the
+   * job id. Throws `TurnRunningError` when the conversation is still answering.
+   */
   async runFlow(
     flowPath: string,
     args: Record<string, unknown>,
     options: { memoryId: string; signal?: AbortSignal }
   ): Promise<string> {
-    const res = await this.#request(`jobs/run/f/${encodePath(flowPath)}`, {
-      method: 'POST',
-      query: { memory_id: options.memoryId, skip_preprocessor: 'true' },
-      body: args,
-      signal: options.signal
-    })
+    let res: Response
+    try {
+      res = await this.#request(`jobs/run/f/${encodePath(flowPath)}`, {
+        method: 'POST',
+        query: { memory_id: options.memoryId, skip_preprocessor: 'true' },
+        body: args,
+        signal: options.signal
+      })
+    } catch (e) {
+      if (e instanceof WindmillApiError && e.status === 409) throw turnRunningError(e.body ?? '') ?? e
+      throw e
+    }
     return (await res.text()).trim()
   }
 
@@ -294,7 +345,8 @@ export class WindmillChatApi {
       const text = await res.text().catch(() => '')
       throw new WindmillApiError(
         `${init.method ?? 'GET'} ${path} failed (${res.status})${text ? `: ${text}` : ''}`,
-        res.status
+        res.status,
+        text
       )
     }
     return res

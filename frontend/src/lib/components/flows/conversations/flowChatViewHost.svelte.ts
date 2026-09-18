@@ -1,4 +1,12 @@
-import type { AttachmentUpload, Chat, ChatMessage, ChatState } from 'windmill-chat'
+import {
+	TurnRunningError,
+	type AttachmentUpload,
+	type Chat,
+	type ChatMessage,
+	type ChatState,
+	type RunningTurn
+} from 'windmill-chat'
+import { isBusy, lastTurnFailed, turnFailed } from './flowChatPool'
 import type {
 	ChatSendRequestOptions,
 	ChatViewHost
@@ -43,10 +51,6 @@ export type FlowChatViewHostOptions = {
 	revealOptions?: Pick<TypewriterRevealOptions, 'instant' | 'now' | 'schedule' | 'cancel'>
 }
 
-function isBusy(status: ChatState['status']): boolean {
-	return status === 'submitted' || status === 'streaming'
-}
-
 /** The chat's own signal for a send stopped before it ran; nothing to tell the reader. */
 function isAbort(e: unknown): boolean {
 	return e instanceof Error && e.name === 'AbortError'
@@ -66,29 +70,6 @@ function parseToolPayload(raw: string | undefined): unknown {
 	} catch {
 		return raw
 	}
-}
-
-/**
- * Whether the turn the user message at `index` started failed: its last row before the
- * next user message reports `success: false`. The last row, not any row: a tool call can
- * fail and the agent still answer, and that turn completed.
- */
-export function turnFailed(messages: readonly ChatMessage[], index: number): boolean {
-	let last: ChatMessage | undefined
-	for (let i = index + 1; i < messages.length; i++) {
-		const message = messages[i]
-		if (message.role === 'user') break
-		last = message
-	}
-	return last?.success === false
-}
-
-/** Whether the latest turn failed, per `turnFailed`. False before any turn. */
-function lastTurnFailed(messages: readonly ChatMessage[]): boolean {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		if (messages[i].role === 'user') return turnFailed(messages, i)
-	}
-	return false
 }
 
 /**
@@ -254,7 +235,8 @@ type RevealLanes = {
  * makes, so what it can offer is what the SDK's `Chat` can: a message in, an answer
  * streamed back, Stop. Every copilot-only field is answered with "no" (see ChatViewHost).
  *
- * The host owns its subscription to the chat, so a panel swapping chats mounts a new one.
+ * One host per conversation, living as long as its chat: it outlasts the panel showing it,
+ * so a message queued in a conversation still goes out once the reader has moved on.
  */
 export class FlowChatViewHost implements ChatViewHost {
 	#chat: Chat
@@ -267,6 +249,17 @@ export class FlowChatViewHost implements ChatViewHost {
 		this.#options = options
 		this.#state = chat.getState()
 		this.#unsubscribe = chat.subscribe((state) => this.#onState(state))
+	}
+
+	/** Set by the panel showing this conversation; a message queued here is sent with what
+	 * the last panel to show it read. */
+	setOptions(options: FlowChatViewHostOptions) {
+		this.#options = options
+	}
+
+	/** Follows a turn this chat did not start, so what is queued behind it waits for it. */
+	resumeTurn = (turn: RunningTurn) => {
+		this.#turnDone = this.#chat.resumeTurn(turn)
 	}
 
 	#disposed = false
@@ -442,7 +435,7 @@ export class FlowChatViewHost implements ChatViewHost {
 		}
 		if (this.#options.sendDisabled?.()) {
 			// Refused, not dropped: the draft waits in the composer for sending to reopen.
-			this.#aiChatInput?.prependText(text, images, [], blobs)
+			this.#returnDraft(text, images, blobs)
 			return false
 		}
 		const target = this.#options.attachmentsTarget?.()
@@ -450,7 +443,7 @@ export class FlowChatViewHost implements ChatViewHost {
 		// replay carries the files its run already has, in `replayInputs`, and attaches none.
 		if (!replayInputs && target?.required && images.length === 0 && blobs.length === 0) {
 			sendUserToast('This chat needs a file with each message. Attach one to send.', true)
-			this.#aiChatInput?.prependText(text, images, [], blobs)
+			this.#returnDraft(text, images, blobs)
 			return false
 		}
 		// A replay sends the arguments its run had, attachment references included.
@@ -493,6 +486,13 @@ export class FlowChatViewHost implements ChatViewHost {
 			})
 			.catch((e) => {
 				if (this.#disposed) return
+				if (e instanceof TurnRunningError) {
+					// The conversation is still answering a message sent elsewhere: that turn is
+					// followed here, and this one waits behind it as if typed during it.
+					this.queueMessage(text, images, undefined, undefined, blobs)
+					this.resumeTurn(e.turn)
+					return
+				}
 				if (attachments.length > 0 && !isAbort(e)) {
 					sendUserToast(
 						`Could not upload the attachments: ${e instanceof Error ? e.message : String(e)}`,
@@ -503,7 +503,7 @@ export class FlowChatViewHost implements ChatViewHost {
 				// when it withdraws the turn, and a queue left in place would be flushed as if
 				// the turn had run.
 				this.dequeueMessage()
-				this.#aiChatInput?.prependText(text, images, [], blobs)
+				this.#returnDraft(text, images, blobs)
 			})
 		this.#turnDone = turn
 		await turn
@@ -529,6 +529,28 @@ export class FlowChatViewHost implements ChatViewHost {
 	#aiChatInput: Parameters<ChatViewHost['setAiChatInput']>[0] = null
 	setAiChatInput: ChatViewHost['setAiChatInput'] = (aiChatInput) => {
 		this.#aiChatInput = aiChatInput
+		const { text, images, blobs } = this.#returned
+		if (aiChatInput && (text || images.length > 0 || blobs.length > 0)) {
+			this.#returned = emptyQueue()
+			aiChatInput.prependText(text, images, [], blobs)
+		}
+	}
+	/**
+	 * A draft handed back while no composer shows this conversation, for the next one that
+	 * does. This host outlives the panel, so a turn that refuses its message after the reader
+	 * has moved on has nowhere to put it back until then.
+	 */
+	#returned = $state<Queue>(emptyQueue())
+	#returnDraft(text: string, images: AttachedImage[] = [], blobs: AttachedBlob[] = []) {
+		if (this.#aiChatInput) {
+			this.#aiChatInput.prependText(text, images, [], blobs)
+			return
+		}
+		this.#returned = {
+			text: this.#returned.text ? `${this.#returned.text}\n${text}` : text,
+			images: [...this.#returned.images, ...images],
+			blobs: [...this.#returned.blobs, ...blobs]
+		}
 	}
 
 	// One message typed while the turn runs, sent whole with its attachments once the turn
@@ -536,6 +558,15 @@ export class FlowChatViewHost implements ChatViewHost {
 	#queue = $state<Queue>(emptyQueue())
 	get queuedMessage(): string {
 		return this.#queue.text
+	}
+	/**
+	 * Something typed here has not been sent: waiting for the turn, or handed back by a turn
+	 * that refused it while no composer was mounted to take it. Either way this host is the
+	 * only place it exists, so nothing may release it.
+	 */
+	get hasUnsentDraft(): boolean {
+		const held = [this.#queue, this.#returned]
+		return held.some((q) => q.text !== '' || q.images.length > 0 || q.blobs.length > 0)
 	}
 	queuedContext = undefined
 	get queuedImages(): AttachedImage[] {
@@ -565,7 +596,7 @@ export class FlowChatViewHost implements ChatViewHost {
 	dequeueMessage = () => {
 		const { text, images, blobs } = this.#takeQueue()
 		if (!text && images.length === 0 && blobs.length === 0) return
-		this.#aiChatInput?.prependText(text, images, [], blobs)
+		this.#returnDraft(text, images, blobs)
 	}
 	flushQueuedMessage = () => {
 		// Same rule as sendRequest, read before the queue is drained: a turn with no message
@@ -578,6 +609,25 @@ export class FlowChatViewHost implements ChatViewHost {
 		const taken = this.#queue
 		this.#queue = emptyQueue()
 		return taken
+	}
+	/**
+	 * Everything typed here and not sent, handed to the chat that takes this one's place: a
+	 * new chat whose first message never ran leaves with nothing of its own, and what the
+	 * reader wrote belongs in the composer they are looking at rather than in a released host.
+	 */
+	takeUnsentDraft(): Queue {
+		const queued = this.#takeQueue()
+		const returned = this.#returned
+		this.#returned = emptyQueue()
+		return {
+			text: [returned.text, queued.text].filter(Boolean).join('\n'),
+			images: [...returned.images, ...queued.images],
+			blobs: [...returned.blobs, ...queued.blobs]
+		}
+	}
+	adoptUnsentDraft({ text, images, blobs }: Queue) {
+		if (!text && images.length === 0 && blobs.length === 0) return
+		this.#returnDraft(text, images, blobs)
 	}
 	setComposerStaged = () => {}
 	clearComposerStaged = () => {}

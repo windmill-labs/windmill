@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		ApiError,
 		type Job,
 		JobService,
 		type RestartedFrom,
@@ -214,9 +215,12 @@
 			}
 			onRunPreview?.(newJobId)
 		} catch (e) {
-			sendUserToast('Could not run preview', true, undefined, e.toString())
 			isRunning = false
 			jobId = undefined
+			// The chat follows the turn its conversation is still answering rather than
+			// reporting a failed run, so the refusal goes back to it.
+			if (conversationId && e instanceof ApiError && e.status === 409) throw e
+			sendUserToast('Could not run preview', true, undefined, e.toString())
 		}
 		schemaFormWithArgPicker?.refreshHistory()
 		return newJobId

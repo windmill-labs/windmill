@@ -59,4 +59,26 @@ describe('AI SDK Chat over the Windmill transport', () => {
     expect(chat.error?.message).toBe('boom')
     expect(memoryIds.length === 1 || calls.filter((c) => c.method === 'POST')[1].url.searchParams.get('memory_id') === memoryIds[0]).toBe(true)
   })
+
+  test('a text part cut by a lost stream is completed from the polled result', async () => {
+    let streams = 0
+    const { fetch } = fetchMock(
+      (c) => (c.method === 'POST' && c.url.pathname === `/api/w/ws/jobs/run/f/${FLOW}` ? text('job-1') : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/getupdate_sse/job-1')
+          ? ++streams === 1
+            ? sse([{ type: 'update', new_result_stream: ndjson({ type: 'token_delta', content: 'The ans' }), stream_offset: 1 }])
+            : text('bad gateway', 502)
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/get_result_maybe/job-1')
+          ? json({ completed: true, success: true, result: { output: 'The answer is 42', messages: [] } })
+          : undefined
+    )
+    const transport = createWindmillChatTransport({ baseUrl: 'http://wm.test', workspace: 'ws', flowPath: FLOW, token: 'tok', fetch })
+    const chat = new Chat({ id: 'cut-chat', transport })
+    await chat.sendMessage({ text: 'what is it?' })
+    const texts = chat.messages[1].parts.filter((p) => p.type === 'text').map((p) => (p as { text: string }).text)
+    expect(texts.join('')).toBe('The answer is 42')
+  }, 15000)
 })

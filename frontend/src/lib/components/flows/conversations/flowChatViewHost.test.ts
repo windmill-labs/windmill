@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Chat, ChatMessage, ChatState } from 'windmill-chat'
+import { TurnRunningError, type Chat, type ChatMessage, type ChatState } from 'windmill-chat'
 import { FlowChatViewHost, toDisplayMessages } from './flowChatViewHost.svelte'
 
 vi.mock('$lib/gen', () => ({
@@ -59,13 +59,15 @@ function fakeChat(initial: ChatState = idleState()) {
 			return () => listeners.delete(listener)
 		},
 		sendMessage: vi.fn(async () => {}),
+		resumeTurn: vi.fn(async () => {}),
 		stop: vi.fn(async () => {}),
 		newConversation: vi.fn(),
 		selectConversation: vi.fn(async () => {}),
 		loadConversations: vi.fn(async () => []),
 		deleteConversation: vi.fn(async () => {}),
-		loadOlderMessages: vi.fn(async () => {}),
 		renameConversation: vi.fn(async () => {}),
+		loadOlderMessages: vi.fn(async () => {}),
+		refreshMessages: vi.fn(async () => {}),
 		destroy: vi.fn()
 	} satisfies Chat
 	return { chat, set }
@@ -441,6 +443,44 @@ describe('FlowChatViewHost', () => {
 		host.setAiChatInput({ prependText } as any)
 		await host.sendRequest({ instructions: 'kept' })
 		expect(prependText).toHaveBeenCalledWith('kept', [], [], [])
+		host.dispose()
+	})
+
+	it('follows the turn a conversation is still answering and sends the refused message after it', async () => {
+		const { chat, set } = fakeChat()
+		const turn = { jobId: 'job-9', userSeq: 41 }
+		chat.sendMessage.mockRejectedValueOnce(new TurnRunningError('still answering', turn))
+		let releaseResumed = () => {}
+		chat.resumeTurn.mockImplementationOnce(
+			() => new Promise<void>((resolve) => (releaseResumed = resolve))
+		)
+		const host = new FlowChatViewHost(chat)
+		await host.sendRequest({ instructions: 'after it' })
+		expect(chat.resumeTurn).toHaveBeenCalledWith(turn)
+		expect(host.queuedMessage).toBe('after it')
+		set({ status: 'streaming' })
+		set({ status: 'idle' })
+		releaseResumed()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect(chat.sendMessage).toHaveBeenLastCalledWith('after it', {
+			inputs: undefined,
+			attachments: [],
+			attachmentsInput: undefined
+		})
+		host.dispose()
+	})
+
+	it('keeps text handed back while no composer is mounted for the next one', () => {
+		const { chat } = fakeChat(idleState({ status: 'streaming' }))
+		const host = new FlowChatViewHost(chat)
+		host.queueMessage('typed before leaving')
+		host.cancel()
+		// Held by the host alone until a composer takes it, so the pool must not release it.
+		expect(host.hasUnsentDraft).toBe(true)
+		const prependText = vi.fn()
+		host.setAiChatInput({ prependText } as any)
+		expect(prependText).toHaveBeenCalledWith('typed before leaving', [], [], [])
+		expect(host.hasUnsentDraft).toBe(false)
 		host.dispose()
 	})
 

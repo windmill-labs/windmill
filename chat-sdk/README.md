@@ -229,7 +229,8 @@ set) means the turn could not run or be followed at all, such as a refused reque
 Methods: `sendMessage(text, { inputs?, attachments?, attachmentsInput? })`, `stop()`,
 `newConversation()`, `selectConversation(id)`, `loadConversations({ page?, perPage?, kind? })`,
 `deleteConversation(id)`, `renameConversation(id, title)`, `loadOlderMessages()`,
-`destroy()`. `kind` lists the flow editor's test chats (`'test'`), the deployed flow's
+`resumeTurn(turn)`, `refreshMessages()` (reads what another tab added to the open
+conversation), `destroy()`. `kind` lists the flow editor's test chats (`'test'`), the deployed flow's
 own (`'deployed'`, the server's default) or both (`'all'`); each `Conversation` carries
 `isTest`. A rename keeps the conversation's place in the list. Switching conversations
 stops following the current answer; the flow keeps running and, with server history,
@@ -260,6 +261,25 @@ workspace needs object storage set up. With Enterprise advanced storage permissi
 user needs read and write on `windmill_uploads/*`, which the default rules grant. The upload goes through
 `job_helpers`, so a restricted token needs `job_helpers:write`; a sandboxed raw app cannot
 request that scope today, so attachments are not available there yet.
+
+## One turn at a time
+
+A conversation answers one message at a time, and Windmill enforces it: a message sent
+while its previous turn still runs (from another tab, or before a reload) is refused.
+`sendMessage` then rejects with a `TurnRunningError` and shows nothing of the message.
+With server history, a listed `Conversation` also carries `runningTurn` while it is
+answering. Either way, `resumeTurn(turn)` follows that turn in the selected
+conversation: its answer streams in from the start and the turn finishes as if it had
+been sent here, after which the message can be sent again.
+
+```ts
+await chat.selectConversation(id)
+const running = chat.getState().conversations.find((c) => c.id === id)?.runningTurn
+if (running) await chat.resumeTurn(running)
+```
+
+A dropped connection to the answer is retried; when it keeps failing, the chat stops
+streaming and waits for the flow's result instead, so the turn still ends.
 
 ## History
 

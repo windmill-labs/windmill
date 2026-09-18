@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { TurnRunningError } from '../src/api'
 import { createChat } from '../src/chat'
 import type { ChatOptions } from '../src/types'
 import { fetchMock, json, memoryStorage, messageRow, ndjson, sse, sseTimed, text, type Route } from './support'
@@ -945,41 +946,177 @@ describe('createChat with server history', () => {
     ])
   })
 
-  test('a late answer from a stopped job is not taken as the next turn answer', async () => {
-    let jobs = 0
-    let reads = 0
+  test('a message refused because a turn is running leaves nothing behind and names that turn', async () => {
     const { fetch } = fetchMock(
-      (c) => (c.method === 'POST' && c.url.pathname.includes('/jobs/run/f/') ? text(`job-${++jobs}`) : undefined),
-      // job-1 never completes: the connection just ends, so the turn keeps waiting.
-      (c) => (c.url.pathname.endsWith('/getupdate_sse/job-1') ? sse([{ type: 'update' }]) : undefined),
       (c) =>
-        c.url.pathname.endsWith('/getupdate_sse/job-2')
-          ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'second answer' } }])
+        c.method === 'POST' && c.url.pathname === `/api/w/ws/jobs/run/f/${FLOW}`
+          ? text(JSON.stringify({ error: 'still answering', running_turn: { job_id: 'job-9', user_seq: 41 } }), 409)
           : undefined,
-      // The run-only token cannot cancel: job-1 keeps running after stop().
-      (c) => (c.url.pathname.includes('/queue/cancel/') ? text('forbidden', 400) : undefined),
+      (c) => (c.url.pathname.endsWith('/messages') ? json([messageRow(40, 'user', 'earlier')]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    const refused = await chat.sendMessage('again').catch((e) => e)
+    expect(refused).toBeInstanceOf(TurnRunningError)
+    expect(refused.turn).toEqual({ jobId: 'job-9', userSeq: 41 })
+    const state = chat.getState()
+    expect(state.messages.map((m) => m.content)).toEqual(['earlier'])
+    expect(state.status).toBe('idle')
+    // The conversation is a real one, answering elsewhere: it stays listed, its message gone.
+    expect(state.conversations.map((c) => c.id)).toEqual(['conv'])
+  })
+
+  test('a listing that names a turn already over follows the one running now', async () => {
+    const { fetch, calls } = fetchMock(
+      (c) =>
+        c.url.pathname === '/api/w/ws/jobs_u/getupdate_sse/job-2'
+          ? sse([
+              {
+                type: 'update',
+                new_result_stream: ndjson({ type: 'token_delta', content: 'second answer' }),
+                stream_offset: 1,
+                completed: true,
+                only_result: { windmill_chat_answer: 'second answer' }
+              }
+            ])
+          : undefined,
       (c) =>
         c.url.pathname.endsWith('/jobs_u/get/job-2')
           ? json({ flow_status: { modules: [{ job: 'step-2' }] } })
           : undefined,
-      // Read 1 is stop()'s sync; the stopped job's answer lands after the second user row.
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        const after = c.url.searchParams.get('after_seq')
+        if (after === '52') return json([messageRow(53, 'assistant', 'second answer', { job_id: 'step-2' })])
+        return json([
+          messageRow(50, 'user', 'first'),
+          messageRow(51, 'assistant', 'first answer'),
+          messageRow(52, 'user', 'second', { job_id: 'job-2' })
+        ])
+      }
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    // The listing named the first turn; it ended and the second one started before this select.
+    await chat.resumeTurn({ jobId: 'job-1', userSeq: 50 })
+    expect(calls.some((c) => c.url.pathname.includes('getupdate_sse/job-1'))).toBe(false)
+    expect(calls.some((c) => c.url.pathname.includes('getupdate_sse/job-2'))).toBe(true)
+    expect(chat.getState().messages.map((m) => [m.serverId, m.content])).toEqual([
+      ['row-50', 'first'],
+      ['row-51', 'first answer'],
+      ['row-52', 'second'],
+      ['row-53', 'second answer']
+    ])
+    expect(chat.getState().status).toBe('idle')
+    expect(chat.getState().error).toBeUndefined()
+  })
+
+  test('a newer message whose run is not named yet leaves the chat free', async () => {
+    const { fetch, calls } = fetchMock(
       (c) =>
         c.url.pathname.endsWith('/messages')
-          ? json(
-              ++reads === 1
-                ? [messageRow(71, 'user', 'first')]
-                : reads === 2
-                  ? [messageRow(72, 'user', 'second'), messageRow(73, 'assistant', 'first answer, late', { job_id: 'step-1' })]
-                  : [messageRow(74, 'assistant', 'second answer', { job_id: 'step-2' })]
-            )
+          ? json([messageRow(50, 'user', 'first'), messageRow(52, 'user', 'second')])
+          : undefined
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    await chat.resumeTurn({ jobId: 'job-1', userSeq: 50 })
+    expect(chat.getState().status).toBe('idle')
+    expect(calls.some((c) => c.url.pathname.includes('getupdate_sse'))).toBe(false)
+    // A message sent now starts its own turn rather than being refused.
+    expect(chat.getState().error).toBeUndefined()
+  })
+
+  test('a stream that keeps ending before the job completes hands the turn to polling', async () => {
+    let streams = 0
+    const { fetch } = fetchMock(
+      run,
+      // A gateway that answers 200 and closes cleanly, carrying nothing to the end.
+      (c) => (c.url.pathname === streamPath ? (streams++, sse([])) : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/get_result_maybe/job-1')
+          ? json({ completed: true, success: true, result: { windmill_chat_answer: 'polled' } })
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json([messageRow(81, 'user', 'hi'), messageRow(82, 'assistant', 'polled')])
           : undefined,
       (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
     )
     const chat = createChat(options({}, fetch))
-    const first = chat.sendMessage('first')
-    await new Promise((r) => setTimeout(r, 50))
-    await chat.stop()
-    await first
+    await chat.sendMessage('hi')
+    expect(streams).toBe(3)
+    expect(chat.getState().status).toBe('idle')
+    expect(chat.getState().messages.map((m) => m.content)).toEqual(['hi', 'polled'])
+  }, 15000)
+
+  test('resuming a turn whose message is off the first page replays it without duplicating rows', async () => {
+    const { fetch } = fetchMock(
+      (c) =>
+        c.url.pathname === streamPath && !c.url.searchParams.has('stream_offset')
+          ? sse([
+              {
+                type: 'update',
+                new_result_stream: ndjson(
+                  { type: 'tool_call', call_id: 'c1', function_name: 'lookup' },
+                  { type: 'tool_result', call_id: 'c1', function_name: 'lookup', result: '1', success: true },
+                  { type: 'token_delta', content: 'Done' }
+                ),
+                stream_offset: 3,
+                completed: true,
+                only_result: { output: 'Done', messages: [] }
+              }
+            ])
+          : undefined,
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        const after = c.url.searchParams.get('after_seq')
+        // The first page holds only what the running turn wrote so far.
+        if (after === null) return json([messageRow(51, 'tool', 'Used lookup tool')])
+        if (after === '49') return json([messageRow(50, 'user', 'hi')])
+        return json([messageRow(51, 'tool', 'Used lookup tool'), messageRow(52, 'assistant', 'Done')])
+      }
+    )
+    const chat = createChat(options({}, fetch))
+    void chat.selectConversation('conv')
+    await chat.resumeTurn({ jobId: 'job-1', userSeq: 50 })
+    expect(chat.getState().messages.map((m) => [m.serverId, m.role, m.content, m.pending])).toEqual([
+      ['row-50', 'user', 'hi', false],
+      ['row-51', 'tool', 'Used lookup tool', false],
+      ['row-52', 'assistant', 'Done', false]
+    ])
+    expect(chat.getState().status).toBe('idle')
+  })
+
+  test("the previous run's answer landing after the next message is not that turn's answer", async () => {
+    let reads = 0
+    let jobReads = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'second answer' } }])
+          : undefined,
+      // A transient failure of the job read is retried, not taken as "any row counts".
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-1')
+          ? ++jobReads === 1
+            ? text('bad gateway', 502)
+            : json({ flow_status: { modules: [{ job: 'step-2' }] } })
+          : undefined,
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        if (!c.url.searchParams.has('after_seq')) return json([messageRow(71, 'user', 'first')])
+        // The earlier agent wrote its answer from a task its run did not wait for.
+        return json(
+          ++reads === 1
+            ? [messageRow(72, 'user', 'second'), messageRow(73, 'assistant', 'first answer, late', { job_id: 'step-1' })]
+            : [messageRow(74, 'assistant', 'second answer', { job_id: 'step-2' })]
+        )
+      }
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
     await chat.sendMessage('second')
     expect(chat.getState().messages.map((m) => [m.role, m.content, m.serverId])).toEqual([
       ['user', 'first', 'row-71'],
@@ -988,6 +1125,64 @@ describe('createChat with server history', () => {
       ['assistant', 'second answer', 'row-74']
     ])
   })
+
+  test('an answer cut by a lost stream gives way to the polled result', async () => {
+    let streams = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? ++streams === 1
+            ? sse([{ type: 'update', new_result_stream: ndjson({ type: 'token_delta', content: 'Hel' }), stream_offset: 1 }])
+            : text('bad gateway', 502)
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/get_result_maybe/job-1')
+          ? json({ completed: true, success: true, result: { windmill_chat_answer: 'Hello, full answer' } })
+          : undefined
+    )
+    const chat = createChat(options({ history: 'none' }, fetch))
+    await chat.sendMessage('hi')
+    expect(chat.getState().messages.map((m) => [m.role, m.content, m.pending])).toEqual([
+      ['user', 'hi', false],
+      ['assistant', 'Hello, full answer', false]
+    ])
+  }, 15000)
+
+  test('a stream that keeps failing hands the turn to polling the job', async () => {
+    // Each connection opens, sends the server's ping, then drops.
+    const pingThenDrop = () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'ping' })}\n\n`))
+            setTimeout(() => controller.error(new TypeError('network connection was lost')), 20)
+          }
+        }),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } }
+      )
+    const { fetch } = fetchMock(
+      run,
+      (c) => (c.url.pathname === streamPath ? pingThenDrop() : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/get_result_maybe/job-1')
+          ? json({ completed: true, success: true, result: { windmill_chat_answer: 'polled' } })
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json([messageRow(61, 'user', 'hi'), messageRow(62, 'assistant', 'polled')])
+          : undefined,
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('hi')
+    const state = chat.getState()
+    expect(state.status).toBe('idle')
+    expect(state.messages.map((m) => [m.role, m.content, m.success])).toEqual([
+      ['user', 'hi', true],
+      ['assistant', 'polled', true]
+    ])
+  }, 15000)
 
   test('a failure handler answer is attributed to the turn', async () => {
     let reads = 0

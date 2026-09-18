@@ -5,11 +5,13 @@
 		Plus,
 		Trash2,
 		Pen,
+		PencilLine,
 		Filter,
 		PanelLeftClose,
 		PanelLeftOpen
 	} from 'lucide-svelte'
-	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
+	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
+	import SessionStatusDot from '$lib/components/sessions/SessionStatusDot.svelte'
 	import InfiniteList from '$lib/components/InfiniteList.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -21,11 +23,16 @@
 	import { twMerge } from 'tailwind-merge'
 	import { fade } from 'svelte/transition'
 	import { tick, untrack } from 'svelte'
-	import type { Chat, ChatState, Conversation, ConversationKind } from 'windmill-chat'
+	import type { Chat, Conversation, ConversationKind } from 'windmill-chat'
+	import type { FlowChatPool, FlowChatPoolState } from './flowChatPool'
+	import type { FlowChatViewHost } from './flowChatViewHost.svelte'
 
 	interface Props {
-		chat: Chat
-		chatState: ChatState
+		/** Lists, renames and deletes the flow's conversations; runs no turn itself. */
+		listChat: Chat
+		/** The conversations' own chats: which one is shown, and what each is doing. */
+		pool: FlowChatPool<FlowChatViewHost>
+		poolState: FlowChatPoolState
 		/**
 		 * Which conversations the list holds at first. The editor shows its own test chats,
 		 * since testing is what happens there; a deployed flow shows the chats its users
@@ -40,7 +47,13 @@
 		canFilterKind?: boolean
 	}
 
-	let { chat, chatState, defaultKind = 'deployed', canFilterKind = false }: Props = $props()
+	let {
+		listChat,
+		pool,
+		poolState,
+		defaultKind = 'deployed',
+		canFilterKind = false
+	}: Props = $props()
 
 	let expanded = $state(false)
 	let list = $state<InfiniteList | undefined>(undefined)
@@ -58,13 +71,13 @@
 	let renameDraft = $state('')
 	let renameInput = $state<TextInput | undefined>(undefined)
 
-	const turnInFlight = $derived(
-		chatState.status === 'submitted' || chatState.status === 'streaming'
+	const totalUnread = $derived(
+		Object.values(poolState.unread).reduce((total, count) => total + count, 0)
 	)
 
 	$effect(() => {
 		const l = list
-		const c = chat
+		const c = listChat
 		if (!l) return
 		untrack(() => {
 			// Every load goes through here, the first one and infinite scroll included. A
@@ -72,13 +85,18 @@
 			// selected kind brings its own, whichever of the two lands last.
 			l.setLoader(async (page, perPage) => {
 				const requested = kind
+				// Only a listing read now says which turns run: the rows the chat holds keep
+				// what the last one said, and a rename or delete publishes those again.
+				const since = pool.listingStarted()
 				const rows = await c.loadConversations({ page, perPage, kind: requested })
+				pool.setListed(rows, since)
 				return requested === kind ? rows : items
 			})
 			l.setDeleteItemFn(async (id: string) => {
 				deletingId = id
 				try {
 					await c.deleteConversation(id)
+					pool.forget(id)
 					sendUserToast('Conversation deleted successfully')
 				} catch (error) {
 					console.error('Failed to delete conversation:', error)
@@ -103,10 +121,10 @@
 		await list?.loadData('forceRefresh')
 	}
 
-	const draftShown = $derived(draft && !items.some((c) => c.id === chatState.conversationId))
+	const draftShown = $derived(draft && poolState.selectedId === undefined)
 
 	function newChat() {
-		chat.newConversation()
+		pool.newChat()
 		draft = true
 	}
 
@@ -118,17 +136,16 @@
 
 	/**
 	 * Narrow the list to one kind of chat and reload it. The open conversation goes with it
-	 * when it is not of the new kind: the composer sends into whatever is selected, and a
+	 * when it is not of the new kind: the composer sends into whatever is shown, and a
 	 * conversation keeps the kind it was created with, so a turn sent into one the list no
-	 * longer shows would be stored where nothing here lists it.
+	 * longer shows would be stored where nothing here lists it. A turn running in it goes on.
 	 */
 	async function setKind(next: ConversationKind) {
-		// A turn writes into the open conversation, which a kind that excludes it would close.
-		if (next === kind || turnInFlight) return
+		if (next === kind) return
 		kind = next
-		const open = items.find((c) => c.id === chatState.conversationId)
+		const open = items.find((c) => c.id === poolState.selectedId)
 		const stillListed = open === undefined || next === 'all' || (next === 'test') === open.isTest
-		if (!stillListed) chat.newConversation()
+		if (!stillListed) pool.newChat()
 		await list?.loadData('forceRefresh')
 	}
 
@@ -149,11 +166,11 @@
 		const current = items.find((c) => c.id === id)
 		if (!current || title === '' || title === current.title) return
 		try {
-			await chat.renameConversation(id, title)
+			await listChat.renameConversation(id, title)
 			// The list holds its own rows, loaded through the loader: patched rather than
 			// reloaded, so the row keeps its place without a round trip. The title is read
 			// back from the chat, which holds it as the server stored it (a long one is cut).
-			const stored = chat.getState().conversations.find((c) => c.id === id)?.title ?? title
+			const stored = listChat.getState().conversations.find((c) => c.id === id)?.title ?? title
 			items = items.map((c) => (c.id === id ? { ...c, title: stored } : c))
 		} catch (error) {
 			console.error('Failed to rename conversation:', error)
@@ -177,7 +194,33 @@
 	function getConversationTitle(conversation: Conversation): string {
 		return conversation.title || `Conversation ${conversation.createdAt.slice(0, 10)}`
 	}
+
+	/** The session sidebar's dot vocabulary, which knows no `queued`: that is its own mark. */
+	function dotStatus(conversationId: string): 'streaming' | 'error' | 'idle' {
+		const activity = poolState.activity[conversationId]
+		return activity === 'running' ? 'streaming' : activity === 'error' ? 'error' : 'idle'
+	}
 </script>
+
+{#snippet statusDot(conversation: Conversation)}
+	<!-- The AI session sidebar's dot, with the resting mark this list needs: a session rests
+	     as a workspace or a fork, a conversation as a test run or one of the deployed flow's. -->
+	<SessionStatusDot
+		status={dotStatus(conversation.id)}
+		isFork={false}
+		restingTitle={conversation.isTest
+			? 'Test chat, run from the flow editor'
+			: 'Chat on the deployed flow'}
+	>
+		{#snippet resting()}
+			<span
+				class="w-[6px] h-[6px] rounded-full {conversation.isTest
+					? 'border border-gray-400 dark:border-gray-500'
+					: 'bg-gray-300 dark:bg-gray-600'}"
+			></span>
+		{/snippet}
+	</SessionStatusDot>
+{/snippet}
 
 <div
 	class="flex flex-col h-full bg-surface border-r transition-all duration-300 {expanded
@@ -219,12 +262,7 @@
 				{#if canFilterKind}
 					<!-- No focus trap: opening a row's menu does not close this popover, and a
 					     trapped popover pulls focus back from the rename field that menu opens. -->
-					<Popover
-						placement="bottom-start"
-						closeButton={false}
-						disableFocusTrap
-						disabled={turnInFlight}
-					>
+					<Popover placement="bottom-start" closeButton={false} disableFocusTrap>
 						{#snippet trigger()}
 							<!-- Icon-only next to the wider New chat: which kind is listed is named in
 							     the title and by the group inside. -->
@@ -233,10 +271,7 @@
 								unifiedSize="md"
 								variant="subtle"
 								startIcon={{ icon: Filter }}
-								disabled={turnInFlight}
-								title={turnInFlight
-									? 'Wait for the current answer to change which chats are listed'
-									: `Filter conversations · ${KIND_LABELS[kind]}`}
+								title={`Filter conversations · ${KIND_LABELS[kind]}`}
 								iconOnly
 							/>
 						{/snippet}
@@ -245,7 +280,6 @@
 								<ToggleButtonGroup
 									selected={kind}
 									onSelected={(next) => setKind(next as ConversationKind)}
-									disabled={turnInFlight}
 									noWFull
 								>
 									{#snippet children({ item })}
@@ -274,11 +308,19 @@
 				unifiedSize="md"
 				startIcon={{ icon: MessageCircle }}
 				onClick={() => (expanded = true)}
-				title="{items.length} conversation{items.length !== 1 ? 's' : ''}"
+				title="{items.length} conversation{items.length !== 1 ? 's' : ''}{totalUnread > 0
+					? `, ${totalUnread} unread`
+					: ''}"
 				variant="subtle"
 				btnClasses="w-fit px-2 relative"
 			>
-				<CountBadge count={items.length} small alwaysVisible={true} class="right-[3px] top-[3px]" />
+				<!-- The same badge the rows carry, over the one icon that stands for all of them:
+				     collapsed, what is worth a number is what arrived, not how many chats exist. -->
+				<UnreadCountBadge
+					count={totalUnread}
+					small
+					class="absolute right-[3px] top-[3px] pointer-events-none"
+				/>
 			</Button>
 		</div>
 	{/if}
@@ -299,7 +341,6 @@
 						onClick={(e) => {
 							e?.stopPropagation()
 							draft = false
-							chat.newConversation()
 						}}
 						title="Discard draft"
 						destructive
@@ -314,7 +355,7 @@
 		<InfiniteList
 			bind:this={list}
 			bind:items
-			selectedItemId={chatState.conversationId}
+			selectedItemId={poolState.selectedId}
 			noBorder={true}
 			rounded={false}
 			preventXOverflow={true}
@@ -348,19 +389,41 @@
 								/>
 							</div>
 						{:else}
+							{@const unread = poolState.unread[conversation.id] ?? 0}
+							{@const queued = !!pool.get(conversation.id)?.host.queuedMessage}
 							<Button
 								unifiedSize="md"
 								variant="subtle"
 								onClick={() => {
 									draft = false
-									chat.selectConversation(conversation.id)
+									pool.select(conversation.id)
 								}}
-								selected={chatState.conversationId === conversation.id}
-								btnClasses="transition-all duration-150 group"
+								selected={poolState.selectedId === conversation.id}
+								btnClasses="transition-all duration-150 group gap-2"
 							>
-								<span class="flex-1 text-left truncate">
+								<!-- In the slot New chat's icon occupies above, so the column lines up. Says
+								     what the chat is doing where there is something to say, and which kind of
+								     chat it is otherwise. -->
+								{@render statusDot(conversation)}
+								<span
+									class={twMerge(
+										'flex-1 text-left truncate',
+										unread > 0 ? 'font-semibold text-primary' : ''
+									)}
+								>
 									{getConversationTitle(conversation)}
 								</span>
+								{#if queued || unread > 0}
+									<span class="shrink-0 inline-flex items-center gap-1">
+										{#if queued}
+											<PencilLine
+												class="w-3 h-3 text-tertiary"
+												aria-label="Message waiting to send"
+											/>
+										{/if}
+										<UnreadCountBadge count={unread} />
+									</span>
+								{/if}
 								<!-- svelte-ignore a11y_click_events_have_key_events -->
 								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<div

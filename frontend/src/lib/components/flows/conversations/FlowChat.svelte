@@ -1,12 +1,21 @@
 <script lang="ts">
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { createChat, type Chat, type ChatState } from 'windmill-chat'
+	import {
+		createChat,
+		turnRunningError,
+		WindmillChatApi,
+		type Chat,
+		type ChatOptions,
+		type ChatState
+	} from 'windmill-chat'
 	import FlowConversationsSidebar from './FlowConversationsSidebar.svelte'
 	import FlowChatInterface from './FlowChatInterface.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import type { FlowModule } from '$lib/gen'
+	import { ApiError, type FlowModule } from '$lib/gen'
+	import { FlowChatPool, type FlowChatPoolState } from './flowChatPool'
+	import { FlowChatViewHost } from './flowChatViewHost.svelte'
 	import { FRAME_CLASS, type ChatFrame } from './flowChatProps'
 
 	interface Props {
@@ -66,24 +75,39 @@
 	// The editor may act on a workspace other than the nav store's (AI-session live editor).
 	const workspace = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
-	let chat = $state<Chat | undefined>(undefined)
-	let chatState = $state<ChatState | undefined>(undefined)
+	// The sidebar lists, renames and deletes through `listChat`; each conversation runs its
+	// turns on its own chat in the pool, so several can answer at once.
+	let listChat = $state<Chat | undefined>(undefined)
+	let listState = $state<ChatState | undefined>(undefined)
+	let pool = $state<FlowChatPool<FlowChatViewHost> | undefined>(undefined)
+	let poolState = $state<FlowChatPoolState | undefined>(undefined)
 	let sidebar = $state<FlowConversationsSidebar | undefined>(undefined)
 
 	$effect(() => {
 		const ws = workspace
 		const flowPath = path
 		if (!ws || !flowPath) return
-		const created = createChat({
+		const baseUrl = window.location.origin
+		const options: ChatOptions = {
 			flowPath,
 			workspace: ws,
-			baseUrl: window.location.origin,
+			baseUrl,
 			history: 'server',
 			// Only an enterprise server honours it; elsewhere it would just log a warning per
 			// poll. The license loads asynchronously, so a cold load may create the chat twice.
 			pollDelayMs: $enterpriseLicense ? 50 : undefined,
 			run: async ({ user_message, ...inputs }, { conversationId }) => {
-				const jobId = await onRunFlow(String(user_message), conversationId, inputs)
+				let jobId: string | undefined
+				try {
+					jobId = await onRunFlow(String(user_message), conversationId, inputs)
+				} catch (e) {
+					// The conversation is still answering a message sent elsewhere; the chat
+					// follows that turn instead of failing this one.
+					if (e instanceof ApiError && e.status === 409) {
+						throw turnRunningError(String(e.body)) ?? e
+					}
+					throw e
+				}
 				if (!jobId) throw new Error('the flow did not start')
 				// The server creates the conversation with the run, so the sidebar can list
 				// it now, whatever becomes of the turn.
@@ -91,14 +115,39 @@
 				return jobId
 			},
 			onError: (error) => sendUserToast('Failed to run flow: ' + error.message, true)
+		}
+		const api = new WindmillChatApi({ baseUrl, workspace: ws })
+		const createdList = createChat(options)
+		const createdPool = new FlowChatPool<FlowChatViewHost>({
+			createChat: () => createChat(options),
+			createHost: (chat) => new FlowChatViewHost(chat),
+			disposeHost: (host) => host.dispose(),
+			hasUnsentDraft: (host) => host.hasUnsentDraft,
+			resumeTurn: (host, turn) => host.resumeTurn(turn),
+			moveUnsentDraft: (from, to) => to.adoptUnsentDraft(from.takeUnsentDraft()),
+			isRunFinished: async (jobId) => (await api.getCompletedResult(jobId)).completed
 		})
-		const unsubscribe = created.subscribe((s) => (chatState = s))
-		chat = created
+		const unsubscribeList = createdList.subscribe((s) => (listState = s))
+		const unsubscribePool = createdPool.subscribe((s) => (poolState = s))
+		listChat = createdList
+		pool = createdPool
 		return () => {
-			unsubscribe()
-			created.destroy()
+			unsubscribeList()
+			unsubscribePool()
+			createdPool.destroy()
+			createdList.destroy()
 		}
 	})
+
+	// A new chat keeps its chat once its first turn names the conversation, so the panel is
+	// only remounted when the reader moves to another one.
+	const shown = $derived.by(() => {
+		void poolState?.selectedId
+		return pool?.selected
+	})
+	const shownIsTest = $derived(
+		listState?.conversations.find((c) => c.id === poolState?.selectedId)?.isTest
+	)
 
 	// Derive additional inputs schema (excluding user_message) for chat mode
 	const additionalInputsSchema = $derived.by(() => {
@@ -116,12 +165,13 @@
 </script>
 
 <div class="flex overflow-hidden flex-1 {FRAME_CLASS[frame]}">
-	{#if chat && chatState}
+	{#if listChat && listState && pool && poolState && shown}
 		{#if !hideSidebar}
 			<FlowConversationsSidebar
 				bind:this={sidebar}
-				{chat}
-				{chatState}
+				{listChat}
+				{pool}
+				{poolState}
 				defaultKind={conversationKind}
 				canFilterKind={conversationKind !== 'deployed'}
 			/>
@@ -130,11 +180,13 @@
 		     the panel edge the way the session chat does, while the sidebar and the border
 		     dividing it from the chat still reach the bottom. -->
 		<div class="flex flex-1 min-w-0 min-h-0 pb-3">
-			<!-- The interface's host subscribes to the chat it was given, so a replaced chat
-			     (another flow or workspace) mounts a fresh interface rather than a stale host. -->
-			{#key chat}
+			<!-- One panel per conversation: the shown chat and its host come from the pool, and
+			     moving to another conversation mounts a fresh panel rather than a stale host. -->
+			{#key shown}
 				<FlowChatInterface
-					{chat}
+					chat={shown.chat}
+					chatHost={shown.host}
+					isTest={shownIsTest}
 					{deploymentInProgress}
 					{additionalInputsSchema}
 					{flowModules}
