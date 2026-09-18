@@ -7,6 +7,7 @@ import {
 	deployPermissionForKinds,
 	kindGatedByDeployRules,
 	checkPathWritePermission,
+	deployItem,
 	diffActionableInDirection,
 	diffCreatesInTarget,
 	diffRemovesInTarget
@@ -19,6 +20,37 @@ vi.mock('$lib/workspaceProtectionRules.svelte', async (importOriginal) => ({
 	...((await importOriginal()) as object),
 	fetchProtectionRulesForWorkspace: async () => rulesets
 }))
+
+const variableWrites: [string, any][] = []
+vi.mock('$lib/gen', async (importOriginal) => ({
+	...((await importOriginal()) as object),
+	VariableService: {
+		existsVariable: async (p: { workspace: string }) => p.workspace === 'has-it',
+		getVariable: async () => ({ value: 'v', is_secret: false, labels: ['prod'] }),
+		createVariable: async (p: any) => void variableWrites.push(['create', p.requestBody]),
+		updateVariable: async (p: any) => void variableWrites.push(['update', p.requestBody])
+	}
+}))
+
+// The deploy runs the published shared package, whose variable body has no `labels`: this
+// pins that the adapter still carries them until a version that does is installed.
+describe('deploying a variable to another workspace', () => {
+	it('carries its labels on create and on update', async () => {
+		for (const workspaceTo of ['lacks-it', 'has-it']) {
+			const result = await deployItem({
+				kind: 'variable',
+				path: 'u/a/v',
+				workspaceFrom: 'fork',
+				workspaceTo
+			})
+			expect(result.success).toBe(true)
+		}
+		expect(variableWrites).toEqual([
+			['create', expect.objectContaining({ labels: ['prod'] })],
+			['update', expect.objectContaining({ labels: ['prod'] })]
+		])
+	})
+})
 
 /** The row shape the fork comparison returns for an item the parent has and the
  * fork does not: one write on the fork side, whatever that write was. */
