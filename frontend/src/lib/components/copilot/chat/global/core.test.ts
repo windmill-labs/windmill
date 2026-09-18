@@ -875,6 +875,67 @@ describe('global AI tools', () => {
 		)
 	})
 
+	it('names the job the card renders, without changing what the model is handed', async () => {
+		const runResult = await callGlobalTool('get_run', { id: 'job-123' })
+		expect(toolCallbacks.setToolStatus).toHaveBeenLastCalledWith(
+			'test-get_run',
+			expect.objectContaining({
+				result: runResult,
+				inspectedRun: {
+					jobId: 'job-123',
+					workspace: WORKSPACE,
+					runId: 'job-123',
+					step: undefined
+				}
+			})
+		)
+
+		// A step is a job of its own, and the model's line of prose about it carries
+		// neither its arguments nor its logs — the card reads those from the job. The
+		// address travels with it, since a step job names neither the step nor its run.
+		vi.mocked(JobService.getFlowAllResults).mockResolvedValueOnce({
+			entries: [
+				{
+					job_id: 'step-job-1',
+					label: 'b',
+					kind: 'script',
+					depth: 1,
+					sibling_index: 1,
+					sibling_count: 1,
+					status: 'success',
+					success: true,
+					result_prefix: '{"ok":true}'
+				}
+			]
+		} as any)
+		const stepResult = await callGlobalTool('get_run', { id: 'job-123', step: 'b' })
+		expect(stepResult).toContain('(job step-job-1, success) result:')
+		expect(toolCallbacks.setToolStatus).toHaveBeenLastCalledWith(
+			'test-get_run',
+			expect.objectContaining({
+				result: stepResult,
+				inspectedRun: {
+					jobId: 'step-job-1',
+					workspace: WORKSPACE,
+					runId: 'job-123',
+					step: 'b'
+				}
+			})
+		)
+
+		// An address naming several jobs resolves to none of them, so there is
+		// nothing for the card to bind to and the call renders as an ordinary row.
+		vi.mocked(JobService.getFlowAllResults).mockResolvedValueOnce({
+			entries: [],
+			step_error: 'Step "b" ran 4 times (loop/branches) — pick one with "b[i]".'
+		} as any)
+		await callGlobalTool('get_run', { id: 'job-123', step: 'b' })
+		expect(toolCallbacks.setToolStatus).toHaveBeenLastCalledWith(
+			'test-get_run',
+			expect.not.objectContaining({ inspectedRun: expect.anything() })
+		)
+	})
+
 	it('reports when a run has no logs, and tells that apart from logs it could not read', async () => {
 		vi.mocked(JobService.getJobLogs).mockResolvedValueOnce('   ')
 		expect(JSON.parse(await callGlobalTool('get_run', { id: 'job-empty' })).run.logs).toBe(

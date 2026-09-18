@@ -3825,14 +3825,18 @@ export const globalTools: Tool<{}>[] = [
 					? `Fetching result of step ${parsed.step} in run ${parsed.id}...`
 					: `Inspecting run ${parsed.id}...`
 			})
-			const result = await getRun(workspace, parsed.id, parsed.step)
+			const { text, jobId } = await getRun(workspace, parsed.id, parsed.step)
 			toolCallbacks.setToolStatus(toolId, {
 				content: parsed.step
 					? `Fetched result of step ${parsed.step} in run ${parsed.id}`
 					: `Inspected run ${parsed.id}`,
-				result
+				result: text,
+				// The card reads the run itself from here; the model only ever gets `text`.
+				...(jobId
+					? { inspectedRun: { jobId, workspace, runId: parsed.id, step: parsed.step } }
+					: {})
 			})
-			return result
+			return text
 		}
 	},
 	{
