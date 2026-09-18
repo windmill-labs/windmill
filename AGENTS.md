@@ -30,6 +30,9 @@ Open-source platform for internal tools, workflows, API integrations, background
   reaches the DB only through the API, so `Connection::Http` paths are never taken by a plain
   `cargo run`; a normal build cannot start one at all.
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
+- **Operator write rights**: `docs/operator-write-rights.md` — which `operator_settings` flags are
+  enforced rather than cosmetic, and why a right that is granted-unless-withdrawn needs `Option`
+  fields and a jsonb merge rather than a serde default
 - **Auth surface**: `docs/auth-surface.md` — credential precedence, session/cache invalidation
   scope, which token labels email their owner at expiry, how OAuth login matches `login_type`, and
   that every superadmin route refuses `$WM_TOKEN`. Read before designing anything that creates

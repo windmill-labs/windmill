@@ -6,6 +6,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -25,18 +26,33 @@
 		workers: true
 	})
 
-	let originalSettings = $state({ ...untrack(() => operatorWorkspaceSettings) })
+	// Kept out of `operatorWorkspaceSettings` so the visibility table's "Enable all" never flips a
+	// write right, and so these rows stay out of that table. Withdrawable rather than granted:
+	// operators hold them until an admin turns them off.
+	let manageSchedules = $state(true)
+	let manageTriggers = $state(true)
+
+	let originalSettings = $state({
+		...untrack(() => operatorWorkspaceSettings),
+		manage_schedules: true,
+		manage_triggers: true
+	})
 	let isChanged = $state(false)
 	let currentWorkspace: string | null = $state(null)
 
+	const settingsPayload = $derived({
+		...operatorWorkspaceSettings,
+		manage_schedules: manageSchedules,
+		manage_triggers: manageTriggers
+	})
+
 	async function saveSettings() {
-		console.log('Saving operator settings:', operatorWorkspaceSettings)
 		try {
 			await WorkspaceService.updateOperatorSettings({
 				workspace: $workspaceStore!,
-				requestBody: operatorWorkspaceSettings
+				requestBody: settingsPayload
 			})
-			originalSettings = { ...operatorWorkspaceSettings }
+			originalSettings = { ...settingsPayload }
 			isChanged = false
 			sendUserToast('Operator settings saved successfully!', false)
 		} catch (error) {
@@ -66,18 +82,26 @@
 					workspace: $workspaceStore
 				})
 				if (settings.operator_settings !== null) {
-					operatorWorkspaceSettings = {
+					const {
+						manage_schedules: remoteSchedules,
+						manage_triggers: remoteTriggers,
+						...remoteVisibility
+					} = settings.operator_settings ?? {}
+					operatorWorkspaceSettings = { ...operatorWorkspaceSettings, ...remoteVisibility }
+					manageSchedules = remoteSchedules ?? true
+					manageTriggers = remoteTriggers ?? true
+					originalSettings = {
 						...operatorWorkspaceSettings,
-						...(settings.operator_settings ?? {})
+						manage_schedules: manageSchedules,
+						manage_triggers: manageTriggers
 					}
-					originalSettings = { ...operatorWorkspaceSettings }
 				}
 			})()
 		}
 	})
 
 	$effect(() => {
-		isChanged = JSON.stringify(operatorWorkspaceSettings) !== JSON.stringify(originalSettings)
+		isChanged = JSON.stringify(settingsPayload) !== JSON.stringify(originalSettings)
 	})
 
 	const allDisabled = $derived(
@@ -104,6 +128,24 @@
 			Save operator settings
 		</Button>
 	{/snippet}
+
+	<div class="flex flex-col gap-y-1 mb-4">
+		<span class="text-xs font-semibold text-emphasis">Schedules and triggers</span>
+		<span class="text-xs font-normal text-secondary">
+			Operators can create, edit and delete schedules and triggers wherever their folder permissions
+			let them write. Turn these off to withdraw that.
+		</span>
+		<Toggle
+			bind:checked={manageSchedules}
+			options={{ right: 'Operators can manage schedules' }}
+			size="xs"
+		/>
+		<Toggle
+			bind:checked={manageTriggers}
+			options={{ right: 'Operators can manage triggers' }}
+			size="xs"
+		/>
+	</div>
 
 	<DataTable tableFixed={true} size="xs">
 		<Head>

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE((operator_settings->>'manage_schedules')::boolean, true) AS \"schedules!\",\n                COALESCE((operator_settings->>'manage_triggers')::boolean, true) AS \"triggers!\"\n         FROM workspace_settings WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "schedules!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "triggers!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "457575e0858db5747964d4b2a69d3506774e50f871963da9697c7035def2aedd"
+}

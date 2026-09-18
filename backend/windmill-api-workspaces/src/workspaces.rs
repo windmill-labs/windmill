@@ -10488,6 +10488,14 @@ struct ChangeOperatorSettings {
     folders: bool,
     #[serde(default)]
     workers: bool,
+    /// Writes operators may perform unless withdrawn, so `None` (key absent) must mean "leave as
+    /// stored" rather than a value: the row is merged, not overwritten, and this endpoint takes
+    /// whole-object payloads from git-sync files that predate the key. Defaulting either way here
+    /// would make an older file silently withdraw or restore the right on every pull.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    manage_schedules: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    manage_triggers: Option<bool>,
 }
 
 async fn update_operator_settings(
@@ -10502,8 +10510,12 @@ async fn update_operator_settings(
 
     let settings_json = serde_json::json!(settings);
 
+    // Merge rather than overwrite so an omitted key keeps its stored value. The visibility flags
+    // are plain bools and always serialize, so this is a no-op for them.
     sqlx::query!(
-        "UPDATE workspace_settings SET operator_settings = $1 WHERE workspace_id = $2",
+        "UPDATE workspace_settings
+         SET operator_settings = COALESCE(operator_settings, '{}'::jsonb) || $1
+         WHERE workspace_id = $2",
         settings_json,
         &w_id
     )
@@ -10511,6 +10523,8 @@ async fn update_operator_settings(
     .await?;
 
     tx.commit().await?;
+
+    windmill_common::workspaces::invalidate_operator_rights_cache(&w_id);
 
     // Trigger git sync for operator settings changes
     handle_deployment_metadata(
