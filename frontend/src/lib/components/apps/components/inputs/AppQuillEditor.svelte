@@ -52,19 +52,27 @@
 			placeholder: placeholder
 		})
 
-		if (defaultValue) {
-			quill.root.innerHTML = defaultValue
-		}
-
 		quill.on('text-change', function (delta, oldDelta, source) {
 			setOutput()
 		})
+
+		if (defaultValue) {
+			setHtml(defaultValue)
+		}
+	}
+
+	// Load HTML through Quill's clipboard converter rather than assigning `root.innerHTML`:
+	// Quill only keeps markup it has a blot for, and writes to the DOM bypass that mapping.
+	// Quill 2 renders every list as `<ol>`, so a `<ul>` from stored content would be dropped
+	// outright instead of becoming a bullet list.
+	function setHtml(html: string | undefined) {
+		quill.setContents(quill.clipboard.convert({ html: html ?? '', text: '' }))
 	}
 
 	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			if (quill) {
-				quill.root.innerHTML = nvalue
+				setHtml(nvalue)
 				setOutput()
 			}
 		}
@@ -78,7 +86,7 @@
 
 	function handleDefault(defaultValue: string | undefined) {
 		if (quill) {
-			quill.root.innerHTML = defaultValue
+			setHtml(defaultValue)
 			setOutput()
 		}
 	}
