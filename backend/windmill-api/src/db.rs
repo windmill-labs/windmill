@@ -30,79 +30,6 @@ async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateErro
         .await?)
 }
 
-const AUDIT_OPERATION_INDEX_MIGRATION: i64 = 20260918173412;
-const AUDIT_OPERATION_INDEX_KEY: &str = r#"(workspace_id, operation, id DESC, "timestamp")"#;
-
-/// A plain `CREATE INDEX` on the partitioned table holds a SHARE lock on every partition until the
-/// whole build ends, blocking the audit insert each job push makes in its own transaction. Each
-/// partition is built CONCURRENTLY instead and attached to a parent created `ON ONLY`, which turns
-/// valid once all partitions are attached. Partitions created later get the index from the parent.
-async fn create_audit_operation_index_concurrently(
-    conn: &mut PgConnection,
-) -> Result<(), MigrateError> {
-    conn.execute(
-        format!(
-            "CREATE INDEX IF NOT EXISTS ix_audit_partitioned_workspace_operation \
-             ON ONLY audit_partitioned {AUDIT_OPERATION_INDEX_KEY}"
-        )
-        .as_str(),
-    )
-    .await?;
-    let partitions: Vec<String> = sqlx::query_scalar(
-        "SELECT c.relname::text FROM pg_inherits p JOIN pg_class c ON c.oid = p.inhrelid
-         WHERE p.inhparent = 'audit_partitioned'::regclass
-           AND NOT EXISTS (
-               SELECT 1 FROM pg_inherits ip JOIN pg_index i ON i.indexrelid = ip.inhrelid
-               WHERE ip.inhparent = 'ix_audit_partitioned_workspace_operation'::regclass
-                 AND i.indrelid = c.oid)
-         ORDER BY c.relname DESC",
-    )
-    .fetch_all(&mut *conn)
-    .await?;
-    let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
-    for partition in partitions {
-        let index = quote(&format!(
-            "{partition}_workspace_id_operation_id_timestamp_idx"
-        ));
-        tracing::info!("Building ix_audit_partitioned_workspace_operation on {partition}");
-        // An interrupted CONCURRENTLY build leaves an invalid index under this name.
-        conn.execute(format!("DROP INDEX CONCURRENTLY IF EXISTS {index}").as_str())
-            .await?;
-        conn.execute(
-            format!(
-                "CREATE INDEX CONCURRENTLY {index} ON {} {AUDIT_OPERATION_INDEX_KEY}",
-                quote(&partition)
-            )
-            .as_str(),
-        )
-        .await?;
-        conn.execute(
-            format!(
-                "ALTER INDEX ix_audit_partitioned_workspace_operation ATTACH PARTITION {index}"
-            )
-            .as_str(),
-        )
-        .await?;
-    }
-    Ok(())
-}
-
-async fn record_overridden_migration(
-    conn: &mut PgConnection,
-    migration: &sqlx::migrate::Migration,
-) -> Result<(), MigrateError> {
-    sqlx::query(
-        "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
-         VALUES ($1, $2, TRUE, $3, -1) ON CONFLICT DO NOTHING",
-    )
-    .bind(migration.version)
-    .bind(&*migration.description)
-    .bind(&*migration.checksum)
-    .execute(conn)
-    .await?;
-    Ok(())
-}
-
 lazy_static::lazy_static! {
     pub static ref OVERRIDDEN_MIGRATIONS: std::collections::HashMap<i64, String> = vec![(20220123221903, include_str!(
                         "../../migrations/20220123221903_first.up.sql"
@@ -302,11 +229,6 @@ impl Migrate for CustomMigrator {
                 migration.description
             );
 
-            if migration.version == AUDIT_OPERATION_INDEX_MIGRATION {
-                create_audit_operation_index_concurrently(&mut self.inner).await?;
-                record_overridden_migration(&mut self.inner, migration).await?;
-                return Ok(std::time::Duration::from_secs(0));
-            }
 
             if let Some(migration_sql) = OVERRIDDEN_MIGRATIONS.get(&migration.version) {
                 tracing::info!("Using custom migration for version {}", migration.version);
@@ -337,7 +259,17 @@ impl Migrate for CustomMigrator {
                 } else if !migration_sql.is_empty() {
                     self.inner.execute(&**migration_sql).await?;
                 }
-                record_overridden_migration(&mut self.inner, migration).await?;
+                let _ = sqlx::query(
+                    r#"
+                INSERT INTO _sqlx_migrations ( version, description, success, checksum, execution_time )
+                VALUES ( $1, $2, TRUE, $3, -1 ) ON CONFLICT DO NOTHING
+                            "#,
+                )
+                .bind(migration.version)
+                .bind(&*migration.description)
+                .bind(&*migration.checksum)
+                .execute(&mut *self.inner)
+                .await?;
                 return Ok(std::time::Duration::from_secs(0));
             } else {
                 let r = self.inner.apply(migration).await;
@@ -440,7 +372,10 @@ pub async fn migrate(
     }
 
     crate::live_migrations::custom_migrations(&mut custom_migrator).await?;
-    Ok(None)
+    Ok(Some(crate::live_migrations::spawn_background_migrations(
+        db.clone(),
+        killpill_rx,
+    )))
 }
 
 pub async fn wait_for_migrations(
