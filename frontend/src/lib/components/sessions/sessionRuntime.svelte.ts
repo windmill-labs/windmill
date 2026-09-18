@@ -1360,23 +1360,15 @@ setScreenshotHandler(async ({ sessionId: callerSessionId }) => {
 
 export function getSessionChatStatus(runtime: SessionRuntime): SessionChatStatus {
 	const m = runtime.manager
-	const fromTranscript = transcriptChatStatus(m.displayMessages)
+	const last = m.displayMessages[m.displayMessages.length - 1]
 	// A loop parked on the user still reports `loading`, so these must be tested
 	// before `streaming` — otherwise "answer me" renders as "the AI is typing"
 	// and a session that needs the user looks like one that doesn't.
-	if (fromTranscript === 'awaiting-answer' || fromTranscript === 'needs-confirmation') {
-		return fromTranscript
-	}
-	if (m.loading) return 'streaming'
-	if (m.instructions.trim().length > 0) return 'draft'
-	return fromTranscript
-}
-
-function transcriptChatStatus(messages: DisplayMessage[]): SessionChatStatus {
-	const pending = pendingUserAction(messages)
+	const pending = pendingUserAction(m.displayMessages)
 	if (pending === 'question') return 'awaiting-answer'
 	if (pending === 'confirmation') return 'needs-confirmation'
-	const last = messages[messages.length - 1]
+	if (m.loading) return 'streaming'
+	if (m.instructions.trim().length > 0) return 'draft'
 	if (last?.role === 'user' && last.error) return 'error'
 	if (last && (last.role === 'assistant' || last.role === 'tool')) return 'awaiting-user'
 	return 'idle'
@@ -1387,10 +1379,13 @@ function transcriptChatStatus(messages: DisplayMessage[]): SessionChatStatus {
 // ---------------------------------------------------------------------------
 
 // A runtime costs a chat manager and its loaded transcript, and lives until its
-// session is deleted, so the sidebar does not create one per listed session. It reads the session's
-// one stored chat instead, once, for the status dot and the unread count.
+// session is deleted, so the sidebar does not create one per listed session. It
+// reads the session's one stored chat instead, once. Without a runtime nothing
+// runs in this tab, so only two facts of that chat can matter: its length (for
+// the unread count) and whether its last message failed. Every other status is
+// a live one.
 export interface SessionChatPeek {
-	status: SessionChatStatus
+	status: 'error' | 'idle'
 	messageCount: number
 }
 
@@ -1428,8 +1423,9 @@ export async function ensureSessionChatPeek(session: Session): Promise<void> {
 			getOrCreateRuntime(session)
 			return
 		}
+		const last = chat.displayMessages[chat.displayMessages.length - 1]
 		peeks.set(id, {
-			status: transcriptChatStatus(chat.displayMessages),
+			status: last?.role === 'user' && last.error ? 'error' : 'idle',
 			messageCount: chat.displayMessages.length
 		})
 	} catch (e) {
