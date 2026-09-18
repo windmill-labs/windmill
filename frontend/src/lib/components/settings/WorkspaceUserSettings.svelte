@@ -1094,9 +1094,9 @@
 	collapsable
 >
 	{#snippet badge()}
-		<Badge color={addAdminsAndDevelopersToForks ? 'green' : 'gray'}>
-			{addAdminsAndDevelopersToForks ? 'Admins and developers' : 'Creator only'}
-		</Badge>
+		{#if addAdminsAndDevelopersToForks}
+			<Badge color="gray" wrapperClass="ml-2 mr-auto">Admins and developers</Badge>
+		{/if}
 	{/snippet}
 	<Toggle
 		bind:checked={addAdminsAndDevelopersToForks}
