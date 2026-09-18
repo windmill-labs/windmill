@@ -168,10 +168,26 @@ async fn run_background_migrations(db: &DB) -> Result<(), Error> {
 
     const RETIRE_LEGACY_AUDIT: &str = "retire_legacy_audit_table";
     if !background_migration_done(&mut conn, RETIRE_LEGACY_AUDIT).await? {
-        retire_legacy_audit_table(&mut conn).await?;
+        let mut attempt = 1;
+        loop {
+            match retire_legacy_audit_table(&mut conn).await {
+                Ok(()) => break,
+                Err(err) if attempt < 10 && is_lock_timeout(&err) => {
+                    tracing::warn!("Retiring the legacy audit table timed out on a lock, retrying in 30s: {err:#}");
+                    attempt += 1;
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                }
+                Err(err) => return Err(err),
+            }
+        }
         mark_background_migration_done(&mut conn, RETIRE_LEGACY_AUDIT).await?;
     }
     Ok(())
+}
+
+fn is_lock_timeout(err: &Error) -> bool {
+    matches!(err, Error::SqlErr { error: sqlx::Error::Database(db_err), .. }
+        if db_err.code().as_deref() == Some("55P03"))
 }
 
 async fn background_migration_done(conn: &mut PgConnection, name: &str) -> Result<bool, Error> {
@@ -261,6 +277,10 @@ async fn retire_legacy_audit_table(conn: &mut PgConnection) -> Result<(), Error>
     if !is_table {
         return Ok(());
     }
+    // Creating a partition and re-owning the sequence queue every audit insert (so every job
+    // push) behind them while they wait for their own lock, e.g. on a long-running reader, and
+    // the DROP queues older servers' reads the same way. Give up early and retry instead.
+    conn.execute("SET lock_timeout = '5s'").await?;
 
     let days: Vec<chrono::NaiveDate> = sqlx::query_scalar(
         "SELECT DISTINCT timestamp::date FROM audit
@@ -298,10 +318,12 @@ async fn retire_legacy_audit_table(conn: &mut PgConnection) -> Result<(), Error>
         );
     }
 
-    let mut tx = conn.begin().await?;
     // audit_partitioned draws its ids from this sequence, which dropping its owner would drop.
-    tx.execute("ALTER SEQUENCE audit_id_seq OWNED BY audit_partitioned.id")
+    // Not in the transaction below: its lock stops every insert's nextval until commit, and the
+    // DROP can wait there on readers of the old table.
+    conn.execute("ALTER SEQUENCE audit_id_seq OWNED BY audit_partitioned.id")
         .await?;
+    let mut tx = conn.begin().await?;
     tx.execute("DROP TABLE audit").await?;
     tx.execute(
         format!("CREATE VIEW audit AS SELECT {AUDIT_COLUMNS} FROM audit_partitioned WHERE false")
@@ -311,6 +333,7 @@ async fn retire_legacy_audit_table(conn: &mut PgConnection) -> Result<(), Error>
     tx.execute("GRANT ALL ON audit TO windmill_user, windmill_admin")
         .await?;
     tx.commit().await?;
+    conn.execute("RESET lock_timeout").await?;
     tracing::info!("Retired the legacy audit table");
     Ok(())
 }
