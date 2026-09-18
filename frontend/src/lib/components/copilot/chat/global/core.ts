@@ -1421,8 +1421,9 @@ Flows:
 - Use patch_flow_json for structural flow edits and write_flow for full flow rewrites.
 
 Raw apps:
-- The app tools below only work on raw (code) apps. \`rawApp\` says which: false is a drag-and-drop app, which you can list and read but not edit or deploy. Check it before offering to change an app.
+- The app tools below only work on raw (code) apps. \`rawApp\` says which: false is a drag-and-drop app: you can list it and read its metadata, but not read its contents, edit it or deploy it. Check it before offering to change an app.
 - read_workspace_item returns app metadata only. Use read_app_file for file and inline runnable contents.
+- A draft app is reachable by nobody; deploying is what exposes its backend runnables. deploy_workspace_item says so when the app is deployed anonymously, meaning anyone with the URL can run them without logging in. Relay that in plain words and carry on. This is disclosure, not a gate: do not stop and ask for permission, and do not refuse the deploy. You cannot change who may open an app from chat; it is set on the app's deploy settings.
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
 - Use init_app only after confirming framework, path, and summary with the user.
@@ -1824,13 +1825,27 @@ function getInlineRunnableContent(
 	return { content: runnable.inlineScript?.content ?? '', runnable }
 }
 
+// appSourceToDraftValue drops a low-code app's `grid`, so converting one here would stage a
+// draft that replaces it on deploy.
+async function getRawAppByPath(workspace: string, path: string): Promise<AppWithLastVersion> {
+	const app = await AppService.getAppByPath({ workspace, path })
+	// Only an explicit false: the draft-only branch of get_app carries no version, and so
+	// no `raw_app`, and must not read as low-code.
+	if (app.raw_app === false) {
+		throw new Error(
+			`"${path}" is a low-code app. This chat only edits code-based apps — open it in the app editor instead.`
+		)
+	}
+	return app
+}
+
 async function loadAppValueForRead(path: string, workspace: string): Promise<AppDraftValue> {
 	const draft = await getGlobalDraft(workspace, 'app', path)
 	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
 		return draft.value as AppDraftValue
 	}
 
-	const app = await AppService.getAppByPath({ workspace, path })
+	const app = await getRawAppByPath(workspace, path)
 	return appSourceToDraftValue(app, app)
 }
 
@@ -1840,7 +1855,7 @@ async function loadAppDraftValue(path: string, workspace: string): Promise<Loade
 		return { value: draft.value as AppDraftValue }
 	}
 
-	const app = await AppService.getAppByPath({ workspace, path })
+	const app = await getRawAppByPath(workspace, path)
 	return { value: appSourceToDraftValue(app, app) }
 }
 
@@ -2036,6 +2051,11 @@ async function readWorkspaceItem(
 		case 'app': {
 			// Returns lightweight metadata only — file/runnable contents come via read_app_file.
 			const app = await AppService.getAppByPath({ workspace, path })
+			// A grid is not files and runnables: summarizing one reports an empty app. Name the
+			// kind instead.
+			if (app.raw_app === false) {
+				return { type: 'app', path: app.path, summary: app.summary, rawApp: false, isDraft: false }
+			}
 			const value = appSourceToDraftValue(app)
 			const metadata = summarizeAppValue(value)
 			return {
@@ -7954,12 +7974,25 @@ async function deployDraft(
 				// not the deployed app's nested `value` shape the shared raw-app
 				// deployer reads, so they deploy through the chat's own bundle path.
 				const appDraft = draft.value as AppDraftValue
-				// Stale-draft guard: only fetch the deployed head when the draft records
-				// a fork base to compare against (pre-feature drafts have none).
+				// One fetch, not an exists + get: the kind, the head version and whether the
+				// app is deployed at all come from the same answer.
+				const deployedApp = await AppService.getAppByPath({ workspace, path }).catch(
+					(err: unknown) => {
+						if ((err as { status?: number } | undefined)?.status === 404) return undefined
+						throw err
+					}
+				)
+				// Deploying a code app over a drag-and-drop one replaces its components with
+				// files, and the restore that would undo it is refused for want of a bundle.
+				// The loaders stop such a draft being made; this stops one made before them.
+				if (deployedApp?.raw_app === false) {
+					throw new Error(
+						`"${path}" is a low-code app, but this draft is a code app — deploying it would replace the app's components. Discard the draft and open the app in the app editor instead.`
+					)
+				}
+				// Only compare versions when the draft records a fork base (pre-feature
+				// drafts have none).
 				if (draft.parentVersionId != null) {
-					const deployedApp = (await AppService.existsApp({ workspace, path }))
-						? await AppService.getAppByPath({ workspace, path })
-						: undefined
 					assertDraftBasedOnLatest(
 						'app',
 						path,
@@ -7988,6 +8021,16 @@ async function deployDraft(
 						`These backend runnables point at items that are NOT deployed, so they fail at runtime: ` +
 						`${undeployedTargets.join(', ')}. Deploy those items too, and tell the user the app is ` +
 						`not working until they are.`
+				}
+
+				// `policy` is the mode being written, so the exposure is stated from the value in
+				// hand. Only anonymous: guest can be stored while the workspace has guests off,
+				// and what a runnable runs as is the server's to decide.
+				if (policy.execution_mode === 'anonymous') {
+					deployNote =
+						`${deployNote ? `${deployNote} ` : ''}This app is deployed as anonymous: its ` +
+						`backend runnables are now reachable by anyone with the URL, without logging in. ` +
+						`Tell the user plainly what is now reachable and by whom.`
 				}
 
 				toolCallbacks.setToolStatus(toolId, {
