@@ -78,9 +78,32 @@
 		}
 	}
 
+	// Quill 2 keeps every list in an `<ol>` and marks bullets with `data-list="bullet"` on
+	// each item, plus a `span.ql-ui` that only its stylesheet renders. Consumers of the
+	// output (an HTML component, stored content) render it outside that stylesheet, where
+	// that markup reads as a numbered list. Emit standard `<ul>`/`<ol>` instead; the
+	// clipboard converter maps them back on load.
+	function toStandardHtml(root: HTMLElement): string {
+		const clone = root.cloneNode(true) as HTMLElement
+		clone.querySelectorAll('span.ql-ui').forEach((s) => s.remove())
+		clone.querySelectorAll('ol').forEach((ol) => {
+			const lists: HTMLElement[] = []
+			for (const li of Array.from(ol.children)) {
+				const tag = li.getAttribute('data-list') === 'bullet' ? 'ul' : 'ol'
+				li.removeAttribute('data-list')
+				if (lists.at(-1)?.tagName.toLowerCase() !== tag) {
+					lists.push(document.createElement(tag))
+				}
+				lists.at(-1)!.appendChild(li)
+			}
+			ol.replaceWith(...lists)
+		})
+		return clone.innerHTML
+	}
+
 	function setOutput() {
 		if (quill) {
-			outputs?.result.set(quill.root.innerHTML)
+			outputs?.result.set(toStandardHtml(quill.root))
 		}
 	}
 
