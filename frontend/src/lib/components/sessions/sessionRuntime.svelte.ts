@@ -945,7 +945,7 @@ function createRuntime(session: Session): SessionRuntime {
 
 async function initRuntime(runtime: SessionRuntime, session: Session) {
 	const { manager } = runtime
-	await manager.historyManager.init()
+	await manager.historyManager.init(session)
 	manager.historyManager.setSessionId(session.id)
 	// Restore linked files persisted for this session (live handles re-grant on send;
 	// snapshots restore directly). Non-transient sessions persist immediately.
