@@ -1,12 +1,14 @@
 import {
   WindmillApiError,
   WindmillChatApi,
+  type ConversationKind,
   type FlowConversation,
   type FlowConversationMessage
 } from './api'
 import { resolveConfig, type ResolvedConfig } from './config'
 import { followJob } from './follow'
 import { createLocalHistory, type LocalHistory } from './history'
+import { uploadAttachments } from './attachments'
 import type { AgentStreamEvent } from './stream'
 import type {
   Chat,
@@ -14,12 +16,15 @@ import type {
   ChatOptions,
   ChatState,
   Conversation,
+  SendMessageOptions,
   ToolInvocation
 } from './types'
 import {
   conversationTitle,
+  truncateTitle,
   errorResultMessage,
   extractChatAnswer,
+  abortError,
   isAbortError,
   isErrorResult,
   now,
@@ -39,6 +44,12 @@ interface Turn {
   conversationId: string
   /** Id of the turn's user message; the answer is whatever follows it. */
   userMessageId: string
+  /** The turn opened the conversation; withdrawing it closes the conversation again. */
+  isNew: boolean
+  /** The run was asked for. Before that, a failure or a stop withdraws the turn instead of failing it. */
+  started: boolean
+  /** Both `stop()` and the send's own rejection withdraw; only the first may. */
+  withdrawn: boolean
   jobId?: string
   /** The flow job and its step jobs; a persisted answer carries one of them as `job_id`. */
   jobIds?: Set<string>
@@ -59,6 +70,8 @@ class ChatImpl implements Chat {
   #state: ChatState
   #turn: Turn | undefined
   #page = 1
+  /** The kind the caller last listed, so the refresh after a new turn lists the same rows. */
+  #conversationKind: ConversationKind | undefined
   #persistTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(options: ChatOptions) {
@@ -97,14 +110,24 @@ class ChatImpl implements Chat {
     }
   }
 
-  sendMessage = async (
-    text: string,
-    options: { inputs?: Record<string, unknown> } = {}
-  ): Promise<void> => {
+  sendMessage = async (text: string, options: SendMessageOptions = {}): Promise<void> => {
     const content = text.trim()
-    if (!content) return
+    if (!content) {
+      // A run needs a message; files alone would otherwise be dropped without a word.
+      if (options.attachments?.length) throw new Error('windmill-chat: attachments need a message to go with them')
+      return
+    }
     if (this.#turn) {
       throw new Error('windmill-chat: a message is already being answered; call stop() first')
+    }
+    const attachments = options.attachments ?? []
+    const attachmentsInput = options.attachmentsInput
+    if (attachments.length > 0 && !attachmentsInput) {
+      throw new Error('windmill-chat: attachments need `attachmentsInput`, the flow input that takes them')
+    }
+    if (attachmentsInput && !attachmentsInput.multiple && attachments.length > 1) {
+      // Uploading all of them would run with the first and leave the rest stranded in storage.
+      throw new Error(`windmill-chat: \`${attachmentsInput.name}\` holds one file; got ${attachments.length}`)
     }
     const isNew = this.#state.conversationId === undefined
     const conversationId = this.#state.conversationId ?? randomId()
@@ -112,6 +135,9 @@ class ChatImpl implements Chat {
       controller: new AbortController(),
       conversationId,
       userMessageId: `pending-${randomId()}`,
+      isNew,
+      started: false,
+      withdrawn: false,
       streamedText: false
     }
     this.#turn = turn
@@ -123,7 +149,6 @@ class ChatImpl implements Chat {
     const touched = { ...conversation, updatedAt: timestamp }
     this.#set({
       conversationId,
-      conversations: [touched, ...this.#state.conversations.filter((c) => c.id !== conversationId)],
       messages: [
         ...this.#state.messages,
         { id: turn.userMessageId, role: 'user', content, success: true, createdAt: timestamp, pending: true }
@@ -131,10 +156,32 @@ class ChatImpl implements Chat {
       status: 'submitted',
       error: undefined
     })
-    this.#rememberConversation()
 
     try {
-      const args = { ...this.#config.inputs, ...options.inputs, user_message: content }
+      const args: Record<string, unknown> = { ...this.#config.inputs, ...options.inputs, user_message: content }
+      if (attachmentsInput && attachments.length > 0) {
+        // Uploaded with the turn already shown as submitted: the message is in the transcript
+        // and `stop()` can abort the upload, while a second send is refused as usual.
+        const uploaded = await uploadAttachments(this.#api, attachments, randomId(), turn.controller.signal)
+        args[attachmentsInput.name] = attachmentsInput.multiple ? uploaded : uploaded[0]
+        // Shown on the pending message until its server row replaces it, carrying its own.
+        const carried = uploaded.map((u) => ({ input: attachmentsInput.name, s3: u.s3, filename: u.filename }))
+        if (this.#turnActive(turn)) {
+          this.#set({
+            messages: this.#state.messages.map((m) => (m.id === turn.userMessageId ? { ...m, attachments: carried } : m))
+          })
+        }
+      }
+      // Nothing may start once stop() or a conversation switch has withdrawn the turn, including
+      // a stop from a subscriber told of the attachments just above.
+      if (turn.controller.signal.aborted) throw abortError()
+      turn.started = true
+      // Listed only once the run is asked for: a send that never runs (an upload that failed
+      // or was stopped) then has no conversation entry to take back.
+      this.#set({
+        conversations: [touched, ...this.#state.conversations.filter((c) => c.id !== conversationId)]
+      })
+      this.#rememberConversation()
       const context = { memoryId: conversationId, conversationId, signal: turn.controller.signal }
       turn.jobId = this.#config.run
         ? await this.#config.run(args, context)
@@ -148,6 +195,13 @@ class ChatImpl implements Chat {
       }
       await this.#finishTurn(turn, result, isNew)
     } catch (e) {
+      if (!turn.started) {
+        // Nothing ran: the message is withdrawn rather than shown as a failed turn, and the
+        // caller gets the reason (an upload that failed, or the AbortError of a stop()).
+        if (this.#turn === turn) this.#turn = undefined
+        this.#withdrawTurn(turn)
+        throw e
+      }
       // stop() and a conversation switch abort the turn and settle the state themselves.
       if (turn.controller.signal.aborted || isAbortError(e)) return
       this.#failTurn(turn, e)
@@ -160,6 +214,12 @@ class ChatImpl implements Chat {
     const turn = this.#turn
     if (!turn) return
     this.#detachTurn()
+    if (!turn.started) {
+      // Still uploading its attachments: there is no run to cancel, and the message the
+      // reader took back must not stay in the transcript as sent.
+      this.#withdrawTurn(turn)
+      return
+    }
     if (this.#state.conversationId === turn.conversationId) {
       this.#set({ messages: finalized(this.#state.messages), status: 'idle' })
       this.#persistLocal()
@@ -229,15 +289,21 @@ class ChatImpl implements Chat {
   }
 
   loadConversations = async (
-    options: { page?: number; perPage?: number } = {}
+    options: { page?: number; perPage?: number; kind?: ConversationKind } = {}
   ): Promise<Conversation[]> => {
     const page = options.page ?? 1
+    // A different kind is a different listing: its first rows replace the held ones, on
+    // whichever page they were asked for.
+    const kindChanged = 'kind' in options && options.kind !== this.#conversationKind
+    if ('kind' in options) this.#conversationKind = options.kind
+    const kind = this.#conversationKind
     let conversations: Conversation[]
     if (this.#state.history === 'server') {
       try {
         const rows = await this.#api.listConversations(this.#config.flowPath, {
           page,
-          perPage: options.perPage ?? this.#config.pageSize
+          perPage: options.perPage ?? this.#config.pageSize,
+          kind
         })
         conversations = rows.map(fromConversation)
       } catch (e) {
@@ -247,10 +313,13 @@ class ChatImpl implements Chat {
     } else {
       conversations = this.#state.history === 'local' ? this.#local.listConversations() : []
     }
+    // Another kind was asked for while this list was on its way: its rows are not the
+    // listing any more, whichever response lands last.
+    if (kind !== this.#conversationKind) return conversations
     const known = new Set(this.#state.conversations.map((c) => c.id))
     this.#set({
       conversations:
-        page === 1
+        page === 1 || kindChanged
           ? conversations
           : [...this.#state.conversations, ...conversations.filter((c) => !known.has(c.id))]
     })
@@ -271,6 +340,24 @@ class ChatImpl implements Chat {
       this.#local.deleteConversation(conversationId)
     }
     this.#set({ conversations: this.#state.conversations.filter((c) => c.id !== conversationId) })
+  }
+
+  renameConversation = async (conversationId: string, title: string): Promise<void> => {
+    // Cut here as the server cuts, so the title shown is the one stored.
+    const trimmed = truncateTitle(title.trim())
+    if (!trimmed) return
+    if (this.#state.history === 'server') {
+      await this.#api.renameConversation(conversationId, trimmed)
+    } else if (this.#state.history === 'local') {
+      this.#local.renameConversation(conversationId, trimmed)
+    }
+    // Patched in place: the server keeps `updated_at` on a rename, so the list order the
+    // next load returns is the one shown now.
+    this.#set({
+      conversations: this.#state.conversations.map((c) =>
+        c.id === conversationId ? { ...c, title: trimmed } : c
+      )
+    })
   }
 
   loadOlderMessages = async (): Promise<void> => {
@@ -344,16 +431,21 @@ class ChatImpl implements Chat {
           tool: { ...existing.tool!, ...toolPatch }
         }
       } else {
+        // Thinking that produced no text led to this call, and is stored on its row.
+        const a = turn.assistantId ? messages.findIndex((m) => m.id === turn.assistantId) : -1
+        const reasoning = a >= 0 && messages[a].content === '' ? messages.splice(a, 1)[0].reasoning : undefined
         messages.push({
           id: `pending-${randomId()}`,
           role: 'tool',
           content: content ?? '',
+          reasoning,
           success: success ?? true,
           createdAt: now(),
           pending: true,
           tool: { callId, name, status: 'running', ...toolPatch }
         })
       }
+      turn.assistantId = undefined
     }
     const appendAssistant = (text: string, reasoning: string) => {
       const i = turn.assistantId
@@ -388,17 +480,14 @@ class ChatImpl implements Chat {
         case 'reasoning_token_delta':
           appendAssistant('', event.content)
           break
+        // A call completes the round's text: text after it is a new message.
         case 'tool_call':
-          // The round's text is complete; text after the tool result is a new message.
-          turn.assistantId = undefined
           upsertTool(event.call_id, event.function_name, { status: 'running' })
           break
         case 'tool_call_arguments':
-          turn.assistantId = undefined
           upsertTool(event.call_id, event.function_name, { arguments: event.arguments })
           break
         case 'tool_execution':
-          turn.assistantId = undefined
           upsertTool(event.call_id, event.function_name, { status: 'running' })
           break
         case 'tool_result':
@@ -545,6 +634,36 @@ class ChatImpl implements Chat {
     }
   }
 
+  /**
+   * Take back the user message of a turn that never ran. A conversation it would have opened
+   * was never listed (see `sendMessage`), so only the message goes, and, while it is the turn
+   * on screen, the busy status. A switch away mid-upload has already written the message to
+   * local history, so it is removed there too.
+   */
+  #withdrawTurn(turn: Turn): void {
+    if (turn.withdrawn) return
+    turn.withdrawn = true
+    const id = turn.conversationId
+    const withoutTurn = (messages: ChatMessage[]) => messages.filter((m) => m.id !== turn.userMessageId)
+    if (this.#state.conversationId === id) {
+      const messages = withoutTurn(this.#state.messages)
+      // A turn started since, such as a resend right after Stop, owns the status.
+      const newerTurn = this.#turn !== undefined && this.#turn !== turn
+      if (newerTurn) {
+        this.#set({ messages })
+      } else {
+        const unopened = turn.isNew && messages.length === 0
+        this.#set({ messages, status: 'idle', error: undefined, ...(unopened ? { conversationId: undefined } : {}) })
+      }
+      this.#persistLocal()
+    }
+    if (this.#state.history === 'local' && this.#state.conversationId !== id) {
+      const stored = withoutTurn(this.#local.getMessages(id))
+      if (stored.length > 0) this.#local.saveMessages(id, stored)
+      else if (!this.#state.conversations.some((c) => c.id === id)) this.#local.deleteConversation(id)
+    }
+  }
+
   #failTurn(turn: Turn, e: unknown): void {
     if (!this.#turnActive(turn)) return
     const error = toError(e)
@@ -612,22 +731,54 @@ class ChatImpl implements Chat {
     for (const row of rows.map(fromRow)) {
       if (known.has(row.id)) continue
       known.add(row.id)
-      const i = messages.findIndex(
+      let i = messages.findIndex(
         (m) =>
           m.seq === undefined &&
           m.role === row.role &&
           (m.content === row.content || (row.tool !== undefined && m.tool?.name === row.tool.name))
       )
+      // A structured answer streams as the call of the structured-output tool, whose
+      // arguments are the answer's text: its row replaces that call. Only past the newest
+      // user message, where a stopped turn's identical call cannot be.
+      if (i < 0 && row.role === 'assistant') {
+        let j = messages.length - 1
+        while (j >= 0 && messages[j].role !== 'user') {
+          const m = messages[j]
+          if (m.seq === undefined && m.role === 'tool' && m.tool?.arguments === row.content) i = j
+          j--
+        }
+      }
       if (i >= 0) {
         const m = messages[i]
         messages[i] = {
           ...row,
           id: m.id,
           reasoning: m.reasoning ?? row.reasoning,
-          tool: m.tool ? { ...m.tool, status: row.tool?.status ?? m.tool.status } : row.tool
+          // The stream's call wins where it has a value; a stream cut short leaves gaps the row fills.
+          tool:
+            row.role === 'tool' && m.tool
+              ? {
+                  ...m.tool,
+                  arguments: m.tool.arguments ?? row.tool?.arguments,
+                  result: m.tool.result ?? row.tool?.result,
+                  status: row.tool?.status ?? m.tool.status
+                }
+              : row.tool
         }
       } else {
-        messages.push(row)
+        // A tool row nothing streamed, such as a provider-native web search, goes where a
+        // reload puts it: after the last message of a lower `seq`, before the streamed answer.
+        // Any other row closes the turn, a failure included, and stays last: above a streamed
+        // message that never got a row, it would hide the turn's failure.
+        let at = messages.length
+        for (let j = messages.length - 1; row.role === 'tool' && j >= 0; j--) {
+          const seq = messages[j].seq
+          if (seq !== undefined && seq < row.seq!) {
+            at = j + 1
+            break
+          }
+        }
+        messages.splice(at, 0, row)
       }
     }
     this.#set({ messages })
@@ -725,7 +876,19 @@ function fromRow(row: FlowConversationMessage): ChatMessage {
     stepName: row.step_name ?? undefined,
     pending: false,
     seq: row.created_seq,
-    tool: toolName ? { name: toolName, status: success ? 'success' : 'error' } : undefined
+    reasoning: row.reasoning ?? undefined,
+    attachments: row.attachments ?? undefined,
+    // The call the row carries: the model's arguments and what the model got back. For a
+    // failed tool the result is what it failed with, and the row's text names the tool
+    // rather than the reason.
+    tool: toolName
+      ? {
+          name: toolName,
+          status: success ? 'success' : 'error',
+          arguments: row.tool_arguments ?? undefined,
+          result: row.tool_result ?? undefined
+        }
+      : undefined
   }
 }
 
@@ -734,7 +897,8 @@ function fromConversation(row: FlowConversation): Conversation {
     id: row.id,
     title: row.title ?? undefined,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    isTest: row.is_test
   }
 }
 

@@ -10,26 +10,53 @@
 	import { emptyString, type DynamicInput } from '$lib/utils'
 	import { onDestroy, tick, untrack } from 'svelte'
 	import type { Chat } from 'windmill-chat'
+	import { chatFlowKey } from './flowChatProps'
+	import type { FlowModule } from '$lib/gen'
+	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
+	import {
+		attachmentsTargetFor,
+		PER_TURN_AGENT_CHAT_INPUT_KEY,
+		resolveAgentChatInputs
+	} from './agentAttachmentInput'
+	import { deepEqual } from 'fast-equals'
+	import FlowChatModelSettings from './FlowChatModelSettings.svelte'
+	import {
+		agentModelGap,
+		composerOwnedInputs,
+		resolveAgentModelWiring,
+		showsModelButton,
+		withoutRejectedEffort
+	} from './agentChatInputs'
 
 	interface Props {
 		chat: Chat
 		deploymentInProgress?: boolean
 		additionalInputsSchema?: Record<string, any>
+		/** The flow's modules, read for the AI agent inputs the composer drives: the provider wiring
+		 * and the attachments input. */
+		flowModules?: FlowModule[]
 		path: string
+		/** What the stored inputs are filed under when the path is not steady (see FlowChat). */
+		identity?: string
 		workspace?: string
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
 		wideLayout?: boolean
+		/** What this surface's runs create: previews in the editor, deployed runs on the flow page. */
+		conversationKind?: 'test' | 'deployed'
 	}
 
 	let {
 		chat,
 		deploymentInProgress = false,
 		additionalInputsSchema,
+		flowModules,
 		path,
+		identity = undefined,
 		workspace = undefined,
 		description = undefined,
-		wideLayout = false
+		wideLayout = false,
+		conversationKind = 'deployed'
 	}: Props = $props()
 
 	// Derive helperScript for dynamic inputs from schema
@@ -42,17 +69,64 @@
 		return undefined
 	})
 
+	// The composer's attachments feed this input, and the paperclip is its whole editor.
+	const attachmentsTarget = $derived.by(() => {
+		const target = attachmentsTargetFor(
+			resolveAgentChatInputs(flowModules, additionalInputsSchema).find(
+				(input) => input.key === PER_TURN_AGENT_CHAT_INPUT_KEY
+			)
+		)
+		const required: unknown = additionalInputsSchema?.required
+		return target && Array.isArray(required) && required.includes(target.name)
+			? { ...target, required: true }
+			: target
+	})
+	// Uploading needs the workspace's object storage; without one the `+` is drawn disabled
+	// saying so, since the modal could not upload either.
+	const workspaceStorage = useWorkspaceStorageConfigured(() => workspace)
+
+	// The model gets its own button, shaped like the copilot's model settings, driven by
+	// whichever provider fields the flow exposes. Attachments are the paperclip's; every other
+	// flow input is asked for in the Configure-inputs modal.
+	const modelWiring = $derived(resolveAgentModelWiring(flowModules))
+	// An agent with nothing to call cannot answer, and the composer cannot fix it, so the
+	// chat says what to go and do instead of offering controls that write nowhere.
+	const modelGap = $derived(agentModelGap(modelWiring))
+	const showModelButton = $derived(showsModelButton(modelWiring))
+
 	// LocalStorage helpers
 	const STORAGE_KEY_PREFIX = 'windmill_flow_chat_inputs_'
 
-	// State for additional inputs modal
 	let showInputsModal = $state(false)
-	let additionalInputsValues = $state<Record<string, any> | undefined>(
-		loadInputsFromStorage() ?? undefined
-	)
+	// Conversation settings, persisted per flow: what the reader chose, and nothing else.
+	let inputValues = $state<Record<string, any>>(loadInputsFromStorage() ?? {})
+	let modalDraft = $state<Record<string, any>>({})
+
+	/** What the flow's own form would open on. */
+	function schemaDefaults(schema: Record<string, any> | undefined): Record<string, any> {
+		const properties: Record<string, any> = schema?.properties ?? {}
+		return Object.fromEntries(
+			Object.entries(properties)
+				.filter(([, property]) => property?.default !== undefined)
+				.map(([name, property]) => [name, property.default])
+		)
+	}
+
+	// Derived rather than seeded into `inputValues`: the schema arrives with the flow, which
+	// on the deployed page is after this mounts, and only what the reader actually chose
+	// belongs in storage. A stored value wins over the default, including a deliberate empty.
+	const effectiveInputs = $derived({
+		...schemaDefaults(additionalInputsSchema),
+		...inputValues
+	})
+
+	// What the run actually gets. The composer's own controls keep themselves consistent as
+	// they are used; this is where a pair that was never chosen through them — a stored
+	// value, an author's default — is made safe before it reaches the provider.
+	const runInputs = $derived(withoutRejectedEffort(modelWiring, effectiveInputs))
 
 	function getStorageKey(): string {
-		return `${STORAGE_KEY_PREFIX}${path}`
+		return `${STORAGE_KEY_PREFIX}${chatFlowKey({ path, identity })}`
 	}
 
 	function loadInputsFromStorage(): Record<string, any> | null {
@@ -73,39 +147,91 @@
 		}
 	}
 
+	function setInputValue(name: string, value: any) {
+		inputValues = { ...inputValues, [name]: value }
+		saveInputsToStorage(inputValues)
+	}
+
 	function handleModalConfirm() {
-		saveInputsToStorage(additionalInputsValues ?? {})
+		// The modal opens on `effectiveInputs`, so its draft carries a value for every
+		// defaulted input whether or not the reader touched one. Storing those would pin
+		// today's defaults for good — `effectiveInputs` gives a stored value precedence, so
+		// a later change to the flow's schema would never reach this reader again.
+		const defaults = schemaDefaults(additionalInputsSchema)
+		const kept = Object.fromEntries(
+			Object.entries({ ...inputValues, ...modalDraft }).filter(
+				([name, value]) => !deepEqual(value, defaults[name])
+			)
+		)
+		inputValues = kept
+		saveInputsToStorage(inputValues)
 		showInputsModal = false
 	}
 
 	function openInputsModal() {
-		const stored = loadInputsFromStorage()
-		if (stored) additionalInputsValues = stored
+		modalDraft = { ...effectiveInputs, ...(loadInputsFromStorage() ?? inputValues) }
 		showInputsModal = true
 	}
-
-	const hasMissingRequired = $derived.by(() => {
-		if (!additionalInputsSchema?.required?.length) return false
-		const values = additionalInputsValues ?? {}
-		return additionalInputsSchema.required.some(
-			(field: string) =>
-				values[field] === undefined || values[field] === '' || values[field] === null
-		)
-	})
 
 	// The host follows the chat it was built on for the life of this component: FlowChat
 	// remounts the interface under `{#key chat}`, so a later value of the prop never reaches it.
 	const chatHost = new FlowChatViewHost(
 		untrack(() => chat),
 		{
-			additionalInputs: () =>
-				additionalInputsSchema ? (loadInputsFromStorage() ?? additionalInputsValues) : undefined,
+			additionalInputs: () => (additionalInputsSchema ? { ...runInputs } : undefined),
+			attachmentsTarget: () => attachmentsTarget,
+			attachmentsUnavailable: () =>
+				workspaceStorage.current
+					? undefined
+					: 'This workspace has no object storage, so files cannot be attached.',
 			workspace: () => workspace,
-			sendDisabled: () => deploymentInProgress
+			sendDisabled: () => deploymentInProgress || !!modelGap || !!wrongKindReason,
+			// The model controls only: a retry changes model when the reader did, but replays
+			// the run's own attachments rather than whatever the composer holds now.
+			inputsShownInComposer: () => composerOwnedInputs(modelWiring, undefined)
 		}
 	)
 	setChatViewHost(chatHost)
+
+	// A chat of the other kind can be read from here but not added to: the server refuses a
+	// preview run into a deployed conversation and the reverse, so the composer says why first.
+	const wrongKindReason = $derived.by(() => {
+		const { conversationId, conversations } = chatHost.state
+		const open = conversations.find((c) => c.id === conversationId)
+		if (open?.isTest === undefined || open.isTest === (conversationKind === 'test'))
+			return undefined
+		return open.isTest
+			? 'This chat was run from the flow editor. Start a new chat to continue here.'
+			: 'This chat belongs to the deployed flow. Start a new chat to test.'
+	})
 	onDestroy(() => chatHost.dispose())
+
+	// What the Configure-inputs modal asks for: every flow input the composer does not
+	// edit itself.
+	const modalSchema = $derived.by(() => {
+		if (!additionalInputsSchema) return undefined
+		const promoted = new Set(composerOwnedInputs(modelWiring, attachmentsTarget))
+		const properties = Object.fromEntries(
+			Object.entries(additionalInputsSchema.properties ?? {}).filter(([key]) => !promoted.has(key))
+		)
+		if (Object.keys(properties).length === 0) return undefined
+		const required: string[] = Array.isArray(additionalInputsSchema.required)
+			? additionalInputsSchema.required
+			: []
+		return {
+			...additionalInputsSchema,
+			properties,
+			required: required.filter((key) => !promoted.has(key))
+		}
+	})
+
+	const modalMissingRequired = $derived.by(() => {
+		if (!modalSchema?.required?.length) return false
+		return modalSchema.required.some((field: string) => {
+			const value = effectiveInputs[field]
+			return value === undefined || value === '' || value === null
+		})
+	})
 
 	// Older pages load when the reader reaches the top; the viewport stays where it was.
 	let scrollElement = $state<HTMLDivElement | undefined>(undefined)
@@ -126,12 +252,11 @@
 	}
 </script>
 
-<!-- Additional Inputs Modal -->
-{#if additionalInputsSchema}
+{#if modalSchema}
 	<Modal title="Configure inputs" bind:open={showInputsModal}>
 		<SchemaForm
-			schema={additionalInputsSchema}
-			bind:args={additionalInputsValues}
+			schema={modalSchema}
+			bind:args={modalDraft}
 			helperScript={dynamicInputHelperScript}
 			{workspace}
 		/>
@@ -159,7 +284,7 @@
 {/snippet}
 
 {#snippet footerSettings()}
-	{#if additionalInputsSchema}
+	{#if modalSchema}
 		<div class="relative">
 			<Button
 				unifiedSize="2xs"
@@ -171,10 +296,20 @@
 			>
 				Inputs
 			</Button>
-			{#if hasMissingRequired}
+			{#if modalMissingRequired}
 				<span class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-yellow-500 rounded-full"></span>
 			{/if}
 		</div>
+	{/if}
+	{#if modelWiring && showModelButton}
+		<!-- `runInputs`, not `effectiveInputs`: a stored effort the model rejects is dropped
+		     before the run, and the button must not name one the run will not send. -->
+		<FlowChatModelSettings
+			wiring={modelWiring}
+			values={runInputs}
+			setValue={setInputValue}
+			{workspace}
+		/>
 	{/if}
 {/snippet}
 
@@ -200,10 +335,12 @@
 		hideModeSelector
 		{wideLayout}
 		{emptyHint}
-		footerSettings={additionalInputsSchema ? footerSettings : undefined}
+		footerSettings={modalSchema || showModelButton ? footerSettings : undefined}
 		placeholder="Send a message to run the flow"
-		disabled={deploymentInProgress}
-		disabledMessage={deploymentInProgress ? 'Deployment in progress' : ''}
+		disabled={deploymentInProgress || !!modelGap || !!wrongKindReason}
+		disabledMessage={deploymentInProgress
+			? 'Deployment in progress'
+			: (modelGap ?? wrongKindReason ?? '')}
 		loadPastChat={() => {}}
 		deletePastChat={() => {}}
 		saveAndClear={() => {}}

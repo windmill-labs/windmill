@@ -889,13 +889,13 @@
     draftCountExactly: 0
   toolExpect:
     requiredToolsUsed:
-      - get_job_logs
+      - get_run
     forbiddenToolsUsed:
       - deploy_workspace_item
       - delete_workspace_item
       - write_script
     toolCallArgs:
-      - tool: get_job_logs
+      - tool: get_run
         field: id
         stringIncludesAnyOf:
           - 01920000-0000-7000-8000-0000000000f1
@@ -905,6 +905,34 @@
   judgeChecklist:
     - fetches the logs for the requested job id
     - explains the failure from the returned logs (connection refused to the upstream API)
+
+- id: global-run-args-and-result
+  prompt: |-
+    What was the run 01920000-0000-7000-8000-0000000000f2 called with, and what did it return?
+  initial: ai_evals/fixtures/frontend/global/initial/jobs_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_run
+    forbiddenToolsUsed:
+      - test_run_script
+      - run_script
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: get_run
+        field: id
+        stringIncludesAnyOf:
+          - 01920000-0000-7000-8000-0000000000f2
+  # Read-only, so no draft for the global judge to score — validated on tool use
+  # and the deterministic argument check, like the neighbouring run cases.
+  skipJudge: true
+  judgeChecklist:
+    - reports the arguments the run was called with (region emea, 12 recipients)
+    - reports what the run returned (12 sent, 3 skipped)
+    - does not start a new run to find out
 
 # --- Page navigation (open_page) ---
 # The assistant should take the user to a Windmill page (Runs/Schedules) with the
@@ -1891,10 +1919,11 @@
     - when the lookup fails, tells the user instead of inventing table names
     - does not write scripts or resources to answer a read-only question
 
-# --- API catalog (search_api_endpoints / call_api_get / call_api_endpoint) ---
-# The harness serves the catalog and the executed calls itself (mock
-# listMcpTools + benchmark fetch handlers in adapters/frontend), so these cases
-# do not require an mcp-enabled eval backend.
+# --- Dedicated tools preferred over the API catalog ---
+# The harness serves worker/queue reads itself (benchmark fetch handlers in
+# adapters/frontend), so these cases do not require an mcp-enabled eval backend.
+# The stale `api-catalog` in the id below is kept so results stay comparable
+# across benchmark runs.
 
 - id: global-test30-api-catalog-workers
   prompt: |-
@@ -1906,22 +1935,41 @@
     draftCountExactly: 0
   toolExpect:
     requiredToolsUsed:
-      - search_api_endpoints
-      - call_api_get
+      - list_workers
     forbiddenToolsUsed:
+      - call_api_get
       - call_api_endpoint
       - write_script
       - deploy_workspace_item
-    toolCallArgs:
-      - tool: call_api_get
-        field: name
-        stringIncludesAnyOf:
-          - listWorkers
   # Read-only workspace inspection produces no draft; validate via tool use.
   skipJudge: true
   judgeChecklist:
-    - discovers the workers endpoint through the API catalog instead of guessing or fabricating
+    - reads worker state through list_workers instead of guessing or fabricating
     - reports worker status from the returned data
+
+- id: global-test37-ducklake-declared-measure
+  prompt: |-
+    We track orders in the main ducklake. Write me a duckdb script that reports total
+    revenue by month. Keep it as a draft, don't deploy it.
+  initial: ai_evals/fixtures/frontend/global/initial/ducklake_orders_metrics.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+  toolExpect:
+    requiredToolsUsed:
+      - list_data_metrics
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  # The judge runs: the point is not that the tool was called but that the number it
+  # describes is the declared one. `revenue` excludes test rows, so an aggregate that
+  # reproduces it without the filter is plausible, runnable and wrong.
+  judgeChecklist:
+    - totals revenue with the declared sum over the amount column rather than an invented aggregate over a guessed column
+    - excludes test orders from the total, as the declared revenue measure does
+    - groups by month using the declared order_month expression over order_date
+    - does not introduce column names absent from the declarations
 
 - id: global-test31-draft-test-run-not-deployed
   prompt: |-
@@ -2111,6 +2159,32 @@
   judgeChecklist:
     - creates an AI draft of f/evals/global/process_invoice applying 8% tax
     - does not deploy or save the draft
+
+- id: global-test38-chat-flow-follow-up-same-conversation
+  prompt: |-
+    I want to check that my support chat flow `f/evals/global/support_chat` remembers what was said.
+    Test it: first send "My name is Ada", then send "What is my name?" as a follow-up in the same chat.
+  initial: ai_evals/fixtures/frontend/global/initial/support_chat_flow.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - test_run_flow
+    # A chat flow's memory lives in its conversation, so a follow-up only reaches the first
+    # turn's history when both test runs name the same conversation.
+    toolCallArgs:
+      - tool: test_run_flow
+        field: memory_id
+        sharedByAtLeast: 2
+    forbiddenToolsUsed:
+      - run_flow
+      - deploy_workspace_item
+  # The judge cannot observe runs; what this case guards is the conversation the runs share.
+  skipJudge: true
+  judgeChecklist:
+    - test-runs the chat flow twice, the second message as a follow-up in the first run's conversation
 
 - id: global-undo-created-draft
   prompt: |-
@@ -2537,3 +2611,40 @@
   judgeChecklist:
     - runs the existing script rather than rewriting it
     - passes the GitHub resource as the bare string $res:f/evals/global/github_main
+
+- id: global-drag-and-drop-app-not-editable
+  prompt: |-
+    Add a refresh button to the ops console app, and the same to the sales board app.
+  initial: ai_evals/fixtures/frontend/global/initial/apps_code_and_drag_and_drop.json
+  runtime:
+    maxTurns: 12
+  validate:
+    # One request, two apps, only one of them editable: the code app must come back with a
+    # draft and the drag-and-drop one must not. Refusing both, or editing both, fails here —
+    # which is what makes this a test of the distinction rather than of caution.
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/ops_console
+    forbiddenDrafts:
+      - type: app
+        path: f/evals/global/sales_board
+  toolExpect:
+    # Deliberately not constraining write_app_file/patch_app_file by argument: an entry there
+    # fails when its tool was never called, so naming both would fail on whichever the model
+    # did not pick. The draft assertions above cover the same ground, tool-agnostically.
+    forbiddenToolsUsed:
+      - init_app
+      - deploy_workspace_item
+      - delete_app_file
+      - delete_app_runnable
+  assistantExpect:
+    # A refusal leaves no draft for the judge to read, so the explanation is checked here.
+    # Only the app kind: substring tests cannot see paraphrase, and every wording of "I can't
+    # edit it" defeats a fixed list.
+    requiredMentionsAnyOf:
+      - - drag-and-drop
+        - drag and drop
+        - low-code
+        - no-code
+  skipJudge: true

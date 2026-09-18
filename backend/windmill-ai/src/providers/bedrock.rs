@@ -1074,7 +1074,8 @@ impl BedrockQueryBuilder {
 
         let mut accumulated_text = String::new();
         let mut events_str = String::new();
-        let mut accumulated_tool_calls: HashMap<String, StreamingToolCall> = HashMap::new();
+        let mut accumulated_tool_calls: indexmap::IndexMap<String, StreamingToolCall> =
+            indexmap::IndexMap::new();
         let mut current_tool_use_id: Option<String> = None;
         let mut usage: Option<TokenUsage> = None;
         // Claude reasoning block for the turn (only populated when thinking is on),
@@ -1263,7 +1264,10 @@ mod tests {
         // recovers the uncached share by subtracting the details back out.
         assert_eq!(usage["usage"]["prompt_tokens"], 1010);
         assert_eq!(usage["usage"]["completion_tokens"], 7);
-        assert_eq!(usage["usage"]["prompt_tokens_details"]["cached_tokens"], 900);
+        assert_eq!(
+            usage["usage"]["prompt_tokens_details"]["cached_tokens"],
+            900
+        );
         assert_eq!(
             usage["usage"]["prompt_tokens_details"]["cache_write_tokens"],
             100

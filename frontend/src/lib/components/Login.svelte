@@ -397,7 +397,8 @@
 		if (loginsResult.status === 'fulfilled') {
 			logins = loginsResult.value.oauth.map((login) => ({
 				type: login.type,
-				displayName: login.display_name || login.type
+				displayName:
+					login.display_name || providers.find((p) => p.type === login.type)?.name || login.type
 			}))
 			saml = loginsResult.value.saml
 			autoLogin = loginsResult.value.auto_login
