@@ -289,12 +289,20 @@ describe('model context windows', () => {
 		// a version between "qwen3" and "-max" must not claim the 256K entry, and
 		// there is deliberately no qwen family entry (variant windows range 8K–1M)
 		expect(getKnownModelContextWindow('qwen3.8-max')).toBeUndefined()
-		expect(getModelContextWindow('qwen3.8-max')).toBe(128000)
+		expect(getModelContextWindow('openai', 'qwen3.8-max', undefined)).toBe(128000)
 	})
 
 	it('returns undefined for unrecognized models, 128K via the defaulting wrapper', () => {
 		expect(getKnownModelContextWindow('some-custom-model')).toBeUndefined()
-		expect(getModelContextWindow('some-custom-model')).toBe(128000)
+		expect(getModelContextWindow('customai', 'some-custom-model', undefined)).toBe(128000)
+	})
+
+	it('prefers the configured window for the exact provider:model', () => {
+		const overrides = { 'customai:some-custom-model': 32000, 'anthropic:claude-opus-5': 200000 }
+		expect(getModelContextWindow('customai', 'some-custom-model', overrides)).toBe(32000)
+		expect(getModelContextWindow('anthropic', 'claude-opus-5', overrides)).toBe(200000)
+		// keyed by provider: the same id through another route keeps the table's window
+		expect(getModelContextWindow('openrouter', 'claude-opus-5', overrides)).toBe(1000000)
 	})
 })
 

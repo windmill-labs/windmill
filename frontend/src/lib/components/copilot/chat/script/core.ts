@@ -24,7 +24,8 @@ import { createWorkspaceMutationTools } from '../workspaceTools'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../modelConfig'
 import type { ReviewChangesOpts } from '../monaco-adapter'
-import { getCurrentModel } from '$lib/aiStore'
+import { copilotInfo, getCurrentModel } from '$lib/aiStore'
+import { get } from 'svelte/store'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
 import { getScriptPrompt, getWorkflowAsCodePrompt } from '$system_prompts'
 
@@ -548,7 +549,11 @@ export async function searchExternalIntegrationResources(args: { query: string }
 		)
 
 		const model = getCurrentModel()
-		const modelContextWindow = getModelContextWindow(model.model)
+		const modelContextWindow = getModelContextWindow(
+			model.provider,
+			model.model,
+			get(copilotInfo).contextWindowPerModel
+		)
 		const results: PackageSearchResult[] = await Promise.all(
 			filtered.map(async (r: PackageSearchQuery) => {
 				let documentation = ''

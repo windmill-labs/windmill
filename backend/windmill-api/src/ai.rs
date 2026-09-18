@@ -436,6 +436,10 @@ pub struct AIConfig {
     pub custom_prompts: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens_per_model: Option<HashMap<String, i32>>,
+    /// Context windows the chat budgets against, keyed `provider:model` like
+    /// `max_tokens_per_model`. Only models whose window differs from the built-in one are stored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window_per_model: Option<HashMap<String, i32>>,
     /// Response-only: this same struct is the request body for saving a workspace's AI
     /// config, and `skip_deserializing` is what stops a client from storing a forged
     /// free-tier marker. Only the server sets it, per-request.

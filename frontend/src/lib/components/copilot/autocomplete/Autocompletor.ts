@@ -94,8 +94,12 @@ export class Autocompletor {
 
 		const deletionsCues = editor.createDecorationsCollection()
 
-		const completionModel = get(copilotInfo).codeCompletionModel
-		this.#contextWindow = getModelContextWindow(completionModel?.model ?? '')
+		const { codeCompletionModel: completionModel, contextWindowPerModel } = get(copilotInfo)
+		this.#contextWindow = getModelContextWindow(
+			completionModel?.provider ?? '',
+			completionModel?.model ?? '',
+			contextWindowPerModel
+		)
 
 		this.#completionDisposable = languages.registerInlineCompletionsProvider(
 			{ pattern: '**' },

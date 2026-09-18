@@ -162,9 +162,7 @@ export function buildModelMatchers<T>(
 			// separator is normalized. Only a short segment: a date is digits as well
 			// (`-20251101`) and stays a decoration.
 			strictVariants ? '(?!-\\d{1,3}(?:$|-))' : '',
-			strictVariants
-				? `(?!-(?!(?:v\\d|${DECORATIVE_SUFFIXES.join('|')})$)[a-z])`
-				: ''
+			strictVariants ? `(?!-(?!(?:v\\d|${DECORATIVE_SUFFIXES.join('|')})$)[a-z])` : ''
 		].join('')
 		return [new RegExp(pattern + guards), value]
 	})
@@ -172,7 +170,7 @@ export function buildModelMatchers<T>(
 
 /**
  * The `provider:model` key the workspace AI settings use for their per-model maps
- * (`max_tokens_per_model`, `model_pricing`). A bare model id is not enough: the
+ * (`max_tokens_per_model`, `context_window_per_model`, `model_pricing`). A bare model id is not enough: the
  * same id can be served by more than one provider at different rates.
  *
  * Matched exactly, unlike the fuzzy tables above. Those tables generalize across
@@ -196,9 +194,22 @@ export function getKnownModelContextWindow(model: string): number | undefined {
 	return matchModel(MODEL_CONTEXT_WINDOW_MATCHERS, model)
 }
 
-export function getModelContextWindow(model: string) {
+/** The admin's `context_window_per_model` entry wins over the table. */
+export function getConfiguredContextWindow(
+	provider: AIProvider | string,
+	model: string,
+	overrides: Record<string, number> | undefined
+): number | undefined {
+	return overrides?.[modelKey(provider, model)] ?? getKnownModelContextWindow(model)
+}
+
+export function getModelContextWindow(
+	provider: AIProvider | string,
+	model: string,
+	overrides: Record<string, number> | undefined
+) {
 	// Trim/compaction logic needs a number; assume a conservative window when unknown.
-	return getKnownModelContextWindow(model) ?? 128000
+	return getConfiguredContextWindow(provider, model, overrides) ?? 128000
 }
 
 /**

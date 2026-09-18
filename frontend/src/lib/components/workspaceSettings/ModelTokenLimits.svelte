@@ -1,19 +1,28 @@
 <script lang="ts">
 	import type { AIConfig, AIProvider } from '$lib/gen'
 	import { Badge, Button } from '../common'
-	import { getModelMaxTokens } from '../copilot/lib'
 	import { ChevronDown, ChevronUp } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
 	import SettingCard from '../instanceSettings/SettingCard.svelte'
 
-	const MAX_TOKENS_LIMIT = 2000000
-
+	// Edits one `provider:model` map of the AI config. Only values that differ from
+	// `defaultFor` are stored.
 	let {
 		aiProviders,
-		maxTokensPerModel = $bindable()
+		limits = $bindable(),
+		label,
+		description,
+		defaultFor,
+		min = 1,
+		max
 	}: {
 		aiProviders: Exclude<AIConfig['providers'], undefined>
-		maxTokensPerModel: Record<string, number>
+		limits: Record<string, number>
+		label: string
+		description: string
+		defaultFor: (provider: AIProvider, model: string) => number
+		min?: number
+		max: number
 	} = $props()
 
 	let errors = $state<Record<string, string>>({})
@@ -37,32 +46,28 @@
 		return `${provider}:${model}`
 	}
 
-	function getDefaultTokensForModel(provider: AIProvider, model: string): number {
-		return getModelMaxTokens(provider, model)
-	}
-
 	function getCurrentTokensForModel(provider: AIProvider, model: string): number {
 		const modelKey = getModelKey(provider, model)
-		return maxTokensPerModel[modelKey] ?? getDefaultTokensForModel(provider, model)
+		return limits[modelKey] ?? defaultFor(provider, model)
 	}
 
 	function updateTokensForModel(provider: AIProvider, model: string, tokens: number) {
 		const modelKey = getModelKey(provider, model)
-		if (tokens < 1 || tokens > MAX_TOKENS_LIMIT) {
-			errors[modelKey] = 'Token limit must be between 1 and ' + MAX_TOKENS_LIMIT
+		if (tokens < min || tokens > max) {
+			errors[modelKey] = `Token limit must be between ${min} and ${max}`
 			return
 		}
 
-		const defaultTokens = getDefaultTokensForModel(provider, model)
+		const defaultTokens = defaultFor(provider, model)
 
 		if (tokens === defaultTokens) {
 			// Remove from object if it's the default value
-			const newSettings = { ...maxTokensPerModel }
+			const newSettings = { ...limits }
 			delete newSettings[modelKey]
-			maxTokensPerModel = newSettings
+			limits = newSettings
 		} else {
-			maxTokensPerModel = {
-				...maxTokensPerModel,
+			limits = {
+				...limits,
 				[modelKey]: tokens
 			}
 		}
@@ -71,14 +76,15 @@
 
 	function resetModelToDefault(provider: AIProvider, model: string) {
 		const modelKey = getModelKey(provider, model)
-		const newSettings = { ...maxTokensPerModel }
+		const newSettings = { ...limits }
 		delete newSettings[modelKey]
-		maxTokensPerModel = newSettings
+		limits = newSettings
+		errors[modelKey] = ''
 	}
 
 	function isModelAtDefault(provider: AIProvider, model: string): boolean {
 		const currentTokens = getCurrentTokensForModel(provider, model)
-		const defaultTokens = getDefaultTokensForModel(provider, model)
+		const defaultTokens = defaultFor(provider, model)
 		return currentTokens === defaultTokens
 	}
 
@@ -99,10 +105,7 @@
 </script>
 
 {#if Object.keys(aiProviders).length > 0}
-	<SettingCard
-		label="Model output limits"
-		description="Configure maximum token limits for each model. These limits apply to all AI chat interactions in the workspace."
-	>
+	<SettingCard {label} {description}>
 		<div class="flex flex-col gap-3">
 			{#each Object.entries(modelsByProvider).filter(([provider, models]) => models.length > 0) as [provider, models]}
 				{@const isExpanded = !collapsedProviders[provider]}
@@ -131,7 +134,7 @@
 							<div class="space-y-3">
 								{#each models as { model }}
 									{@const currentTokens = getCurrentTokensForModel(provider as AIProvider, model)}
-									{@const defaultTokens = getDefaultTokensForModel(provider as AIProvider, model)}
+									{@const defaultTokens = defaultFor(provider as AIProvider, model)}
 									{@const isAtDefault = isModelAtDefault(provider as AIProvider, model)}
 									<div class="flex flex-col gap-1">
 										<div class="flex items-center gap-3">
@@ -141,8 +144,8 @@
 											<div class="flex items-center gap-2">
 												<input
 													type="number"
-													min="1"
-													max={MAX_TOKENS_LIMIT}
+													{min}
+													{max}
 													value={currentTokens}
 													oninput={(e) => {
 														const value = parseInt(e.currentTarget.value)
@@ -150,7 +153,7 @@
 															updateTokensForModel(provider as AIProvider, model, value)
 														}
 													}}
-													class="w-20 px-2 py-1 text-xs text-center border border-gray-200 dark:border-gray-700 rounded bg-surface focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+													class="w-24 px-2 py-1 text-xs text-center border border-gray-200 dark:border-gray-700 rounded bg-surface focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 												/>
 												<span class="text-xs text-secondary whitespace-nowrap">tokens</span>
 											</div>
@@ -166,11 +169,11 @@
 													Reset
 												</Button>
 											</div>
-											{#if errors[getModelKey(provider as AIProvider, model)]}
-												<div class="text-xs text-red-500"
-													>{errors[getModelKey(provider as AIProvider, model)]}</div
-												>
-											{/if}
+										{/if}
+										{#if errors[getModelKey(provider as AIProvider, model)]}
+											<div class="text-xs text-red-500"
+												>{errors[getModelKey(provider as AIProvider, model)]}</div
+											>
 										{/if}
 									</div>
 								{/each}
