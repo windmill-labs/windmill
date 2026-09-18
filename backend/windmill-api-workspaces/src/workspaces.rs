@@ -9772,8 +9772,12 @@ async fn invite_user(
     nu.email = nu.email.to_lowercase();
 
     #[cfg(feature = "enterprise")]
-    if let Some(msg) =
-        windmill_common::ee_oss::check_seat_cap_for_new_user(&db, &nu.email, nu.operator).await?
+    if let Some(msg) = windmill_common::ee_oss::check_seat_cap_for_new_user(
+        &db,
+        &nu.email,
+        windmill_common::workspaces::consumes_operator_seat(&db, &w_id, nu.operator).await?,
+    )
+    .await?
     {
         return Err(Error::BadRequest(msg));
     }
@@ -9924,8 +9928,12 @@ async fn add_user(
     };
 
     #[cfg(feature = "enterprise")]
-    if let Some(msg) =
-        windmill_common::ee_oss::check_seat_cap_for_new_user(&db, &nu.email, nu.operator).await?
+    if let Some(msg) = windmill_common::ee_oss::check_seat_cap_for_new_user(
+        &db,
+        &nu.email,
+        windmill_common::workspaces::consumes_operator_seat(&db, &w_id, nu.operator).await?,
+    )
+    .await?
     {
         return Err(Error::BadRequest(msg));
     }
@@ -10488,6 +10496,11 @@ struct ChangeOperatorSettings {
     folders: bool,
     #[serde(default)]
     workers: bool,
+    /// Lets every operator of this workspace compose flows out of already-deployed runnables.
+    /// Unlike the visibility flags above this is a write right, and it makes each operator
+    /// consume a full author seat instead of half of one.
+    #[serde(default)]
+    builder_flows: bool,
     /// Writes operators may perform unless withdrawn, so `None` (key absent) must mean "leave as
     /// stored" rather than a value: the row is merged, not overwritten, and this endpoint takes
     /// whole-object payloads from git-sync files that predate the key. Defaulting either way here
@@ -10505,6 +10518,17 @@ async fn update_operator_settings(
     Json(settings): Json<ChangeOperatorSettings>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    // Every operator of the workspace turns into a full seat, which an offline license may not
+    // cover. It is a no-op delta when the right is already on.
+    #[cfg(feature = "enterprise")]
+    if settings.builder_flows {
+        if let Some(msg) =
+            windmill_common::ee_oss::check_seat_cap_for_operator_builder(&db, &w_id).await?
+        {
+            return Err(Error::BadRequest(msg));
+        }
+    }
 
     let mut tx = db.begin().await?;
 

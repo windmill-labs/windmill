@@ -154,6 +154,7 @@ import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRout
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
+import { operatorBuilderFlows } from '$lib/stores'
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -282,6 +283,11 @@ export function supportsAutoAcceptToolConfirmations(mode: AIMode): boolean {
 export function supportsPlanMode(mode: AIMode): boolean {
 	return PLAN_MODES.has(mode)
 }
+
+// Rune mirror of the store: a class `$derived` cannot track a store read, and this one gates
+// which chat modes exist.
+const isOperatorBuilderFlows = $state({ val: false })
+operatorBuilderFlows.subscribe((v) => (isOperatorBuilderFlows.val = v))
 
 export function isAIModeVisible(mode: AIMode): boolean {
 	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
@@ -1363,12 +1369,19 @@ export class AIChatManager implements ChatViewHost {
 			.map((s) => ({ ...s, kind: 'skill' as const }))
 	])
 
+	// The flow and script builders both write code, which the backend refuses from an operator
+	// with the builder right: leaving them reachable would only produce work that cannot be
+	// deployed.
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
 			this.flowAiChatHelpers === undefined &&
 			this.scriptEditorOptions !== undefined &&
-			!this.disabledModes.script,
-		flow: this.flowAiChatHelpers !== undefined && !this.disabledModes.flow,
+			!this.disabledModes.script &&
+			!isOperatorBuilderFlows.val,
+		flow:
+			this.flowAiChatHelpers !== undefined &&
+			!this.disabledModes.flow &&
+			!isOperatorBuilderFlows.val,
 		app: this.appAiChatHelpers !== undefined && !this.disabledModes.app,
 		navigator: !this.disabledModes.navigator,
 		ask: !this.disabledModes.ask,

@@ -16,7 +16,12 @@
 	} from '$lib/gen'
 	import { resource } from 'runed'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
-	import { disableHubStore, userStore, workspaceStore } from '$lib/stores'
+	import {
+		disableHubStore,
+		operatorBuilderFlows,
+		userStore,
+		workspaceStore
+	} from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
@@ -340,7 +345,9 @@
 			canWrite:
 				canWrite(it.path, (it.extra_perms ?? {}) as any, $userStore) &&
 				(it.type === 'script' || it.workspace_id == $workspaceStore) &&
-				!$userStore?.operator
+				// The builder right covers flows only; a script or an app is still off limits, so
+				// the row must not offer edit or delete for those.
+				(!$userStore?.operator || (it.type === 'flow' && $operatorBuilderFlows))
 		}
 		// combinedItems reads a script's time from `created_at`; the endpoint's
 		// unified `edited_at` holds exactly that for scripts.
@@ -1061,7 +1068,7 @@
 	 * whose direct-deploy protection cleared `showEditButtons` — must not be shown them.
 	 * Reading archived items is not a write, so it is not gated on this.
 	 */
-	let canCreateHere = $derived(!$userStore?.operator && showEditButtons)
+	let canCreateHere = $derived((!$userStore?.operator || $operatorBuilderFlows) && showEditButtons)
 
 	// The workspace itself holds nothing — no filter is narrowing the list away. It stays
 	// false until the first load resolves: a skeleton already means "loading", and the

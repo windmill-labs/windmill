@@ -36584,6 +36584,9 @@ components:
         workers:
           type: boolean
           description: Whether operators can view workers page
+        builder_flows:
+          type: boolean
+          description: Whether operators can compose flows out of existing runnables (consumes a full seat)
         manage_schedules:
           type: boolean
           description: Whether operators can create, edit and delete schedules. Granted unless withdrawn; omitting the field leaves the stored value unchanged.
