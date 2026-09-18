@@ -3437,6 +3437,19 @@ async fn create_pg_database(
     }
 
     if is_instance_datatable_source(&db, &w_id, &req.source).await? {
+        // Held until the copy is registered, as a rename migrates reservations to the new id under
+        // it once the old one is archived: a copy registered after that would be reserved for an
+        // id nothing answers on.
+        let mut tx = db.begin().await?;
+        windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
+        let live = sqlx::query_scalar::<_, bool>("SELECT NOT deleted FROM workspace WHERE id = $1")
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .unwrap_or(false);
+        if !live {
+            return Err(Error::BadRequest(format!("Workspace '{w_id}' is archived")));
+        }
         windmill_common::create_custom_instance_database(
             &db,
             &req.target_dbname,
@@ -3444,6 +3457,7 @@ async fn create_pg_database(
             Some(&w_id),
         )
         .await?;
+        tx.commit().await?;
     } else {
         let source_pg =
             resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
@@ -3599,10 +3613,16 @@ async fn import_pg_database(
                 ));
             }
             if is_instance_datatable_source(&db, &w_id, &req.target).await? {
-                // Held until the restore is done, as fork finalization takes it: a fork must not
-                // commit this database while `psql` is still filling it.
+                // Held until the restore is done: fork finalization takes the first, and every
+                // save newly naming a database, in any workspace, the second. Nothing may start
+                // using this database while `psql` is still filling it.
                 let mut tx = db.begin().await?;
                 windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
+                windmill_common::datatable_roles::lock_instance_databases_governance(
+                    &mut tx,
+                    [override_dbname.as_str()],
+                )
+                .await?;
                 windmill_common::ensure_fork_database_available_to(&db, override_dbname, &w_id)
                     .await?;
                 fork_lock = Some(tx);
@@ -3719,19 +3739,37 @@ async fn edit_ducklake_config(
     )
     .await?;
 
-    let old_ducklakes = sqlx::query_scalar!(
-        r#"
-            SELECT ws.ducklake->'ducklakes' AS ducklake_name
-            FROM workspace_settings ws
-            WHERE ws.workspace_id = $1
-        "#,
-        &w_id
+    // Under the row lock the save writes with, taken before the database locks below as fork
+    // cleanup takes the two.
+    let old_ducklakes = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "SELECT ws.ducklake->'ducklakes' FROM workspace_settings ws
+         WHERE ws.workspace_id = $1 FOR UPDATE",
     )
+    .bind(&w_id)
     .fetch_one(&mut *tx)
     .await?
     .unwrap_or(serde_json::Value::Null);
     let old_ducklakes: HashMap<String, Ducklake> =
         serde_json::from_value(old_ducklakes).unwrap_or_default();
+
+    // Fork cleanup decides nothing uses an instance database under this lock, so a catalog newly
+    // put on one must not commit between its check and its drop.
+    windmill_common::datatable_roles::lock_instance_databases_governance(
+        &mut *tx,
+        new_config
+            .settings
+            .ducklakes
+            .iter()
+            .filter(|(name, dl)| {
+                dl.catalog.resource_type == DucklakeCatalogResourceType::Instance
+                    && old_ducklakes.get(name.as_str()).is_none_or(|old| {
+                        old.catalog.resource_type != DucklakeCatalogResourceType::Instance
+                            || old.catalog.resource_path != dl.catalog.resource_path
+                    })
+            })
+            .map(|(_, dl)| dl.catalog.resource_path.as_str()),
+    )
+    .await?;
 
     // Check that non-superadmins are not abusing Instance databases
     if !is_superadmin {

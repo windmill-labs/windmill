@@ -1689,8 +1689,33 @@ async fn list_custom_instance_pg_databases(
         })?;
 
     if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
-        // Which workspace reserved a fork copy is nobody else's business: it would enumerate every
-        // pending fork on the instance.
+        // A fork copy's name gives away the workspace it was reserved for, so every pending fork on
+        // the instance would be listed. Kept for members of that workspace, and wherever the
+        // caller's workspaces use it, e.g. the fork it was finalized into.
+        let reserved_visible: BTreeSet<String> = sqlx::query_scalar(
+            r#"SELECT e.k FROM global_settings gs
+               CROSS JOIN LATERAL jsonb_each(gs.value->'databases') AS e(k, v)
+               WHERE gs.name = 'custom_instance_pg_databases' AND e.v->>'workspace_id' IS NOT NULL
+                 AND (EXISTS (SELECT 1 FROM usr WHERE usr.email = $1
+                                AND usr.workspace_id = e.v->>'workspace_id')
+                   OR EXISTS (SELECT 1 FROM usr JOIN workspace_settings ws
+                                ON ws.workspace_id = usr.workspace_id
+                              CROSS JOIN LATERAL jsonb_each(
+                                  CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'
+                                      THEN ws.datatable->'datatables' ELSE '{}'::jsonb END) dt
+                              WHERE usr.email = $1
+                                AND dt.value->'database'->>'resource_type' = 'instance'
+                                AND dt.value->'database'->>'resource_path' = e.k))"#,
+        )
+        .bind(&authed.email)
+        .fetch_all(&db)
+        .await?
+        .into_iter()
+        .collect();
+        result.retain(|dbname, entry| {
+            entry.workspace_id.is_none() || reserved_visible.contains(dbname)
+        });
+        // Which workspace reserved a copy is still only for superadmins.
         for entry in result.values_mut() {
             entry.workspace_id = None;
         }
@@ -1766,6 +1791,15 @@ async fn setup_custom_instance_pg_database(
     // Before anything is recorded: the status written below replaces the registry entry, and with it
     // the workspace a fork copy is reserved for.
     require_super_admin(&db, &authed).await?;
+    // Fork cleanup checks and drops the database and its entry under this lock. Held from before
+    // the setup creates the database to after its entry is written, neither lands on the other's
+    // half-done state: a dropped database with its entry written back, or the reverse.
+    let mut tx = db.begin().await?;
+    windmill_common::datatable_roles::lock_instance_databases_governance(
+        &mut tx,
+        [dbname.trim()],
+    )
+    .await?;
     let mut logs = CustomInstanceDbLogs::default();
     let result = setup_custom_instance_pg_database_inner(authed, &db, &dbname, &mut logs).await;
     let success = result.is_ok();
@@ -1792,8 +1826,9 @@ async fn setup_custom_instance_pg_database(
     )
     .bind(&dbname)
     .bind(&status_json)
-    .fetch_one(&db)
+    .fetch_one(&mut *tx)
     .await?;
+    tx.commit().await?;
     let status: CustomInstanceDb = serde_json::from_value(saved).map_err(to_anyhow)?;
 
     Ok(Json(status))

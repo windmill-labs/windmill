@@ -110,20 +110,7 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
-    // A fork copy reserved for the old id would otherwise be unreachable: its creator cannot
-    // import into it or finish its fork under the new id, and nothing else would ever drop it.
-    sqlx::query(
-        r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (
-               SELECT COALESCE(jsonb_object_agg(k, CASE WHEN v->>'workspace_id' = $1
-                   THEN jsonb_set(v, '{workspace_id}', to_jsonb($2::text)) ELSE v END), '{}'::jsonb)
-               FROM jsonb_each(COALESCE(value->'databases', '{}'::jsonb)) AS e(k, v)
-           ))
-           WHERE name = 'custom_instance_pg_databases'"#,
-    )
-    .bind(&old_id)
-    .bind(&rw.new_id)
-    .execute(&mut *tx)
-    .await?;
+    migrate_fork_reservations(&mut tx, &old_id, &rw.new_id).await?;
 
     // Duplicate workspace settings (keep copy in old workspace for reference)
     info!("Duplicating workspace_settings table");
@@ -933,6 +920,14 @@ pub(crate) async fn change_workspace_id(
     let (_schedules_count, canceled_count, _deleted_tokens_count) =
         archive_workspace_impl(&db, &old_id, &authed.username, None).await?;
 
+    // The old id stays live between the commit above and the archive, and a fork copy created for
+    // it in that window registers under it. Creation checks the workspace is live under the fork
+    // lock, so once this has run under it, no copy can be reserved for the old id any more.
+    let mut tx = db.begin().await?;
+    windmill_common::workspaces::lock_fork_datatables(&mut tx, &old_id).await?;
+    migrate_fork_reservations(&mut tx, &old_id, &rw.new_id).await?;
+    tx.commit().await?;
+
     info!(
         "Workspace id change completed: moved {} to {}, archived old workspace",
         old_id, rw.new_id
@@ -942,6 +937,28 @@ pub(crate) async fn change_workspace_id(
         "Moved workspace from {} to {}, archived old workspace (canceled {} remaining jobs)",
         &old_id, &rw.new_id, canceled_count
     ))
+}
+
+/// A fork copy reserved for the old id would otherwise be unreachable: its creator cannot import
+/// into it or finish its fork under the new id, and nothing else would ever drop it.
+async fn migrate_fork_reservations(
+    tx: &mut Transaction<'_, Postgres>,
+    old_id: &str,
+    new_id: &str,
+) -> Result<()> {
+    sqlx::query(
+        r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (
+               SELECT COALESCE(jsonb_object_agg(k, CASE WHEN v->>'workspace_id' = $1
+                   THEN jsonb_set(v, '{workspace_id}', to_jsonb($2::text)) ELSE v END), '{}'::jsonb)
+               FROM jsonb_each(COALESCE(value->'databases', '{}'::jsonb)) AS e(k, v)
+           ))
+           WHERE name = 'custom_instance_pg_databases'"#,
+    )
+    .bind(old_id)
+    .bind(new_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -1444,10 +1461,29 @@ pub async fn drop_forked_datatable_databases(
                 // tables, its settings row, and the database itself. Without them a save could
                 // rename this entry, or point another one here, either side of the check below.
                 windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
-                sqlx::query("SELECT 1 FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE")
-                    .bind(&w_id)
-                    .fetch_optional(&mut *tx)
-                    .await?;
+                // The snapshot above was read unlocked: a save committing since could have
+                // repointed this entry, and the entry is removed below whatever it names by then.
+                let current = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+                    "SELECT datatable->'datatables'->$2 FROM workspace_settings
+                     WHERE workspace_id = $1 FOR UPDATE",
+                )
+                .bind(&w_id)
+                .bind(dt_name)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten()
+                .and_then(|v| serde_json::from_value::<DataTable>(v).ok());
+                if !current.is_some_and(|dt| {
+                    dt.forked_from.is_some()
+                        && dt.database.is_some_and(|d| {
+                            d.resource_type == database.resource_type
+                                && &d.resource_path == db_to_drop
+                        })
+                }) {
+                    return Err(Error::BadRequest(
+                        "the data table changed while it was being cleaned up".to_string(),
+                    ));
+                }
                 windmill_common::datatable_roles::lock_instance_databases_governance(
                     &mut tx,
                     [db_to_drop.as_str()],
