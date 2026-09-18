@@ -168,7 +168,10 @@ pub fn make_unauthed_service() -> Router {
         .route("/logout", post(logout).get(logout))
         .route("/is_first_time_setup", get(is_first_time_setup))
         .route("/request_password_reset", post(request_password_reset))
-        .route("/login_link/{token}", get(consume_login_link))
+        .route(
+            "/login_link/{token}",
+            get(consume_login_link).post(confirm_login_link),
+        )
         .route("/is_smtp_configured", get(is_smtp_configured))
         .route(
             "/is_password_login_disabled",
@@ -1703,14 +1706,25 @@ async fn delete_user(
         .await?;
     windmill_common::user_drafts::delete_drafts_of_email(&mut *tx, &email_to_delete).await?;
 
-    let usernames = sqlx::query_scalar!(
-        "DELETE FROM usr WHERE email = $1 RETURNING username",
+    let memberships = sqlx::query!(
+        "DELETE FROM usr WHERE email = $1 RETURNING username, workspace_id",
         &email_to_delete
     )
     .fetch_all(&mut *tx)
     .await?;
 
-    for username in usernames {
+    for row in memberships {
+        let username = row.username;
+        // A tenant list names a principal of its workspace, so the name has to be freed in every
+        // workspace this account belonged to: a later account taking the username would otherwise
+        // inherit the data table access it had.
+        windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+            &mut tx,
+            &row.workspace_id,
+            &format!("u/{username}"),
+        )
+        .await?;
+
         sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
             .execute(&mut *tx)
             .await?;
@@ -2456,6 +2470,15 @@ pub async fn delete_workspace_user_internal(
     tx: &mut Transaction<'_, Postgres>,
     authed: Option<&ApiAuthed>, // None for system operations
 ) -> Result<()> {
+    // Same reasoning as the `extra_perms` sweep below: a freed username must not stay named
+    // anywhere that grants access, tenant lists included.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+        tx,
+        w_id,
+        &format!("u/{username_to_delete}"),
+    )
+    .await?;
+
     // ---- Clean up extra_perms referencing this user ----
     let extra_perms_tables = [
         "script",
@@ -3195,9 +3218,12 @@ async fn impersonate(
 }
 
 const LOGIN_LINK_DEFAULT_TTL_S: u32 = 600;
-const LOGIN_LINK_MAX_TTL_S: u32 = 900;
+// Long enough for a link sent by email to still work when it is read. `require_login_type` is
+// only checked at mint, so a much longer cap would need re-checking it when the link is opened.
+const LOGIN_LINK_MAX_TTL_S: u32 = 7200;
 const LOGIN_LINK_DEFAULT_RD: &str = "/user/workspaces";
 const LOGIN_LINK_EXPIRED_PAGE: &str = "/user/login_link_expired";
+const LOGIN_LINK_CONFIRM_PAGE: &str = "/user/login_link";
 
 #[derive(Deserialize)]
 pub struct NewLoginLink {
@@ -3208,6 +3234,9 @@ pub struct NewLoginLink {
     /// account it created can require `pending_oauth`, so the link stops working once the
     /// owner has set a password or signed in with a provider.
     pub require_login_type: Option<String>,
+    /// Hand out a page that signs in only when its button is clicked. Mail scanners open links
+    /// on delivery, and opening the plain link spends it, so a link sent by email sets this.
+    pub confirm: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -3358,11 +3387,12 @@ async fn create_login_link(
     .await?;
     tx.commit().await?;
 
-    let url = format!(
-        "{}/api/auth/login_link/{}",
-        (**BASE_URL.load()).clone(),
-        token
-    );
+    let base_url = (**BASE_URL.load()).clone();
+    let url = if nl.confirm.unwrap_or(false) {
+        format!("{base_url}{LOGIN_LINK_CONFIRM_PAGE}?token={token}")
+    } else {
+        format!("{base_url}/api/auth/login_link/{token}")
+    };
     Ok((StatusCode::CREATED, Json(LoginLink { url, expires_at })))
 }
 
@@ -3608,19 +3638,45 @@ async fn consume_login_link(
     Path(token): Path<String>,
     Query(query): Query<LoginLinkQuery>,
 ) -> Result<Response> {
-    let bounce = |reason: &str| {
-        Ok(login_link_redirect(format!(
-            "{LOGIN_LINK_EXPIRED_PAGE}?reason={reason}"
-        )))
-    };
+    let location = redeem_login_link(&headers, cookies, &db, &token, query.rd).await?;
+    Ok(login_link_redirect(location))
+}
+
+#[derive(Serialize)]
+struct LoginLinkLocation {
+    location: String,
+}
+
+/// The confirmation page's click. It answers with where to go rather than redirecting, and the
+/// page navigates there itself.
+async fn confirm_login_link(
+    headers: axum::http::HeaderMap,
+    cookies: Cookies,
+    Extension(db): Extension<DB>,
+    Path(token): Path<String>,
+) -> JsonResult<LoginLinkLocation> {
+    let location = redeem_login_link(&headers, cookies, &db, &token, None).await?;
+    Ok(Json(LoginLinkLocation { location }))
+}
+
+/// Spends the link and sets the session cookie, returning the post-login destination; or
+/// returns the explanation page, with no session, when the link cannot be used.
+async fn redeem_login_link(
+    headers: &axum::http::HeaderMap,
+    cookies: Cookies,
+    db: &DB,
+    token: &str,
+    requested_rd: Option<String>,
+) -> Result<String> {
+    let bounce = |reason: &str| Ok(format!("{LOGIN_LINK_EXPIRED_PAGE}?reason={reason}"));
     if token.len() != 32 {
         return bounce("invalid");
     }
-    let t_hash = hash_token(&token);
+    let t_hash = hash_token(token);
     // The account is unknown until the row is read, so only the global and per-IP tiers
     // apply here; a 32-char random token leaves nothing for the per-account tier to guard.
     windmill_common::login_rate_limit::check_and_increment_login_attempt(
-        &headers,
+        headers,
         &t_hash[..TOKEN_PREFIX_LEN],
     )?;
 
@@ -3687,11 +3743,10 @@ async fn consume_login_link(
     .await?;
     tx.commit().await?;
 
-    let rd = link
+    Ok(link
         .rd
-        .or_else(|| same_origin_rd(query.rd))
-        .unwrap_or_else(|| LOGIN_LINK_DEFAULT_RD.to_string());
-    Ok(login_link_redirect(rd))
+        .or_else(|| same_origin_rd(requested_rd))
+        .unwrap_or_else(|| LOGIN_LINK_DEFAULT_RD.to_string()))
 }
 
 #[derive(Deserialize)]
@@ -3965,6 +4020,12 @@ async fn leave_workspace(
 ) -> Result<String> {
     forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+        &mut tx,
+        &w_id,
+        &format!("u/{}", authed.username),
+    )
+    .await?;
     sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",
         &w_id,

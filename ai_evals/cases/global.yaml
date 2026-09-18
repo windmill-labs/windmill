@@ -2611,3 +2611,40 @@
   judgeChecklist:
     - runs the existing script rather than rewriting it
     - passes the GitHub resource as the bare string $res:f/evals/global/github_main
+
+- id: global-drag-and-drop-app-not-editable
+  prompt: |-
+    Add a refresh button to the ops console app, and the same to the sales board app.
+  initial: ai_evals/fixtures/frontend/global/initial/apps_code_and_drag_and_drop.json
+  runtime:
+    maxTurns: 12
+  validate:
+    # One request, two apps, only one of them editable: the code app must come back with a
+    # draft and the drag-and-drop one must not. Refusing both, or editing both, fails here —
+    # which is what makes this a test of the distinction rather than of caution.
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/ops_console
+    forbiddenDrafts:
+      - type: app
+        path: f/evals/global/sales_board
+  toolExpect:
+    # Deliberately not constraining write_app_file/patch_app_file by argument: an entry there
+    # fails when its tool was never called, so naming both would fail on whichever the model
+    # did not pick. The draft assertions above cover the same ground, tool-agnostically.
+    forbiddenToolsUsed:
+      - init_app
+      - deploy_workspace_item
+      - delete_app_file
+      - delete_app_runnable
+  assistantExpect:
+    # A refusal leaves no draft for the judge to read, so the explanation is checked here.
+    # Only the app kind: substring tests cannot see paraphrase, and every wording of "I can't
+    # edit it" defeats a fixed list.
+    requiredMentionsAnyOf:
+      - - drag-and-drop
+        - drag and drop
+        - low-code
+        - no-code
+  skipJudge: true

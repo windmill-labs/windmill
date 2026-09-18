@@ -9,8 +9,10 @@
 		CircleMinus,
 		FileText,
 		PanelRight,
-		Lock
+		Lock,
+		ExternalLink
 	} from 'lucide-svelte'
+	import { base } from '$lib/base'
 	import {
 		EXIT_PLAN_MODE_TOOL,
 		isPlanCardTool,
@@ -127,7 +129,9 @@
 
 	// The run card owns this call from the form to whatever settled it, cancelling included:
 	// the card is the call, and a run the user stopped is not a different kind of thing.
-	const isRunCard = $derived(Boolean(message.runForm))
+	// A call that inspected a run rather than starting one gets the same card, bound to
+	// the job it named — what happened in a run reads the same either way.
+	const isRunCard = $derived(Boolean(message.runForm || message.inspectedRun))
 
 	// The preview chip sits on the header row (to the right of the tool-call text);
 	// shown once the tool settled, never while loading/erroring/awaiting confirmation.
@@ -249,6 +253,19 @@
 		{/if}
 	{/snippet}
 
+	{#snippet jobLink()}
+		<a
+			href="{base}/run/{message.jobId}?workspace={chatHost.operatingWorkspace}"
+			target="_blank"
+			rel="noopener noreferrer"
+			class="shrink-0 inline-flex items-center gap-1 font-main text-2xs text-tertiary hover:text-primary hover:underline"
+			title="Open this run"
+		>
+			<span>job <span class="font-mono">{message.jobId?.slice(0, 8)}</span></span>
+			<ExternalLink size={11} class="shrink-0" />
+		</a>
+	{/snippet}
+
 	<!-- Which system a call reaches is the first thing to know about it, so an MCP call
 	     is marked before its label. Awaited rather than drawn immediately: the MCP logo
 	     appearing first and being replaced would flicker on every row. -->
@@ -275,7 +292,7 @@
 		headerClass={message.needsConfirmation ? 'opacity-80' : ''}
 		labelClass={showPreviewChip ? 'truncate' : ''}
 		contentClass="space-y-3"
-		headerRight={showPreviewChip ? previewChip : undefined}
+		headerRight={showPreviewChip ? previewChip : message.jobId ? jobLink : undefined}
 		headerLeft={mcpServer?.workspace ? serverMark : undefined}
 	>
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->

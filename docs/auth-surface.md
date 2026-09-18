@@ -29,8 +29,10 @@ Symbols, not line numbers, are cited: they drift less.
   the account into a `password` one in the same statement (an account created ahead of its owner
   gets its first credential that way, or through the OAuth claim below).
 - **Login links** (`login_link` table, `POST /users/login_links` superadmin-only,
-  `GET /auth/login_link/{token}` unauthenticated): single-use, ≤15 min, a session cookie and a
-  302 to a same-origin `rd`. `require_login_type` on the mint refuses (409) an account whose
+  `GET /auth/login_link/{token}` unauthenticated): single-use, ≤2 h, a session cookie and a
+  302 to a same-origin `rd`. A link minted with `confirm` is the `/user/login_link` page
+  instead, which spends it only on a click (`POST` to the same path, answering `{location}`), so
+  a mail scanner opening it does not. `require_login_type` on the mint refuses (409) an account whose
   `login_type` has moved on — the way a caller re-entering an account it created stops being
   able to once the owner has a password or a provider.
 - **Pre-approved trial offer** (`cloud_trial_offer`, cloud-only routes under

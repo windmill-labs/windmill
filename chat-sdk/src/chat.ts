@@ -8,6 +8,7 @@ import {
 import { resolveConfig, type ResolvedConfig } from './config'
 import { followJob } from './follow'
 import { createLocalHistory, type LocalHistory } from './history'
+import { uploadAttachments } from './attachments'
 import type { AgentStreamEvent } from './stream'
 import type {
   Chat,
@@ -15,6 +16,7 @@ import type {
   ChatOptions,
   ChatState,
   Conversation,
+  SendMessageOptions,
   ToolInvocation
 } from './types'
 import {
@@ -22,6 +24,7 @@ import {
   truncateTitle,
   errorResultMessage,
   extractChatAnswer,
+  abortError,
   isAbortError,
   isErrorResult,
   now,
@@ -41,6 +44,12 @@ interface Turn {
   conversationId: string
   /** Id of the turn's user message; the answer is whatever follows it. */
   userMessageId: string
+  /** The turn opened the conversation; withdrawing it closes the conversation again. */
+  isNew: boolean
+  /** The run was asked for. Before that, a failure or a stop withdraws the turn instead of failing it. */
+  started: boolean
+  /** Both `stop()` and the send's own rejection withdraw; only the first may. */
+  withdrawn: boolean
   jobId?: string
   /** The flow job and its step jobs; a persisted answer carries one of them as `job_id`. */
   jobIds?: Set<string>
@@ -101,14 +110,24 @@ class ChatImpl implements Chat {
     }
   }
 
-  sendMessage = async (
-    text: string,
-    options: { inputs?: Record<string, unknown> } = {}
-  ): Promise<void> => {
+  sendMessage = async (text: string, options: SendMessageOptions = {}): Promise<void> => {
     const content = text.trim()
-    if (!content) return
+    if (!content) {
+      // A run needs a message; files alone would otherwise be dropped without a word.
+      if (options.attachments?.length) throw new Error('windmill-chat: attachments need a message to go with them')
+      return
+    }
     if (this.#turn) {
       throw new Error('windmill-chat: a message is already being answered; call stop() first')
+    }
+    const attachments = options.attachments ?? []
+    const attachmentsInput = options.attachmentsInput
+    if (attachments.length > 0 && !attachmentsInput) {
+      throw new Error('windmill-chat: attachments need `attachmentsInput`, the flow input that takes them')
+    }
+    if (attachmentsInput && !attachmentsInput.multiple && attachments.length > 1) {
+      // Uploading all of them would run with the first and leave the rest stranded in storage.
+      throw new Error(`windmill-chat: \`${attachmentsInput.name}\` holds one file; got ${attachments.length}`)
     }
     const isNew = this.#state.conversationId === undefined
     const conversationId = this.#state.conversationId ?? randomId()
@@ -116,6 +135,9 @@ class ChatImpl implements Chat {
       controller: new AbortController(),
       conversationId,
       userMessageId: `pending-${randomId()}`,
+      isNew,
+      started: false,
+      withdrawn: false,
       streamedText: false
     }
     this.#turn = turn
@@ -127,7 +149,6 @@ class ChatImpl implements Chat {
     const touched = { ...conversation, updatedAt: timestamp }
     this.#set({
       conversationId,
-      conversations: [touched, ...this.#state.conversations.filter((c) => c.id !== conversationId)],
       messages: [
         ...this.#state.messages,
         { id: turn.userMessageId, role: 'user', content, success: true, createdAt: timestamp, pending: true }
@@ -135,10 +156,32 @@ class ChatImpl implements Chat {
       status: 'submitted',
       error: undefined
     })
-    this.#rememberConversation()
 
     try {
-      const args = { ...this.#config.inputs, ...options.inputs, user_message: content }
+      const args: Record<string, unknown> = { ...this.#config.inputs, ...options.inputs, user_message: content }
+      if (attachmentsInput && attachments.length > 0) {
+        // Uploaded with the turn already shown as submitted: the message is in the transcript
+        // and `stop()` can abort the upload, while a second send is refused as usual.
+        const uploaded = await uploadAttachments(this.#api, attachments, randomId(), turn.controller.signal)
+        args[attachmentsInput.name] = attachmentsInput.multiple ? uploaded : uploaded[0]
+        // Shown on the pending message until its server row replaces it, carrying its own.
+        const carried = uploaded.map((u) => ({ input: attachmentsInput.name, s3: u.s3, filename: u.filename }))
+        if (this.#turnActive(turn)) {
+          this.#set({
+            messages: this.#state.messages.map((m) => (m.id === turn.userMessageId ? { ...m, attachments: carried } : m))
+          })
+        }
+      }
+      // Nothing may start once stop() or a conversation switch has withdrawn the turn, including
+      // a stop from a subscriber told of the attachments just above.
+      if (turn.controller.signal.aborted) throw abortError()
+      turn.started = true
+      // Listed only once the run is asked for: a send that never runs (an upload that failed
+      // or was stopped) then has no conversation entry to take back.
+      this.#set({
+        conversations: [touched, ...this.#state.conversations.filter((c) => c.id !== conversationId)]
+      })
+      this.#rememberConversation()
       const context = { memoryId: conversationId, conversationId, signal: turn.controller.signal }
       turn.jobId = this.#config.run
         ? await this.#config.run(args, context)
@@ -152,6 +195,13 @@ class ChatImpl implements Chat {
       }
       await this.#finishTurn(turn, result, isNew)
     } catch (e) {
+      if (!turn.started) {
+        // Nothing ran: the message is withdrawn rather than shown as a failed turn, and the
+        // caller gets the reason (an upload that failed, or the AbortError of a stop()).
+        if (this.#turn === turn) this.#turn = undefined
+        this.#withdrawTurn(turn)
+        throw e
+      }
       // stop() and a conversation switch abort the turn and settle the state themselves.
       if (turn.controller.signal.aborted || isAbortError(e)) return
       this.#failTurn(turn, e)
@@ -164,6 +214,12 @@ class ChatImpl implements Chat {
     const turn = this.#turn
     if (!turn) return
     this.#detachTurn()
+    if (!turn.started) {
+      // Still uploading its attachments: there is no run to cancel, and the message the
+      // reader took back must not stay in the transcript as sent.
+      this.#withdrawTurn(turn)
+      return
+    }
     if (this.#state.conversationId === turn.conversationId) {
       this.#set({ messages: finalized(this.#state.messages), status: 'idle' })
       this.#persistLocal()
@@ -575,6 +631,36 @@ class ChatImpl implements Chat {
     } catch (e) {
       if (isAbortError(e)) throw e
       return undefined
+    }
+  }
+
+  /**
+   * Take back the user message of a turn that never ran. A conversation it would have opened
+   * was never listed (see `sendMessage`), so only the message goes, and, while it is the turn
+   * on screen, the busy status. A switch away mid-upload has already written the message to
+   * local history, so it is removed there too.
+   */
+  #withdrawTurn(turn: Turn): void {
+    if (turn.withdrawn) return
+    turn.withdrawn = true
+    const id = turn.conversationId
+    const withoutTurn = (messages: ChatMessage[]) => messages.filter((m) => m.id !== turn.userMessageId)
+    if (this.#state.conversationId === id) {
+      const messages = withoutTurn(this.#state.messages)
+      // A turn started since, such as a resend right after Stop, owns the status.
+      const newerTurn = this.#turn !== undefined && this.#turn !== turn
+      if (newerTurn) {
+        this.#set({ messages })
+      } else {
+        const unopened = turn.isNew && messages.length === 0
+        this.#set({ messages, status: 'idle', error: undefined, ...(unopened ? { conversationId: undefined } : {}) })
+      }
+      this.#persistLocal()
+    }
+    if (this.#state.history === 'local' && this.#state.conversationId !== id) {
+      const stored = withoutTurn(this.#local.getMessages(id))
+      if (stored.length > 0) this.#local.saveMessages(id, stored)
+      else if (!this.#state.conversations.some((c) => c.id === id)) this.#local.deleteConversation(id)
     }
   }
 

@@ -3,6 +3,7 @@ import type { AIMode, AIAutonomyMode } from './AIChatManager.svelte'
 import { getAiChatManager } from './aiChatManagerContext'
 import type { DisplayMessage, Tool } from './shared'
 import type { ContextElement } from './context'
+import type { AttachedBlob } from './blobUtils'
 import type { AttachedImage } from './imageUtils'
 import type { AttachedTextFile } from './textFileUtils'
 import type { PasteAttachment } from './pasteTokens'
@@ -18,6 +19,7 @@ export type ChatSendRequestOptions = {
 	pastes?: PasteAttachment[]
 	images?: AttachedImage[]
 	files?: AttachedTextFile[]
+	blobs?: AttachedBlob[]
 	/** Selected-context snapshot for this turn, in place of the live selection. Set
 	 * whenever a send settles its context ahead of the turn. A host with no context
 	 * of its own ignores it. */
@@ -73,11 +75,13 @@ export interface ChatViewHost {
 	queuedContext: ContextElement[] | undefined
 	readonly queuedImages: AttachedImage[]
 	readonly queuedFiles: AttachedTextFile[]
+	readonly queuedBlobs: AttachedBlob[]
 	queueMessage: (
 		text: string,
 		images?: AttachedImage[],
 		context?: ContextElement[],
-		files?: AttachedTextFile[]
+		files?: AttachedTextFile[],
+		blobs?: AttachedBlob[]
 	) => void
 	dequeueMessage: () => void
 	setComposerStaged: (key: string, editingIndex: number | null, bytes: number) => void
@@ -111,8 +115,16 @@ export interface ChatViewHost {
 	/** Click a user message to edit and resend it. Needs a host that can rewind
 	 * its own transcript, which a host replaying a server-side run cannot. */
 	supportsMessageEditing: boolean
-	/** The `+` menu's file entry and drag-and-drop onto the panel. */
+	/** The `+` menu's file entry and drag-and-drop onto the panel. Attachments ride
+	 * one message; where they go afterwards is the host's business (see sendRequest). */
 	supportsMessageAttachments: boolean
+	/**
+	 * Why attaching is off right now, when the host would otherwise take attachments. Distinct
+	 * from `supportsMessageAttachments` being false, which means this chat never takes them:
+	 * here the composer keeps the control and says what is missing, because moving the input
+	 * elsewhere would only offer an editor that cannot work either.
+	 */
+	attachmentsUnavailableReason?: string
 	/** The turn needs text: attachments alone cannot be sent. True where the consumer
 	 * requires a message of its own — an AI agent step refuses a run with neither a
 	 * `user_message` nor manual memory. */
@@ -120,8 +132,17 @@ export interface ChatViewHost {
 	/** The `+` menu's folder entries, backed by `attachedFiles`. A linked folder is a
 	 * live handle on the user's disk, so only a host reading files in the browser has one. */
 	supportsLinkedFolders: boolean
-	/** `accept` for the file picker. */
+	/** `accept` for the file picker, and the drop filter. A host whose consumer only
+	 * understands some formats narrows it so the rest are refused rather than ignored. */
 	attachmentAccept: string
+	/** How many attachments one turn can carry, when the consumer holds a fixed number —
+	 * a flow input that is a single file, say. Undefined means no limit. Enforced at the
+	 * picker and on drop, so what the composer shows is what the turn actually sends. */
+	maxMessageAttachments?: number
+	/** Take non-image attachments verbatim (`blobs`) instead of decoding them to text.
+	 * True where the bytes are forwarded somewhere — object storage — rather than read
+	 * in the browser. */
+	attachmentsAsBlobs: boolean
 	tools: Tool<any>[]
 	autonomyMode: AIAutonomyMode
 	setAutonomyMode: (mode: AIAutonomyMode) => void
