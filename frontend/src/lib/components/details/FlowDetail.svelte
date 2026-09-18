@@ -673,7 +673,7 @@
 			{/if}
 		</DetailPageHeader>
 	{/snippet}
-	{#snippet form()}
+	{#snippet form({ graphInline }: { graphInline: boolean })}
 		<div class="px-3">
 			<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showEditButtons = v)} />
 		</div>
@@ -751,7 +751,10 @@
 								onRunFlow={runFlowForChat}
 								{deploymentInProgress}
 								path={flow?.path ?? ''}
+								description={flow?.description}
 								inputSchema={flow?.schema}
+								flowModules={flow?.value?.modules}
+								wideLayout
 							/>
 						{:else}
 							{@const hasSchema =
@@ -822,7 +825,7 @@
 						{/if}
 					</div>
 				</div>
-				{#if !chatInputEnabled}
+				{#if graphInline}
 					<div class="grow min-h-0">
 						<FlowGraphViewer
 							triggerNode={true}
@@ -840,7 +843,7 @@
 								}
 							}}
 							on:triggerDetail={(e) => {
-								rightPaneSelected = 'triggers'
+								detailLayout?.showTriggers()
 							}}
 							noBorder={true}
 						/>
@@ -868,10 +871,10 @@
 		/>
 	{/snippet}
 
-	{#snippet flow_step()}
+	{#snippet flow_step({ onBack }: { onBack?: () => void })}
 		{#if flow}
 			{#if stepDetail}
-				<FlowGraphViewerStep schema={flow.schema} {stepDetail} />
+				<FlowGraphViewerStep schema={flow.schema} {stepDetail} {onBack} />
 			{/if}
 		{/if}
 	{/snippet}
@@ -900,7 +903,7 @@
 					triggerNode={true}
 					download
 					{flow}
-					noSide={false}
+					noSide={true}
 					noBorder
 					minHeight={flowGraphHeight}
 					on:select={(e) => {
@@ -913,7 +916,7 @@
 						}
 					}}
 					on:triggerDetail={(e) => {
-						rightPaneSelected = 'triggers'
+						detailLayout?.showTriggers()
 					}}
 				/>
 			</div>
