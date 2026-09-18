@@ -195,9 +195,9 @@ pub async fn external_instance_database_usages<'c>(
 /// Refuse to unset the cluster while Windmill still has databases on it, or a workspace still
 /// points at one: every data table there would stop resolving. Allowed on every edition, so a
 /// downgraded instance can still clear a setting it no longer uses.
-pub async fn ensure_external_instance_pg_removable(db: &DB) -> Result<()> {
-    let state = read_external_instance_pg_state(db).await?;
-    let usages = external_instance_database_usages(db).await?;
+pub async fn ensure_external_instance_pg_removable(conn: &mut sqlx::PgConnection) -> Result<()> {
+    let state = read_external_instance_pg_state(&mut *conn).await?;
+    let usages = external_instance_database_usages(&mut *conn).await?;
     if state.databases.is_empty() && usages.is_empty() {
         return Ok(());
     }
@@ -287,6 +287,9 @@ pub async fn lock_external_instance_pg_state(
 /// Refuse a data table naming `dbname` unless Windmill created it on the external cluster. Takes
 /// the lock drops take, so none can remove the database before `tx`, which saves the data table,
 /// commits.
+///
+/// Authorization: its refusal says whether Windmill created a database of that name, which is
+/// instance-wide knowledge. Callers MUST have authorized the caller as superadmin first.
 pub async fn ensure_external_instance_database_registered(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     dbname: &str,
@@ -326,9 +329,12 @@ pub async fn write_external_instance_pg_setting(
     };
     let mut tx = db.begin().await?;
     lock_external_instance_pg_state(&mut tx).await?;
+    // Every check runs on this transaction's own connection: it holds the advisory lock, and
+    // taking a second connection from the pool while other writers queue on that lock is how a
+    // small pool deadlocks.
     match value {
         None => {
-            ensure_external_instance_pg_removable(db).await?;
+            ensure_external_instance_pg_removable(&mut tx).await?;
             sqlx::query("DELETE FROM global_settings WHERE name = $1")
                 .bind(EXTERNAL_INSTANCE_PG_SETTING)
                 .execute(&mut *tx)
@@ -336,7 +342,7 @@ pub async fn write_external_instance_pg_setting(
         }
         Some(value) => {
             crate::external_instance_pg_oss::validate_external_instance_pg_setting(value)?;
-            ensure_external_instance_pg_not_repointed(db, value).await?;
+            ensure_external_instance_pg_not_repointed(&mut tx, value).await?;
             sqlx::query(
                 "INSERT INTO global_settings (name, value) VALUES ($1, $2)
                  ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
@@ -382,10 +388,10 @@ pub async fn write_external_instance_pg_from_diff(
 /// Data tables name databases, not clusters, so they would silently resolve to whatever the new
 /// cluster holds under the same names. Other fields (admin login, sslmode) may change freely.
 async fn ensure_external_instance_pg_not_repointed(
-    db: &DB,
+    conn: &mut sqlx::PgConnection,
     value: &serde_json::Value,
 ) -> Result<()> {
-    let Some(current) = read_external_instance_pg_config(db).await? else {
+    let Some(current) = read_external_instance_pg_config(&mut *conn).await? else {
         return Ok(());
     };
     let Ok(desired) = serde_json::from_value::<ExternalInstancePg>(value.clone()) else {
@@ -394,8 +400,8 @@ async fn ensure_external_instance_pg_not_repointed(
     if external_instance_pg_address(&current) == external_instance_pg_address(&desired) {
         return Ok(());
     }
-    let state = read_external_instance_pg_state(db).await?;
-    let usages = external_instance_database_usages(db).await?;
+    let state = read_external_instance_pg_state(&mut *conn).await?;
+    let usages = external_instance_database_usages(&mut *conn).await?;
     if state.databases.is_empty() && usages.is_empty() {
         return Ok(());
     }
