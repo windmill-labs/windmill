@@ -64,12 +64,9 @@ class ChatImpl implements Chat {
   /** The kind the caller last listed, so the refresh after a new turn lists the same rows. */
   #conversationKind: ConversationKind | undefined
   #persistTimer: ReturnType<typeof setTimeout> | undefined
-  /** The flow later runs and listings name; `setFlowPath` moves it. Local history stays keyed on the path the chat was created with. */
-  #flowPath: string
 
   constructor(options: ChatOptions) {
     this.#config = resolveConfig(options)
-    this.#flowPath = this.#config.flowPath
     this.#api = new WindmillChatApi({
       baseUrl: this.#config.baseUrl,
       workspace: this.#config.workspace,
@@ -145,7 +142,7 @@ class ChatImpl implements Chat {
       const context = { memoryId: conversationId, conversationId, signal: turn.controller.signal }
       turn.jobId = this.#config.run
         ? await this.#config.run(args, context)
-        : await this.#api.runFlow(this.#flowPath, args, context)
+        : await this.#api.runFlow(this.#config.flowPath, args, context)
       const stopPolling = this.#state.history === 'server' ? this.#startPolling(turn) : () => {}
       let result: unknown
       try {
@@ -244,11 +241,10 @@ class ChatImpl implements Chat {
     const kindChanged = 'kind' in options && options.kind !== this.#conversationKind
     if ('kind' in options) this.#conversationKind = options.kind
     const kind = this.#conversationKind
-    const flowPath = this.#flowPath
     let conversations: Conversation[]
     if (this.#state.history === 'server') {
       try {
-        const rows = await this.#api.listConversations(flowPath, {
+        const rows = await this.#api.listConversations(this.#config.flowPath, {
           page,
           perPage: options.perPage ?? this.#config.pageSize,
           kind
@@ -261,12 +257,9 @@ class ChatImpl implements Chat {
     } else {
       conversations = this.#state.history === 'local' ? this.#local.listConversations() : []
     }
-    // Another kind was asked for, or `setFlowPath` renamed the flow, while this list was on its
-    // way: its rows are not the listing any more, whichever response lands last. The caller
-    // gets the listing as it stands, since it cannot tell a renamed flow's rows apart.
-    if (kind !== this.#conversationKind || flowPath !== this.#flowPath) {
-      return page === 1 ? this.#state.conversations : []
-    }
+    // Another kind was asked for while this list was on its way: its rows are not the
+    // listing any more, whichever response lands last.
+    if (kind !== this.#conversationKind) return conversations
     const known = new Set(this.#state.conversations.map((c) => c.id))
     this.#set({
       conversations:
@@ -338,10 +331,6 @@ class ChatImpl implements Chat {
     } finally {
       if (this.#state.conversationId === conversationId) this.#set({ loadingMessages: false })
     }
-  }
-
-  setFlowPath = (flowPath: string): void => {
-    this.#flowPath = flowPath
   }
 
   destroy = (): void => {

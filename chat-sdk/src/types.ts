@@ -140,8 +140,6 @@ export interface Chat {
   /**
    * `kind` narrows server history to the flow editor's test chats, the deployed flow's
    * own (the server's default), or both. Local history has no test chats and ignores it.
-   * A response that lands after another kind was asked for or `setFlowPath` moved the path
-   * returns the current listing (first page) or nothing (later pages), never its own rows.
    */
   loadConversations(options?: {
     page?: number
@@ -152,13 +150,6 @@ export interface Chat {
   /** Sets a conversation's title. The list keeps its order: only a turn moves a conversation. */
   renameConversation(conversationId: string, title: string): Promise<void>
   loadOlderMessages(): Promise<void>
-  /**
-   * Points later runs and conversation listings at another flow path, for a flow that was
-   * renamed while the chat was open. Conversations already started keep the path they were
-   * created under, so listings after the rename show the new path's alone; the open
-   * conversation and its turn are untouched.
-   */
-  setFlowPath(flowPath: string): void
   /** Stops background work (stream, polling) and writes local history out. The chat stays usable. */
   destroy(): void
 }

@@ -4,10 +4,10 @@
 	import { createChat, type Chat, type ChatState } from 'windmill-chat'
 	import FlowConversationsSidebar from './FlowConversationsSidebar.svelte'
 	import FlowChatInterface from './FlowChatInterface.svelte'
-	import { getContext, untrack } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import type { FlowModule } from '$lib/gen'
-	import { chatFlowKey, FRAME_CLASS, type ChatFrame } from './flowChatProps'
+	import { FRAME_CLASS, type ChatFrame } from './flowChatProps'
 
 	interface Props {
 		/**
@@ -25,9 +25,9 @@
 		 *  or a conversation is stored under one path and looked for under another. */
 		path: string
 		/**
-		 * What makes this a different chat, when that is not the path. An unsaved flow's path
-		 * changes as its author types, and the chat follows the new path rather than being
-		 * replaced, so the editor passes something that holds still for the flow it is editing.
+		 * What the chat's stored inputs are filed under, when that is not the path. An unsaved
+		 * flow's path changes as its author types, so the editor passes something that holds
+		 * still for the flow it is editing.
 		 */
 		identity?: string
 		hideSidebar?: boolean
@@ -69,16 +69,12 @@
 	let chatState = $state<ChatState | undefined>(undefined)
 	let sidebar = $state<FlowConversationsSidebar | undefined>(undefined)
 
-	// The chat is built once per flow and workspace. Where the surface names the flow by
-	// something steadier than its path, a rename keeps the chat and only repoints it.
-	const flowKey = $derived(chatFlowKey({ path, identity }))
-	const hasPath = $derived(path !== '')
-
 	$effect(() => {
 		const ws = workspace
-		if (!ws || !hasPath || !flowKey) return
+		const flowPath = path
+		if (!ws || !flowPath) return
 		const created = createChat({
-			flowPath: untrack(() => path),
+			flowPath,
 			workspace: ws,
 			baseUrl: window.location.origin,
 			history: 'server',
@@ -101,12 +97,6 @@
 			unsubscribe()
 			created.destroy()
 		}
-	})
-
-	// Later runs and listings follow the path as it is typed; conversations already started
-	// keep the path they were created under.
-	$effect(() => {
-		chat?.setFlowPath(path)
 	})
 
 	// Derive additional inputs schema (excluding user_message) for chat mode

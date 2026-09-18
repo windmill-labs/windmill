@@ -66,7 +66,6 @@ function fakeChat(initial: ChatState = idleState()) {
 		deleteConversation: vi.fn(async () => {}),
 		loadOlderMessages: vi.fn(async () => {}),
 		renameConversation: vi.fn(async () => {}),
-		setFlowPath: vi.fn(),
 		destroy: vi.fn()
 	} satisfies Chat
 	return { chat, set }
