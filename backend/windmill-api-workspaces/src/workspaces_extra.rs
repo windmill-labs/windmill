@@ -1438,7 +1438,19 @@ pub async fn drop_forked_datatable_databases(
             // from gaining such a pointer before the drop.
             let dropped = async {
                 let mut tx = db.begin().await?;
+                // The three locks a settings save takes, in its order: this workspace's data
+                // tables, its settings row, and the database itself. Without them a save could
+                // rename this entry, or point another one here, either side of the check below.
                 windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
+                sqlx::query("SELECT 1 FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE")
+                    .bind(&w_id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+                windmill_common::datatable_roles::lock_instance_databases_governance(
+                    &mut tx,
+                    [db_to_drop.as_str()],
+                )
+                .await?;
                 if database.resource_type
                     == windmill_common::workspaces::DataTableCatalogResourceType::ExternalInstance
                 {
@@ -1464,6 +1476,16 @@ pub async fn drop_forked_datatable_databases(
                     }
                     windmill_common::drop_custom_instance_database(&db, db_to_drop).await?;
                 }
+                // The entry goes with the database: a fork this one is cloned into afterwards must
+                // not inherit a pointer at a data table whose database is gone.
+                sqlx::query(
+                    "UPDATE workspace_settings SET datatable = datatable #- ARRAY['datatables', $2]
+                     WHERE workspace_id = $1",
+                )
+                .bind(&w_id)
+                .bind(dt_name)
+                .execute(&mut *tx)
+                .await?;
                 tx.commit().await?;
                 Ok::<_, Error>(())
             }

@@ -3680,6 +3680,7 @@ async fn import_pg_database(
     }
 
     let schema_only = req.fork_behavior == DataTableForkBehavior::SchemaOnly;
+    let mut fork_lock: Option<Transaction<'_, Postgres>> = None;
     let source_pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
     let mut target_pg =
         resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.target).await?;
@@ -3693,6 +3694,10 @@ async fn import_pg_database(
                 ));
             }
             if let Some(kind) = managed_datatable_source_kind(&db, &w_id, &req.target).await? {
+                // Held until the restore is done, as fork finalization takes it: a fork must not
+                // commit this database while `psql` is still filling it.
+                let mut tx = db.begin().await?;
+                windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
                 windmill_common::ensure_fork_database_available_to(
                     &db,
                     kind,
@@ -3700,6 +3705,7 @@ async fn import_pg_database(
                     &w_id,
                 )
                 .await?;
+                fork_lock = Some(tx);
             }
         }
         target_pg.dbname = override_dbname.clone();
@@ -3723,6 +3729,9 @@ async fn import_pg_database(
     )
     .await?;
     pg_import_dump(&target_pg, &dump_file).await?;
+    if let Some(tx) = fork_lock {
+        tx.commit().await?;
+    }
 
     Ok(format!(
         "Imported from '{}' into '{}'",
@@ -3917,6 +3926,8 @@ async fn edit_datatable_config(
     let is_superadmin = require_super_admin(&db, &authed).await.is_ok();
 
     let mut tx = db.begin().await?;
+    // Ahead of the settings row, as fork cleanup of this workspace takes the two.
+    windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
 
     // Read under the row lock this transaction will write with. `permissions`, `reference` and
     // `forked_from` are carried across from what this read returns, so a permissions save
@@ -4165,10 +4176,38 @@ async fn edit_datatable_config(
         })
         .collect();
     // Another workspace turning roles on for the same database holds only its own settings row, so
-    // without this the scan below could read past its uncommitted write.
+    // without this the scan below could read past its uncommitted write. Every managed database
+    // this save newly names is locked, not just the ones the scan is about: fork cleanup takes the
+    // same lock to decide nothing uses the database it is dropping.
+    let newly_named: std::collections::BTreeSet<&str> = new_config
+        .settings
+        .datatables
+        .iter()
+        .filter_map(|(name, dt)| {
+            let db = dt
+                .database
+                .as_ref()
+                .filter(|d| d.resource_type == DataTableCatalogResourceType::Instance)?;
+            let lookup = rename_src
+                .get(name.as_str())
+                .copied()
+                .unwrap_or(name.as_str());
+            old_datatables
+                .get(lookup)
+                .and_then(|old| old.database.as_ref())
+                .is_none_or(|old_db| {
+                    old_db.resource_type != db.resource_type
+                        || old_db.resource_path != db.resource_path
+                })
+                .then_some(db.resource_path.as_str())
+        })
+        .collect();
     windmill_common::datatable_roles::lock_instance_databases_governance(
         &mut *tx,
-        newly_pointed.iter().map(|(_, dbname)| *dbname),
+        newly_pointed
+            .iter()
+            .map(|(_, dbname)| *dbname)
+            .chain(newly_named.iter().copied()),
     )
     .await?;
     let governed_elsewhere: Vec<String> = if newly_pointed.is_empty() {

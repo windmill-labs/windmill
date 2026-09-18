@@ -1720,7 +1720,15 @@ async fn list_custom_instance_pg_databases(
             ))
         })?;
 
-    if windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
+    if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
+        // Which workspace reserved a fork copy is nobody else's business: it would enumerate every
+        // pending fork on the instance.
+        for entry in result.values_mut() {
+            entry.workspace_id = None;
+        }
+        return Ok(Json(result));
+    }
+    {
         // Enrich each database with the list of workspaces referencing it through
         // either a ducklake catalog or a datatable database whose resource_type is
         // 'instance'. Not stored in DB to avoid drift.
@@ -1919,16 +1927,6 @@ async fn setup_custom_instance_pg_database(
     // Before anything is recorded: the status written below replaces the registry entry, and with it
     // the workspace a fork copy is reserved for.
     require_super_admin(&db, &authed).await?;
-    // A re-run keeps the fork reservation: without it, the workspace the copy was made for could no
-    // longer import into it or finish its fork.
-    let workspace_id = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT value->'databases'->$1->>'workspace_id' FROM global_settings
-         WHERE name = 'custom_instance_pg_databases'",
-    )
-    .bind(&dbname)
-    .fetch_optional(&db)
-    .await?
-    .flatten();
     let mut logs = CustomInstanceDbLogs::default();
     let result = setup_custom_instance_pg_database_inner(authed, &db, &dbname, &mut logs).await;
     let success = result.is_ok();
@@ -1939,14 +1937,25 @@ async fn setup_custom_instance_pg_database(
         error,
         tag: body.tag,
         used_by_workspaces: vec![],
-        workspace_id,
+        workspace_id: None,
     };
     let status_json = serde_json::to_value(&status).map_err(to_anyhow)?;
-    // Save that the database was setup successfully
-    sqlx::query!(
-        r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
-        json!({ dbname: status_json })
-    ).execute(&db).await?;
+    // The fork reservation is carried over inside the write, from whatever the row holds then: a
+    // rename migrating it while the setup above ran would otherwise be overwritten with the value
+    // this request started from, stranding the copy under the archived workspace.
+    let saved = sqlx::query_scalar::<_, serde_json::Value>(
+        r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}',
+               COALESCE(value->'databases', '{}'::jsonb)
+                   || jsonb_build_object($1::text, $2::jsonb || jsonb_build_object(
+                          'workspace_id', value->'databases'->$1::text->'workspace_id')))
+           WHERE name = 'custom_instance_pg_databases'
+           RETURNING value->'databases'->$1::text"#,
+    )
+    .bind(&dbname)
+    .bind(&status_json)
+    .fetch_one(&db)
+    .await?;
+    let status: CustomInstanceDb = serde_json::from_value(saved).map_err(to_anyhow)?;
 
     Ok(Json(status))
 }
