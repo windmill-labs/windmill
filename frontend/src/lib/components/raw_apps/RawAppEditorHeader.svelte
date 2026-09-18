@@ -464,6 +464,13 @@
 		}
 	}
 
+	/** Names the deployed side when the picker has no list to label it with — both are
+	 *  read in `syncWithDeployed`, which succeeds independently of the history. */
+	function deployedVersionLabel(): string | undefined {
+		if (deployedVersionShown == null) return undefined
+		return `Deployed ${deployedVersionShown}${deployedBy ? ` by ${deployedBy}` : ''} · latest`
+	}
+
 	/** The first page, best-effort: losing it costs the picker, not the diff. */
 	async function deployedVersionOptions() {
 		try {
@@ -516,6 +523,7 @@
 			{
 				mode: 'normal',
 				deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
+				deployedLabel: deployedVersionLabel(),
 				versions,
 				loadMoreVersions: moreVersionsLoader(),
 				onTakeLatest,
