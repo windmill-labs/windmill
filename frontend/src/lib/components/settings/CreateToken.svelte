@@ -1,12 +1,13 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
-	import { userWorkspaces, type UserWorkspace } from '$lib/stores'
+	import { onMount, untrack } from 'svelte'
+	import { userWorkspaces, usersWorkspaceStore, type UserWorkspace } from '$lib/stores'
 	import { Button } from '../common'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
-	import { UserService, type NewToken } from '$lib/gen'
+	import { SettingService, UserService, type NewToken } from '$lib/gen'
 	import TokenDisplay from './TokenDisplay.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
+	import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
@@ -47,7 +48,8 @@
 
 	let newToken = $state<string | undefined>(undefined)
 	let newMcpToken = $state<string | undefined>(undefined)
-	let newTokenExpiration = $state<number | undefined>(undefined)
+	// What the user picked; `newTokenExpiration` is that pick held within the ceiling.
+	let pickedExpiration = $state<number | undefined>(undefined)
 	let newTokenWorkspace = $state<string | undefined>(untrack(() => defaultNewTokenWorkspace))
 	let mcpCreationMode = $state(false)
 	let lastRequestedMcpMode = $state<boolean | undefined>(undefined)
@@ -55,6 +57,47 @@
 
 	let pickedScopes = $state<string[] | null>(null)
 	let readOnly = $state(false)
+
+	const DAY_SECS = 24 * 60 * 60
+	const EXPIRATION_CHOICES = [
+		{ label: '15 minutes', value: 15 * 60 },
+		{ label: '30 minutes', value: 30 * 60 },
+		{ label: '1 hour', value: 60 * 60 },
+		{ label: '1 day', value: DAY_SECS },
+		{ label: '7 days', value: 7 * DAY_SECS },
+		{ label: '30 days', value: 30 * DAY_SECS },
+		{ label: '90 days', value: 90 * DAY_SECS },
+		{ label: '180 days', value: 180 * DAY_SECS },
+		{ label: '365 days', value: 365 * DAY_SECS }
+	]
+
+	// The `max_token_expiration_days` instance setting. The server shortens any token that asks
+	// for longer, or for no expiration, so with it set the form only offers what would be kept.
+	let maxExpirationDays = $state<number | undefined>(undefined)
+
+	onMount(async () => {
+		let value: unknown
+		try {
+			value = await SettingService.getGlobal({ key: 'max_token_expiration_days' })
+		} catch {
+			// The server still shortens tokens itself; the form just offers every choice.
+			return
+		}
+		const days = parseMaxTokenExpirationDays(value)
+		if (days == undefined) {
+			return
+		}
+		maxExpirationDays = days
+	})
+
+	// Without a ceiling the expiration field is hidden in MCP mode, so a value picked on one side
+	// of the toggle must not ride along unseen. With one, the field shows in both modes and keeps
+	// its value.
+	function resetExpirationOnModeChange() {
+		if (maxExpirationSecs == undefined) {
+			pickedExpiration = undefined
+		}
+	}
 
 	function ensureCurrentWorkspaceIncluded(
 		workspacesList: UserWorkspace[],
@@ -72,7 +115,7 @@
 
 	function enterMcpMode() {
 		mcpCreationMode = true
-		newTokenExpiration = undefined
+		resetExpirationOnModeChange()
 		newTokenWorkspace = defaultNewTokenWorkspace ?? $operatingWorkspace
 		newToken = undefined
 		newMcpToken = undefined
@@ -87,7 +130,7 @@
 
 	function exitMcpMode() {
 		mcpCreationMode = false
-		newTokenExpiration = undefined
+		resetExpirationOnModeChange()
 		newTokenWorkspace = defaultNewTokenWorkspace
 		newMcpToken = undefined
 		readOnly = false
@@ -106,18 +149,12 @@
 
 			const tokenScopes = scopes ?? pickedScopes ?? undefined
 
-			const workspaceId = isAllWorkspaces
-				? undefined
-				: mcpMode
-					? newTokenWorkspace || $operatingWorkspace
-					: newTokenWorkspace
-
 			const createdToken = await UserService.createToken({
 				requestBody: {
 					label: newTokenLabel,
 					expiration: date?.toISOString(),
 					scopes: tokenScopes,
-					workspace_id: workspaceId,
+					workspace_id: tokenWorkspaceId,
 					read_only: readOnly
 				} as NewToken
 			})
@@ -141,6 +178,44 @@
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $operatingWorkspace))
 	const isAllWorkspaces = $derived(newTokenWorkspace === ALL_WORKSPACES)
+	const tokenWorkspaceId = $derived(
+		isAllWorkspaces
+			? undefined
+			: mcpCreationMode
+				? newTokenWorkspace || $operatingWorkspace
+				: newTokenWorkspace
+	)
+
+	// Mirrors the server's exemption for tokens owned by a service account: one in the workspace
+	// the token is for, or in any workspace for a workspace-less token.
+	const isServiceAccount = $derived.by(() => {
+		const memberships = $usersWorkspaceStore?.workspaces ?? []
+		return tokenWorkspaceId == undefined
+			? memberships.some((w) => w.is_service_account)
+			: memberships.some((w) => w.id === tokenWorkspaceId && w.is_service_account)
+	})
+	const maxExpirationSecs = $derived(
+		maxExpirationDays == undefined || isServiceAccount ? undefined : maxExpirationDays * DAY_SECS
+	)
+	const maxExpirationLabel = $derived(
+		maxExpirationDays === 1 ? '1 day' : `${maxExpirationDays} days`
+	)
+	const expirationItems = $derived(
+		maxExpirationSecs == undefined
+			? [{ label: 'No expiration', value: undefined }, ...EXPIRATION_CHOICES]
+			: [
+					...EXPIRATION_CHOICES.filter((choice) => choice.value < maxExpirationSecs),
+					{ label: `${maxExpirationLabel} (maximum)`, value: maxExpirationSecs }
+				]
+	)
+	// A ceiling can start applying after the pick: once the setting loads, or when the MCP workspace
+	// moves to one where the account is not a service account.
+	const newTokenExpiration = $derived(
+		maxExpirationSecs != undefined &&
+			(pickedExpiration == undefined || pickedExpiration > maxExpirationSecs)
+			? maxExpirationSecs
+			: pickedExpiration
+	)
 	// The workspace used to browse scripts/flows/endpoints in the scope picker.
 	// For an all-workspaces token there is no single workspace, so fall back to
 	// the current one just for populating the endpoint list.
@@ -273,28 +348,25 @@
 				</div>
 			{/if}
 
-			{#if !mcpCreationMode}
+			{#if !mcpCreationMode || maxExpirationSecs != undefined}
 				<div>
-					<span class="block mb-1 text-xs text-emphasis font-semibold"
-						>Expires In <span class="text-xs text-primary">(optional)</span></span
-					>
+					<span class="block mb-1 text-xs text-emphasis font-semibold">
+						Expires In
+						{#if maxExpirationSecs == undefined}
+							<span class="text-xs text-primary">(optional)</span>
+						{/if}
+					</span>
 					<Select
-						bind:value={newTokenExpiration}
-						placeholder="No expiration"
+						bind:value={() => newTokenExpiration, (v) => (pickedExpiration = v)}
+						placeholder={maxExpirationSecs == undefined ? 'No expiration' : 'Pick an expiration'}
 						inputClass="w-full"
-						items={[
-							{ label: 'No expiration', value: undefined },
-							{ label: '15 minutes', value: 15 * 60 },
-							{ label: '30 minutes', value: 30 * 60 },
-							{ label: '1 hour', value: 1 * 60 * 60 },
-							{ label: '1 day', value: 1 * 24 * 60 * 60 },
-							{ label: '7 days', value: 7 * 24 * 60 * 60 },
-							{ label: '30 days', value: 30 * 24 * 60 * 60 },
-							{ label: '90 days', value: 90 * 24 * 60 * 60 },
-							{ label: '180 days', value: 180 * 24 * 60 * 60 },
-							{ label: '365 days', value: 365 * 24 * 60 * 60 }
-						]}
+						items={expirationItems}
 					/>
+					{#if maxExpirationSecs != undefined}
+						<p class="mt-1 text-xs text-tertiary">
+							This instance limits tokens to {maxExpirationLabel}.
+						</p>
+					{/if}
 				</div>
 			{/if}
 		</div>

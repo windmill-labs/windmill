@@ -64,7 +64,6 @@
 	import { getActiveReplay } from './recording/replay.svelte'
 	import { publishLinkedAgentTools } from './flows/flowState'
 	import {
-		getLinkedAgentTools,
 		linkedToolsScope,
 		releaseLinkedToolsScope,
 		retainLinkedToolsScope
@@ -2123,6 +2122,7 @@
 														tagLabel={customUi?.tagLabel}
 														workspaceId={isReplay ? undefined : job?.workspace_id}
 														jobId={isReplay ? undefined : job?.id}
+														runKey={job?.id}
 														filename={job.id}
 														loading={job['running']}
 														tag={job?.tag}
@@ -2144,15 +2144,6 @@
 														<p class="text-secondary">No arguments</p>
 													{/if}
 												{:else if node}
-													{@const module =
-														stepDetail && typeof stepDetail !== 'string' ? stepDetail : undefined}
-													{@const agentTools =
-														module && module.value.type === 'aiagent'
-															? module.value.agent
-																? getLinkedAgentTools(linkedToolsViewScope, module.id)
-																: (module.value.tools ?? [])
-															: undefined}
-													{@const parentLoopsPrefix = getParentLoopsPrefix(module?.id ?? '')}
 													{#if node.flow_jobs_results}
 														<div>
 															<span class="pl-1 text-emphasis text-xs font-medium"
@@ -2238,6 +2229,7 @@
 																tagLabel={customUi?.tagLabel}
 																workspaceId={isReplay ? undefined : job?.workspace_id}
 																jobId={isReplay ? undefined : node.job_id}
+																runKey={node.job_id}
 																loading={node.type != 'Success' && node.type != 'Failure'}
 																waitingForExecutor={node.type == 'WaitingForExecutor'}
 																refreshLog={node.type == 'InProgress'}
@@ -2247,30 +2239,6 @@
 																tag={node.tag}
 																logs={node.logs}
 																downloadLogs={!hideDownloadLogs && !isReplay}
-																aiAgentStatus={agentTools &&
-																node?.job_id &&
-																(node.type === 'Success' || node.type === 'Failure')
-																	? {
-																			tools: agentTools,
-																			agentJob: {
-																				id: node.job_id,
-																				result: node.result,
-																				logs: node.logs,
-																				args: node.args,
-																				success: node.type === 'Success',
-																				type: 'CompletedJob'
-																			},
-																			storedToolCallJobs: module
-																				? toolCallStore?.getLocalToolCallJobs(parentLoopsPrefix)
-																				: undefined,
-																			onToolJobLoaded: (job, idx) => {
-																				if (module) {
-																					const storeKey = parentLoopsPrefix + module.id + '-' + idx
-																					toolCallStore?.setStoredToolCallJob(storeKey, job)
-																				}
-																			}
-																		}
-																	: undefined}
 															/>
 														</div>
 													</div>

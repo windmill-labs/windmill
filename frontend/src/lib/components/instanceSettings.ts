@@ -2,6 +2,7 @@ import type { ButtonType } from './common/button/model'
 import { allowedOriginsSettingError } from './triggers/http/utils'
 import { z } from 'zod'
 import { instanceBannerFormError } from './instanceBanner'
+import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 import { writable } from 'svelte/store'
 
 /**
@@ -307,6 +308,23 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Maximum token expiration (days)',
+			key: 'max_token_expiration_days',
+			description:
+				'Furthest ahead an API token a user creates can expire, in days. A token asking for longer, or for no expiration, is created with this expiration instead. Service accounts are exempt, so automation can keep longer-lived credentials. Leave empty to let users pick any expiration, including none.',
+			fieldType: 'number',
+			placeholder: 'no limit',
+			storage: 'setting',
+			hideInQuickSetup: true,
+			error: 'Must be a whole number of days, from 1 to 1,000,000',
+			// The server reads anything else as no ceiling at all.
+			isValid: (value: unknown) =>
+				value === undefined ||
+				value === null ||
+				value === '' ||
+				parseMaxTokenExpirationDays(value) !== undefined
 		}
 	],
 	Jobs: [

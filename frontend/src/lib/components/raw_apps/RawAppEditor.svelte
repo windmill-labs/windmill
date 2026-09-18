@@ -72,6 +72,7 @@
 		DEFAULT_DATA
 	} from './dataTableRefUtils'
 	import { randomUUID } from '$lib/utils/uuid'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -1932,20 +1933,6 @@
 		if (opWorkspace) params.set('workspace', opWorkspace)
 		return `/ui_builder/index.html?${params}`
 	}
-	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
-	// ≥1760px viewports, so this re-evaluates on resize via the listener below.
-	let editorFontSize = $state(12)
-	function recomputeEditorFontSize() {
-		const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize)
-		// text-xs is 0.75rem
-		editorFontSize = rootPx * 0.75
-	}
-	$effect(() => {
-		recomputeEditorFontSize()
-		const onResize = () => recomputeEditorFontSize()
-		window.addEventListener('resize', onResize)
-		return () => window.removeEventListener('resize', onResize)
-	})
 	$effect(() => {
 		iframe?.addEventListener('load', () => {
 			iframeLoaded = true
@@ -1997,7 +1984,7 @@
 	$effect(() => {
 		// Match VS Code's editor font size to Windmill's text-xs.
 		if (iframe && iframeLoaded) {
-			iframe.contentWindow?.postMessage({ type: 'setFontSize', px: editorFontSize }, '*')
+			iframe.contentWindow?.postMessage({ type: 'setFontSize', px: editorFontSize.regular }, '*')
 		}
 	})
 	$effect(() => {
