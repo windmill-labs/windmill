@@ -21,7 +21,7 @@ use windmill_common::{
     users::resolve_username_to_email,
     utils::strip_json_nul,
     variables::{build_crypt, encrypt},
-    workspaces::operator_can_build_flows,
+    workspaces::{operator_builder_rights, BuilderKind},
 };
 
 pub fn workspaced_service() -> Router {
@@ -104,7 +104,7 @@ async fn list_drafts(
     // Without builder rights an operator has no drafts of their own (they can't write any, see
     // `require_can_write_path`), so this list is always empty for them. They can still READ some
     // collaborators' drafts via `/drafts/get`.
-    if authed.is_operator && !operator_can_build_flows(&db, &w_id).await? {
+    if authed.is_operator && !operator_builder_rights(&db, &w_id).await?.any() {
         return Ok(Json(vec![]));
     }
     let all_users = query.all_users.unwrap_or(false);
@@ -687,14 +687,21 @@ async fn require_can_write_path(
     if authed.is_admin {
         return Ok(());
     }
-    // Operators are read-only and never WRITE drafts, except a flow draft where the workspace
-    // granted the builder right: the kind has to be checked, or the right would open drafts of
-    // kinds it says nothing about. Read access is deliberately asymmetric:
+    // Operators are read-only and never WRITE drafts, except of a kind the workspace granted them
+    // the matching builder right for: a flows-only workspace must not get raw-app drafts through
+    // here. Read access is deliberately asymmetric:
     // `require_can_read_path` has no operator block, so an operator can still READ a draft they
     // can read via `/drafts/get`, mirroring their read access to deployed content. Intended.
     if authed.is_operator {
-        let granted =
-            matches!(kind, UserDraftItemKind::Flow) && operator_can_build_flows(db, w_id).await?;
+        let allowed = match kind {
+            UserDraftItemKind::Flow => Some(BuilderKind::Flows),
+            UserDraftItemKind::RawApp => Some(BuilderKind::Apps),
+            _ => None,
+        };
+        let granted = match allowed {
+            Some(kind) => operator_builder_rights(db, w_id).await?.has(kind),
+            None => false,
+        };
         if !granted {
             return Err(Error::NotAuthorized(
                 "operators cannot save drafts".to_string(),

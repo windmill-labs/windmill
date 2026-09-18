@@ -10497,10 +10497,15 @@ struct ChangeOperatorSettings {
     #[serde(default)]
     workers: bool,
     /// Lets every operator of this workspace compose flows out of already-deployed runnables.
-    /// Unlike the visibility flags above this is a write right, and it makes each operator
-    /// consume a full author seat instead of half of one.
+    /// Unlike the visibility flags above this is a write right, and either builder right makes
+    /// each operator consume a full author seat instead of half of one.
     #[serde(default)]
     builder_flows: bool,
+    /// The same for full-code apps. Granted separately from flows: a composed flow is fully
+    /// checked server-side, while an app is a browser-built bundle no check can read, so it rests
+    /// on forced sandbox isolation instead.
+    #[serde(default)]
+    builder_apps: bool,
     /// Writes operators may perform unless withdrawn, so `None` (key absent) must mean "leave as
     /// stored" rather than a value: the row is merged, not overwritten, and this endpoint takes
     /// whole-object payloads from git-sync files that predate the key. Defaulting either way here
@@ -10520,9 +10525,10 @@ async fn update_operator_settings(
     require_admin(authed.is_admin, &authed.username)?;
 
     // Every operator of the workspace turns into a full seat, which an offline license may not
-    // cover. It is a no-op delta when the right is already on.
+    // cover. Either right costs the same seat, so this prices "any", and it is a no-op delta when
+    // one of them is already on.
     #[cfg(feature = "enterprise")]
-    if settings.builder_flows {
+    if settings.builder_flows || settings.builder_apps {
         if let Some(msg) =
             windmill_common::ee_oss::check_seat_cap_for_operator_builder(&db, &w_id).await?
         {

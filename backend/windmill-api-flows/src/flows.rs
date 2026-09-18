@@ -20,7 +20,7 @@ use windmill_api_auth::{
     require_owner_of_path, ApiAuthed,
 };
 use windmill_common::workspaces::{
-    check_deploy_rules, check_operator_can_build_flows, RuleCheckResult,
+    check_deploy_rules, check_operator_can_build, BuilderKind, RuleCheckResult,
 };
 use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
@@ -701,10 +701,11 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(mut nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
-    check_operator_can_build_flows(
+    check_operator_can_build(
         &db,
         &w_id,
         authed.is_operator,
+        BuilderKind::Flows,
         "create flows",
     )
     .await?;
@@ -1279,10 +1280,11 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(ef): Json<EditFlow>,
 ) -> Result<String> {
-    check_operator_can_build_flows(
+    check_operator_can_build(
         &db,
         &w_id,
         authed.is_operator,
+        BuilderKind::Flows,
         "update flows",
     )
     .await?;
@@ -1935,10 +1937,11 @@ async fn archive_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(archived): Json<Archived>,
 ) -> Result<String> {
-    check_operator_can_build_flows(
+    check_operator_can_build(
         &db,
         &w_id,
         authed.is_operator,
+        BuilderKind::Flows,
         "archive flows",
     )
     .await?;
@@ -2082,10 +2085,11 @@ async fn delete_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<DeleteFlowQuery>,
 ) -> Result<String> {
-    check_operator_can_build_flows(
+    check_operator_can_build(
         &db,
         &w_id,
         authed.is_operator,
+        BuilderKind::Flows,
         "delete flows",
     )
     .await?;

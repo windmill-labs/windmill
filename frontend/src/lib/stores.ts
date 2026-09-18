@@ -204,6 +204,24 @@ export const operatorBuilderFlows: Readable<boolean> = derived(
 		workspaces.find((w) => w.id === workspace)?.operator_settings?.builder_flows === true
 )
 
+/** The same for full-code apps, granted independently of flows. */
+export const operatorBuilderApps: Readable<boolean> = derived(
+	[userStore, userWorkspaces, workspaceStore],
+	([user, workspaces, workspace]) =>
+		(user?.operator ?? false) &&
+		workspaces.find((w) => w.id === workspace)?.operator_settings?.builder_apps === true
+)
+
+/**
+ * Either right. Only for surfaces that are not per-kind, such as the create menu's visibility or
+ * the drafts banner: anything that authors one kind must gate on that kind's store, or a
+ * flows-only workspace offers app affordances the backend then refuses.
+ */
+export const operatorBuilderRights: Readable<boolean> = derived(
+	[operatorBuilderFlows, operatorBuilderApps],
+	([flows, apps]) => flows || apps
+)
+
 export const codeCompletionLoading = writable<boolean>(false)
 export const metadataCompletionEnabled = writable<boolean>(true)
 export const stepInputCompletionEnabled = writable<boolean>(true)

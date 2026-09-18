@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE((operator_settings->>'builder_flows')::boolean, false) AS \"flows!\",\n                COALESCE((operator_settings->>'builder_apps')::boolean, false) AS \"apps!\",\n                COALESCE((operator_settings->>'manage_schedules')::boolean, true) AS \"schedules!\",\n                COALESCE((operator_settings->>'manage_triggers')::boolean, true) AS \"triggers!\"\n         FROM workspace_settings WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "flows!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "apps!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "schedules!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "triggers!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "1fd3d5e8918143c6e4828b092c5d7d376555217b037d7694efa5ceffc4980f80"
+}

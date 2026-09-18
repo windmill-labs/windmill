@@ -154,7 +154,7 @@ import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRout
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
-import { operatorBuilderFlows } from '$lib/stores'
+import { operatorBuilderApps, operatorBuilderFlows, operatorBuilderRights } from '$lib/stores'
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -286,8 +286,12 @@ export function supportsPlanMode(mode: AIMode): boolean {
 
 // Rune mirror of the store: a class `$derived` cannot track a store read, and this one gates
 // which chat modes exist.
+const isOperatorBuilder = $state({ val: false })
+operatorBuilderRights.subscribe((v) => (isOperatorBuilder.val = v))
 const isOperatorBuilderFlows = $state({ val: false })
 operatorBuilderFlows.subscribe((v) => (isOperatorBuilderFlows.val = v))
+const isOperatorBuilderApps = $state({ val: false })
+operatorBuilderApps.subscribe((v) => (isOperatorBuilderApps.val = v))
 
 export function isAIModeVisible(mode: AIMode): boolean {
 	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
@@ -1369,20 +1373,23 @@ export class AIChatManager implements ChatViewHost {
 			.map((s) => ({ ...s, kind: 'skill' as const }))
 	])
 
-	// The flow and script builders both write code, which the backend refuses from an operator
-	// with the builder right: leaving them reachable would only produce work that cannot be
+	// The flow, app and script builders all write code, which the backend refuses from an
+	// operator with builder rights: leaving them reachable would only produce work that cannot be
 	// deployed.
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
 			this.flowAiChatHelpers === undefined &&
 			this.scriptEditorOptions !== undefined &&
 			!this.disabledModes.script &&
-			!isOperatorBuilderFlows.val,
+			!isOperatorBuilder.val,
 		flow:
 			this.flowAiChatHelpers !== undefined &&
 			!this.disabledModes.flow &&
 			!isOperatorBuilderFlows.val,
-		app: this.appAiChatHelpers !== undefined && !this.disabledModes.app,
+		app:
+			this.appAiChatHelpers !== undefined &&
+			!this.disabledModes.app &&
+			!isOperatorBuilderApps.val,
 		navigator: !this.disabledModes.navigator,
 		ask: !this.disabledModes.ask,
 		API: !this.disabledModes.API,

@@ -1,13 +1,24 @@
 # Operator builder rights
 
-`operator_settings.builder_flows` lets every operator of a workspace compose flows out of runnables
-that already exist. It does not make them authors: the boundary the operator role draws is
-**authoring code and running arbitrary code**, and this does not move it.
+Two workspace settings, `operator_settings.builder_flows` and `operator_settings.builder_apps`,
+that let every operator of that workspace compose flows and full-code apps out of runnables that
+already exist. Neither makes them authors: the boundary the operator role draws is **authoring
+code and running arbitrary code**, and builder rights do not move it.
 
-It is a write right, unlike the visibility flags beside it, and unlike the withdrawable rights in
-`docs/operator-write-rights.md` it is granted on request and costs a seat. Read it with
-`windmill_common::workspaces::operator_can_build_flows` (60s cache, shared with the withdrawable
-rights) and gate a write with `check_operator_can_build_flows`.
+They are granted **independently**, because the two are not equally verifiable. A composed flow is
+checked in full server-side (`check_flow_is_composition_only` refuses everything carrying code).
+A full-code app is a browser-built bundle no server-side check can read, and rests instead on
+forced `sandbox` isolation plus the viewer consent prompt. An admin may reasonably want the first
+without the second, so **never gate on "either"**: a gate that does authorizes the kind its
+workspace never granted, which is the whole point of the split. `BuilderKind` exists to make each
+call site say which one it means.
+
+These are write rights, unlike the visibility flags beside them, and unlike the withdrawable
+rights in `docs/operator-write-rights.md` they are granted on request and cost a seat. Read them
+with `windmill_common::workspaces::operator_builder_rights` (60s cache, shared with the
+withdrawable rights), which returns an `OperatorBuilderRights { flows, apps }`, and gate a write
+with `check_operator_can_build`, naming the `BuilderKind`. `.any()` is only for surfaces that are
+genuinely not per-kind: the seat a membership costs, and listing drafts.
 
 ## What the check has to cover
 
@@ -41,20 +52,63 @@ Call it on every write **and** every preview: `run_preview_flow_job` and
 `push_flow_dependencies_job` both take a request-supplied flow value, so leaving either out makes
 it the way to run what the write path refuses.
 
+The same reasoning applies to a builder-authored app, with one extra step. `execute_component`
+resolves the runnable it runs on the root handle, so `validate_operator_composed_app` checks every
+referenced path under the caller's RLS and refuses hub ones. But it has to check **two** surfaces,
+because they are not the same list: the policy's `script/<path>` and `flow/<path>` triggerables,
+and the `runnableByPath` entries in the app value, which is what the deployed bundle resolves a
+`runnable_id` against and sends.
+
+Reading a triggerable key is not a `split_once(':')`: `execute_component` looks up
+`format!("{component}:{path}")` with an unrestricted component string, so `a:b:script/x` resolves
+at run time for `component = "a:b"`. Every colon is a possible split, so the check validates every
+suffix that parses as a runnable rather than guessing which one a request will use.
+
+What makes those checks bind is that **`ExecutionMode::Viewer` is refused for a builder app**. In
+Viewer mode `execute_component` falls back to a default triggerable for any `script/`/`flow/`
+path, so the policy stops being the list of what the app may invoke, and the job runs as the
+*viewer*: an admin who merely opened the app would run anything in the workspace as themselves.
+`Publisher` and `Anonymous` have no such fallback. If you ever relax the Viewer refusal, the
+deploy-time path checks above stop being an authorization boundary.
+
+## The two raw-app deploy paths are not equivalent
+
+`create_app_raw` / `update_app_raw` are multipart: the browser already built the bundle, and
+nothing server-side compiles anything. Builders use these.
+
+`create_app_raw_source` / `update_app_raw_source` push a bundler CLI over caller-supplied `files`
+as a job **on a worker**, which is arbitrary code execution and is why they already require
+`jobs:run` on top of `apps:write`. They stay closed to operators, builder rights or not. Do not
+"tidy" the exception away: it costs builders nothing, because the browser and the CLI both bundle
+locally and deploy through the multipart endpoints.
+
+A builder-authored app is forced to `policy.sandbox = true`. That is what makes it safe to let an
+operator publish a bundle nobody reviewed: without it the bundle runs same-origin with each
+viewer's Windmill session. The same check refuses a `rawscript/<sha>` key in either triggerables
+map, since that key is the deployed app's authorization to run caller-supplied `raw_code` hashing
+to it.
+
 ## Billing
 
-An operator of a builder workspace consumes a full author seat: composing deployable artifacts
-makes them an author, and there is no half-author. `consumes_operator_seat` is the seat-role
-helper; the EE counting queries share `OPERATOR_SEAT_SQL` so the displayed, enforced and reported
-numbers agree.
+An operator of a builder workspace consumes a full author seat. This is the one place that reads
+"either right", and deliberately so: either one makes an operator an author of deployable
+artifacts, and there is no half-author, so granting both costs no more than granting one. Do not
+introduce per-right pricing — it turns one boolean into a capability matrix that billing, the cap
+check and the displayed count would each have to agree on.
 
-Granting the right runs `check_seat_cap_for_operator_builder`, which prices the change by counting
-seats twice rather than by counting the workspace's operators: an operator who already authors
-elsewhere must not be charged again, so re-saving settings that already have the right on is a
-zero delta and never blocks.
+`consumes_operator_seat` is the seat-role helper; the EE counting queries share
+`OPERATOR_SEAT_SQL` so the displayed, enforced and reported numbers agree. Granting the first
+right runs `check_seat_cap_for_operator_builder`, which prices the change by counting seats twice
+rather than by counting the workspace's operators: an operator who already authors elsewhere must
+not be charged again. Adding the second right later is a zero delta.
 
 ## Accepted risks
 
+- A builder raw app may declare `frontend_sdk_scopes`, and `mint_raw_app_sdk_token` mints as the
+  *viewer*. A consenting admin therefore hands the bundle a 12h admin-identity token within the
+  curated scope list. The viewer consent prompt is the gate. The lever, if this is ever revisited,
+  is dropping `variables:read` / `resources:read` / `jobs:run` from `FRONTEND_SDK_ALLOWED_SCOPES`
+  for builder apps.
 - All-or-nothing per workspace: there is no per-user builder role.
 - `operator_settings` is git-synced, so a pull can flip every operator's class in a workspace and
   the billed seat count with it.
