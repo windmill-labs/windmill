@@ -155,6 +155,10 @@ pub fn workspaced_service() -> Router {
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
         .route("/edit_guest_access", post(edit_guest_access))
+        .route(
+            "/edit_add_admins_and_developers_to_forks",
+            post(edit_add_admins_and_developers_to_forks),
+        )
         .route("/edit_guest_jwt_key", post(edit_guest_jwt_key))
         .route("/guest_usage", get(get_guest_usage))
         .route("/default_app", get(get_default_app))
@@ -338,6 +342,7 @@ pub struct WorkspaceSettings {
     pub guest_jwt_public_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub guest_jwt_jwks_url: Option<String>,
+    pub add_admins_and_developers_to_forks: bool,
 }
 
 /// Subset of `WorkspaceSettings` that is safe to return to any workspace
@@ -363,6 +368,8 @@ pub struct WorkspacePublicSettings {
     /// Not sensitive, and the app editor needs it to say whether the guest rung is
     /// live -- an app can be set to `guest` while the workspace has guests off.
     pub guest_access_enabled: bool,
+    /// Read by the fork dialog, which tells the forker who else the fork will include.
+    pub add_admins_and_developers_to_forks: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_ui: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1126,7 +1133,8 @@ async fn get_settings(
             error_handler_fallback_to_instance_alerts,
             guest_access_enabled,
             guest_jwt_public_key,
-            guest_jwt_jwks_url
+            guest_jwt_jwks_url,
+            add_admins_and_developers_to_forks
         FROM
             workspace_settings
         WHERE
@@ -1168,6 +1176,7 @@ async fn get_public_settings(
             teams_team_guid,
             mute_critical_alerts,
             guest_access_enabled,
+            add_admins_and_developers_to_forks,
             deploy_ui,
             large_file_storage,
             datatable
@@ -5053,6 +5062,47 @@ async fn edit_guest_access(
 }
 
 #[derive(Deserialize)]
+struct EditAddAdminsAndDevelopersToForks {
+    add_admins_and_developers_to_forks: bool,
+}
+
+async fn edit_add_admins_and_developers_to_forks(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(EditAddAdminsAndDevelopersToForks { add_admins_and_developers_to_forks }): Json<
+        EditAddAdminsAndDevelopersToForks,
+    >,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET add_admins_and_developers_to_forks = $1 WHERE workspace_id = $2",
+        add_admins_and_developers_to_forks,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_add_admins_and_developers_to_forks",
+        ActionKind::Update,
+        &w_id,
+        Some(&add_admins_and_developers_to_forks.to_string()),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!(
+        "Adding admins and developers to new forks set to {add_admins_and_developers_to_forks} for workspace {w_id}"
+    ))
+}
+
+#[derive(Deserialize)]
 struct EditGuestJwtKey {
     /// A PEM public key (RS or ES family), or a JWKS URL, at most one. Both empty clears the
     /// workspace key; verification then falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
@@ -6712,7 +6762,8 @@ async fn update_workspace_settings(
             ducklake = source_ws.ducklake,
             dbt_warehouses = source_ws.dbt_warehouses,
             datatable = source_ws.datatable,
-            git_app_installations = source_ws.git_app_installations
+            git_app_installations = source_ws.git_app_installations,
+            add_admins_and_developers_to_forks = source_ws.add_admins_and_developers_to_forks
         FROM workspace_settings source_ws
         WHERE source_ws.workspace_id = $1
         AND workspace_settings.workspace_id = $2
@@ -6853,14 +6904,21 @@ async fn copy_workspace_members(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    admins_and_developers_only: bool,
 ) -> Result<()> {
+    // Admins and developers join as manual members: the fork does not inherit the source's
+    // instance-group config, so a copied `instance_group` provenance would let the fork's
+    // reconciliation delete them and their data.
     sqlx::query!(
         "INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via)
-         SELECT $1, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via
+         SELECT $1, username, email, is_admin, created_at, operator, disabled, role, is_service_account,
+                CASE WHEN $3 THEN NULL ELSE added_via END
          FROM usr WHERE workspace_id = $2
+           AND (NOT $3 OR (NOT operator AND NOT disabled AND NOT is_service_account))
          ON CONFLICT DO NOTHING",
         target_workspace_id,
         source_workspace_id,
+        admins_and_developers_only,
     )
     .execute(&mut **tx)
     .await?;
@@ -8651,8 +8709,19 @@ async fn create_workspace_fork(
     // intended. Dev creation is already admin-gated, so this is transitively admin-only too. Done before
     // the explicit creator insert below so the creator (a parent member) is copied with full metadata
     // (operator/role/is_service_account/added_via), not the bare row the insert alone would leave.
+    // Independently, the parent's admins can have every fork of it start with its admins and
+    // developers; the forker cannot opt out, since the point is that those admins can review it.
     if nw.copy_members && nw.is_dev_workspace {
-        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id).await?;
+        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id, false).await?;
+    } else if sqlx::query_scalar!(
+        "SELECT add_admins_and_developers_to_forks FROM workspace_settings WHERE workspace_id = $1",
+        parent_workspace_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .unwrap_or(false)
+    {
+        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id, true).await?;
     }
 
     // Ensure the creator is a member of the fork even without copy_members (or if they aren't a parent
