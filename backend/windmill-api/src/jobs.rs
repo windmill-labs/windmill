@@ -4369,12 +4369,12 @@ async fn count_completed_jobs_detail(
     Query(query): Query<CountCompletedJobsQuery>,
 ) -> error::JsonResult<i64> {
     let mut sqlb = SqlBuilder::select_from("v2_job_completed");
-    //FOR RLS
-    sqlb.join("v2_job USING (id)");
     sqlb.field("COUNT(*) as count");
 
+    // Filtering on v2_job.workspace_id instead would keep the planner off
+    // ix_job_workspace_id_completed_at_all and scan the whole retention window.
     if !(w_id == "admins" && query.all_workspaces.unwrap_or(false)) {
-        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job_completed.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(after_s_ago) = query.completed_after_s_ago {
@@ -4393,6 +4393,7 @@ async fn count_completed_jobs_detail(
     }
 
     if let Some(tags) = query.tags {
+        sqlb.join("v2_job USING (id)");
         sqlb.and_where_in(
             "v2_job.tag",
             &tags.split(",").map(|t| quote(t)).collect::<Vec<_>>(),
@@ -4400,7 +4401,19 @@ async fn count_completed_jobs_detail(
     }
 
     let sql = sqlb.sql()?;
-    let stats = sqlx::query_scalar::<_, i64>(&sql).fetch_one(&db).await?;
+    let mut tx = db.begin().await?;
+    set_list_jobs_statement_timeout(&mut tx).await?;
+    let stats = sqlx::query_scalar::<_, i64>(&sql)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| {
+            list_jobs_timeout_error(
+                e,
+                "Counting completed jobs",
+                "Lower completed_after_s_ago or narrow the filters.",
+            )
+        })?;
+    tx.commit().await?;
 
     Ok(Json(stats))
 }
@@ -4427,6 +4440,33 @@ lazy_static::lazy_static! {
             .ok()
             .and_then(|x| x.parse().ok())
             .unwrap_or(30);
+}
+
+/// A client that gives up does not cancel its query, so without this bound every retry of a
+/// slow filter stacks another scan running until the connection-wide 5min timeout.
+async fn set_list_jobs_statement_timeout(tx: &mut Transaction<'_, Postgres>) -> error::Result<()> {
+    let timeout_secs = *LIST_JOBS_STATEMENT_TIMEOUT_SECS;
+    if timeout_secs > 0 {
+        sqlx::query(&format!("SET LOCAL statement_timeout = '{timeout_secs}s'"))
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
+fn list_jobs_timeout_error(e: sqlx::Error, action: &str, hint: &str) -> Error {
+    let timeout_secs = *LIST_JOBS_STATEMENT_TIMEOUT_SECS;
+    match e {
+        sqlx::Error::Database(ref db_err)
+            if timeout_secs > 0 && db_err.code().as_deref() == Some("57014") =>
+        {
+            Error::Generic(
+                StatusCode::BAD_REQUEST,
+                format!("{action} took more than {timeout_secs}s and was stopped. {hint}"),
+            )
+        }
+        e => e.into(),
+    }
 }
 
 async fn list_jobs(
@@ -4545,32 +4585,14 @@ async fn list_jobs(
     };
     // tracing::info!("sql: {}", &sql);
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
-
-    // A client that gives up does not cancel its query, so without this bound every retry of a
-    // slow filter stacks another scan running until the connection-wide 5min timeout.
-    let timeout_secs = *LIST_JOBS_STATEMENT_TIMEOUT_SECS;
-    if timeout_secs > 0 {
-        sqlx::query(&format!("SET LOCAL statement_timeout = '{timeout_secs}s'"))
-            .execute(&mut *tx)
-            .await?;
-    }
+    set_list_jobs_statement_timeout(&mut tx).await?;
 
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql)
         .fetch_all(&mut *tx)
         .warn_after_seconds_with_sql(5, format!("list_jobs: {}", sql))
         .await
-        .map_err(|e| match e {
-            sqlx::Error::Database(ref db_err)
-                if timeout_secs > 0 && db_err.code().as_deref() == Some("57014") =>
-            {
-                Error::Generic(
-                    StatusCode::BAD_REQUEST,
-                    format!(
-                        "Listing jobs took more than {timeout_secs}s and was stopped. Set a start date or narrow the filters."
-                    ),
-                )
-            }
-            e => e.into(),
+        .map_err(|e| {
+            list_jobs_timeout_error(e, "Listing jobs", "Set a start date or narrow the filters.")
         })?;
     tx.commit().await?;
 
