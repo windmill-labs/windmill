@@ -241,17 +241,23 @@ describe('page item tabs', () => {
 		])
 	})
 
-	it('restores a tab saved on a row’s drawer as that row’s own tab', () => {
+	it('restores a tab saved on a row’s drawer as the row it was last on', () => {
 		const snap = hydratePreviewTabs({
 			previewTabs: [
 				{ id: 'a', url: '/schedules#u/me/daily', loc: '/schedules?path=u#u/me/daily' },
 				// A drawer opened inside the frame: the command is still the bare list.
-				{ id: 'b', url: '/variables', loc: '/variables#u/me/token' }
+				{ id: 'b', url: '/variables', loc: '/variables#u/me/token' },
+				// The user moved on to another row inside the frame…
+				{ id: 'c', url: '/variables#u/me/token', loc: '/variables#u/me/other' },
+				// …or closed the drawer, leaving no row to restore.
+				{ id: 'd', url: '/variables#u/me/token', loc: '/variables' }
 			]
 		})
 		expect(snap.tabs).toEqual([
 			{ id: 'a', url: 'pageitem:schedule/u%2Fme%2Fdaily', loc: 'pageitem:schedule/u%2Fme%2Fdaily' },
-			{ id: 'b', url: 'pageitem:variable/u%2Fme%2Ftoken', loc: 'pageitem:variable/u%2Fme%2Ftoken' }
+			{ id: 'b', url: 'pageitem:variable/u%2Fme%2Ftoken', loc: 'pageitem:variable/u%2Fme%2Ftoken' },
+			{ id: 'c', url: 'pageitem:variable/u%2Fme%2Fother', loc: 'pageitem:variable/u%2Fme%2Fother' },
+			{ id: 'd', url: '/variables#u/me/token', loc: '/variables' }
 		])
 	})
 })

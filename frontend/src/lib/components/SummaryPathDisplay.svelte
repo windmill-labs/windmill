@@ -44,7 +44,11 @@
 	let editPath = $state('')
 	let dirtyPath = $state(false)
 	let popoverOpen = $state(false)
-	let own = $state(false)
+	let ownPath = $state<string | undefined>(undefined)
+	// Derived: ownership answers about the operating workspace, whose user resolves asynchronously.
+	const own = $derived(
+		ownPath === undefined ? false : isOwner(ownPath, actingUser, $operatingWorkspace)
+	)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
 	let summaryInput: ReturnType<typeof TextInput> | undefined = $state()
 	let labelsDirty = $state(false)
@@ -55,7 +59,7 @@
 			editSummary = summary ?? ''
 			editPath = path ?? ''
 			labelsDirty = false
-			own = isOwner(path ?? '', actingUser, $operatingWorkspace)
+			ownPath = path ?? ''
 			onBehalfOfEmail = undefined
 			if (kind === 'flow' && $operatingWorkspace && path) {
 				checkFlowOnBehalfOf($operatingWorkspace, path).then((email) => {

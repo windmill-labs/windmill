@@ -85,7 +85,15 @@
 		isDemoWorkspaceRestricted($operatingWorkspace, actingUser?.is_admin, actingUser?.is_super_admin)
 	)
 
-	let can_write = $state(false)
+	let groupPerms = $state<Record<string, boolean> | undefined>(undefined)
+	// A verdict that does not come from a loaded group: a new one is writable, one that failed
+	// to load is not.
+	let writeVerdict = $state<boolean | undefined>(undefined)
+	// Derived for the same reason as the trigger editors: the acting user's role can land after
+	// the group does, and a snapshot taken first would stay read-only.
+	const can_write = $derived(
+		writeVerdict ?? (groupPerms !== undefined && canWrite(name, groupPerms, actingUser))
+	)
 	let group: Group | undefined
 	let instance_group: InstanceGroup | undefined = $state()
 	let usernames: string[] = $state([])
@@ -150,7 +158,7 @@
 		loadAside(loadUsernames)
 		if (isNew) {
 			loadAside(loadGroupNames)
-			can_write = true
+			writeVerdict = true
 			setDraft(emptyDraft())
 			loaded = true
 		} else {
@@ -168,7 +176,8 @@
 			opts?.baselineOnly ? (baseline = structuredClone(value)) : setDraft(value)
 		try {
 			group = await GroupService.getGroup({ workspace: $operatingWorkspace!, name })
-			can_write = canWrite(name, group.extra_perms ?? {}, actingUser)
+			groupPerms = group.extra_perms ?? {}
+			writeVerdict = undefined
 			apply({
 				summary: group.summary ?? '',
 				members: Array.from(
@@ -187,7 +196,7 @@
 			sendUserToast(e?.body ?? String(e), true)
 			// Only the opening read decides this. Revoking it on a failed reconcile would
 			// disable Save against a draft that is still dirty, with nothing left to reload.
-			if (!opts?.baselineOnly) can_write = false
+			if (!opts?.baselineOnly) writeVerdict = false
 		} finally {
 			loaded = true
 		}

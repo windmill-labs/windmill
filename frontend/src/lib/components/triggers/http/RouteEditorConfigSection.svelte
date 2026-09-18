@@ -111,7 +111,11 @@
 		route_path === undefined && (route_path = '')
 	})
 
-	let userIsAdmin = $derived(actingUser?.is_admin || actingUser?.is_super_admin)
+	// Unknown until the acting user resolves: forcing the prefix on an admin meanwhile would
+	// silently save a workspace-prefixed route they never chose.
+	let userIsAdmin = $derived(
+		operatingUser.resolved(wsId) ? actingUser?.is_admin || actingUser?.is_super_admin : undefined
+	)
 
 	let globalHttpWorkspacedRoute = $state(false)
 
@@ -134,7 +138,10 @@
 		// Existing non-workspaced triggers created by admins can still be edited by non-admins
 		// (with restricted fields), so we don't override their workspaced_route value.
 		const isNewTrigger = !initialTriggerPath
-		if ((globalHttpWorkspacedRoute || (!userIsAdmin && isNewTrigger)) && !workspaced_route) {
+		if (
+			(globalHttpWorkspacedRoute || (userIsAdmin === false && isNewTrigger)) &&
+			!workspaced_route
+		) {
 			workspaced_route = true
 			dirtyRoutePath = true
 		}
