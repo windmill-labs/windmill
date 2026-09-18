@@ -43,6 +43,19 @@ export function editInForkLabel(
 	return dev ? `Edit in ${dev.name}` : 'Edit in fork'
 }
 
+/** One line under `editInForkLabel` for a menu entry, saying where the edit happens. */
+export function editInForkDescription(
+	itemType: ItemType,
+	currentWorkspaceId: string | undefined,
+	allWorkspaces: UserWorkspace[]
+): string {
+	const kind = itemType === 'raw_app' ? 'app' : itemType
+	const dev = findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
+	return dev
+		? `Open this ${kind} in the ${dev.name} dev workspace`
+		: `Edit this ${kind} in a forked workspace, then deploy the changes back`
+}
+
 /**
  * Whether the user may CREATE a new fork of the current workspace: forking not disabled, or the user
  * can bypass the rule (workspace admins). Keeps the "Fork workspace" entry available to admins as the

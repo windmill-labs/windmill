@@ -69,6 +69,12 @@ export function conversationTitle(firstMessage: string): string {
   return chars.length > 25 ? `${chars.slice(0, 25).join('')}...` : firstMessage
 }
 
+/** The server's bound on a typed title: 252 characters plus an ellipsis fits its 255-char column. */
+export function truncateTitle(title: string): string {
+  const chars = Array.from(title)
+  return chars.length > 252 ? `${chars.slice(0, 252).join('')}...` : title
+}
+
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(abortError())

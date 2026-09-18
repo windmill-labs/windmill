@@ -8,7 +8,7 @@
 	import type { PickableProperties } from './flows/previousResults'
 	import InputTransformForm from './InputTransformForm.svelte'
 	import InputTransformPickers from './InputTransformPickers.svelte'
-	import { useS3StorageConfigured } from './inputTransformEnv.svelte'
+	import { useWorkspaceStorageConfigured } from './inputTransformEnv.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
 	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
@@ -86,7 +86,7 @@
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
-	const s3Storage = useS3StorageConfigured(() => ws)
+	const s3Storage = useWorkspaceStorageConfigured(() => ws)
 
 	let keys: string[] = $state([])
 	$effect(() => {

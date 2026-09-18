@@ -4712,17 +4712,11 @@ const GIT_AUTO_PULL_LOCK_ID: i64 = 737_483_921;
 /// Poll every git-sync repository with auto-pull enabled and enqueue a pull when
 /// the tracked branch has new commits (repo → Windmill direction).
 ///
-/// Runs on a single replica at a time (advisory lock) and only on
-/// Enterprise-licensed instances. Detection is `git ls-remote`; GitHub-App
-/// repositories are skipped here and sync via webhooks instead (phase 2).
+/// Runs on a single replica at a time (advisory lock). Detection is
+/// `git ls-remote`; GitHub-App repositories are skipped here and sync via
+/// webhooks instead (phase 2).
 #[cfg(feature = "private")]
 pub async fn poll_git_auto_pull(db: &Pool<Postgres>) {
-    use windmill_common::ee_oss::{get_license_plan, LicensePlan};
-
-    if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
-        return;
-    }
-
     let mut lock_conn = match db.acquire().await {
         Ok(c) => c,
         Err(e) => {
@@ -4792,12 +4786,6 @@ const GIT_CREDENTIAL_LOCK_ID: i64 = 737_483_923;
 /// sync down on its expiry date.
 #[cfg(all(feature = "enterprise", feature = "private"))]
 async fn maintain_git_credentials(db: &Pool<Postgres>) {
-    use windmill_common::ee_oss::{get_license_plan, LicensePlan};
-
-    if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
-        return;
-    }
-
     // Transaction-scoped advisory lock, as for the schedule reconcile above: a
     // session lock on a pooled connection would ride back into the pool still
     // held if the sweep died before unlocking, and wedge the pass on every

@@ -8,6 +8,7 @@
 	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { evalValue } from './flows/utils.svelte'
+	import { memoryPropertyFor } from './flows/flowInfers'
 	import type { FlowModule } from '$lib/gen'
 	import type { PickableProperties } from './flows/previousResults'
 	import type SimpleEditor from './SimpleEditor.svelte'
@@ -61,6 +62,9 @@
 	 *  for a surface whose form cannot open a row at all. A schema key the field registry doesn't
 	 *  know is kept, so a new one is never silently dropped. */
 	let schemaKeys = $derived(Object.keys(schema?.properties ?? {}))
+	// A legacy memory kind this step still holds stays one of the options, or the one-of field would
+	// turn the test run's memory off.
+	let isAgent = $derived((mod.value as { type?: string })?.type === 'aiagent')
 
 	let visibleKeys = $derived.by(() => {
 		const all = schemaKeys
@@ -71,7 +75,11 @@
 		for (const key of openAgentFields(openFieldsKey)) visible.add(key)
 		for (const key of runInputKeys) visible.add(key)
 		const known = new Set(AGENT_FIELDS.map((f) => f.key))
-		return all.filter((key) => !known.has(key) || visible.has(key))
+		// Listed in the agent form's order rather than the schema's, so the two read the same.
+		const position = new Map(AGENT_FIELDS.map((f, i) => [f.key, i]))
+		return all
+			.filter((key) => !known.has(key) || visible.has(key))
+			.sort((a, b) => (position.get(a) ?? Infinity) - (position.get(b) ?? Infinity))
 	})
 
 	let keys: string[] = $state([])
@@ -182,7 +190,12 @@
 									(v) => stepsInputArgs?.setStepInputArgs(mod.id, argName, v)
 								}
 								type={schema.properties[argName].type}
-								oneOf={schema.properties[argName].oneOf}
+								oneOf={isAgent && argName === 'memory'
+									? memoryPropertyFor(
+											schema.properties[argName],
+											stepsInputArgs?.getStepInputArgs(mod.id, argName)
+										)?.oneOf
+									: schema.properties[argName].oneOf}
 								required={schema?.required?.includes(argName)}
 								pattern={schema.properties[argName].pattern}
 								bind:editor={editor[argName]}

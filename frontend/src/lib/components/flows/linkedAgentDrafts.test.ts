@@ -70,6 +70,28 @@ describe('inlineAgentDraft', () => {
 			user_message: { type: 'static', value: 'hi' }
 		})
 	})
+
+	// The worker never reads a history input from the resource, so a preview of the draft must not
+	// either: a draft carrying one would test against a memory the deployed step never sees.
+	it('never takes a history input from the draft', () => {
+		const inlined = inlineAgentDraft(
+			linkedStep({
+				user_message: { type: 'static', value: 'hi' },
+				memory_id: { type: 'static', value: 'cust-1' }
+			}),
+			{
+				memory: { kind: 'window', context_length: 10 },
+				memory_id: 'from-the-draft',
+				previous_messages: [{ role: 'user', content: 'from the draft' }]
+			} as any
+		)
+
+		expect(inlined.input_transforms).toEqual({
+			memory: { type: 'static', value: { kind: 'window', context_length: 10 } },
+			user_message: { type: 'static', value: 'hi' },
+			memory_id: { type: 'static', value: 'cust-1' }
+		})
+	})
 })
 
 describe('inlineAgentDrafts', () => {

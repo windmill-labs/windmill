@@ -231,14 +231,35 @@ export type ReasoningCapability = {
 	 * level, making the switch a lie.
 	 */
 	canDisable: boolean
+	/**
+	 * Whether `supported` is an answer or an absence of one. The registry has rules per
+	 * provider family and falls through to `false` for the rest — `customai` above all,
+	 * which fronts any OpenAI-compatible endpoint and may well serve a thinking model. A
+	 * caller that presents `supported: false` as a fact must check this first, or it tells
+	 * the reader a model cannot think when all we know is that we have never heard of it.
+	 */
+	known: boolean
 }
+
+/** Provider families the registry has real rules for; everything else is a shrug. */
+const KNOWN_REASONING_FAMILIES: ReadonlySet<string> = new Set([
+	'anthropic',
+	'aws_bedrock',
+	'openai',
+	'azure_openai',
+	'openrouter',
+	'googleai',
+	'deepseek',
+	'mistral'
+])
 
 /** Resolve the reasoning capability of a model from the static registry. */
 export function getReasoningCapability(provider: AIProvider, model: string): ReasoningCapability {
 	const bareModel = stripLegacyThinkingSuffix(model)
+	const known = KNOWN_REASONING_FAMILIES.has(reasoningProviderFamily(provider, bareModel))
 	const supported = supportsReasoningStatic(provider, bareModel)
 	if (!supported) {
-		return { supported: false, levels: [], canDisable: false }
+		return { supported: false, levels: [], canDisable: false, known }
 	}
 	const family = reasoningProviderFamily(provider, bareModel)
 	const levels =
@@ -251,7 +272,7 @@ export function getReasoningCapability(provider: AIProvider, model: string): Rea
 					: family === 'openrouter'
 						? openrouterReasoningLevels(bareModel)
 						: (PROVIDER_REASONING_LEVELS[family] ?? ['low', 'medium', 'high'])
-	return { supported, levels, canDisable: canDisableReasoning(provider, bareModel) }
+	return { supported, levels, canDisable: canDisableReasoning(provider, bareModel), known }
 }
 
 /**
@@ -362,15 +383,11 @@ export function explicitOffToken(provider: AIProvider, model: string): Reasoning
 			// real off there and stays the wire form. Only the 5 family, which
 			// thinks when the field is absent, needs the explicit disable —
 			// Fable and Mythos reject it outright and get no off token at all.
-			return /claude-(opus|sonnet)-5/.test(model.toLowerCase())
-				? ANTHROPIC_OFF_SENTINEL
-				: undefined
+			return /claude-(opus|sonnet)-5/.test(model.toLowerCase()) ? ANTHROPIC_OFF_SENTINEL : undefined
 		case 'aws_bedrock':
 			// Bedrock's Sonnet 5 cannot be disabled at all, so only Opus 5 gets
 			// the sentinel; the rest keep omission.
-			return model.toLowerCase().includes('claude-opus-5')
-				? ANTHROPIC_OFF_SENTINEL
-				: undefined
+			return model.toLowerCase().includes('claude-opus-5') ? ANTHROPIC_OFF_SENTINEL : undefined
 		case 'googleai':
 			// Gemini 2.5/3 think by default (dynamic budget / level). The backend
 			// proxy maps 'none' to off on Flash, or the floor on Pro (only

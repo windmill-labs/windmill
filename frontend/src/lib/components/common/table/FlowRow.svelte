@@ -35,6 +35,7 @@
 		HistoryIcon
 	} from 'lucide-svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
+	import ChatFlowBadge from '$lib/components/flows/ChatFlowBadge.svelte'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
@@ -48,6 +49,9 @@
 			draft_path?: string
 			draft_users?: { username?: string | null }[]
 			canWrite: boolean
+			/** Projected from the flow value by the listing; a chat-input flow opens
+			 * as a conversation and is badged as such. */
+			chat_input_enabled?: boolean
 		}
 		marked: string | undefined
 		shareModal: ShareModal
@@ -124,6 +128,10 @@
 	<FlowHistory bind:this={flowHistory} path={flow.path} />
 {/if}
 
+{#snippet chatBadge()}
+	<ChatFlowBadge />
+{/snippet}
+
 <Row
 	aiId={`flow-row-${flow.path}`}
 	aiDescription={`Button to access the form to run the flow ${flow.summary ?? flow.path}`}
@@ -140,6 +148,7 @@
 	canFavorite={!flow.draft_only}
 	{depth}
 	{rowSelection}
+	titleBadge={flow.chat_input_enabled ? chatBadge : undefined}
 >
 	{#snippet badges()}
 		{#if flow.archived}

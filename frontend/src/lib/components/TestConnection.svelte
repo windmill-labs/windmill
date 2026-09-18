@@ -174,7 +174,7 @@ export async function main(bucket: any, api_token: string) {
 	async function mintApiToken(): Promise<string> {
 		return await UserService.createToken({
 			requestBody: {
-				label: `test connection: ${resourceType}`,
+				label: `ephemeral-test-connection: ${resourceType}`,
 				expiration: new Date(Date.now() + API_TOKEN_TTL_MS).toISOString(),
 				scopes: ['settings:write']
 			}

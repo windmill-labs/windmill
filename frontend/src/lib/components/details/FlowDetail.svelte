@@ -82,6 +82,7 @@
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
+		editInForkDescription,
 		editInForkLabel,
 		onEditInForkClick
 	} from '$lib/utils/editInFork'
@@ -330,6 +331,8 @@
 		if (flow && !$userStore?.operator) {
 			buttons.push({
 				label: 'Fork',
+				description: `Start a new flow from a copy of this one`,
+				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: `${base}/flows/add?template=${flow.path}`,
 					onClick: interceptNav(onNavigate, `/flows/add?template=${flow.path}`),
@@ -349,6 +352,8 @@
 		) {
 			buttons.push({
 				label: editInForkLabel(workspace, $userWorkspaces),
+				description: editInForkDescription('flow', workspace, $userWorkspaces),
+				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: buildForkEditUrl('flow', flow.path),
 					onClick: (e: Event | undefined) =>
@@ -377,6 +382,7 @@
 
 		buttons.push({
 			label: `History`,
+			narrow: 'menu',
 			buttonProps: {
 				onClick: () => flowHistory?.open(),
 				unifiedSize: 'md',
@@ -392,6 +398,7 @@
 		if (!$userStore?.operator) {
 			buttons.push({
 				label: 'Build app',
+				narrow: 'menu',
 				buttonProps: {
 					onClick: async () => {
 						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
@@ -519,6 +526,7 @@
 	let stepDetail: FlowModule | string | undefined = $state(undefined)
 	let rightPaneSelected = $state('saved_inputs')
 	let savedInputsV2: SavedInputsV2 | undefined = $state(undefined)
+	let detailLayout: DetailPageLayout | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
 	let path = $derived(routePath ?? '')
 
@@ -583,6 +591,7 @@
 {/if}
 
 <DetailPageLayout
+	bind:this={detailLayout}
 	bind:selected={rightPaneSelected}
 	isOperator={$userStore?.operator}
 	forceSmallScreen={chatInputEnabled}
@@ -597,7 +606,7 @@
 	{#snippet header()}
 		<DetailPageHeader
 			on:seeTriggers={() => {
-				rightPaneSelected = 'triggers'
+				detailLayout?.showTriggers()
 			}}
 			{mainButtons}
 			menuItems={getMenuItems(flow, deployUiSettings)}
@@ -633,7 +642,7 @@
 					isFlow
 					selected={rightPaneSelected == 'triggers'}
 					onSelect={async (triggerIndex: number) => {
-						rightPaneSelected = 'triggers'
+						detailLayout?.showTriggers()
 						await tick()
 						triggersState.selectedTriggerIndex = triggerIndex
 					}}

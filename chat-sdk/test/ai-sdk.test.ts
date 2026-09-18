@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { UIMessage, UIMessageChunk } from 'ai'
 import { createWindmillChatTransport, toUIMessages } from '../src/ai-sdk'
 import type { ChatMessage } from '../src/types'
-import { fetchMock, json, ndjson, sse, text, type Route } from './support'
+import { fetchMock, json, messageRow, ndjson, sse, text, type Route } from './support'
 
 const FLOW = 'f/chat/agent'
 const run: Route = (c) =>
@@ -141,6 +141,26 @@ describe('createWindmillChatTransport', () => {
     expect(second[1]).toMatchObject({ errorText: 'ExecutionErr: boom' })
   })
 
+  test('loads the attachments of a user row, the call an MCP tool row carries and the reasoning behind an answer', async () => {
+    const { fetch } = fetchMock((c) =>
+      c.method === 'GET' && c.url.pathname.endsWith('/messages')
+        ? json([
+            messageRow(1, 'user', 'hi', { attachments: [{ input: 'files', s3: 'chat/a.png', filename: 'a.png' }] }),
+            messageRow(2, 'tool', 'Used lookup tool', { job_id: 'agent-job', reasoning: 'why', tool_arguments: '{"q":1}', tool_result: '42' }),
+            messageRow(3, 'assistant', 'The answer is 42', { reasoning: 'hmm' })
+          ])
+        : undefined
+    )
+    const transport = createWindmillChatTransport({ baseUrl: 'http://wm.test', workspace: 'ws', flowPath: FLOW, fetch })
+    const ui = await transport.loadMessages('c')
+    expect(ui.map((m) => m.parts.map((p) => p.type))).toEqual([['text'], ['reasoning', 'dynamic-tool', 'reasoning', 'text']])
+    expect(ui[0].metadata).toEqual({ attachments: [{ input: 'files', s3: 'chat/a.png', filename: 'a.png' }] })
+    expect(ui[1].metadata).toBeUndefined()
+    expect(ui[1].parts[0]).toMatchObject({ type: 'reasoning', text: 'why' })
+    expect(ui[1].parts[1]).toMatchObject({ toolName: 'lookup', state: 'output-available', input: { q: 1 }, output: 42 })
+    expect(ui[1].parts[2]).toMatchObject({ type: 'reasoning', text: 'hmm' })
+  })
+
   test('refuses attachments with a clear error', async () => {
     const transport = createWindmillChatTransport({ baseUrl: 'http://wm.test', workspace: 'ws', flowPath: FLOW, fetch: fetchMock().fetch })
     await expect(
@@ -174,5 +194,12 @@ describe('toUIMessages', () => {
     ])
     expect(ui[1].parts[0]).toMatchObject({ toolCallId: 'c1', toolName: 'lookup', state: 'output-available', input: { q: 1 }, output: 42 })
     expect(ui[3].parts[0]).toMatchObject({ state: 'output-error', errorText: 'Error executing lookup' })
+  })
+
+  test('keeps a stored JSON null result rather than the row text', () => {
+    const ui = toUIMessages([
+      { success: true, createdAt: '2026-01-01T00:00:00Z', pending: false, id: 't1', role: 'tool', content: 'Used notify tool', tool: { callId: 'c1', name: 'notify', status: 'success', arguments: '{}', result: 'null' } }
+    ])
+    expect(ui[0].parts[0]).toMatchObject({ type: 'dynamic-tool', state: 'output-available', output: null })
   })
 })

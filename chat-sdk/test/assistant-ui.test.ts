@@ -31,6 +31,13 @@ describe('assistant-ui conversion', () => {
     expect(toThreadMessage(turns[0])).toMatchObject({ role: 'user', content: [{ type: 'text', text: 'hi' }] })
   })
 
+  test('keeps a stored JSON null result rather than the row text', () => {
+    const turn = groupTurns([
+      { ...base, id: 't1', role: 'tool', content: 'Used notify tool', tool: { callId: 'c1', name: 'notify', status: 'success', arguments: '{}', result: 'null' } }
+    ])[0]
+    expect(toThreadMessage(turn).content).toMatchObject([{ type: 'tool-call', toolName: 'notify', result: null }])
+  })
+
   test('marks a failed answer as incomplete', () => {
     const [turn] = groupTurns([{ ...base, id: 'a', role: 'assistant', content: 'boom', success: false }])
     expect(toThreadMessage(turn).status).toEqual({ type: 'incomplete', reason: 'error', error: 'boom' })

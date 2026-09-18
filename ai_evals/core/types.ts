@@ -183,6 +183,13 @@ export interface ToolCallArgumentRule {
    */
   nonEmpty?: boolean;
   /**
+   * Existential over calls: at least this many recorded calls to `tool` carry the
+   * same non-blank string in `field`. Use when calls have to share an identifier —
+   * e.g. test runs that continue one conversation — while a retry with a rejected
+   * value in between is still acceptable.
+   */
+  sharedByAtLeast?: number;
+  /**
    * Universal over calls: no recorded call to `tool` may pass `field` at all.
    * For partial-update tools, where supplying a field the model could not have
    * read is itself the failure — e.g. `write_variable.value` on a secret.

@@ -320,6 +320,23 @@ export function validateToolExpectations(input: {
       );
     }
 
+    if (rule.sharedByAtLeast !== undefined) {
+      const counts = new Map<string, number>();
+      for (const value of values) {
+        if (typeof value === "string" && value.trim().length > 0) {
+          counts.set(value, (counts.get(value) ?? 0) + 1);
+        }
+      }
+      const mostShared = Math.max(0, ...counts.values());
+      checks.push(
+        check(
+          `${rule.tool}.${rule.field} is shared by at least ${rule.sharedByAtLeast} calls`,
+          mostShared >= rule.sharedByAtLeast,
+          `most calls sharing one value: ${mostShared}; values: ${summarizeToolValues(values)}`
+        )
+      );
+    }
+
     if (rule.fieldMustBeAbsent) {
       // Anything other than `undefined` was supplied — an explicit `null` is the
       // model passing the field, not omitting it.

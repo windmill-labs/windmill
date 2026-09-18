@@ -345,8 +345,9 @@ const callMcpToolSchema = z.object({
 
 /**
  * The read and write call tools differ only in which side of the `readOnlyHint`
- * split they accept, and that check is what keeps a mutating call behind the
- * user's confirmation — building both from one body keeps them from drifting.
+ * split they accept, and that check is what keeps a mutating call out of plan
+ * mode and behind the user's confirmation — building both from one body keeps
+ * them from drifting.
  */
 function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> {
 	const isRead = mode === 'read'
@@ -360,7 +361,7 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> 
 		),
 		showDetails: true,
 		...(isRead
-			? {}
+			? { planModeSafe: true }
 			: {
 					requiresConfirmation: true,
 					confirmationMessage: (args: any) => `Call ${args?.tool ?? ''} on ${args?.server ?? ''}`
@@ -429,6 +430,7 @@ export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
 				'search_mcp_tools',
 				'Search the tools exposed by the MCP servers connected to this workspace (listed in the system prompt). Returns server + tool names to pass to call_mcp_read_tool or call_mcp_write_tool, each with the input schema its arguments must follow.'
 			),
+			planModeSafe: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				const parsed = searchMcpToolsSchema.parse(args)
 				toolCallbacks.setToolStatus(toolId, { content: 'Searching MCP tools...' })

@@ -5,6 +5,9 @@ export interface RecordedCall {
   url: URL
   headers: Record<string, string>
   body: unknown
+  /** A body sent as is rather than as JSON (an upload). */
+  raw?: Blob
+  signal?: AbortSignal
 }
 
 export type Route = (call: RecordedCall) => Response | Promise<Response> | undefined
@@ -20,7 +23,9 @@ export function fetchMock(...routes: Route[]): { fetch: FetchLike; calls: Record
       headers: Object.fromEntries(
         Object.entries((init?.headers as Record<string, string>) ?? {}).map(([k, v]) => [k.toLowerCase(), v])
       ),
-      body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
+      body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
+      raw: init?.body instanceof Blob ? init.body : undefined,
+      signal: init?.signal ?? undefined
     }
     calls.push(call)
     for (const route of routes) {

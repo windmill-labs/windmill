@@ -6,7 +6,6 @@ import {
 	type Job,
 	type RestartedFrom,
 	type OpenFlow,
-	type MemoryConfig,
 	type FlowValue,
 	type Retry
 } from '$lib/gen'
@@ -112,7 +111,6 @@ export function filteredContentForExport(flow: ExtendedOpenFlow) {
 }
 
 import { dfs as dfsApply } from './dfs'
-import { randomUUID } from '$lib/utils/uuid'
 
 export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	tag?: string
@@ -141,24 +139,8 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 		if (mod.value.type == 'rawscript' && mod.value.assets?.length == 0) {
 			mod.value.assets = undefined
 		}
-		// Generate memory_id for AI agents with auto memory if not already set
-		// Only if chat input is not enabled, as otherwise memory id is based on conversation id
-		if (!newFlow.value.chat_input_enabled && mod.value.type === 'aiagent') {
-			const memoryTransform = mod.value.input_transforms?.memory
-			if (memoryTransform?.type === 'static' && memoryTransform.value) {
-				const memoryValue = memoryTransform.value as MemoryConfig
-				if (
-					memoryValue.kind === 'auto' &&
-					memoryValue.context_length &&
-					memoryValue.context_length > 0 &&
-					!memoryValue.memory_id
-				) {
-					memoryTransform.value = {
-						...memoryValue,
-						memory_id: randomUUID()
-					}
-				}
-			}
+		if (mod.value.type === 'aiagent') {
+			normalizeAgentHistory(mod.value.input_transforms, newFlow.value.chat_input_enabled ?? false)
 		}
 	})
 	if (newFlow.value.concurrency_key == '') {
@@ -166,6 +148,43 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	}
 
 	return newFlow
+}
+
+/**
+ * A baked legacy id is dropped in a chat flow, which runs on the conversation id; elsewhere it
+ * stays until the author converts it. Blank static history inputs read as unset and managed
+ * memory keeping no messages runs as off, so each is saved as what it runs as.
+ */
+export function normalizeAgentHistory(
+	inputTransforms: Record<string, any> | undefined,
+	chatInputEnabled: boolean
+) {
+	if (!inputTransforms) return
+	const memory = inputTransforms.memory
+	if (
+		memory?.type === 'static' &&
+		memory.value?.kind === 'window' &&
+		!memory.value.context_length
+	) {
+		memory.value = { kind: 'off' }
+	}
+	if (
+		memory?.type === 'static' &&
+		memory.value?.kind === 'auto' &&
+		'memory_id' in memory.value &&
+		(chatInputEnabled || !String(memory.value.memory_id ?? '').trim())
+	) {
+		const { memory_id: _, ...policy } = memory.value
+		memory.value = policy
+	}
+	const memoryId = inputTransforms.memory_id
+	if (memoryId?.type === 'static' && !String(memoryId.value ?? '').trim()) {
+		delete inputTransforms.memory_id
+	}
+	const previousMessages = inputTransforms.previous_messages
+	if (previousMessages?.type === 'static' && !previousMessages.value?.length) {
+		delete inputTransforms.previous_messages
+	}
 }
 
 export function getDefaultExpr(

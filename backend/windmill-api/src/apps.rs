@@ -57,7 +57,7 @@ use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
     apps::{AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
-    auth::TOKEN_PREFIX_LEN,
+    auth::{APP_EMBED_TOKEN_LABEL_PREFIX, RAW_APP_SDK_TOKEN_LABEL_PREFIX, TOKEN_PREFIX_LEN},
     cache::{self, future::FutureCachedExt},
     db::{DbWithOptAuthed, UserDB},
     error::{to_anyhow, Error, JsonResult, Result},
@@ -1522,7 +1522,10 @@ async fn mint_raw_app_sdk_token(
                 scopes.push(windmill_api_auth::scopes::GUEST_SENTINEL.to_string());
                 (label, exp)
             }
-            None => (format!("sdk_app:{app_path}"), requested_exp),
+            None => (
+                format!("{RAW_APP_SDK_TOKEN_LABEL_PREFIX}{app_path}"),
+                requested_exp,
+            ),
         };
     let token_config = NewToken::new(
         Some(label),
@@ -1804,7 +1807,10 @@ pub async fn mint_app_embed_token(
                     scopes.push(windmill_api_auth::scopes::GUEST_SENTINEL.to_string());
                     (label, exp)
                 }
-                None => (format!("embed_app:{app_path}"), requested_exp),
+                None => (
+                    format!("{APP_EMBED_TOKEN_LABEL_PREFIX}{app_path}"),
+                    requested_exp,
+                ),
             };
         let token_config = NewToken::new(
             Some(label),
@@ -4304,11 +4310,11 @@ async fn execute_component(
         }
     }
 
-    let is_flow = payload
+    let flow_path = payload
         .path
-        .as_ref()
-        .map(|p| p.starts_with("flow/"))
-        .unwrap_or(false);
+        .as_deref()
+        .and_then(|path| path.strip_prefix("flow/"))
+        .map(str::to_string);
 
     // Tag for inline-script jobs is read from the deployed policy in run mode;
     // only preview mode (editor) honors the client-supplied tag. This applies to
@@ -4438,8 +4444,9 @@ async fn execute_component(
 
     // Apply runnable query parameters if provided
     if let Some(ref run_query) = payload.run_query_params {
-        if is_flow {
-            crate::jobs::process_flow_run_query_params(&mut tx, uuid, run_query).await?;
+        if let Some(flow_path) = flow_path.as_deref() {
+            crate::jobs::process_flow_run_query_params(&mut tx, uuid, &w_id, flow_path, run_query)
+                .await?;
         }
     }
 

@@ -31,8 +31,9 @@ Open-source platform for internal tools, workflows, API integrations, background
   `cargo run`; a normal build cannot start one at all.
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
 - **Auth surface**: `docs/auth-surface.md` — credential precedence, session/cache invalidation
-  scope, how OAuth login matches `login_type`, and that every superadmin route refuses `$WM_TOKEN`.
-  Read before designing anything that creates users, tokens or sessions.
+  scope, which token labels email their owner at expiry, how OAuth login matches `login_type`, and
+  that every superadmin route refuses `$WM_TOKEN`. Read before designing anything that creates
+  users, tokens or sessions.
 - **Product telemetry**: `docs/feature-telemetry.md` — when to instrument a new feature with
   `feature_usage`, and the four-step recipe. An unregistered `(feature, kind)` pair is dropped
   silently, so frontend-only instrumentation records nothing.

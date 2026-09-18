@@ -26,19 +26,23 @@ export interface ToolInvocation {
   status: 'running' | 'success' | 'error'
 }
 
+export interface ChatAttachment { input: string; s3: string; storage?: string; filename?: string }
+
 export interface ChatMessage {
   id: string
   role: ChatRole
   content: string
   /** The model's reasoning summary, when the provider streams one. */
   reasoning?: string
-  /** Set on `tool` messages that came from the live stream. */
+  /** The call on a `tool` message, from the live stream or its stored row; `callId` is only known from the stream. */
   tool?: ToolInvocation
   success: boolean
   createdAt: string
   jobId?: string
   /** The flow step that produced the message. */
   stepName?: string
+  /** The files a user message carried, as object-storage references. */
+  attachments?: ChatAttachment[]
   /** True while the message is optimistic or still streaming. */
   pending: boolean
   /** Id of the persisted row once the server has it; `id` itself never changes, so list keys stay stable. */
@@ -52,6 +56,11 @@ export interface Conversation {
   title: string | undefined
   createdAt: string
   updatedAt: string
+  /**
+   * Started from the flow editor's test panel rather than a deployed run. Known once the
+   * server has listed the conversation; unset for one only this client has seen.
+   */
+  isTest?: boolean
 }
 
 export interface ChatState {
@@ -118,18 +127,61 @@ export interface ChatOptions {
   onError?: (error: Error, turn: { conversationId: string; jobId?: string }) => void
 }
 
+/** A file sent with a message. It is uploaded to the workspace's object storage before the run starts. */
+export interface AttachmentUpload {
+  /** Kept as the last segment of the stored key, its extension corrected to the media type for PNG, JPEG and PDF. */
+  name: string
+  /** The bytes: a Blob, or a `data:` URL of them. */
+  data: Blob | string
+  /** The file's media type. Defaults to the Blob's own type, or the data URL's. */
+  mediaType?: string
+}
+
+/** The flow input the uploaded attachments are handed to: an `s3object` (`multiple: false`) or an `s3object[]`. */
+export interface AttachmentsInput {
+  name: string
+  multiple: boolean
+}
+
+export interface SendMessageOptions {
+  /** Extra flow inputs for this message, on top of `ChatOptions.inputs`. */
+  inputs?: Record<string, unknown>
+  /**
+   * Files to upload and hand to the flow as `{ s3, filename }` objects in `attachmentsInput`,
+   * the way an AI agent step reads `user_attachments`. A failed upload rejects `sendMessage`
+   * and the run never starts; `stop()` during the upload does the same with an `AbortError`.
+   */
+  attachments?: AttachmentUpload[]
+  /** Required with `attachments`, which also need message text. With `multiple: false`, more than one attachment is refused before anything uploads. */
+  attachmentsInput?: AttachmentsInput
+}
+
 export interface Chat {
   getState(): ChatState
   /** Calls `listener` now and on every change; returns the unsubscribe function (Svelte store contract). */
   subscribe(listener: (state: ChatState) => void): () => void
-  /** Sends a message in the current conversation, starting one when there is none. Resolves when the answer is complete. */
-  sendMessage(text: string, options?: { inputs?: Record<string, unknown> }): Promise<void>
+  /**
+   * Sends a message in the current conversation, starting one when there is none. Resolves
+   * when the answer is complete. Rejects when the message could not be sent at all — a turn
+   * already running, an attachment that failed to upload — without touching the transcript.
+   */
+  sendMessage(text: string, options?: SendMessageOptions): Promise<void>
   /** Stops following the answer and asks Windmill to cancel the run. */
   stop(): Promise<void>
   newConversation(): void
   selectConversation(conversationId: string): Promise<void>
-  loadConversations(options?: { page?: number; perPage?: number }): Promise<Conversation[]>
+  /**
+   * `kind` narrows server history to the flow editor's test chats, the deployed flow's
+   * own (the server's default), or both. Local history has no test chats and ignores it.
+   */
+  loadConversations(options?: {
+    page?: number
+    perPage?: number
+    kind?: 'test' | 'deployed' | 'all'
+  }): Promise<Conversation[]>
   deleteConversation(conversationId: string): Promise<void>
+  /** Sets a conversation's title. The list keeps its order: only a turn moves a conversation. */
+  renameConversation(conversationId: string, title: string): Promise<void>
   loadOlderMessages(): Promise<void>
   /** Stops background work (stream, polling) and writes local history out. The chat stays usable. */
   destroy(): void

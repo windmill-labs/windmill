@@ -53,7 +53,8 @@ export function useWindmillRuntime(options: WindmillRuntimeOptions): AssistantRu
             threads: chat.conversations.map((c) => ({ status: 'regular' as const, id: c.id, title: c.title })),
             onSwitchToNewThread: () => chat.newConversation(),
             onSwitchToThread: (id) => chat.selectConversation(id),
-            onDelete: (id) => chat.deleteConversation(id)
+            onDelete: (id) => chat.deleteConversation(id),
+            onRename: (id, title) => chat.renameConversation(id, title)
           }
         }
       : undefined
@@ -91,6 +92,7 @@ export function toThreadMessage(turn: WindmillTurn): ThreadMessageLike {
   }
   const content: ThreadContentPart[] = []
   for (const m of turn.messages) {
+    if (m.reasoning) content.push({ type: 'reasoning', text: m.reasoning })
     if (m.role === 'tool') {
       const args = parseJsonOr(m.tool?.arguments)
       content.push({
@@ -99,12 +101,12 @@ export function toThreadMessage(turn: WindmillTurn): ThreadMessageLike {
         toolName: m.tool?.name ?? 'tool',
         args: (isJsonObject(args) ? args : args === undefined ? {} : { input: args }) as ToolCallArgs,
         argsText: m.tool?.arguments ?? '',
-        result: m.tool?.status === 'running' ? undefined : (parseJsonOr(m.tool?.result) ?? m.content),
+        result:
+          m.tool?.status === 'running' ? undefined : m.tool?.result !== undefined ? parseJsonOr(m.tool.result) : m.content,
         isError: m.tool?.status === 'error'
       })
       continue
     }
-    if (m.reasoning) content.push({ type: 'reasoning', text: m.reasoning })
     if (m.content) content.push({ type: 'text', text: m.content })
   }
   const last = turn.messages[turn.messages.length - 1]

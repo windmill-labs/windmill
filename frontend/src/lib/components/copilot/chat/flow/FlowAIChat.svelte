@@ -4,6 +4,7 @@
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
 	import type { InputTransform } from '$lib/gen'
 	import type { FlowAIChatHelpers } from './core'
+	import { chatMemoryId } from '../global/core'
 	import { createInlineScriptSession } from './inlineScriptsUtils'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { getAiChatManager } from '../aiChatManagerContext'
@@ -173,7 +174,7 @@
 				previewArgs.val = args
 			}
 			// Call the UI test function which opens preview panel
-			return await onTestFlow?.(conversationId)
+			return await onTestFlow?.(conversationId ?? chatMemoryId(flowStore.val.value))
 		},
 
 		getLintErrors: async (moduleId: string): Promise<ScriptLintResult> => {

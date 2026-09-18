@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Tabs, Tab, TabContent } from '$lib/components/common'
+	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import DetailPageDetailPanel from './DetailPageDetailPanel.svelte'
 	import FlowViewerInner from '../FlowViewerInner.svelte'
@@ -11,10 +12,14 @@
 		forceSmallScreen?: boolean
 		isChatMode?: boolean
 		header?: import('svelte').Snippet
-		form?: import('svelte').Snippet
+		/** `graphInline`: whether the form should carry the flow graph under it. It does in the
+		 * split layout; the tabbed layout gives the graph a tab of its own. */
+		form?: import('svelte').Snippet<[{ graphInline: boolean }]>
 		scriptRender?: import('svelte').Snippet
 		save_inputs?: import('svelte').Snippet
-		flow_step?: import('svelte').Snippet
+		/** `onBack`: set where the step is a page pushed over the graph, so its header can lead
+		 * back; absent where the step has a tab of its own. */
+		flow_step?: import('svelte').Snippet<[{ onBack?: () => void }]>
 		triggers?: import('svelte').Snippet
 		flow_graph?: import('svelte').Snippet
 	}
@@ -34,7 +39,7 @@
 		flow_graph
 	}: Props = $props()
 
-	let mobileTab: 'form' | 'detail' = $state('form')
+	let mobileTab = $state('form')
 
 	let clientWidth = $state(window.innerWidth)
 
@@ -44,7 +49,22 @@
 	const triggers_render = $derived(triggers)
 	const flow_graph_render = $derived(flow_graph)
 
-	const useDesktopLayout = $derived(clientWidth >= 768 && !forceSmallScreen)
+	// 1024 (Tailwind `lg`), where the page header also stops collapsing its actions: below it
+	// the split's right pane is under 340px, too narrow for a step's code.
+	const useDesktopLayout = $derived(clientWidth >= 1024 && !forceSmallScreen)
+
+	// The tabbed layout has no Step tab: a step opens as a page pushed over the graph tab, and
+	// the way back is the graph.
+	const graphPage = $derived(selected === 'flow_step' ? 'step' : 'graph')
+
+	/** Show the triggers pane: the right pane's tab in the split layout, the Triggers tab in the
+	 * tabbed one. A method rather than a value the caller sets, because asking twice in a row is
+	 * two requests — the tab may have been left in between — and a value set to what it already
+	 * holds changes nothing. */
+	export function showTriggers() {
+		selected = 'triggers'
+		mobileTab = 'triggers'
+	}
 </script>
 
 <main class="h-screen w-full" bind:clientWidth>
@@ -54,7 +74,7 @@
 			<div class="grow min-h-0 w-full">
 				<Splitpanes>
 					<Pane size={65} minSize={50}>
-						{@render form?.()}
+						{@render form?.({ graphInline: true })}
 					</Pane>
 					<Pane size={35} minSize={15}>
 						<DetailPageDetailPanel bind:selected {isOperator} {flow_json}>
@@ -65,7 +85,11 @@
 								{@render save_inputs_render?.()}
 							{/snippet}
 							{#snippet flow_step()}
-								{@render flow_step_render?.()}
+								<!-- No overflow of its own: the step body is the scroll container its sticky
+								     header keys on, so it has to be the flex item that shrinks. -->
+								<div class="flex min-h-0 grow flex-col p-2">
+									{@render flow_step_render?.({})}
+								</div>
 							{/snippet}
 							{#snippet triggers()}
 								{@render triggers_render?.()}
@@ -79,12 +103,15 @@
 		<div class="h-full w-full flex flex-col">
 			{@render header?.()}
 			<div class="grow min-h-0 w-full flex flex-col">
-				<Tabs bind:selected={mobileTab} wrapperClass="flex-none">
+				<!-- no-scrollbar: at phone widths the tabs overflow their strip, and a browser with
+				     classic scrollbars would spend a track under them, opening a band between the tabs
+				     and the content. Wheel, trackpad and drag still scroll the strip. -->
+				<Tabs bind:selected={mobileTab} wrapperClass="flex-none no-scrollbar">
 					<Tab value="form" label={isChatMode ? 'Chat' : 'Run form'} />
 					{#if !isChatMode}
 						<Tab value="saved_inputs" label="Inputs" />
 					{/if}
-					{#if isChatMode && flow_json}
+					{#if flow_json}
 						<Tab value="flow" label="Flow graph" />
 					{/if}
 					{#if !isOperator}
@@ -99,7 +126,7 @@
 					{#snippet content()}
 						<div class="grow min-h-0 overflow-y-auto">
 							<TabContent value="form" class="flex flex-col flex-1 h-full">
-								{@render form?.()}
+								{@render form?.({ graphInline: false })}
 							</TabContent>
 
 							<TabContent value="saved_inputs" class="flex flex-col flex-1 h-full">
@@ -108,9 +135,9 @@
 							<TabContent value="triggers" class="flex flex-col flex-1 h-full mt-[-2px]">
 								{@render triggers?.()}
 							</TabContent>
-							{#if isChatMode && flow_json}
+							{#if flow_json}
 								<TabContent value="flow" class="flex flex-col flex-1 h-full">
-									{@render flow_graph_render?.()}
+									{@render pagedGraph()}
 								</TabContent>
 							{/if}
 							{#if flow_json}
@@ -128,3 +155,34 @@
 		</div>
 	{/if}
 </main>
+
+<!-- Warmed so a tab reopened on the step page has the graph built before the way back is taken;
+     the pages are absolutely positioned, so each carries its own scroll. -->
+{#snippet pagedGraph()}
+	<PagedContent
+		warm
+		class="h-full"
+		current={graphPage}
+		onNavigate={(key) => {
+			if (key === 'graph') selected = 'saved_inputs'
+		}}
+		pages={[
+			{ key: 'graph', content: graphPageContent },
+			{ key: 'step', content: stepPageContent }
+		]}
+	/>
+{/snippet}
+
+{#snippet graphPageContent()}
+	<div class="h-full overflow-y-auto flex flex-col">
+		{@render flow_graph_render?.()}
+	</div>
+{/snippet}
+
+{#snippet stepPageContent()}
+	<!-- The step body brings its own inner padding; this outer band brings it level with the
+	     Inputs and Export tabs. No overflow of its own, as in the split layout above. -->
+	<div class="flex min-h-0 grow flex-col p-2">
+		{@render flow_step_render?.({ onBack: () => (selected = 'saved_inputs') })}
+	</div>
+{/snippet}

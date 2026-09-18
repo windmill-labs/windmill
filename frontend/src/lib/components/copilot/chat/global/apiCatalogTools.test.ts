@@ -32,6 +32,36 @@ const CATALOG = [
 		}
 	},
 	{
+		name: 'listDataMetrics',
+		description: 'List declared measures and dimensions',
+		instructions: '',
+		path: '/w/{workspace}/data_metrics/list',
+		method: 'GET'
+	},
+	{
+		name: 'listQueue',
+		description: 'List queued jobs',
+		instructions: 'List the jobs waiting in the queue',
+		path: '/w/{workspace}/jobs/queue/list',
+		method: 'GET',
+		query_params_schema: {
+			type: 'object',
+			properties: { running: { type: 'boolean' }, per_page: { type: 'integer' } }
+		}
+	},
+	{
+		name: 'getJobUpdates',
+		description: 'Get job updates',
+		instructions: '',
+		path: '/w/{workspace}/jobs_u/getupdate/{id}',
+		method: 'GET',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' }, id: { type: 'string' } },
+			required: ['workspace', 'id']
+		}
+	},
+	{
 		name: 'getJob',
 		description: 'Get job details',
 		instructions: '',
@@ -165,11 +195,12 @@ beforeEach(() => {
 
 describe('search_api_endpoints', () => {
 	it('matches on name/path tokens, plural-insensitively, and excludes covered endpoints', async () => {
-		const result = await run('search_api_endpoints', { query: 'worker' })
-		expect(result.matches.map((m: any) => m.name)).toEqual(['listWorkers'])
-		expect(result.matches[0].endpoint).toBe('GET /workers/list')
-		expect(result.matches[0].params).toEqual(['page', 'per_page'])
-		expect(result.matches[0].instructions).toContain('ping status')
+		// Singular "job" matches the plural "jobs" path segment.
+		const result = await run('search_api_endpoints', { query: 'list queued job' })
+		expect(result.matches[0].name).toBe('listQueue')
+		expect(result.matches[0].endpoint).toBe('GET /w/{workspace}/jobs/queue/list')
+		expect(result.matches[0].params).toEqual(['running', 'per_page'])
+		expect(result.matches[0].instructions).toContain('waiting in the queue')
 
 		const flows = await run('search_api_endpoints', { query: 'create flow' })
 		expect(flows.matches.map((m: any) => m.name)).not.toContain('createFlow')
@@ -179,8 +210,11 @@ describe('search_api_endpoints', () => {
 	it('returns endpoint categories when nothing matches', async () => {
 		const result = await run('search_api_endpoints', { query: 'kubernetes' })
 		expect(result.matches).toEqual([])
-		expect(result.hint).toContain('workers')
-		expect(result.hint).toContain('jobs')
+		expect(result.hint).toContain('jobs_u')
+		// Categories are built from the uncovered endpoints only, so a covered one
+		// must not be advertised as somewhere to retry.
+		expect(result.hint).not.toContain('workers')
+		expect(result.hint).not.toContain('data_metrics')
 	})
 })
 
@@ -194,6 +228,9 @@ describe('call_api_get', () => {
 
 		const mutating = await run('call_api_get', { name: 'cancelQueuedJob' })
 		expect(mutating.error).toContain('call_api_endpoint')
+
+		const job = await run('call_api_get', { name: 'getJob' })
+		expect(job.error).toContain('get_run')
 
 		const deleting = await run('call_api_endpoint', { name: 'deleteSchedule' })
 		expect(deleting.error).toContain('delete_workspace_item')
@@ -238,6 +275,21 @@ describe('call_api_get', () => {
 		expect(search.matches.map((m: any) => m.name)).not.toContain('getScriptByPath')
 	})
 
+	it('refuses the worker and data-metric reads, pointing at their dedicated tools', async () => {
+		for (const [name, tool, query] of [
+			['listWorkers', 'list_workers', 'workers'],
+			['listDataMetrics', 'list_data_metrics', 'data metrics']
+		]) {
+			const result = await run('call_api_get', { name })
+			expect(result.success).toBe(false)
+			expect(result.error).toContain(tool)
+
+			const search = await run('search_api_endpoints', { query })
+			expect(search.matches.map((m: any) => m.name)).not.toContain(name)
+			expect(search.covered_by_dedicated_tools?.join(' ')).toContain(tool)
+		}
+	})
+
 	it('refuses variable reads so variable values never reach the model', async () => {
 		const result = await run('call_api_get', { name: 'getVariable' })
 		expect(result.success).toBe(false)
@@ -248,7 +300,7 @@ describe('call_api_get', () => {
 	})
 
 	it('returns the endpoint schema when a required path param is missing', async () => {
-		const result = await run('call_api_get', { name: 'getJob' })
+		const result = await run('call_api_get', { name: 'getJobUpdates' })
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('id')
 		expect(result.schema.path_params_schema.required).toContain('id')
@@ -258,12 +310,14 @@ describe('call_api_get', () => {
 		const fetchMock = vi.fn().mockResolvedValue({
 			ok: true,
 			headers: new Headers({ 'content-type': 'application/json' }),
-			json: async () => [{ worker: 'w1' }]
+			json: async () => [{ id: 'job-1' }]
 		})
 		vi.stubGlobal('fetch', fetchMock)
-		const result = await run('call_api_get', { name: 'listWorkers', params: { page: 2 } })
-		expect(fetchMock).toHaveBeenCalledWith('/api/workers/list?page=2', { method: 'GET' })
-		expect(result).toEqual({ success: true, data: [{ worker: 'w1' }] })
+		const result = await run('call_api_get', { name: 'listQueue', params: { running: true } })
+		expect(fetchMock).toHaveBeenCalledWith('/api/w/test-ws/jobs/queue/list?running=true', {
+			method: 'GET'
+		})
+		expect(result).toEqual({ success: true, data: [{ id: 'job-1' }] })
 	})
 })
 
@@ -290,7 +344,7 @@ describe('call_api_endpoint', () => {
 	})
 
 	it('redirects GET endpoints to call_api_get', async () => {
-		const result = await run('call_api_endpoint', { name: 'listWorkers' })
+		const result = await run('call_api_endpoint', { name: 'listQueue' })
 		expect(result.error).toContain('call_api_get')
 	})
 })

@@ -1,6 +1,6 @@
 import { deepEqual } from 'fast-equals'
 import type { InputTransform } from '$lib/gen'
-import { AGENT_FIELDS } from './agentFormFields'
+import { AGENT_FIELDS, describeMemoryPolicy } from './agentFormFields'
 
 // The brain fields stored flat in an `ai_agent` resource value. The flow-local inputs below are
 // intentionally excluded — they are supplied per-flow.
@@ -20,9 +20,16 @@ export const AGENT_BRAIN_KEYS = [
  * The inputs a step supplies for itself, whether or not it is linked to a saved agent.
  *
  * `enabled_tools` is one of them because it narrows one use of an agent rather than the agent:
- * saving it into the resource would impose one flow's roster on every flow linking it.
+ * saving it into the resource would impose one flow's roster on every flow linking it. The history
+ * inputs are too, since which conversation a step reads belongs to the flow using the agent.
  */
-export const AGENT_FLOW_LOCAL_KEYS = ['user_message', 'user_attachments', 'enabled_tools'] as const
+export const AGENT_FLOW_LOCAL_KEYS = [
+	'user_message',
+	'user_attachments',
+	'enabled_tools',
+	'memory_id',
+	'previous_messages'
+] as const
 
 export type AgentTool = Record<string, any>
 
@@ -177,8 +184,7 @@ export function summarizeAgentBrain(
 		if (key === 'provider') {
 			value = [v.kind, v.model].filter(Boolean).join(' · ') || 'configured'
 		} else if (key === 'memory') {
-			// Memory configs are serialized with a `kind` tag (serde tag = "kind").
-			value = typeof v === 'object' ? (v.kind ?? v.type ?? 'configured') : String(v)
+			value = typeof v === 'object' ? describeMemoryPolicy(v) : String(v)
 		} else if (key === 'output_schema') {
 			value = 'configured'
 		} else if (typeof v === 'boolean') {

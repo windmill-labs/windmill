@@ -104,6 +104,7 @@
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
+		editInForkDescription,
 		editInForkLabel,
 		onEditInForkClick
 	} from '$lib/utils/editInFork'
@@ -493,6 +494,8 @@
 		if (!topHash && script && !$userStore?.operator && !script.codebase) {
 			buttons.push({
 				label: 'Fork',
+				description: `Start a new script from a copy of this one`,
+				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: `${base}/scripts/add?template=${script.path}`,
 					onClick: interceptNav(onNavigate, `/scripts/add?template=${script.path}`),
@@ -512,6 +515,8 @@
 		) {
 			buttons.push({
 				label: editInForkLabel(workspace, $userWorkspaces),
+				description: editInForkDescription('script', workspace, $userWorkspaces),
+				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: buildForkEditUrl('script', script.path),
 					onClick: (e: Event | undefined) =>
@@ -545,6 +550,7 @@
 		if (Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0) {
 			buttons.push({
 				label: `History`,
+				narrow: 'menu',
 				buttonProps: {
 					onClick: () => {
 						versionsDrawerOpen = !versionsDrawerOpen
@@ -560,6 +566,7 @@
 		if (!$userStore?.operator) {
 			buttons.push({
 				label: 'Build app',
+				narrow: 'menu',
 				buttonProps: {
 					onClick: async () => {
 						const app = createRawAppFromScript(script.path, script.summary, script.schema)

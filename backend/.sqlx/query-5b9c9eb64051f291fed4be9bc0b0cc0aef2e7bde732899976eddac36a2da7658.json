@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE flow_conversation SET title = $1, updated_at = updated_at\n         WHERE id = $2 AND workspace_id = $3\n         RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5b9c9eb64051f291fed4be9bc0b0cc0aef2e7bde732899976eddac36a2da7658"
+}

@@ -11,6 +11,7 @@ import { canWrite } from '$lib/utils'
 import type { UserExt } from '$lib/stores'
 import { dfs } from './dfs'
 import { flowLocalInputs, type AIAgentConfig } from './agentResourceUtils'
+import { AGENT_HISTORY_KEYS } from './agentFormFields'
 import type { AgentResourceState } from './agentDraft.svelte'
 import type { AgentTool } from './agentToolUtils'
 
@@ -196,17 +197,21 @@ type AiAgentValue = Extract<FlowModule['value'], { type: 'aiagent' }>
  * the step's own flow-local inputs kept on top.
  *
  * The overlay order is the worker's (`ai_executor.rs`): its linked branch interpolates the whole
- * resource brain and only then writes `user_message`/`user_attachments` back from the step's own
- * args. `tool_inputs` stays untouched — the worker overlays it onto the tools in both branches, so
- * an inlined step keeps the host flow's tool bindings.
+ * resource brain and only then writes the flow-local inputs (`user_message`, `user_attachments`,
+ * `enabled_tools`, `memory_id`, `previous_messages`) back from the step's own args. `tool_inputs`
+ * stays untouched — the worker overlays it onto the tools in both branches, so an inlined step
+ * keeps the host flow's tool bindings. The worker never reads a history input from the resource,
+ * so one a draft happens to carry is left out here too.
  */
 export function inlineAgentDraft(value: AiAgentValue, args: AIAgentConfig): AiAgentValue {
 	const { agent: _agent, ...rest } = value
+	const brain = agentArgsToTransforms(args)
+	for (const key of AGENT_HISTORY_KEYS) delete brain[key]
 	return {
 		...rest,
 		tools: (args.tools ?? []) as AgentTool[],
 		input_transforms: {
-			...agentArgsToTransforms(args),
+			...brain,
 			...flowLocalInputs(value.input_transforms as Record<string, InputTransform>)
 		}
 	} as AiAgentValue

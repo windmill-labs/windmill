@@ -478,6 +478,12 @@ pub static WORKER_INTERNAL_SERVER_INLINE_UTILS: OnceCell<WorkerInternalServerInl
 /// set-based deletes below cost one scan per table per call instead. Because the cascade no
 /// longer fires, every code path that deletes from `v2_job` by id must go through this helper
 /// (or delete these tables itself) or it will leave orphan rows behind.
+/// **Transaction contract:** call this inside a transaction. The conversation cleanup below
+/// locks rows to serialise itself against a concurrent delete, and on an autocommit
+/// connection that lock is released at statement end, silently restoring the race.
+/// A conversation is collected only once every message row of it has gone with a job; a
+/// row written with no job id (an MCP tool call, persisted under no job of its own) keeps
+/// its conversation and the agent's memory for it alive for as long as it exists.
 pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> error::Result<()> {
     sqlx::query!(
         "DELETE FROM dispatch_event WHERE producer_job_id = ANY($1)",
@@ -485,12 +491,55 @@ pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> e
     )
     .execute(&mut *conn)
     .await?;
-    sqlx::query!(
-        "DELETE FROM flow_conversation_message WHERE job_id = ANY($1)",
+    let mut conversation_ids: Vec<uuid::Uuid> = sqlx::query_scalar!(
+        "DELETE FROM flow_conversation_message WHERE job_id = ANY($1) RETURNING conversation_id",
         ids
     )
-    .execute(&mut *conn)
+    .fetch_all(&mut *conn)
     .await?;
+    conversation_ids.sort_unstable();
+    conversation_ids.dedup();
+    if !conversation_ids.is_empty() {
+        // A conversation is a view over its messages: once the last one goes with its job,
+        // the row and the agent's memory for it are all that is left, and nothing else
+        // collects them — `ai_agent_memory` carries no job id for retention to match on.
+        // Two statements rather than one CTE: a data-modifying CTE reads the snapshot from
+        // before the delete above, so every conversation would still look non-empty.
+        // Two calls each deleting one of a conversation's last messages would each still see
+        // the other's row — uncommitted deletes are invisible across transactions — so
+        // neither would collect it and nothing would try again. Taking the conversation row
+        // first serialises them: the second reads the first's delete and finds it empty.
+        sqlx::query_scalar!(
+            "SELECT id FROM flow_conversation WHERE id = ANY($1) ORDER BY id FOR UPDATE",
+            &conversation_ids
+        )
+        .fetch_all(&mut *conn)
+        .await?;
+        // Memory first, since it reads the conversation row for its workspace.
+        sqlx::query!(
+            "DELETE FROM ai_agent_memory a
+               USING flow_conversation c
+              WHERE c.id = ANY($1)
+                AND a.conversation_id = c.id
+                AND a.workspace_id = c.workspace_id
+                AND NOT EXISTS (
+                    SELECT 1 FROM flow_conversation_message m WHERE m.conversation_id = c.id
+                )",
+            &conversation_ids
+        )
+        .execute(&mut *conn)
+        .await?;
+        sqlx::query!(
+            "DELETE FROM flow_conversation c
+              WHERE c.id = ANY($1)
+                AND NOT EXISTS (
+                    SELECT 1 FROM flow_conversation_message m WHERE m.conversation_id = c.id
+                )",
+            &conversation_ids
+        )
+        .execute(&mut *conn)
+        .await?;
+    }
     sqlx::query!("DELETE FROM zombie_job_counter WHERE job_id = ANY($1)", ids)
         .execute(&mut *conn)
         .await?;
