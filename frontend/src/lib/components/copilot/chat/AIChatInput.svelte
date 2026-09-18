@@ -378,6 +378,7 @@
 	)
 	$effect(() => {
 		chatHost.setComposerStaged(composerKey, editingMessageIndex, stagedBytes)
+		chatHost.setComposerHasDraft(composerKey, !draft.isEmpty || pendingFileBytes > 0)
 	})
 	$effect(() => () => chatHost.clearComposerStaged(composerKey))
 

@@ -2822,6 +2822,27 @@ export class AIChatManager implements ChatViewHost {
 
 	clearComposerStaged(key: string) {
 		this.#composerStaged.delete(key)
+		this.#composersWithDraft.delete(key)
+	}
+
+	// Composers whose draft is non-empty. The draft itself is component-local, so
+	// this is the only way to know an unmount would lose unsent input.
+	#composersWithDraft = new SvelteSet<string>()
+
+	setComposerHasDraft(key: string, hasDraft: boolean) {
+		if (hasDraft) this.#composersWithDraft.add(key)
+		else this.#composersWithDraft.delete(key)
+	}
+
+	/** Unsent input an unmount of this chat would lose: a composer draft, or a
+	 *  queued message (whose text may be empty when it carries only attachments
+	 *  or context). */
+	get hasUnsentInput(): boolean {
+		return (
+			this.#composersWithDraft.size > 0 ||
+			!this.#queuedDraft.isEmpty ||
+			this.queuedContext !== undefined
+		)
 	}
 
 	/** Release the outgoing-files reservation identified by `key` (a per-send token).

@@ -228,6 +228,8 @@ export interface SessionRuntime {
 }
 
 const runtimes = new SvelteMap<string, SessionRuntime>()
+// Sessions whose runtime is still restoring its chat (initRuntime pending).
+const initializing = new Set<string>()
 
 function emptyFlow(): Flow {
 	return {
@@ -990,7 +992,10 @@ export function getOrCreateRuntime(session: Session): SessionRuntime {
 	if (!runtime) {
 		runtime = createRuntime(session)
 		runtimes.set(session.id, runtime)
-		initRuntime(runtime, session).catch((e) => console.error('Failed to init session runtime', e))
+		initializing.add(session.id)
+		initRuntime(runtime, session)
+			.catch((e) => console.error('Failed to init session runtime', e))
+			.finally(() => initializing.delete(session.id))
 	}
 	return runtime
 }
@@ -1040,6 +1045,9 @@ onRemoteTurnEnd((sessionId, chatId) => {
 async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<void> {
 	const runtime = runtimes.get(sessionId)
 	if (!runtime) {
+		// The driving tab may have rotated to a new chat; follow it, or the next
+		// read and a later runtime would open the old one.
+		setSessionChatId(sessionId, chatId)
 		peeks.delete(sessionId)
 		return
 	}
@@ -1455,10 +1463,13 @@ const visitOrder: string[] = []
 function isEvictable(runtime: SessionRuntime): boolean {
 	const m = runtime.manager
 	return (
+		// initRuntime has no cancellation: evicted mid-way, it would go on to restore
+		// the chat's jobs into a manager nothing owns, which then polls them.
+		!initializing.has(runtime.sessionId) &&
 		!m.loading &&
 		!m.sendInFlight &&
 		m.instructions.trim() === '' &&
-		m.queuedMessage.trim() === '' &&
+		!m.hasUnsentInput &&
 		!m.backgroundJobs.some(isLiveJob) &&
 		!runtime.hasEditorCells()
 	)
