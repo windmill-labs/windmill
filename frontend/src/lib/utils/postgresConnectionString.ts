@@ -35,15 +35,10 @@ function paramsOf(connectionString: string): Map<string, string> {
 	const query = connectionString.split('?').slice(1).join('?')
 	const params = new Map<string, string>()
 	if (!query) return params
-	// Not URLSearchParams: it reads `+` as a space, where libpq keeps it (`timezone=Etc/GMT+3`).
-	for (const pair of query.split('&')) {
-		if (!pair) continue
-		const eq = pair.indexOf('=')
-		params.set(
-			decode(eq === -1 ? pair : pair.slice(0, eq)),
-			eq === -1 ? '' : decode(pair.slice(eq + 1))
-		)
-	}
+	// URLSearchParams reads `+` as a space, where libpq keeps it (`timezone=Etc/GMT+3`).
+	new URLSearchParams(query.replaceAll('+', '%2B')).forEach((value, name) =>
+		params.set(name, value)
+	)
 	return params
 }
 
