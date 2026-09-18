@@ -1111,8 +1111,8 @@ components:
                 parameter). Leave unset to use the run's memory id. A fixed value shares one memory
                 across every run; an expression such as `flow_input.customer_id` keeps one memory per
                 key. When it evaluates to an empty value the agent runs without memory. Read only
-                while `memory` is `window`: it is ignored when memory is off, and an older `auto` or
-                `manual` memory reads neither history input.
+                while `memory` is `window` or `compaction`: it is ignored when memory is off, and an
+                older `auto` or `manual` memory reads neither history input.
             previous_messages:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'

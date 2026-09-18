@@ -99,7 +99,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 							type: 'number',
 							title: 'Context window',
 							description:
-								"Context size in tokens. Older messages are summarized as requests approach it. Leave empty for the model's known size, 128000 if Windmill does not know the model."
+								"Context size in tokens. Older messages are summarized as requests approach it. Leave empty for the model's known size (128000 if unknown)."
 						}
 					},
 					required: ['kind']

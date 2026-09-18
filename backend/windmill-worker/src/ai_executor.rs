@@ -147,8 +147,7 @@ async fn compact_if_needed(
     let (Some(compactor), Some(timeout)) = (ctx.compactor, ctx.timeout) else {
         return false;
     };
-    let before = messages.len();
-    let usage = compactor
+    let pass = compactor
         .maybe_compact(
             messages,
             last_request,
@@ -164,14 +163,13 @@ async fn compact_if_needed(
             },
         )
         .await;
-    if let Some(usage) = usage {
+    if let Some(usage) = pass.usage {
         match final_usage {
             Some(existing) => existing.accumulate(&usage),
             None => *final_usage = Some(usage),
         }
     }
-    // A compaction folds several messages into one summary.
-    messages.len() < before
+    pass.compacted
 }
 
 /// The inputs a linked step supplies for itself; the resource holds the rest of the brain.
@@ -199,7 +197,7 @@ enum HistorySource<'a> {
 }
 
 /// What keeps a managed conversation inside the model's context.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 enum MemoryBound {
     /// Only the most recent messages are sent and kept.
     LastMessages(usize),
@@ -1539,10 +1537,8 @@ pub async fn run_agent(
     // The window a persisted conversation has to fit in, when the storage is smaller
     // than the model. The database cuts what it cannot hold from the oldest message,
     // summary first, so a step that persists there summarizes down to it before writing.
-    let persist_window = match (&compactor, &history, effective_flow_step_id) {
-        (Some(_), HistorySource::Managed { .. }, Some(_)) => {
-            memory_storage_capacity_bytes().await.map(|bytes| bytes / 4)
-        }
+    let persist_capacity = match (&compactor, &history, effective_flow_step_id) {
+        (Some(_), HistorySource::Managed { .. }, Some(_)) => memory_storage_capacity_bytes().await,
         _ => None,
     };
     // The summarization call runs under the agent's own request timeout, which resolves
@@ -2145,8 +2141,8 @@ pub async fn run_agent(
     // iteration, so this is the only compaction a chat-shaped step ever gets: without it
     // the conversation is persisted whole and every later turn reloads it, until the
     // provider refuses the request outright.
-    let storage_bound = match (compactor.as_mut(), persist_window) {
-        (Some(compactor), Some(window)) => compactor.shrink_window(window),
+    let storage_bound = match (compactor.as_mut(), persist_capacity) {
+        (Some(compactor), Some(bytes)) => compactor.bound_by_storage(bytes),
         _ => false,
     };
     let compacted = compact_if_needed(

@@ -973,8 +973,6 @@ mod tests {
         assert_eq!(anthropic.total_tokens, Some(5510));
         // Kept as the subsets they have become, for the cost split.
         assert_eq!(anthropic.cache_read_input_tokens, Some(5000));
-
-        assert_eq!(TokenUsage::default().input_tokens, None);
     }
 
     /// Helper to create a simple string type schema

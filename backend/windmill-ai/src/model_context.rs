@@ -88,7 +88,7 @@ pub fn is_openai_reasoning_model(model: &str) -> bool {
 }
 
 /// The window this model is known to hold, `None` for one not in the table.
-pub fn known_model_context_window(model: &str) -> Option<usize> {
+fn known_model_context_window(model: &str) -> Option<usize> {
     let id = bare_model_id(model);
     MODEL_CONTEXT_WINDOWS
         .iter()

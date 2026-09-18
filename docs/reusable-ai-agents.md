@@ -100,17 +100,18 @@ replaces it with that summary. The gap between trigger and target is what one co
 each summarization request carries most of the window, so a target close to the trigger would
 spend that on a few turns of room. The summarization request carries no tool definitions, so the
 prefix's tool calls and results go to it rendered as text: Bedrock rejects tool blocks that arrive
-without the definitions that produced them. The tail never
-opens on a `tool` message, a prefix that is only a previous summary is never summarized again, and
-three consecutive failures stop it for the run. Nothing about it is fatal: a failed summarization
-leaves the conversation as it was. The summarization request is capped at the reserve and asks
-Gemini and OpenAI's reasoning models for their least thinking, since both think by default and bill
-it against that same cap; the step's own reasoning effort is not carried over.
+without the definitions that produced them. The tail never opens on a `tool` message, a prefix
+that is only a previous summary is never summarized again, and three consecutive failures stop it
+for the run. Nothing about it is fatal: a failed summarization leaves the conversation as it was.
+The summarization request is capped at the reserve and asks Gemini and OpenAI's reasoning models
+for their least thinking, since both think by default and bill it against that same cap; the
+step's own reasoning effort is not carried over, and OpenAI's pro variants get none, since each
+rejects everything below its own floor.
 
-The count the trigger reads is `TokenUsage::prompt_tokens`, which is `input_tokens` and nothing
-else. Each provider's parser normalizes that field to the whole prompt first — Anthropic and
-Bedrock report their cached prefix beside it, so `with_cache_beside_input` folds it in, while the
-OpenAI-shaped ones already count it inside.
+The count the trigger reads is `TokenUsage::input_tokens` and nothing else. Each provider's parser
+normalizes that field to the whole prompt first — Anthropic and Bedrock report their cached prefix
+beside it, so `with_cache_beside_input` folds it in, while the OpenAI-shaped ones already count it
+inside.
 
 Memory is stored per (memory id, step id), in `ai_agent_memory` or S3 at
 `memory/{workspace}/{memory id}/{step}.json`. The chat transcript (`flow_conversation_message`)
@@ -118,18 +119,19 @@ always follows the run's id, even when a step sets its own. The database rows ar
 (`MAX_MEMORY_SIZE_BYTES`) and cut from the oldest message, the summary included. So when memory
 goes to the database (`memory_storage_capacity_bytes` in `memory_oss.rs`/`memory_ee.rs`), the
 post-loop pass of a compaction step runs against the smaller of the model's window and the cap at
-`chars/4`, about 25k tokens: the run itself gets the whole window, and what is written is a summary
-plus a tail that fits. The step's log says so when that pass summarizes, and says how many messages
-were dropped if a write still overshoots. Nothing expires stored memory: deleting
-a chat conversation deletes its memory, and a memory named by a string id stays until it is
-overwritten.
+`chars/4`, about 25k tokens, and measures the conversation as it will be written rather than by
+the provider's count, since repetitive text packs several characters into a token: the run itself
+gets the whole window, and what is written is a summary plus a tail that fits. The step's log says
+so when that pass summarizes, and says how many messages were dropped if a write still overshoots.
+Nothing expires stored memory: deleting a chat conversation deletes its memory, and a memory named
+by a string id stays until it is overwritten.
 
 Compatibility runs one way. New workers read every older shape. The editor rewrites a legacy step
 only when the author changes it, so a flow nobody edits keeps running on older workers, while a
-step saved with `window`, `compaction` or a history input needs a worker that knows them. An id an older editor
-baked into `memory` stays a fallback behind the run's id until the author chooses *Keep as memory
-id* or *Use the run's memory id*. In a chat flow it is dropped on save, since the conversation id
-always took precedence there.
+step saved with `window`, `compaction` or a history input needs a worker that knows them. An id an
+older editor baked into `memory` stays a fallback behind the run's id until the author chooses
+*Keep as memory id* or *Use the run's memory id*. In a chat flow it is dropped on save, since the
+conversation id always took precedence there.
 
 ## Drafts
 

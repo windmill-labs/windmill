@@ -49,10 +49,10 @@ const MIN_PREFIX_SHARE_TO_SUMMARIZE: usize = 4;
 /// round trip through persisted memory — which it does, being part of the content.
 const SUMMARY_MESSAGE_OPENING: &str =
     "This conversation is being continued from an earlier portion that ran out of context.";
-/// What one attachment costs once the provider's request builder turns the S3 path the
-/// message list holds into the image or PDF it points at. Nominal, but three orders of
-/// magnitude closer than the path's own length, which is what the estimate would
-/// otherwise charge for a page of a document.
+/// The least one attachment costs once the provider's request builder turns the S3 path
+/// the message list holds into the image or PDF it points at. Once the provider has
+/// counted a request carrying attachments, `attachment_tokens` prices them from that
+/// count instead; this is the floor, and the price where nothing was counted.
 const S3_ATTACHMENT_NOMINAL_TOKENS: usize = 1500;
 /// After this many failed summarizations the run stops trying, so a provider that
 /// rejects the summarization request does not add a wasted call to every iteration. The
@@ -143,18 +143,24 @@ Structure your output like this:
 
 Please provide your summary following this structure, ensuring precision and thoroughness."#;
 
-/// Rough per-message token count, used only to choose where to cut the conversation.
-/// The trigger itself runs off the provider's own count; this only has to rank
-/// messages by size consistently.
-fn estimate_message_tokens(message: &OpenAIMessage) -> usize {
-    let mut attachments = 0;
+/// How many S3 attachments a message carries.
+fn attachment_count(message: &OpenAIMessage) -> usize {
+    match message.content.as_ref() {
+        Some(OpenAIContent::Parts(parts)) => parts
+            .iter()
+            .filter(|part| matches!(part, ContentPart::S3Object { .. }))
+            .count(),
+        _ => 0,
+    }
+}
+
+/// Rough per-message token count, each attachment priced at `attachment_tokens`. It
+/// sizes the split, and prices for the trigger the messages the provider has not
+/// counted yet, so it only has to be consistent.
+fn estimate_message_tokens(message: &OpenAIMessage, attachment_tokens: usize) -> usize {
     let content_len = match message.content.as_ref() {
         Some(OpenAIContent::Text(text)) => text.len(),
         Some(OpenAIContent::Parts(parts)) => {
-            attachments = parts
-                .iter()
-                .filter(|part| matches!(part, ContentPart::S3Object { .. }))
-                .count();
             serde_json::to_string(parts).map(|s| s.len()).unwrap_or(0)
         }
         None => 0,
@@ -165,13 +171,37 @@ fn estimate_message_tokens(message: &OpenAIMessage) -> usize {
         .and_then(|calls| serde_json::to_string(calls).ok())
         .map(|s| s.len())
         .unwrap_or(0);
-    (content_len + tool_calls_len) / 4 + attachments * S3_ATTACHMENT_NOMINAL_TOKENS
+    (content_len + tool_calls_len) / 4 + attachment_count(message) * attachment_tokens
 }
 
-/// Whole-conversation estimate, used only when the provider reported no usage for the
-/// last request; without it the mode would be silently inert on such providers.
-fn estimate_conversation_tokens(messages: &[OpenAIMessage]) -> usize {
-    messages.iter().map(estimate_message_tokens).sum()
+/// Estimate over a run of messages: what arrived after the last counted request, or
+/// the whole conversation when the provider reported no usage.
+fn estimate_conversation_tokens(messages: &[OpenAIMessage], attachment_tokens: usize) -> usize {
+    messages
+        .iter()
+        .map(|message| estimate_message_tokens(message, attachment_tokens))
+        .sum()
+}
+
+/// What one attachment costs in a request. The message list holds an S3 path where the
+/// provider sees a whole document, so the only measure of it is the provider's count
+/// for the last request less the estimate of that request's text, shared between the
+/// attachments it carried. Without such a count, or below it, the nominal floor.
+fn attachment_tokens(
+    messages: &[OpenAIMessage],
+    last_request: LastRequest,
+    tool_schema_tokens: usize,
+) -> usize {
+    let Some(counted) = last_request.prompt_tokens else {
+        return S3_ATTACHMENT_NOMINAL_TOKENS;
+    };
+    let counted_messages = &messages[..last_request.message_count.min(messages.len())];
+    let attachments: usize = counted_messages.iter().map(attachment_count).sum();
+    if attachments == 0 {
+        return S3_ATTACHMENT_NOMINAL_TOKENS;
+    }
+    let text = estimate_conversation_tokens(counted_messages, 0) + tool_schema_tokens;
+    ((counted.max(0) as usize).saturating_sub(text) / attachments).max(S3_ATTACHMENT_NOMINAL_TOKENS)
 }
 
 /// What the provider said about the most recent request of the agent loop.
@@ -192,15 +222,17 @@ fn projected_prompt_tokens(
     messages: &[OpenAIMessage],
     last_request: LastRequest,
     tool_schema_tokens: usize,
+    attachment_tokens: usize,
 ) -> usize {
     match last_request.prompt_tokens {
         Some(counted) => {
             let appended = last_request.message_count.min(messages.len());
-            (counted.max(0) as usize) + estimate_conversation_tokens(&messages[appended..])
+            (counted.max(0) as usize)
+                + estimate_conversation_tokens(&messages[appended..], attachment_tokens)
         }
         // The provider's count covers the tool definitions; an estimate over the message
         // list alone does not, and they can be most of a small window.
-        None => estimate_conversation_tokens(messages) + tool_schema_tokens,
+        None => estimate_conversation_tokens(messages, attachment_tokens) + tool_schema_tokens,
     }
 }
 
@@ -237,6 +269,7 @@ fn plan_tail_start(
     messages: &[OpenAIMessage],
     context_window: usize,
     tool_schema_tokens: usize,
+    attachment_tokens: usize,
 ) -> Option<usize> {
     let prefix_start = summarizable_start(messages);
 
@@ -244,18 +277,16 @@ fn plan_tail_start(
     // system prompt compaction keeps, and the tool definitions, which are not in the
     // message list at all — comes off the target first. Left in, a tail sized to the
     // whole target puts the next request back over the trigger and compacts again.
-    let fixed_prompt_tokens = messages[..prefix_start]
-        .iter()
-        .map(estimate_message_tokens)
-        .sum::<usize>()
-        + tool_schema_tokens;
+    let fixed_prompt_tokens =
+        estimate_conversation_tokens(&messages[..prefix_start], attachment_tokens)
+            + tool_schema_tokens;
     let budget = ((context_window as f64 * COMPACTION_TARGET_RATIO) as usize)
         .saturating_sub(summary_reserve_tokens(context_window) + fixed_prompt_tokens);
 
     let mut tail_start = messages.len();
     let mut tail_tokens = 0usize;
     for index in (prefix_start..messages.len()).rev() {
-        let tokens = estimate_message_tokens(&messages[index]);
+        let tokens = estimate_message_tokens(&messages[index], attachment_tokens);
         // The newest message is always kept, however large: dropping it would discard
         // the tool results this iteration just produced.
         if tail_start < messages.len() && tail_tokens + tokens > budget {
@@ -285,7 +316,7 @@ fn plan_tail_start(
     let new_prefix_tokens = prefix
         .iter()
         .filter(|message| !is_compaction_summary(message))
-        .map(estimate_message_tokens)
+        .map(|message| estimate_message_tokens(message, attachment_tokens))
         .sum::<usize>();
     let worth_summarizing = prefix.len() >= MIN_PREFIX_MESSAGES_TO_SUMMARIZE
         || new_prefix_tokens >= context_window / MIN_PREFIX_SHARE_TO_SUMMARIZE;
@@ -402,6 +433,26 @@ pub struct Compactor {
     /// pass on the same conversation and summarizes it a second time, or retries a
     /// failure with nothing changed.
     measurement_spent: bool,
+    /// Whether the window is what the memory store holds rather than what the model
+    /// does. That bound is bytes, and the provider's token count says little about
+    /// them: repetitive text and tool output pack several characters into a token, so
+    /// a conversation can overflow the store well under the count the cap converts to.
+    storage_bound: bool,
+}
+
+/// What one compaction pass did.
+pub struct CompactionPass {
+    /// Whether the conversation was rewritten around a summary.
+    pub compacted: bool,
+    /// The summarization call's own token usage, for the step to bill. Present on a
+    /// call that answered, whether or not its answer was usable.
+    pub usage: Option<TokenUsage>,
+}
+
+impl CompactionPass {
+    fn nothing() -> Self {
+        Self { compacted: false, usage: None }
+    }
 }
 
 impl Compactor {
@@ -411,6 +462,7 @@ impl Compactor {
             tool_schema_tokens,
             consecutive_failures: 0,
             measurement_spent: false,
+            storage_bound: false,
         }
     }
 
@@ -420,21 +472,37 @@ impl Compactor {
         self.measurement_spent = false;
     }
 
-    /// Lowers the window for the passes that follow, and arms the next one: a
-    /// conversation already compacted to the wider window can still be over this one.
-    /// Returns whether the window changed.
-    pub fn shrink_window(&mut self, window: usize) -> bool {
-        if window >= self.context_window {
+    /// Bounds the passes that follow by what a store of `capacity_bytes` can hold
+    /// rather than by the model's window, and arms the next one: a conversation
+    /// already compacted to the model's window can still be over this. Returns whether
+    /// the bound is new.
+    pub fn bound_by_storage(&mut self, capacity_bytes: usize) -> bool {
+        if self.storage_bound {
             return false;
         }
-        self.context_window = window;
+        self.storage_bound = true;
+        self.context_window = self.context_window.min(capacity_bytes / 4);
         self.measurement_spent = false;
         true
     }
 
+    /// What the next request would cost against the window. Under the storage bound
+    /// that is the conversation as it will be written, in the cap's own unit.
+    fn projected_tokens(&self, messages: &[OpenAIMessage], last_request: LastRequest) -> usize {
+        if self.storage_bound {
+            serde_json::to_vec(messages).map(|v| v.len()).unwrap_or(0) / 4
+        } else {
+            projected_prompt_tokens(
+                messages,
+                last_request,
+                self.tool_schema_tokens,
+                attachment_tokens(messages, last_request, self.tool_schema_tokens),
+            )
+        }
+    }
+
     /// Summarizes the older part of `messages` in place when the conversation has
-    /// crossed the trigger threshold. Returns the summarization call's own token usage
-    /// so the step can bill it.
+    /// crossed the trigger threshold.
     ///
     /// A failed summarization is never fatal: the step keeps running on the
     /// uncompacted conversation and hits the provider's own context limit if it has to.
@@ -443,22 +511,25 @@ impl Compactor {
         messages: &mut Vec<OpenAIMessage>,
         last_request: LastRequest,
         request: &CompactionRequest<'_>,
-    ) -> Option<TokenUsage> {
+    ) -> CompactionPass {
         if self.consecutive_failures >= MAX_CONSECUTIVE_COMPACTION_FAILURES
             || self.measurement_spent
         {
-            return None;
+            return CompactionPass::nothing();
         }
 
-        if (projected_prompt_tokens(messages, last_request, self.tool_schema_tokens) as f64)
+        if (self.projected_tokens(messages, last_request) as f64)
             < self.context_window as f64 * COMPACTION_TRIGGER_RATIO
         {
-            return None;
+            return CompactionPass::nothing();
         }
 
-        let Some(tail_start) =
-            plan_tail_start(messages, self.context_window, self.tool_schema_tokens)
-        else {
+        let Some(tail_start) = plan_tail_start(
+            messages,
+            self.context_window,
+            self.tool_schema_tokens,
+            attachment_tokens(messages, last_request, self.tool_schema_tokens),
+        ) else {
             // The trigger runs off the provider's count and the split off a character
             // estimate; when they disagree the step keeps growing with nothing done, so
             // say so rather than leaving the mode looking broken.
@@ -468,7 +539,7 @@ impl Compactor {
                 self.context_window,
                 messages.len()
             );
-            return None;
+            return CompactionPass::nothing();
         };
 
         self.measurement_spent = true;
@@ -485,7 +556,7 @@ impl Compactor {
                 if formatted.is_empty() {
                     self.consecutive_failures += 1;
                     tracing::warn!("AI agent compaction produced an empty summary, skipping");
-                    return usage;
+                    return CompactionPass { compacted: false, usage };
                 }
                 self.consecutive_failures = 0;
                 let prefix_start = summarizable_start(messages);
@@ -496,7 +567,7 @@ impl Compactor {
                     compacted,
                     messages.len()
                 );
-                usage
+                CompactionPass { compacted: true, usage }
             }
             Err(e) => {
                 self.consecutive_failures += 1;
@@ -505,7 +576,7 @@ impl Compactor {
                     self.consecutive_failures,
                     MAX_CONSECUTIVE_COMPACTION_FAILURES
                 );
-                None
+                CompactionPass::nothing()
             }
         }
     }
@@ -518,7 +589,10 @@ impl Compactor {
 fn lowest_reasoning_effort(provider: &AIProvider, model: &str) -> Option<&'static str> {
     match provider {
         AIProvider::GoogleAI => Some("none"),
-        _ if is_openai_reasoning_model(model) => Some("low"),
+        // The pro variants each accept their own floor and reject anything below it
+        // (`gpt-5-pro` takes only `high`, `gpt-5.2-pro` starts at `medium`), so they
+        // are left to their default rather than sent an effort that fails the call.
+        _ if is_openai_reasoning_model(model) && !model.contains("-pro") => Some("low"),
         _ => None,
     }
 }
@@ -783,9 +857,14 @@ mod tests {
             lowest_reasoning_effort(&AIProvider::OpenRouter, "openai/o3-mini"),
             Some("low")
         );
-        // Sending an effort to a model that takes none is a rejected request.
+        // Sending an effort to a model that takes none is a rejected request, and so is
+        // `low` to a pro model, whose floor is its own.
         assert_eq!(
             lowest_reasoning_effort(&AIProvider::OpenAI, "gpt-4.1-mini"),
+            None
+        );
+        assert_eq!(
+            lowest_reasoning_effort(&AIProvider::OpenAI, "gpt-5.2-pro"),
             None
         );
         assert_eq!(
@@ -841,7 +920,8 @@ mod tests {
             messages.push(message("tool", &"x".repeat(40000)));
         }
 
-        let tail_start = plan_tail_start(&messages, 32000, 0).expect("should compact");
+        let tail_start = plan_tail_start(&messages, 32000, 0, S3_ATTACHMENT_NOMINAL_TOKENS)
+            .expect("should compact");
         assert_ne!(messages[tail_start].role, "tool");
         assert!(tail_start >= 1, "the system message is never summarized");
     }
@@ -854,7 +934,8 @@ mod tests {
             messages.push(message("assistant", "a"));
         }
 
-        let tail_start = plan_tail_start(&messages, 8000, 0).expect("should compact");
+        let tail_start = plan_tail_start(&messages, 8000, 0, S3_ATTACHMENT_NOMINAL_TOKENS)
+            .expect("should compact");
         assert_eq!(messages[tail_start].role, "user");
         assert_eq!(messages[tail_start - 1].role, "assistant");
     }
@@ -870,8 +951,10 @@ mod tests {
             messages.push(message("user", &"u".repeat(8000)));
         }
 
-        let without_overhead = plan_tail_start(&messages, 40000, 0).expect("should compact");
-        let with_overhead = plan_tail_start(&messages, 40000, 10000).expect("should compact");
+        let without_overhead = plan_tail_start(&messages, 40000, 0, S3_ATTACHMENT_NOMINAL_TOKENS)
+            .expect("should compact");
+        let with_overhead = plan_tail_start(&messages, 40000, 10000, S3_ATTACHMENT_NOMINAL_TOKENS)
+            .expect("should compact");
 
         assert!(
             with_overhead > without_overhead,
@@ -893,8 +976,31 @@ mod tests {
         let last_request = LastRequest { prompt_tokens: Some(500), message_count: 2 };
 
         assert_eq!(
-            projected_prompt_tokens(&messages, last_request, 0),
+            projected_prompt_tokens(&messages, last_request, 0, S3_ATTACHMENT_NOMINAL_TOKENS),
             500 + 10003
+        );
+    }
+
+    /// The store's cap is bytes, and the provider's count says little about them:
+    /// repetitive text packs several characters into a token, so a conversation the
+    /// provider counts well under the cap's token equivalent can still not fit.
+    #[test]
+    fn the_storage_bound_measures_what_will_be_written() {
+        let messages: Vec<_> = (0..5)
+            .map(|_| message("user", &"the report. ".repeat(2000)))
+            .collect();
+        let counted = LastRequest { prompt_tokens: Some(5000), message_count: messages.len() };
+        let mut compactor = Compactor::new(128_000, 0);
+
+        assert_eq!(compactor.projected_tokens(&messages, counted), 5000);
+
+        assert!(compactor.bound_by_storage(100_000));
+        // Five 24KB messages: past the cap once serialized, whatever the provider says.
+        assert!(compactor.projected_tokens(&messages, counted) > 25_000);
+        assert_eq!(compactor.context_window, 25_000);
+        assert!(
+            !compactor.bound_by_storage(100_000),
+            "bounding twice is a no-op"
         );
     }
 
@@ -939,7 +1045,70 @@ mod tests {
         ];
 
         // Two attachments are worth more than a quarter of this window on their own.
-        assert_eq!(plan_tail_start(&messages, 10000, 0), Some(4));
+        assert_eq!(
+            plan_tail_start(&messages, 10000, 0, S3_ATTACHMENT_NOMINAL_TOKENS),
+            Some(4)
+        );
+    }
+
+    /// The message list holds an S3 path where the provider saw a whole document, so
+    /// what the provider counted for a request, less its text, is what its attachments
+    /// cost; without a count, or below it, the floor.
+    #[test]
+    fn attachments_are_priced_from_the_provider_count() {
+        let messages = vec![
+            OpenAIMessage {
+                role: "user".to_string(),
+                content: Some(OpenAIContent::Parts(vec![
+                    ContentPart::Text { text: "the manifest".to_string() },
+                    ContentPart::S3Object {
+                        s3_object: windmill_types::s3::S3Object {
+                            s3: "manifest.pdf".to_string(),
+                            ..Default::default()
+                        },
+                    },
+                ])),
+                ..Default::default()
+            },
+            message("assistant", "received"),
+        ];
+        let counted = |prompt_tokens| LastRequest { prompt_tokens, message_count: 1 };
+
+        let priced = attachment_tokens(&messages, counted(Some(25_000)), 100);
+        assert!((24_000..=25_000).contains(&priced), "got {priced}");
+        assert_eq!(
+            attachment_tokens(&messages, counted(None), 100),
+            S3_ATTACHMENT_NOMINAL_TOKENS
+        );
+        assert_eq!(
+            attachment_tokens(&messages, counted(Some(50)), 100),
+            S3_ATTACHMENT_NOMINAL_TOKENS
+        );
+    }
+
+    /// Priced right, a conversation of attachment-heavy turns summarizes the older ones
+    /// and keeps the newest, rather than keeping them all because each read as a short
+    /// path. Two 25k-token attachments will not both fit a 30k window.
+    #[test]
+    fn plan_tail_start_summarizes_older_attachment_turns() {
+        let heavy = || OpenAIMessage {
+            role: "user".to_string(),
+            content: Some(OpenAIContent::Parts(vec![ContentPart::S3Object {
+                s3_object: windmill_types::s3::S3Object {
+                    s3: "manifest.pdf".to_string(),
+                    ..Default::default()
+                },
+            }])),
+            ..Default::default()
+        };
+        let messages = vec![
+            heavy(),
+            message("assistant", "first"),
+            heavy(),
+            message("assistant", "second"),
+        ];
+        // The older attachment turn is folded away; the newest stays verbatim.
+        assert_eq!(plan_tail_start(&messages, 30_000, 0, 25_000), Some(2));
     }
 
     /// A summary is reserve-sized whatever it holds, so a prefix of nothing else would
@@ -953,7 +1122,10 @@ mod tests {
             message("assistant", &"a".repeat(40000)),
         ];
 
-        assert_eq!(plan_tail_start(&messages, 10000, 0), None);
+        assert_eq!(
+            plan_tail_start(&messages, 10000, 0, S3_ATTACHMENT_NOMINAL_TOKENS),
+            None
+        );
     }
 
     #[test]
@@ -963,6 +1135,9 @@ mod tests {
             message("user", "hi"),
             message("assistant", "hello"),
         ];
-        assert_eq!(plan_tail_start(&messages, 1000, 0), None);
+        assert_eq!(
+            plan_tail_start(&messages, 1000, 0, S3_ATTACHMENT_NOMINAL_TOKENS),
+            None
+        );
     }
 }
