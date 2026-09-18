@@ -1551,10 +1551,34 @@ pub async fn run_agent(
         ),
         None => None,
     };
-    // Compaction runs only after a request the endpoint accepted: the fallbacks the loop
-    // learns from a rejection — `stream_options`, the chat/completions reroute — are not
-    // known before it, so a summarization issued ahead of the first request would be
-    // malformed by construction on exactly the endpoints that need them.
+    // A memory loaded from an earlier run can already be over the window — the step was
+    // switched to a smaller model, or a run under a wider one persisted more than this
+    // window holds. Compaction is otherwise reactive, taken after a request the endpoint
+    // accepted, because the fallbacks the loop learns from a rejection (`stream_options`,
+    // the chat/completions reroute) are not known before the first request. But an
+    // oversized load would make that first request overflow and fail the run, and every
+    // retry reload the same history, so one pass is taken up front off the character
+    // estimate. It uses the default request shape: an endpoint that needs a fallback may
+    // reject this one summary, which is non-fatal — the loop then proceeds as it would
+    // have. Mainstream providers need no fallback, so it lands.
+    if compactor.is_some() {
+        compact_if_needed(
+            CompactionContext {
+                compactor: compactor.as_mut(),
+                timeout: compaction_timeout,
+                credentials: &credentials,
+                args,
+                client,
+                workspace_id: &job.workspace_id,
+            },
+            query_builder.as_ref(),
+            include_usage,
+            &mut messages,
+            LastRequest { prompt_tokens: None, message_count: 0 },
+            &mut final_usage,
+        )
+        .await;
+    }
     let mut last_request = LastRequest { prompt_tokens: None, message_count: 0 };
 
     // Main agent loop
