@@ -8020,11 +8020,10 @@ async function deployDraft(
 						`backend runnables are now reachable by anyone with the URL, without logging in. ` +
 						`Tell the user plainly what is now reachable and by whom.`
 				} else if (policy.execution_mode === 'guest') {
-					// Guest is stored even where it is inert: the deployment must admit guests at
-					// all, and the instance and workspace switches must both be on. Below that,
-					// silence — a note naming an exposure the server refuses is worse than none.
-					// The standing guest cap is a live count and no pre-deploy read settles it, so
-					// the note says the door is open, not that every newcomer is let through.
+					// Guest is stored even where it is inert: the deployment must admit guests, and
+					// the instance and workspace switches must both be on. Below that, silence — a
+					// false note is worse than none. The standing cap is a live count no read
+					// settles, so the note says the door is open, not that every newcomer gets in.
 					const [usage, settings] = await Promise.all([
 						WorkspaceService.getGuestUsage({ workspace }).catch(() => undefined),
 						WorkspaceService.getPublicSettings({ workspace }).catch(() => undefined)

@@ -4444,11 +4444,23 @@ describe('global AI tools', () => {
 		expect(guestOn.success).toBe(true)
 		expect(guestOn.message).toContain('identity provider authenticates')
 
-		// Guests off: the mode is stored, the server ignores it, so the note would be false.
-		const guestOff = await deployApp('f/apps/guest_off', { execution_mode: 'guest' })
-		expect(guestOff.success).toBe(true)
-		expect(guestOff.message).not.toContain('reachable by')
-		expect(guestOff.message).not.toContain('identity provider')
+		// Each switch crossed in turn, because either one alone admits nobody and the note
+		// would then announce an exposure that does not exist. Both off needs no case of its
+		// own: whichever half of the check were dropped, one of these two still catches it.
+		vi.mocked(WorkspaceService.getPublicSettings).mockResolvedValueOnce({
+			guest_access_enabled: true
+		} as any)
+		const instanceOff = await deployApp('f/apps/guest_inst_off', { execution_mode: 'guest' })
+		expect(instanceOff.success).toBe(true)
+		expect(instanceOff.message).not.toContain('identity provider')
+
+		vi.mocked(WorkspaceService.getGuestUsage).mockResolvedValueOnce({
+			available: true,
+			instance_enabled: true
+		} as any)
+		const workspaceOff = await deployApp('f/apps/guest_ws_off', { execution_mode: 'guest' })
+		expect(workspaceOff.success).toBe(true)
+		expect(workspaceOff.message).not.toContain('identity provider')
 	})
 
 	it('forwards preserve_on_behalf_of when the deployed policy carries an on_behalf_of', async () => {
