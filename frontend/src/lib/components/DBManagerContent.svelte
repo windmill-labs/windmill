@@ -27,7 +27,7 @@
 	import { schemaCacheKey } from './dbSchemaCache'
 	import { getDbSchemas, loadAllTablesMetaData } from './apps/components/display/dbtable/metadata'
 
-	import type { PendingRowAction, SelectedTable } from './DBManager.svelte'
+	import type { DbManagerViewMode, PendingRowAction, SelectedTable } from './DBManager.svelte'
 	import { getDbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import { resource } from 'runed'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -64,6 +64,9 @@
 		/** Worker tag every job of this manager runs on, overriding the database
 		 *  language's native tag. Bound so the hints below can offer to set it. */
 		workerTag?: string
+		/** Which view the right pane shows, set by the control the caller renders. */
+		requestedViewMode?: DbManagerViewMode
+		onViewMode?: (mode: DbManagerViewMode) => void
 	}
 
 	let {
@@ -84,7 +87,9 @@
 		disabledTables = [],
 		onImport,
 		workspace = undefined,
-		workerTag = $bindable()
+		workerTag = $bindable(),
+		requestedViewMode,
+		onViewMode
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $workspaceStore)
@@ -302,6 +307,9 @@
 				{/if}
 			</div>
 			<DbManager
+				{requestedViewMode}
+				{onViewMode}
+				databaseKey={schemaCacheKey(ws, _input)}
 				dbSupportsSchemas={dbSupportsSchemas(dbType)}
 				databaseIsEmpty={!loadError &&
 					!Object.values(shownSchema.schema).flatMap((s) => Object.values(s)).length}
