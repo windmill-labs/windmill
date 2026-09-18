@@ -161,9 +161,37 @@ pub async fn check_external_instance_pg_write(
             ensure_external_instance_pg_removable(db).await
         }
         Some(value) => {
-            crate::external_instance_pg_oss::validate_external_instance_pg_setting(value)
+            crate::external_instance_pg_oss::validate_external_instance_pg_setting(value)?;
+            ensure_same_cluster_while_in_use(db, value).await
         }
     }
+}
+
+/// Pointing the setting at another cluster strands the databases Windmill created on this one as
+/// surely as unsetting it, and would hand their registry and role passwords to a cluster that has
+/// neither. The login, TLS and maintenance database may change; the host and port may not.
+async fn ensure_same_cluster_while_in_use(db: &DB, value: &serde_json::Value) -> Result<()> {
+    let state = read_external_instance_pg_state(db).await?;
+    if state.databases.is_empty() {
+        return Ok(());
+    }
+    let identity = |c: &ExternalInstancePg| (c.host.trim().to_lowercase(), c.port.unwrap_or(5432));
+    let new: ExternalInstancePg = serde_json::from_value(value.clone())
+        .map_err(|e| Error::BadRequest(format!("{EXTERNAL_INSTANCE_PG_SETTING}: {e}")))?;
+    let current = read_external_instance_pg_config(db).await?;
+    if current.is_some_and(|current| identity(&current) == identity(&new)) {
+        return Ok(());
+    }
+    Err(Error::BadRequest(format!(
+        "The external instance cluster still holds databases Windmill created ({}). Drop them \
+         before pointing {EXTERNAL_INSTANCE_PG_SETTING} at another host or port.",
+        state
+            .databases
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ")
+    )))
 }
 
 /// Converge the external cluster on the configured login: check what it can do, create or update
