@@ -20,11 +20,10 @@ mod oauth_refresh_secret_backend_tests;
 
 use windmill_common::{db::Authable, error::Error};
 
-/// Denial message for an item the caller can see the existence of but not read. It must never
-/// describe the grants themselves: `extra_perms` says which users and groups hold read/write,
-/// which the folder ACL model restricts to folder owners, and the caller reaching here is by
-/// definition not one. The acting identity is named because a job started on behalf of another
-/// user is authorized as that user, so a denial that omits it reads as a grant bug.
+/// Never include the grants: `extra_perms` is only visible to callers holding a grant on the
+/// item or its folder, and a caller reaching here holds none. The acting identity is named
+/// because a job started on behalf of another user is authorized as that user, so a denial
+/// that omits it reads as a grant bug.
 pub(crate) fn perm_denied_error(
     kind: &str,
     path: &str,
