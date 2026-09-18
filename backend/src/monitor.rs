@@ -1953,20 +1953,6 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error deleting expired shared AI artifacts: {:?}", e);
     }
 
-    let audit_retention_days = audit_log_retention_days().await;
-    let audit_retention_secs: i64 = audit_retention_days * 60 * 60 * 24;
-
-    // Clean up old (non-partitioned) audit table — will eventually be empty and dropped
-    if let Err(e) = sqlx::query_scalar!(
-        "DELETE FROM audit WHERE timestamp <= now() - ($1::bigint::text || ' s')::interval",
-        audit_retention_secs,
-    )
-    .fetch_all(db)
-    .await
-    {
-        tracing::error!("Error deleting audit log: {:?}", e);
-    }
-
     if let Err(e) = sqlx::query_scalar!(
         "DELETE FROM autoscaling_event WHERE applied_at <= now() - ($1::bigint::text || ' s')::interval",
         30 * 24 * 60 * 60, // 30 days
