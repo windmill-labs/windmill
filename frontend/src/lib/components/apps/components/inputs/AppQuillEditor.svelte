@@ -8,7 +8,7 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
-	let editor = $state()
+	let editor: HTMLElement | undefined = $state()
 	let quill: any = $state()
 	interface Props {
 		id: string
@@ -42,6 +42,7 @@
 
 	async function loadQuill() {
 		const { default: Quill } = await import('quill')
+		if (!editor) return
 
 		quill = new Quill(editor, {
 			modules: {
