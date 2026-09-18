@@ -237,7 +237,11 @@ describe('FlowChatViewHost', () => {
 		const host = new FlowChatViewHost(chat, { additionalInputs: () => ({ tone: 'brief' }) })
 		expect(host.loading).toBe(false)
 		expect(await host.sendRequest({ instructions: '  hello ' })).toBe(true)
-		expect(chat.sendMessage).toHaveBeenCalledWith('hello', { inputs: { tone: 'brief' } })
+		expect(chat.sendMessage).toHaveBeenCalledWith('hello', {
+			inputs: { tone: 'brief' },
+			attachments: [],
+			attachmentsInput: undefined
+		})
 		expect(await host.sendRequest({ instructions: '   ' })).toBe(false)
 		set({ status: 'streaming' })
 		expect(host.loading).toBe(true)
@@ -266,7 +270,11 @@ describe('FlowChatViewHost', () => {
 		releaseTurn()
 		await new Promise((resolve) => setTimeout(resolve, 0))
 		expect(host.queuedMessage).toBe('')
-		expect(chat.sendMessage).toHaveBeenLastCalledWith('first\nsecond', { inputs: undefined })
+		expect(chat.sendMessage).toHaveBeenLastCalledWith('first\nsecond', {
+			inputs: undefined,
+			attachments: [],
+			attachmentsInput: undefined
+		})
 		host.dispose()
 	})
 
@@ -286,7 +294,7 @@ describe('FlowChatViewHost', () => {
 				message({ role: 'assistant', content: 'boom', success: false })
 			]
 		})
-		expect(prependText).toHaveBeenCalledWith('later')
+		expect(prependText).toHaveBeenCalledWith('later', [], [], [])
 		expect(chat.sendMessage).not.toHaveBeenCalled()
 		host.dispose()
 	})
@@ -303,7 +311,7 @@ describe('FlowChatViewHost', () => {
 		set({ status: 'idle' })
 		await new Promise((resolve) => setTimeout(resolve, 0))
 		expect(chat.sendMessage).not.toHaveBeenCalled()
-		expect(prependText).toHaveBeenCalledWith('after deploy')
+		expect(prependText).toHaveBeenCalledWith('after deploy', [], [], [])
 		expect(host.queuedMessage).toBe('')
 		host.dispose()
 	})
@@ -332,7 +340,7 @@ describe('FlowChatViewHost', () => {
 		const prependText = vi.fn()
 		host.setAiChatInput({ prependText } as any)
 		await host.sendRequest({ instructions: 'kept' })
-		expect(prependText).toHaveBeenCalledWith('kept')
+		expect(prependText).toHaveBeenCalledWith('kept', [], [], [])
 		host.dispose()
 	})
 
@@ -344,13 +352,181 @@ describe('FlowChatViewHost', () => {
 		host.queueMessage('later')
 		host.cancel()
 		expect(chat.stop).toHaveBeenCalled()
-		expect(prependText).toHaveBeenCalledWith('later')
+		expect(prependText).toHaveBeenCalledWith('later', [], [], [])
 		expect(host.queuedMessage).toBe('')
 
 		host.queueMessage('after error')
 		set({ status: 'error' })
-		expect(prependText).toHaveBeenLastCalledWith('after error')
+		expect(prependText).toHaveBeenLastCalledWith('after error', [], [], [])
 		expect(chat.sendMessage).not.toHaveBeenCalled()
+		host.dispose()
+	})
+
+	const PNG = `data:image/png;base64,${btoa('\x89PNG')}`
+	const image = { name: 'shot.webp', dataUrl: PNG, mediaType: 'image/png' } as any
+	const pdf = {
+		name: 'contract.pdf',
+		dataUrl: `data:application/pdf;base64,${btoa('%PDF')}`,
+		mediaType: 'application/pdf',
+		size: 4
+	}
+	const listInput = { name: 'files', multiple: true }
+
+	it('takes attachments only where the flow has an input for them', () => {
+		const { chat } = fakeChat()
+		const none = new FlowChatViewHost(chat)
+		expect(none.supportsMessageAttachments).toBe(false)
+		const list = new FlowChatViewHost(chat, { attachmentsTarget: () => listInput })
+		expect(list.supportsMessageAttachments).toBe(true)
+		expect(list.maxMessageAttachments).toBeUndefined()
+		const single = new FlowChatViewHost(chat, {
+			attachmentsTarget: () => ({ name: 'file', multiple: false }),
+			attachmentsUnavailable: () => 'no storage'
+		})
+		expect(single.maxMessageAttachments).toBe(1)
+		expect(single.attachmentsUnavailableReason).toBe('no storage')
+	})
+
+	it('hands the attachments to the chat, and drops a stored value for their input', async () => {
+		const { chat } = fakeChat()
+		const host = new FlowChatViewHost(chat, {
+			additionalInputs: () => ({ tone: 'brief', files: [{ s3: 'stale' }] }),
+			attachmentsTarget: () => listInput
+		})
+		await host.sendRequest({ instructions: 'read', images: [image], blobs: [pdf] })
+		const [, options] = chat.sendMessage.mock.calls[0] as any
+		expect(options.inputs).toEqual({ tone: 'brief' })
+		expect(options.attachmentsInput).toBe(listInput)
+		expect(options.attachments).toEqual([
+			{ name: 'shot.webp', data: PNG, mediaType: 'image/png' },
+			{ name: 'contract.pdf', data: pdf.dataUrl, mediaType: 'application/pdf' }
+		])
+	})
+
+	// A queue merged over several turns reaches the host as one send.
+	it('re-applies a single-file cap to a merged queue', async () => {
+		const { chat } = fakeChat()
+		const host = new FlowChatViewHost(chat, {
+			attachmentsTarget: () => ({ name: 'file', multiple: false })
+		})
+		await host.sendRequest({ instructions: 'read', images: [image], blobs: [pdf] })
+		const [, options] = chat.sendMessage.mock.calls[0] as any
+		expect(options.attachments.map((a: any) => a.name)).toEqual(['shot.webp'])
+	})
+
+	it('hands the draft back with its attachments when the upload is refused or stopped', async () => {
+		const { chat } = fakeChat()
+		const host = new FlowChatViewHost(chat, { attachmentsTarget: () => listInput })
+		const prependText = vi.fn()
+		host.setAiChatInput({ prependText } as any)
+		chat.sendMessage.mockRejectedValueOnce(new Error('POST upload failed (500)'))
+		await host.sendRequest({ instructions: 'read', blobs: [pdf] })
+		expect(prependText).toHaveBeenCalledWith('read', [], [], [pdf])
+		chat.sendMessage.mockRejectedValueOnce(new DOMException('aborted', 'AbortError'))
+		await host.sendRequest({ instructions: 'again', images: [image] })
+		expect(prependText).toHaveBeenLastCalledWith('again', [image], [], [])
+		host.dispose()
+	})
+
+	// The chat settles a withdrawn turn as `idle`, which reads like a turn that ran; a queue
+	// left waiting would then go out with the failed draft merged in front of it.
+	it('does not send what was queued behind an upload that failed', async () => {
+		const { chat, set } = fakeChat(
+			idleState({ messages: [message({ role: 'user', content: 'earlier' })] })
+		)
+		let refuse = (_e: Error) => {}
+		chat.sendMessage.mockImplementationOnce(
+			() => new Promise<void>((_, reject) => (refuse = reject))
+		)
+		const host = new FlowChatViewHost(chat, { attachmentsTarget: () => listInput })
+		const prependText = vi.fn()
+		host.setAiChatInput({ prependText } as any)
+		void host.sendRequest({ instructions: 'A', blobs: [pdf] })
+		set({ status: 'submitted' })
+		host.queueMessage('B')
+		set({ status: 'idle' })
+		refuse(new Error('upload failed (500)'))
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
+		expect(host.queuedMessage).toBe('')
+		expect(prependText.mock.calls.map((c) => c[0])).toEqual(['B', 'A'])
+		expect(prependText).toHaveBeenLastCalledWith('A', [], [], [pdf])
+		host.dispose()
+	})
+
+	it('retries a failed turn with the files it was sent with', async () => {
+		const { chat, set } = fakeChat(idleState({ messages: [] }))
+		chat.sendMessage.mockImplementationOnce(async () => {
+			set({ messages: [message({ id: 'u1', role: 'user', content: 'read', pending: true })] })
+		})
+		// The chat shows the user message before its first await.
+		chat.sendMessage.mockImplementationOnce(async () => {})
+		const host = new FlowChatViewHost(chat, { attachmentsTarget: () => listInput })
+		const sending = host.sendRequest({ instructions: 'read', images: [image], blobs: [pdf] })
+		set({
+			messages: [
+				message({ id: 'u1', role: 'user', content: 'read' }),
+				message({ role: 'assistant', content: 'boom', success: false })
+			]
+		})
+		await sending
+		host.retryRequest(0)
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		const [text, options] = chat.sendMessage.mock.calls[1] as any
+		expect(text).toBe('read')
+		expect(options.attachments.map((a: any) => a.name)).toEqual(['shot.webp', 'contract.pdf'])
+		host.dispose()
+	})
+
+	it('lets go of the files of a turn that succeeded', async () => {
+		const { chat, set } = fakeChat(idleState({ messages: [] }))
+		chat.sendMessage.mockImplementationOnce(async () => {
+			set({ messages: [message({ id: 'u1', role: 'user', content: 'read', pending: true })] })
+		})
+		chat.sendMessage.mockImplementationOnce(async () => {})
+		const host = new FlowChatViewHost(chat, { attachmentsTarget: () => listInput })
+		const sending = host.sendRequest({ instructions: 'read', blobs: [pdf] })
+		set({
+			messages: [
+				message({ id: 'u1', role: 'user', content: 'read' }),
+				message({ role: 'assistant', content: 'done' })
+			]
+		})
+		await sending
+		host.retryRequest(0)
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		const [, options] = chat.sendMessage.mock.calls[1] as any
+		expect(options.attachments).toEqual([])
+		host.dispose()
+	})
+
+	it('refuses a message without a file when the flow requires one', async () => {
+		const { chat } = fakeChat()
+		const host = new FlowChatViewHost(chat, {
+			attachmentsTarget: () => ({ ...listInput, required: true })
+		})
+		const prependText = vi.fn()
+		host.setAiChatInput({ prependText } as any)
+		expect(await host.sendRequest({ instructions: 'no file' })).toBe(false)
+		expect(chat.sendMessage).not.toHaveBeenCalled()
+		expect(prependText).toHaveBeenCalledWith('no file', [], [], [])
+		expect(await host.sendRequest({ instructions: 'with file', blobs: [pdf] })).toBe(true)
+		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
+		host.dispose()
+	})
+
+	it('queues attachments with the text and sends them together', async () => {
+		const { chat, set } = fakeChat(idleState({ status: 'streaming' }))
+		const host = new FlowChatViewHost(chat, { attachmentsTarget: () => listInput })
+		host.queueMessage('look', [image], undefined, undefined, [pdf])
+		expect(host.queuedImages).toEqual([image])
+		expect(host.queuedBlobs).toEqual([pdf])
+		set({ status: 'idle' })
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		const [text, options] = chat.sendMessage.mock.calls[0] as any
+		expect(text).toBe('look')
+		expect(options.attachments.map((a: any) => a.name)).toEqual(['shot.webp', 'contract.pdf'])
+		expect(host.queuedBlobs).toEqual([])
 		host.dispose()
 	})
 
