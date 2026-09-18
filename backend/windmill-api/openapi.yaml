@@ -3983,9 +3983,13 @@ paths:
                   guest_access_enabled:
                     type: boolean
                     description: Whether this workspace admits guest sessions. An app's own `guest` execution mode is inert while this is false.
+                  add_admins_and_developers_to_forks:
+                    type: boolean
+                    description: Whether every new fork of this workspace starts with its admins and developers as members, keeping their role.
                 required:
                   - workspace_id
                   - guest_access_enabled
+                  - add_admins_and_developers_to_forks
 
   /w/{workspace}/workspaces/get_settings:
     get:
@@ -4076,6 +4080,9 @@ paths:
                   guest_jwt_jwks_url:
                     type: string
                     description: JWKS URL a guest JWT (`jwt_guest_`) is verified against for this workspace. Mutually exclusive with `guest_jwt_public_key`.
+                  add_admins_and_developers_to_forks:
+                    type: boolean
+                    description: Whether every new fork of this workspace starts with its admins and developers as members, keeping their role.
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -6092,6 +6099,39 @@ paths:
                   type: boolean
               required:
                 - guest_access_enabled
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_add_admins_and_developers_to_forks:
+    post:
+      summary: choose whether new forks of this workspace start with its admins and developers
+      description: >-
+        When on, every fork created from this workspace gets the workspace's admins and
+        developers as members, with the role they hold here; operators, disabled users and
+        service accounts are left out. The setting is copied into each fork, so forks of a
+        fork follow it too. Off by default. Workspace-admin gated.
+      operationId: editAddAdminsAndDevelopersToForks
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Whether new forks start with this workspace's admins and developers
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                add_admins_and_developers_to_forks:
+                  type: boolean
+              required:
+                - add_admins_and_developers_to_forks
       responses:
         "200":
           description: status
