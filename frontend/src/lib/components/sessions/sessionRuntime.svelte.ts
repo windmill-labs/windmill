@@ -194,7 +194,6 @@ export interface SessionRuntime {
 	// exists yet for this (kind, path)), so callers can check load state without
 	// the cell accessors' create-on-miss side effect.
 	loadedEditorPath(kind: SessionTargetKind, path: string): string | undefined
-	hasEditorCells(): boolean
 	loadRawApp(
 		workspace: string,
 		path: string,
@@ -228,8 +227,6 @@ export interface SessionRuntime {
 }
 
 const runtimes = new SvelteMap<string, SessionRuntime>()
-// Sessions whose runtime is still restoring its chat (initRuntime pending).
-const initializing = new Set<string>()
 
 function emptyFlow(): Flow {
 	return {
@@ -577,9 +574,6 @@ function createRuntime(session: Session): SessionRuntime {
 		pipelineEditorState,
 		flowCell,
 		loadedEditorPath,
-		hasEditorCells() {
-			return flowCells.size + scriptCells.size + rawAppCells.size > 0
-		},
 
 		async loadFlow(workspace: string, path: string, force = false) {
 			const { slot, store, stateStore, saved } = flowCell(path)
@@ -992,10 +986,7 @@ export function getOrCreateRuntime(session: Session): SessionRuntime {
 	if (!runtime) {
 		runtime = createRuntime(session)
 		runtimes.set(session.id, runtime)
-		initializing.add(session.id)
-		initRuntime(runtime, session)
-			.catch((e) => console.error('Failed to init session runtime', e))
-			.finally(() => initializing.delete(session.id))
+		initRuntime(runtime, session).catch((e) => console.error('Failed to init session runtime', e))
 	}
 	return runtime
 }
@@ -1006,8 +997,6 @@ export function disposeRuntime(sessionId: string) {
 	runtime.manager.cancel('runtime disposed')
 	runtime.manager.historyManager.close()
 	runtimes.delete(sessionId)
-	const at = visitOrder.indexOf(sessionId)
-	if (at !== -1) visitOrder.splice(at, 1)
 	// The sidebar reads the stored chat again rather than trust a read that
 	// predates everything this runtime saw.
 	peeks.delete(sessionId)
@@ -1397,8 +1386,8 @@ function transcriptChatStatus(messages: DisplayMessage[]): SessionChatStatus {
 // Sessions without a runtime
 // ---------------------------------------------------------------------------
 
-// A runtime costs a chat manager, its loaded transcript and a mounted chat pane,
-// so the sidebar does not create one per listed session. It reads the session's
+// A runtime costs a chat manager and its loaded transcript, and lives until its
+// session is deleted, so the sidebar does not create one per listed session. It reads the session's
 // one stored chat instead, once, for the status dot and the unread count.
 export interface SessionChatPeek {
 	status: SessionChatStatus
@@ -1448,59 +1437,4 @@ export async function ensureSessionChatPeek(session: Session): Promise<void> {
 	} finally {
 		peeksInFlight.delete(id)
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Warm runtimes
-// ---------------------------------------------------------------------------
-
-// The sessions page keeps a chat pane mounted per runtime, so runtimes of visited
-// sessions are capped. Only an idle runtime is evicted: one that is streaming,
-// holds unsent text, polls a job or backs an open editor would lose that state.
-const MAX_WARM_RUNTIMES = 5
-const visitOrder: string[] = []
-
-function isEvictable(runtime: SessionRuntime): boolean {
-	const m = runtime.manager
-	return (
-		// initRuntime has no cancellation: evicted mid-way, it would go on to restore
-		// the chat's jobs into a manager nothing owns, which then polls them.
-		!initializing.has(runtime.sessionId) &&
-		!m.loading &&
-		!m.sendInFlight &&
-		m.instructions.trim() === '' &&
-		!m.hasUnsentInput &&
-		!m.backgroundJobs.some(isLiveJob) &&
-		!runtime.hasEditorCells()
-	)
-}
-
-/** The user arrived on `session`: give it a runtime and evict the least recently
- *  visited idle runtimes beyond the cap. */
-export function visitSession(session: Session): SessionRuntime {
-	const runtime = getOrCreateRuntime(session)
-	const at = visitOrder.indexOf(session.id)
-	if (at !== -1) visitOrder.splice(at, 1)
-	visitOrder.unshift(session.id)
-	let warm = runtimes.size
-	// Runtimes created for another reason (a chat tool, a live job) and never
-	// visited go first, then visited ones from the oldest visit.
-	const candidates = [...runtimes.keys()]
-		.filter((id) => id !== session.id)
-		.sort((a, b) => visitRank(b) - visitRank(a))
-	for (const id of candidates) {
-		if (warm <= MAX_WARM_RUNTIMES) break
-		const rt = runtimes.get(id)
-		if (rt && isEvictable(rt)) {
-			disposeRuntime(id)
-			warm--
-		}
-	}
-	return runtime
-}
-
-// Higher is older: never-visited runtimes rank above every visited one.
-function visitRank(id: string): number {
-	const at = visitOrder.indexOf(id)
-	return at === -1 ? Number.MAX_SAFE_INTEGER : at
 }

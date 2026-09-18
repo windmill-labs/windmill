@@ -41,9 +41,9 @@
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import {
+		getOrCreateRuntime,
 		getRuntime,
-		listRuntimes,
-		visitSession
+		listRuntimes
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
 	import { markSessionRecovered } from '$lib/components/sessions/sessionRecoveryNotice.svelte'
@@ -214,19 +214,39 @@
 			// Keep currentSessionId in sync with the URL so consumers react to
 			// deep links the same way they react to picker clicks.
 			selectSession(session.id)
-			visitSession(session)
+			getOrCreateRuntime(session)
+			mountChat(session.id)
 		})
 	})
 
-	// Warm = sessions with a live runtime: the recently visited ones (capped by
-	// visitSession) plus any a chat tool or a running job keeps alive. Keeping
-	// warm chats mounted (stacked, visibility-toggled) preserves their
-	// scroll/draft state across switches.
+	// Warm = sessions with a live runtime: the ones visited this page load plus
+	// any a chat tool or a running job started.
 	const warmSessions = $derived(
 		listRuntimes()
 			.map((r) => sessionState.sessions.find((s) => s.id === r.sessionId))
 			.filter((s): s is NonNullable<typeof s> => s != null)
 	)
+
+	// Chat columns stay mounted (stacked, visibility-toggled) so switching back
+	// keeps scroll position, MRU-capped like preview tabs: every mounted column
+	// is a full transcript in the DOM. Unmounting drops only the column — the
+	// runtime keeps the chat — so a column is kept while its composer holds
+	// unsent input (component-local) or its turn is running.
+	const MAX_MOUNTED_CHATS = 5
+	const mountedChatIds = new SvelteSet<string>()
+	function keepsChatMounted(id: string): boolean {
+		const m = getRuntime(id)?.manager
+		return !!m && (m.loading || m.sendInFlight || m.hasUnsentInput)
+	}
+	function mountChat(id: string) {
+		mountedChatIds.delete(id)
+		mountedChatIds.add(id)
+		for (const oldest of [...mountedChatIds]) {
+			if (mountedChatIds.size <= MAX_MOUNTED_CHATS) break
+			if (oldest !== id && !keepsChatMounted(oldest)) mountedChatIds.delete(oldest)
+		}
+	}
+	const mountedChatSessions = $derived(warmSessions.filter((s) => mountedChatIds.has(s.id)))
 
 	// Mark the active session "seen" up to its current message count: arrive →
 	// clear unread; AI streams a new message while we're here → clear again. The
@@ -887,11 +907,11 @@
 					class="flex-1 min-h-0 session-splitter {previewCollapsed ? 'splitter-off' : ''}"
 				>
 					{#if !fullscreen}
-						<!-- Chat column. Warm sessions stay mounted (stacked, visibility-toggled)
-					     so switching between them preserves chat scroll/draft state. -->
+						<!-- Chat column. Recently visited sessions stay mounted (stacked,
+					     visibility-toggled) — see mountChat. -->
 						<Pane bind:size={chatPaneSize} minSize={25} class="flex flex-col min-h-0">
 							<div class="relative flex-1 min-h-0">
-								{#each warmSessions as s (s.id)}
+								{#each mountedChatSessions as s (s.id)}
 									<div
 										class="absolute inset-0 flex flex-col {s.id === activeSession?.id
 											? 'z-10 opacity-100 pointer-events-auto'

@@ -381,8 +381,7 @@
 
 	// Read each VISIBLE session's stored chat so the status dot and unread count
 	// reflect it without the user opening the session. A runtime per listed
-	// session would mount its chat pane on the sessions page, which is what made
-	// the page slow with many sessions.
+	// session would hold every listed chat in memory for as long as the page lives.
 	$effect(() => {
 		for (const session of visibleSessions) {
 			if (!getRuntime(session.id)) void ensureSessionChatPeek(session)
