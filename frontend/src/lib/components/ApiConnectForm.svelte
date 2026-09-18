@@ -124,7 +124,8 @@
 				host: parts.host,
 				port: parts.port || args?.port,
 				dbname: parts.dbname || args?.dbname,
-				sslmode: parts.sslmode || args?.sslmode
+				sslmode: parts.sslmode || args?.sslmode,
+				options: parts.options || args?.options
 			},
 			null,
 			2

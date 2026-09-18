@@ -94,7 +94,8 @@ describe('composePostgresConnectionString', () => {
 			host: 'db.example.com',
 			port: 6543,
 			dbname: 'mydb',
-			sslmode: 'require'
+			sslmode: 'require',
+			options: 'endpoint=ep-x -c search_path=a&b+c'
 		}
 		expect(parsePostgresConnectionString(composePostgresConnectionString(parts))).toEqual(parts)
 	})
@@ -105,10 +106,10 @@ describe('composePostgresConnectionString', () => {
 // dangerous ones are precisely the ones a hand-written denylist would miss.
 describe('unsupportedConnectionParam', () => {
 	it('names a parameter that decides where data lands', () => {
-		expect(unsupportedConnectionParam('postgres://u:p@h/db?options=-csearch_path%3Dtenant')).toBe(
-			'options'
-		)
 		expect(unsupportedConnectionParam('postgres://u:p@h/db?search_path=tenant')).toBe('search_path')
+		expect(
+			unsupportedConnectionParam('postgres://u:p@h/db?options=-csearch_path%3Dtenant')
+		).toBeUndefined()
 	})
 
 	// Dropping these saves a *weaker* connection than the one pasted.

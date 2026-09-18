@@ -856,6 +856,7 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
             accept_invalid_certs: None,
             use_iam_auth: None,
             region: None,
+            options: None,
         }
     }
 
@@ -943,6 +944,19 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
         assert!(pg(None, None).to_uri().contains("sslmode=prefer"));
     }
 
+    #[test]
+    fn options_survive_to_uri() {
+        let mut db = pg(Some("require"), None);
+        db.options = Some("endpoint=ep-x -c search_path=a&b".to_string());
+        let uri = db.to_uri();
+        let config: tokio_postgres::Config = uri.parse().unwrap();
+        assert_eq!(config.get_options(), db.options.as_deref());
+        assert_eq!(PgDatabase::parse_uri(&uri).unwrap().options, db.options);
+
+        db.options = Some(String::new());
+        assert!(!db.to_uri().contains("options"));
+    }
+
     /// The other paths default a missing login to `postgres`; Entra must not, or the
     /// server rejects a role the resource never named.
     #[test]
@@ -993,6 +1007,8 @@ pub struct PgDatabase {
     pub accept_invalid_certs: Option<bool>,
     pub use_iam_auth: Option<bool>,
     pub region: Option<String>,
+    /// The libpq `options` startup parameter (e.g. `endpoint=<id>` for Neon, `-c search_path=x`).
+    pub options: Option<String>,
 }
 
 // Wrapper enum to hold either Tls or NoTls connection
@@ -1046,8 +1062,12 @@ impl PgDatabase {
         } else {
             urlencoding::encode(&self.host).into_owned()
         };
+        let options = match self.non_empty_options() {
+            Some(o) => format!("&options={}", urlencoding::encode(o)),
+            None => String::new(),
+        };
         format!(
-            "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
+            "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}{options}",
             user = urlencoding::encode(self.login_name()),
             password = urlencoding::encode(&self.password.as_deref().unwrap_or("")),
             host = host,
@@ -1055,6 +1075,10 @@ impl PgDatabase {
             dbname = urlencoding::encode(&self.dbname),
             sslmode = sslmode
         )
+    }
+
+    pub fn non_empty_options(&self) -> Option<&str> {
+        self.options.as_deref().filter(|o| !o.is_empty())
     }
 
     pub async fn connect(
@@ -1325,6 +1349,9 @@ impl PgDatabase {
             .password(token)
             .dbname(&self.dbname)
             .ssl_mode(tokio_postgres::config::SslMode::Require);
+        if let Some(options) = self.non_empty_options() {
+            config.options(options);
+        }
 
         let (client, connection) = tokio::time::timeout(
             std::time::Duration::from_secs(20),
@@ -1357,9 +1384,12 @@ impl PgDatabase {
         let port = parsed_url.port();
         let dbname = parsed_url.path().trim_start_matches('/').to_string();
         let mut sslmode = None;
+        let mut options = None;
         for query in parsed_url.query_pairs() {
-            if query.0 == "sslmode" {
-                sslmode = Some(query.1.to_string());
+            match query.0.as_ref() {
+                "sslmode" => sslmode = Some(query.1.to_string()),
+                "options" => options = Some(query.1.to_string()),
+                _ => {}
             }
         }
 
@@ -1378,6 +1408,7 @@ impl PgDatabase {
             accept_invalid_certs: None,
             use_iam_auth: None,
             region: None,
+            options,
         })
     }
 }

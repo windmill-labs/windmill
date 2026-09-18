@@ -52,6 +52,7 @@ export type PostgresConnectionParts = {
 	port?: number
 	dbname?: string
 	sslmode?: string
+	options?: string
 }
 
 /** A lone `%` is not an escape, and a password is free to contain one. */
@@ -73,19 +74,22 @@ export function parsePostgresConnectionString(
 	// By parameter name, never by searching the query text: `sslmode=` also occurs inside
 	// another parameter's *value*, and a substring match there reads someone's
 	// `application_name=sslmode=disable` as a request to turn TLS off.
-	const sslmode = paramsOf(connectionString).get('sslmode')
+	const params = paramsOf(connectionString)
+	const sslmode = params.get('sslmode')
+	const options = params.get('options')
 	return {
 		user: decode(user),
 		password: password ? decode(password) : undefined,
 		host: host.startsWith('[') ? host.slice(1, -1) : host,
 		port: port ? Number(port) : undefined,
 		dbname: dbname ? decode(dbname) : undefined,
-		sslmode: sslmode || undefined
+		sslmode: sslmode || undefined,
+		options: options || undefined
 	}
 }
 
-/** The only query parameter the `postgresql` resource has a field for. */
-const REPRESENTABLE_PARAMS = ['sslmode']
+/** The query parameters the `postgresql` resource has a field for. */
+const REPRESENTABLE_PARAMS = ['sslmode', 'options']
 
 /**
  * Parameters that change nothing about what the connection reaches, how it is secured, or how
@@ -135,7 +139,12 @@ export function composePostgresConnectionString(parts: PostgresConnectionParts):
 		? `${encodeURIComponent(parts.user)}:${encodeURIComponent(parts.password)}`
 		: encodeURIComponent(parts.user)
 	const port = parts.port ? `:${parts.port}` : ''
-	const query = parts.sslmode ? `?sslmode=${parts.sslmode}` : ''
+	// encodeURIComponent, not URLSearchParams: libpq does not read `+` as a space.
+	const params = [
+		parts.sslmode && `sslmode=${parts.sslmode}`,
+		parts.options && `options=${encodeURIComponent(parts.options)}`
+	].filter(Boolean)
+	const query = params.length ? `?${params.join('&')}` : ''
 	const dbname = parts.dbname ? encodeURIComponent(parts.dbname) : ''
 	// A bare IPv6 address would put its own colons where the port separator goes.
 	const host =
