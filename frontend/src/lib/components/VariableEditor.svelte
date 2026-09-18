@@ -23,6 +23,8 @@
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
+	import DraftConflictAlert from './DraftConflictAlert.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 
@@ -122,6 +124,62 @@
 	const dirtyWorkspaces = $derived(
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
 	)
+
+	/** The server refused this tab's autosave because the row moved under it: another tab, or the
+	 *  AI chat, which writes these drafts too. Nothing typed here reaches the server until the user
+	 *  picks a version, and the unsaved-changes banner says the opposite — that the edits are held
+	 *  as a draft — so without this they are told their work is safe while it is being dropped. */
+	const draftConflict = $derived(
+		edit && selected && editPath
+			? UserDraftDbSyncer.getConflict({
+					workspace: selected,
+					itemKind: 'variable',
+					path: editPath
+				}).conflict
+			: undefined
+	)
+
+	async function resolveDraftConflict(keepMine: boolean): Promise<void> {
+		const ws = selected
+		const p = editPath
+		if (!ws || !p) return
+		const query = { workspace: ws, itemKind: 'variable' as const, path: p }
+		if (keepMine) {
+			// Forced, so it goes over the row that refused us, and its response reseeds
+			// `last_sync` so the next ordinary save is conditional again.
+			const mine = states[ws]?.draft
+			if (mine) await UserDraftDbSyncer.overwrite({ ...query, value: $state.snapshot(mine) })
+			return
+		}
+		// Taking theirs: drop the refused payload first so no later flush can send it, then read
+		// what the server holds and seed that in, which is also what gives this tab a baseline.
+		UserDraftDbSyncer.dropPending(query)
+		UserDraftDbSyncer.clearConflict(query)
+		const v = await VariableService.getVariable({
+			workspace: ws,
+			path: p,
+			decryptSecret: false,
+			getDraft: true
+		})
+		const deployedState: VariableState = {
+			path: v.path,
+			variable: {
+				value: v.value ?? '',
+				is_secret: v.is_secret,
+				description: v.description ?? ''
+			},
+			labels: v.labels ?? undefined,
+			wsSpecific: v.ws_specific ?? false
+		}
+		initialStates[ws] = structuredClone(deployedState)
+		UserDraftDbSyncer.recordRemoteSync(query, (v as any).draft_saved_at)
+		UserDraft.seed(
+			'variable',
+			p,
+			((v as any).draft as VariableState | undefined) ?? deployedState,
+			{ workspace: ws }
+		)
+	}
 
 	// The list-page `*` hint is owned by UserDraftDbSyncer (set on save, cleared
 	// on delete). The editor only CLEARS it — a workspace at the deployed
@@ -317,6 +375,12 @@
 		on:close={drawer?.closeDrawer}
 	>
 		{#snippet banner()}
+			{#if draftConflict}
+				<DraftConflictAlert
+					onReload={() => resolveDraftConflict(false)}
+					onOverwrite={() => resolveDraftConflict(true)}
+				/>
+			{/if}
 			<LocalDraftBanner
 				show={edit && selectedDirty}
 				reserveSpace={edit}
