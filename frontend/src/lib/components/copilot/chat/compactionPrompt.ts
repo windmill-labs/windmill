@@ -1,3 +1,5 @@
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
+
 // Summary-based compaction: when a conversation approaches the model's context
 // window, the older prefix is replaced by an LLM-generated structured summary
 // while the recent tail is kept verbatim. The summary precedes the kept tail,
@@ -127,6 +129,34 @@ export function formatCompactSummary(raw: string): string {
 
 	// Collapse the blank-line runs left behind by stripping the analysis block.
 	return formatted.replace(/\n{3,}/g, '\n\n').trim()
+}
+
+/**
+ * The prefix with every tool exchange rendered as text. The summarization request
+ * carries no tool definitions, and Bedrock rejects tool-use and tool-result blocks
+ * that arrive without them; the summary only needs what was called and what came back.
+ */
+export function toolExchangesAsText(
+	messages: ChatCompletionMessageParam[]
+): ChatCompletionMessageParam[] {
+	const toolNames = new Map<string, string>()
+	return messages.map((m) => {
+		if (m.role === 'assistant' && m.tool_calls?.length) {
+			const lines = m.tool_calls.map((t) => {
+				if (t.type !== 'function') return `[Called tool ${t.type}]`
+				toolNames.set(t.id, t.function.name)
+				return `[Called tool \`${t.function.name}\` with arguments: ${t.function.arguments}]`
+			})
+			const text = typeof m.content === 'string' && m.content ? m.content + '\n\n' : ''
+			return { role: 'assistant', content: text + lines.join('\n') }
+		}
+		if (m.role === 'tool') {
+			const name = toolNames.get(m.tool_call_id) ?? 'unknown'
+			const result = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+			return { role: 'user', content: `[Result of tool \`${name}\`: ${result}]` }
+		}
+		return m
+	})
 }
 
 /**

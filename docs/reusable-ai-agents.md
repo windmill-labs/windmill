@@ -98,7 +98,9 @@ last request plus a `chars/4` estimate of everything appended since — and comp
 less the summary's reserve, summarizes the prefix in one extra request billed to the step, and
 replaces it with that summary. The gap between trigger and target is what one compaction buys:
 each summarization request carries most of the window, so a target close to the trigger would
-spend that on a few turns of room. The tail never
+spend that on a few turns of room. The summarization request carries no tool definitions, so the
+prefix's tool calls and results go to it rendered as text: Bedrock rejects tool blocks that arrive
+without the definitions that produced them. The tail never
 opens on a `tool` message, a prefix that is only a previous summary is never summarized again, and
 three consecutive failures stop it for the run. Nothing about it is fatal: a failed summarization
 leaves the conversation as it was. The summarization request is capped at the reserve and asks

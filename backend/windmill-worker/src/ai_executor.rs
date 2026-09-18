@@ -1818,7 +1818,7 @@ pub async fn run_agent(
                 // What this one request's prompt occupied. `final_usage` sums every
                 // iteration, so it says nothing about how full the context is.
                 last_request = LastRequest {
-                    prompt_tokens: usage.as_ref().and_then(|u| u.prompt_tokens()),
+                    prompt_tokens: usage.as_ref().and_then(|u| u.input_tokens),
                     message_count: request_message_count,
                 };
                 if let Some(compactor) = compactor.as_mut() {

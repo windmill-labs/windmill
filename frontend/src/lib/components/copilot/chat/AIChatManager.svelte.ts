@@ -59,7 +59,8 @@ import { getModelContextWindow } from '../modelConfig'
 import {
 	getCompactionSummaryPrompt,
 	formatCompactSummary,
-	buildSummaryMessageContent
+	buildSummaryMessageContent,
+	toolExchangesAsText
 } from './compactionPrompt'
 import { dfs } from '$lib/components/flows/previousResults'
 import { redactFileArgs, redactSecretArgs } from '$lib/components/job_args'
@@ -1513,7 +1514,7 @@ export class AIChatManager implements ChatViewHost {
 				[
 					// Strip image blobs from the summarizer input — the summary text stands in
 					// for them, so re-sending base64 to the summarizer only wastes tokens.
-					...stripImagePartsFromMessages(sanitizeToolCallArguments(prefix)),
+					...toolExchangesAsText(stripImagePartsFromMessages(sanitizeToolCallArguments(prefix))),
 					{ role: 'user', content: getCompactionSummaryPrompt() }
 				],
 				abortController,

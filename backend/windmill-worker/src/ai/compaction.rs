@@ -523,21 +523,60 @@ fn lowest_reasoning_effort(provider: &AIProvider, model: &str) -> Option<&'stati
     }
 }
 
+/// The prefix with every tool exchange rendered as text. The summarization request
+/// carries no tool definitions, and Bedrock rejects `toolUse`/`toolResult` blocks that
+/// arrive without them; the summary only needs what was called and what came back.
+fn tool_exchanges_as_text(prefix: &[OpenAIMessage]) -> Vec<OpenAIMessage> {
+    let mut tool_names = std::collections::HashMap::new();
+    prefix
+        .iter()
+        .map(|message| {
+            let mut message = message.clone();
+            if let Some(calls) = message.tool_calls.take() {
+                let mut text = match message.content.take() {
+                    Some(OpenAIContent::Text(text)) => text,
+                    _ => String::new(),
+                };
+                for call in calls {
+                    tool_names.insert(call.id, call.function.name.clone());
+                    if !text.is_empty() {
+                        text.push_str("\n\n");
+                    }
+                    text.push_str(&format!(
+                        "[Called tool `{}` with arguments: {}]",
+                        call.function.name, call.function.arguments
+                    ));
+                }
+                message.content = Some(OpenAIContent::Text(text));
+            }
+            if message.role == "tool" {
+                let name = message
+                    .tool_call_id
+                    .take()
+                    .and_then(|id| tool_names.get(&id).cloned())
+                    .unwrap_or_else(|| "unknown".to_string());
+                let result = match message.content.take() {
+                    Some(OpenAIContent::Text(text)) => text,
+                    Some(parts) => serde_json::to_string(&parts).unwrap_or_default(),
+                    None => String::new(),
+                };
+                message.role = "user".to_string();
+                message.content = Some(OpenAIContent::Text(format!(
+                    "[Result of tool `{name}`: {result}]"
+                )));
+            }
+            message
+        })
+        .collect()
+}
+
 /// Sends the prefix to the same model with the compaction prompt appended and no tools.
 async fn summarize_prefix(
     prefix: &[OpenAIMessage],
     reserve_tokens: usize,
     request: &CompactionRequest<'_>,
 ) -> Result<(String, Option<TokenUsage>), Error> {
-    let mut summary_messages = prefix.to_vec();
-    // A trailing assistant message whose tool results were kept in the tail would reach
-    // the provider as an unanswered tool call, which every provider rejects.
-    while summary_messages
-        .last()
-        .is_some_and(|message| message.tool_calls.is_some())
-    {
-        summary_messages.pop();
-    }
+    let mut summary_messages = tool_exchanges_as_text(prefix);
     summary_messages.push(OpenAIMessage {
         role: "user".to_string(),
         content: Some(OpenAIContent::Text(format!(
@@ -687,6 +726,47 @@ mod tests {
             content: Some(OpenAIContent::Text(content.to_string())),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_summarizer_is_sent_tool_exchanges_as_text() {
+        use windmill_ai::ai_types::{OpenAIFunction, OpenAIToolCall};
+        let prefix = vec![
+            message("user", "weather?"),
+            OpenAIMessage {
+                role: "assistant".to_string(),
+                tool_calls: Some(vec![OpenAIToolCall {
+                    id: "call_1".to_string(),
+                    r#type: "function".to_string(),
+                    function: OpenAIFunction {
+                        name: "get_weather".to_string(),
+                        arguments: r#"{"city":"Paris"}"#.to_string(),
+                    },
+                    extra_content: None,
+                }]),
+                ..Default::default()
+            },
+            OpenAIMessage {
+                role: "tool".to_string(),
+                tool_call_id: Some("call_1".to_string()),
+                content: Some(OpenAIContent::Text("sunny".to_string())),
+                ..Default::default()
+            },
+            message("assistant", "It is sunny."),
+        ];
+
+        let sent = tool_exchanges_as_text(&prefix);
+
+        assert!(sent
+            .iter()
+            .all(|m| m.tool_calls.is_none() && m.tool_call_id.is_none() && m.role != "tool"));
+        let text = |i: usize| match &sent[i].content {
+            Some(OpenAIContent::Text(t)) => t.clone(),
+            other => panic!("expected text, got {other:?}"),
+        };
+        assert!(text(1).contains("get_weather") && text(1).contains("Paris"));
+        assert_eq!(sent[2].role, "user");
+        assert!(text(2).contains("get_weather") && text(2).contains("sunny"));
     }
 
     #[test]

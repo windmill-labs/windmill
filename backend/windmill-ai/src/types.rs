@@ -411,13 +411,6 @@ impl TokenUsage {
         self.with_cache(read, write)
     }
 
-    /// How many tokens the prompt of a single request occupied — the whole input,
-    /// cached prefix included, because every provider's conversion normalizes
-    /// `input_tokens` to that before it gets here.
-    pub fn prompt_tokens(&self) -> Option<i32> {
-        self.input_tokens
-    }
-
     pub fn is_empty(&self) -> bool {
         self.input_tokens.is_none()
             && self.output_tokens.is_none()
@@ -969,19 +962,19 @@ mod tests {
     fn both_provider_cache_shapes_report_the_whole_prompt() {
         // OpenAI-shaped: cached_tokens is already inside input_tokens.
         let openai = TokenUsage::new(Some(1000), Some(10), Some(1010)).with_cache(Some(800), None);
-        assert_eq!(openai.prompt_tokens(), Some(1000));
+        assert_eq!(openai.input_tokens, Some(1000));
         assert_eq!(openai.total_tokens, Some(1010));
 
         // Anthropic-shaped: the cached prefix is reported beside input_tokens, and the
         // total follows the prompt it is folded into.
         let anthropic = TokenUsage::from_input_output(Some(200), Some(10))
             .with_cache_beside_input(Some(5000), Some(300));
-        assert_eq!(anthropic.prompt_tokens(), Some(5500));
+        assert_eq!(anthropic.input_tokens, Some(5500));
         assert_eq!(anthropic.total_tokens, Some(5510));
         // Kept as the subsets they have become, for the cost split.
         assert_eq!(anthropic.cache_read_input_tokens, Some(5000));
 
-        assert_eq!(TokenUsage::default().prompt_tokens(), None);
+        assert_eq!(TokenUsage::default().input_tokens, None);
     }
 
     /// Helper to create a simple string type schema
