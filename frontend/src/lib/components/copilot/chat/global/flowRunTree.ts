@@ -410,22 +410,25 @@ function diagnoseRun(job: Job): Record<string, unknown> {
 	}
 }
 
+/** What get_run answers with: the model's payload, and — when the call addresses one
+ * job — that job's id, which the card renders the run from. The two are separate
+ * audiences: `text` is capped for the model, `jobId` is how the user gets the whole
+ * thing. An address resolving to several jobs (a loop's `b`), an unfinished step or an
+ * unknown one carries no id, and the call renders as an ordinary tool row. */
+export type RunInspection = { text: string; jobId?: string }
+
 /** Entry point of the get_run tool. Without `step`: the run's summary, args,
  * result and logs, plus the per-step tree when the run has steps. With `step`:
  * that step's full (capped) result, resolved server-side. */
-export async function getRun(workspace: string, id: string, step?: string): Promise<string> {
+export async function getRun(workspace: string, id: string, step?: string): Promise<RunInspection> {
 	if (!step) {
 		// Only the job read is load-bearing: logs and the step tree each answer
 		// part of the question, so neither failing should cost the model the rest.
 		const [job, logs, results] = await Promise.all([
 			JobService.getJob({ workspace, id, noLogs: true, noCode: true }),
-			// The dedicated endpoint rather than the job's own `logs` field: that one
-			// is the last 20k still in the DB column, missing the head that log
-			// compaction flushed to object storage. This one stitches them back.
-			//
-			// It takes no length parameter, so unlike args and result the whole log
-			// does come into the tab before being capped. Only this job's own logs,
-			// though: a flow's are its orchestration lines, not its steps'.
+			// The dedicated endpoint rather than the job's own `logs` field, which holds too
+			// little to serve a tail — RunScriptCard's fetch has the mechanism. Only this
+			// job's own logs either way: a flow's are its orchestration lines, not its steps'.
 			JobService.getJobLogs({
 				workspace,
 				id,
@@ -452,15 +455,18 @@ export async function getRun(workspace: string, id: string, step?: string): Prom
 				: logs.trim()
 					? cap(logs, true)
 					: 'No logs for this run.'
-		return shapeFlowRunTree(results, {
-			...summary,
-			...diagnoseRun(job),
-			// A successful read always carries the job itself as the root entry, so
-			// no entries means the read failed — and nothing else would name the run.
-			...(results.entries.length === 0 ? { job_id: id, steps_unavailable: true } : {}),
-			...payloads,
-			logs: shapedLogs
-		})
+		return {
+			text: shapeFlowRunTree(results, {
+				...summary,
+				...diagnoseRun(job),
+				// A successful read always carries the job itself as the root entry, so
+				// no entries means the read failed — and nothing else would name the run.
+				...(results.entries.length === 0 ? { job_id: id, steps_unavailable: true } : {}),
+				...payloads,
+				logs: shapedLogs
+			}),
+			jobId: id
+		}
 	}
 
 	return getStepResult(workspace, id, step)
@@ -469,7 +475,7 @@ export async function getRun(workspace: string, id: string, step?: string): Prom
 /** One step's result in full, addressed by step path. The server resolves the
  * address directly (a few indexed lookups, no tree enumeration) and returns the
  * single job as an entry. */
-async function getStepResult(workspace: string, id: string, step: string): Promise<string> {
+async function getStepResult(workspace: string, id: string, step: string): Promise<RunInspection> {
 	const response = await JobService.getFlowAllResults({
 		workspace,
 		id,
@@ -477,27 +483,38 @@ async function getStepResult(workspace: string, id: string, step: string): Promi
 		step
 	})
 	if (response.step_error) {
-		return (
-			response.step_error +
-			(response.scope_filtered
-				? ' (Steps running on tags outside your token’s scope are hidden.)'
-				: '')
-		)
+		return {
+			text:
+				response.step_error +
+				(response.scope_filtered
+					? ' (Steps running on tags outside your token’s scope are hidden.)'
+					: '')
+		}
 	}
 	const entry = response.entries[0]
 	if (!entry) {
-		return 'No jobs found for this run.'
+		return { text: 'No jobs found for this run.' }
 	}
 	if (entry.status === 'running' || entry.status === 'queued' || entry.status === 'suspended') {
-		return `Step "${step}" (job ${entry.job_id}) has not completed yet — status: ${entry.status}.`
+		return {
+			text: `Step "${step}" (job ${entry.job_id}) has not completed yet — status: ${entry.status}.`
+		}
 	}
+	// Every completed step is a job of its own, so the card renders it from source —
+	// including a skipped one, whose inputs and logs are all there is to see.
 	if (entry.result_prefix === undefined || entry.result_prefix === null) {
-		return `Step "${step}" (job ${entry.job_id}, ${entry.status}) has no recorded result.`
+		return {
+			text: `Step "${step}" (job ${entry.job_id}, ${entry.status}) has no recorded result.`,
+			jobId: entry.job_id
+		}
 	}
 	const total = entry.result_length ?? countCodePoints(entry.result_prefix)
 	const capped =
 		total > countCodePoints(entry.result_prefix)
 			? entry.result_prefix + `\n… (result truncated: ${total} chars total)`
 			: entry.result_prefix
-	return `Step "${step}" (job ${entry.job_id}, ${entry.status}) result:\n${capped}`
+	return {
+		text: `Step "${step}" (job ${entry.job_id}, ${entry.status}) result:\n${capped}`,
+		jobId: entry.job_id
+	}
 }

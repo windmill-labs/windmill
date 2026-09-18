@@ -3,7 +3,10 @@
 @tailwind components;
 @tailwind utilities;
 
-@media (min-width: 1760px) {
+/* Keyed on the screen, not the window: a viewport query rescales the whole app
+   whenever the window is resized or split. Mirrored in editorFontSize.svelte.ts,
+   TextInput.svelte's leading classes and FlowGraphPreviewButton.svelte. */
+@media (min-device-width: 1760px) {
 	:root {
 		font-size: 18px;
 	}

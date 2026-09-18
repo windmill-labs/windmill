@@ -139,6 +139,10 @@ export type WorkspaceItem = {
 	 * without it a reader cannot tell a secret from a plain variable, since the
 	 * value is always redacted. */
 	isSecret?: boolean
+	/** Apps only. True for a code app, false for one built in the drag-and-drop
+	 * editor. The two are edited by disjoint tool sets, so the distinction has to
+	 * reach the model before it picks one. */
+	rawApp?: boolean
 	isDraft: boolean
 	isLiveDraft?: boolean
 }
