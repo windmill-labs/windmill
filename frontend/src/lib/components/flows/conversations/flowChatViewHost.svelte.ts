@@ -580,6 +580,7 @@ export class FlowChatViewHost implements ChatViewHost {
 		return taken
 	}
 	setComposerStaged = () => {}
+	setComposerHasDraft = () => {}
 	clearComposerStaged = () => {}
 	attachmentBytesExcluding = () => 0
 

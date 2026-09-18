@@ -96,7 +96,13 @@ import type {
 	RawAppDomResult
 } from '$lib/components/raw_apps/rawAppDom'
 import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
-import { pendingUserAction, type DisplayMessage } from '$lib/components/copilot/chat/shared'
+import {
+	pendingUserAction,
+	type ChatJob,
+	type DisplayMessage
+} from '$lib/components/copilot/chat/shared'
+import { readStoredChat } from '$lib/components/copilot/chat/HistoryManager.svelte'
+import { getCurrentUserEmail } from '$lib/userScopedStorage'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 
 // Per-kind load state for a session's editor target. Pure state container the
@@ -945,7 +951,7 @@ function createRuntime(session: Session): SessionRuntime {
 
 async function initRuntime(runtime: SessionRuntime, session: Session) {
 	const { manager } = runtime
-	await manager.historyManager.init()
+	await manager.historyManager.init(session)
 	manager.historyManager.setSessionId(session.id)
 	// Restore linked files persisted for this session (live handles re-grant on send;
 	// snapshots restore directly). Non-transient sessions persist immediately.
@@ -991,6 +997,9 @@ export function disposeRuntime(sessionId: string) {
 	runtime.manager.cancel('runtime disposed')
 	runtime.manager.historyManager.close()
 	runtimes.delete(sessionId)
+	// The sidebar reads the stored chat again rather than trust a read that
+	// predates everything this runtime saw.
+	peeks.delete(sessionId)
 }
 
 export function listRuntimes(): SessionRuntime[] {
@@ -1024,7 +1033,13 @@ onRemoteTurnEnd((sessionId, chatId) => {
 
 async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<void> {
 	const runtime = runtimes.get(sessionId)
-	if (!runtime) return
+	if (!runtime) {
+		// The driving tab may have rotated to a new chat; follow it, or the next
+		// read and a later runtime would open the old one.
+		setSessionChatId(sessionId, chatId)
+		peeks.delete(sessionId)
+		return
+	}
 	const m = runtime.manager
 	// Two transient states get a short retry rather than a skip, because the
 	// composer unlocks when this promise settles and a skip would unlock it on
@@ -1357,4 +1372,65 @@ export function getSessionChatStatus(runtime: SessionRuntime): SessionChatStatus
 	if (last?.role === 'user' && last.error) return 'error'
 	if (last && (last.role === 'assistant' || last.role === 'tool')) return 'awaiting-user'
 	return 'idle'
+}
+
+// ---------------------------------------------------------------------------
+// Sessions without a runtime
+// ---------------------------------------------------------------------------
+
+// A runtime costs a chat manager and its loaded transcript, and lives until its
+// session is deleted, so the sidebar does not create one per listed session. It
+// reads the session's one stored chat instead, once. Without a runtime nothing
+// runs in this tab, so only two facts of that chat can matter: its length (for
+// the unread count) and whether its last message failed. Every other status is
+// a live one.
+export interface SessionChatPeek {
+	status: 'error' | 'idle'
+	messageCount: number
+}
+
+const peeks = new SvelteMap<string, SessionChatPeek>()
+const peeksInFlight = new Set<string>()
+
+// Not gated on `detached`: a chat saved mid-wait stores its job undetached, and
+// loadPastChat resumes polling every unfinished job either way.
+function isLiveJob(j: ChatJob): boolean {
+	return (
+		j.status === 'queued' ||
+		j.status === 'running' ||
+		j.status === 'suspended' ||
+		j.status === 'scheduled'
+	)
+}
+
+export function getSessionChatPeek(sessionId: string): SessionChatPeek | undefined {
+	return peeks.get(sessionId)
+}
+
+/** Read the stored chat of a session that has no runtime. A chat with a detached
+ *  job still running gets its runtime instead: only a runtime polls the job and
+ *  resumes the conversation when it finishes. */
+export async function ensureSessionChatPeek(session: Session): Promise<void> {
+	const id = session.id
+	if (runtimes.has(id) || peeks.has(id) || peeksInFlight.has(id) || !session.chatId) return
+	const email = getCurrentUserEmail()
+	if (!email) return
+	peeksInFlight.add(id)
+	try {
+		const chat = await readStoredChat(session.chatId, email)
+		if (!chat || runtimes.has(id)) return
+		if (chat.backgroundJobs?.some(isLiveJob)) {
+			getOrCreateRuntime(session)
+			return
+		}
+		const last = chat.displayMessages[chat.displayMessages.length - 1]
+		peeks.set(id, {
+			status: last?.role === 'user' && last.error ? 'error' : 'idle',
+			messageCount: chat.displayMessages.length
+		})
+	} catch (e) {
+		console.error('Failed to read session chat', e)
+	} finally {
+		peeksInFlight.delete(id)
+	}
 }

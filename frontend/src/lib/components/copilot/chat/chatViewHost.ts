@@ -85,6 +85,8 @@ export interface ChatViewHost {
 	) => void
 	dequeueMessage: () => void
 	setComposerStaged: (key: string, editingIndex: number | null, bytes: number) => void
+	/** Whether this composer holds anything unsent (text, pastes, attachments, reads in flight). */
+	setComposerHasDraft: (key: string, hasDraft: boolean) => void
 	clearComposerStaged: (key: string) => void
 	attachmentBytesExcluding: (selfKey: string) => number
 

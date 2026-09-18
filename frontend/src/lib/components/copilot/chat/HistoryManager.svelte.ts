@@ -394,7 +394,10 @@ export default class HistoryManager {
 			.sort((a, b) => b.lastModified - a.lastModified)
 	)
 
-	async init() {
+	/** With `session`, loads only that session's chats plus `session.chatId`, which
+	 *  may predate session tagging. Loading every chat instead costs one full copy
+	 *  of the user's history per session runtime. */
+	async init(session?: { id: string; chatId?: string }) {
 		// (Re)initializing adopts a new identity's history: drop the previous
 		// identity's cached blob ids with it.
 		this.imageIdByUrl.clear()
@@ -404,7 +407,16 @@ export default class HistoryManager {
 		const db = await this.dbh.whenReady()
 		if (!db) return
 		try {
-			const chats = await db.getAll('chats')
+			let chats: StoredChat[]
+			if (session) {
+				chats = await db.getAllFromIndex('chats', 'by-session', session.id)
+				if (session.chatId && !chats.some((c) => c.id === session.chatId)) {
+					const current = await db.get('chats', session.chatId)
+					if (current) chats.push(current)
+				}
+			} else {
+				chats = await db.getAll('chats')
+			}
 			this.savedChats = chats.reduce(
 				(acc, chat) => {
 					acc[chat.id] = chat
