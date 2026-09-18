@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.816.0](https://github.com/windmill-labs/windmill/compare/v1.815.0...v1.816.0) (2026-09-18)
+
+
+### Features
+
+* drafts follow their item through a move; behind means base ≠ head ([#10577](https://github.com/windmill-labs/windmill/issues/10577)) ([f00b2fc](https://github.com/windmill-labs/windmill/commit/f00b2fcb1e65cb8f8e95d55f7cc58b816ac7d89d))
+* let every EE instance set the announcement banner ([#11238](https://github.com/windmill-labs/windmill/issues/11238)) ([87761d1](https://github.com/windmill-labs/windmill/commit/87761d179799026ebaf9ed91bf589852b5453ee3))
+
+
+### Bug Fixes
+
+* **cli:** read wmill.yaml from the branch a git-sync deploy writes to ([#11236](https://github.com/windmill-labs/windmill/issues/11236)) ([974b026](https://github.com/windmill-labs/windmill/commit/974b0265f85f9cfac65bbd2f6ebbcb0e966e3301))
+
 ## [1.815.0](https://github.com/windmill-labs/windmill/compare/v1.814.0...v1.815.0) (2026-09-18)
 
 
