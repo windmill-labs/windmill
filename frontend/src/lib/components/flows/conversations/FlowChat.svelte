@@ -7,6 +7,7 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import type { FlowModule } from '$lib/gen'
+	import { FRAME_CLASS, type ChatFrame } from './flowChatProps'
 
 	interface Props {
 		/**
@@ -20,7 +21,15 @@
 			additionalInputs?: Record<string, any>
 		) => Promise<string | undefined>
 		deploymentInProgress?: boolean
+		/** The flow the chat runs and lists conversations for. Must be the path a run records,
+		 *  or a conversation is stored under one path and looked for under another. */
 		path: string
+		/**
+		 * What the chat's stored inputs are filed under, when that is not the path. An unsaved
+		 * flow's path changes as its author types, so the editor passes something that holds
+		 * still for the flow it is editing.
+		 */
+		identity?: string
 		hideSidebar?: boolean
 		inputSchema?: Record<string, any>
 		/** The flow's modules, read for the AI agent inputs the composer drives: the provider wiring
@@ -29,6 +38,7 @@
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
 		wideLayout?: boolean
+		frame?: ChatFrame
 		/**
 		 * What this surface's own runs are: the editor runs previews and lists its test
 		 * chats, the flow page runs the deployed flow and lists only its users' chats.
@@ -42,11 +52,13 @@
 		onRunFlow,
 		deploymentInProgress = false,
 		path,
+		identity = undefined,
 		hideSidebar = false,
 		inputSchema = undefined,
 		flowModules = undefined,
 		description = undefined,
 		wideLayout = false,
+		frame = 'top',
 		conversationKind = 'deployed'
 	}: Props = $props()
 
@@ -103,7 +115,7 @@
 	})
 </script>
 
-<div class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-1">
+<div class="flex overflow-hidden flex-1 {FRAME_CLASS[frame]}">
 	{#if chat && chatState}
 		{#if !hideSidebar}
 			<FlowConversationsSidebar
@@ -114,20 +126,26 @@
 				canFilterKind={conversationKind !== 'deployed'}
 			/>
 		{/if}
-		<!-- The interface's host subscribes to the chat it was given, so a replaced chat
-		     (another flow or workspace) mounts a fresh interface rather than a stale host. -->
-		{#key chat}
-			<FlowChatInterface
-				{chat}
-				{deploymentInProgress}
-				{additionalInputsSchema}
-				{flowModules}
-				{path}
-				{workspace}
-				{description}
-				{wideLayout}
-				{conversationKind}
-			/>
-		{/key}
+		<!-- pb-3 on the chat alone, not on the row: the transcript and composer stop short of
+		     the panel edge the way the session chat does, while the sidebar and the border
+		     dividing it from the chat still reach the bottom. -->
+		<div class="flex flex-1 min-w-0 min-h-0 pb-3">
+			<!-- The interface's host subscribes to the chat it was given, so a replaced chat
+			     (another flow or workspace) mounts a fresh interface rather than a stale host. -->
+			{#key chat}
+				<FlowChatInterface
+					{chat}
+					{deploymentInProgress}
+					{additionalInputsSchema}
+					{flowModules}
+					{path}
+					{identity}
+					{workspace}
+					{description}
+					{wideLayout}
+					{conversationKind}
+				/>
+			{/key}
+		</div>
 	{/if}
 </div>
