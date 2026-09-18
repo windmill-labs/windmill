@@ -1827,7 +1827,8 @@ function getInlineRunnableContent(
 }
 
 // appSourceToDraftValue drops a low-code app's `grid`, so converting one here would stage a
-// draft that replaces it on deploy.
+// code-app draft at its path: a false picture of the app that every later read answers from,
+// and a deploy the server then refuses.
 async function getRawAppByPath(workspace: string, path: string): Promise<AppWithLastVersion> {
 	const app = await AppService.getAppByPath({ workspace, path })
 	// Only an explicit false: the draft-only branch of get_app carries no version, and so

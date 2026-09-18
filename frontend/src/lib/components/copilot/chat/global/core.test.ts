@@ -3732,8 +3732,8 @@ describe('global AI tools', () => {
 		expect(read).toMatchObject({ type: 'app', path: 'f/apps/legacy', rawApp: false })
 		expect(read).not.toHaveProperty('value')
 
-		// The tools that would stage a raw-app draft over it still refuse: that draft is what
-		// replaces the app on deploy.
+		// The tools that would convert it to files and runnables still refuse: a staged draft
+		// would answer every later read in place of the app itself.
 		for (const [tool, args] of [
 			['read_app_file', { path: 'f/apps/legacy', file_path: '/index.tsx' }],
 			['write_app_file', { path: 'f/apps/legacy', file_path: '/App.tsx', content: 'x' }]
