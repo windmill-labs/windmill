@@ -14,11 +14,9 @@
 
 	type Kind = 'script' | 'resource' | 'schedule' | 'variable' | 'flow' | 'app'
 
-	/** Where a draft-only item's draft row actually lives, which is what the move
-	 * endpoint addresses; `initialPath` is the name the user sees and edits. The
-	 * two are often equal — a row is only reported under a separate display path
-	 * when the two differ — so this is not a "storage vs display" discriminator,
-	 * only the address. Empty for a deployed item, addressed by `initialPath`. */
+	/** The address the move endpoint takes: where a draft-only item's row lives, which
+	 * `initialPath` (what the user sees and edits) need not equal. Empty for a deployed
+	 * item, which is addressed by `initialPath` instead. */
 	let storagePath = $state('')
 	let rawApp = $state(false)
 	let draftOnly = $derived(storagePath !== '')

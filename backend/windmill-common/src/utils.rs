@@ -484,15 +484,17 @@ pub fn paginate(pagination: Pagination) -> (usize, usize) {
 /// a page at a time. An asked-for size is still clamped, and the offset saturates rather
 /// than wrapping, so no caller can turn this into an unbounded scan or a negative bind.
 pub fn paginate_optional(pagination: Pagination) -> (i64, i64) {
-    let per_page: i64 = match pagination.per_page {
-        // An asked-for size is capped, so no caller turns this into an unbounded scan.
-        Some(p) => p.clamp(1, MAX_PER_PAGE) as i64,
-        // Nothing asked for: the whole listing. `LIMIT i64::MAX` is every row there can
-        // be, which is the contract these endpoints have always answered on.
-        None => i64::MAX,
-    };
-    // Bound before Postgres sees it: an unchecked cast of a caller-controlled page turns
-    // into a negative OFFSET, which is an error rather than an empty page.
+    // Naming neither parameter asks for the whole listing, the contract these endpoints
+    // have always answered on. Naming either makes it a page like any other listing's.
+    if pagination.page.is_none() && pagination.per_page.is_none() {
+        return (i64::MAX, 0);
+    }
+    let per_page = pagination
+        .per_page
+        .unwrap_or(DEFAULT_PER_PAGE)
+        .clamp(1, MAX_PER_PAGE) as i64;
+    // Bound before Postgres sees it: an unchecked cast of a caller-controlled page becomes
+    // a negative OFFSET, which is an error rather than an empty page.
     let offset = i64::try_from(pagination.page.unwrap_or(1).max(1) - 1)
         .unwrap_or(i64::MAX)
         .saturating_mul(per_page);

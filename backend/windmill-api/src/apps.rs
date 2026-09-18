@@ -1245,21 +1245,24 @@ async fn get_app_history(
     // without paging. The diff picker asks for a page.
     let (per_page, offset) = paginate_optional(pagination);
     let mut tx = user_db.begin(&authed).await?;
-    // Newest first in the order the versions were deployed, which is their position in
-    // `app.versions` and not `created_at`: the latter is the deploying transaction's
-    // start time, so two that overlap can carry it in the opposite order from the one
-    // they landed in. Paging happens inside the array, before the joins, so a page costs
-    // its own rows rather than every version the path ever had.
+    // Newest first in deployed order, which is a version's position in `app.versions` and
+    // not its `created_at`: the latter is the deploying transaction's start time, so two
+    // that overlap can carry it in the opposite order from the one they landed in. A row
+    // outside the array never sat in that sequence, so it sorts after the ones that did.
+    // Paging happens before the metadata joins, so a page costs its own rows.
     let query_result = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg,
                 av.created_by as created_by, av.created_at as created_at
         FROM app a
         JOIN LATERAL (
-            SELECT v.id, v.ord FROM unnest(a.versions) WITH ORDINALITY AS v(id, ord)
-            ORDER BY v.ord DESC
+            SELECT av2.id, COALESCE(v.ord, 0) AS ord
+            FROM app_version av2
+            LEFT JOIN unnest(a.versions) WITH ORDINALITY AS v(id, ord) ON v.id = av2.id
+            WHERE av2.app_id = a.id
+            ORDER BY ord DESC, av2.id DESC
             LIMIT $3 OFFSET $4
         ) page ON TRUE
-        JOIN app_version av ON av.id = page.id AND av.app_id = a.id
+        JOIN app_version av ON av.id = page.id
         LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
         WHERE a.workspace_id = $1 AND a.path = $2
         ORDER BY page.ord DESC",

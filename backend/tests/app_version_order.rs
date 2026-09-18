@@ -163,6 +163,31 @@ async fn test_app_head_follows_the_append_order_not_the_timestamps(
             .is_empty(),
         "a page past the end is empty"
     );
+    // Naming only the page still asks for a page, rather than an offset into a listing
+    // sized to hold everything — which would answer nothing at all.
+    assert_eq!(
+        versions_at("?page=1").await?,
+        appended,
+        "a first page with no size named holds the history"
+    );
+
+    // A version that never entered the deployed sequence — one a restore or a fork copy
+    // could leave behind — still has to be reachable, after the ones that did.
+    let stray: i64 = sqlx::query_scalar(
+        "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
+         SELECT app_id, value, 'stray', created_at, raw_app FROM app_version WHERE id = $1
+         RETURNING id",
+    )
+    .bind(first)
+    .fetch_one(&db)
+    .await?;
+    let mut with_stray = appended.clone();
+    with_stray.push(stray);
+    assert_eq!(
+        versions_at("").await?,
+        with_stray,
+        "a version outside app.versions is listed, and after the deployed sequence"
+    );
 
     Ok(())
 }
