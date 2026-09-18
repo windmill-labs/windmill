@@ -241,19 +241,6 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Announcement banner',
-			description:
-				'Message shown above every page of the instance, for maintenance windows and incidents.',
-			key: 'instance_banner',
-			fieldType: 'instance_banner',
-			storage: 'setting',
-			// The banner only renders on EE, so the card is disabled without a license.
-			ee_only: '',
-			hideInQuickSetup: true,
-			// Gates Save. The card renders the specific message itself, so no `error` here.
-			isValid: (value: any) => instanceBannerFormError(value) == undefined
-		},
-		{
 			label: 'Non-prod instance',
 			description:
 				'Whether we should consider the reported usage of this instance as non-prod. <a href="https://www.windmill.dev/docs/advanced/instance_settings#non-prod-instance">Learn more</a>',
@@ -334,6 +321,19 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'boolean',
 			storage: 'setting',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Announcement banner',
+			description:
+				'Message shown above every page of the instance, for maintenance windows and incidents.',
+			key: 'instance_banner',
+			fieldType: 'instance_banner',
+			storage: 'setting',
+			// The banner only renders on EE, so the card is disabled without a license.
+			ee_only: '',
+			hideInQuickSetup: true,
+			// Gates Save. The card renders the specific message itself, so no `error` here.
+			isValid: (value: any) => instanceBannerFormError(value) == undefined
 		}
 	],
 	Jobs: [
