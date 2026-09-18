@@ -296,19 +296,31 @@ fn plan_tail_start(
         tail_start = index;
     }
 
+    // A tail must not open on a tool result whose `tool_calls` were summarized away;
+    // back up over any to the assistant that produced them.
     while tail_start > prefix_start && messages[tail_start].role == "tool" {
         tail_start -= 1;
     }
     // The prefix must not end on an unanswered user message: the summarization
     // instruction is itself a user message appended to it, and Anthropic merges
     // consecutive user turns, so every model then summarizes the instruction as the
-    // user's latest request. Move the boundary forward, keeping that user turn and its
-    // answer in the prefix, rather than back into the tail — back would pull a heavy
-    // attachment the window cannot hold into the kept tail, and a leading one all the
-    // way in would leave nothing to summarize. The newest message always stays in the
-    // tail, so a trailing run of user turns is left as it is.
-    while tail_start < messages.len() - 1 && messages[tail_start - 1].role == "user" {
-        tail_start += 1;
+    // user's latest request. Move the boundary forward past that turn's answer, rather
+    // than back into the tail — back would pull a heavy attachment the window cannot
+    // hold into the kept tail, and a leading one all the way in would leave nothing to
+    // summarize. Skip forward over a tail-opening tool result too, so the move never
+    // orphans one. If no clean boundary is left before the newest message, leave it:
+    // the newest turn is kept whole regardless, and a lone leading turn is simply not
+    // summarized this pass.
+    if tail_start > prefix_start && messages[tail_start - 1].role == "user" {
+        let mut candidate = tail_start + 1;
+        while candidate < messages.len()
+            && (messages[candidate].role == "tool" || messages[candidate - 1].role == "user")
+        {
+            candidate += 1;
+        }
+        if candidate < messages.len() {
+            tail_start = candidate;
+        }
     }
 
     // Worth a model call either because there is a run of messages to fold up, or
@@ -1118,6 +1130,52 @@ mod tests {
         assert_eq!(tail_start, 2);
         assert_eq!(messages[tail_start].role, "user");
         assert_eq!(messages[tail_start - 1].role, "assistant");
+    }
+
+    /// Moving the boundary forward off an unanswered user turn must not land it on a
+    /// tool result: that would summarize away the `tool_calls` and orphan the result.
+    #[test]
+    fn plan_tail_start_forward_move_never_opens_on_a_tool_result() {
+        let heavy = OpenAIMessage {
+            role: "user".to_string(),
+            content: Some(OpenAIContent::Parts(vec![ContentPart::S3Object {
+                s3_object: windmill_types::s3::S3Object {
+                    s3: "manifest.pdf".to_string(),
+                    ..Default::default()
+                },
+            }])),
+            ..Default::default()
+        };
+        let messages = vec![
+            message("system", "sys"),
+            heavy,
+            OpenAIMessage {
+                role: "assistant".to_string(),
+                tool_calls: Some(vec![]),
+                ..Default::default()
+            },
+            message("tool", "result"),
+        ];
+
+        // The only forward boundary lands on the tool result, so it is declined rather
+        // than taken: the tail may open on the assistant that holds the tool_calls, but
+        // never on the orphaned result.
+        if let Some(tail_start) = plan_tail_start(&messages, 30_000, 0, 25_000) {
+            assert_ne!(messages[tail_start].role, "tool");
+        }
+    }
+
+    /// An agent may run with no system prompt, so the summarizable prefix starts at 0.
+    /// A trigger that fires while the tail estimate fits everything must not index below
+    /// the start.
+    #[test]
+    fn plan_tail_start_without_a_system_prompt_does_not_underflow() {
+        let messages = vec![message("user", "hi"), message("assistant", "hello")];
+        // A window big enough that the whole tiny conversation fits the tail budget.
+        assert_eq!(
+            plan_tail_start(&messages, 128_000, 0, S3_ATTACHMENT_NOMINAL_TOKENS),
+            None
+        );
     }
 
     /// A summary is reserve-sized whatever it holds, so a prefix of nothing else would
