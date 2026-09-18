@@ -30,7 +30,8 @@ async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateErro
         .await?)
 }
 
-const AUDIT_OPERATION_INDEX_MIGRATION: i64 = 20260918062854;
+const AUDIT_OPERATION_INDEX_MIGRATION: i64 = 20260918173412;
+const AUDIT_OPERATION_INDEX_KEY: &str = r#"(workspace_id, operation, id DESC, "timestamp")"#;
 
 /// A plain `CREATE INDEX` on the partitioned table holds a SHARE lock on every partition until the
 /// whole build ends, blocking the audit insert each job push makes in its own transaction. Each
@@ -40,8 +41,11 @@ async fn create_audit_operation_index_concurrently(
     conn: &mut PgConnection,
 ) -> Result<(), MigrateError> {
     conn.execute(
-        r#"CREATE INDEX IF NOT EXISTS ix_audit_partitioned_workspace_operation
-           ON ONLY audit_partitioned (workspace_id, operation, "timestamp" DESC)"#,
+        format!(
+            "CREATE INDEX IF NOT EXISTS ix_audit_partitioned_workspace_operation \
+             ON ONLY audit_partitioned {AUDIT_OPERATION_INDEX_KEY}"
+        )
+        .as_str(),
     )
     .await?;
     let partitions: Vec<String> = sqlx::query_scalar(
@@ -57,14 +61,14 @@ async fn create_audit_operation_index_concurrently(
     .await?;
     let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
     for partition in partitions {
-        let index = quote(&format!("{partition}_workspace_id_operation_timestamp_idx"));
+        let index = quote(&format!("{partition}_workspace_id_operation_id_timestamp_idx"));
         tracing::info!("Building ix_audit_partitioned_workspace_operation on {partition}");
         // An interrupted CONCURRENTLY build leaves an invalid index under this name.
         conn.execute(format!("DROP INDEX CONCURRENTLY IF EXISTS {index}").as_str())
             .await?;
         conn.execute(
             format!(
-                r#"CREATE INDEX CONCURRENTLY {index} ON {} (workspace_id, operation, "timestamp" DESC)"#,
+                "CREATE INDEX CONCURRENTLY {index} ON {} {AUDIT_OPERATION_INDEX_KEY}",
                 quote(&partition)
             )
             .as_str(),
