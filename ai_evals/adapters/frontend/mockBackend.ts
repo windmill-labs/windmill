@@ -49,12 +49,16 @@ export interface BenchmarkWorkspaceFlow {
 export interface BenchmarkWorkspaceApp {
 	path: string
 	summary: string
+	/** Defaults to true. Set false for a drag-and-drop app, which the chat can list
+	 * and read but has no tool to edit — its value is a grid, not files. */
+	rawApp?: boolean
 	value: {
-		files: Record<string, string>
-		runnables: Record<string, unknown>
+		files?: Record<string, string>
+		runnables?: Record<string, unknown>
 		data?: unknown
 		policy?: unknown
 		custom_path?: unknown
+		[key: string]: unknown
 	}
 }
 
@@ -865,6 +869,29 @@ export function runBenchmarkFlowByPath(input: {
 	})
 }
 
+/**
+ * Mirror `JobService.runFlowPreview` for benchmark workspaces, including the server's
+ * refusal of a chat-enabled flow run that names no conversation (`memory_id`).
+ */
+export function runBenchmarkFlowPreview(input: {
+	workspace: string
+	memoryId?: string
+	requestBody?: { path?: string; value?: { chat_input_enabled?: boolean }; args?: unknown }
+}): string {
+	if (input.requestBody?.value?.chat_input_enabled && !input.memoryId) {
+		throw new Error('Bad request: memory_id is required for chat-enabled flows')
+	}
+	const args = (input.requestBody?.args ?? {}) as Record<string, unknown>
+	return createBenchmarkCompletedJob({
+		workspace: input.workspace,
+		jobKind: 'flowpreview',
+		success: true,
+		args,
+		result: { path: input.requestBody?.path, args, mocked: true },
+		logs: 'Mock benchmark flow preview completed successfully.'
+	})
+}
+
 export function previewBenchmarkSchedule(input: {
 	requestBody?: Record<string, unknown>
 }): Record<string, unknown> {
@@ -971,7 +998,7 @@ function buildBenchmarkListableApp(app: BenchmarkWorkspaceApp): ListableApp {
 		extra_perms: {},
 		edited_at: BENCHMARK_TIMESTAMP,
 		execution_mode: 'viewer',
-		raw_app: true
+		raw_app: app.rawApp ?? true
 	}
 }
 
@@ -989,7 +1016,7 @@ function buildBenchmarkApp(app: BenchmarkWorkspaceApp): AppWithLastVersion {
 		execution_mode: 'viewer',
 		extra_perms: {},
 		custom_path: app.value.custom_path as string | undefined,
-		raw_app: true
+		raw_app: app.rawApp ?? true
 	}
 }
 

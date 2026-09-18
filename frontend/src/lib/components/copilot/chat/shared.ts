@@ -634,10 +634,19 @@ export type ToolDisplayMessage = {
 	 * workspace rides along: a chat is readable from any workspace, and the same path names
 	 * a different server in each. */
 	mcpServer?: { workspace: string; path: string }
+	/** The run behind the call. Flow chats only: the card links to it. */
+	jobId?: string
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
 	runForm?: RunFormDisplay
+	/** A run this call inspected rather than started, rendered by the same card. The card
+	 * reads its panes from this job, so the user sees its own args and result in full, and its
+	 * logs as a 4000-char tail, while the model keeps the capped envelope the tool returned.
+	 * `runId` and `step` are the address the call was made with, kept so the card can name what
+	 * was inspected the way the tool's own row did: a step job names neither the step nor the
+	 * run it belongs to. */
+	inspectedRun?: { jobId: string; workspace: string; runId: string; step?: string }
 	webSearchSources?: WebSearchSource[]
 	/** Data URL of an image the tool produced (e.g. take_screenshot), shown on the card. */
 	imageUrl?: string
@@ -677,7 +686,9 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 	/** The run behind this answer. Flow chats only: a copilot turn happens in the
 	 * browser and has no job. */
 	jobId?: string
-	/** When the message was stored, as the server reports it. */
+	/** When the answer arrived: the server's time for a flow chat's stored row, the browser's
+	 * for a copilot answer, which is stamped as it lands. Absent on a copilot chat restored
+	 * from history, which predates the stamp. */
 	createdAt?: string
 }
 

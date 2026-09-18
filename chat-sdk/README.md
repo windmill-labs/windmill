@@ -56,8 +56,10 @@ not a replacement of the previous answer.
 
 The transport also carries the history helpers: `transport.loadMessages(id)` returns
 `UIMessage`s for `useChat({ messages })` or `setMessages`, `transport.listConversations()`
-and `transport.deleteConversation(id)`. Attachments are not supported: `sendMessage` with
-`files` is refused with an explanatory error.
+and `transport.deleteConversation(id)`. A loaded user message lists the files it carried
+in `metadata.attachments`; `WindmillChatApi.attachmentUrl` gives each one's download URL.
+Sending attachments is not supported: `sendMessage` with `files` is refused with an
+explanatory error.
 
 ## assistant-ui
 
@@ -181,7 +183,7 @@ await chat.sendMessage('Hello')
 | `workspace` | Detected inside a raw app. |
 | `token` | A token, or a function returning one (called before every request, so it can fetch a short-lived token from your backend). Omit it inside a raw app. |
 | `history` | `'server'`, `'local'` or `'none'`, see [History](#history). Defaults to `'server'` with a viewer session and `'local'` with an explicit `token`. |
-| `inputs` | Extra flow inputs sent with every message. `sendMessage(text, { inputs })` adds per-message ones. |
+| `inputs` | Extra flow inputs sent with every message. `sendMessage(text, { inputs })` adds per-message ones, and `{ attachments, attachmentsInput }` files, see [Attachments](#attachments). |
 | `storageKey` | Namespace for `local` history, e.g. the signed-in user's id. Local history is per browser and per flow; without it, users sharing a browser share it. |
 | `fetch`, `storage` | Replacements for the globals, for tests and unusual runtimes. |
 | `pageSize` | Messages and conversations per page of server history. Default 50. |
@@ -224,14 +226,40 @@ A turn goes `submitted` (the flow is queued) → `streaming` (the answer is arri
 answer, an `assistant` message with `success: false`. `status: 'error'` (with `error`
 set) means the turn could not run or be followed at all, such as a refused request.
 
-Methods: `sendMessage(text, { inputs? })`, `stop()`, `newConversation()`,
-`selectConversation(id)`, `loadConversations({ page?, perPage?, kind? })`,
+Methods: `sendMessage(text, { inputs?, attachments?, attachmentsInput? })`, `stop()`,
+`newConversation()`, `selectConversation(id)`, `loadConversations({ page?, perPage?, kind? })`,
 `deleteConversation(id)`, `renameConversation(id, title)`, `loadOlderMessages()`,
 `destroy()`. `kind` lists the flow editor's test chats (`'test'`), the deployed flow's
 own (`'deployed'`, the server's default) or both (`'all'`); each `Conversation` carries
 `isTest`. A rename keeps the conversation's place in the list. Switching conversations
 stops following the current answer; the flow keeps running and, with server history,
 its answer is there when you come back.
+
+## Attachments
+
+A flow whose AI agent step reads `user_attachments` from an `s3object[]` (or a single
+`s3object`) flow input takes files with a message:
+
+```ts
+await chat.sendMessage('What does this contract say?', {
+  attachments: [{ name: file.name, data: file }], // a Blob/File, or a `data:` URL
+  attachmentsInput: { name: 'files', multiple: true }
+})
+```
+
+Each file is uploaded to the workspace's object storage under
+`windmill_uploads/chat/<turn>/<index>/<name>` and handed to the input as `{ s3, filename }`
+objects (the object for a single-file input). Once the uploads return, the pending user
+message lists them in `attachments`, as `{ input, s3, filename }` references. The name's
+extension is corrected to the file's media type for PNG, JPEG and PDF, because the worker
+reads the type off the key.
+Files need message text to go with them. A failed upload rejects `sendMessage` before any
+run starts, and `stop()` during the upload aborts it; both leave the transcript as it was.
+The chat never deletes uploads, so files of a send that did not run stay in storage. The
+workspace needs object storage set up. With Enterprise advanced storage permissions, the
+user needs read and write on `windmill_uploads/*`, which the default rules grant. The upload goes through
+`job_helpers`, so a restricted token needs `job_helpers:write`; a sandboxed raw app cannot
+request that scope today, so attachments are not available there yet.
 
 ## History
 

@@ -1,3 +1,4 @@
+import { randomUUID } from '$lib/utils/uuid'
 import {
 	AppService,
 	AzureTriggerService,
@@ -934,6 +935,17 @@ const runScriptToolDef = createToolDef(
 const testRunFlowSchema = z.object({
 	path: z.string().describe('Workspace path of the flow to test.'),
 	args: testRunArgsSchema,
+	// A refinement rather than z.guid(): that emits `format`/`pattern` into the tool schema,
+	// which some providers' function-schema subsets reject.
+	memory_id: z
+		.string()
+		.refine((value) => z.guid().safeParse(value).success, {
+			message: 'memory_id must be a UUID'
+		})
+		.optional()
+		.describe(
+			'Chat-mode flows only. A UUID naming the conversation this turn belongs to, whose memory the agent steps read: reuse the same one across calls to test memory and follow-ups, and omit it for a one-off turn in a conversation of its own. Generate the UUID yourself so you can pass it again.'
+		),
 	background: backgroundArgSchema,
 	wait_seconds: waitSecondsArgSchema
 })
@@ -1409,6 +1421,7 @@ Flows:
 - Use patch_flow_json for structural flow edits and write_flow for full flow rewrites.
 
 Raw apps:
+- The app tools below only work on raw (code) apps. \`rawApp\` says which: false is a drag-and-drop app, which you can list and read but not edit or deploy. Check it before offering to change an app.
 - read_workspace_item returns app metadata only. Use read_app_file for file and inline runnable contents.
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
@@ -1514,6 +1527,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 			path: item.path,
 			summary: item.summary,
 			value: summarizeAppValue(item.value as AppDraftValue),
+			rawApp: item.rawApp,
 			isDraft: item.isDraft
 		}
 	}
@@ -1740,6 +1754,9 @@ function appToItem(app: ListableApp | AppWithLastVersion, includeValue: boolean)
 		path: app.path,
 		summary: app.summary,
 		value: includeValue ? ((app as AppWithLastVersion).value as AppDraftValue) : undefined,
+		// The server omits this flag rather than sending false, so its absence in the
+		// response is a known false — not a value this listing failed to fetch.
+		rawApp: app.raw_app ?? false,
 		isDraft: false
 	}
 }
@@ -2026,6 +2043,7 @@ async function readWorkspaceItem(
 				path: app.path,
 				summary: value.summary,
 				value: metadata as unknown as AppDraftValue,
+				rawApp: app.raw_app,
 				isDraft: false
 			}
 		}
@@ -3396,9 +3414,16 @@ export const globalTools: Tool<{}>[] = [
 			// (it filters before the cap; query filters after).
 			if ((parsed.page ?? 1) === 1) {
 				const draftCountByType = new Map<string, number>()
+				const prefix = parsed.path_prefix
 				for (const draft of await listGlobalDrafts(workspace)) {
 					if (!types.includes(draft.type)) continue
-					if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
+					// A draft's staged name is often not where it is stored: the editor parks
+					// a new script, flow or app at a generated `draft_<uuid>` path, and a
+					// rename stages the new name over the old path. The server drops
+					// draft-only rows under any narrowing filter, leaving this pass their
+					// only source, so either name has to satisfy the prefix.
+					if (prefix && !draft.path.startsWith(prefix) && !draft.draftPath?.startsWith(prefix))
+						continue
 					const count = draftCountByType.get(draft.type) ?? 0
 					if (count >= limit) continue
 					draftCountByType.set(draft.type, count + 1)
@@ -3813,14 +3838,18 @@ export const globalTools: Tool<{}>[] = [
 					? `Fetching result of step ${parsed.step} in run ${parsed.id}...`
 					: `Inspecting run ${parsed.id}...`
 			})
-			const result = await getRun(workspace, parsed.id, parsed.step)
+			const { text, jobId } = await getRun(workspace, parsed.id, parsed.step)
 			toolCallbacks.setToolStatus(toolId, {
 				content: parsed.step
 					? `Fetched result of step ${parsed.step} in run ${parsed.id}`
 					: `Inspected run ${parsed.id}`,
-				result
+				result: text,
+				// The card reads the run itself from here; the model only ever gets `text`.
+				...(jobId
+					? { inspectedRun: { jobId, workspace, runId: parsed.id, step: parsed.step } }
+					: {})
 			})
-			return result
+			return text
 		}
 	},
 	{
@@ -4391,8 +4420,13 @@ type WriteDraftCtx = {
 export type SessionToolHelpers = { sessionId?: string }
 
 export type GlobalToolHelpers = SessionToolHelpers & {
-	/** Runs the flow editor mounted on `storagePath`, if one is. */
-	testActiveFlow?: (storagePath: string, args?: Record<string, any>) => Promise<string | undefined>
+	/** Runs the flow editor mounted on `storagePath`, if one is. `memoryId` names the
+	 * chat-mode conversation the turn belongs to. */
+	testActiveFlow?: (
+		storagePath: string,
+		args?: Record<string, any>,
+		memoryId?: string
+	) => Promise<string | undefined>
 	attachedFiles?: AttachedFilesStore
 	// Read/write the user-level Global instructions. `setUserInstructions` persists the
 	// value and rebuilds the system message so the change applies on the next chat-loop
@@ -4429,13 +4463,15 @@ function operatingWorkspaceFromHelpers(helpers: unknown): string | undefined {
 function liveFlowTestHookFromCtx(
 	ctx: { workspace: string; helpers?: unknown },
 	path: string
-): ((args?: Record<string, any>) => Promise<string | undefined>) | undefined {
+): ((args?: Record<string, any>, memoryId?: string) => Promise<string | undefined>) | undefined {
 	const activeEditor = getActiveGlobalEditorContext(ctx.workspace)
 	if (activeEditor?.type !== 'flow' || activeEditor.path !== path) {
 		return undefined
 	}
 	const testActiveFlow = (ctx.helpers as GlobalToolHelpers | undefined)?.testActiveFlow
-	return testActiveFlow && ((args) => testActiveFlow(activeEditor.storagePath, args))
+	return (
+		testActiveFlow && ((args, memoryId) => testActiveFlow(activeEditor.storagePath, args, memoryId))
+	)
 }
 
 export type OpenPreviewHandler = (req: {
@@ -5450,6 +5486,16 @@ function flowDraftValueForPreview(flowDraft: FlowDraftValue): FlowValue {
 	return flowDraftAsEditableInput(flowDraft).value
 }
 
+/**
+ * The conversation a test run of a chat-enabled flow belongs to. The server refuses such a
+ * run without one, and it is a query parameter rather than a flow argument, so there is no
+ * way for the caller to supply it through `args`. A fresh id each time is the right default:
+ * a test run is its own conversation, not a turn appended to one someone is reading.
+ */
+export function chatMemoryId(value: FlowValue): string | undefined {
+	return value.chat_input_enabled ? randomUUID() : undefined
+}
+
 async function loadScriptForFlowStep(
 	moduleValue: { path: string; hash?: string },
 	workspace: string
@@ -5915,15 +5961,17 @@ async function testRunFlowByPath(
 				// An open editor runs its own in-memory flow and paints the run in its graph.
 				// Resolved here rather than before the form: the form waits as long as the user
 				// does, and the editor on screen when they press Run is the one it belongs in.
-				const jobId = await liveFlowTestHookFromCtx(ctx, args.path)?.(submitted)
+				const jobId = await liveFlowTestHookFromCtx(ctx, args.path)?.(submitted, args.memory_id)
 				if (jobId) {
 					return jobId
 				}
+				const value = flowDraftValueForPreview(flow.flow)
 				return JobService.runFlowPreview({
 					workspace,
+					memoryId: args.memory_id ?? chatMemoryId(value),
 					requestBody: {
 						path: args.path,
-						value: flowDraftValueForPreview(flow.flow),
+						value,
 						args: submitted
 					}
 				})

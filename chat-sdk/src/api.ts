@@ -1,4 +1,4 @@
-import type { FetchLike, TokenSource } from './types'
+import type { ChatAttachment, FetchLike, TokenSource } from './types'
 
 export interface WindmillChatApiOptions {
   baseUrl: string
@@ -48,6 +48,14 @@ export interface FlowConversationMessage {
   created_seq: number
   step_name?: string | null
   success?: boolean
+  /** On a tool row, the arguments the model wrote, without the inputs a step wires in; null for a web search. */
+  tool_arguments?: string | null
+  /** On a tool row, the text the model got back or what the call failed with; a web search's citations. */
+  tool_result?: string | null
+  /** On an answer, the thinking that produced it; on a tool row, the thinking that led to the call. */
+  reasoning?: string | null
+  /** The files a user message carried, as object-storage references. */
+  attachments?: ChatAttachment[] | null
 }
 
 export type JobUpdateEvent =
@@ -166,6 +174,17 @@ export class WindmillChatApi {
     return (await res.json()) as FlowJobStatus
   }
 
+  /**
+   * Where a message's attachment downloads from. The endpoint authenticates like every other
+   * request: a consumer holding a token must fetch it with that token, not put the URL in an
+   * `img src`, which would send only the Windmill session cookie.
+   */
+  attachmentUrl(attachment: ChatAttachment): string {
+    const query = new URLSearchParams({ file_key: attachment.s3 })
+    if (attachment.storage) query.set('storage', attachment.storage)
+    return `${this.#baseUrl}/api/w/${encodeURIComponent(this.#workspace)}/job_helpers/download_s3_file?${query}`
+  }
+
   async cancelJob(jobId: string, reason = 'Stopped from the chat'): Promise<void> {
     await this.#request(`jobs_u/queue/cancel/${encodeURIComponent(jobId)}`, {
       method: 'POST',
@@ -211,6 +230,27 @@ export class WindmillChatApi {
     return (await res.json()) as FlowConversationMessage[]
   }
 
+  /**
+   * Puts bytes in the workspace's object storage under `fileKey` and returns the key they were
+   * stored under (the server may rewrite it). Needs the workspace to have object storage set.
+   */
+  async uploadFile(
+    fileKey: string,
+    body: Blob,
+    options: { contentType?: string; signal?: AbortSignal } = {}
+  ): Promise<{ file_key: string }> {
+    const query: Record<string, string> = { file_key: fileKey }
+    if (options.contentType) query.content_type = options.contentType
+    const res = await this.#request('job_helpers/upload_s3_file', {
+      method: 'POST',
+      query,
+      raw: body,
+      contentType: options.contentType || 'application/octet-stream',
+      signal: options.signal
+    })
+    return (await res.json()) as { file_key: string }
+  }
+
   async deleteConversation(conversationId: string): Promise<void> {
     await this.#request(`flow_conversations/delete/${encodeURIComponent(conversationId)}`, {
       method: 'DELETE'
@@ -222,7 +262,11 @@ export class WindmillChatApi {
     init: {
       method?: string
       query?: Record<string, string>
+      /** JSON-encoded. */
       body?: unknown
+      /** Sent as is, under `contentType`. */
+      raw?: Blob
+      contentType?: string
       accept?: string
       signal?: AbortSignal
     } = {}
@@ -233,13 +277,14 @@ export class WindmillChatApi {
     const headers: Record<string, string> = {}
     if (init.accept) headers['Accept'] = init.accept
     if (init.body !== undefined) headers['Content-Type'] = 'application/json'
+    else if (init.raw !== undefined) headers['Content-Type'] = init.contentType ?? 'application/octet-stream'
     const token = typeof this.#token === 'function' ? await this.#token() : this.#token
     if (token) headers['Authorization'] = `Bearer ${token}`
 
     const res = await this.#fetch(url.toString(), {
       method: init.method ?? 'GET',
       headers,
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      body: init.body === undefined ? init.raw : JSON.stringify(init.body),
       // A token must not be paired with ambient cookies; without one, the cookie is
       // the credential and only rides same-origin requests.
       credentials: token ? 'omit' : 'same-origin',
