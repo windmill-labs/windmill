@@ -226,10 +226,15 @@
 		})
 	})
 
+	// No editor adds tools to an agent used as a tool, so its Tools section only shows the ones
+	// written into the flow by hand, read-only.
+	let toolsHidden = $derived(isAgentTool && tools.length === 0)
 	let scopedFields = $derived(
 		AGENT_FIELDS.filter(
 			(spec) =>
-				agentFieldAppliesTo(spec, schemaProperties) && (!filter || filter.includes(spec.key))
+				agentFieldAppliesTo(spec, schemaProperties) &&
+				(!filter || filter.includes(spec.key)) &&
+				!(toolsHidden && spec.group === 'tools')
 		)
 	)
 

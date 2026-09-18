@@ -1246,7 +1246,7 @@
 																	linkedToolsModuleId
 																)
 															: (flowModule.value.tools ?? [])}
-														onSelectTool={noToolNavigation
+														onSelectTool={noToolNavigation || isAgentTool
 															? undefined
 															: (toolId) => selectionManager.selectId(toolId, { openPanel: true })}
 														onAddTool={flowModuleSchemaMap
