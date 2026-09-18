@@ -22,8 +22,11 @@ use crate::ai::stream_event_processor::StreamEventProcessor;
 
 /// Fraction of the context window at which a compaction is taken.
 const COMPACTION_TRIGGER_RATIO: f64 = 0.8;
-/// Fraction of the context window the kept tail plus the summary should fit into.
-const COMPACTION_TARGET_RATIO: f64 = 0.7;
+/// Fraction of the context window the kept tail plus the summary should fit into. The
+/// gap below the trigger is what one compaction buys: each request to the summarizer
+/// carries most of the window, and a target close to the trigger spends that on a few
+/// turns of room and summarizes its own previous summary again soon after.
+const COMPACTION_TARGET_RATIO: f64 = 0.5;
 /// Room left inside the target for the summary itself, which is prepended to the tail.
 const SUMMARY_OUTPUT_RESERVE_TOKENS: usize = 8000;
 /// Ceiling on that reserve as a share of the window. A flat 8000 eats the whole target

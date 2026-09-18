@@ -94,8 +94,11 @@ setting it too large never trips the trigger and the provider raises the context
 `windmill-worker/src/ai/compaction.rs` holds the rest. Between agent-loop iterations, and once more
 after the loop, the worker projects what the next prompt would cost — the provider's count for the
 last request plus a `chars/4` estimate of everything appended since — and compacts once it passes
-80% of the window. It grows the tail backwards until it fills the target budget, summarizes the
-prefix in one extra request billed to the step, and replaces it with that summary. The tail never
+80% of the window. It grows the tail backwards until it fills the target budget, half the window
+less the summary's reserve, summarizes the prefix in one extra request billed to the step, and
+replaces it with that summary. The gap between trigger and target is what one compaction buys:
+each summarization request carries most of the window, so a target close to the trigger would
+spend that on a few turns of room. The tail never
 opens on a `tool` message, a prefix that is only a previous summary is never summarized again, and
 three consecutive failures stop it for the run. Nothing about it is fatal: a failed summarization
 leaves the conversation as it was. The summarization request is capped at the reserve and asks

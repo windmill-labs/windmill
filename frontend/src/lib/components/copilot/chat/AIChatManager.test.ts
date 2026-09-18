@@ -3040,14 +3040,14 @@ describe('AIChatManager context compaction', () => {
 	it('compacts the stored history before sending once reported usage projects over the trigger', async () => {
 		const manager = new AIChatManager()
 		manager.messages = [
-			{ role: 'user', content: 'a'.repeat(400_000) }, // ~100k estimated tokens
-			{ role: 'assistant', content: 'b'.repeat(400_000) }, // ~100k
+			{ role: 'user', content: 'a'.repeat(1_200_000) }, // ~300k estimated tokens
+			{ role: 'assistant', content: 'b'.repeat(1_200_000) }, // ~300k
 			{ role: 'user', content: 'c'.repeat(400) },
 			{ role: 'assistant', content: 'd'.repeat(400) }
 		]
-		// Provider fact: 850k used. Projected past the 800k trigger, so ~150k
-		// must be freed to come back to the 700k target — the first user +
-		// assistant pair (~200k estimated).
+		// Provider fact: 850k used. Projected past the 800k trigger, so ~350k
+		// must be freed to come back to the 500k target — the first user +
+		// assistant pair (~600k estimated).
 		manager.contextUsage = 850_000
 		manager.instructions = 'next question'
 		const saveChat = vi.spyOn(manager.historyManager, 'saveChat')
@@ -3065,7 +3065,7 @@ describe('AIChatManager context compaction', () => {
 		// compaction-time save) so a rolled-back turn keeps a consistent value
 		// 4th arg: the modified-items mask rides on every save (undefined here —
 		// this bare manager never initialised tracking).
-		expect(saveChat).toHaveBeenCalledWith(expect.anything(), expect.anything(), 650_000, undefined)
+		expect(saveChat).toHaveBeenCalledWith(expect.anything(), expect.anything(), 250_000, undefined)
 		// At commit, the no-report turn clears the stored value; the readable
 		// number falls back to estimating the now-tiny compacted history
 		expect(manager.contextUsage).toBeUndefined()
