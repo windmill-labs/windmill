@@ -931,6 +931,8 @@ async fn run_setting_pre_write_hook(
         AI_CONFIG_SETTING => {
             windmill_ai::ai_types::validate_model_pricing_json(value)
                 .map_err(error::Error::BadRequest)?;
+            windmill_ai::ai_types::validate_context_windows_json(value)
+                .map_err(error::Error::BadRequest)?;
         }
         AUTOMATE_USERNAME_CREATION_SETTING => {
             if value.as_bool().unwrap_or(false) {

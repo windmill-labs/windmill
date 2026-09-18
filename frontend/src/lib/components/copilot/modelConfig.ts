@@ -162,9 +162,7 @@ export function buildModelMatchers<T>(
 			// separator is normalized. Only a short segment: a date is digits as well
 			// (`-20251101`) and stays a decoration.
 			strictVariants ? '(?!-\\d{1,3}(?:$|-))' : '',
-			strictVariants
-				? `(?!-(?!(?:v\\d|${DECORATIVE_SUFFIXES.join('|')})$)[a-z])`
-				: ''
+			strictVariants ? `(?!-(?!(?:v\\d|${DECORATIVE_SUFFIXES.join('|')})$)[a-z])` : ''
 		].join('')
 		return [new RegExp(pattern + guards), value]
 	})
@@ -172,8 +170,9 @@ export function buildModelMatchers<T>(
 
 /**
  * The `provider:model` key the workspace AI settings use for their per-model maps
- * (`max_tokens_per_model`, `model_pricing`). A bare model id is not enough: the
- * same id can be served by more than one provider at different rates.
+ * (`max_tokens_per_model`, `model_pricing`, `context_window_per_model`). A bare
+ * model id is not enough: the same id can be served by more than one provider at
+ * different rates.
  *
  * Matched exactly, unlike the fuzzy tables above. Those tables generalize across
  * every route to one model on purpose; a per-model *setting* must not, or an
@@ -199,6 +198,29 @@ export function getKnownModelContextWindow(model: string): number | undefined {
 export function getModelContextWindow(model: string) {
 	// Trim/compaction logic needs a number; assume a conservative window when unknown.
 	return getKnownModelContextWindow(model) ?? 128000
+}
+
+/**
+ * The context window stated for a model: the workspace's override
+ * (`context_window_per_model`, passed in so this module stays free of stores)
+ * when one is set, otherwise the built-in table. Undefined only when neither
+ * knows the model, which is when a consumer falls back to an assumed window.
+ */
+export function getConfiguredModelContextWindow(
+	provider: AIProvider,
+	model: string,
+	overrides: Record<string, number> | undefined
+): number | undefined {
+	return overrides?.[modelKey(provider, model)] ?? getKnownModelContextWindow(model)
+}
+
+/** `getModelContextWindow`, honoring the workspace's per-model override first. */
+export function getEffectiveModelContextWindow(
+	provider: AIProvider,
+	model: string,
+	overrides: Record<string, number> | undefined
+): number {
+	return overrides?.[modelKey(provider, model)] ?? getModelContextWindow(model)
 }
 
 /**

@@ -210,7 +210,9 @@ pub fn validate_model_pricing_json(ai_config: &serde_json::Value) -> Result<(), 
             return Err(format!("Price override for {} is not an object", key));
         };
         for field in ["input", "output", "cache_read", "cache_write"] {
-            let Some(rate) = price.get(field) else { continue };
+            let Some(rate) = price.get(field) else {
+                continue;
+            };
             let rate = rate
                 .as_f64()
                 .filter(|r| r.is_finite() && *r >= 0.0 && *r <= MAX_MODEL_RATE);
@@ -223,9 +225,51 @@ pub fn validate_model_pricing_json(ai_config: &serde_json::Value) -> Result<(), 
         }
         for required in ["input", "output"] {
             if !price.contains_key(required) {
-                return Err(format!("Price override for {} is missing {}", key, required));
+                return Err(format!(
+                    "Price override for {} is missing {}",
+                    key, required
+                ));
             }
         }
+    }
+    Ok(())
+}
+
+// ============================================================================
+// Model context windows
+// ============================================================================
+
+/// Bounds of a `context_window_per_model` override. The chat compacts its history
+/// as it nears the window, so a value below any real model's window would compact
+/// every turn; the ceiling is far above any shipped model and only catches typos.
+const MIN_CONTEXT_WINDOW: i64 = 1024;
+const MAX_CONTEXT_WINDOW: i64 = 10_000_000;
+
+pub fn validate_context_window(key: &str, window: i64) -> Result<(), String> {
+    if (MIN_CONTEXT_WINDOW..=MAX_CONTEXT_WINDOW).contains(&window) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Context window for {} must be between {} and {} tokens",
+            key, MIN_CONTEXT_WINDOW, MAX_CONTEXT_WINDOW
+        ))
+    }
+}
+
+/// Bound the `context_window_per_model` map of the untyped instance AI config, for
+/// the reason given on `validate_model_pricing_json`.
+pub fn validate_context_windows_json(ai_config: &serde_json::Value) -> Result<(), String> {
+    let windows = match ai_config.get("context_window_per_model") {
+        None | Some(serde_json::Value::Null) => return Ok(()),
+        Some(v) => v
+            .as_object()
+            .ok_or_else(|| "context_window_per_model must be an object".to_string())?,
+    };
+    for (key, window) in windows {
+        let window = window
+            .as_i64()
+            .ok_or_else(|| format!("Context window for {} must be an integer", key))?;
+        validate_context_window(key, window)?;
     }
     Ok(())
 }
