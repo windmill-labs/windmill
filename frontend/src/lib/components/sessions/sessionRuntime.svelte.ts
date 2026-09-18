@@ -128,6 +128,9 @@ export interface RawAppRuntimeValue {
 	path: string
 	custom_path?: string
 	draft_path?: string
+	/** The app_version this cell's content forked from, carried so the editor's deploy
+	 *  guard and diff drawer compare the same pair the full-page editor does. */
+	parent_version?: number
 }
 // The deployed baseline a raw-app cell diffs against (topbar Diff drawer).
 export interface RawAppSavedValue {
@@ -143,6 +146,9 @@ export interface RawAppSavedValue {
 	/** No deployed counterpart (draft-only); disables the topbar Diff. */
 	no_deployed?: boolean
 	custom_path?: string
+	/** The deployed head at load time, which the editor's deploy guard falls back to when
+	 *  the draft carries no base of its own. */
+	deployed_version?: number
 }
 
 // One editor cell per (kind, path) the session loads: the load slot plus the
@@ -587,8 +593,9 @@ function createRuntime(session: Session): SessionRuntime {
 				// when the path has never been deployed.
 				const aiDraft = UserDraft.get<Flow>('flow', path, { workspace })
 
-				// getDraft=true omits version_id (the plain getFlowByPath has it) —
-				// stamp it on so the flow doesn't always diff. Best-effort.
+				// Fallback for the head: the payload fetches below carry `version_id`, and
+				// this one covers a response that does not. Best-effort, and a request of
+				// its own, so the same response wins wherever both are available.
 				let deployedVersionId: number | undefined
 				try {
 					deployedVersionId = (await FlowService.getFlowByPath({ workspace, path }))?.version_id
@@ -602,12 +609,16 @@ function createRuntime(session: Session): SessionRuntime {
 					// yet on the backend — draft-only flows are a valid state.
 					try {
 						const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-						saved.val = result as SavedFlow
+						// The editor's deploy guard compares against the head, so keep this
+						// response's own and fall back to the one fetched above.
+						saved.val = {
+							...(result as SavedFlow),
+							version_id: (result as SavedFlow).version_id ?? deployedVersionId
+						}
 					} catch {
 						saved.val = undefined
 					}
 					await initFlow(aiDraft, store, stateStore, workspace)
-					if (deployedVersionId != null && store.val) store.val.version_id = deployedVersionId
 					slot.loadedPath = path
 					slot.loadedWorkspace = workspace
 					return
@@ -615,8 +626,12 @@ function createRuntime(session: Session): SessionRuntime {
 
 				// No local draft yet — seed from `result.draft ?? result`.
 				const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-				saved.val = result as SavedFlow
-				const flow: Flow = ((result as SavedFlow).draft ?? (result as Flow)) as Flow
+				saved.val = {
+					...(result as SavedFlow),
+					version_id: (result as SavedFlow).version_id ?? deployedVersionId
+				}
+				const serverDraft = (result as SavedFlow).draft as Flow | undefined
+				const flow: Flow = (serverDraft ?? (result as Flow)) as Flow
 				// Seed the per-tab last_sync from the server draft's timestamp so the
 				// seeding save below attaches a matching last_sync and the server can
 				// reject stale writes (see loadRawApp). Without this a server draft —
@@ -629,7 +644,13 @@ function createRuntime(session: Session): SessionRuntime {
 				)
 				UserDraft.save('flow', path, flow, { workspace })
 				await initFlow(flow, store, stateStore, workspace)
-				if (deployedVersionId != null && store.val) store.val.version_id = deployedVersionId
+				// A draft keeps the base it forked from, unknown included (it then falls
+				// back to the timestamps); only a fresh checkout takes the head, which is
+				// also what keeps it from always diffing. See loadScript. The head comes
+				// from the response that supplied the payload, so a deploy landing between
+				// the two requests cannot label this checkout as forked from the older one.
+				const head = (result as SavedFlow).version_id ?? deployedVersionId
+				if (head != null && store.val && !serverDraft) store.val.version_id = head
 				slot.loadedPath = path
 				slot.loadedWorkspace = workspace
 			} catch (err) {
@@ -672,11 +693,10 @@ function createRuntime(session: Session): SessionRuntime {
 					}
 					// Clone before layering the AI draft on top, else we'd mutate
 					// `saved.val` in place and lose the pristine diff baseline.
+					const savedDraft = saved.val?.draft as NewScript | undefined
 					const baseline: NewScript = saved.val
 						? (structuredClone(
-								$state.snapshot(
-									(saved.val.draft as NewScript | undefined) ?? (saved.val as NewScript)
-								)
+								$state.snapshot(savedDraft ?? (saved.val as NewScript))
 							) as NewScript)
 						: {
 								// Seed from the draft's own path (a rename lives in `draft_path`,
@@ -694,9 +714,8 @@ function createRuntime(session: Session): SessionRuntime {
 								schema: emptySchema(),
 								language: (aiDraft.language ?? 'bun') as any
 							}
-					if (saved.val?.hash) {
-						baseline.parent_hash = saved.val.hash
-					}
+					// Only a fresh checkout forks from the head; see the branch below.
+					if (!savedDraft && saved.val?.hash) baseline.parent_hash = saved.val.hash
 					baseline.content = aiDraft.content
 					if (aiDraft.language) baseline.language = aiDraft.language
 					if (aiDraft.summary !== undefined) baseline.summary = aiDraft.summary
@@ -711,10 +730,13 @@ function createRuntime(session: Session): SessionRuntime {
 				saved.val = result as SavedScript
 				// Clone before mutating, else `baseline` aliases `result` and
 				// `baseline.parent_hash` corrupts the diff baseline.
-				const baseline = structuredClone(
-					((result as SavedScript).draft as NewScript | undefined) ?? (result as NewScript)
-				)
-				baseline.parent_hash = result.hash
+				const serverDraft = (result as SavedScript).draft as NewScript | undefined
+				const baseline = structuredClone(serverDraft ?? (result as NewScript))
+				// Only a fresh checkout forks from the head. A draft keeps the base it has,
+				// unknown included: `draft.base` is derived from `parent_hash` on every
+				// save, so stamping the head over it would say this draft is up to date
+				// when it is not. An unknown base falls back to the timestamps.
+				if (!serverDraft) baseline.parent_hash = result.hash
 				// Seed the per-tab last_sync from the server draft's timestamp so the
 				// seeding save below attaches a matching last_sync and the server can
 				// reject stale writes (see loadRawApp). Without this a server draft —
@@ -775,7 +797,10 @@ function createRuntime(session: Session): SessionRuntime {
 							path: result.path,
 							policy: result.policy,
 							custom_path: result.custom_path,
-							no_deployed: result.no_deployed
+							no_deployed: result.no_deployed,
+							deployed_version: Array.isArray(result.versions)
+								? result.versions[result.versions.length - 1]
+								: undefined
 						}
 					} catch {
 						saved.val = undefined
@@ -811,7 +836,10 @@ function createRuntime(session: Session): SessionRuntime {
 					path: result.path,
 					policy: result.policy,
 					custom_path: result.custom_path,
-					no_deployed: result.no_deployed
+					no_deployed: result.no_deployed,
+					deployed_version: Array.isArray(result.versions)
+						? result.versions[result.versions.length - 1]
+						: undefined
 				}
 				// Prefer the server draft over the deployed value (mirrors the
 				// flow/script `result.draft ?? result`). A raw-app draft is already
@@ -841,7 +869,14 @@ function createRuntime(session: Session): SessionRuntime {
 					summary: draftValue?.summary ?? result.summary ?? '',
 					path: result.path,
 					custom_path: draftValue?.custom_path ?? result.custom_path,
-					draft_path: draftValue?.draft_path
+					draft_path: draftValue?.draft_path,
+					// Only a fresh checkout forks from the head; a draft keeps its own base,
+					// unknown included, or it would read as up to date. See loadScript.
+					parent_version: draftValue
+						? draftValue.parent_version
+						: Array.isArray(result.versions)
+							? result.versions[result.versions.length - 1]
+							: undefined
 				}
 				// Seed the per-tab last_sync from the server draft's timestamp so
 				// later saves attach a matching last_sync and the server can reject
