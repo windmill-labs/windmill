@@ -71,6 +71,8 @@ mod ai_free_tier_ee;
 mod ai_free_tier_oss;
 #[cfg(feature = "parquet")]
 mod ai_sessions;
+#[cfg(feature = "parquet")]
+pub use ai_sessions::sweep_expired_ai_session_backups;
 mod ai_shared_artifacts;
 mod apps;
 mod apps_raw_bundle;
@@ -558,7 +560,7 @@ pub async fn run_server(
         if server_mode || mcp_mode {
             use mcp::{
                 add_www_authenticate_header, add_www_authenticate_header_gateway,
-                extract_workspace_from_token,
+                extract_workspace_from_token, reject_token_query_param,
             };
             let (mcp_router, mcp_cancellation_token) = setup_mcp_server(
                 db.clone(),
@@ -571,15 +573,17 @@ pub async fn run_server(
             let workspaced_mcp_router = mcp_router
                 .clone()
                 .route_layer(from_extractor::<ApiAuthed>())
+                .layer(axum::middleware::from_fn(reject_token_query_param))
                 .layer(axum::middleware::from_fn(add_www_authenticate_header))
                 .layer(axum::middleware::from_fn(extract_and_store_workspace_id));
             // Gateway MCP router — resolves workspace from token
             let gateway_mcp_router = mcp_router
                 .route_layer(from_extractor::<ApiAuthed>())
+                .layer(axum::middleware::from_fn(extract_workspace_from_token))
+                .layer(axum::middleware::from_fn(reject_token_query_param))
                 .layer(axum::middleware::from_fn(
                     add_www_authenticate_header_gateway,
-                ))
-                .layer(axum::middleware::from_fn(extract_workspace_from_token));
+                ));
             (
                 workspaced_mcp_router,
                 gateway_mcp_router,

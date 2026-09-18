@@ -34,6 +34,54 @@ async fn configure_primary_lfs(db: &Pool<Postgres>, root_path: &str) -> anyhow::
     Ok(())
 }
 
+/// Configures the primary storage through the route, which is what sweeps the workspace's
+/// backups out of the instance store.
+async fn configure_primary_lfs_via_route(base: &str, root_path: &str) -> anyhow::Result<()> {
+    let resp = authed(
+        client().post(format!("{base}/workspaces/edit_large_file_storage_config")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "large_file_storage": {
+        "type": "FilesystemStorage",
+        "root_path": root_path,
+        "public_resource": false,
+        "advanced_permissions": null,
+        "secondary_storage": {}
+    }}))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    Ok(())
+}
+
+/// The instance setting allowing the instance store to stand in for a workspace without
+/// storage: `None` leaves it unset, which is on.
+async fn set_instance_fallback(db: &Pool<Postgres>, on: Option<bool>) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM global_settings WHERE name = 'ai_sessions_instance_storage_fallback'")
+        .execute(db)
+        .await?;
+    if let Some(on) = on {
+        sqlx::query(
+            "INSERT INTO global_settings (name, value) VALUES ('ai_sessions_instance_storage_fallback', $1)",
+        )
+        .bind(json!(on))
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Polls until nothing is under the directory, for a deletion that runs off the request.
+async fn wait_until_empty(dir: &std::path::Path, what: &str) {
+    for _ in 0..100 {
+        if files_under(dir).is_empty() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!("{what}: objects left under {}", dir.display());
+}
+
 async fn list(base: &str, token: &str) -> anyhow::Result<Value> {
     let resp = authed(client().get(format!("{base}/ai/sessions/list")), token)
         .send()
@@ -87,7 +135,8 @@ async fn rotate(base: &str, key: &str) -> anyhow::Result<()> {
 }
 
 /// The user's prefix on disk, `windmill_ai_sessions/{w_id}/g{generation}/{email hash}`,
-/// under whichever generation is current.
+/// under the newest generation: deleting an older generation's objects leaves its
+/// directories behind, and `read_dir` order differs across filesystems.
 fn user_root(storage_dir: &std::path::Path, email: &str) -> std::path::PathBuf {
     let workspace = storage_dir.join("windmill_ai_sessions/test-workspace");
     let hash = calculate_hash(email);
@@ -96,8 +145,18 @@ fn user_root(storage_dir: &std::path::Path, email: &str) -> std::path::PathBuf {
         .into_iter()
         .flatten()
         .flatten()
-        .map(|entry| entry.path().join(&hash))
-        .find(|path| path.exists())
+        .filter_map(|entry| {
+            let generation: i64 = entry
+                .file_name()
+                .to_str()?
+                .strip_prefix('g')?
+                .parse()
+                .ok()?;
+            Some((generation, entry.path().join(&hash)))
+        })
+        .filter(|(_, path)| path.exists())
+        .max_by_key(|(generation, _)| *generation)
+        .map(|(_, path)| path)
         .expect("the user has backups under the current key")
 }
 
@@ -132,7 +191,9 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
         server.addr.port()
     );
 
-    // No storage configured: the browser is told to stop trying.
+    // No storage configured, and the instance store (another test of this process may
+    // have loaded one) not allowed to stand in: the browser is told to stop trying.
+    set_instance_fallback(&db, Some(false)).await?;
     let listing = list(&base, "SECRET_TOKEN").await?;
     assert_eq!(listing["enabled"], false);
     assert_eq!(listing["sessions"], json!([]));
@@ -945,6 +1006,96 @@ async fn test_backups_round_trip_encrypted_and_scoped_to_the_user(
     .await?;
     assert_eq!(resp.status(), 200);
 
+    // An incremental part changing more than one object unlists the session before its
+    // writes, so one write failing after another landed leaves it absent rather than listed
+    // as a mix of old and new pieces. A directory planted at `artifacts.json` fails that write.
+    let s10_head =
+        json!({ "id": "s10", "workspace_id": "test-workspace", "createdAt": 10, "chatId": "c1" });
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s10", "whole": true, "head": s10_head, "chats": s9_chats(&["c1"]), "artifacts": { "items": ["a1"] } }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let s10_dir = user_root(storage_dir.path(), "test@windmill.dev").join("sessions/s10");
+    let artifacts_path = s10_dir.join("artifacts.json");
+    std::fs::remove_file(&artifacts_path)?;
+    std::fs::create_dir(&artifacts_path)?;
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s10", "chats": s9_chats(&["c2"]), "artifacts": { "items": ["a2"] } }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let answer: Value = resp.json().await?;
+    assert!(
+        answer["results"][0]["error"].is_string(),
+        "the artifacts write must fail: {answer}"
+    );
+    assert!(answer["results"][0]["needs_whole"].is_null());
+    assert!(
+        s10_dir.join("chats/c2.json").is_file(),
+        "the chat landed before the artifacts failed"
+    );
+    let s10_listed = |listing: Value| {
+        listing["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["id"] == "s10")
+    };
+    assert!(!s10_listed(list(&base, "SECRET_TOKEN").await?));
+    assert_eq!(
+        pull(&base, "SECRET_TOKEN", &["s10"]).await?["sessions"],
+        json!([])
+    );
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s10", "chats": s9_chats(&["c3"]) }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let answer: Value = resp.json().await?;
+    assert_eq!(answer["results"][0]["needs_whole"], true);
+    assert!(!s10_listed(list(&base, "SECRET_TOKEN").await?));
+    std::fs::remove_dir(&artifacts_path)?;
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({
+            "owner": "test@windmill.dev",
+            "sessions": [{ "id": "s10", "whole": true, "head": s10_head, "chats": s9_chats(&["c1", "c2", "c3"]), "artifacts": { "items": ["a2"] } }]
+        }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+    assert!(s10_listed(list(&base, "SECRET_TOKEN").await?));
+    let pulled = pull(&base, "SECRET_TOKEN", &["s10"]).await?;
+    assert_eq!(
+        pulled["sessions"][0]["artifacts"],
+        json!({ "items": ["a2"] })
+    );
+    assert_eq!(pulled_chats(pulled), vec!["c1", "c2", "c3"]);
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "removed": ["s10"] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200);
+
     // Removal empties both prefixes.
     let resp = push(
         &base,
@@ -1081,5 +1232,351 @@ async fn test_backup_writes_are_refused_for_the_wrong_owner_token_or_id(
     assert_eq!(resp.status(), 403, "{}", resp.text().await?);
 
     assert!(files_under(storage_dir.path()).is_empty());
+    Ok(())
+}
+
+/// Sets the object's modification time `days` back: the FilesystemStorage answers
+/// `last_modified` from it, so this is a session no push touched since.
+fn age_object(path: &std::path::Path, days: u64) -> std::io::Result<()> {
+    let at = std::time::SystemTime::now() - std::time::Duration::from_secs(days * 86_400);
+    std::fs::File::options()
+        .write(true)
+        .open(path)?
+        .set_modified(at)
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_expired_backups_are_swept_by_age_and_left_out_of_the_listing(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace",
+        server.addr.port()
+    );
+    let storage_dir = tempfile::tempdir()?;
+    configure_primary_lfs(&db, &storage_dir.path().to_string_lossy()).await?;
+
+    let chat = |sid: &str, cid: &str| {
+        json!({ "id": cid, "record": { "id": cid, "sessionId": sid, "lastModified": 2,
+                                        "actualMessages": [], "displayMessages": [] } })
+    };
+    let whole = |sid: &str| {
+        json!({
+            "id": sid, "whole": true, "epoch": 0,
+            "head": { "id": sid, "workspace_id": "test-workspace", "createdAt": 1, "chatId": "c1" },
+            "chats": [chat(sid, "c1")],
+            "images": [{ "chat_id": "c1", "id": "img1", "data_url": "data:image/png;base64,AAAA" }],
+            "artifacts": { "items": [], "versions": [] }
+        })
+    };
+    // Two pushes split over parts of which only the first part landed: one a browser
+    // abandoned long ago (its token aged past the retention), one still in flight.
+    let opening = |sid: &str| {
+        json!({
+            "id": sid, "whole": true, "epoch": 0, "push": format!("t-{sid}"), "opens": true,
+            "partial": true, "chats": [chat(sid, "c1")],
+            "head": { "id": sid, "workspace_id": "test-workspace", "createdAt": 1, "chatId": "c1" }
+        })
+    };
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev", "sessions": [
+            whole("old"), whole("live"), opening("abandoned"), opening("inflight")
+        ] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let root = user_root(storage_dir.path(), "test@windmill.dev");
+    age_object(&root.join("index/old/0"), 40)?;
+    age_object(&root.join("index/abandoned/push"), 40)?;
+
+    let listed = |listing: Value| -> Vec<String> {
+        let mut ids: Vec<String> = listing["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["id"].as_str().unwrap().to_string())
+            .collect();
+        ids.sort();
+        ids
+    };
+    let objects = |root: &std::path::Path| -> Vec<String> {
+        files_under(root)
+            .into_iter()
+            .map(|(p, _)| p.strip_prefix(root).unwrap().to_string_lossy().into_owned())
+            .collect()
+    };
+
+    // Without a retention nothing is swept, however old.
+    windmill_api::sweep_expired_ai_session_backups(&db).await;
+    assert_eq!(listed(list(&base, "SECRET_TOKEN").await?), ["live", "old"]);
+
+    let set_retention = |days: Value| {
+        authed(
+            client().post(format!("{base}/workspaces/edit_copilot_config")),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({ "sessions_retention_days": days }))
+        .send()
+    };
+    let resp = set_retention(json!(0)).await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+    let resp = set_retention(json!(30)).await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    // The listing leaves the expired session out before the sweep reaches it.
+    assert_eq!(listed(list(&base, "SECRET_TOKEN").await?), ["live"]);
+    assert!(root.join("sessions/old/head.json").exists());
+
+    // A removal cut short (a directory stands where the head is, so it cannot be unlinked)
+    // leaves the sweep's record with the markers gone; the next pass finds it and finishes.
+    let head = root.join("sessions/old/head.json");
+    std::fs::remove_file(&head)?;
+    std::fs::create_dir(&head)?;
+    std::fs::write(head.join("planted"), b"")?;
+    windmill_api::sweep_expired_ai_session_backups(&db).await;
+    assert!(root.join("index/old/sweep").exists());
+    assert!(!root.join("index/old/0").exists());
+    assert!(root.join("sessions/old/chats/c1.json").exists());
+    assert_eq!(listed(list(&base, "SECRET_TOKEN").await?), ["live"]);
+    std::fs::remove_dir_all(&head)?;
+
+    windmill_api::sweep_expired_ai_session_backups(&db).await;
+    let remaining = objects(&root);
+    assert!(
+        remaining
+            .iter()
+            .all(|p| !p.contains("/old/") && !p.contains("/abandoned/")),
+        "{remaining:?}"
+    );
+    for kept in [
+        "index/live/0",
+        "sessions/live/head.json",
+        "sessions/live/chats/c1.json",
+        "images/live/c1/img1",
+        "index/inflight/push",
+        "sessions/inflight/head.json",
+    ] {
+        assert!(
+            remaining.iter().any(|p| p == kept),
+            "{kept} in {remaining:?}"
+        );
+    }
+    assert_eq!(listed(list(&base, "SECRET_TOKEN").await?), ["live"]);
+
+    // A second pass has nothing to do; a session pushed again since its marker aged is
+    // renewed by the push, which rewrites the marker.
+    windmill_api::sweep_expired_ai_session_backups(&db).await;
+    age_object(&root.join("index/live/0"), 40)?;
+    let resp = push(
+        &base,
+        "SECRET_TOKEN",
+        json!({ "owner": "test@windmill.dev",
+                "sessions": [{ "id": "live", "epoch": 0, "chats": [chat("live", "c2")] }] }),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    windmill_api::sweep_expired_ai_session_backups(&db).await;
+    let mut after = objects(&root);
+    after.sort();
+    let mut expected = remaining.clone();
+    expected.push("sessions/live/chats/c2.json".to_string());
+    expected.sort();
+    assert_eq!(after, expected);
+    assert_eq!(listed(list(&base, "SECRET_TOKEN").await?), ["live"]);
+    Ok(())
+}
+
+/// Puts the process-wide instance store back to none, even when an assertion fails.
+struct ResetInstanceStore;
+impl Drop for ResetInstanceStore {
+    fn drop(&mut self) {
+        if let Ok(mut store) = windmill_object_store::OBJECT_STORE_SETTINGS.try_write() {
+            *store = None;
+        }
+    }
+}
+
+/// Puts the process-wide license key id back to none, an Enterprise plan in this build,
+/// even when an assertion fails.
+struct ResetLicensePlan;
+impl Drop for ResetLicensePlan {
+    fn drop(&mut self) {
+        windmill_common::ee::LICENSE_KEY_ID.store(std::sync::Arc::new(String::new()));
+    }
+}
+
+/// A workspace without storage of its own backs up to the instance object store, every
+/// answer saying so (`fallback`); a storage of its own, once configured, answers instead,
+/// under a generation past everything the workspace left in the instance store, which the
+/// change deletes; a plan switched to Pro stops the fallback with the store still loaded.
+#[sqlx::test(fixtures("base"))]
+async fn test_backups_fall_back_to_the_instance_storage(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace",
+        server.addr.port()
+    );
+
+    // The instance store, built from its settings as `reload_object_store_setting` does.
+    let instance_dir = tempfile::tempdir()?;
+    let instance_root = instance_dir.path().to_string_lossy().to_string();
+    *windmill_object_store::OBJECT_STORE_SETTINGS.write().await = Some(
+        windmill_object_store::build_object_store_from_settings(
+            windmill_object_store::ObjectSettings::Filesystem(
+                windmill_object_store::FilesystemSettings { root_path: instance_root.clone() },
+            ),
+            None,
+        )
+        .await?,
+    );
+    let _reset = ResetInstanceStore;
+    let in_instance = instance_dir
+        .path()
+        .join("windmill_ai_sessions/test-workspace");
+
+    // Turned off by the instance setting: the browser is told to stop trying.
+    set_instance_fallback(&db, Some(false)).await?;
+    assert_eq!(list(&base, "SECRET_TOKEN").await?["enabled"], false);
+    set_instance_fallback(&db, None).await?;
+
+    // On, as it is unless turned off: the backups land in the instance store, under the
+    // workspace's prefix, and every answer says which kind of store it came from.
+    let head =
+        json!({ "id": "s1", "workspace_id": "test-workspace", "createdAt": 1, "chatId": "c1" });
+    let entry = json!({ "id": "s1", "whole": true, "head": head, "chats": [{ "id": "c1", "record": { "id": "c1" } }] });
+    let push_whole = || {
+        push(
+            &base,
+            "SECRET_TOKEN",
+            json!({ "owner": "test@windmill.dev", "sessions": [entry.clone()] }),
+        )
+    };
+    let resp = push_whole().await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let pushed: Value = resp.json().await?;
+    assert_eq!(pushed["fallback"], true);
+    assert_eq!(pushed["results"], json!([{ "id": "s1" }]));
+    let listing = list(&base, "SECRET_TOKEN").await?;
+    assert_eq!(listing["enabled"], true);
+    assert_eq!(listing["fallback"], true);
+    assert_eq!(listing["sessions"][0]["id"], "s1");
+    let fallback_storage_id = listing["storage_id"].clone();
+    let pulled = pull(&base, "SECRET_TOKEN", &["s1"]).await?;
+    assert_eq!(pulled["fallback"], true);
+    assert_eq!(pulled["sessions"][0]["head"], head);
+    assert!(!files_under(&in_instance).is_empty());
+
+    // The workspace's storage usage counts them, under a name of their own.
+    let resp = authed(
+        client().get(format!("{base}/job_helpers/storage_usage")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let usage: Value = resp.json().await?;
+    let fallback_usage = usage["storages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["storage"] == "_ai_sessions_fallback_")
+        .unwrap_or_else(|| panic!("no fallback usage in {usage}"));
+    assert!(fallback_usage["bytes"].as_i64().unwrap() > 0);
+
+    // The retention sweep reaches what the instance store keeps for the workspace, choosing
+    // that store from the row it reads the generation from.
+    let instance_user = user_root(instance_dir.path(), "test@windmill.dev");
+    age_object(&instance_user.join("index/s1/0"), 40)?;
+    sqlx::query(
+        "UPDATE workspace_settings SET ai_config = '{\"sessions_retention_days\": 30}' \
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .execute(&db)
+    .await?;
+    windmill_api::sweep_expired_ai_session_backups(&db).await;
+    assert!(!instance_user.join("index/s1/0").exists());
+    assert!(!instance_user.join("sessions/s1/head.json").exists());
+    // Pushed again, so the rotation below has a backup to delete.
+    assert_eq!(push_whole().await?.status(), 200);
+    assert!(!files_under(&in_instance).is_empty());
+
+    // A key rotation sweeps the older generation out of the instance store too.
+    rotate(&base, &"c".repeat(64)).await?;
+    wait_until_empty(&in_instance, "a rotation on the instance store").await;
+    assert_eq!(list(&base, "SECRET_TOKEN").await?["sessions"], json!([]));
+    assert_eq!(push_whole().await?.status(), 200);
+    assert!(!files_under(&in_instance).is_empty());
+
+    // A storage of its own answers instead, under a generation the configuration moved past
+    // everything the workspace left in the instance store: nothing there is read again,
+    // whichever store a later return to the fallback finds, and it is deleted.
+    let before = list(&base, "SECRET_TOKEN").await?;
+    let storage_dir = tempfile::tempdir()?;
+    configure_primary_lfs_via_route(&base, &storage_dir.path().to_string_lossy()).await?;
+    wait_until_empty(&in_instance, "configuring a workspace storage").await;
+    let listing = list(&base, "SECRET_TOKEN").await?;
+    assert_eq!(listing["enabled"], true);
+    assert!(listing.get("fallback").is_none(), "{listing}");
+    assert_ne!(listing["storage_id"], fallback_storage_id);
+    assert_eq!(
+        listing["backup_generation"].as_i64(),
+        before["backup_generation"].as_i64().map(|g| g + 1),
+        "configuring a storage over the fallback must move the generation on"
+    );
+    assert_eq!(listing["sessions"], json!([]));
+    assert_eq!(push_whole().await?.status(), 200);
+    assert!(!files_under(storage_dir.path()).is_empty());
+    assert!(files_under(&in_instance).is_empty());
+    let resp = authed(
+        client().get(format!("{base}/job_helpers/storage_usage?refresh=true")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let usage: Value = resp.json().await?;
+    assert!(
+        !usage.to_string().contains("_ai_sessions_fallback_"),
+        "nothing is counted in the instance store for a workspace with storage: {usage}"
+    );
+
+    // Pointed at the instance store's own bucket, a storage of its own keeps its live
+    // backups there under the current generation, which no storage change deletes.
+    configure_primary_lfs_via_route(&base, &instance_root).await?;
+    assert_eq!(push_whole().await?.status(), 200);
+    assert!(!files_under(&in_instance).is_empty());
+    let same = list(&base, "SECRET_TOKEN").await?;
+    configure_primary_lfs_via_route(&base, &instance_root).await?;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    assert!(!files_under(&in_instance).is_empty());
+    let listing = list(&base, "SECRET_TOKEN").await?;
+    assert!(listing.get("fallback").is_none(), "{listing}");
+    assert_eq!(listing["backup_generation"], same["backup_generation"]);
+    assert_eq!(listing["sessions"][0]["id"], "s1");
+
+    // Back to no storage of its own, the fallback answers; a plan switched to Pro while the
+    // instance store stays loaded stops it at once, for the listing and the push alike.
+    let resp = authed(
+        client().post(format!("{base}/workspaces/edit_large_file_storage_config")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "large_file_storage": null }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    assert_eq!(list(&base, "SECRET_TOKEN").await?["fallback"], true);
+    let _enterprise_again = ResetLicensePlan;
+    windmill_common::ee::LICENSE_KEY_ID.store(std::sync::Arc::new("test_pro".to_string()));
+    assert_eq!(list(&base, "SECRET_TOKEN").await?["enabled"], false);
+    let resp = push_whole().await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let pushed: Value = resp.json().await?;
+    assert_eq!(pushed["enabled"], false, "{pushed}");
+
     Ok(())
 }

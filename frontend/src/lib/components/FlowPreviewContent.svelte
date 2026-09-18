@@ -470,9 +470,12 @@
 							)
 							return jobId ?? ''
 						}}
-						hideSidebar={true}
+						conversationKind="test"
+						frame="boxed"
 						path={$pathStore}
+						identity={$initialPathStore || fakeInitialPath}
 						inputSchema={flowStore.val.schema}
+						flowModules={flowStore.val.value?.modules}
 					/>
 				</div>
 			{:else}
@@ -557,7 +560,13 @@
 				</div>
 			{/if}
 		{/if}
-		<div class="pt-4 flex flex-col border-t relative">
+		<!-- The rule divides the inputs form from its results. Chat mode has no form: the
+		     chat is its own panel, and a second line right under it reads as a stray edge. -->
+		<div
+			class="pt-4 flex flex-col relative {flowStore.val.value?.chat_input_enabled
+				? ''
+				: 'border-t'}"
+		>
 			{#if flowHasChanged()}
 				<div class="pb-2">
 					<div

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT permissioned_as, permissioned_as_email FROM v2_job\n                 WHERE id = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "permissioned_as",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "permissioned_as_email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "0d10e0fa5cf4033c7d93c9ed56be8209046007917f44da954eccf2188e5bff1f"
+}

@@ -634,10 +634,19 @@ export type ToolDisplayMessage = {
 	 * workspace rides along: a chat is readable from any workspace, and the same path names
 	 * a different server in each. */
 	mcpServer?: { workspace: string; path: string }
+	/** The run behind the call. Flow chats only: the card links to it. */
+	jobId?: string
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
 	runForm?: RunFormDisplay
+	/** A run this call inspected rather than started, rendered by the same card. The card
+	 * reads its panes from this job, so the user sees its own args and result in full, and its
+	 * logs as a 4000-char tail, while the model keeps the capped envelope the tool returned.
+	 * `runId` and `step` are the address the call was made with, kept so the card can name what
+	 * was inspected the way the tool's own row did: a step job names neither the step nor the
+	 * run it belongs to. */
+	inspectedRun?: { jobId: string; workspace: string; runId: string; step?: string }
 	webSearchSources?: WebSearchSource[]
 	/** Data URL of an image the tool produced (e.g. take_screenshot), shown on the card. */
 	imageUrl?: string
@@ -671,6 +680,16 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 	 * would look like it is still streaming forever.
 	 */
 	streaming?: boolean
+	/** Flow step that produced this message, when the conversation is a flow run
+	 * rather than a copilot turn. Rendered as a label above the content. */
+	stepName?: string
+	/** The run behind this answer. Flow chats only: a copilot turn happens in the
+	 * browser and has no job. */
+	jobId?: string
+	/** When the answer arrived: the server's time for a flow chat's stored row, the browser's
+	 * for a copilot answer, which is stamped as it lands. Absent on a copilot chat restored
+	 * from history, which predates the stamp. */
+	createdAt?: string
 }
 
 /**
@@ -1853,13 +1872,13 @@ export async function buildTestRunArgs(
 }
 
 // The string handed back to the model when a job is backgrounded. It carries the
-// job id so the model can pull status/logs on demand (get_job_logs / list_runs),
+// job id so the model can pull status/args/result/logs on demand (get_run / list_runs),
 // and tells it the completion will be reported later (notify-only wake).
 function backgroundedSummary(jobId: string, label: string): string {
 	return (
 		`Job ${jobId} for "${label}" is taking a while and is now running in the background — ` +
 		`the chat is free to continue and you'll be told when it finishes. ` +
-		`To inspect it now, call get_job_logs with id="${jobId}" (or list_runs); ` +
+		`To inspect it now, call get_run with id="${jobId}" (or list_runs); ` +
 		`to stop it, call cancel_job with id="${jobId}".`
 	)
 }
@@ -1890,7 +1909,7 @@ export function completedJobToolStatus(job: CompletedJob): Partial<ToolDisplayMe
 }
 
 // Short completion note handed to the model on its next turn (notify-only wake).
-// Carries the id so the model can pull full logs via get_job_logs on demand.
+// Carries the id so the model can pull the args, result and logs via get_run on demand.
 export function backgroundJobCompletionNote(
 	jobId: string,
 	label: string,
@@ -1905,12 +1924,12 @@ export function backgroundJobCompletionNote(
 	const resultHead = formattedResult ?? formatResult(job.result).slice(0, 2000)
 	const flowHint =
 		!job.success && (job.job_kind === 'flow' || job.job_kind === 'flowpreview')
-			? ` For per-step statuses and results call get_flow_run_details with id="${jobId}".`
+			? ` For per-step statuses and results call get_run with id="${jobId}".`
 			: ''
 	return (
 		`Background job ${jobId} for "${label}" ${status}.\n` +
 		`Result: ${resultHead}\n` +
-		`(For full logs call get_job_logs with id="${jobId}".${flowHint})`
+		`(For the args, result and logs call get_run with id="${jobId}".${flowHint})`
 	)
 }
 
@@ -1997,12 +2016,12 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		})
 
 		const summary = formatResultSummary(job.result, job.logs, job.success)
-		// get_flow_run_details only exists in the global/sessions chat (the same
-		// hosts that wire the job hooks) — don't advertise it to in-editor chats.
+		// get_run only exists in the global/sessions chat (the same hosts that wire
+		// the job hooks) — don't advertise it to in-editor chats.
 		if (detachEnabled && config.contextName === 'flow' && !job.success) {
 			return (
 				summary +
-				`\n\nFor per-step statuses and results (subflow steps included), call get_flow_run_details with id="${jobId}".`
+				`\n\nFor per-step statuses and results (subflow steps included), call get_run with id="${jobId}".`
 			)
 		}
 		return summary

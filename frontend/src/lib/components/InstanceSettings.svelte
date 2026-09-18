@@ -134,11 +134,15 @@
 		}
 		applyFormDefaults(nvalues)
 
-		// Apply select/select_python defaults so initialValues matches what InstanceSetting's $effect does
+		// Apply declared defaults before snapshotting initialValues, so a default shows without
+		// marking the form dirty: a select's mirrors InstanceSetting's $effect, a boolean's is
+		// what its toggle shows while the key is unset.
 		for (const category of settingsKeys) {
 			for (const s of settings[category]) {
 				if (
-					(s.fieldType === 'select' || s.fieldType === 'select_python') &&
+					(s.fieldType === 'select' ||
+						s.fieldType === 'select_python' ||
+						s.fieldType === 'boolean') &&
 					nvalues[s.key] == undefined &&
 					s.defaultValue
 				) {
@@ -1089,7 +1093,8 @@
 							migrations are set up and used, how often an empty workspace home is seen, how often
 							the home page’s create menu and hub-project picker are opened and from which entry
 							point, the name of any public hub project imported from the home page and how far that
-							import got, and whether a pre-approved trial offer was opened, last 30 days)</li
+							import got, whether a pre-approved trial offer was opened, and whether data tables are
+							put under roles and whether callers name a role or take the default, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table
@@ -1155,7 +1160,8 @@
 							migrations are set up and used, how often an empty workspace home is seen, how often
 							the home page’s create menu and hub-project picker are opened and from which entry
 							point, the name of any public hub project imported from the home page and how far that
-							import got, and whether a pre-approved trial offer was opened, last 30 days)</li
+							import got, whether a pre-approved trial offer was opened, and whether data tables are
+							put under roles and whether callers name a role or take the default, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table

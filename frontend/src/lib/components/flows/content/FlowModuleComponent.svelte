@@ -291,6 +291,8 @@
 	}
 	let inputTransformSchemaForm: { setArgs: (nargs: Record<string, any>) => void } | undefined =
 		$state(undefined)
+	// The linked agent's memory, which decides which history inputs the step offers.
+	let linkedAgentMemory: { memory: unknown } | undefined = $state(undefined)
 
 	let reloadError: string | undefined = $state(undefined)
 	async function reload(flowModule: FlowModule) {
@@ -1154,6 +1156,8 @@
 														opWorkspace={opWs}
 														flowPath={$pathStore}
 														fromAgentEditor={agentEditorHost?.() != undefined}
+														bind:linkedMemory={linkedAgentMemory}
+														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														bind:agent={
 															() =>
 																flowModule.value.type === 'aiagent'
@@ -1235,6 +1239,7 @@
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														workspace={opWs}
 														visibilityKey={agentFieldsKey}
+														linkedMemory={agentLinked ? linkedAgentMemory : undefined}
 														tools={agentLinked
 															? getLinkedAgentTools(
 																	linkedToolsScope(opWs, $pathStore),
@@ -1469,12 +1474,6 @@
 											{testJob}
 											{scriptProgress}
 											mod={flowModule}
-											linkedAgentTools={agentLinked
-												? getLinkedAgentTools(
-														linkedToolsScope(opWs, $pathStore),
-														linkedToolsModuleId
-													)
-												: undefined}
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}

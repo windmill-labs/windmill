@@ -62,6 +62,7 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkDatatableSchema,
 		getBenchmarkDraftForUser,
 		getBenchmarkFlowByPath,
+		getBenchmarkFlowAllResults,
 		getBenchmarkJobLogs,
 		getBenchmarkOwnDraft,
 		getBenchmarkScriptByHash,
@@ -75,7 +76,9 @@ vi.mock('$lib/gen', async () => {
 		listBenchmarkPlainResources,
 		listBenchmarkApps,
 		listBenchmarkDatatables,
+		listBenchmarkDataMetrics,
 		listBenchmarkDrafts,
+		listBenchmarkDucklakes,
 		listBenchmarkFlows,
 		listBenchmarkJobs,
 		listBenchmarkScripts,
@@ -86,6 +89,7 @@ vi.mock('$lib/gen', async () => {
 		previewBenchmarkSchedule,
 		runBenchmarkDatatableSql,
 		runBenchmarkFlowByPath,
+		runBenchmarkFlowPreview,
 		runBenchmarkScriptByPath,
 		runBenchmarkScriptPreview,
 		updateBenchmarkDraft,
@@ -292,6 +296,14 @@ vi.mock('$lib/gen', async () => {
 							args: data.requestBody
 						})
 					: actual.JobService.runScriptByPath(data),
+			runFlowPreview: async (data: {
+				workspace: string
+				memoryId?: string
+				requestBody?: { path?: string; value?: { chat_input_enabled?: boolean }; args?: unknown }
+			}) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? runBenchmarkFlowPreview(data)
+					: actual.JobService.runFlowPreview(data as any),
 			runFlowByPath: async (data: {
 				workspace: string
 				path: string
@@ -325,7 +337,11 @@ vi.mock('$lib/gen', async () => {
 			getJobLogs: async (data: { workspace: string; id: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? getBenchmarkJobLogs(data.workspace, data.id)
-					: actual.JobService.getJobLogs(data)
+					: actual.JobService.getJobLogs(data),
+			getFlowAllResults: async (data: { workspace: string; id: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkFlowAllResults(data.workspace, data.id)
+					: actual.JobService.getFlowAllResults(data)
 		}),
 		WorkspaceService: wrapService(actual.WorkspaceService, {
 			getCopilotInfo: async (data: { workspace: string }) =>
@@ -336,6 +352,10 @@ vi.mock('$lib/gen', async () => {
 				hasBenchmarkWorkspace(data.workspace)
 					? (listBenchmarkDatatables(data.workspace) ?? [])
 					: actual.WorkspaceService.listDataTableTables(data),
+			listDucklakes: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkDucklakes(data.workspace) ?? [])
+					: actual.WorkspaceService.listDucklakes(data),
 			getDataTableTableSchema: async (data: {
 				workspace: string
 				datatableName: string
@@ -350,6 +370,12 @@ vi.mock('$lib/gen', async () => {
 							tableName: data.tableName
 						})
 					: actual.WorkspaceService.getDataTableTableSchema(data)
+		}),
+		DataMetricService: wrapService(actual.DataMetricService, {
+			listDataMetrics: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? { metrics: listBenchmarkDataMetrics(data.workspace) ?? [] }
+					: actual.DataMetricService.listDataMetrics(data)
 		}),
 		ScheduleService: wrapService(actual.ScheduleService, {
 			existsSchedule: async (data: { workspace: string; path: string }) =>

@@ -179,9 +179,11 @@ async fn test_trigger_token_labels_still_creatable(db: Pool<Postgres>) -> anyhow
         "http-test-user-2-cd34",
         "email-test-user-2-ef56",
         "my-ci-token",
-        // Minted client-side by the editor (every TypeScript editor load) and the debugger.
+        // Minted client-side by the editor (every TypeScript editor load), the debugger and
+        // the object-storage "Test from a worker" button.
         "Ephemeral lsp token",
         "debugger-token",
+        "ephemeral-test-connection: s3_bucket",
     ] {
         let resp = create_token_with_label(port, "SECRET_TOKEN_2", label).await;
         assert_eq!(

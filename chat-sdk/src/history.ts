@@ -4,6 +4,8 @@ export interface LocalHistory {
   listConversations(): Conversation[]
   getMessages(conversationId: string): ChatMessage[]
   upsertConversation(conversation: Conversation): void
+  /** Changes a stored conversation's title in place; unlike `upsertConversation`, its position is kept. */
+  renameConversation(conversationId: string, title: string): void
   saveMessages(conversationId: string, messages: ChatMessage[]): void
   deleteConversation(conversationId: string): void
 }
@@ -53,6 +55,11 @@ export function createLocalHistory(storage: StorageLike | undefined, key: string
       for (const dropped of s.conversations.splice(MAX_CONVERSATIONS)) {
         delete s.messages[dropped.id]
       }
+      write(s)
+    },
+    renameConversation(id, title) {
+      const s = read()
+      s.conversations = s.conversations.map((c) => (c.id === id ? { ...c, title } : c))
       write(s)
     },
     saveMessages(id, messages) {

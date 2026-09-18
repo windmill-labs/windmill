@@ -2107,8 +2107,11 @@
 		}
 	}
 
+	/* `backwards`, not `both`: the fill hides rows until their staggered start, but a forwards
+	   fill would keep `transform` animated afterwards and confine the row's remove confirmation
+	   (`position: fixed`) to the row. The `to` keyframe equals the row's resting style. */
 	.wm-imported > :global(*) {
-		animation: wm-row-in 260ms ease-out both;
+		animation: wm-row-in 260ms ease-out backwards;
 		animation-delay: 320ms;
 	}
 	.wm-imported > :global(*:nth-child(1)) {

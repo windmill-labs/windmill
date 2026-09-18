@@ -2,6 +2,7 @@ import type { ButtonType } from './common/button/model'
 import { allowedOriginsSettingError } from './triggers/http/utils'
 import { z } from 'zod'
 import { instanceBannerFormError } from './instanceBanner'
+import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 import { writable } from 'svelte/store'
 
 /**
@@ -307,6 +308,32 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Maximum token expiration (days)',
+			key: 'max_token_expiration_days',
+			description:
+				'Furthest ahead an API token a user creates can expire, in days. A token asking for longer, or for no expiration, is created with this expiration instead. Service accounts are exempt, so automation can keep longer-lived credentials. Leave empty to let users pick any expiration, including none.',
+			fieldType: 'number',
+			placeholder: 'no limit',
+			storage: 'setting',
+			hideInQuickSetup: true,
+			error: 'Must be a whole number of days, from 1 to 1,000,000',
+			// The server reads anything else as no ceiling at all.
+			isValid: (value: unknown) =>
+				value === undefined ||
+				value === null ||
+				value === '' ||
+				parseMaxTokenExpirationDays(value) !== undefined
+		},
+		{
+			label: 'Disable token in MCP URLs',
+			description:
+				'Reject the ?token= query parameter on the MCP endpoints, so MCP clients authenticate with an Authorization header or through the OAuth flow. A token in a URL is a credential that ends up in browser history, proxy logs and referrers. Existing MCP URLs carrying a token stop working. Servers and workers pick this up within a minute; dedicated MCP servers (MODE=mcp) apply it when they next restart.',
+			key: 'mcp_disable_token_query_param',
+			fieldType: 'boolean',
+			storage: 'setting',
+			hideInQuickSetup: true
 		}
 	],
 	Jobs: [
@@ -562,6 +589,17 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Back AI sessions up to the instance object storage',
+			description:
+				"Browsers back their AI sessions up to their workspace's object storage, encrypted with the workspace key. When this is on and instance object storage is configured, a workspace without object storage of its own uses the instance object storage instead, under the same encryption; configuring a storage for the workspace moves its backups there and deletes what it kept in the instance storage. On by default; turn off to keep the AI sessions of such workspaces in the browser only.",
+			key: 'ai_sessions_instance_storage_fallback',
+			fieldType: 'boolean',
+			defaultValue: () => true,
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
 		},
 		{
 			label: 'Store audit logs in object storage',

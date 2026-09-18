@@ -139,8 +139,8 @@
 	let isCollapsed = $state(collapsePref.val)
 
 	// Resizable desktop rail, sized in REM so it scales with the root font-size the
-	// same way the old `w-52`/`w-12` classes did — `:root` jumps to 18px past 1760px
-	// wide (app.css), which grows the rem-based button content; a fixed-px rail would
+	// same way the old `w-52`/`w-12` classes did — `:root` jumps to 18px on screens
+	// ≥1760px (app.css), which grows the rem-based button content; a fixed-px rail would
 	// not grow with it and the content would overflow. SIDEBAR_MIN_REM is the default
 	// expanded width (the old w-52); the handle only resizes when expanded and only
 	// widens from there — collapsing is the toggle button's job, not the drag's.
@@ -659,8 +659,11 @@
 		}
 	}
 
-	function openSearchModal(text?: string): void {
-		globalSearchModal?.openSearchWithPrefilledText(text)
+	function openSearchModal(
+		text?: string,
+		stack?: import('$lib/components/common/overlayHost.svelte').OverlayStack
+	): void {
+		globalSearchModal?.openSearchWithPrefilledText(text, stack)
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)
@@ -1515,8 +1518,12 @@
 		}
 	}
 
+	/* No forwards fill: a filled animation keeps `transform` animated after it ends, which makes
+	   the rail the containing block for every `position: fixed` descendant — the confirmation
+	   dialogs opened from the settings menu would be confined to the rail's column. The `to`
+	   keyframe equals the rail's resting style, so nothing changes visually when the fill drops. */
 	:global(#sidebar.wm-sidebar-in) {
-		animation: wm-sidebar-in 500ms ease-out both;
+		animation: wm-sidebar-in 500ms ease-out;
 	}
 
 	@media (prefers-reduced-motion: reduce) {

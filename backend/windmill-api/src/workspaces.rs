@@ -109,6 +109,7 @@ async fn edit_copilot_config(
 
     ai_config.validate_model_pricing()?;
     ai_config.validate_context_windows()?;
+    ai_config.validate_sessions_retention()?;
 
     let mut tx = db.begin().await?;
 
@@ -149,6 +150,7 @@ async fn edit_copilot_config(
     let workspace_has_config = ai_config.has_providers();
     let copilot_disabled = ai_config.copilot_disabled;
     let sessions_storage_disabled = ai_config.sessions_storage_disabled;
+    let sessions_retention_days = ai_config.sessions_retention_days;
     let instance_ai_config =
         sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'ai_config'")
             .fetch_optional(&db)
@@ -177,6 +179,7 @@ async fn edit_copilot_config(
     };
     effective_ai_config.copilot_disabled = copilot_disabled;
     effective_ai_config.sessions_storage_disabled = sessions_storage_disabled;
+    effective_ai_config.sessions_retention_days = sessions_retention_days;
 
     Ok(Json(EditCopilotConfigResponse {
         effective_ai_config,
@@ -218,6 +221,9 @@ async fn get_copilot_info(
     let sessions_storage_disabled = workspace_ai_config
         .as_ref()
         .is_some_and(|c| c.0.sessions_storage_disabled);
+    let sessions_retention_days = workspace_ai_config
+        .as_ref()
+        .and_then(|c| c.0.sessions_retention_days);
     let instance_config =
         sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'ai_config'")
             .fetch_optional(&db)
@@ -243,6 +249,7 @@ async fn get_copilot_info(
         };
     effective.copilot_disabled = copilot_disabled;
     effective.sessions_storage_disabled = sessions_storage_disabled;
+    effective.sessions_retention_days = sessions_retention_days;
     Ok(Json(effective))
 }
 
