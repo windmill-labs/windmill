@@ -3596,6 +3596,26 @@ describe('global AI tools', () => {
 		})
 	})
 
+	// The draft carries the deployed policy from the fork, so nothing is fetched to answer.
+	it('reports exposure for an app that has a draft over it', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'f/apps/drafted',
+			{
+				files: { '/src/App.tsx': 'x' },
+				runnables: {},
+				policy: { execution_mode: 'anonymous' }
+			} as any,
+			{ workspace: WORKSPACE }
+		)
+
+		const read = await callGlobalTool('read_workspace_item', {
+			type: 'app',
+			path: 'f/apps/drafted'
+		})
+		expect(JSON.parse(read)).toMatchObject({ isDraft: true, executionMode: 'anonymous' })
+	})
+
 	it('summarizes local raw app drafts in read_workspace_item', async () => {
 		seedBackendDraft(
 			'raw_app',

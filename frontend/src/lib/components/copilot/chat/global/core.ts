@@ -1530,6 +1530,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 			summary: item.summary,
 			value: summarizeAppValue(item.value as AppDraftValue),
 			rawApp: item.rawApp,
+			executionMode: item.executionMode,
 			isDraft: item.isDraft
 		}
 	}
@@ -2006,6 +2007,20 @@ async function guestAccessIsLive(workspace: string): Promise<boolean | undefined
 	return !!(usage.available && usage.instance_enabled && settings.guest_access_enabled)
 }
 
+/** Who may open an app, from the mode stored on it. An app sits in `guest` mode whether
+ * or not anyone is admitted by it, so reporting the mode bare would say strangers can
+ * open an app that admits members only. Say it is inert rather than hide it, as the
+ * app's deploy settings do. */
+async function describeAppExposure(
+	workspace: string,
+	mode: string | undefined
+): Promise<string | undefined> {
+	if (mode !== 'guest' || (await guestAccessIsLive(workspace)) !== false) {
+		return mode
+	}
+	return 'guest, but inert: the instance or workspace admits no guest, so this app admits members only'
+}
+
 async function readWorkspaceItem(
 	type: WorkspaceItemType,
 	path: string,
@@ -2070,14 +2085,7 @@ async function readWorkspaceItem(
 			const app = await AppService.getAppByPath({ workspace, path })
 			// A grid is not files and runnables: summarizing one reports an empty app. Name the
 			// kind instead.
-			// An app sits in `guest` mode whether or not anyone is admitted by it, so reporting
-			// the mode bare would tell the model strangers can open an app that admits members
-			// only. Say it is inert rather than hide it, as the app's deploy settings do.
-			let executionMode: string | undefined = app.policy?.execution_mode
-			if (executionMode === 'guest' && (await guestAccessIsLive(workspace)) === false) {
-				executionMode =
-					'guest, but inert: the instance or workspace admits no guest, so this app admits members only'
-			}
+			const executionMode = await describeAppExposure(workspace, app.policy?.execution_mode)
 			if (app.raw_app === false) {
 				return {
 					type: 'app',
@@ -3521,7 +3529,18 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read draft ${parsed.type} "${parsed.path}"`
 				})
-				return JSON.stringify(serializeWorkspaceItemForRead(draft), null, 2)
+				// The draft answers in place of the deployed app, so leaving the exposure out
+				// here would report no exposure for a live app that has work in progress on it.
+				// A forked draft carries that app's policy, which is also the mode a deploy
+				// would write.
+				const executionMode =
+					parsed.type === 'app'
+						? await describeAppExposure(
+								workspace,
+								(draft.value as AppDraftValue)?.policy?.execution_mode
+							)
+						: undefined
+				return JSON.stringify(serializeWorkspaceItemForRead({ ...draft, executionMode }), null, 2)
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
