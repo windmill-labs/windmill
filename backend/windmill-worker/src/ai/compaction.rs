@@ -502,18 +502,23 @@ impl Compactor {
         true
     }
 
-    /// What the next request would cost against the window. Under the storage bound
-    /// that is the conversation as it will be written, in the cap's own unit.
+    /// What the next request would cost against the window. Under the storage bound the
+    /// larger of two measures: the model's token count, and the conversation as it will
+    /// be written, in the cap's own unit. Neither alone suffices — repetitive text is
+    /// few tokens but many bytes, while an attachment is a few bytes but nearly the whole
+    /// model context — so a pass has to fire when either is over.
     fn projected_tokens(&self, messages: &[OpenAIMessage], last_request: LastRequest) -> usize {
+        let by_tokens = projected_prompt_tokens(
+            messages,
+            last_request,
+            self.tool_schema_tokens,
+            attachment_tokens(messages, last_request, self.tool_schema_tokens),
+        );
         if self.storage_bound {
-            serde_json::to_vec(messages).map(|v| v.len()).unwrap_or(0) / 4
+            let by_bytes = serde_json::to_vec(messages).map(|v| v.len()).unwrap_or(0) / 4;
+            by_bytes.max(by_tokens)
         } else {
-            projected_prompt_tokens(
-                messages,
-                last_request,
-                self.tool_schema_tokens,
-                attachment_tokens(messages, last_request, self.tool_schema_tokens),
-            )
+            by_tokens
         }
     }
 
@@ -1023,6 +1028,29 @@ mod tests {
             !compactor.bound_by_storage(100_000),
             "bounding twice is a no-op"
         );
+    }
+
+    /// The reverse: an attachment is a few bytes in the row but nearly the whole model
+    /// context. Under the storage bound the pass must still see the provider's token
+    /// count, not just the serialized size, or it skips a pass the model needs.
+    #[test]
+    fn the_storage_bound_still_sees_the_model_token_count() {
+        let messages = vec![OpenAIMessage {
+            role: "user".to_string(),
+            content: Some(OpenAIContent::Parts(vec![ContentPart::S3Object {
+                s3_object: windmill_types::s3::S3Object {
+                    s3: "manifest.pdf".to_string(),
+                    ..Default::default()
+                },
+            }])),
+            ..Default::default()
+        }];
+        let counted = LastRequest { prompt_tokens: Some(24_000), message_count: 1 };
+        let mut compactor = Compactor::new(128_000, 0);
+        assert!(compactor.bound_by_storage(100_000));
+
+        // The serialized row is a handful of bytes; the token count carries it over.
+        assert!(compactor.projected_tokens(&messages, counted) >= 24_000);
     }
 
     /// The reserve is both the room the split leaves and the summary's output cap, and
